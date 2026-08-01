@@ -331,6 +331,12 @@ internal sealed partial class PlayTray
         // ButtonTuning.DissolveSeconds while the pooled dust burst plays. Appear reverses it:
         // converging dust + a surface fade-in, in place (no scale/grow pop).
         private bool _logicalVisible = true;
+
+        /// <summary>The button's LOGICAL visibility (input + intent, not the dissolve visuals) —
+        /// the state a peer's copy of this board must mirror. Read by the multiplayer board-UI
+        /// seam (<c>PlayTray.ConfirmControlShown</c> / <c>UndoControlShown</c>).</summary>
+        internal bool LogicalVisible => _logicalVisible;
+
         private bool _ticked;      // false until the first Update — a hide before then is silent (initial state settling)
         private float _hideLeft;   // dissolve shrink countdown, seconds
         private float _showLeft;   // materialize-from-dust fade-in countdown, seconds

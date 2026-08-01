@@ -125,6 +125,16 @@ internal sealed class ItemsPile
     internal bool IsHeldByLeftHand => _followHand != null && _followHand.Side == HandSide.Left;
 
     /// <summary>
+    /// The open BOARD-ANCHORED fan's board-local anchor position (its root sits under the board
+    /// root, so <c>localPosition</c> IS the board frame), or null while closed / hand-held.
+    /// Multiplayer read seam for the fan-anchor wire record: the base spot plus the owner's live
+    /// per-board <c>[Cards] BrowseFanOffset + ItemCardOffset</c> tuning — the part a receiver
+    /// could never derive, which is why their copy floated at the untuned default.
+    /// </summary>
+    internal Vector3? BoardLocalAnchor =>
+        IsOpen && _boardAnchored && _root != null ? _root.localPosition : null;
+
+    /// <summary>
     /// The currently OPEN item fan (null when closed / destroyed) — the exact counterpart of
     /// <see cref="CardFan.Current"/> for ability cards.
     ///

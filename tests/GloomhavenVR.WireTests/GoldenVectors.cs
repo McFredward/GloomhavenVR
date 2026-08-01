@@ -116,6 +116,16 @@ internal static class GoldenVectors
         HasHandScale = true, HandScaleCode = 62,
     };
 
+    /// <summary>Board-UI + fan-anchor records (the 1:1 parity round's two additions), with a board
+    /// so the round-trip loop also exercises them next to the pose. Position components are exact
+    /// float32 values so the golden hex is hand-verifiable.</summary>
+    private static PresenceState ExtrasBoardUiAndFanAnchor() => new PresenceState
+    {
+        HasBoard = true, Board = Board(), BoardScale = 1f, HandCardCount = 2,
+        HasBoardUi = true, BoardButtonsMask = 0xB5, BoardOverlayMask = 0x02,
+        HasFanAnchor = true, FanAnchorLocal = new Vector3(0.5f, 0.25f, -0.125f),
+    };
+
     // ======================================================================================
 
     public static void Run(Harness t)
@@ -231,7 +241,7 @@ internal static class GoldenVectors
             09               // byte B: browse card count
             7D               // byte C: maskSizeCode = 125 (INSIDE the block)
             "), ext, m, "additive blocks in ascending flag-bit order, after handCardCount");
-        t.Equal(39, m, "worst-case extras packet is 39 bytes without a tail (MaxSize 96 has headroom)");
+        t.Equal(39, m, "worst-case extras packet is 39 bytes without a tail (MaxSize 112 has headroom)");
 
         // -- 7. Extras, mask-size only ---------------------------------------------------
         // §4d: a size-only packet writes the block with the pile-browse sub-fields ZEROED and
@@ -400,6 +410,85 @@ internal static class GoldenVectors
                "a truncated version record still parses the packet");
         t.True(!cutState.HasModVersion, "and the incomplete record is simply not delivered");
 
+        // -- 7e. Board-UI record (buttons + wanted glow) -----------------------------------
+        // Record id 4: [buttons][overlays]. Written on every packet with a live tray, so
+        // "record present, bits clear" (no dynamic controls shown) is distinguishable from
+        // "sender predates the field" (legacy always-drawn furniture on the receiver).
+        t.Case("7e. extras, board-UI + fan-anchor records");
+        m = PresenceSerializer.Write(ExtrasBoardUiAndFanAnchor(), ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            81               // flags: FlagHasBoard | FlagPileBrowse ('a BLOCK follows')
+            " + PoseBoard + @"
+            0000803F         // boardScale = 1.0
+            02               // handCardCount
+            80               // byte A: PileBrowseExtensionBit only
+            00               // byte B: count 0 -> no fan
+            02               // tail: 2 records
+            04 02 B5 02      // record: id 4 (board UI), len 2, buttons 0xB5, overlays 0x02
+            05 0C            // record: id 5 (fan anchor), len 12
+            0000003F         // x = 0.5
+            0000803E         // y = 0.25
+            000000BE         // z = -0.125
+            "), ext, m, "board-UI and fan-anchor records ride the tail as [id][len][payload]");
+        t.Equal(53, m, "header 7 + board 24 + count 1 + block 2 + tail 1 + 4 + 14 = 53 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState bu), "and it parses");
+        t.True(bu.HasBoardUi, "the board-UI record is delivered");
+        t.Equal((byte)0xB5, bu.BoardButtonsMask, "with the buttons mask intact");
+        t.Equal((byte)0x02, bu.BoardOverlayMask, "and the wanted-glow mask intact");
+        t.True(bu.HasFanAnchor, "the fan anchor is delivered");
+        t.True(bu.FanAnchorLocal == new Vector3(0.5f, 0.25f, -0.125f),
+               "with the exact board-local position");
+
+        // Overlay hygiene: only the wanted bits (0..1) are wire state — the writer masks the
+        // reserved bits so a future use of them cannot be pre-claimed by garbage, and the reader
+        // masks again (never trust the wire).
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x01, BoardOverlayMask = 0xFE,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ov), "overlay-mask packet parses");
+        t.Equal((byte)0x02, ov.BoardOverlayMask, "reserved overlay bits are masked off (0xFE -> 0x02)");
+
+        // A NaN fan-anchor component from a hostile/corrupt sender must not place a fan at NaN:
+        // the record is dropped (reads as absent = the authored default spot), the packet parses.
+        byte[] nanAnchor = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00            // byte A extension tail, byte B count 0
+            01               // 1 record
+            05 0C            // id 5, len 12
+            0000C07F         // x = NaN
+            0000803E 000000BE
+            ");
+        t.True(PresenceSerializer.TryRead(nanAnchor, nanAnchor.Length, out PresenceState nan),
+               "a NaN fan anchor still parses the packet");
+        t.True(!nan.HasFanAnchor, "and the poisoned record is simply not delivered");
+
+        // Unknown-record skip in FRONT of the new ids (the old-reader contract, seen from the
+        // other side): a record this build does not know is stepped over by its own length and
+        // the fan anchor behind it is still read. To a BUILD-1 reader ids 4 and 5 are exactly
+        // this unknown-id case, so it parses these packets unchanged and simply keeps its
+        // legacy furniture/fan placement.
+        byte[] futureAnchor = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // 2 records
+            63 04 DE AD BE EF// id 99, len 4 -- unknown
+            05 0C 0000003F 0000803E 000000BE
+            ");
+        t.True(PresenceSerializer.TryRead(futureAnchor, futureAnchor.Length, out PresenceState fa),
+               "a packet with an unknown record ahead of the fan anchor parses");
+        t.True(fa.HasFanAnchor, "and the fan anchor behind it is still read");
+        t.True(fa.FanAnchorLocal == new Vector3(0.5f, 0.25f, -0.125f), "with its value intact");
+
+        // A TRUNCATED fan-anchor record (claims 12 payload bytes, delivers 4): the tail is
+        // abandoned mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutAnchor = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 05 0C 00 00 00 3F");
+        t.True(PresenceSerializer.TryRead(cutAnchor, cutAnchor.Length, out PresenceState cutFa),
+               "a truncated fan-anchor record still parses the packet");
+        t.True(!cutFa.HasFanAnchor, "and the incomplete record is simply not delivered");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
@@ -439,7 +528,8 @@ internal static class GoldenVectors
                    "rig still parses with 8 junk bytes appended");
             t.True(SameRig(plain, fut), "and yields identical state");
         }
-        foreach (var s in new[] { ExtrasEverything(), ExtrasMaskSizeOnly(), withDefaults })
+        foreach (var s in new[] { ExtrasEverything(), ExtrasMaskSizeOnly(), withDefaults,
+                                  ExtrasBoardUiAndFanAnchor() })
         {
             int len = PresenceSerializer.Write(s, ext);
             t.True(PresenceSerializer.TryRead(ext, len, out PresenceState plain), "extras parses");
@@ -530,5 +620,8 @@ internal static class GoldenVectors
         && x.HasMaskSize == y.HasMaskSize && x.MaskSizeCode == y.MaskSizeCode
         && x.BoardStyleCode == y.BoardStyleCode
         && x.HasModVersion == y.HasModVersion && x.ModBuild == y.ModBuild
-        && x.ModVersionText == y.ModVersionText;
+        && x.ModVersionText == y.ModVersionText
+        && x.HasBoardUi == y.HasBoardUi && x.BoardButtonsMask == y.BoardButtonsMask
+        && x.BoardOverlayMask == y.BoardOverlayMask
+        && x.HasFanAnchor == y.HasFanAnchor && x.FanAnchorLocal == y.FanAnchorLocal;
 }

@@ -139,8 +139,6 @@ internal sealed class RemoteControlBoard
     // everything else here).
     private const float PileX = Cards.PlayTray.BoardHalfWidthLocal + 0.012f + Cards.PlayTray.PileStackOffsetX;
     private const float PileSpacing = Cards.PlayTray.PileStackSpacing;
-    private const float PileW = 0.075f;
-    private const float PileH = PileW * (88f / 63.5f);
 
     /// <summary>DEFAULT board-local position of a play SLOT (0 = left, 1 = right) — the authored
     /// layout (<c>PlayTray.SlotSpacing</c>), used while no real tray visual is built (procedural
@@ -329,13 +327,15 @@ internal sealed class RemoteControlBoard
         EnsureBuilt();
         SetActive(true);
 
-        // Place at the REAL synced world transform. The wire already carries the OWNER's exact
-        // pose (full quantized quaternion — the Frei movement scheme adds no axis the pose
-        // doesn't cover), but it arrives at the 5 Hz extras cadence: while the owner actively
-        // DRAGS the board, a verbatim apply teleports it in 5 Hz steps. Ease toward the target
-        // with the same sharpness the avatars use — an ACTIVE drag reads smooth, and once the
-        // owner releases, the eased pose converges on the exact transmitted one (snap on first
-        // build so a fresh board never lerps in from the origin).
+        // Place at the REAL synced world transform. The wire carries the OWNER's exact pose
+        // (full quantized quaternion — the Frei movement scheme adds no axis the pose doesn't
+        // cover). Since mod build 2 the SENDER raises the extras cadence to the rig rate
+        // (15 Hz) while the pose is CHANGING (NetAvatarDriver.TickExtrasSend, defect 7
+        // "Bewegen kommt nicht flüssig an"), so during an active drag this easing gets the
+        // same sample density the head/hands get — the exact pipeline whose smoothness is
+        // already accepted — and an idle board still costs only 5 Hz. Ease with the shared
+        // avatar sharpness; once the owner releases, the eased pose converges on the exact
+        // transmitted one (snap on first build so a fresh board never lerps in from the origin).
         Vector3 wantPos = _owner.BoardPosition;
         Quaternion wantRot = _owner.BoardRotation;
         Transform rt = _root!.transform;
@@ -397,6 +397,10 @@ internal sealed class RemoteControlBoard
             _objectives?.Refresh();
             _elements?.Refresh();
             _track?.Refresh();
+            // The furniture's SYNCED half (board-UI record: buttons + wanted glow) is wire-fed
+            // and must follow the owner's board with or without an actor — only the
+            // slot-occupancy-derived overlays need one, and they read the neutral flags here.
+            _furniture?.Refresh(null, _owner, showFronts: false, slot0: false, slot1: false);
         }
         catch (System.Exception e)
         {
@@ -575,19 +579,19 @@ internal sealed class RemoteControlBoard
             contentParent.localPosition = new Vector3(0f, 0f, lift);
         }
 
-        // The three stacks (report 6): the destinations a remote card flight lands on. Card-back
-        // texture, drawn unlit. Since the parity pass they also carry the peer's live pile COUNT +
-        // the localized caption the local board's own stacks wear (PileViewer.Caption), so a peer's
-        // "Abgelegt 7 / Verbrannt 2 / Gegenstände 3" reads at a glance instead of the numbers being
-        // knowable only from that player's own seat.
-        Texture? stackTex = CardMesh.CreateBackMaterial().mainTexture;
-        Material stackMat = BoardVisual.Unlit(new Color(0.82f, 0.82f, 0.82f, 1f), stackTex);
+        // The three stacks (report 6 + 1:1 parity defect 3 "die Stapel sehen nicht aus wie auf dem
+        // Original-Board"): the destinations a remote card flight lands on, built with the SAME
+        // visual construction the owner's own stacks use (PileViewer.PileStack.Create — a 4-slab
+        // jittered mini pile at the authored 0.62× card footprint, per-pile tint, count ON the top
+        // slab, localized caption beneath, top slab greying out at zero) instead of the old single
+        // flat card-back quad. Colors are the local stacks' verbatim; sizes come from the authored
+        // Defaults so every client renders a given board identically regardless of local tuning.
         _piles[0] = new PileCounter(contentParent, "DiscardStack", AnchorLocal(CardFxAnchor.Discard),
-            stackMat, PileViewer.Caption(PileKind.Discard));
+            new Color(0.55f, 0.48f, 0.34f), PileViewer.Caption(PileKind.Discard));
         _piles[1] = new PileCounter(contentParent, "BurntStack", AnchorLocal(CardFxAnchor.Burnt),
-            stackMat, PileViewer.Caption(PileKind.Burnt));
+            new Color(0.45f, 0.22f, 0.16f), PileViewer.Caption(PileKind.Burnt));
         _piles[2] = new PileCounter(contentParent, "ItemStack", AnchorLocal(CardFxAnchor.Items),
-            stackMat, PileViewer.Caption(PileKind.Items));
+            new Color(0.30f, 0.42f, 0.26f), PileViewer.Caption(PileKind.Items));
 
         // Full-parity panels (all mod-drawn, all fed from the LOCAL model — see the class note).
         _objectives = new RemoteObjectivesPanel(contentParent);
@@ -724,9 +728,14 @@ internal sealed class RemoteControlBoard
     // ------------------------------------------------------------------ pile stack --
 
     /// <summary>
-    /// One of the three pile stacks on a peer's board (discard / burnt / items): the card-back slab
-    /// that a <see cref="RemoteCardFx"/> flight lands on, PLUS the peer's live pile COUNT and the
-    /// same localized caption the local board's own stack wears (<c>PileViewer.Caption</c>).
+    /// One of the three pile stacks on a peer's board (discard / burnt / items): the SAME 4-slab
+    /// mini pile the owner's own board wears (mirror of <c>PileViewer.PileStack.Create</c> — four
+    /// thin jittered slabs stepping into the board, per-pile tint with darkened lower slabs, the
+    /// live COUNT on the top slab, the localized caption beneath, and the top slab greying out at
+    /// zero exactly like the local stack). It is also the destination a <see cref="RemoteCardFx"/>
+    /// flight lands on. Sized from the authored Defaults (<c>Defaults.CardWidth</c> ×
+    /// <c>PileViewer.PileStack.SlabFactor</c>) — the OWNER's [Cards] tuning is local config and
+    /// deliberately not applied, as everywhere on this board. Collider-free by construction.
     ///
     /// The count is PUBLIC information — vanilla lets any player open ANY other player's full card
     /// overview straight off the initiative track (<c>InitiativeTrackPlayerAvatar.OnClick</c> →
@@ -735,41 +744,86 @@ internal sealed class RemoteControlBoard
     /// </summary>
     private sealed class PileCounter
     {
+        /// <summary>Authored slab footprint — the local stack's <c>CardsConfig.CardWidth ×
+        /// SlabFactor</c> at the shipped default.</summary>
+        private const float SlabW = Defaults.CardWidth * PileViewer.PileStack.SlabFactor;
+        private const float SlabH = SlabW * (88f / 63.5f);
+
         private readonly TextMeshPro _count;
+        private readonly Material? _topMaterial;
+        private readonly Color _baseColor;
         private int _shown = int.MinValue;
 
-        public PileCounter(Transform parent, string name, Vector3 localPos, Material slabMat,
+        public PileCounter(Transform parent, string name, Vector3 localPos, Color color,
             string caption)
         {
             var root = new GameObject(name).transform;
             root.SetParent(parent, worldPositionStays: false);
             root.localPosition = localPos;
+            _baseColor = color;
 
-            BoardVisual.Quad(root, "Slab", new Vector2(PileW, PileH), slabMat);
+            // Stack body — the local recipe verbatim (PileViewer.PileStack.Create): 4 thin slabs,
+            // each a step behind the previous (+Z is into the board) with a small alternating
+            // jitter/tilt so it reads as a real pile; lower slabs darkened 45 %.
+            Shader? shader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
+            for (int i = 0; i < 4; i++)
+            {
+                var slab = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                slab.name = $"Slab{i}";
+                Object.Destroy(slab.GetComponent<Collider>());
+                slab.transform.SetParent(root, worldPositionStays: false);
+                slab.transform.localScale = new Vector3(SlabW, SlabH, 0.0018f);
+                float jitter = (i % 2 == 0 ? 1f : -1f) * 0.0015f;
+                slab.transform.localPosition = new Vector3(jitter, -jitter, 0.0022f * (3 - i));
+                slab.transform.localRotation = Quaternion.Euler(0f, 0f, (i % 2 == 0 ? -1f : 1f) * 2.5f);
+                if (shader != null)
+                {
+                    var material = new Material(shader)
+                    {
+                        color = i == 3 ? color : Color.Lerp(color, Color.black, 0.45f),
+                    };
+                    slab.GetComponent<MeshRenderer>().sharedMaterial = material;
+                    if (i == 3)
+                        _topMaterial = material;
+                }
+            }
 
-            _count = RemoteBoardContent.Label(root, "Count", new Vector3(0f, 0f, -0.001f),
-                new Vector2(PileW * 0.8f, PileH * 0.5f), 0.075f,
-                new Color(1f, 0.95f, 0.8f), TextAlignmentOptions.Center, FontStyles.Bold);
+            // Count on the top slab + caption beneath — same font/fit calls as the local stack.
+            var countGo = new GameObject("Count");
+            countGo.transform.SetParent(root, worldPositionStays: false);
+            countGo.transform.localPosition = new Vector3(0f, 0f, -0.0025f); // viewer side (-Z)
+            _count = countGo.AddComponent<TextMeshPro>();
             _count.text = "-";
+            _count.alignment = TextAlignmentOptions.Center;
+            _count.color = new Color(1f, 0.95f, 0.8f);
+            WorldUI.NativeButtonSkin.ApplyFont(_count);
+            TmpFit.Fit(_count, SlabW * 0.9f, SlabH * 0.62f, maxFontSize: 0.30f, wrap: false);
 
-            RemoteBoardContent.Label(root, "Caption",
-                new Vector3(0f, -PileH * 0.5f - 0.014f, -0.001f),
-                new Vector2(PileW * 1.25f, 0.020f), 0.036f,
-                new Color(0.85f, 0.8f, 0.7f), TextAlignmentOptions.Center)
-                .text = caption.ToUpperInvariant();
+            var captionGo = new GameObject("Caption");
+            captionGo.transform.SetParent(root, worldPositionStays: false);
+            captionGo.transform.localPosition = new Vector3(0f, -SlabH * 0.5f - 0.016f, -0.0025f);
+            var captionTmp = captionGo.AddComponent<TextMeshPro>();
+            captionTmp.text = caption.ToUpperInvariant();
+            captionTmp.alignment = TextAlignmentOptions.Center;
+            captionTmp.color = new Color(0.85f, 0.8f, 0.7f);
+            WorldUI.NativeButtonSkin.ApplyFont(captionTmp);
+            TmpFit.Fit(captionTmp, 0.095f, 0.024f, maxFontSize: 0.22f, wrap: false);
         }
 
-        /// <summary>Write the count (change-gated); an empty pile greys out, exactly like the local
-        /// board's stack dims its top slab at zero.</summary>
+        /// <summary>Write the count (change-gated); an empty pile greys its TOP SLAB out, exactly
+        /// like the local board's stack dims at zero (<c>PileStack.SetCount</c>).</summary>
         public void Set(int count)
         {
             if (count == _shown)
                 return;
             _shown = count;
             _count.text = count.ToString();
-            _count.color = count > 0
-                ? new Color(1f, 0.95f, 0.8f)
-                : new Color(0.55f, 0.53f, 0.48f);
+            if (_topMaterial != null)
+            {
+                Color want = count > 0 ? _baseColor : Color.Lerp(_baseColor, Color.gray, 0.7f);
+                if (_topMaterial.color != want)
+                    _topMaterial.color = want;
+            }
         }
     }
 }

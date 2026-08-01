@@ -45,15 +45,18 @@ namespace GloomhavenVR.Net;
 ///   3. BELT AND BRACES — <see cref="StripColliders"/> walks the finished hierarchy and destroys
 ///      anything that still carries a collider, logging a warning if it ever finds one.
 ///
-/// STATE FIDELITY. The remote board reproduces a widget's state wherever that state is knowable
-/// from the SAME sources the rest of the remote board already uses — the host-replicated
-/// <c>CPlayerActor</c> model and the already-synced VR extras (<see cref="RemoteAvatar"/>). No new
-/// wire field was added and none was needed. Everything that is genuinely LOCAL-ONLY on the peer's
-/// client (their own uGUI button interactability, their own VR preferences, their own hand
-/// hovering) is drawn in a NEUTRAL / default look; each such case is called out on the member that
-/// draws it. The modal PICK FIELD the flat board used to draw is GONE — the local board removed
-/// its pick field outright, so a copy of it had become a picture of a widget that no longer
-/// exists.
+/// STATE FIDELITY. Since the 1:1-parity round (mod build 2) the owner broadcasts their live
+/// BOARD-UI STATE (extras extension record 4, ~4 B at 5 Hz + on-change): which controls their
+/// board currently shows (confirm/undo/use recess + cap/rest discs/skip/decision drawer) and the
+/// wanted-slot glow mask. When that record is present it is AUTHORITATIVE — this board shows
+/// exactly the controls the owner sees, in the same frames. A sender that predates the record
+/// falls back to the previous behaviour (everything drawn, states derived from the
+/// host-replicated <c>CPlayerActor</c> model and the already-synced VR extras). What remains
+/// LOCAL-ONLY on the peer's client (button enabled-vs-disabled accents, live Confirm label
+/// variants, their follow/pin preference) keeps the NEUTRAL / default look; each such case is
+/// called out on the member that draws it. The modal PICK FIELD the flat board used to draw is
+/// GONE — the local board removed its pick field outright, so a copy of it had become a picture
+/// of a widget that no longer exists.
 ///
 /// ANTI-CHEAT is unchanged: nothing here reads a card identity, and the two pieces that DO depend
 /// on the peer's card state (the wanted-slot pulse and the half-card divider) derive strictly from
@@ -243,6 +246,8 @@ internal sealed class RemoteBoardFurniture
     private bool _shownArmed;
     private int _shownWantedMask = -1;
     private int _shownSnapMask = -1;
+    /// <summary>Last applied synced buttons mask (-2 = nothing applied yet, -1 = legacy sender).</summary>
+    private int _shownButtonsMask = -2;
     /// <summary>Per-slot half-divider visibility as a bit mask (−1 = nothing written yet). A plain
     /// bool would miss the case where the dividers stay shown but the OCCUPANCY moves from one slot
     /// to the other.</summary>
@@ -381,15 +386,16 @@ internal sealed class RemoteBoardFurniture
 
     /// <summary>
     /// Re-read everything knowable and repaint what changed. Called on the shared 4 Hz content
-    /// cadence from <see cref="RemoteControlBoard"/> — only while the peer HAS an actor (the caps
-    /// themselves are static; everything below derives from actor-fed state).
+    /// cadence from <see cref="RemoteControlBoard"/> — with or without an actor (the synced
+    /// board-UI state below is wire-fed, so an actorless peer's board still mirrors its owner's
+    /// controls; only the slot-occupancy-derived pieces need the actor-fed slot flags).
     ///
     /// <paramref name="showFronts"/> is the shared <see cref="RevealGate"/> answer for this actor;
     /// <paramref name="slot0"/>/<paramref name="slot1"/> say whether that peer's two round-card
     /// slots currently hold a card (the SAME occupancy the board already renders as a card back or
     /// a face — so nothing derived from it can leak anything the board does not already show).
     /// </summary>
-    public void Refresh(CPlayerActor actor, RemoteAvatar owner, bool showFronts, bool slot0, bool slot1)
+    public void Refresh(CPlayerActor? actor, RemoteAvatar owner, bool showFronts, bool slot0, bool slot1)
     {
         // A language switch invalidates every cached label (the local board self-heals the same way).
         string lang = Loc.CurrentLanguage;
@@ -399,15 +405,49 @@ internal sealed class RemoteBoardFurniture
             ApplyLabels();
         }
 
-        // ---- item-use recess + USE cap --------------------------------------------------------
-        // KNOWABLE PROXY: the local recess appears only while its owner physically holds a usable
-        // item card on their own turn — a purely local hand state with no wire field. What IS
-        // already on the wire (and already drives RemoteItemFan) is whether that player's ITEM FAN
-        // is open, which is the gesture that precedes every item use. So the recess is ALWAYS drawn
-        // (the user wants every element represented) and merely switches between an IDLE look and
-        // an ARMED look while the peer is actually handling items. The USE cap follows the same
-        // gate — on the local board it exists only while a card is clipped in.
-        bool armed = owner.ItemCardCount > 0;
+        // ---- SYNCED BOARD-UI (extension record 4 — defect 5 "genau die Buttons, die der
+        //      Besitzer sieht"). When the owner broadcasts their live control visibility, the
+        //      caps mirror it EXACTLY: confirm/undo/use/rest/skip appear and disappear on this
+        //      board in the same frames they do on the owner's (5 Hz + on-change). A sender that
+        //      predates the record (HasBoardUi false) gets the legacy always-drawn furniture, so
+        //      nothing regresses cross-version.
+        bool synced = owner.HasBoardUi;
+        int buttons = synced ? owner.BoardButtonsMask : -1;
+        if (buttons != _shownButtonsMask)
+        {
+            _shownButtonsMask = buttons;
+            if (synced)
+            {
+                _confirm.SetShown((buttons & NetProtocol.BoardUiConfirmBit) != 0);
+                _undo.SetShown((buttons & NetProtocol.BoardUiUndoBit) != 0);
+                _shortRest?.SetShown((buttons & NetProtocol.BoardUiShortRestBit) != 0);
+                _longRest?.SetShown((buttons & NetProtocol.BoardUiLongRestBit) != 0);
+                _skip.SetShown((buttons & NetProtocol.BoardUiSkipBit) != 0);
+                SetShown(_itemUse, (buttons & NetProtocol.BoardUiItemRecessBit) != 0);
+                // The decision drawer: drawn only while a prompt is actually docked on the
+                // owner's board — an idle local board shows nothing at that mount.
+                SetShown(_decision, (buttons & NetProtocol.BoardUiDecisionBit) != 0);
+            }
+            else
+            {
+                // Legacy sender: the pre-record look (everything drawn, drawer always out).
+                _confirm.SetShown(true);
+                _undo.SetShown(true);
+                _shortRest?.SetShown(true);
+                _longRest?.SetShown(true);
+                _skip.SetShown(true);
+                SetShown(_itemUse, true);
+                SetShown(_decision, true);
+            }
+        }
+
+        // ---- item-use USE cap + recess ARMED look ---------------------------------------------
+        // SYNCED: the USE cap is its own wire bit (it exists on the owner's board only while a
+        // card is clipped into the recess), and the recess glows armed exactly then. LEGACY
+        // (pre-record sender): the old knowable proxy — armed while their item fan is open.
+        bool armed = synced
+            ? (buttons & NetProtocol.BoardUiItemUseCapBit) != 0
+            : owner.ItemCardCount > 0;
         if (armed != _shownArmed)
         {
             _shownArmed = armed;
@@ -419,9 +459,14 @@ internal sealed class RemoteBoardFurniture
         }
 
         // ---- wanted-slot pulse ----------------------------------------------------------------
-        // The local board pulses a teal rim behind every slot the game is still WAITING for a card
-        // in. For a peer that is exactly "their round-card slot is empty during the secret
-        // selection phase".
+        // SYNCED (defect 4 "das Blinken soll synchron sein"): the owner's live wanted-glow mask
+        // rides the board-UI record, so the teal rim pulses on exactly the slots the owner's own
+        // board pulses — including every local gate (pick flows, short-rest choice, overlay gate)
+        // this board could never re-derive. The blink ANIMATION stays on the local clock at the
+        // shared 3.2 rad/s period (RemoteGlowPulse == PlayTray.SlotPulse): synced state, locally
+        // animated, zero per-frame traffic.
+        //
+        // LEGACY senders keep the old derivation: "slot empty during the secret selection phase".
         //
         // ANTI-CHEAT: this reveals nothing, on two independent grounds. (a) It is the strict
         // COMPLEMENT of what this very board already draws — an occupied slot already shows a card
@@ -431,13 +476,21 @@ internal sealed class RemoteBoardFurniture
         // UIReadyTrackerBar.RefreshReady → UIReadyTracker.ShowReady), and the hand tabs print every
         // player's live "selected/2" count with no IsUnderMyControl gate
         // (CardsHandManager.OnSelectedCardsNumberChanged ← the bolt StartRoundCards replication).
-        // No card IDENTITY is involved here and nothing rides the wire.
-        bool selecting = RevealGate.InScenario && RevealGate.IsSecretSelectionPhase;
-        int wantedMask = 0;
-        if (selecting)
+        // No card IDENTITY is involved here and the synced mask carries none either.
+        int wantedMask;
+        if (synced)
         {
-            if (!slot0) wantedMask |= 1;
-            if (!slot1) wantedMask |= 2;
+            wantedMask = owner.WantedGlowMask;
+        }
+        else
+        {
+            bool selecting = RevealGate.InScenario && RevealGate.IsSecretSelectionPhase;
+            wantedMask = 0;
+            if (selecting)
+            {
+                if (!slot0) wantedMask |= 1;
+                if (!slot1) wantedMask |= 2;
+            }
         }
         SetWanted(wantedMask);
 
@@ -475,9 +528,18 @@ internal sealed class RemoteBoardFurniture
         }
         SetHalves(halfMask);
 
-        StateLine = $"use={(armed ? "armed" : "idle")}, wanted={wantedMask}, snap={snapMask}, " +
+        StateLine = $"use={(armed ? "armed" : "idle")}, " +
+                    $"buttons={(synced ? "0x" + owner.BoardButtonsMask.ToString("X2") : "legacy")}, " +
+                    $"wanted={wantedMask}{(synced ? "(synced)" : string.Empty)}, snap={snapMask}, " +
                     $"halves={halfMask}";
         _ = actor; // reserved: no per-actor furniture state is knowable beyond the slots (see notes)
+    }
+
+    /// <summary>Change-safe activeSelf flip for a plain furniture root.</summary>
+    private static void SetShown(Transform root, bool shown)
+    {
+        if (root != null && root.gameObject.activeSelf != shown)
+            root.gameObject.SetActive(shown);
     }
 
     // ---------------------------------------------------------------- labels --

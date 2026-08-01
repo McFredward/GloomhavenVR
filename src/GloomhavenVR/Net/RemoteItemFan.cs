@@ -143,11 +143,19 @@ internal sealed class RemoteItemFan
             return;
         if (count != _builtCount)
             Rebuild(count);
-        // Sender scale lives on the root (the fan is NOT parented under a scaled holder), and it
-        // changes live with the sender's diorama zoom — re-apply every frame, it is one compare.
-        float rigScale = _owner.AppliedScale;
-        if (!Mathf.Approximately(_root.transform.localScale.x, rigScale))
-            _root.transform.localScale = Vector3.one * rigScale;
+        // Scale lives on the root (the fan is NOT parented under a scaled holder) and re-applies
+        // every frame (one compare). It reproduces WHICHEVER transform the LOCAL fan hangs under
+        // — the same rule RemoteBrowserFan documents: a HELD fan rides the palm (rig scale), a
+        // BOARD-ANCHORED one is a child of the board root (ItemsPile.Open) and wears the BOARD
+        // scale. The board branch used to apply the rig scale — the receiver-side fidelity bug
+        // the old TryResolvePose note recorded as "needs a hardware round"; fixed in the 1:1
+        // parity round (the board scales independently of world zoom, so the two routinely
+        // differed and the peer's fan rendered the wrong size).
+        float rootScale = _owner.ItemFanHeld
+            ? _owner.AppliedScale
+            : _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+        if (!Mathf.Approximately(_root.transform.localScale.x, rootScale))
+            _root.transform.localScale = Vector3.one * rootScale;
         if (!_root.activeSelf)
         {
             _root.SetActive(true);
@@ -181,26 +189,15 @@ internal sealed class RemoteItemFan
     }
 
     /// <summary>Where the fan sits this frame: above the sender's dominant palm when they hold it,
-    /// otherwise above their synced control board. False when neither reference exists yet.
+    /// otherwise at their synced board-local fan anchor (record 5; authored default for
+    /// pre-record senders). False when neither reference exists yet.
     ///
-    /// NEAR-TWIN OF <c>RemoteBrowserFan.TryResolveAnchor</c> — DO NOT UNIFY THEM. The position math
-    /// and the billboard tail match line for line; the SCALE does not, and the difference is real:
-    ///   • this method returns position only, and <see cref="Tick"/> puts the sender's RIG scale
-    ///     (<c>_owner.AppliedScale</c>) on the root in BOTH branches — including the board-anchored
-    ///     one, which positions with <c>BoardScale</c>;
-    ///   • the browse fan returns a <c>rootScale</c> and hands back the sender's BOARD scale when
-    ///     board-anchored, its doc stating the rule it follows: reproduce whichever transform the
-    ///     LOCAL fan hangs under.
-    /// By that rule the two disagree, because the local item fan is board-anchored under
-    /// <c>PlayTray.Current.Root</c> (<c>Cards.ItemsPile.Open</c>) and therefore wears the board's
-    /// scale on the sender's own screen. A peer therefore sees this fan at the sender's diorama
-    /// scale rather than their board scale — and the two routinely differ, because the control board
-    /// scales INDEPENDENTLY of world zoom (INVARIANTS-Net-Rig.md, "THE CONTROL BOARD SCALES
-    /// INDEPENDENTLY OF WORLD ZOOM").
-    /// This is therefore a suspected receiver-side fidelity BUG, not a documented choice — but
-    /// changing it changes what every peer sees, so it needs a hardware round, not a refactor.
-    /// Recorded here because the divergence was undocumented anywhere, including the registry, and
-    /// anyone "tidying" these two methods into one would silently pick a side.</summary>
+    /// NEAR-TWIN OF <c>RemoteBrowserFan.TryResolveAnchor</c> — kept separate because the browse
+    /// fan carries per-card enlargement and a root-scale out-param. Since the 1:1 parity round
+    /// the SCALE rule finally agrees between the two: both reproduce whichever transform the
+    /// LOCAL fan hangs under (held → rig scale, board-anchored → board scale; see the scale
+    /// note in <see cref="Tick"/> — the old rig-scale-on-the-board-branch divergence was a
+    /// receiver-side fidelity bug, now fixed).</summary>
     private bool TryResolvePose(out Vector3 pos, out Quaternion rot)
     {
         pos = default;
@@ -221,7 +218,13 @@ internal sealed class RemoteItemFan
             if (!_owner.HasBoard)
                 return false;
             float bs = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
-            var local = new Vector3(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+            // Defect 6 ("die Fächer sitzen nicht da, wo der Besitzer sie hat"): prefer the
+            // SYNCED board-local anchor (extension record 5) — the owner's real fan spot
+            // including their per-board [Cards] offsets. The authored default survives only
+            // for pre-record senders / while the record is absent.
+            Vector3 local = _owner.HasFanAnchor
+                ? _owner.FanAnchorLocal
+                : new Vector3(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
             pos = _owner.BoardPosition + _owner.BoardRotation * (local * bs);
         }
 
