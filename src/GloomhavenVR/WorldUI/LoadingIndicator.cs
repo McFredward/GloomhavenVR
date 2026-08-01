@@ -97,6 +97,8 @@ internal sealed class LoadingIndicator
     private Transform? _overlayQuad;
     private Material? _baseMaterial;
     private Material? _overlayMaterial;
+    private Mesh? _baseMesh;
+    private Mesh? _overlayMesh;
     private Texture2D? _fallbackBaseTex;
     private Texture2D? _fallbackOverlayTex;
 
@@ -196,6 +198,8 @@ internal sealed class LoadingIndicator
         _overlayQuad = null;
         DestroyObj(ref _baseMaterial);
         DestroyObj(ref _overlayMaterial);
+        DestroyObj(ref _baseMesh);
+        DestroyObj(ref _overlayMesh);
         DestroyObj(ref _fallbackBaseTex);
         DestroyObj(ref _fallbackOverlayTex);
         _baseArt = null;
@@ -253,13 +257,16 @@ internal sealed class LoadingIndicator
         UnityEngine.Object.DontDestroyOnLoad(_root);
 
         // A mid-transition rig teardown destroys the parented quads but NOT these materials
-        // — drop the orphans before creating the rebuild's set (no per-rebuild leak).
+        // or mesh clones — drop the orphans before creating the rebuild's set (no per-rebuild
+        // leak).
         DestroyObj(ref _baseMaterial);
         DestroyObj(ref _overlayMaterial);
+        DestroyObj(ref _baseMesh);
+        DestroyObj(ref _overlayMesh);
         _baseMaterial = CreateLayerMaterial(_baseArt, _fallbackBaseTex);
         _overlayMaterial = CreateLayerMaterial(_overlayArt, _fallbackOverlayTex);
-        _baseQuad = CreateQuad("Base", _baseMaterial, _baseArt, 0f);
-        _overlayQuad = CreateQuad("Overlay", _overlayMaterial, _overlayArt, -OverlayLiftMeters);
+        _baseQuad = CreateQuad("Base", _baseMaterial, _baseArt, 0f, ref _baseMesh);
+        _overlayQuad = CreateQuad("Overlay", _overlayMaterial, _overlayArt, -OverlayLiftMeters, ref _overlayMesh);
 
         // Match LoadingScreen.OnEnable: overlay starts at min alpha, rising.
         _overlayAlpha = _minAlpha;
@@ -283,20 +290,38 @@ internal sealed class LoadingIndicator
         {
             mainTexture = art.Tex != null ? art.Tex : fallbackTex,
             color = art.Tint,
-            // Sub-rect via UV transform: a Unity Quad spans UV 0..1, so scale/offset map it
-            // onto the sprite's atlas rect exactly.
-            mainTextureScale = new Vector2(art.Uv.width, art.Uv.height),
-            mainTextureOffset = new Vector2(art.Uv.x, art.Uv.y),
+            // No mainTextureScale/Offset here: Sprites/Default ignores _MainTex_ST (no
+            // TRANSFORM_TEX in its vertex shader) — the quad's mesh UVs carry the atlas
+            // sub-rect instead (see CreateQuad).
         };
         return material;
     }
 
-    private Transform CreateQuad(string name, Material material, LayerArt art, float zOffset)
+    private Transform CreateQuad(string name, Material material, LayerArt art, float zOffset, ref Mesh? meshClone)
     {
         GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
         quad.name = "GloomhavenVR.LoadingIndicator." + name;
         UnityEngine.Object.Destroy(quad.GetComponent<Collider>()); // visual only — never a ray/poke target
         quad.GetComponent<Renderer>().sharedMaterial = material;
+        // Atlas sub-rect via mesh UVs (shader-independent). Identity rect (procedural
+        // fallback textures) keeps the shared primitive mesh — nothing to remap.
+        Rect uv = art.Uv;
+        if (uv.x != 0f || uv.y != 0f || uv.width != 1f || uv.height != 1f)
+        {
+            MeshFilter meshFilter = quad.GetComponent<MeshFilter>();
+            // Clone — NEVER mutate the shared primitive mesh (every Quad in the process,
+            // including the mod's own, would be corrupted).
+            Mesh clone = UnityEngine.Object.Instantiate(meshFilter.sharedMesh);
+            clone.name = "GloomhavenVR.LoadingIndicator." + name + ".Mesh";
+            Vector2[] uvs = clone.uv;
+            for (int i = 0; i < uvs.Length; i++)
+                uvs[i] = new Vector2(uv.x + uvs[i].x * uv.width, uv.y + uvs[i].y * uv.height);
+            clone.uv = uvs;
+            meshFilter.mesh = clone;
+            // The quad dies with _root, but the clone is an asset-like orphan — tracked so
+            // Shutdown/BuildVisual destroy it explicitly (mirrors the material bookkeeping).
+            meshClone = clone;
+        }
         Transform t = quad.transform;
         t.SetParent(_root!.transform, worldPositionStays: false);
         t.localPosition = new Vector3(0f, 0f, zOffset); // -z = toward the head (quad front faces the camera)
