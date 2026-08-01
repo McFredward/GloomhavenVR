@@ -47,6 +47,31 @@ internal static partial class ModalFallback
     private const float SteepGazePullFactor = 0.85f;
 
     /// <summary>
+    /// LEVEL-MESSAGE family (tutorial boxes / action strips): steeper allowed downward
+    /// placement pitch than the shared <see cref="MaxSpawnPitchDeg"/>. The 15° flatten was
+    /// tuned for LARGE modals that must clear the board; the small tutorial windows open
+    /// while the player reads the board looking 15–40° DOWN, and flattening their placement
+    /// to 15° parked them near the horizon — the top edge of (or outside) the downward view
+    /// (hardware log 2026-08-02, TB_12: raw gaze pose y 0.49 → clamped/raised to 20.37 ≈
+    /// above eye level while the gaze was 17° down). These follow the gaze deeper; the
+    /// board-cover risk is handled by the floor clamp + overlap resolve as before, with the
+    /// VIEW-CONE guarantee below having the final word.
+    /// </summary>
+    private const float LevelMsgMaxSpawnPitchDeg = 30f;
+
+    /// <summary>
+    /// HARD view-cone guarantee for level-message spawns (user requirement: tutorial windows
+    /// must ALWAYS spawn inside the current view): after ALL soft clamps ran (pitch flatten,
+    /// board-plane floor, overlap raise/swing), the head→window direction is rotated back to
+    /// within this angle of the CURRENT gaze forward, distance preserved. Well inside any HMD
+    /// FOV half-angle (~45–50°), so a window at the cone edge is still comfortably on screen.
+    /// Readability/visibility deliberately WINS over full board clearance here — a window
+    /// partially over the board but in view beats one at the horizon nobody sees. Runs only
+    /// from <see cref="ComputeHmdPose"/> (spawn / refloat / recall — never per frame).
+    /// </summary>
+    private const float LevelMsgMaxOffGazeDeg = 25f;
+
+    /// <summary>
     /// Request B (board-cover fix): height of the board/table's TOP edge above the orbit-focus
     /// plane (<c>CameraController.FocusPoint</c>, the anchor <see cref="PanelLayout"/> measures all
     /// slot heights from — slots sit 0.02–0.55 m above it), real meters × diorama scale. The board
@@ -107,18 +132,21 @@ internal static partial class ModalFallback
     ///    half-height is what keeps a tall window from hanging its bottom down into the board.
     /// Returns the human-readable clamp reason, or null when the pose passed through unchanged.
     /// </summary>
-    private static string? ClampSpawnPose(Transform head, ref Vector3 pos, float scale, Vector2 half)
+    private static string? ClampSpawnPose(Transform head, ref Vector3 pos, float scale, Vector2 half,
+        float maxPitchDeg)
     {
         string? reason = null;
         Vector3 headPos = head.position;
 
         // 1. Steep-gaze pitch clamp (placement direction, not the panel's own rotation).
+        //    The limit is per-family now: level-message windows follow the gaze deeper
+        //    (LevelMsgMaxSpawnPitchDeg) so they stay in the downward view.
         Vector3 to = pos - headPos;
         float dist = to.magnitude;
         if (dist > 1e-4f)
         {
             float pitchDeg = Mathf.Asin(Mathf.Clamp(to.y / dist, -1f, 1f)) * Mathf.Rad2Deg;
-            if (pitchDeg < -MaxSpawnPitchDeg)
+            if (pitchDeg < -maxPitchDeg)
             {
                 Vector3 flatDir = to;
                 flatDir.y = 0f;
@@ -130,10 +158,10 @@ internal static partial class ModalFallback
                         flatDir = Vector3.forward;
                 }
                 flatDir.Normalize();
-                float rad = MaxSpawnPitchDeg * Mathf.Deg2Rad;
+                float rad = maxPitchDeg * Mathf.Deg2Rad;
                 Vector3 dir = flatDir * Mathf.Cos(rad) - Vector3.up * Mathf.Sin(rad);
                 pos = headPos + dir * (dist * SteepGazePullFactor);
-                reason = $"gaze {-pitchDeg:F0}° below eye level (limit {MaxSpawnPitchDeg:F0}°) — " +
+                reason = $"gaze {-pitchDeg:F0}° below eye level (limit {maxPitchDeg:F0}°) — " +
                          $"pitch-clamped and pulled toward the head (x{SteepGazePullFactor:F2})";
             }
         }
@@ -435,7 +463,8 @@ internal static partial class ModalFallback
     /// diagnostic line per call states the clamp decision for hardware-log verification.
     /// </summary>
     private static bool ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale,
-        int staggerIndex = 0, Vector2 halfSize = default, ConvertedPanel? self = null)
+        int staggerIndex = 0, Vector2 halfSize = default, ConvertedPanel? self = null,
+        bool levelMessage = false)
     {
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
@@ -449,8 +478,11 @@ internal static partial class ModalFallback
         Transform h = head.transform;
         Vector3 fwd = h.forward;
         // Placement follows the full gaze (so it lands where the player is looking, overlapping
-        // the primary), with a small right+down stagger per stacked window.
-        pos = h.position + fwd * (WindowDistanceMeters * scale);
+        // the primary), with a small right+down stagger per stacked window. Level-message
+        // windows (tutorial boxes/strips) float CLOSER for readability (user report 2026-08-02);
+        // every other family keeps the shared reading distance.
+        float distanceMeters = levelMessage ? LevelMessageDistanceMeters : WindowDistanceMeters;
+        pos = h.position + fwd * (distanceMeters * scale);
         if (staggerIndex > 0)
         {
             float step = SecondaryStaggerMeters * scale;
@@ -461,9 +493,11 @@ internal static partial class ModalFallback
         }
 
         // Request B: never below/inside the board plane, never down a steep gaze (see
-        // ClampSpawnPose — spawn/refloat/recall only, never per frame).
+        // ClampSpawnPose — spawn/refloat/recall only, never per frame). Level-message
+        // windows may follow the gaze deeper before the flatten engages.
         Vector3 rawPos = pos;
-        string? clampReason = ClampSpawnPose(h, ref pos, scale, halfSize);
+        float maxPitchDeg = levelMessage ? LevelMsgMaxSpawnPitchDeg : MaxSpawnPitchDeg;
+        string? clampReason = ClampSpawnPose(h, ref pos, scale, halfSize, maxPitchDeg);
 
         // User request A: never spawn INSIDE the control board or another open modal —
         // raise / swing laterally toward free space (spawn/refloat/recall only, never per
@@ -471,6 +505,33 @@ internal static partial class ModalFallback
         // so they only avoid the board.
         string? overlapNote = ResolveSpawnOverlap(h, ref pos, scale, halfSize, self,
             includeModals: staggerIndex == 0);
+
+        // LEVEL-MESSAGE VIEW-CONE (user requirement, torbogen report): the tutorial window must
+        // ALWAYS spawn inside the CURRENT view. The soft clamps above optimize for board
+        // clearance and can sum to a large angular offset from the gaze — the log showed boxes
+        // raised from a 14–17°-down gaze pose to ABOVE eye level (TB_10: y 2.14 → 25.66), i.e.
+        // 20–30° off the gaze center and outside the downward view. This final, HARD clamp
+        // rotates the head→window direction back to ≤ LevelMsgMaxOffGazeDeg off the gaze
+        // (distance preserved) — in-view beats board clearance for this small family. It also
+        // guarantees "never behind/above the player": the pose can never leave the gaze cone.
+        string? viewConeNote = null;
+        if (levelMessage)
+        {
+            Vector3 off = pos - h.position;
+            float offDist = off.magnitude;
+            if (offDist > 1e-4f)
+            {
+                float offAngle = Vector3.Angle(fwd, off);
+                if (offAngle > LevelMsgMaxOffGazeDeg)
+                {
+                    Vector3 dir = Vector3.RotateTowards(off / offDist, fwd,
+                        (offAngle - LevelMsgMaxOffGazeDeg) * Mathf.Deg2Rad, 0f);
+                    pos = h.position + dir * offDist;
+                    viewConeNote = $"was {offAngle:F0}° off the gaze after the soft clamps — rotated " +
+                                   $"back to {LevelMsgMaxOffGazeDeg:F0}° so it spawns inside the current view";
+                }
+            }
+        }
 
         // Facing is YAW-ONLY (upright) and points the readable face AT THE HEAD — same
         // convention as PanelPlacement.Facing: flatten the vector FROM the head TO the placed
@@ -497,7 +558,7 @@ internal static partial class ModalFallback
         // raised panel still faces the eyes. Spawn-only, capped, never applied unclamped so the
         // default upright look is untouched.
         float tiltDeg = 0f;
-        if (clampReason != null || overlapNote != null)
+        if (clampReason != null || overlapNote != null || viewConeNote != null)
         {
             Vector3 toHead = h.position - pos;
             float flatDist = Mathf.Sqrt(toHead.x * toHead.x + toHead.z * toHead.z);
@@ -518,16 +579,20 @@ internal static partial class ModalFallback
         VRLog.Info("WorldUI", "MODAL SPAWN CLAMP: pose " +
                               $"({rawPos.x:F2},{rawPos.y:F2},{rawPos.z:F2}) → " +
                               $"({pos.x:F2},{pos.y:F2},{pos.z:F2})" +
-                              (clampReason == null && overlapNote == null
+                              (clampReason == null && overlapNote == null && viewConeNote == null
                                   ? " — unchanged (above the board plane, gaze within limits, no overlap)."
                                   : $" — {clampReason ?? "no plane/gaze clamp"}; upward tilt {tiltDeg:F0}°.") +
                               (overlapNote == null
                                   ? " OVERLAP: none."
                                   : $" OVERLAP: {overlapNote}.") +
+                              (viewConeNote == null
+                                  ? ""
+                                  : $" VIEW-CONE: {viewConeNote}.") +
                               $" boardPlaneY={(haveBoard ? by.ToString("F2") : "n/a")}, " +
                               $"boardTopClear={BoardTopClearanceMeters:F2}m+halfH{halfSize.y:F2} " +
                               $"(window-bottom floorY={(haveBoard ? boardTopFloorY.ToString("F2") : "n/a")}, " +
-                              $"eyeCap +{MaxAboveEyeMeters:F2}m, maxPitch {MaxSpawnPitchDeg:F0}°), " +
+                              $"eyeCap +{MaxAboveEyeMeters:F2}m, maxPitch {maxPitchDeg:F0}°), " +
+                              $"dist={distanceMeters:F2}m{(levelMessage ? " (level-message)" : "")}, " +
                               $"scale={scale:F2}, stagger={staggerIndex}.");
         return true;
     }
@@ -552,15 +617,18 @@ internal static partial class ModalFallback
             MinWindowScaleFactor, WindowScaleFactor);
     }
 
-    /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).</summary>
-    private static void PlaceAtHmd(ConvertedPanel panel, float extraScale, int staggerIndex = 0)
+    /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).
+    /// <paramref name="levelMessage"/> selects the closer, view-cone-guaranteed
+    /// level-message placement (tutorial boxes/strips).</summary>
+    private static void PlaceAtHmd(ConvertedPanel panel, float extraScale, int staggerIndex = 0,
+        bool levelMessage = false)
     {
         // User request A: hand the panel's projected world size to the pose computation so
         // the spawn-time overlap resolution can box-test it against the control board and
         // the other open modals (self excluded — refloat/recall re-places an existing panel).
         Vector2 half = PanelWorldHalfSize(panel, PanelLayout.WorldScale * extraScale);
         if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale, staggerIndex,
-                half, panel))
+                half, panel, levelMessage))
             return;
         CanvasConversion.PlaceHost(panel, pos, rot, scale * extraScale);
     }

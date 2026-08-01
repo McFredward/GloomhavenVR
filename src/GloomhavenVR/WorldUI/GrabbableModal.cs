@@ -45,6 +45,23 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private const float MinBarWidth = 0.04f;
 
     /// <summary>
+    /// EMPTY-GOLD-PLATE FIX (torbogen screenshot 2026-08-02): panel height (real metres) at or
+    /// above which the bar keeps its full thickness/gap. The fixed 2.4 cm bar + 3 cm gap were
+    /// sized for board-scale menus; under the ~6 cm level-message ACTION STRIP the same bar
+    /// rendered nearly as tall as the strip itself and a full strip-height away from it — on
+    /// the flat mirror it read as a detached EMPTY GOLD RECTANGLE floating below the hint
+    /// (identified in the screenshot by its brass colour, 55 % width and centred position one
+    /// gap below the strip). Panels shorter than this reference get a proportionally slimmer,
+    /// closer bar so the handle visually attaches to its window; taller panels (ESC/Options,
+    /// results, tutorial boxes) are numerically unchanged.
+    /// </summary>
+    private const float BarFullSizePanelHeightMeters = 0.30f;
+
+    /// <summary>Floor of the short-panel bar proportion — the visible strip (and its padded
+    /// laser collider, which scales with it) must stay a comfortable target.</summary>
+    private const float MinBarProportion = 0.5f;
+
+    /// <summary>
     /// LOST-MENU FIX: cross-section pad of the LASER-only bar collider, in bar-local units
     /// (the bar cube is unit-sized, scaled to barWidth × BarThickness × BarThickness — so
     /// 1.5 ≈ a 3.6 cm strip). Just enough slack to point at the 2.4 cm visible bar
@@ -711,8 +728,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // All dims are frame-local metres. With the holder now at identity scale (deadlock
         // fix) the fixed constants must carry worldScale themselves so the bar/zone keep the
         // same WORLD size relative to the (worldScale-sized) panel as before.
-        float gap = BarGapMeters * worldScale;
-        float thickness = BarThickness * worldScale;
+        //
+        // Empty-gold-plate fix: proportion the bar to SHORT panels. halfHeight arrives in
+        // frame-local metres (worldScale included), so divide it back out for the real panel
+        // height; a panel shorter than the full-size reference slims the bar thickness AND
+        // pulls it closer (smaller gap) by the same factor, floored at MinBarProportion so
+        // the grab/laser target never vanishes. Board-scale menus land at proportion 1 —
+        // numerically identical to the previous fixed constants.
+        float panelHeight = halfHeight * 2f / Mathf.Max(worldScale, 1e-4f);
+        float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
+            MinBarProportion, 1f);
+        float gap = BarGapMeters * proportion * worldScale;
+        float thickness = BarThickness * proportion * worldScale;
         float minWidth = MinBarWidth * worldScale;
         float zoneDepth = 0.05f * worldScale;
         float y = -(halfHeight + gap);

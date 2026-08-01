@@ -30,6 +30,13 @@ internal static partial class ModalFallback
     /// whenever the panel is visible, while a hand grips it (the user is deliberately
     /// carrying it — never yank it out of their grip), and on recall. Unscaled time — the
     /// pause menu may freeze timeScale.
+    ///
+    /// <para>LEVEL-MESSAGE extension (torbogen report 2026-08-02): the two level-message group
+    /// windows (tutorial box / action strip) participate too, with an ADDITIONAL immediate
+    /// path — when a NEW scripted message re-shows inside the kept-alive float while the panel
+    /// is outside the current view, it is re-placed at once (event-gated on the message-key
+    /// change, <see cref="CurrentLevelMessageKey"/>) instead of waiting out the timer. A float
+    /// the user parked IN view is never moved.</para>
     /// </summary>
     private static void TickMenuRecall()
     {
@@ -50,12 +57,22 @@ internal static partial class ModalFallback
             // Sieg/Niederlage results windows (user request A): they BLOCK the scenario-end
             // flow, carry no X, and can only be advanced through their native buttons, so a
             // results window the user carried away and lost would be an invisible hard lock —
-            // the recall guarantees it always comes back into view. Closed/sticky-hidden
-            // floats, other non-sticky modals and panels on their way out are left alone.
+            // the recall guarantees it always comes back into view. And so do the LEVEL-MESSAGE
+            // group windows (torbogen report): the tutorial chains scripted messages through
+            // ONE kept-alive float, so a panel out of view is an unreadable (often blocking)
+            // tutorial step. Closed/sticky-hidden floats, other non-sticky modals and panels
+            // on their way out are left alone.
+            bool isLevelMsg = IsLevelMessageWindow(wp.Window);
             bool recallable = wp.Window != null
-                              && ((wp.Sticky && wp.FullScreenMenu) || IsResultsPanel(wp.Window.ID));
-            if (!recallable || wp.UserClosing || wp.Window == null
-                || !wp.Window.IsOpen || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+                              && ((wp.Sticky && wp.FullScreenMenu) || IsResultsPanel(wp.Window.ID)
+                                  || isLevelMsg);
+            // Level-message ground truth: IsOpen can momentarily read false during the game's
+            // hide→show handover (deadlock #2) while the window is genuinely displayed — accept
+            // IsVisible too, mirroring LevelMessageWindowOpen.
+            bool windowLive = wp.Window != null
+                              && (wp.Window.IsOpen || (isLevelMsg && wp.Window.IsVisible));
+            if (!recallable || wp.UserClosing || !windowLive
+                || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
             {
                 wp.OutOfViewSince = 0f;
                 continue;
@@ -70,19 +87,44 @@ internal static partial class ModalFallback
             Vector3 pos = wp.Panel.HostGo.transform.position;
             bool visible = IsInHeadView(head, pos)
                            && Vector3.Distance(headPos, pos) <= RecallDistanceMeters * scale;
+
+            // LEVEL-MESSAGE RE-SHOW RECALL (torbogen report): when a NEW scripted message
+            // re-shows inside the already-floated group window (message key changed — the
+            // float is deliberately kept alive across the whole chain, deadlock #2), it must
+            // be readable NOW: if the panel sits outside the current view (the player moved /
+            // turned since the previous hint) it is re-placed IMMEDIATELY instead of waiting
+            // out the lost-menu timer. Event-gated on the key change — a panel the user
+            // parked IN view (grabbed placement) is never touched, honoring deliberate
+            // placement; only an out-of-view float is recalled.
+            bool reshowRecall = false;
+            string? reshowKey = null;
+            if (isLevelMsg)
+            {
+                string? key = CurrentLevelMessageKey(wp.Window);
+                if (key != null && !string.Equals(key, wp.LastLevelMessageKey, StringComparison.Ordinal))
+                {
+                    wp.LastLevelMessageKey = key;
+                    reshowRecall = !visible;
+                    reshowKey = key;
+                }
+            }
+
             if (visible)
             {
                 wp.OutOfViewSince = 0f;
                 continue;
             }
-            if (wp.OutOfViewSince <= 0f)
+            if (!reshowRecall)
             {
-                wp.OutOfViewSince = now;
-                continue;
+                if (wp.OutOfViewSince <= 0f)
+                {
+                    wp.OutOfViewSince = now;
+                    continue;
+                }
+                float outFor = now - wp.OutOfViewSince;
+                if (outFor < RecallOutOfViewSeconds)
+                    continue;
             }
-            float outFor = now - wp.OutOfViewSince;
-            if (outFor < RecallOutOfViewSeconds)
-                continue;
 
             // RECALL — the same placement the window floated with (user request A: with the
             // panel's size passed along, the recall pose also avoids the control board /
@@ -90,18 +132,23 @@ internal static partial class ModalFallback
             if (wp.Grab != null)
             {
                 Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
-                if (!ComputeHmdPose(out Vector3 p, out Quaternion r, out _, 0, half, wp.Panel))
+                if (!ComputeHmdPose(out Vector3 p, out Quaternion r, out _, 0, half, wp.Panel,
+                        isLevelMsg))
                     continue; // no head pose this tick — retry next tick, timer keeps running
                 wp.Grab.PlaceFrameAt(p, r);
             }
             else
             {
-                PlaceAtHmd(wp.Panel, wp.ExtraScale);
+                PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, isLevelMsg);
             }
+            float wasOutFor = wp.OutOfViewSince > 0f ? now - wp.OutOfViewSince : 0f;
             wp.OutOfViewSince = 0f;
-            VRLog.Info("WorldUI", $"MODAL RECALL: '{wp.Window.name}' was open but out of view for " +
-                                  $"{outFor:F0}s — recalled in front of the HMD (it blocks card/board " +
-                                  "input while open).");
+            VRLog.Info("WorldUI", reshowRecall
+                ? $"MODAL RECALL: '{wp.Window!.name}' — scripted message '{reshowKey}' re-shown while " +
+                  "the float was OUT of view — re-placed into the current view immediately."
+                : $"MODAL RECALL: '{wp.Window!.name}' was open but out of view for " +
+                  $"{wasOutFor:F0}s — recalled in front of the HMD (it blocks card/board " +
+                  "input while open).");
         }
     }
 
