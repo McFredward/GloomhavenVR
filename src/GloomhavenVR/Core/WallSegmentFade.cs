@@ -283,6 +283,18 @@ internal static class WallSegmentFade
         public readonly List<MeshRenderer> PrevFoliage = new();
         /// <summary>0 = restored/untouched, 1 = dissolving (cutoff MPB set), 2 = hidden.</summary>
         public int FoliageState;
+        /// <summary>ASSET-COMPLETE fade siblings (the Torbogen ruling, adopted groups only): a
+        /// mixed doorway/arch asset carries the WallFade shader on its FRAME/PILLAR meshes but
+        /// not on the wooden door wings / arch trim — fading only the shader-matched renderers
+        /// left a floating door remnant (torbogen.png). These are the non-fade renderers under
+        /// the same prefab-ish asset root (see <see cref="FadeDriver.FindAssetRoot"/>): hidden
+        /// via renderer.enabled once the segment reaches the held state, restored exactly on
+        /// unfade — the foliage restore discipline, no material mutation.</summary>
+        public readonly List<MeshRenderer> Siblings = new();
+        public readonly List<MeshRenderer> PrevSiblings = new();
+        /// <summary>0 = restored/untouched, 2 = hidden (siblings have no dissolve ramp — they
+        /// run arbitrary opaque shaders, so they pop with the END of the wall's dissolve).</summary>
+        public int SiblingState;
         public Bounds Bounds;
         public bool HasBounds;
 
@@ -400,6 +412,25 @@ internal static class WallSegmentFade
         /// <summary>An adopted GROUP whose horizontal AABB is thicker than this (wu; a wall run's
         /// thin extent is ≤ ~2 wu, a hex tile ≈ 1.72 wu, a room ≥ ~8 wu) is split per renderer.</summary>
         private const float GroupSlabMaxHorizontal = 3.5f;
+
+        // ---- asset-complete fade (Torbogen ruling) ----------------------------------------
+        /// <summary>Rescan-scope dedupe: every renderer attached as an asset sibling this rescan
+        /// — exactly ONE segment may own (and restore) a sibling, or two owners would fight over
+        /// renderer.enabled every frame.</summary>
+        private readonly HashSet<MeshRenderer> _siblingOwned = new();
+        private readonly List<MeshRenderer> _subtreeScratch = new();
+        /// <summary>An ancestor whose subtree holds more MeshRenderers than this is a CONTAINER
+        /// (the 'L :' Apparance layer/section-root class), not a prefab-sized asset — the walk
+        /// stops there and attaches nothing (fail-open: the ugly remnant stays visible, which
+        /// beats hiding unrelated geometry). A doorway asset is ~2 frames + 4 pillars + 2 wings
+        /// + trim + lock ≈ ≤ 12 renderers.</summary>
+        private const int MaxAssetRootRenderers = 16;
+        /// <summary>Ancestor-walk depth cap — prefab roots sit 1-3 levels above their meshes;
+        /// anything deeper is scene structure.</summary>
+        private const int MaxAssetRootDepth = 4;
+        /// <summary>Room-registry census as last logged (reveal re-anchor diagnostic).</summary>
+        private int _lastRoomCensusCount = -1;
+        private int _lastRoomCensusAnchored = -1;
         private readonly List<Bounds> _roomBounds = new();
         private readonly List<float> _roomFloorY = new();       // tile-anchored floor plane per room
         private readonly List<bool> _roomFloorAnchored = new(); // true = from a CentralTile anchor
@@ -460,6 +491,8 @@ internal static class WallSegmentFade
             _nextDiagTime = 0f;
             _shaderVerdict.Clear(); // scene shaders died with their bundles — no dead keys
             _splitAnchors.Clear();
+            _lastRoomCensusCount = -1; // fresh scene = fresh room registry (reveal diagnostics)
+            _lastRoomCensusAnchored = -1;
         }
 
         /// <summary>
@@ -578,7 +611,14 @@ internal static class WallSegmentFade
 
                 // Undecidable-as-one-unit segments (see NeutralizeEngulfingSegments) are held
                 // solid: state forced off, the fade below decays any residual block away.
-                if (seg.Engulfing)
+                // ROOM-REVEAL FAIL-SAFE (fehlender_boden.png ruling): a wall whose room has no
+                // VALID floor grid — unassociated, tile-UNANCHORED plane (median/bounds guess),
+                // or a zero-sample grid (over the MaxTotalSamples budget) — must never fade:
+                // its coverage would be measured against the wrong plane or the wrong room
+                // (the mid-scenario reveal case), and a wrong fade deletes geometry. Solid is
+                // the vanilla look, strictly safe; the wall joins the fade the moment its room
+                // is anchored (next 2s rescan / reveal-triggered rescan).
+                if (seg.Engulfing || !RoomDecisionValid(seg.RoomIndex))
                 {
                     seg.State = false;
                     seg.PendingRaw = false;
@@ -652,6 +692,7 @@ internal static class WallSegmentFade
                 _heartbeatSegCount = _segments.Count;
                 LogFloorColumnCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
+                int siblings = 0, failSafeSegs = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
@@ -659,6 +700,8 @@ internal static class WallSegmentFade
                     if (!s.FromWallCache) adoptedSegs++;
                     if (s.Engulfing) engulfSegs++;
                     foliage += s.Foliage.Count;
+                    siblings += s.Siblings.Count;
+                    if (!RoomDecisionValid(s.RoomIndex)) failSafeSegs++;
                 }
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
@@ -671,7 +714,9 @@ internal static class WallSegmentFade
                     + $"fade-capable renderers {_censusFadeRenderers} = {_censusClaimed} claimed "
                     + $"+ {_censusAdopted} adopted; {_splitAnchors.Count} room-engulfing wall(s) "
                     + $"split per renderer, {engulfSegs} unsplittable held solid; {foliage} foliage "
-                    + $"attachment(s) ride their wall's fade{unfadeable}) "
+                    + $"attachment(s) + {siblings} asset-sibling(s) ride their wall's fade; "
+                    + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
+                    + $"{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
                     + $"{highSegs} HIGH) against {_roomBounds.Count} room-renderer "
                     + $"bounds / {_allSamples.Count} floor samples ({_roomsAnchored}/"
@@ -774,6 +819,19 @@ internal static class WallSegmentFade
             }
             return visible;
         }
+
+        /// <summary>
+        /// Can the coverage metric be trusted for this room? Requires: an associated room, a
+        /// TILE-ANCHORED floor plane (an unanchored plane is a median/bounds GUESS — the exact
+        /// class of frame error the round-6 hardware log caught, and the mid-scenario-reveal
+        /// hazard: a freshly revealed room without its volume anchor yet), and a non-empty
+        /// sample grid (rooms past the MaxTotalSamples budget get none). Walls failing this are
+        /// held SOLID by the decision loop — fade decisions on a guessed frame delete geometry.
+        /// </summary>
+        private bool RoomDecisionValid(int room) =>
+            room >= 0
+            && room < _roomFloorAnchored.Count && _roomFloorAnchored[room]
+            && room < _roomSampleCount.Count && _roomSampleCount[room] > 0;
 
         /// <summary>
         /// Fraction of the wall's OWN room's floor grid that the wall hides from the head:
@@ -898,7 +956,8 @@ internal static class WallSegmentFade
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
                     $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
-                    $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage) — held state: " +
+                    $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage, " +
+                    $"+{seg.Siblings.Count} asset-sibling(s)) — held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
                         ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
@@ -972,6 +1031,10 @@ internal static class WallSegmentFade
                 _diagSb.Append(" !ABOVE-WALL");
             if (room >= 0 && room < _roomFloorAnchored.Count && !_roomFloorAnchored[room])
                 _diagSb.Append(" !UNANCHORED");
+            // Room grid empty (over the sample budget) or no room at all: the wall is held
+            // solid by the reveal fail-safe — visible in the log as the reason it never fades.
+            if (room < 0 || (room < _roomSampleCount.Count && _roomSampleCount[room] <= 0))
+                _diagSb.Append(" !NOGRID");
             // A single mesh whose AABB is fat in BOTH horizontal axes (ring/corner piece) cannot
             // be split further — its coverage numbers may read permanently high. Flagged so the
             // hardware log distinguishes "genuinely occluding" from "AABB artifact"; !ENGULF
@@ -1011,6 +1074,48 @@ internal static class WallSegmentFade
                 if (f != null)
                     RestoreFoliageRenderer(f);
             }
+        }
+
+        /// <summary>Restore ALL of a segment's asset siblings (doors/trim of a mixed asset) —
+        /// called on every path where the segment stops owning them (unfade, segment drop,
+        /// group split, toggle-off, teardown), so no door can stay hidden without an owner.
+        /// enabled-toggle only; nothing else was ever touched on these renderers.</summary>
+        private static void RestoreSegmentSiblings(Segment seg)
+        {
+            if (seg.SiblingState == 0)
+                return;
+            seg.SiblingState = 0;
+            foreach (MeshRenderer s in seg.Siblings)
+            {
+                if (s != null && !s.enabled)
+                    s.enabled = true;
+            }
+        }
+
+        /// <summary>
+        /// Hide the segment's asset siblings exactly while the segment holds fully faded
+        /// (Torbogen ruling: the WHOLE doorway asset disappears, not just its shader-matched
+        /// frame/pillars). No dissolve ramp — siblings run arbitrary opaque shaders where a
+        /// cutoff MPB means nothing, so they switch off at the END of the wall's dissolve
+        /// (same threshold as the foliage held state) and back on the moment the fade drops.
+        /// </summary>
+        private void ApplySiblings(Segment seg)
+        {
+            if (seg.Siblings.Count == 0)
+                return;
+            if (seg.Fade < FoliageHideFade)
+            {
+                RestoreSegmentSiblings(seg);
+                return;
+            }
+            if (seg.SiblingState == 2)
+                return; // already hidden — nothing per-frame to do
+            foreach (MeshRenderer s in seg.Siblings)
+            {
+                if (s != null && s.enabled)
+                    s.enabled = false;
+            }
+            seg.SiblingState = 2;
         }
 
         /// <summary>
@@ -1060,6 +1165,7 @@ internal static class WallSegmentFade
         private void Apply(Segment seg)
         {
             ApplyFoliage(seg);
+            ApplySiblings(seg);
             if (seg.Fade <= 0f)
             {
                 if (seg.HasBlock)
@@ -1187,6 +1293,26 @@ internal static class WallSegmentFade
                 _roomFloorY[i] = float.IsNaN(fallbackY) ? _roomBounds[i].max.y : fallbackY;
             }
 
+            // ROOM-REVEAL DIAGNOSTIC (mid-scenario door open → Choreographer
+            // .RevealRoomCreateCharacterActors → TilesOcclusionGenerator.UpdateAwaitingVolumes
+            // appends the new room's renderers; our Tick sees the count change and rescans
+            // immediately): one unmissable line whenever the room registry or its anchor count
+            // changes, plus a fresh heartbeat, so the next hardware log PROVES the registry
+            // re-anchored on reveal instead of leaving it to inference.
+            if (_roomBounds.Count != _lastRoomCensusCount
+                || _roomsAnchored != _lastRoomCensusAnchored)
+            {
+                bool reveal = _lastRoomCensusCount >= 0 && _roomBounds.Count > _lastRoomCensusCount;
+                VRLog.Info(Name,
+                    $"room registry {(reveal ? "REVEAL re-anchor" : "refresh")}: "
+                    + $"{Mathf.Max(_lastRoomCensusCount, 0)}→{_roomBounds.Count} room renderer(s), "
+                    + $"{_roomsAnchored}/{_roomBounds.Count} tile-anchored — walls of unanchored "
+                    + "rooms are held SOLID (fail-safe) until their volume anchors.");
+                _lastRoomCensusCount = _roomBounds.Count;
+                _lastRoomCensusAnchored = _roomsAnchored;
+                _heartbeatLogged = false; // re-print the full table against the new room set
+            }
+
             // Board moved/tilted or a room got revealed → the perspective onto the play area
             // changed; flag it so UpdatePerspectiveState re-arms aggressive re-evaluation.
             if (_roomBounds.Count > 0)
@@ -1201,12 +1327,19 @@ internal static class WallSegmentFade
                 _roomCenterInit = true;
             }
 
-            // Drop segments whose anchor died (their renderers died with them).
+            // Drop segments whose anchor died (their renderers died with them). Attachments may
+            // OUTLIVE the anchor (a split piece's asset siblings live in a different subtree),
+            // so restore them first — a hidden door whose owner segment vanished would otherwise
+            // stay invisible forever (the foliage-orphan lesson, applied to every attachment).
             _deadKeys.Clear();
             foreach (KeyValuePair<Component, Segment> kv in _segments)
             {
                 if (kv.Key == null)
+                {
+                    RestoreSegmentFoliage(kv.Value);
+                    RestoreSegmentSiblings(kv.Value);
                     _deadKeys.Add(kv.Key!); // destroyed Unity object — reference still hashes
+                }
             }
             foreach (Component dead in _deadKeys)
                 _segments.Remove(dead);
@@ -1249,6 +1382,13 @@ internal static class WallSegmentFade
             AssociateRooms();
             StripGroundRenderers();
             NeutralizeEngulfingSegments();
+            // Second ground pass ON PURPOSE: NeutralizeEngulfingSegments creates fresh
+            // per-renderer segments AFTER the first strip, so a ground-level renderer inside a
+            // just-split group would otherwise be fade-eligible for one full rescan interval —
+            // exactly the "floor vanishes at the wall's foot" class. The pass is idempotent and
+            // the table is ~tens of segments, so running it twice is noise.
+            StripGroundRenderers();
+            CollectAdoptedSiblings();
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
@@ -1304,7 +1444,9 @@ internal static class WallSegmentFade
                     continue;
                 if (seg.Renderers.Count == 0)
                 {
-                    RestoreSegmentFoliage(seg); // segment leaves the table — free its bushes
+                    // Segment leaves the table — free ALL its attachments (bushes AND doors).
+                    RestoreSegmentFoliage(seg);
+                    RestoreSegmentSiblings(seg);
                     _deadKeys.Add(kv.Key);
                     continue;
                 }
@@ -1382,6 +1524,7 @@ internal static class WallSegmentFade
                 _splitAnchors.Add(engulfing.Key);
                 _segments.Remove(engulfing.Key);
                 RestoreSegmentFoliage(group); // pieces re-adopt the bushes on the next rescan
+                RestoreSegmentSiblings(group); // ditto for asset siblings (doors/trim)
                 if (group.HasBlock)
                 {
                     foreach (MeshRenderer r in group.Renderers)
@@ -1517,7 +1660,13 @@ internal static class WallSegmentFade
                     continue;
                 FinishRefresh(seg);
                 if (seg.Renderers.Count == 0)
+                {
+                    // Adopted group dissolved (renderers died / stopped matching) — its hidden
+                    // attachments must not outlive it (restore-everywhere discipline).
+                    RestoreSegmentFoliage(seg);
+                    RestoreSegmentSiblings(seg);
                     _deadKeys.Add(kv.Key);
+                }
             }
             foreach (Component dead in _deadKeys)
                 _segments.Remove(dead);
@@ -1584,6 +1733,115 @@ internal static class WallSegmentFade
             foreach (Segment sub in _splitPieceScratch)
                 FinishRefresh(sub);
             _splitPieceScratch.Clear();
+        }
+
+        /// <summary>
+        /// ASSET-ROOT RULE (Torbogen ruling, req: whole asset hides): for a fade-capable
+        /// renderer of an ADOPTED group, the asset root is the NEAREST ancestor whose subtree
+        /// also contains at least one non-fade MeshRenderer, provided that subtree stays under
+        /// <see cref="MaxAssetRootRenderers"/> renderers and within
+        /// <see cref="MaxAssetRootDepth"/> levels. Evidence (hardware log + torbogen.png): the
+        /// adopted group 'L : (guid)' is an Apparance layer root whose fade renderers are
+        /// CR_ST_Door_01_Frame_Thin + EN_CR_Pillar_Thin — the doorway's wooden wings and arch
+        /// trim are NON-fade siblings under the same per-doorway subtree (the door prop is an
+        /// Apparance ProceduralProp: frame, pillars, wings and trim are generated into one
+        /// subtree; Choreographer.OpenDoor animates that same object). Walking up from the
+        /// frame finds that per-doorway node BEFORE the renderer-count cap trips on the layer
+        /// root. FAILURE MODES (accepted, fail-open): (a) frames parented flat under a big
+        /// container → cap trips → nothing attached, today's remnant stays; (b) an asset root
+        /// that also parents small unrelated dressing hides it with the doorway — bounded by
+        /// the count cap and the per-renderer ground/actor/tile exclusions below.
+        /// </summary>
+        private Transform? FindAssetRoot(MeshRenderer fadeRenderer)
+        {
+            Transform? node = fadeRenderer.transform.parent;
+            for (int depth = 0; node != null && depth < MaxAssetRootDepth; depth++)
+            {
+                node.GetComponentsInChildren(includeInactive: false, _subtreeScratch);
+                if (_subtreeScratch.Count > MaxAssetRootRenderers)
+                    return null; // container scale ('L :' layer/section root) — stop, attach nothing
+                foreach (MeshRenderer c in _subtreeScratch)
+                {
+                    if (c != null && !RendererUsesWallFade(c))
+                        return node; // nearest ancestor that mixes fade + non-fade = the asset
+                }
+                node = node.parent;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// ASSET-COMPLETE FADE collection (adopted groups only — cache walls keep their
+        /// deliberate "props/doors under the same entity are never touched" contract, their
+        /// foliage path already covers the dressing): re-attach, per rescan, every non-fade
+        /// renderer under each fade renderer's asset root (<see cref="FindAssetRoot"/>) so the
+        /// WHOLE mixed asset hides with the segment. Exclusions, in order: renderers the game
+        /// itself disabled (unless WE hid them), fade-capable renderers (tracked as segments),
+        /// already-owned siblings (one owner per renderer), GROUND-ish renderers (AABB top
+        /// within the ground band of the room's anchored floor plane — floor never fades, in
+        /// any attachment type), and renderers under live game logic (ProceduralWall = cache
+        /// territory, ActorBehaviour = characters, TileBehaviour = worldspace tile UI/logic).
+        /// Runs after room association + ground strip because the ground exclusion needs the
+        /// room plane; segments without a trusted plane attach nothing (they are fail-safe
+        /// solid anyway). Leavers are restored exactly like foliage leavers.
+        /// </summary>
+        private void CollectAdoptedSiblings()
+        {
+            _siblingOwned.Clear();
+            foreach (Segment seg in _segments.Values)
+            {
+                if (seg.FromWallCache)
+                    continue;
+                seg.PrevSiblings.Clear();
+                seg.PrevSiblings.AddRange(seg.Siblings);
+                seg.Siblings.Clear();
+                if (RoomDecisionValid(seg.RoomIndex))
+                {
+                    float ceiling = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
+                    foreach (MeshRenderer r in seg.Renderers)
+                    {
+                        if (r == null)
+                            continue;
+                        Transform? root = FindAssetRoot(r);
+                        if (root == null)
+                            continue;
+                        root.GetComponentsInChildren(includeInactive: false, _subtreeScratch);
+                        foreach (MeshRenderer c in _subtreeScratch)
+                        {
+                            if (c == null || _siblingOwned.Contains(c))
+                                continue;
+                            // A renderer the GAME disabled is not ours to manage — except one
+                            // WE hid last rescan (still held faded): dropping it now would
+                            // re-enable + re-hide it in a one-frame flash.
+                            if (!c.enabled
+                                && !(seg.SiblingState == 2 && seg.PrevSiblings.Contains(c)))
+                                continue;
+                            if (RendererUsesWallFade(c))
+                                continue;
+                            if (c.bounds.max.y <= ceiling)
+                                continue; // floor-ish — never rides a fade, in any form
+                            if (c.GetComponentInParent<ProceduralWall>() != null
+                                || c.GetComponentInParent<ActorBehaviour>() != null
+                                || c.GetComponentInParent<TileBehaviour>() != null)
+                                continue;
+                            _siblingOwned.Add(c);
+                            seg.Siblings.Add(c);
+                        }
+                    }
+                }
+                if (seg.SiblingState != 0)
+                {
+                    // Restore leavers NOW — nothing else ever points at them again.
+                    foreach (MeshRenderer prev in seg.PrevSiblings)
+                    {
+                        if (prev != null && !seg.Siblings.Contains(prev) && !prev.enabled)
+                            prev.enabled = true;
+                    }
+                    if (seg.Siblings.Count == 0)
+                        seg.SiblingState = 0;
+                }
+                seg.PrevSiblings.Clear();
+            }
         }
 
         /// <summary>
@@ -2006,6 +2264,7 @@ internal static class WallSegmentFade
                 seg.Smooth = 0f;
                 seg.SmoothInit = false;
                 RestoreSegmentFoliage(seg);
+                RestoreSegmentSiblings(seg);
                 if (!seg.HasBlock)
                     continue;
                 seg.HasBlock = false;
