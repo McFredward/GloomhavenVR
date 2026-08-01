@@ -104,6 +104,9 @@ internal static partial class ModalFallback
     /// "cards can't be grabbed while the menu is open"). Genuine blockers (story/results/durability)
     /// also assert ModalUI, so the pick-block engages for them through the mode arm regardless — but
     /// this keeps the two consistent and does NOT re-introduce the ModalUI lock for reachable menus.
+    /// Tutorial deadlock #3: the rule is <see cref="IsBlockingWindow"/> — it additionally exempts
+    /// ACTION-dismissed scripted level messages ("Wähle Trampeln" instruction overlays), whose
+    /// blocking treatment gated off the very card/board interaction their dismiss trigger waits on.
     /// </summary>
     internal static bool BlockingWindowModalActive
     {
@@ -112,7 +115,7 @@ internal static partial class ModalFallback
             for (int i = 0; i < Converted.Count; i++)
             {
                 UIWindow w = Converted[i].Window;
-                if (w != null && !NonBlockingMenus.Contains(w.ID))
+                if (w != null && IsBlockingWindow(w))
                     return true;
             }
             return false;
@@ -144,6 +147,7 @@ internal static partial class ModalFallback
         _lastWant = false;
         _escapeChordFired = false;
         _escapeArmingLogged = false;
+        _lastActionDismissLogKey = null; // deadlock #3: re-log the ruling per fresh session
         _forcedTabs.Clear();
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
         ScreenWanted = false;
@@ -359,12 +363,15 @@ internal static partial class ModalFallback
         // Item 3b (user): the ModalUI LOCK is separate. The PLAYER-REACHABLE menus (pause/ESC,
         // Options, Multiplayer, Compendium…) must NOT lock world interaction — the user keeps
         // manipulating the board / cards while the pause menu is open. Lock ONLY when a genuine
-        // BLOCKING prompt is open (story, level message, dialog-confirm, results, durability) —
-        // i.e. an open window whose ID is NOT one of the reachable menus.
+        // BLOCKING prompt is open (story, dialog-confirm, results, durability, dismiss-button
+        // level messages). Tutorial deadlock #3: an ACTION-dismissed scripted level message is
+        // NOT a blocker — it floats visible but the board/cards/laser stay fully live, because
+        // its dismiss trigger IS a board/card interaction (IsBlockingWindow, part 7, decides
+        // both this lock and the ray/card pick gate from the same data-driven rule).
         bool anyBlocking = false;
         for (int i = 0; i < OpenWindows.Count; i++)
         {
-            if (!NonBlockingMenus.Contains(OpenWindows[i].ID))
+            if (IsBlockingWindow(OpenWindows[i]))
             {
                 anyBlocking = true;
                 break;
