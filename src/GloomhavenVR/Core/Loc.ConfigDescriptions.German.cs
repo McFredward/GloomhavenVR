@@ -643,6 +643,13 @@ internal static partial class Loc
                 + "Wände nie flackern lassen. AUS (Standard) hält jede Wand solide — das bisherige "
                 + "VR-Verhalten. Rein visuell und lokal (Material Property Blocks pro Renderer): Mitspieler im "
                 + "Mehrspieler sind nicht betroffen. Live umschaltbar in der VR-Einstellungstafel.",
+            ["Compat/TutorialVRAdapt"] =
+                "Macht das Spiel-Tutorial in VR spielbar. Der Kamera-Kennenlern-Schritt des Tutorials wartet "
+                + "auf den flachen Raumkamera-Knopf, den die VR-Fortbewegung ersetzt — mit AN schließt "
+                + "tatsächliches Bewegen der Welt (Stick-Klick ziehen / drehen / zoomen, Stick-Drehung) diesen "
+                + "Schritt über das spieleigene Ereignis ab, und Tutorial-Hinweise zu Maus-/Tastatur-Kamera "
+                + "zeigen stattdessen VR-Bewegungsanleitungen. Nur in Tutorial-Szenarien aktiv; AUS stellt das "
+                + "vollständig unveränderte Tutorial-Verhalten wieder her.",
             // ---- [Hands] ----
             ["Hands/PrimaryHand"] =
                 "Dominante Hand (Right/Left). Ihr Zeigefinger-Strahl ist die Standardquelle für die Auswahl "

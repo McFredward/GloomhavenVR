@@ -220,6 +220,28 @@ internal static partial class Loc
         ["bars_waiting_bonus"] = Pair("Mandatory bonus needs a pick — use the bar below the board",
                                       "Pflicht-Bonus braucht eine Auswahl — Leiste unter dem Board nutzen"),
 
+        // ---- tutorial VR adaptation (Compat.TutorialVR / TutorialHintPatches) ----
+        // Replaces the tutorial's flat camera-controls hint (mouse/WASD/edge scroll) at display
+        // time, keyed by the hint's localization key. The body's closing line is a PROMISE the
+        // camera-step bridge keeps: one deliberate drag/turn/zoom posts the game's own completion
+        // event (TutorialVR.NotifyLocomotion), so "move the table once" literally advances the
+        // tutorial. Bullet phrasing mirrors the settings panel's control names ("Stick-Klick",
+        // snap turn) so the hint and the config UI never disagree on what a control is called.
+        ["tut_vr_move_title"] = Pair("Moving in VR", "Bewegen in VR"),
+        ["tut_vr_move_body"] = Pair(
+            "This step normally explains the desktop camera — in VR you move the world directly:\n\n" +
+            "• Hold one thumbstick CLICKED (press it in) and drag your hand — the table follows.\n" +
+            "• Hold BOTH thumbstick clicks — turn your hands around each other to rotate the " +
+            "table, spread or pull them together to zoom.\n" +
+            "• Flick a thumbstick left/right for a snap turn.\n\n" +
+            "Move the table once and the tutorial continues.",
+            "Dieser Schritt erklärt normalerweise die Desktop-Kamera — in VR bewegst du die Welt direkt:\n\n" +
+            "• Halte einen Daumenstick GEDRÜCKT (hineindrücken) und ziehe die Hand — der Tisch folgt.\n" +
+            "• Halte BEIDE Stick-Klicks — drehe die Hände umeinander, um den Tisch zu drehen; " +
+            "ziehe sie auseinander oder zusammen, um zu zoomen.\n" +
+            "• Stick kurz nach links/rechts = Schnelldrehung.\n\n" +
+            "Bewege den Tisch einmal, dann geht das Tutorial weiter."),
+
         // ---- SettingsPanel: sections / labels / buttons ----
         // ["table_scale"] is GONE with its row (user ruling 2026-08: the "Tischgröße" setting
         // was removed — [Rig] WorldScale is a documented legacy no-op now).

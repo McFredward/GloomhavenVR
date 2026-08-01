@@ -54,6 +54,7 @@ internal static partial class Defaults
     internal const bool DisableVolumetricFog = true;                         // => [Compat] DisableVolumetricFog
     internal const string DisableComponents = "";                            // => [Compat] DisableComponents
     internal const bool WallFade = true;                                     // => [Compat] WallFade
+    internal const bool TutorialVRAdapt = true;                              // => [Compat] TutorialVRAdapt
     internal const string PrimaryHand = "Right";                             // => [Hands] PrimaryHand
     internal const Hands.HandStyle Hands_HandStyle = Hands.HandStyle.Glove;  // => [Hands] HandStyle
     internal const float GripPitchOffsetDegrees = -30f;                      // => [Hands] GripPitchOffsetDegrees  (legacy: read once as the seed for its successor)
