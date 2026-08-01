@@ -55,6 +55,28 @@ internal static partial class ModalFallback
     /// <summary>Unknown shown windows → the Time.frameCount of their Show transition.</summary>
     private static readonly Dictionary<UIWindow, int> UnknownShown = new();
 
+    /// <summary>
+    /// HOTFIX (hardware round 2026-08-01, "zwei leere Fenster flattern"): per-instance verdict
+    /// cache for <see cref="IsKnownHudWindow"/> — the component walk over e.g. the whole flat
+    /// hand subtree is far too heavy to repeat per tick (the un-cached catch-all measured
+    /// ~1000 ms/tick converting 'Cards Hands Manager'). Pruned with <see cref="UnknownShown"/>.
+    /// </summary>
+    private static readonly Dictionary<UIWindow, bool> HudVerdict = new();
+
+    /// <summary>Churn fuse: floats per window NAME within the rolling window.</summary>
+    private static readonly Dictionary<string, (int Count, float WindowStart)> FloatChurn = new();
+
+    /// <summary>Window names the churn fuse suppressed for the rest of the session.</summary>
+    private static readonly HashSet<string> ChurnSuppressed = new();
+
+    /// <summary>A window name floating more than this often within <see cref="ChurnWindowSeconds"/>
+    /// is NOT a stuck decision — decisions open once and wait. It is a self-cycling HUD banner
+    /// (the observed Notification/PhaseBanner pattern: show→hide every few seconds), and every
+    /// re-float pays a full conversion. Suppress it for the session (one Warn) — the manual A/X
+    /// screen chord still reaches it, and the Warn drives explicit enrollment/exclusion.</summary>
+    private const int ChurnMaxFloats = 3;
+    private const float ChurnWindowSeconds = 60f;
+
     /// <summary>Per-window-name Warn latch: ONE "enroll it explicitly" line per window type.</summary>
     private static readonly HashSet<string> CatchAllWarned = new();
 
@@ -142,7 +164,10 @@ internal static partial class ModalFallback
                 UnknownScratch.Add(kv.Key!);
         }
         for (int i = 0; i < UnknownScratch.Count; i++)
+        {
             UnknownShown.Remove(UnknownScratch[i]);
+            HudVerdict.Remove(UnknownScratch[i]); // verdict cache lives exactly as long as tracking
+        }
         UnknownScratch.Clear();
 
         // Kill-switch + scenario gate: menus/town keep current behavior (the pre-scenario
@@ -157,10 +182,32 @@ internal static partial class ModalFallback
             UIWindow window = kv.Key;
             if (window == null || now < kv.Value + CatchAllGraceTicks)
                 continue; // grace: explicit handlers win same-open races
+            if (ChurnSuppressed.Contains(window.name))
+                continue; // fuse blew for this window type — session-suppressed (see ChurnMaxFloats)
             if (!CatchAllEligible(window))
                 continue;
             if (ContainsWindow(OpenWindows, window))
                 continue; // already carried (e.g. its serialized ID IS a tracked one)
+
+            // CHURN FUSE (hotfix): every append below costs a full conversion when the part-4
+            // loop floats it. A window type re-floating in a tight loop (show→hide HUD banners)
+            // burned ~1000 ms/frame on hardware — cap it and move on.
+            float nowT = Time.unscaledTime;
+            if (!FloatChurn.TryGetValue(window.name, out (int Count, float WindowStart) churn)
+                || nowT - churn.WindowStart > ChurnWindowSeconds)
+                churn = (0, nowT);
+            churn.Count++;
+            FloatChurn[window.name] = churn;
+            if (churn.Count > ChurnMaxFloats)
+            {
+                ChurnSuppressed.Add(window.name);
+                VRLog.Warn("WorldUI", $"CATCH-ALL FUSE: window '{window.name}' re-floated " +
+                                      $"{churn.Count}× in {ChurnWindowSeconds:0}s — a cycling HUD " +
+                                      "banner, not a waiting decision; suppressed for this session " +
+                                      "(manual A/X screen chord still reaches it). Exclude it explicitly.");
+                continue;
+            }
+
             OpenWindows.Add(window);
             // ONE Warn per window type — the hardware log drives future EXPLICIT
             // enrollment (add the ID/poll, then this line disappears for that window).
@@ -180,6 +227,14 @@ internal static partial class ModalFallback
     {
         // Known-handled IDs (passives with post-mortems + surface-owned windows).
         if (CatchAllKnownHandled.Contains(window.ID))
+            return false;
+        // HOTFIX (hardware round 2026-08-01): known HUD OWNERS, matched by COMPONENT (their
+        // window IDs are all scene-serialized None, so the ID set above cannot carry them).
+        // These are permanent flat-HUD subsystems the mod already owns elsewhere — floating
+        // them produced exactly the reported bug: empty bar+X windows flapping over the view
+        // (Notification/PhaseBanner cycle show→hide constantly) and ~1000 ms conversions of
+        // the whole hidden hand subtree ('Cards Hands Manager').
+        if (IsKnownHudWindow(window))
             return false;
         // The three explicit polls resolve their own window instances — those join
         // OpenWindows through their polls (with their special handling: story-box X
@@ -207,6 +262,33 @@ internal static partial class ModalFallback
         if (canvas == null || canvas.rootCanvas.renderMode == RenderMode.WorldSpace)
             return false;
         return true;
+    }
+
+    /// <summary>
+    /// Known flat-HUD owners the catch-all must never float, matched by component because
+    /// their window IDs are scene-serialized <c>None</c>:
+    /// <c>CardsHandManager</c> (the hidden flat hand — the VR card fans ARE its surface),
+    /// <c>CombatLogHandler</c> (adopted by <see cref="Surfaces.CombatLogSurface"/> — the
+    /// instant-level conversion check misses it whenever that panel is currently released),
+    /// <c>UINotificationManager</c> and <c>PhaseBannerHandler</c> (transient banners cycling
+    /// show→hide — a float would flap and convert forever; they are ambient info, not
+    /// decisions). Verdict cached per instance (<see cref="HudVerdict"/>): the component
+    /// walk over the hand subtree is far too heavy to repeat per tick.
+    /// </summary>
+    private static bool IsKnownHudWindow(UIWindow window)
+    {
+        if (HudVerdict.TryGetValue(window, out bool hud))
+            return hud;
+        hud = window.GetComponentInParent<CardsHandManager>() != null
+              || window.GetComponentInParent<CombatLogHandler>() != null
+              || window.GetComponentInParent<UINotificationManager>() != null
+              || window.GetComponentInParent<PhaseBannerHandler>() != null
+              || window.GetComponentInChildren<CardsHandManager>(true) != null
+              || window.GetComponentInChildren<CombatLogHandler>(true) != null
+              || window.GetComponentInChildren<UINotificationManager>(true) != null
+              || window.GetComponentInChildren<PhaseBannerHandler>(true) != null;
+        HudVerdict[window] = hud;
+        return hud;
     }
 
     /// <summary>Is this instance one of the three explicit polls' windows (story box,
@@ -284,6 +366,9 @@ internal static partial class ModalFallback
     {
         UnknownShown.Clear();
         CatchAllWarned.Clear();
+        HudVerdict.Clear();
+        FloatChurn.Clear();
+        ChurnSuppressed.Clear();
         _rewardShowcaseOpen = false;
         ReleaseErrorFloat("module shutdown");
         ErrorModalOpen = false;
