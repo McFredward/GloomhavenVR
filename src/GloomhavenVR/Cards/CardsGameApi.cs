@@ -914,6 +914,155 @@ internal static class CardsGameApi
         return false;
     }
 
+    // -------------------------------------------- tutorial isolation mirror (deadlock #3) --
+
+    /// <summary>
+    /// TUTORIAL ISOLATION MIRROR — why every mod-driven select path consults the game's
+    /// interaction-isolation gate before committing (tutorial deadlock #3 follow-up):
+    ///
+    /// Scripted levels load a <c>CLevelUIInteractionProfile</c> per message
+    /// (<c>InteractabilityManager.LoadProfile</c>) that whitelists exactly the controls the
+    /// current step allows ("Wähle Trampeln" ⇒ only the 'Trample' card is clickable). In 2D
+    /// the gate sits on the WIDGET click layer: <c>ExtendedButton.OnPointerClick</c> /
+    /// <c>TrackedButton.OnPointerClick</c> call
+    /// <c>InteractabilityManager.ShouldAllowClickFor*</c> and swallow refused clicks
+    /// (ExtendedButton.cs:170, TrackedButton.cs:25). The VR mod drives the game one layer
+    /// BELOW those widgets (<c>CardsHandUI.SelectCard</c>, <c>FullAbilityCard.OnAbilityClick</c>,
+    /// <c>ReadyButton.OnClickInternal</c>, <c>ShortRest.MouseClick</c>), so without this mirror
+    /// a VR player could select a WRONG card / commit an off-script action the tutorial's
+    /// profile would have refused — silently desynchronizing the scripted chain.
+    ///
+    /// The mirror asks the game's OWN gate with the game's OWN widget instance (byte-for-byte
+    /// the 2D check: the profile-matched <c>InteractabilityIsolatedUIControl</c>s compare
+    /// button GameObjects, AbilityCardUI.cs:612-676), so allowed/refused can never diverge
+    /// from 2D. Outside scripted levels <c>ShouldTryPreventControl</c> is false and every gate
+    /// returns true — zero behavior change. Widget unresolvable ⇒ ALLOW (the DurabilityPanel
+    /// rule: a wrongly-allowed click is recoverable/undoable, a wrongly-refused RIGHT click is
+    /// an invisible tutorial deadlock). Refusals are VISIBLE: the game's invalid-option cue
+    /// (<see cref="RejectTutorialIsolated"/>) plus the existing bounce-back paths (the queued
+    /// select's completion already returns a rejected card to the fan).
+    ///
+    /// Paths that need NO mirror (verified): board tile clicks route through the vanilla
+    /// <c>Controller.LateUpdate</c> dispatch which applies
+    /// <c>ShouldAllowSelectionForTileIndex</c> itself (Controller.cs:176); laser clicks on
+    /// docked card faces hit the REAL uGUI buttons (native gate); UndoButton.OnClick checks
+    /// the gate internally (UndoButton.cs:98); Skip's clickable is a plain Button (ungated in
+    /// 2D too); ToggleLongRest goes through AbilityCardUI.OnClick which self-gates.
+    /// </summary>
+    internal static bool TutorialAllowsCardClick(CardsHandUI hand, CAbilityCard card)
+    {
+        try
+        {
+            if (InteractabilityManager.s_Instance == null)
+                return true;
+            // The card's own hand widget (the object the 2D click would land on) — scan
+            // cardsUI like the game's private GetCardUI does (one widget per card of every
+            // pile, CardsHandUI.cs:128).
+            List<AbilityCardUI> cards = hand.cardsUI;
+            for (int i = 0; i < cards.Count; i++)
+            {
+                AbilityCardUI widget = cards[i];
+                if (widget == null || !ReferenceEquals(widget.AbilityCard, card))
+                    continue;
+                ExtendedButton btn = widget.button; // publicized; the gate-registered button
+                return btn == null || InteractabilityManager.ShouldAllowClickForExtendedButton(btn);
+            }
+            return true; // widget unresolvable → allow (see doc comment)
+        }
+        catch (System.Exception)
+        {
+            return true; // a mirror bug must never refuse the scripted RIGHT card
+        }
+    }
+
+    /// <summary>
+    /// Isolation mirror for the half/default-action commit (see
+    /// <see cref="TutorialAllowsCardClick"/>). Resolves the exact TrackedButton the game
+    /// registers per action type (AbilityCardUI.cs:620-650: top/bottom =
+    /// <c>fullAbilityCard.*ActionButton.actionButton</c>'s TrackedButton, defaults =
+    /// <c>DefaultMoveButton</c>/<c>DefaultAttackButton</c>) and asks the game's own
+    /// TrackedButton gate. Only the mod's POKE zones need this — laser commits click the
+    /// real uGUI buttons and are gated natively.
+    /// </summary>
+    internal static bool TutorialAllowsHalfClick(FullAbilityCard full, CBaseCard.ActionType actionType)
+    {
+        try
+        {
+            if (InteractabilityManager.s_Instance == null)
+                return true;
+            TrackedButton? btn = actionType switch
+            {
+                CBaseCard.ActionType.TopAction =>
+                    full.topActionButton != null && full.topActionButton.actionButton != null
+                        ? full.topActionButton.actionButton.GetComponent<TrackedButton>() : null,
+                CBaseCard.ActionType.BottomAction =>
+                    full.bottomActionButton != null && full.bottomActionButton.actionButton != null
+                        ? full.bottomActionButton.actionButton.GetComponent<TrackedButton>() : null,
+                CBaseCard.ActionType.DefaultMoveAction => full.DefaultMoveButton,
+                CBaseCard.ActionType.DefaultAttackAction => full.DefaultAttackButton,
+                _ => null,
+            };
+            return btn == null || InteractabilityManager.ShouldAllowClickForTrackedButton(btn);
+        }
+        catch (System.Exception)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Isolation mirror for the board CONFIRM keycap: the 2D Ready click rides the
+    /// ExtendedButton gate (<c>readyButton</c> is an ExtendedButton, ReadyButton.cs:38) which
+    /// <see cref="ClickReady"/>'s direct <c>OnClickInternal</c> dispatch skips.</summary>
+    internal static bool TutorialAllowsReadyClick()
+    {
+        try
+        {
+            ReadyButton? b = Ready();
+            ExtendedButton? btn = b != null ? b.readyButton : null;
+            return btn == null || InteractabilityManager.ShouldAllowClickForExtendedButton(btn);
+        }
+        catch (System.Exception)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Isolation mirror for the short-rest toggle: 2D clicks the ShortRest widget's
+    /// ExtendedButton (ShortRest.cs:39/78) — gated — while <see cref="ToggleShortRest"/> calls
+    /// <c>MouseClick()</c> below that layer.</summary>
+    internal static bool TutorialAllowsShortRestClick(CardsHandUI hand)
+    {
+        try
+        {
+            ShortRest? rest = hand != null ? hand.shortRest : null;
+            ExtendedButton? btn = rest != null ? rest.Button : null;
+            return btn == null || InteractabilityManager.ShouldAllowClickForExtendedButton(btn);
+        }
+        catch (System.Exception)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Make an isolation refusal VISIBLE (mission: tutorial fully playable — a silent no-op
+    /// reads as "VR is broken"): the game's own invalid-option cue, the identical hook
+    /// <see cref="RejectActionPhaseSelect"/>/<see cref="RejectForeignSelect"/> use
+    /// (<c>UIInfoTools.InvalidOptionAudioItem</c>, the sound FullAbilityCard.OnAbilityClick
+    /// plays on an illegal card click, FullAbilityCard.cs:625), plus one attributable log
+    /// line. Returns false for call-site readability (<c>return RejectTutorialIsolated(…)</c>
+    /// from bool paths is deliberately NOT used — callers early-return).
+    /// </summary>
+    internal static void RejectTutorialIsolated(string what)
+    {
+        UIInfoTools tools = UIInfoTools.Instance;
+        if (tools != null)
+            AudioControllerUtils.PlaySound(tools.InvalidOptionAudioItem, optional: true);
+        VRLog.Info("Cards", $"Tutorial isolation REFUSED {what} — the scripted step's interaction " +
+                            "profile does not allow this control right now (the same refusal the 2D " +
+                            "widget gate gives); played the game's invalid-option cue.");
+    }
+
     // ---------------------------------------------------- selection (spin-wait path) --
 
     /// <summary>
@@ -922,14 +1071,36 @@ internal static class CardsGameApi
     /// <see cref="CardActionQueue"/> (contains the OnCardSelected spin-wait).
     /// Verified: <c>public void SelectCard(CAbilityCard card)</c> (CardsHandUI.cs:2604,
     /// 74 B IL) → <c>AbilityCardUI.OnClick(bool ignoreHiglight)</c>.
+    /// Tutorial deadlock #3: consults the isolation mirror FIRST — a refusal no-ops with the
+    /// denied cue, and every caller's existing completion check ("did the card actually enter
+    /// the round?") then bounces the card back to the fan, so the refusal is fully visible.
     /// </summary>
-    internal static void SelectCard(CardsHandUI hand, CAbilityCard card) => hand.SelectCard(card);
+    internal static void SelectCard(CardsHandUI hand, CAbilityCard card)
+    {
+        if (!TutorialAllowsCardClick(hand, card))
+        {
+            RejectTutorialIsolated($"card select '{card?.Name}'");
+            return;
+        }
+        hand.SelectCard(card);
+    }
 
     /// <summary>
     /// Verified: <c>public void UnselectCard(CAbilityCard card)</c> (CardsHandUI.cs:2619).
     /// Spin-wait path (OnCardDeselected) — queue it.
+    /// Tutorial deadlock #3: same isolation mirror as <see cref="SelectCard"/> — in 2D an
+    /// unselect is a click on the very same gated card widget. On refusal the authoritative
+    /// rebuild (callers set _dirty in the completion) re-seats the card in its slot.
     /// </summary>
-    internal static void UnselectCard(CardsHandUI hand, CAbilityCard card) => hand.UnselectCard(card);
+    internal static void UnselectCard(CardsHandUI hand, CAbilityCard card)
+    {
+        if (!TutorialAllowsCardClick(hand, card))
+        {
+            RejectTutorialIsolated($"card unselect '{card?.Name}'");
+            return;
+        }
+        hand.UnselectCard(card);
+    }
 
     /// <summary>
     /// Toggle the long-rest pseudo-card (CardID −1, spawned into every hand,
@@ -1300,6 +1471,13 @@ internal static class CardsGameApi
     /// </summary>
     internal static void ToggleShortRest(CardsHandUI hand)
     {
+        // Tutorial deadlock #3: mirror the widget's ExtendedButton gate (2D short-rest
+        // clicks are gated there; MouseClick sits below it).
+        if (!TutorialAllowsShortRestClick(hand))
+        {
+            RejectTutorialIsolated("short-rest toggle");
+            return;
+        }
         ShortRest rest = hand.shortRest;
         if (rest != null)
             rest.MouseClick();
@@ -1433,8 +1611,17 @@ internal static class CardsGameApi
     /// <c>ProxySelectCardAction</c>, whose <c>checkValid: false</c> skips validity.
     /// No spin-wait inside (see class remarks) — safe to call directly from a poke.
     /// </summary>
-    internal static void PlayHalf(FullAbilityCard card, CBaseCard.ActionType actionType) =>
+    /// Tutorial deadlock #3: the poke path consults the isolation mirror first — 2D half
+    /// clicks ride the TrackedButton gate that OnAbilityClick itself never re-checks.
+    internal static void PlayHalf(FullAbilityCard card, CBaseCard.ActionType actionType)
+    {
+        if (!TutorialAllowsHalfClick(card, actionType))
+        {
+            RejectTutorialIsolated($"half commit {actionType} on '{card?.abilityCard?.Name}'");
+            return;
+        }
         card.OnAbilityClick(actionType, isProxyAction: false, checkValid: true);
+    }
 
     /// <summary>
     /// The same validity query the UI buttons render from. Verified:
@@ -1599,6 +1786,13 @@ internal static class CardsGameApi
     {
         if (!CanConfirm())
             return false;
+        // Tutorial deadlock #3: mirror the ExtendedButton gate the 2D Ready click runs
+        // through — OnClickInternal below it doesn't re-check (see TutorialAllowsReadyClick).
+        if (!TutorialAllowsReadyClick())
+        {
+            RejectTutorialIsolated("board CONFIRM (ReadyButton)");
+            return false;
+        }
         Ready()!.OnClickInternal();
         return true;
     }
