@@ -84,7 +84,11 @@ internal sealed class PileViewer
     /// <summary>Item-surrender pick (event consume/refresh mali): per-frame pump, driven by the
     /// CardsDriver INDEPENDENTLY of the stack visibility gate in <see cref="TickStatus"/> —
     /// the demand can arrive at scenario start before any pile UI has ever shown.</summary>
-    internal void TickItemDemand(CardsHandUI? hand) => _itemsBrowse.TickDemandPick(hand);
+    internal void TickItemDemand(CardsHandUI? hand)
+    {
+        _itemsBrowse.TickDemandPick(hand);
+        _itemsBrowse.TickTakeDamagePick(hand); // req C: take-damage shield place (no-op outside the decision)
+    }
 
     /// <summary>
     /// Issue 5 (fly-to-pile): world placement of one pile stack, for animating a just-cleared

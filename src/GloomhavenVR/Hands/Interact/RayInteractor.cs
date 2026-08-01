@@ -576,19 +576,46 @@ internal sealed class RayInteractor : IPickProvider
     private static float s_nextFanOcclusionLogAt;
 
     /// <summary>
-    /// Nearest OPEN-fan card hit along the ray, or +inf (fan closed / ray misses it). Same
-    /// geometric card-rect test the fan pluck uses (no sticky bias) — the nearest card along
-    /// the ray is the topmost by construction. NOT a physics query: fan cards are trigger
-    /// colliders on the mod layer, invisible to the pick Mask.
+    /// Nearest MOD-FAN card hit along the ray, or +inf (all fans closed / ray misses them).
+    /// Same geometric card-rect tests the fan plucks use (no sticky bias) — the nearest card
+    /// along the ray is the topmost by construction. NOT a physics query: fan cards are
+    /// trigger colliders on the mod layer, invisible to the pick Mask.
+    ///
+    /// COVERS EVERY OPEN FAN SURFACE, not just the hand fan (requirement B — laser clicked
+    /// THROUGH the item fan onto the initiative track): the hand fan (<see cref="Cards.CardFan.Current"/>),
+    /// the discard/burnt browse arc (<see cref="Cards.PileBrowser.Current"/>) and the ITEM fan
+    /// (<see cref="Cards.ItemsPile.Current"/>). The reverse arbitration already existed — each
+    /// fan-laser path in CardsDriver.3.Laser yields to a NEARER uGUI hit
+    /// (<c>RayUgui.HasHit &amp;&amp; RayUgui.HitDistance &lt; dist</c>) — but the forward direction only
+    /// consulted the hand fan here, so a hovered item-fan chip popped while RayUguiDriver kept
+    /// hovering/clicking the converted initiative-track panel BEHIND it at greater distance.
+    /// Taking the min over all three fans closes that gap at the single arbitration seam every
+    /// consumer (board physics pick above, RayUguiDriver, RayGrabDriver) already honours:
+    /// "the closer game UI wins", in BOTH directions, for every fan alike.
     /// </summary>
     private static float ComputeFanOccluder(Vector3 origin, Vector3 direction, float maxDistance)
     {
+        float best = float.PositiveInfinity;
+
         Cards.CardFan? fan = Cards.CardFan.Current;
-        if (fan == null)
-            return float.PositiveInfinity;
-        return fan.TryRaycast(origin, direction, null, out _, out _, out float dist) && dist <= maxDistance
-            ? dist
-            : float.PositiveInfinity;
+        if (fan != null
+            && fan.TryRaycast(origin, direction, null, out _, out _, out float fanDist)
+            && fanDist <= maxDistance && fanDist < best)
+            best = fanDist;
+
+        Cards.PileBrowser? browse = Cards.PileBrowser.Current;
+        if (browse != null
+            && browse.TryRaycast(origin, direction, null, out _, out _, out float browseDist)
+            && browseDist <= maxDistance && browseDist < best)
+            best = browseDist;
+
+        Cards.ItemsPile? items = Cards.ItemsPile.Current;
+        if (items != null
+            && items.TryLaserRaycast(origin, direction, null, out _, out _, out float itemDist)
+            && itemDist <= maxDistance && itemDist < best)
+            best = itemDist;
+
+        return best;
     }
 
     /// <summary>

@@ -156,6 +156,10 @@ internal sealed class UseBarsSurface
     private float _rowBottomLatched;
     private bool _rowBottomValid;
 
+    /// <summary>The items dock, held separately: the place-to-use split (EnforceItemsSplit)
+    /// suppresses plain-use slots only on THIS dock while it is converted.</summary>
+    private readonly BarDock _itemsDock;
+
     internal UseBarsSurface()
     {
         // Fixed stack order, top to bottom: bonuses (turn-defining toggles first), the
@@ -163,12 +167,13 @@ internal sealed class UseBarsSurface
         // The container accessor feeds the fit-stability hold: the bar's serialized slot
         // container is the LAYOUT truth (slots are Instantiate(prefab, container)), so its
         // active-children set changes exactly when the slot set does — never on hover.
+        _itemsDock = new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, ItemsContainer, this);
         _docks = new[]
         {
             new BarDock("UseBarActiveBonus", ActiveBonusRoot, ActiveBonusPopulated, ActiveBonusContainer, this),
             new BarDock("UseBarAbilities", AbilitiesRoot, AbilitiesPopulated, AbilitiesContainer, this),
             new BarDock("UseBarAugments", AugmentsRoot, AugmentsPopulated, AugmentsContainer, this),
-            new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, ItemsContainer, this),
+            _itemsDock,
         };
     }
 
@@ -179,12 +184,15 @@ internal sealed class UseBarsSurface
         for (int i = 0; i < _docks.Length; i++)
             _docks[i].Tick(); // convert / release, level-triggered on the polled slot state
 
+        EnforceItemsSplit(); // req C: plain item slots never show in a docked (mixed) items bar
         StackDocked();
         UpdateWaitingHint();
     }
 
     internal void Shutdown()
     {
+        RestorePlainHidden(Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null); // req C: leave the 2D bar exactly as authored
         for (int i = 0; i < _docks.Length; i++)
             _docks[i].Shutdown();
         ClearHint();
@@ -277,6 +285,18 @@ internal sealed class UseBarsSurface
         Singleton<UIUseItemsBar>.IsInitialized
             ? Singleton<UIUseItemsBar>.Instance.container : null;
 
+    /// <summary>
+    /// Requirement C (activation split): the items bar wants dock ONLY for slots whose
+    /// activation opens a further SUB-CHOICE at the slot (element consume/infuse "Any" —
+    /// <see cref="CardsGameApi.SlotNeedsSubChoice"/>, decompiled basis on that predicate).
+    /// PLAIN use/toggle items are activated exclusively by physically placing the item card
+    /// into the board's item-use slot (the ItemsPile clip-in flow), so their symbols never
+    /// count toward docking — and if ALL visible slots are plain, the bar does not dock at
+    /// all. Bonus/augment/ability bars are deliberately unaffected: their slots carry the
+    /// choice UIs (initiative ±, forgo, infusion picks) the split keeps in the bars.
+    /// A slot this surface itself suppressed (see <see cref="EnforceItemsSplit"/>) is
+    /// inactive and naturally does not count.
+    /// </summary>
     private static bool ItemsPopulated()
     {
         UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
@@ -285,10 +305,97 @@ internal sealed class UseBarsSurface
             return false;
         foreach (KeyValuePair<CItem, UIUseItemScenario> kv in bar.ItemSlots)
         {
-            if (kv.Value != null && kv.Value.gameObject.activeSelf)
+            if (kv.Value != null && kv.Value.gameObject.activeSelf
+                && CardsGameApi.SlotNeedsSubChoice(kv.Value))
                 return true;
         }
         return false;
+    }
+
+    // ---- requirement C: hide PLAIN item slots while the (mixed) items bar is docked ---------
+
+    // The plain-use slots this surface hid while the items bar is docked (a mixed bar: choice
+    // slots keep it docked, plain symbols must not appear). Tracked as (item, slot) pairs so
+    // the restore only ever re-activates a slot that still belongs to that item in the bar's
+    // live registry — never a slot the game itself has since hidden/pooled for other reasons.
+    private readonly List<KeyValuePair<CItem, UIUseItemScenario>> _plainHidden = new(4);
+    private int _lastPlainHiddenCount = -1;
+
+    /// <summary>
+    /// Requirement C, mixed-bar case: while the items bar IS docked (because at least one
+    /// visible slot carries a sub-choice), the PLAIN slots ride along in the converted subtree
+    /// — their symbols would appear and stay clickable, violating "place the card is THE way".
+    /// Suppress them (SetActive(false)) level-triggered every tick (the game's AddItem/
+    /// RefreshItem may re-activate a slot at any time — e.g. an element unreserve re-adding an
+    /// item, UIUseItemsBar.cs:59/[OnUnreservedElement]), and restore the exact pooled 2D state
+    /// the moment the dock releases (or on shutdown / the manual rescue screen, which releases
+    /// the conversion first). Purely a visibility split of WHICH slots dock; the bar's own
+    /// logic, data and click seams are untouched — reversible by construction.
+    /// </summary>
+    private void EnforceItemsSplit()
+    {
+        bool docked = _itemsDock.Docked != null;
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+
+        if (!docked || bar == null)
+        {
+            RestorePlainHidden(bar);
+            return;
+        }
+
+        foreach (KeyValuePair<CItem, UIUseItemScenario> kv in bar.ItemSlots)
+        {
+            UIUseItemScenario slot = kv.Value;
+            if (slot == null || !slot.gameObject.activeSelf)
+                continue;
+            if (CardsGameApi.SlotNeedsSubChoice(slot))
+                continue; // choice slot — the reason the bar is docked; keep it
+            slot.gameObject.SetActive(false);
+            bool known = false;
+            for (int i = 0; i < _plainHidden.Count; i++)
+                if (ReferenceEquals(_plainHidden[i].Value, slot))
+                {
+                    known = true;
+                    break;
+                }
+            if (!known)
+                _plainHidden.Add(kv);
+        }
+
+        if (_plainHidden.Count != _lastPlainHiddenCount)
+        {
+            _lastPlainHiddenCount = _plainHidden.Count;
+            if (_plainHidden.Count > 0)
+                VRLog.Info("WorldUI", $"USE BARS: items-bar SPLIT — {_plainHidden.Count} plain-use slot(s) hidden " +
+                                      "from the docked bar (plain items activate by placing the card into the " +
+                                      "board's item slot); choice slots (element sub-picks) remain docked.");
+        }
+    }
+
+    /// <summary>Restore every slot this surface hid, but only where the bar still maps the same
+    /// item to the same slot AND the bar is still shown — otherwise the game has already taken
+    /// the slot back (hidden/pooled) and re-activating would corrupt its pooling.</summary>
+    private void RestorePlainHidden(UIUseItemsBar? bar)
+    {
+        if (_plainHidden.Count == 0)
+        {
+            _lastPlainHiddenCount = -1;
+            return;
+        }
+        for (int i = 0; i < _plainHidden.Count; i++)
+        {
+            UIUseItemScenario slot = _plainHidden[i].Value;
+            CItem item = _plainHidden[i].Key;
+            if (slot == null || bar == null || !bar.IsShown)
+                continue;
+            if (bar.ItemSlots.TryGetValue(item, out UIUseItemScenario live)
+                && ReferenceEquals(live, slot) && !slot.gameObject.activeSelf)
+                slot.gameObject.SetActive(true);
+        }
+        _plainHidden.Clear();
+        _lastPlainHiddenCount = -1;
+        VRLog.Info("WorldUI", "USE BARS: items-bar split released — hidden plain-use slots restored to the bar's own state.");
     }
 
     /// <summary>

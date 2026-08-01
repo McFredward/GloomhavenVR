@@ -852,9 +852,27 @@ internal sealed partial class CardsDriver
         // owning actor (a shared party reward), so ANY local hand anchors the surfaces; without
         // this, a forfeit arriving during a REMOTE actor's turn would leave the deciding host
         // with no presented hand and the deadlock would survive.
-        CardsHandUI? hand = CardsGameApi.ActionSelectionHand()
+        // Requirement A (deciding-actor hand, the generalized ItemPickHand pattern): the game
+        // raises its interactive decision flows ONE at a time (each is a blocking SRL phase
+        // step released only by StepComplete — the Choreographer's message queue is a plain
+        // FIFO renderer, Choreographer.cs:1645/2344), so a simple priority chain here IS
+        // "switch as each flow arrives". Two more deciding-actor flows join the chain:
+        //  - TakeDamageHand (FIRST — the panel is modal over whatever turn is running): the
+        //    attacked/burning character's hand while an open take-damage decision is locally
+        //    controlled, so the item fan holds THAT character's shield items and the burn pick
+        //    stays on the paying hand. Ahead of ActionSelectionHand deliberately: while the
+        //    panel is open no ability click is possible anyway, and the decision can target a
+        //    DIFFERENT local character than the acting one.
+        //  - InitiativeAdjustHand: the boots' ± phase walks the party one actor at a time and
+        //    the game deliberately never SwitchHands there (InitiativeTrackPlayerAvatar.cs:24),
+        //    so CurrentHand is stale — the reported "fan showed the other character's items".
+        // All entries are null OUTSIDE their flow, so normal presentation — including manual
+        // portrait switching via the initiative track — is untouched between decisions.
+        CardsHandUI? hand = CardsGameApi.TakeDamageHand()
+                            ?? CardsGameApi.ActionSelectionHand()
                             ?? CardsGameApi.ItemPickHand()
                             ?? CardsGameApi.LoseRewardPickHand()
+                            ?? CardsGameApi.InitiativeAdjustHand()
                             ?? CardsGameApi.ActiveHand();
         return hand != null && CardsGameApi.IsLocalHand(hand) ? hand : null;
     }

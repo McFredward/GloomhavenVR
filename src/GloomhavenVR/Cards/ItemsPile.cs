@@ -38,9 +38,18 @@ namespace GloomhavenVR.Cards;
 /// (per-board <c>ItemUseSlotOffset</c>, debug-menu tunable). Its visibility is
 /// re-evaluated LIVE every tick: shown ONLY while it is the local character's own turn
 /// (<see cref="CardsGameApi.IsActionTurn"/>) AND a held item card's live
-/// <c>SlotState</c> is usable. Dropping that card into the slot calls
-/// <c>new UseItemService(hand.PlayerActor).UseItem(cItem)</c> (which owns ALL multiplayer
-/// sync + re-validates the item).</item>
+/// <c>SlotState</c> is usable. Dropping that card into the slot activates through the
+/// game's own items-bar slot click when a live slot exists (the exact 2D/proxy seam),
+/// falling back to <c>new UseItemService(hand.PlayerActor).UseItem(cItem)</c> (which owns
+/// ALL multiplayer sync + re-validates the item).</item>
+/// <item>ACTIVATION SPLIT (requirement C): PLAIN use/toggle items activate EXCLUSIVELY by
+/// this place-into-slot flow — their symbols are filtered out of the docked
+/// <c>UIUseItemsBar</c> (WorldUI <c>UseBarsSurface</c>); items whose activation opens an
+/// element SUB-CHOICE at the slot (<see cref="CardsGameApi.ItemNeedsSubChoice"/>) keep
+/// their bar symbol instead and never clip into the slot. The split also covers the
+/// TAKE-DAMAGE decision: placing an OnAttacked shield/retaliate card toggles it through
+/// the panel's own slot seam (<see cref="TickTakeDamagePick"/>), the panel's confirm
+/// commits.</item>
 /// </list>
 /// State → look: CONSUMED → ashen + the hosted card's OWN consumed FX (the game's separate
 /// CardSmoke plume is deliberately NOT spawned here — see the note in ItemChip.Create);
@@ -168,7 +177,16 @@ internal sealed class ItemsPile
         return items != null ? items.Count : 0;
     }
 
-    /// <summary>The acting character's equipped items (null-safe; never mutated).</summary>
+    /// <summary>
+    /// The acting character's equipped items (null-safe; never mutated). Requirement A —
+    /// verified UNFILTERED: <c>CInventory.AllItems</c> (CInventory.cs:35-55) concatenates EVERY
+    /// equipped slot (Head, Body, Legs, TwoHand/OneHand, SmallItems, QuestItems) with no
+    /// usability/slot-state filter, and neither <see cref="Populate"/> nor <see cref="Signature"/>
+    /// drops any entry — passives and timed/triggered items (the initiative boots) are ALWAYS
+    /// present; state only changes the LOOK (Spent = tapped, Consumed = ashen, usable = gold
+    /// frame). The historical "boots missing" report was the presented-HAND mismatch during
+    /// another actor's decision phase — fixed in CardsDriver.CurrentHand (deciding-actor chain).
+    /// </summary>
     private static List<CItem>? ItemsOf(CardsHandUI? hand)
     {
         CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
@@ -242,6 +260,7 @@ internal sealed class ItemsPile
         _pendingUseChip = null; // #6: drop any pending decision on close
         _demandChip = null;     // surrender pick: the chip dies with the fan; the game selection
                                 // survives in the picker and the pump re-opens the fan next tick
+        _tdChip = null;         // take-damage place: same — the toggle survives in the panel
         if (_useGhost != null) // #8: never leave a drop-preview floating once the fan is gone
             _useGhost.SetActive(false);
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
@@ -262,6 +281,8 @@ internal sealed class ItemsPile
         _demandChip = null;     // surrender pick
         _demandActive = false;
         _demandLoseReward = false;
+        _tdChip = null;         // take-damage place
+        _tdActive = false;
         if (ReferenceEquals(Current, this))
             Current = null;
         IsOpen = false;
@@ -319,8 +340,11 @@ internal sealed class ItemsPile
         }
 
         // Live refresh: rebuild only when nothing is held AND no decision is pending (so a chip clipped
-        // into the use slot is never yanked by a rebuild) and the inventory state moved.
-        if (!AnyHeld() && _pendingUseChip == null)
+        // into the use slot is never yanked by a rebuild) and the inventory state moved. The take-damage
+        // clip (_tdChip) must guard too: unlike the surrender pick, its select seam (ToggleShieldItem →
+        // Inventory.SelectItem) CHANGES the item's SlotState, which changes the signature — without the
+        // guard the very act of placing the shield card would rebuild the fan and destroy the clipped chip.
+        if (!AnyHeld() && _pendingUseChip == null && _tdChip == null)
         {
             string sig = Signature(hand);
             if (sig != _signature)
@@ -342,6 +366,12 @@ internal sealed class ItemsPile
             // hide the slot every tick: IsActionTurn is false while the Choreographer waits
             // in WaitingForItemRefresh).
             TickUseGhost(false, null);
+        }
+        else if (_tdActive)
+        {
+            // TAKE-DAMAGE shield place (req C): TickTakeDamagePick owns the slot visibility,
+            // the ghost and the clipped chip — the action-turn gate below must not fight it
+            // (IsActionTurn is false while the enemy's attack waits on the damage decision).
         }
         else if (_pendingUseChip != null)
         {
@@ -778,14 +808,19 @@ internal sealed class ItemsPile
     /// The single held chip that can actually be USED right now (requirement 3): non-passive AND
     /// in a Useable/Selected slot state — the EXACT predicate <c>UseItemService.UseItem</c>
     /// enforces (evaluated LIVE via <see cref="ItemChip.IsActivatable"/>), so the slot never
-    /// appears for an item the service would reject.
+    /// appears for an item the service would reject. Requirement C (activation split): items
+    /// whose activation needs a further SUB-CHOICE (element consume/infuse "Any" —
+    /// <see cref="CardsGameApi.ItemNeedsSubChoice"/>) are excluded — their activation lives
+    /// EXCLUSIVELY on their docked bar symbol (the choice UI is there); plain items conversely
+    /// activate exclusively by the place-into-slot flow (their symbols never dock).
     /// </summary>
     private ItemChip? HeldActivatableChip()
     {
         for (int i = 0; i < _chips.Count; i++)
         {
             ItemChip c = _chips[i];
-            if (c != null && c.Holder != null && c.IsActivatable)
+            if (c != null && c.Holder != null && c.IsActivatable
+                && !CardsGameApi.ItemNeedsSubChoice(c.Item!, _hand))
                 return c;
         }
         return null;
@@ -913,8 +948,27 @@ internal sealed class ItemsPile
             return;
         }
 
+        // TAKE-DAMAGE shield place (req C): while the damage decision presents OnAttacked
+        // candidates on the (hidden) items bar, a drop TOGGLES the shield item through the
+        // panel's own slot seam — never UseItemService (the panel's confirm commits + syncs).
+        if (_tdActive)
+        {
+            HandleTakeDamageDrop(chip, dropWorldPos, slot, vrHand);
+            return;
+        }
+
         if (!chip.IsActivatable)
             return;
+        // Requirement C (activation split): a CHOICE item (element sub-pick) never clips into
+        // the use slot — its bar symbol carries the choice UI. Mirrors HeldActivatableChip, so
+        // the slot was never shown for this chip anyway; this is the belt-and-braces on the
+        // drop itself.
+        if (CardsGameApi.ItemNeedsSubChoice(chip.Item!, _hand))
+        {
+            VRLog.Info("Cards", $"ITEM place: '{chip.name}' needs an element sub-choice — its docked bar " +
+                                "symbol carries that choice; the card returns to the fan.");
+            return;
+        }
 
         // Proximity test in world space (parenting-independent): the capture radius scales with
         // the board so the slot stays the same on-screen size at any board scale.
@@ -1032,8 +1086,20 @@ internal sealed class ItemsPile
         string itemName = chip.name;
         try
         {
-            // UseItemService owns the online GameAction send + local execution + re-validation.
-            new UseItemService(actor).UseItem(item);
+            // Requirement C: prefer the game's OWN items-bar slot click when a live slot exists
+            // (ShowUsableItems keeps the hidden 2D bar populated during the turn) — byte-identical
+            // to the 2D click AND to the game's own MP replay seam (ProxyUseItemBonus →
+            // slot.OnPointerDown, UIUseItemsBar.cs:618). Unlike the direct service call it also
+            // auto-resolves FIXED-element consumes (MultiElementPickController.Pick) before the
+            // wired UseItemService runs. Only PLAIN slots reach here (the sub-choice gate is on
+            // the drop), so the click can never open a picker. Fallback: the direct service call
+            // (owns the online GameAction send + local execution + re-validation), as before.
+            UIUseItemScenario? slot = CardsGameApi.LiveItemsBarSlot(item);
+            bool viaSlot = slot != null && !CardsGameApi.SlotNeedsSubChoice(slot)
+                           && CardsGameApi.ClickItemsBarSlot(slot);
+            if (!viaSlot)
+                new UseItemService(actor).UseItem(item);
+            VRLog.Info("Cards", $"ITEM USE seam: {(viaSlot ? "items-bar slot click (game's own 2D/proxy seam)" : "UseItemService direct (no live bar slot)")} for '{itemName}'.");
         }
         catch (System.Exception e)
         {
@@ -1354,6 +1420,206 @@ internal sealed class ItemsPile
         PlayTray.Current?.SetItemUseSlotVisible(false);
         _useSlotShownLogged = false;
         VRLog.Info("Cards", $"ITEM SURRENDER pick END ({why}).");
+    }
+
+    // ------------------------------------------------- take-damage shield place (req C) --
+
+    // TAKE-DAMAGE decision context: while TakeDamagePanel presents the attacked actor's
+    // OnAttacked shield/retaliate items on the (hidden) UIUseItemsBar
+    // (TakeDamagePanel.Show → ShowItems(actorBeingAttacked, OnAttacked-filter,
+    // ToggleShieldItem, clear:true), TakeDamagePanel.cs:249-264), placing the item CARD into
+    // the board's use slot toggles the item through the game's own slot seam — the exact 2D
+    // click (slot.OnPointerDown → Toggle → onSelect/onUnselect → TakeDamagePanel.
+    // ToggleShieldItem → Inventory.SelectItem/DeselectItem). Grabbing the card back OUT
+    // toggles it off the same way. There is NO extra board confirm: the panel's own
+    // TakeDamage button (docked by DecisionDockSurface) commits — that confirm carries the
+    // whole selection online in one GameActionType.TakeDamage ItemsToken
+    // (TakeDamagePanel.cs:770-775; per-click sync is deliberately absent in the 2D flow too,
+    // the ShowItems wrapper skips the send during TakeDamageConfirmation). Zero wire changes.
+    private bool _tdActive;
+    private ItemChip? _tdChip;      // chip clipped into the slot = the toggled shield item
+    private float _tdNextOpenAt;    // fan auto-(re)open throttle (the demand-pick pattern)
+
+    /// <summary>
+    /// TAKE-DAMAGE place pump, one call per frame from the driver (sibling of
+    /// <see cref="TickDemandPick"/>): while an open, locally-decided take-damage decision
+    /// presents OnAttacked items for the PRESENTED hand's actor
+    /// (<see cref="CardsGameApi.TakeDamagePlaceContext"/> — the presented hand itself follows
+    /// the attacked actor via CardsGameApi.TakeDamageHand), raise the item fan board-anchored
+    /// (the plain shield symbols are FILTERED from the docked bar, so the fan IS the
+    /// affordance), gate the use slot on a held candidate, and service the clipped chip
+    /// (grab-back = toggle off through the panel's own slot seam). Ends the moment the panel
+    /// closes — the game's confirm already committed (or discarded) the selection.
+    /// </summary>
+    internal void TickTakeDamagePick(CardsHandUI? hand)
+    {
+        bool active = hand != null && !_demandActive && CardsGameApi.TakeDamagePlaceContext(hand);
+        if (!active)
+        {
+            if (_tdActive)
+                EndTakeDamagePick("panel closed / context lost — the panel confirm owns the committed selection");
+            return;
+        }
+
+        if (!_tdActive)
+        {
+            _tdActive = true;
+            _tdNextOpenAt = 0f;
+            VRLog.Info("Cards", "TAKE-DAMAGE item place OPEN: the damage decision presents OnAttacked " +
+                                "shield/retaliate items (TakeDamagePanel → hidden UIUseItemsBar; plain " +
+                                "symbols are filtered from the docked bar) — item fan raised, place the " +
+                                "shield card into the board's item slot to toggle it; grab it back out to " +
+                                "untoggle; the panel's own TakeDamage confirm commits.");
+        }
+
+        // Fan auto-(re)open, board-anchored — the candidates must be in reach for the whole
+        // decision (throttled so a genuinely failing Open cannot spam).
+        if (!IsOpen && Time.unscaledTime >= _tdNextOpenAt)
+        {
+            _tdNextOpenAt = Time.unscaledTime + 0.5f;
+            Open(hand!, followHand: null);
+        }
+
+        // Use slot: visible while a candidate chip is HELD or one is clipped (the toggle).
+        ItemChip? held = HeldTakeDamageCandidate();
+        bool show = held != null || _tdChip != null;
+        PlayTray.Current?.SetItemUseSlotVisible(show);
+        TickUseGhost(show && _tdChip == null, held);
+
+        // Clipped-chip service.
+        ItemChip? chip = _tdChip;
+        if (chip == null)
+            return;
+        if (chip.Item == null)
+        {
+            _tdChip = null;
+            return;
+        }
+        if (chip.Holder != null)
+        {
+            // Grabbed back OUT = toggle the shield item OFF through the same slot seam.
+            UIUseItemScenario? slot = CardsGameApi.LiveItemsBarSlot(chip.Item);
+            if (slot != null && chip.Item.SlotState == CItem.EItemSlotState.Selected)
+                CardsGameApi.ClickItemsBarSlot(slot);
+            UnclipChip(chip);
+            chip.PendingUse = false;
+            _tdChip = null;
+            VRLog.Info("Cards", "TAKE-DAMAGE item place: card grabbed back out of the slot — shield item " +
+                                "untoggled through the panel's own slot seam.");
+            return;
+        }
+        // The game moved the selection out from under the clip (e.g. DeselectAllShieldItems on
+        // a lethal recalc): return the card to the fan so card and state never disagree.
+        if (chip.Item.SlotState != CItem.EItemSlotState.Selected)
+        {
+            UnclipChip(chip);
+            chip.PendingUse = false;
+            chip.ReturnToFan();
+            _tdChip = null;
+            VRLog.Info("Cards", "TAKE-DAMAGE item place: the game deselected the shield item — card returns to the fan.");
+            return;
+        }
+        // Re-assert the clip after a board rebuild recreated the slot transform.
+        Transform? useSlot = PlayTray.Current?.ItemUseSlotTransform;
+        if (useSlot != null && _root != null && chip.transform.parent != useSlot)
+            chip.ClipIntoSlot(useSlot, _root, ChipScale);
+    }
+
+    /// <summary>The single HELD chip that is a live take-damage candidate — its item has a
+    /// visible slot on the panel-populated items bar (the game's own OnAttacked filter +
+    /// CanConsume gate decided candidacy; the mod adds nothing).</summary>
+    private ItemChip? HeldTakeDamageCandidate()
+    {
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c != null && c.Holder != null && c.Item != null
+                && CardsGameApi.LiveItemsBarSlot(c.Item) != null)
+                return c;
+        }
+        return null;
+    }
+
+    /// <summary>Drop routing while the take-damage context is active (see <see cref="OnChipReleased"/>):
+    /// clip + TOGGLE ON through the panel's own slot seam; a second card swaps (the previous one is
+    /// untoggled and returns to the fan — one clipped card mirrors one toggled item, so grab-back
+    /// stays an exact inverse). A non-candidate drop glides home untouched.</summary>
+    private void HandleTakeDamageDrop(ItemChip chip, Vector3 dropWorldPos, Transform slot, VRHand vrHand)
+    {
+        float scale = slot.lossyScale.x;
+        float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
+        if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
+            return; // dropped away from the slot — the base glide-home returns it to the fan
+
+        if (chip.Item == null)
+            return;
+        UIUseItemScenario? barSlot = CardsGameApi.LiveItemsBarSlot(chip.Item);
+        if (barSlot == null)
+        {
+            VRLog.Info("Cards", $"TAKE-DAMAGE item place: '{chip.name}' is NOT among the OnAttacked candidates " +
+                                "(the panel's own filter) — it returns to the fan.");
+            return; // base glide-home
+        }
+
+        // Swap: untoggle + return a previously clipped selection first (1:1 card ↔ toggle).
+        if (_tdChip != null && !ReferenceEquals(_tdChip, chip))
+        {
+            ItemChip old = _tdChip;
+            _tdChip = null;
+            if (old.Item != null && old.Item.SlotState == CItem.EItemSlotState.Selected)
+            {
+                UIUseItemScenario? oldSlot = CardsGameApi.LiveItemsBarSlot(old.Item);
+                if (oldSlot != null)
+                    CardsGameApi.ClickItemsBarSlot(oldSlot);
+            }
+            UnclipChip(old);
+            old.PendingUse = false;
+            old.ReturnToFan();
+        }
+
+        // Toggle ON through the game's own click seam (idempotent on a re-drop of an already
+        // selected item). Verify against the INVENTORY truth (SlotState), not the widget flag.
+        if (chip.Item.SlotState != CItem.EItemSlotState.Selected)
+        {
+            if (!CardsGameApi.ClickItemsBarSlot(barSlot)
+                || chip.Item.SlotState != CItem.EItemSlotState.Selected)
+            {
+                VRLog.Warn("Cards", $"TAKE-DAMAGE item place: the game rejected toggling '{chip.name}' " +
+                                    "(slot state gate) — card returns to the fan.");
+                return; // base glide-home
+            }
+        }
+
+        _tdChip = chip;
+        chip.PendingUse = true;
+        chip.CancelReleaseGlide();
+        if (_root != null)
+            chip.ClipIntoSlot(slot, _root, ChipScale);
+        vrHand.SendHaptic(HapticPreset.HoverTick);
+        CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
+        VRLog.Info("Cards", $"TAKE-DAMAGE item place: '{chip.name}' TOGGLED through the panel's own slot seam " +
+                            "(ToggleShieldItem) — grab it back out to untoggle; the panel's TakeDamage " +
+                            "confirm commits (and syncs) the selection.");
+    }
+
+    /// <summary>Take-damage context teardown (panel closed / context lost): the game's confirm
+    /// already committed or discarded the selection, so the chip is only returned visually —
+    /// nothing is toggled here. The fan stays up; its live rebuild shows the items' new state.</summary>
+    private void EndTakeDamagePick(string why)
+    {
+        _tdActive = false;
+        ItemChip? chip = _tdChip;
+        _tdChip = null;
+        if (chip != null)
+        {
+            UnclipChip(chip);
+            chip.PendingUse = false;
+            if (chip.Holder == null && chip.gameObject != null && chip.gameObject.activeInHierarchy)
+                chip.ReturnToFan();
+        }
+        PlayTray.Current?.SetItemUseSlotVisible(false);
+        _useSlotShownLogged = false;
+        VRLog.Info("Cards", $"TAKE-DAMAGE item place END ({why}).");
     }
 
     // ================================================================== item chip ==
