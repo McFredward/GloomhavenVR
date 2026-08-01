@@ -250,6 +250,7 @@ internal sealed class ItemsPile
         _pendingUseChip = null; // #6
         _demandChip = null;     // surrender pick
         _demandActive = false;
+        _demandLoseReward = false;
         if (ReferenceEquals(Current, this))
             Current = null;
         IsOpen = false;
@@ -405,7 +406,10 @@ internal sealed class ItemsPile
             return;
         ClearChips();
 
-        List<CItem>? items = ItemsOf(hand);
+        // Flow 1 (goal-chest forfeit): the demanded candidates are the picker's REWARD items,
+        // never the inventory — the same chips/fan machinery renders them (ItemChip.Create only
+        // needs a CItem with an ID for the pooled ItemCardUI face).
+        List<CItem>? items = DemandItemsOverride() ?? ItemsOf(hand);
         if (items == null || items.Count == 0)
         {
             _signature = Signature(hand);
@@ -493,9 +497,22 @@ internal sealed class ItemsPile
         _handWinner = null;
     }
 
-    /// <summary>Cheap change key: item count + each item's slot-state (drives live refresh).</summary>
-    private static string Signature(CardsHandUI? hand)
+    /// <summary>Cheap change key: item count + each item's slot-state (drives live refresh).
+    /// Instance (no longer static): while the goal-chest forfeit demand overrides the content
+    /// source the key is prefixed + built from the REWARD items' IDs instead, so the flip
+    /// inventory↔rewards (and any reward-list change) rebuilds, and inventory changes during
+    /// the forfeit cannot yank the reward fan.</summary>
+    private string Signature(CardsHandUI? hand)
     {
+        List<CItem>? rewards = DemandItemsOverride();
+        if (rewards != null)
+        {
+            var rb = new StringBuilder(8 + rewards.Count * 6);
+            rb.Append("LR:").Append(rewards.Count).Append(':');
+            for (int i = 0; i < rewards.Count; i++)
+                rb.Append(rewards[i] != null ? rewards[i].ID : -1).Append(',');
+            return rb.ToString();
+        }
         List<CItem>? items = ItemsOf(hand);
         if (items == null)
             return "0";
@@ -959,14 +976,37 @@ internal sealed class ItemsPile
 
     // ------------------------------------------------- item-surrender pick (event mali) --
 
-    // The game's open ItemCardPicker being served (event consume/refresh demand). The chip
-    // clipped into the use slot mirrors the picker's selection; the slot's confirm button
-    // ("ITEM ABGEBEN"/"ITEM AUFFRISCHEN", never "USE") commits through the picker's own
-    // confirm seam. All game selection state lives in the PICKER — the mod only mirrors it.
+    // The game's open ItemCardPicker being served (event consume/refresh demand, OR the
+    // goal-chest "lose 1 item reward" forfeit — flow 1: the SAME window, discriminated by the
+    // Choreographer wait state, see CardsGameApi.OpenLoseRewardPicker). The chip clipped into
+    // the use slot mirrors the picker's selection; the slot's confirm button ("ITEM ABGEBEN"/
+    // "ITEM AUFFRISCHEN"/"BELOHNUNG ABGEBEN", never "USE") commits through the owning picker's
+    // own confirm seam. All game selection state lives in the PICKER — the mod only mirrors it.
     private bool _demandActive;
     private bool _demandRefreshing;
+    private bool _demandLoseReward;  // flow 1: the fan shows REWARD items, commit = ItemRewardLosePicker
     private ItemChip? _demandChip;   // chip clipped into the slot for the current selection
     private float _demandNextOpenAt; // fan auto-(re)open throttle
+
+    /// <summary>
+    /// The picker the ACTIVE demand mirrors — the refresh/consume picker normally, the
+    /// goal-chest forfeit picker while flow 1 owns the shared window. Every selection seam
+    /// (drop-select, grab-back deselect, ready check) resolves through here so the two flows
+    /// can never cross-talk on the one scene-serialized ItemCardPicker.
+    /// </summary>
+    private ItemCardPicker? ActiveDemandPicker() =>
+        _demandLoseReward
+            ? CardsGameApi.OpenLoseRewardPicker(out _)
+            : CardsGameApi.OpenItemPicker(out _, out _);
+
+    /// <summary>
+    /// Flow 1 content override: while the goal-chest forfeit demand is live the fan presents
+    /// the picker's REWARD items (never in any inventory — <see cref="CardsGameApi.LoseRewardItems"/>);
+    /// null otherwise, and <see cref="Populate"/>/<see cref="Signature"/> fall back to the
+    /// inventory as always.
+    /// </summary>
+    private List<CItem>? DemandItemsOverride() =>
+        _demandActive && _demandLoseReward ? CardsGameApi.LoseRewardItems() : null;
 
     /// <summary>True while an item consume/refresh demand is being served (gates the normal
     /// action-turn use-slot logic in <see cref="Tick"/>).</summary>
@@ -984,9 +1024,24 @@ internal sealed class ItemsPile
     internal void TickDemandPick(CardsHandUI? hand)
     {
         ItemCardPicker? picker = CardsGameApi.OpenItemPicker(out CPlayerActor? actor, out bool refreshing);
-        bool active = picker != null && actor != null && hand != null
-                      && ReferenceEquals(hand.PlayerActor, actor)
-                      && (!FFSNetwork.IsOnline || actor.IsUnderMyControl);
+        bool loseReward = false;
+        if (picker == null)
+        {
+            // Flow 1 (goal-chest "lose 1 item reward"): the SAME window, owned by
+            // ItemRewardLosePicker while the Choreographer waits in
+            // WaitingForLoseGoalChestRewardSelection. Only the DECIDING client (host/offline
+            // — the game's own CanSelect gate) raises the fan; guests get the wait banner
+            // from UpdateItemDemandStatus and the host's commit replays via the game's own
+            // ProxyItemRewardLose. No owning actor: any presented local hand anchors the fan.
+            picker = CardsGameApi.OpenLoseRewardPicker(out bool canSelect);
+            loseReward = picker != null;
+            if (!canSelect)
+                picker = null;
+        }
+        bool active = picker != null && hand != null
+                      && (loseReward // forfeit: party-level pick, no actor to match
+                          || (actor != null && ReferenceEquals(hand.PlayerActor, actor)
+                              && (!FFSNetwork.IsOnline || actor.IsUnderMyControl)));
         if (!active)
         {
             if (_demandActive)
@@ -994,16 +1049,28 @@ internal sealed class ItemsPile
             return;
         }
 
-        if (!_demandActive)
+        if (!_demandActive || _demandLoseReward != loseReward)
         {
+            if (_demandActive) // owner flipped refresh↔forfeit without a closed frame — restart clean
+                EndDemand("demand owner changed (refresh/consume ↔ goal-chest forfeit)");
             _demandActive = true;
-            _demandRefreshing = refreshing;
+            _demandRefreshing = !loseReward && refreshing;
+            _demandLoseReward = loseReward;
             _demandNextOpenAt = 0f;
-            VRLog.Info("Cards", $"ITEM SURRENDER pick OPEN ({(refreshing ? "refresh" : "consume")}): the game demands " +
-                                $"{CardsGameApi.ItemPickWanted(picker!)} item(s) from " +
-                                $"'{CardsGameApi.ActorLabel(actor!)}' (ItemCardRefreshPicker; flat window is dead in " +
-                                "VR) — item fan raised, drop the demanded item into the board's item slot; the slot " +
-                                "button commits through the game's own picker confirm.");
+            _signature = string.Empty; // content source may have flipped (inventory ↔ reward items)
+            if (loseReward)
+                VRLog.Info("Cards", "GOAL-CHEST FORFEIT pick OPEN: the game demands " +
+                                    $"{CardsGameApi.ItemPickWanted(picker!)} earned reward item(s) back " +
+                                    "(ItemRewardLosePicker → the same flat ItemCardPicker window, dead in VR; " +
+                                    "Choreographer in WaitingForLoseGoalChestRewardSelection) — item fan raised " +
+                                    "with the REWARD items, drop one into the board's item slot; the slot button " +
+                                    "commits through ItemRewardLosePicker.ConfirmSelectedRewardItems.");
+            else
+                VRLog.Info("Cards", $"ITEM SURRENDER pick OPEN ({(refreshing ? "refresh" : "consume")}): the game demands " +
+                                    $"{CardsGameApi.ItemPickWanted(picker!)} item(s) from " +
+                                    $"'{(actor != null ? CardsGameApi.ActorLabel(actor) : "?")}' (ItemCardRefreshPicker; flat window is dead in " +
+                                    "VR) — item fan raised, drop the demanded item into the board's item slot; the slot " +
+                                    "button commits through the game's own picker confirm.");
         }
 
         // Fan auto-(re)open, board-anchored — a foreign interaction may have closed it; the
@@ -1041,11 +1108,18 @@ internal sealed class ItemsPile
 
         // Demand confirm: shown exactly while the PICKER reports the full selection (survives a
         // lost chip — e.g. the fan was closed and rebuilt — because the game selection is the
-        // authority). Label says SURRENDER, never "USE".
+        // authority). Label says SURRENDER/FORFEIT, never "USE".
         bool ready = CardsGameApi.ItemPickReady(picker!);
         PlayTray.Current?.SetItemUseConfirmVisible(ready, ready ? ConfirmDemandPick : null,
-            _demandRefreshing ? Core.Loc.Mod("item_refresh_confirm") : Core.Loc.Mod("item_surrender"));
+            DemandConfirmLabel());
     }
+
+    /// <summary>The demand confirm-cap wording per flow: refresh (positive pick), forfeit
+    /// (flow 1 — the player GIVES UP an earned reward), or the consume surrender.</summary>
+    private string DemandConfirmLabel() =>
+        _demandLoseReward ? Core.Loc.Mod("item_lose_reward")
+        : _demandRefreshing ? Core.Loc.Mod("item_refresh_confirm")
+        : Core.Loc.Mod("item_surrender");
 
     /// <summary>Drop routing while a demand is active (see <see cref="OnChipReleased"/>).</summary>
     private void HandleDemandDrop(ItemChip chip, Vector3 dropWorldPos, Transform slot, VRHand vrHand)
@@ -1055,7 +1129,7 @@ internal sealed class ItemsPile
         if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
             return; // dropped away from the slot — the base glide-home returns it to the fan
 
-        ItemCardPicker? picker = CardsGameApi.OpenItemPicker(out _, out _);
+        ItemCardPicker? picker = ActiveDemandPicker();
         if (picker == null || chip.Item == null)
             return;
         if (!CardsGameApi.IsItemPickCandidate(picker, chip.Item))
@@ -1095,7 +1169,7 @@ internal sealed class ItemsPile
         CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
         VRLog.Info("Cards", $"ITEM SURRENDER clip-in: '{chip.name}' SELECTED through the game's " +
                             "ItemCardPickerSlot seam — press the slot button " +
-                            $"('{(_demandRefreshing ? Core.Loc.Mod("item_refresh_confirm") : Core.Loc.Mod("item_surrender"))}') " +
+                            $"('{DemandConfirmLabel()}') " +
                             "to commit, or grab it back to swap.");
     }
 
@@ -1112,10 +1186,19 @@ internal sealed class ItemsPile
         ItemChip? chip = _demandChip;
         _demandChip = null;
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
-        bool fired = CardsGameApi.ConfirmItemPick();
-        VRLog.Info("Cards", "ITEM SURRENDER CONFIRM → game picker confirm " +
-                            (fired ? "accepted (Inventory.UseItem/ReactivateItem + GameActionType.ConsumeItem/" +
-                                     "RefreshItem via the game's ItemsToken — outcome networked by the game)."
+        // Flow 1 commits through ITS owning picker (ItemRewardLosePicker.ConfirmSelectedRewardItems
+        // — RewardGroup removal + GameActionType.LoseItemReward + StepComplete); the refresh/
+        // consume demand through ItemCardRefreshPicker.ConfirmSelectedCards as before.
+        bool fired = _demandLoseReward
+            ? CardsGameApi.ConfirmLoseRewardPick()
+            : CardsGameApi.ConfirmItemPick();
+        VRLog.Info("Cards", (_demandLoseReward ? "GOAL-CHEST FORFEIT CONFIRM → " : "ITEM SURRENDER CONFIRM → ") +
+                            "game picker confirm " +
+                            (fired ? (_demandLoseReward
+                                         ? "accepted (Reward removed from every RewardGroup + GameActionType." +
+                                           "LoseItemReward IndexToken — outcome networked by the game, Choreographer released)."
+                                         : "accepted (Inventory.UseItem/ReactivateItem + GameActionType.ConsumeItem/" +
+                                           "RefreshItem via the game's ItemsToken — outcome networked by the game).")
                                    : "rejected (selection incomplete or picker already closed)."));
         if (chip == null)
             return;
@@ -1129,12 +1212,14 @@ internal sealed class ItemsPile
 
         // Result FX, mirrored from ConfirmPendingUse: consumed → burn out of the slot;
         // spent/refreshed → tap. Usage type is authored config (stable pre/post the
-        // networked state change — the same 9b lesson as the use flow).
+        // networked state change — the same 9b lesson as the use flow). A FORFEITED reward
+        // item always burns: it leaves the party for good, whatever its usage type says.
         CItem item = chip.Item;
         CItem.EUsageType usage = item.YMLData != null ? item.YMLData.Usage : CItem.EUsageType.None;
-        bool consumed = !_demandRefreshing
-                        && (usage == CItem.EUsageType.Consumed
-                            || item.SlotState == CItem.EItemSlotState.Consumed);
+        bool consumed = _demandLoseReward
+                        || (!_demandRefreshing
+                            && (usage == CItem.EUsageType.Consumed
+                                || item.SlotState == CItem.EItemSlotState.Consumed));
         bool spent = !consumed;
         Vector3 converge = PileConvergeWorld();
         Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
@@ -1155,6 +1240,10 @@ internal sealed class ItemsPile
     private void EndDemand(string why)
     {
         _demandActive = false;
+        bool wasLoseReward = _demandLoseReward;
+        _demandLoseReward = false;
+        if (wasLoseReward)
+            _signature = string.Empty; // fan content flips back from REWARD items to the inventory
         ItemChip? chip = _demandChip;
         _demandChip = null;
         if (chip != null)

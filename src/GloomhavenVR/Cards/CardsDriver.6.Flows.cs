@@ -170,28 +170,45 @@ internal sealed partial class CardsDriver
     /// Cheap: a handful of int reads; every string is rebuilt only when its inputs
     /// changed (SetPickStatus change-gates on the banner text).
     /// </summary>
-    // Change-gate for the item-surrender banner (see UpdateItemDemandStatus).
-    private (CPlayerActor? actor, int wanted, int selected, bool refreshing, string lang, int trayId)? _itemStatusKey;
+    // Change-gate for the item-surrender/forfeit banner (see UpdateItemDemandStatus).
+    private (CPlayerActor? actor, int wanted, int selected, bool refreshing, bool loseReward,
+             bool canSelect, string lang, int trayId)? _itemStatusKey;
 
     /// <summary>
-    /// Item-surrender pick (event consume/refresh mali): while the game's ItemCardPicker
-    /// demands items from the presented hand's actor, the pick banner shows WHO owes WHAT —
-    /// the picker's own game-localized hint title when it has one (the GUI_CONSUME_ITEMS_TITLE
-    /// format incl. the slot type), a Loc.Mod fallback otherwise, plus the selection progress.
-    /// Returns true while it owns the banner (the card-pick branch then stands down). The
-    /// COMMIT affordance is the item-use slot's own button ("ITEM ABGEBEN"), not the tray
-    /// CONFIRM — so no keycap overrides are pushed here.
+    /// Item-surrender pick (event consume/refresh mali) AND the goal-chest forfeit (flow 1):
+    /// while the game's ItemCardPicker demands items, the pick banner shows WHO owes WHAT —
+    /// the picker's own game-localized hint texts when it has them (the GUI_CONSUME_ITEMS_TITLE
+    /// format incl. the slot type / GUI_CHOOSE_ITEM_TO_LOSE), a Loc.Mod fallback otherwise,
+    /// plus the selection progress. The forfeit banner shows on EVERY client: the deciding
+    /// host sees the ask + progress; a guest sees the game's own wait-for-host tip (per-pick
+    /// selection is not networked in that flow, so a guest progress count would lie). Returns
+    /// true while it owns the banner (the card-pick branch then stands down). The COMMIT
+    /// affordance is the item-use slot's own button ("ITEM ABGEBEN"/"BELOHNUNG ABGEBEN"),
+    /// not the tray CONFIRM — so no keycap overrides are pushed here.
     /// </summary>
     private bool UpdateItemDemandStatus(CardsHandUI? hand)
     {
         ItemCardPicker? picker = null;
         CPlayerActor? actor = null;
         bool refreshing = false;
-        if (hand != null && _tray.IsVisible)
+        bool loseReward = false;
+        bool canSelect = true;
+        if (_tray.IsVisible)
         {
-            picker = CardsGameApi.OpenItemPicker(out actor, out refreshing);
-            if (picker != null && (actor == null || !ReferenceEquals(hand.PlayerActor, actor)))
-                picker = null; // demand for a different (remote) actor — not ours to banner
+            if (hand != null)
+            {
+                picker = CardsGameApi.OpenItemPicker(out actor, out refreshing);
+                if (picker != null && (actor == null || !ReferenceEquals(hand.PlayerActor, actor)))
+                    picker = null; // demand for a different (remote) actor — not ours to banner
+            }
+            if (picker == null)
+            {
+                // Flow 1 (goal-chest forfeit): no owning actor/hand — banner regardless.
+                picker = CardsGameApi.OpenLoseRewardPicker(out canSelect);
+                loseReward = picker != null;
+                actor = null;
+                refreshing = false;
+            }
         }
         if (picker == null)
         {
@@ -206,7 +223,8 @@ internal sealed partial class CardsDriver
 
         int wanted = CardsGameApi.ItemPickWanted(picker);
         int selected = CardsGameApi.ItemPickSelectedCount(picker);
-        var key = (actor, wanted, selected, refreshing, Core.Loc.CurrentLanguage,
+        var key = (actor, wanted, selected, refreshing, loseReward, canSelect,
+                   Core.Loc.CurrentLanguage,
                    _tray.Root != null ? _tray.Root.GetInstanceID() : 0);
         if (_itemStatusKey.HasValue && _itemStatusKey.Value.Equals(key))
             return true;
@@ -214,18 +232,102 @@ internal sealed partial class CardsDriver
         _pickStatusKey = null; // the banner is ours now; a later card pick re-pushes its own
 
         string who = actor != null ? CardsGameApi.ActorLabel(actor) : string.Empty;
-        string what = CardsGameApi.ItemPickHintTitle(picker)
-                      ?? Core.Loc.Mod(refreshing ? "item_refresh_demand" : "item_surrender_demand");
+        // Forfeit wording: the picker's own hint MESSAGE is the specific ask (Show passes
+        // GUI_CHOOSE_ITEM_TO_LOSE for the decider, the wait-for-host tip for a guest —
+        // ItemRewardLosePicker.GetHintMessage); the surrender flows keep their TITLE first.
+        string what = (loseReward
+                          ? CardsGameApi.ItemPickHintMessage(picker) ?? CardsGameApi.ItemPickHintTitle(picker)
+                          : CardsGameApi.ItemPickHintTitle(picker))
+                      ?? Core.Loc.Mod(loseReward ? "item_lose_reward_demand"
+                                    : refreshing ? "item_refresh_demand" : "item_surrender_demand");
         string line;
-        try
+        if (loseReward && !canSelect)
         {
-            line = what + " — " + string.Format(Core.Loc.Mod("pick_progress"), selected, wanted);
+            line = what; // a guest cannot act and sees no (lying) progress — just the wait tip
         }
-        catch (System.FormatException)
+        else
         {
-            line = $"{what} — {selected}/{wanted}";
+            try
+            {
+                line = what + " — " + string.Format(Core.Loc.Mod("pick_progress"), selected, wanted);
+            }
+            catch (System.FormatException)
+            {
+                line = $"{what} — {selected}/{wanted}";
+            }
         }
         _tray.SetPickStatus(who.Length > 0 ? who + ": " + line : line, null, null);
+        return true;
+    }
+
+    // Change-gate for the floating-panel decision banner (flows 2-4: doom picker /
+    // distribute-points select+assign — see UpdatePanelDecisionStatus).
+    private (int kind, string? title, int selected, int wanted, string lang, int trayId)? _panelStatusKey;
+
+    /// <summary>
+    /// FLOATING-PANEL decisions (flows 2-4): while the game shows the doom
+    /// <c>UIAbilityCardPicker</c> (doom-slot replace / transfer-dooms) or a
+    /// <c>UIScenarioDistributePointsManager</c> popup (choose-hero-to-burn-a-card /
+    /// redistribute damage) — panels the WorldUI surfaces float pokeable in front of the
+    /// HMD (<see cref="WorldUI.Surfaces.DoomPickerSurface"/> /
+    /// <see cref="WorldUI.Surfaces.DistributePointsSurface"/>) — the board banner points
+    /// the player at the floating panel and at the board CONFIRM that commits (the game's
+    /// own ReadyButton: the tray keycap + ButtonCluster mirror it live, so the commit is
+    /// already reachable; this banner is the wayfinding). Returns true while it owns the
+    /// banner. No keycap overrides: the CONFIRM/UNDO keycaps already carry the game's own
+    /// live ReadyButton/UndoButton labels ("End selection", "Reset", …) via TickStatus.
+    /// </summary>
+    private bool UpdatePanelDecisionStatus()
+    {
+        int kind = 0; // 0 none, 1 doom picker, 2 distribute select/assign
+        int selected = 0, wanted = 0;
+        string? title = null;
+        if (_tray.IsVisible && CardsGameApi.InScenario)
+        {
+            if (CardsGameApi.DoomPickerState(out selected, out wanted))
+                kind = 1;
+            else if (CardsGameApi.DistributePanelState(out title, out _))
+                kind = 2;
+        }
+        if (kind == 0)
+        {
+            if (_panelStatusKey.HasValue)
+            {
+                _panelStatusKey = null;
+                _pickStatusKey = null; // let the card branch (or the clear path) repopulate
+                _tray.SetPickStatus(null, null, null);
+            }
+            return false;
+        }
+
+        var key = (kind, title, selected, wanted, Core.Loc.CurrentLanguage,
+                   _tray.Root != null ? _tray.Root.GetInstanceID() : 0);
+        if (_panelStatusKey.HasValue && _panelStatusKey.Value.Equals(key))
+            return true;
+        _panelStatusKey = key;
+        _pickStatusKey = null; // the banner is ours now; a later card pick re-pushes its own
+
+        string line;
+        if (kind == 1)
+        {
+            line = Core.Loc.Mod("doom_pick");
+            try
+            {
+                line += " — " + string.Format(Core.Loc.Mod("pick_progress"), selected, wanted);
+            }
+            catch (System.FormatException)
+            {
+                line += $" — {selected}/{wanted}";
+            }
+        }
+        else
+        {
+            // The popup's own game-localized title IS the ask ("Choose a hero to prevent the
+            // damage…" / the redistribute card's name); the mod adds only the wayfinding.
+            string hint = Core.Loc.Mod("panel_float_hint");
+            line = !string.IsNullOrEmpty(title) ? title + " — " + hint : hint;
+        }
+        _tray.SetPickStatus(line, null, null);
         return true;
     }
 
@@ -233,6 +335,8 @@ internal sealed partial class CardsDriver
     {
         if (UpdateItemDemandStatus(hand))
             return; // the item-surrender demand owns the banner while its picker is open
+        if (UpdatePanelDecisionStatus())
+            return; // a floating-panel decision (doom / distribute) owns the banner
         if (hand == null || !_tray.IsVisible || !IsPickMode(CardsGameApi.Mode(hand)))
         {
             if (_pickStatusKey.HasValue)

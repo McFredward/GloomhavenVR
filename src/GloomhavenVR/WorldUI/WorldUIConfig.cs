@@ -31,6 +31,8 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> EnemyReveal = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> UseBars = null!;
+    internal static ConfigEntry<bool> DoomPicker = null!;
+    internal static ConfigEntry<bool> DistributePanel = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
 
@@ -309,6 +311,21 @@ internal static class WorldUIConfig
             "end-of-ability infusion pick that otherwise never lets the turn end) is reachable " +
             "in VR. All clicks are the game's own MP-synced paths. Off = the bars stay on the " +
             "hidden flat HUD (reachable only via the manual 2D screen).");
+        DoomPicker = _file.Bind("WorldUI", "DoomPicker", Defaults.DoomPicker,
+            "Doomstalker doom choices (doom slots full → replace which doom; transfer dooms) — " +
+            "the game's UIAbilityCardPicker panel, a plain-GameObject window invisible to the " +
+            "UIWindow modal machinery and therefore a hard rule-engine deadlock in VR (every " +
+            "ability Perform() early-returns while the choice waits) — floats pokeable in front " +
+            "of the HMD while shown. Commit/Undo/Skip stay the game's own Ready/Undo/Skip " +
+            "buttons (board CONFIRM keycap + ButtonCluster). Off = the panel stays invisible; " +
+            "only the manual A/X screen chord can reach it.");
+        DistributePanel = _file.Bind("WorldUI", "DistributePanel", Defaults.DistributePanel,
+            "Distribute-points decisions ('which hero burns a card to prevent this damage' and " +
+            "redistribute damage/health) — the UIScenarioDistributePointsManager popups, plain-" +
+            "GameObject windows invisible in VR while the rule engine spin-waits — float " +
+            "pokeable in front of the HMD while shown (actor rows with the game's own +/− " +
+            "buttons; host/controller gating is the game's own). Commit stays the game's " +
+            "ReadyButton via the board CONFIRM. Off = only the manual A/X screen chord reaches them.");
         TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", Defaults.TrayNativeControls,
             "Dock the game's REAL Continue/Confirm (ReadyButton), Undo (UndoButton) and short-rest " +
             "(ShortRest) widgets onto the control board — the actual in-game buttons with their native " +

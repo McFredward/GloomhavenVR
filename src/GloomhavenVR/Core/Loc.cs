@@ -196,6 +196,20 @@ internal static partial class Loc
         ["item_refresh_confirm"] = Pair("REFRESH ITEM", "ITEM AUFFRISCHEN"),
         ["item_surrender_demand"] = Pair("Surrender an item", "Gib einen Gegenstand ab"),
         ["item_refresh_demand"] = Pair("Choose an item to refresh", "Wähle einen Gegenstand zum Auffrischen"),
+        // Goal-chest forfeit (flow 1, ItemRewardLosePicker): the game demands an EARNED reward
+        // item back — the confirm cap says the player GIVES A REWARD UP ("abgeben", the
+        // item_surrender wording family, never "USE"); the banner fallback is used only when
+        // the picker's own GUI_CHOOSE_ITEM_TO_LOSE hint text is absent.
+        ["item_lose_reward"] = Pair("FORFEIT REWARD", "BELOHNUNG ABGEBEN"),
+        ["item_lose_reward_demand"] = Pair("Choose an earned item to forfeit",
+                                           "Wähle eine verdiente Belohnung zum Abgeben"),
+        // Floating-panel decisions (flows 2-4): wayfinding on the board banner while the game's
+        // doom picker / distribute-points popups float pokeable in front of the HMD; the commit
+        // is the board CONFIRM (the game's own ReadyButton, mirrored live on the keycap).
+        ["doom_pick"] = Pair("Doom choice: pick on the floating panel, then commit with the board button",
+                             "Verhängnis-Wahl: im schwebenden Fenster wählen, dann mit der Board-Taste bestätigen"),
+        ["panel_float_hint"] = Pair("choose on the floating panel, then commit with the board button",
+                                    "im schwebenden Fenster wählen, dann mit der Board-Taste bestätigen"),
 
         // ---- use-slot bars dock (UseBarsSurface): pending-decision hints on the pick banner ----
         // Shown while a docked bar carries a choice the game is WAITING on — an unanswered
