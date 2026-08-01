@@ -231,7 +231,7 @@ internal static class GoldenVectors
             09               // byte B: browse card count
             7D               // byte C: maskSizeCode = 125 (INSIDE the block)
             "), ext, m, "additive blocks in ascending flag-bit order, after handCardCount");
-        t.Equal(39, m, "worst-case extras packet is 39 bytes without a tail (MaxSize 64 has headroom)");
+        t.Equal(39, m, "worst-case extras packet is 39 bytes without a tail (MaxSize 96 has headroom)");
 
         // -- 7. Extras, mask-size only ---------------------------------------------------
         // §4d: a size-only packet writes the block with the pile-browse sub-fields ZEROED and
@@ -324,6 +324,81 @@ internal static class GoldenVectors
         t.True(trunc.HasMaskSize, "the mask size ahead of the tail survives");
         t.Equal((byte)200, trunc.MaskSizeCode, "with its value");
         t.True(!trunc.HasHandScale, "and the incomplete record is simply not delivered");
+
+        // -- 7d. Mod-version record (the version handshake) --------------------------------
+        // Record id 3: [u16 ModBuild LE][UTF8 display bytes]. Unlike every record before it,
+        // it is written on EVERY extras packet — its ABSENCE is the signal (a modded peer
+        // without it predates the handshake and reads as ModBuild 0 = mismatch), so there is
+        // no default whose omission could stand in for it.
+        t.Case("7d. extras, mod-version record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasModVersion = true, ModBuild = 1, ModVersionText = "0.1.0",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse -- 'a BLOCK follows'
+            00               // handCardCount
+            80               // byte A: PileBrowseExtensionBit only
+            00               // byte B: count 0 -> no fan
+            01               // tail: 1 record
+            03 07            // record: id 3 (mod version), len 7 = 2 (build) + 5 (text)
+            01 00            // ModBuild = 1, uint16 LE
+            30 2E 31 2E 30   // '0.1.0' UTF8
+            "), ext, m, "the version record is [id 3][len][u16 build LE][UTF8 display]");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState mv), "and it parses");
+        t.True(mv.HasModVersion, "the version is delivered");
+        t.Equal((ushort)1, mv.ModBuild, "with the right build number");
+        t.Equal("0.1.0", mv.ModVersionText ?? "", "and the right display string");
+        t.True(!mv.HasPileBrowse || mv.PileBrowseCardCount == 0,
+               "and a version-only packet invents no browse fan");
+
+        // OLD-READER-SKIPS-UNKNOWN-TLV, from the version record's perspective: to a reader
+        // built BEFORE id 3 this record is exactly the unknown-id case — the same skip-by-length
+        // path the id-99 vector proves — so a pre-handshake peer parses this packet unchanged.
+        // Here, the converse direction: a NEWER sender's unknown record ahead of the version
+        // record must not eat it.
+        byte[] mixed = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80               // byte A: extension tail
+            00               // byte B
+            02               // 2 records
+            63 04 DE AD BE EF// id 99, len 4 -- a field this build has never heard of
+            03 03 05 00 58   // id 3, len 3: build 5 + 'X'
+            ");
+        t.True(PresenceSerializer.TryRead(mixed, mixed.Length, out PresenceState mixedState),
+               "a packet with an unknown record ahead of the version record parses");
+        t.True(mixedState.HasModVersion, "the version record behind it is still read");
+        t.Equal((ushort)5, mixedState.ModBuild, "with its build intact");
+        t.Equal("X", mixedState.ModVersionText ?? "", "and its display string intact");
+
+        // A modded-but-pre-handshake sender: extras WITHOUT the record. HasModVersion must
+        // read false — the receiver treats that as ModBuild 0, the defined mismatch value.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 4 }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noVer), "no-record packet parses");
+        t.True(!noVer.HasModVersion, "record absent -> HasModVersion false (reads as ModBuild 0)");
+
+        // Defensive display cap: a runaway string is truncated to ModVersionTextMaxBytes on
+        // write; the record length says so and the reader gets exactly the capped text.
+        string runaway = "0.1.0-with-a-runaway-suffix-far-beyond-the-cap";
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasModVersion = true, ModBuild = 700, ModVersionText = runaway,
+        }, ext);
+        t.Equal(11 + 2 + 2 + NetProtocol.ModVersionTextMaxBytes, m,
+                "capped record: 11-byte shell + id + len + 2 build + 20 text bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState capped), "and it parses");
+        t.Equal((ushort)700, capped.ModBuild, "the (>255) build survives the u16 round-trip");
+        t.Equal(runaway.Substring(0, NetProtocol.ModVersionTextMaxBytes),
+                capped.ModVersionText ?? "", "the display string is capped, not corrupted");
+
+        // A TRUNCATED version record (claims 7 payload bytes, delivers 1): the tail is
+        // abandoned mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutVer = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 03 07 01");
+        t.True(PresenceSerializer.TryRead(cutVer, cutVer.Length, out PresenceState cutState),
+               "a truncated version record still parses the packet");
+        t.True(!cutState.HasModVersion, "and the incomplete record is simply not delivered");
 
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
@@ -453,5 +528,7 @@ internal static class GoldenVectors
         && x.PileBrowseCardCount == y.PileBrowseCardCount
         && x.PileBrowseHeld == y.PileBrowseHeld && x.PileBrowseLeftHand == y.PileBrowseLeftHand
         && x.HasMaskSize == y.HasMaskSize && x.MaskSizeCode == y.MaskSizeCode
-        && x.BoardStyleCode == y.BoardStyleCode;
+        && x.BoardStyleCode == y.BoardStyleCode
+        && x.HasModVersion == y.HasModVersion && x.ModBuild == y.ModBuild
+        && x.ModVersionText == y.ModVersionText;
 }

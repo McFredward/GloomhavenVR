@@ -159,6 +159,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _sendGateState = -1; // next session logs its join window from scratch
         NetCardFx.Reset(); // never carry a queued card animation into the next session
         _hasFx = false;
+        // Version handshake is session state; badges are reversible game-UI decoration — both
+        // must not survive a driver teardown (hot reload / module shutdown).
+        VersionGuard.Reset();
+        PlayerBadges.RestoreAll();
+        _flatApplied = false;
         DestroyAllAvatars();
     }
 
@@ -205,7 +210,47 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 try { NetFigures.Tick(); }
                 catch (Exception e) { LogPhaseError("NetFigures.Tick", e); }
             }
+            // Version handshake + VR badges: its OWN phase behind its OWN catch, per the driver's
+            // isolation contract — a bug in the mismatch dialog or the badge poll must never
+            // starve TickSend (the exact failure mode the per-phase catches exist for).
+            using (Core.PerfMonitor.Scope("Net.Version"))
+            {
+                try { TickVersionGuard(); }
+                catch (Exception e) { LogPhaseError("VersionGuard", e); }
+            }
         }
+    }
+
+    /// <summary>True once this driver applied the flat-net teardown for the current
+    /// <see cref="NetSession.FlatNetMode"/> episode (one-shot, re-arms when the flag clears).</summary>
+    private bool _flatApplied;
+
+    private void TickVersionGuard()
+    {
+        VersionGuard.Tick(_transport);
+
+        if (NetSession.FlatNetMode)
+        {
+            // One-shot teardown on entering flat-net mode: drop everything remote via the same
+            // paths staleness/offline use. The transport stays installed but inert (send +
+            // receive are gated), so leaving flat mode on session end costs nothing.
+            if (!_flatApplied)
+            {
+                _flatApplied = true;
+                _pending.Clear();
+                _pendingExtras.Clear();
+                DestroyAllAvatars();
+                PlayerBadges.RestoreAll();
+                VRLog.Info("Net", "FLAT-NET MODE ACTIVE: remote avatars/boards torn down; mod "
+                                  + "send + receive gated for the rest of the session.");
+            }
+            return;
+        }
+        _flatApplied = false;
+
+        PlayerBadges.Tick(
+            active: VRSession.IsRunning && _transport.IsOnline,
+            localPlayerId: _transport.LocalPlayerId);
     }
 
     /// <summary>Seconds of silence between phase-failure error lines. A deterministic bug throws
@@ -230,6 +275,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     private void TickSend(float dt)
     {
+        // FLAT-NET MODE (accepted version mismatch): the user chose to play this session as a
+        // flat player — nothing of ours goes on the wire. Gated here (not in the transport) so
+        // the transport stays installed and the mode reverses by simply clearing the flag.
+        if (NetSession.FlatNetMode)
+        {
+            _sendAccumulator = 0f;
+            return;
+        }
+
         // Only VR players broadcast; flat/modded peers stay silent (and thus invisible to
         // others), exactly as intended. LocalPlayerId > 0 also gates out the join window
         // where the session is "online" but our NetworkPlayer (and thus MyPlayer, which
@@ -260,7 +314,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             _sendGateState = 1;
             VRLog.Info("Net", $"Broadcast LIVE as player {_transport.LocalPlayerId} — head+hands "
                               + $"at {NetProtocol.SendRateHz:0} Hz, extras at "
-                              + $"{NetProtocol.ExtrasSendRateHz:0} Hz to all peers.");
+                              + $"{NetProtocol.ExtrasSendRateHz:0} Hz to all peers; advertising "
+                              + $"mod build {NetProtocol.ModBuild} ({MyPluginInfo.PLUGIN_VERSION}).");
         }
 
         _sendAccumulator += dt;
@@ -281,7 +336,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     private void TickExtrasSend(float dt)
     {
-        if (!VRSession.IsRunning || !_transport.IsOnline || _transport.LocalPlayerId <= 0)
+        // Same flat-net gate as TickSend — see there.
+        if (NetSession.FlatNetMode
+            || !VRSession.IsRunning || !_transport.IsOnline || _transport.LocalPlayerId <= 0)
         {
             _extrasAccumulator = 0f;
             return;
@@ -496,6 +553,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.FxEndpoints = _lastFxEndpoints;
         }
 
+        // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
+        // breaking the "only when non-default" rule the other records follow — its ABSENCE is
+        // the signal (peers without it read as pre-handshake ModBuild 0 = mismatch), so there
+        // is no default whose omission would be equivalent. ~9 bytes at 5 Hz; the display
+        // string is byte-capped and its encoding cached (PresenceSerializer), so this stays
+        // allocation-free. This is also what implicitly advertises "I am a VR/modded player"
+        // to every peer's badge/guard logic.
+        extras.HasModVersion = true;
+        extras.ModBuild = NetProtocol.ModBuild;
+        extras.ModVersionText = MyPluginInfo.PLUGIN_VERSION;
+
         int len = PresenceSerializer.Write(in extras, _sendBuffer);
         _transport.Send(_sendBuffer, len);
     }
@@ -512,6 +580,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     private void OnPacketReceived(int senderId, byte[] buffer, int length)
     {
+        // FLAT-NET MODE: received mod packets are not processed either — the session runs as if
+        // the mod's net layer did not exist. Returning BEFORE any bookkeeping keeps the mode
+        // absolute (no avatars, no version registry churn, no RX noise in the log).
+        if (NetSession.FlatNetMode)
+            return;
+
         // THE RECEIVE SIDE SAYS SOMETHING NOW. The mod logged every send and nothing at all on
         // receive, so a driver that was subscribed to a discarded event looked exactly like a
         // healthy one for a whole session: sends counted up, nobody appeared, no line to read.
@@ -543,6 +617,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgRig:
                 if (AvatarSerializer.TryRead(buffer, length, out AvatarState state))
                 {
+                    VersionGuard.NotePacket(senderId); // any valid mod packet ⇒ a modded peer
                     // Convert the shared-frame poses to world here so RemoteAvatar stays world-only.
                     ToWorld(ref state);
                     _pending[senderId] = state; // dedup: keep only the newest
@@ -552,6 +627,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgExtras:
                 if (PresenceSerializer.TryRead(buffer, length, out PresenceState extras))
                 {
+                    VersionGuard.NotePacket(senderId);
+                    // The extras packet is the only one the version record rides — feed the
+                    // handshake registry (record present: their build; absent: pre-handshake
+                    // build 0, a mismatch by definition).
+                    VersionGuard.NoteExtras(senderId, in extras);
                     ExtrasToWorld(ref extras);
                     _pendingExtras[senderId] = extras; // dedup: keep only the newest
                 }

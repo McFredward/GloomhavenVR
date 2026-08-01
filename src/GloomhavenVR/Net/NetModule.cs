@@ -90,6 +90,15 @@ internal sealed class NetModule : IVRModule
     /// </summary>
     internal static ConfigEntry<RemoteBoardVisibility> RemoteBoards = null!;
 
+    /// <summary>
+    /// Mod-version handshake guard (default ON): when a remote MODDED peer runs a different
+    /// <see cref="NetProtocol.ModBuild"/>, show the blocking "Als Flat-Spieler joinen /
+    /// Abbrechen" dialog (<see cref="VersionGuard"/>). OFF = never ask; mismatched builds then
+    /// simply talk their best-effort additive wire to each other (safe — the TLV format
+    /// guarantees old readers skip unknown fields — but cross-version cosmetics may differ).
+    /// </summary>
+    internal static ConfigEntry<bool> VersionGuardEnabled = null!;
+
     private static ConfigFile? _config;
 
     private GameObject? _driverGo;
@@ -133,6 +142,12 @@ internal sealed class NetModule : IVRModule
             "Show yourself in a mirror floating in front of your head so you can see your chosen " +
             "mask + hands. Local cosmetic preview only — independent of networking, works in " +
             "single-player. Toggle in the in-VR settings panel.");
+        VersionGuardEnabled = _config.Bind("Net", "VersionGuard", Defaults.Net_VersionGuard,
+            "Mod version handshake in multiplayer: when another MODDED player runs a different " +
+            "mod build, show a dialog offering to join as a flat player (VR stays on locally, " +
+            "mod networking off for the session) or to leave the session. Flat players without " +
+            "the mod never trigger it. Turn OFF to skip the dialog and let mismatched builds " +
+            "talk their best-effort compatible wire format.");
         RemoteBoards = _config.Bind("Net", "RemoteBoards", Defaults.RemoteBoards,
             "Wie viel von den Kontrolltafeln der Mitspieler du siehst: Off (nie), ActionPhaseOnly " +
             "(nur in der Aktionsphase — waehrend der geheimen Kartenauswahl ausgeblendet), Always " +

@@ -365,6 +365,42 @@ internal static class NetProtocol
     public const byte GhostSideLeftBit = 0x01;
     public const byte GhostSideRightBit = 0x02;
 
+    /// <summary>
+    /// Extension record id: the sender's MOD VERSION — <c>[u16 ModBuild LE][UTF8 display string]</c>
+    /// (string capped at <see cref="ModVersionTextMaxBytes"/> bytes). Unlike every record before
+    /// it this one is written UNCONDITIONALLY on every extras packet: its ABSENCE is itself the
+    /// signal ("this modded peer predates the version handshake" ⇒ treated as ModBuild 0 ⇒
+    /// mismatch), so there is no default value whose omission could keep the packet smaller.
+    /// </summary>
+    public const byte ExtIdModVersion = 3;
+
+    // =====================================================================================
+    //  MOD BUILD NUMBER — THE VERSION-HANDSHAKE COMPARISON KEY. READ THIS BEFORE SHIPPING.
+    // =====================================================================================
+    //  BUMP THIS BY +1 ON EVERY BUILD THAT IS HANDED TO ANOTHER PLAYER. This is the number
+    //  the whole multiplayer version handshake compares: two peers whose ModBuild differ get
+    //  the blocking "version mismatch" dialog (VersionGuard) and one of them drops to flat-net
+    //  mode or leaves. The DISPLAY string next to it (MyPluginInfo.PLUGIN_VERSION, stamped in
+    //  by the driver — never referenced here, this file is compiled into the wire tests
+    //  without BepInEx) is for humans only and takes no part in the comparison.
+    //
+    //  Rules:
+    //   * monotonic, never reused, never reset — +1 per distributed build, nothing fancier;
+    //   * peers whose packets carry NO version record read as ModBuild 0 (pre-handshake wild
+    //     builds) and therefore always mismatch — that is deliberate;
+    //   * this is NOT the wire Version byte above: the wire format is unchanged (still v3,
+    //     the record is an additive TLV that old readers skip by length).
+    // =====================================================================================
+    /// <summary>Monotonic mod build number, the version-handshake comparison key (see the
+    /// block comment above — bump by +1 on every build handed to another player).</summary>
+    public const ushort ModBuild = 1;
+
+    /// <summary>Defensive cap on the version DISPLAY string's UTF8 bytes (the record also
+    /// carries the 2-byte build). Plenty for "0.1.0"-style tags; a runaway string is truncated
+    /// on write and a longer claimed length is clamped on read, so neither side can bloat or
+    /// overrun the packet.</summary>
+    public const int ModVersionTextMaxBytes = 20;
+
     /// <summary>Hand-scale code standing for "1.00x" — the value assumed when the record is absent.</summary>
     public const byte HandScaleDefaultCode = 100;
 
