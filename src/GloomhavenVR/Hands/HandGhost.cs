@@ -576,9 +576,9 @@ internal static class HandGhosts
         VRHand? right = VRHands.Right;
         bool heldCards = HeldCardEnabled;
         bool ghostLeft = (fanHand != null && fanHand.Side == HandSide.Left)
-                         || (heldCards && left != null && left.Grabber.Held is VRCard);
+                         || (heldCards && left != null && IsHeldCard(left.Grabber.Held));
         bool ghostRight = (fanHand != null && fanHand.Side == HandSide.Right)
-                          || (heldCards && right != null && right.Grabber.Held is VRCard);
+                          || (heldCards && right != null && IsHeldCard(right.Grabber.Held));
 
         LocalLeft = ghostLeft;
         LocalRight = ghostRight;
@@ -592,6 +592,22 @@ internal static class HandGhosts
         LeftGhost.Apply(ghostLeft && left != null ? left.Rig : null, alpha);
         RightGhost.Apply(ghostRight && right != null ? right.Rig : null, alpha);
     }
+
+    /// <summary>
+    /// "Is the thing this hand holds a CARD?" — the held-card ghost gate's predicate. ROOT CAUSE
+    /// this exists (user: the ghost hand appears for a held ability card but NEVER for a held
+    /// ITEM card): the gate used to be the literal type test <c>Held is VRCard</c>, and an item
+    /// card is not a VRCard — it is <see cref="ItemsPile.ItemChip"/>, a separate grabbable that
+    /// hosts the game's own ItemCardUI. Both are "a card lifted in front of the face to read",
+    /// which is precisely the occlusion the ghost exists to relieve, so both must pass the SAME
+    /// gate: same config toggle, same strength, and — because <see cref="LocalLeft"/>/<see
+    /// cref="LocalRight"/> feed the mirror and the net-extras mask unchanged — the same mirror
+    /// and remote-avatar fade a held ability card already gets. Type checks, not a capability
+    /// interface: exactly two card grabbables exist and each is named here on purpose, so a NEW
+    /// grabbable (figures, tokens) can never start ghosting hands by accident.
+    /// </summary>
+    private static bool IsHeldCard(Interact.IGrabbable? held) =>
+        held is VRCard or ItemsPile.ItemChip;
 
     /// <summary>Module shutdown / hot reload: restore both hands unconditionally.</summary>
     internal static void Shutdown()
