@@ -278,6 +278,61 @@ internal static partial class ModalFallback
             AddPollWindow(window);
     }
 
+    /// <summary>
+    /// Ground truth behind the level-message poll (tutorial deadlock #2): is either group's
+    /// OWN UIWindow open or visible? The static <c>LevelMessageUILayoutGroup.IsShown</c> flag
+    /// lies after a same-frame hide→show handover (its end-of-frame reset coroutine clobbers
+    /// the next message's fresh <c>IsShown=true</c>, LevelMessageUILayoutGroup.cs:93-99) and is
+    /// shared across both group instances besides — the per-window state is what actually
+    /// renders, so it is what the poll must trust.
+    /// </summary>
+    private static bool AnyLevelMessageWindowOpen()
+    {
+        LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
+        if (handler == null)
+            return false;
+        return LevelMessageWindowOpen(handler.LevelMessageBoxLayoutGroup)
+               || LevelMessageWindowOpen(handler.LevelMessageHelpTextLayoutGroup);
+    }
+
+    private static bool LevelMessageWindowOpen(LevelMessageUILayoutGroup? group)
+    {
+        if (group == null)
+            return false;
+        UIWindow? window = group.window;
+        return window != null && (window.IsOpen || window.IsVisible);
+    }
+
+    /// <summary>
+    /// Do-no-harm release gate (tutorial deadlock #2): is a scripted level message logically
+    /// ACTIVE for this window's group right now? Reads the game's own current-message state
+    /// (<c>LevelMessagesUIHandler.m_CurrentlyDisplayed*MessageInfo</c>, publicized): between
+    /// <c>ShowBoxMessageImmediately</c> and the dismiss the info stays set, and on a dismiss
+    /// <c>HideCurrentlyShown*</c> → <c>ShowNext*</c> either nulls it or replaces it with the
+    /// next message (LevelMessagesUIHandler.cs:115-161) — so "info set, no display delay
+    /// pending" means the game is WAITING on this box, and the mod must not restore it to the
+    /// invisible 2D stack no matter what the poll flags flicker to. <c>DisplayDelayInEffect</c>
+    /// excludes the one legitimate window-closed-while-active phase (a delayed next message,
+    /// LevelMessagesUIHandler.cs:185-200) so those release + re-float normally.
+    /// </summary>
+    private static bool ScriptedLevelMessageActive(UIWindow? window)
+    {
+        if (window == null)
+            return false;
+        LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
+        if (handler == null || handler.DisplayDelayInEffect)
+            return false;
+        if (handler.CurrentlyDisplayedBoxMessage != null
+            && handler.LevelMessageBoxLayoutGroup != null
+            && ReferenceEquals(handler.LevelMessageBoxLayoutGroup.window, window))
+            return true;
+        if (handler.CurrentlyDisplayedHelpTextMessage != null
+            && handler.LevelMessageHelpTextLayoutGroup != null
+            && ReferenceEquals(handler.LevelMessageHelpTextLayoutGroup.window, window))
+            return true;
+        return false;
+    }
+
     private static bool ContainsWindow(List<UIWindow> list, UIWindow window)
     {
         for (int i = 0; i < list.Count; i++)
