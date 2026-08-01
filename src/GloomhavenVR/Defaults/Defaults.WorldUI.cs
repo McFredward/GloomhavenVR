@@ -176,6 +176,7 @@ internal static partial class Defaults
     internal const float ManualScreenChordSeconds = 2f;      // => [WorldUI] ManualScreenChordSeconds
     internal const bool DemoteOverlaySolidClears = true;     // => [WorldUI] DemoteOverlaySolidClears
     internal const bool ScreenLayerSplit = true;             // => [WorldUI] ScreenLayerSplit
+    internal const bool LoadingIndicator = true;             // => [WorldUI] LoadingIndicator
     internal const bool Keyboard_Enabled = true;             // => [Keyboard] Enabled
     internal const bool AutoCapitalise = true;               // => [Keyboard] AutoCapitalise
     internal const bool DevShowAllPanels = false;            // => [WorldUI] DevShowAllPanels
