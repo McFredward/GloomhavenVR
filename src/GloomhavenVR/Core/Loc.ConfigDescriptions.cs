@@ -23,8 +23,8 @@ namespace GloomhavenVR.Core;
 /// original.</para>
 ///
 /// <para>FAMILIES. Twenty-one settings are bound once PER HAND STYLE (<c>GloveHeldScale</c>,
-/// <c>PlateHeldScale</c>, …) and thirty-five once PER CONTROL BOARD (<c>BoardTilt_Oak</c>,
-/// <c>BoardTilt_Steel</c>, …) — 489 bound entries from 377 written descriptions, whose text differs
+/// <c>PlateHeldScale</c>, …) and thirty-seven once PER CONTROL BOARD (<c>BoardTilt_Oak</c>,
+/// <c>BoardTilt_Steel</c>, …) — 495 bound entries from 379 written descriptions, whose text differs
 /// only in the style/board it names. Those share ONE table entry under a wildcard key
 /// (<c>Hands/*HeldScale</c>, <c>Cards/BoardTilt_*</c>); the exact key is always tried first, so a
 /// real setting that merely happens to start with a style name (<c>Hands/GlovePinkyCounterAbduction</c>)

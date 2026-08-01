@@ -200,14 +200,13 @@ internal sealed partial class CardsDriver : MonoBehaviour
         // established live-apply path so a hand-edited cfg / menu step also logs the change.
         CardsConfig.FanFaceViewer.SettingChanged += OnFanTuningChanged;
         CardsConfig.FanGazeApexFollow.SettingChanged += OnFanTuningChanged;
-        // Item 12 (global, not per-board): the movement scheme and the pitch window re-apply the
-        // board orientation live — switching Frei → Begrenzt re-levels a freely rotated board,
-        // and a debug-menu clamp edit immediately re-clamps an applied TrayPitch.
+        // Item 12 (global): the movement scheme re-applies the board orientation live —
+        // switching Frei → Begrenzt re-levels a freely rotated board. The pitch-window edges
+        // are per-board (BoardPitchMin/Max_<board>) and subscribe in SubscribeBoardTuning, so a
+        // debug-menu clamp edit still immediately re-clamps an applied TrayPitch.
         _lastMoveMode = CardsConfig.BoardMoveMode.Value;
         CardsConfig.BoardMoveMode.SettingChanged += OnMoveModeChanged;
         CardsConfig.BoardMoveMode.SettingChanged += OnOrientationChanged;
-        CardsConfig.BoardPitchMinDegrees.SettingChanged += OnOrientationChanged;
-        CardsConfig.BoardPitchMaxDegrees.SettingChanged += OnOrientationChanged;
 
         _tray.SwapRequested += OnSwapRequested;
         _tray.ConfirmRequested += OnConfirmRequested;
@@ -245,8 +244,6 @@ internal sealed partial class CardsDriver : MonoBehaviour
         CardsConfig.FanGazeApexFollow.SettingChanged -= OnFanTuningChanged;
         CardsConfig.BoardMoveMode.SettingChanged -= OnMoveModeChanged;
         CardsConfig.BoardMoveMode.SettingChanged -= OnOrientationChanged;
-        CardsConfig.BoardPitchMinDegrees.SettingChanged -= OnOrientationChanged;
-        CardsConfig.BoardPitchMaxDegrees.SettingChanged -= OnOrientationChanged;
     }
 
     // ------------------------------------------------------------------ board tuning (Part F) --
@@ -295,6 +292,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.AssetYaw(b).SettingChanged += OnAssetPoseChanged;
                 CardsConfig.AssetRoll(b).SettingChanged += OnAssetPoseChanged;
                 CardsConfig.BoardTilt(b).SettingChanged += OnOrientationChanged;
+                CardsConfig.BoardPitchMin(b).SettingChanged += OnOrientationChanged; // item 12: pitch-window edge re-clamps TrayPitch
+                CardsConfig.BoardPitchMax(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged += OnOrientationChanged;
                 CardsConfig.BoardPosOffset(b).SettingChanged += OnOrientationChanged;
@@ -335,6 +334,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.AssetYaw(b).SettingChanged -= OnAssetPoseChanged;
                 CardsConfig.AssetRoll(b).SettingChanged -= OnAssetPoseChanged;
                 CardsConfig.BoardTilt(b).SettingChanged -= OnOrientationChanged;
+                CardsConfig.BoardPitchMin(b).SettingChanged -= OnOrientationChanged;
+                CardsConfig.BoardPitchMax(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardYaw(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardScale(b).SettingChanged -= OnOrientationChanged;
                 CardsConfig.BoardPosOffset(b).SettingChanged -= OnOrientationChanged;

@@ -917,7 +917,7 @@ internal static partial class Loc
                 + "bleibt für DICH waagerecht (unter der Weltneigung heißt waagerecht: waagerecht in deiner "
                 + "Sicht, nicht in der Welt). LimitedPitch (\"Begrenzt mit Neigung\") = wie Begrenzt, "
                 + "zusätzlich darf der Griff das Brett zu dir hin/von dir weg NEIGEN, begrenzt auf das "
-                + "Fenster BoardPitchMinDegrees..BoardPitchMaxDegrees. Free (\"Frei\") = das Brett folgt der "
+                + "brettweise Fenster BoardPitchMin_<board>..BoardPitchMax_<board>. Free (\"Frei\") = das Brett folgt der "
                 + "greifenden Hand 1:1 in ALLEN Achsen — keine Waagerecht-Haltung, keine Begrenzung (es KANN "
                 + "kopfüber enden; zurück auf einen Begrenzt-Modus richtet es wieder aus). Wählbar in den "
                 + "VR-Einstellungen (Tafeln → Karten & Brett); rein lokal — Mitspieler sehen wie bisher nur "
@@ -928,17 +928,19 @@ internal static partial class Loc
                 + "im Modus LimitedPitch oder Free automatisch geschrieben, damit die Neigung "
                 + "Neuplatzierungen und Sitzungen übersteht; im Modus Limited ohne Wirkung (der nutzt immer "
                 + "BoardTilt allein). Von Hand nur zum Zurücksetzen ändern. Beim Anwenden in LimitedPitch auf "
-                + "das Fenster BoardPitchMinDegrees..BoardPitchMaxDegrees begrenzt.",
+                + "das brettweise Fenster BoardPitchMin_<board>..BoardPitchMax_<board> begrenzt.",
             ["Cards/BoardPitchMinDegrees"] =
-                "Punkt 12, nur BoardMoveMode=LimitedPitch: wie weit der Griff das Brett gegenüber seinem "
-                + "eingestellten BoardTilt_<board> nach UNTEN/von dir weg neigen darf, in Grad (untere Kante "
-                + "des Neigungsfensters; 0 = gar nicht nach unten). Live im Debug-Menü einstellbar; beim "
-                + "Lesen immer ≤ BoardPitchMaxDegrees gehalten.",
+                "VERALTET — ohne Wirkung, ersetzt durch das brettweise BoardPitchMin_<board>. Nichts liest "
+                + "diesen Wert. Er war die GLOBALE untere Kante des Neigungsfensters im Modus LimitedPitch, "
+                + "in Grad relativ zu BoardTilt; BoardPitchMin_<board> hat ihn in der Begrenzung abgelöst "
+                + "und wurde mit −45 vorbelegt, damit sich nichts ändert. Justiere stattdessen "
+                + "BoardPitchMin_<board>. Bleibt gebunden, damit vorhandene cfg-Dateien unverändert laden.",
             ["Cards/BoardPitchMaxDegrees"] =
-                "Punkt 12, nur BoardMoveMode=LimitedPitch: wie weit der Griff das Brett gegenüber seinem "
-                + "eingestellten BoardTilt_<board> nach OBEN/zu dir hin neigen darf, in Grad (obere Kante "
-                + "des Neigungsfensters; 0 = gar nicht nach oben). Live im Debug-Menü einstellbar; beim "
-                + "Lesen immer ≥ BoardPitchMinDegrees gehalten.",
+                "VERALTET — ohne Wirkung, ersetzt durch das brettweise BoardPitchMax_<board>. Nichts liest "
+                + "diesen Wert. Er war die GLOBALE obere Kante des Neigungsfensters im Modus LimitedPitch, "
+                + "in Grad relativ zu BoardTilt; BoardPitchMax_<board> hat ihn in der Begrenzung abgelöst "
+                + "und wurde mit 45 vorbelegt, damit sich nichts ändert. Justiere stattdessen "
+                + "BoardPitchMax_<board>. Bleibt gebunden, damit vorhandene cfg-Dateien unverändert laden.",
             ["Cards/CardLerpSpeed"] =
                 "Geschwindigkeit der Kartenflug-Animation (Konstante der exponentiellen Glättung, 1/s).",
             ["Cards/SlotCardInset"] =
@@ -1071,6 +1073,18 @@ internal static partial class Loc
                 "Neigung des Boards aus der Waagerechten zum Spieler hin, Grad (0 = flach wie ein Tisch, 90 = "
                 + "aufrecht). Ersetzt TrayTilt in der Posenberechnung für dieses Board. Von Oak übernommen "
                 + "(30).",
+            ["Cards/BoardPitchMin_*"] =
+                "Punkt 12, nur BoardMoveMode=LimitedPitch: wie weit der Griff DIESES Brett gegenüber seinem "
+                + "eingestellten BoardTilt nach UNTEN/von dir weg neigen darf, in Grad (untere Kante des "
+                + "Neigungsfensters; 0 = gar nicht nach unten). Live im Debug-Menü einstellbar; beim Lesen "
+                + "immer ≤ BoardPitchMax gehalten. Ersetzt das globale BoardPitchMinDegrees, von dessen "
+                + "Standard übernommen (−45).",
+            ["Cards/BoardPitchMax_*"] =
+                "Punkt 12, nur BoardMoveMode=LimitedPitch: wie weit der Griff DIESES Brett gegenüber seinem "
+                + "eingestellten BoardTilt nach OBEN/zu dir hin neigen darf, in Grad (obere Kante des "
+                + "Neigungsfensters; 0 = gar nicht nach oben). Live im Debug-Menü einstellbar; beim Lesen "
+                + "immer ≥ BoardPitchMin gehalten. Ersetzt das globale BoardPitchMaxDegrees, von dessen "
+                + "Standard übernommen (45).",
             ["Cards/BoardYaw_*"] =
                 "Zusätzliche Board-Drehung (Gieren), die auf den durch Greifen geschriebenen TrayYaw ADDIERT "
                 + "wird, Grad. Startwert 0 (Oak).",
