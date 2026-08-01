@@ -65,6 +65,10 @@ internal sealed class WorldGrab : MonoBehaviour
     private float _theta0;             // tracking-space pair heading at engage (deg)
     private float _yaw0;               // rig yaw at engage
     private float _s0;                 // rig scale at engage
+    private Vector3 _prevMid;          // two-hand: last frame's tracking-space midpoint (real
+                                       // meters) — its per-frame displacement IS the applied
+                                       // world drag (the mid world point is glued to the
+                                       // hands), reported to NotifyWorldGrabMotion (round 7)
     private int _lastDetent;
 
     // Deadzone latches (per gesture).
@@ -130,11 +134,14 @@ internal sealed class WorldGrab : MonoBehaviour
             // Leaving the two-hand gesture persists the reached scale multiplier.
             if (_state == GrabState.TwoHand)
                 ComfortSettings.PersistScaleMultiplier(rig.localScale.x / RigTarget.BaseScale);
-            // Grab released → the player just deliberately moved/rotated the world; let
-            // the world tilt re-aim toward the (possibly new) view direction instantly —
-            // the scene motion masks it (comfort: see VRRigDriver.TickWorldTilt).
-            if (desired == GrabState.None)
-                VRRigDriver.NotifyTiltAxisSnap("world-grab release");
+            // Grab press/release is deliberately NOT a masked re-aim event (round 7): at
+            // these instants the grab has not moved the world (yet/anymore), so nothing
+            // masks an instant re-aim — the old NotifyTiltAxisSnap here consumed the whole
+            // accumulated view error in one frame and visibly jumped the scene after
+            // room-scale movement. Any re-aim a gesture earns is consumed continuously,
+            // in proportion to the motion it actually applies (NotifyWorldGrabMotion in
+            // ApplyOneHand/ApplyTwoHand); leftover error stays frozen, exactly like
+            // head-only motion (see VRRigDriver.TickWorldTilt).
             _state = desired;
             Anchor(rig);
         }
@@ -242,6 +249,7 @@ internal sealed class WorldGrab : MonoBehaviour
             _yaw0 = VRRigDriver.YawOnly(rig.rotation).eulerAngles.y;
             _s0 = rig.localScale.x;
             _midAnchorWorld = rig.TransformPoint((tL + tR) * 0.5f);
+            _prevMid = (tL + tR) * 0.5f; // grab-motion baseline: zero drag on the engage frame
             _lastDetent = Mathf.FloorToInt(_s0 / RigTarget.BaseScale / ScaleDetentStep);
         }
     }
@@ -274,11 +282,19 @@ internal sealed class WorldGrab : MonoBehaviour
         }
 
         float k = 1f - Mathf.Exp(-PositionSmoothing * Time.deltaTime);
+        Vector3 applied = delta * k;
+        // Grab-motion-masked tilt re-aim (round 7): report the APPLIED world slide this
+        // frame in real meters (world units / rig scale) so the tilt may consume view
+        // error in proportion to it. A still hand reports ~0 → the error stays frozen;
+        // press/release alone can never re-aim the tilt.
+        VRRigDriver.NotifyWorldGrabMotion(applied.magnitude / scale, 0f, 0f);
         // Position-only write — tilt-safe by construction: the tilt heal (TickWorldTilt) keys
         // solely on ROTATION error (desired vs current rotation) and neither we nor RigClamp
-        // (vertical lift only) touch the rotation here, so no heal write fires and the drag
-        // can never enter the Bug-A flatten/re-tilt loop.
-        rig.position += delta * k;
+        // (vertical lift only) touch the rotation here, so the only heal a drag can cause is
+        // the AXIS-ONLY step from the re-aim above (or the head-rate channel) — healed about
+        // the HEAD pivot, zero player translation — and the drag can never enter the Bug-A
+        // flatten/re-tilt loop.
+        rig.position += applied;
         RigClamp.Apply(rig);
     }
 
@@ -305,6 +321,7 @@ internal sealed class WorldGrab : MonoBehaviour
         // Pinch scale: spreading the hands stretches the world larger, i.e. FEWER world
         // units per real meter → rig scale shrinks by d0/d.
         float s = rig.localScale.x;
+        float sBefore = s; // for the applied-motion report below
         if (ComfortSettings.ScaleEnabled.Value)
         {
             if (!_scaleLive && Mathf.Abs(d - _d0) > ScaleDeadzoneFraction * _d0)
@@ -324,6 +341,7 @@ internal sealed class WorldGrab : MonoBehaviour
         // is the world tilt's, preserved below). Yaw twist via YawOnly, not eulerAngles.y —
         // see the Anchor() comment.
         float yaw = VRRigDriver.YawOnly(rig.rotation).eulerAngles.y;
+        float yawBefore = yaw; // for the applied-motion report below
         if (ComfortSettings.RotateEnabled.Value)
         {
             float theta = HeadingDegrees(tR - tL);
@@ -335,6 +353,16 @@ internal sealed class WorldGrab : MonoBehaviour
         }
 
         rig.localScale = Vector3.one * s;
+        // Grab-motion-masked tilt re-aim (round 7) — MUST run BEFORE CurrentTiltSwing below
+        // so that the swing we compose (and this frame's TickWorldTilt reconstruction) both
+        // read the post-consumption aim (lockstep, see CurrentTiltSwing). Reported motion is
+        // what this frame APPLIES: real meters the glued midpoint moved (= how far the world
+        // slid under the hands), world-yaw degrees, octaves of scale change.
+        VRRigDriver.NotifyWorldGrabMotion(
+            Vector3.Distance(mid, _prevMid),
+            Mathf.DeltaAngle(yawBefore, yaw),
+            Mathf.Log(s / sBefore, 2f));
+        _prevMid = mid;
         // TILT-CONSISTENT write (Bug A). The old bare yawRot write FLATTENED an actively
         // tilted rig every frame; TickWorldTilt (LateUpdate) then re-tilted it about a
         // DIFFERENT pivot (FocusPoint, not the hand midpoint), so each frame's flatten+re-tilt
@@ -342,12 +370,15 @@ internal sealed class WorldGrab : MonoBehaviour
         // smoothing, and the closed loop flung the player. Composing the CURRENT desired tilt
         // swing T onto the new yaw Y and solving the position with the FULL rotation breaks
         // the loop algebraically: we write rot = T ∘ Y with T = AngleAxis(_tiltApplied,
-        // (Y ∘ R_up(headAim)) · right) — exactly the pose TickWorldTilt reconstructs, because
-        // its yaw extraction YawOnly(T ∘ Y) = Y is exact (T's axis is horizontal) and its
-        // grab-active branch re-seeds the aim to the same live head yaw. Desired == current
-        // → the heal writes NOTHING → 'rig-pose-heal' is unreachable from a grab, and the
-        // midpoint stays genuinely glued between the hands (position solved with rot, so
-        // rigPos + rot·(s·mid) = _midAnchorWorld holds in the pose that survives the frame).
+        // (Y ∘ R_up(aim)) · right) — exactly the pose TickWorldTilt reconstructs, because
+        // its yaw extraction YawOnly(T ∘ Y) = Y is exact (T's axis is horizontal) and both
+        // sides read the aim from the SAME field, _tiltAimYawDeg, which we just finished
+        // updating above (round 7 — the tick no longer re-seeds it during a grab). Desired
+        // == current → the heal writes NOTHING → 'rig-pose-heal' is unreachable from a grab
+        // (the tick's own head-rate re-aim step is the one bounded exception, healed about
+        // the HEAD pivot, attributed 'world-grab'), and the midpoint stays genuinely glued
+        // between the hands (position solved with rot, so rigPos + rot·(s·mid) =
+        // _midAnchorWorld holds in the pose that survives the frame).
         // At tilt 0 the swing is identity → bit-identical to the old yaw-only behavior.
         Quaternion yawRot = Quaternion.Euler(0f, yaw, 0f);
         Quaternion rot = VRRigDriver.CurrentTiltSwing(yawRot) * yawRot;
@@ -376,8 +407,8 @@ internal sealed class WorldGrab : MonoBehaviour
     {
         if (_state == GrabState.TwoHand && rig != null)
             ComfortSettings.PersistScaleMultiplier(rig.localScale.x / RigTarget.BaseScale);
-        if (_state != GrabState.None)
-            VRRigDriver.NotifyTiltAxisSnap("world-grab disengage");
+        // No NotifyTiltAxisSnap here (round 7): disengage applies no world motion, so an
+        // instant tilt re-aim would be unmasked — see the release comment in Update().
         _state = GrabState.None;
         _leftStick = _rightStick = false;
         _dragHand = null;
