@@ -30,6 +30,7 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> PropInfoCards = null!;
     internal static ConfigEntry<bool> EnemyReveal = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
+    internal static ConfigEntry<bool> UseBars = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
 
@@ -289,6 +290,16 @@ internal static class WorldUIConfig
             "of a floating flat window (test #22, generalizes the test-#21 take-damage dock). " +
             "The card fan stays available for follow-up picks (no ModalUI). Off = the generic " +
             "modal fallback floats the whole window as before. (Renamed from 'TakeDamageBoard'.)");
+        UseBars = _file.Bind("WorldUI", "UseBars", Defaults.UseBars,
+            "The game's four in-scenario use-slot bars — active-bonus toggles (UIActiveBonusBar), " +
+            "ability-card element-consume augments (UIUseAugmentationsBar), element-infusion/" +
+            "choose-ability pickers (UIUseAbilitiesBar) and usable items (UIUseItemsBar) — dock " +
+            "their REAL widget rows (incl. the embedded element/option sub-pickers) onto the " +
+            "control board's drawer zone whenever they have slots, so every mid-scenario decision " +
+            "they carry (element potions, worn-item toggles, 'next X attacks' augments, the " +
+            "end-of-ability infusion pick that otherwise never lets the turn end) is reachable " +
+            "in VR. All clicks are the game's own MP-synced paths. Off = the bars stay on the " +
+            "hidden flat HUD (reachable only via the manual 2D screen).");
         TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", Defaults.TrayNativeControls,
             "Dock the game's REAL Continue/Confirm (ReadyButton), Undo (UndoButton) and short-rest " +
             "(ShortRest) widgets onto the control board — the actual in-game buttons with their native " +

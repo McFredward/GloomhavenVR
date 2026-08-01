@@ -197,6 +197,15 @@ internal static partial class Loc
         ["item_surrender_demand"] = Pair("Surrender an item", "Gib einen Gegenstand ab"),
         ["item_refresh_demand"] = Pair("Choose an item to refresh", "Wähle einen Gegenstand zum Auffrischen"),
 
+        // ---- use-slot bars dock (UseBarsSurface): pending-decision hints on the pick banner ----
+        // Shown while a docked bar carries a choice the game is WAITING on — an unanswered
+        // element/ability pick (the end-of-ability infusion blocks the turn outright) or a
+        // pending MANDATORY active bonus (the confirm is refused until it is toggled/picked).
+        ["bars_waiting_element"] = Pair("Element/ability choice pending — use the bar below the board",
+                                        "Element-/Fähigkeitswahl offen — Leiste unter dem Board nutzen"),
+        ["bars_waiting_bonus"] = Pair("Mandatory bonus needs a pick — use the bar below the board",
+                                      "Pflicht-Bonus braucht eine Auswahl — Leiste unter dem Board nutzen"),
+
         // ---- SettingsPanel: sections / labels / buttons ----
         ["comfort"] = Pair("Comfort", "Komfort"),
         ["table_scale"] = Pair("Table scale", "Tischgröße"),
