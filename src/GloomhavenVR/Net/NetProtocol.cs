@@ -395,7 +395,9 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 3;
+    public const ushort ModBuild = 4;
+    // Build 4: tutorial VR bridge + MR readability + settings overhaul + fan press fix +
+    // per-pixel panel depth. No wire changes — same-build enforcement.
     // Build 3: item-flow round (deciding-actor hand, place-to-use split, fan occlusion,
     // use-bars fit hold + row spacing, hand-switch watchdog, per-board pitch window).
     // No wire changes — bumped anyway: the handshake's job is same-BUILD enforcement.
