@@ -240,6 +240,29 @@ internal sealed class ConvertedPanel
 
     /// <summary>Earliest unscaled time the render-hidden modal host may be revealed (see <see cref="RevealPending"/>).</summary>
     public float RevealNotBefore;
+
+    // ---- per-host depth compose (initiative portraits blended with a floated menu) --------
+    /// <summary>
+    /// Set by <see cref="GrabbableModal.Build"/> when the modal already owns a coplanar depth
+    /// mask of its own (the pause/options/confirmation/results family): the central per-host
+    /// mask (<see cref="CanvasConversion.TickHostDepthMask"/>) then stays off — two coplanar
+    /// depth writers on one plane would only double the per-frame graphic walk for zero visual
+    /// difference. Every other host (converted HUD panels, un-masked floated windows) gets the
+    /// central mask.
+    /// </summary>
+    public bool HostDepthMaskSuppressed;
+
+    /// <summary>Depth-compose mask root under <see cref="HostRect"/> (see
+    /// <see cref="CanvasConversion.TickHostDepthMask"/>); null until first built.</summary>
+    public Transform? HostDepthMask;
+
+    /// <summary>The mask's dynamic per-graphic quad mesh — an ASSET, freed explicitly when the
+    /// host dies (Unity never garbage-collects Mesh objects with the GameObject).</summary>
+    public Mesh? HostDepthMaskMesh;
+
+    /// <summary>Quantized hash of the last emitted mask rect set (rebuild gate — sub-pixel
+    /// jitter never rebuilds, any real content change does).</summary>
+    public int HostDepthMaskHash;
 }
 
 /// <summary>

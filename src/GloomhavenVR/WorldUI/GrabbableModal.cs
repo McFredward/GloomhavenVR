@@ -189,6 +189,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _extraScale = extraScale;
         _logName = logName;
         _wantDepthMask = depthMask;
+        // Per-host depth compose (CanvasConversion part 5): a menu that carries THIS modal mask
+        // must not also get the central per-host mask — two coplanar depth writers on one plane
+        // are pure duplicate cost. Menus WITHOUT the modal mask (story box, Compendium, friend
+        // list...) keep the central one, so they too compose per pixel against other panels.
+        panel.HostDepthMaskSuppressed = depthMask;
         // Item 2: snapshot the diorama scale now — the menu keeps THIS size regardless of later zoom.
         _spawnWorldScale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
         EnsureFrame();
