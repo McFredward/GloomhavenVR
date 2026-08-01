@@ -88,6 +88,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // later) and the confirmation log fires once per CHANGE, never per packet. -1 = never sent.
     private int _lastSentBoardStyleCode = -1;
 
+    // BOARD-UI record (extension id 4): the last broadcast (buttons | overlays << 8), so a
+    // button appearing/disappearing or the wanted-glow flipping pre-empts the 5 Hz gate — these
+    // are the exact edges the receiver renders, and a 200 ms-late glow reads as "not synced"
+    // (user defect 4/5). -1 = never sent. Human-paced changes; cannot become a stream.
+    private int _lastSentBoardUi = -1;
+
+    // BOARD POSE MOTION (defect 7 "Bewegen kommt nicht flüssig an"): the last SENT board pose in
+    // the shared anchor frame. While the pose is CHANGING (the owner drags/scales their board),
+    // extras go out at the RIG rate (SendRateHz, 15 Hz) instead of the idle 5 Hz — the receiver's
+    // exponential easing then gets the same sample density the head/hands get, which is exactly
+    // the smoothness bar the avatars already meet. Idle boards keep the flat 5 Hz cadence, so
+    // this costs nothing while nobody moves a board. Chosen over a receive-side interpolation
+    // buffer because it reuses the proven avatar pipeline unchanged (no new latency, no new
+    // wire field, no second interpolation scheme to maintain).
+    private bool _sentBoardPoseValid;
+    private Vector3 _lastSentBoardPos;
+    private Quaternion _lastSentBoardRot = Quaternion.identity;
+    private float _lastSentBoardScale = 1f;
+
     private readonly Dictionary<int, RemoteAvatar> _avatars = new();
     // Latest world-frame state per sender, awaiting apply on the next Update (dedup: only the
     // newest matters for an unreliable stream).
@@ -159,6 +178,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _sendGateState = -1; // next session logs its join window from scratch
         NetCardFx.Reset(); // never carry a queued card animation into the next session
         _hasFx = false;
+        _lastSentBoardUi = -1;      // next session re-states the board UI from scratch
+        _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
         // Version handshake is session state; badges are reversible game-UI decoration — both
         // must not survive a driver teardown (hot reload / module shutdown).
         VersionGuard.Reset();
@@ -397,8 +418,55 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             Hands.HandVisuals.StyleScale(Hands.HandVisuals.LocalStyle()));
         bool handScaleChanged = handScaleCode != _lastSentHandScaleCode;
 
+        // BOARD POSE + BOARD-UI STATE (defects 4/5/7), sampled BEFORE the rate gate so both can
+        // pre-empt it. The pose is converted to the shared anchor frame HERE (once) and reused in
+        // the packet below.
+        PlayTray? trayNow = PlayTray.Current;
+        Transform? board = trayNow?.Root;
+        Vector3 boardPos = default;
+        Quaternion boardRot = Quaternion.identity;
+        float boardScale = 1f;
+        if (board != null)
+        {
+            _anchor.ToAnchor(board.position, board.rotation, out boardPos, out boardRot);
+            float ls = board.lossyScale.x;
+            boardScale = ls > 0f ? ls : 1f;
+        }
+        // "Moving" = the pose left the last SENT sample by more than float noise. While true,
+        // extras ride at the RIG rate (15 Hz) so a carried board arrives as smoothly as a hand;
+        // the moment it settles, one final exact sample goes out and the cadence falls back to
+        // 5 Hz (see the field block for why this path was chosen over an interp buffer).
+        bool boardMoving = board != null && _sentBoardPoseValid
+            && ((boardPos - _lastSentBoardPos).sqrMagnitude > 1e-8f
+                || Quaternion.Angle(boardRot, _lastSentBoardRot) > 0.05f
+                || !Mathf.Approximately(boardScale, _lastSentBoardScale));
+        float fastInterval = 1f / NetProtocol.SendRateHz;
+        bool poseDue = boardMoving && _extrasAccumulator >= fastInterval;
+
+        // BOARD-UI (defects 4 + 5): which controls the owner's board shows RIGHT NOW plus the
+        // wanted-slot glow mask — read off the same objects that drive the local rendering, so
+        // the wire state is the rendered state by construction. -1 = no live tray this frame.
+        int boardUiNow = -1;
+        if (trayNow != null)
+        {
+            byte buttons = 0;
+            if (trayNow.ConfirmControlShown) buttons |= NetProtocol.BoardUiConfirmBit;
+            if (trayNow.UndoControlShown) buttons |= NetProtocol.BoardUiUndoBit;
+            if (trayNow.ItemUseSlotShown) buttons |= NetProtocol.BoardUiItemRecessBit;
+            if (trayNow.ItemUseCapShown) buttons |= NetProtocol.BoardUiItemUseCapBit;
+            if (RestControls.ShortRestShown) buttons |= NetProtocol.BoardUiShortRestBit;
+            if (RestControls.LongRestShown) buttons |= NetProtocol.BoardUiLongRestBit;
+            if (WorldUI.ButtonCluster.BoardSkipShown) buttons |= NetProtocol.BoardUiSkipBit;
+            if (WorldUI.ModalFallback.DecisionDock.ActivePrompt() != null)
+                buttons |= NetProtocol.BoardUiDecisionBit;
+            int overlays = trayNow.WantedSlotMask & NetProtocol.BoardUiWantedMask;
+            boardUiNow = buttons | (overlays << 8);
+        }
+        bool boardUiChanged = boardUiNow != _lastSentBoardUi;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
-            && !maskSizeChanged && !boardStyleChanged && !handScaleChanged)
+            && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
+            && !poseDue && !boardUiChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -406,15 +474,20 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         var extras = default(PresenceState);
 
-        Transform? board = PlayTray.Current?.Root;
         if (board != null)
         {
-            _anchor.ToAnchor(board.position, board.rotation, out Vector3 bp, out Quaternion br);
             extras.HasBoard = true;
-            extras.Board.Position = bp;
-            extras.Board.Rotation = br;
-            float scale = board.lossyScale.x;
-            extras.BoardScale = scale > 0f ? scale : 1f;
+            extras.Board.Position = boardPos;
+            extras.Board.Rotation = boardRot;
+            extras.BoardScale = boardScale;
+            _sentBoardPoseValid = true;
+            _lastSentBoardPos = boardPos;
+            _lastSentBoardRot = boardRot;
+            _lastSentBoardScale = boardScale;
+        }
+        else
+        {
+            _sentBoardPoseValid = false;
         }
 
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
@@ -461,6 +534,54 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.PileBrowseHeld = browseNow!.IsHandHeld;
             extras.PileBrowseLeftHand = browseNow.IsHeldByLeftHand;
         }
+
+        // FAN ANCHOR (extension record 5, defect 6 "die Fächer sitzen woanders"): the open
+        // BOARD-ANCHORED fan's real board-local position — the authored base spot PLUS the
+        // owner's live per-board offsets, which never crossed the wire before, so a tuned
+        // player's fan floated at the untuned default on every peer. At most one of the two
+        // fans is ever open (Cards-layer mutual exclusion), so one record covers both; held
+        // fans return null and keep the hand-relative placement. Written every packet while
+        // open — absence must keep meaning "authored default", never "stale last value".
+        Vector3? fanAnchor = itemsCount > 0 && itemsNow != null ? itemsNow.BoardLocalAnchor : null;
+        if (fanAnchor == null && browseKind >= 0)
+            fanAnchor = browseNow!.BoardLocalAnchor;
+        if (fanAnchor.HasValue)
+        {
+            extras.HasFanAnchor = true;
+            extras.FanAnchorLocal = fanAnchor.Value;
+        }
+
+        // BOARD UI (extension record 4, defects 4 + 5): written on EVERY packet with a live
+        // tray, so a peer can tell "no dynamic controls shown" (record present, bits clear)
+        // from "pre-record sender" (record absent ⇒ legacy always-drawn furniture).
+        if (boardUiNow >= 0)
+        {
+            extras.HasBoardUi = true;
+            extras.BoardButtonsMask = (byte)(boardUiNow & 0xFF);
+            extras.BoardOverlayMask = (byte)((boardUiNow >> 8) & 0xFF);
+        }
+        if (boardUiChanged)
+        {
+            if (boardUiNow >= 0)
+            {
+                VRLog.Info("Net", $"Board UI SENT: buttons=0x{boardUiNow & 0xFF:X2} " +
+                                  $"(confirm={(boardUiNow & NetProtocol.BoardUiConfirmBit) != 0}, " +
+                                  $"undo={(boardUiNow & NetProtocol.BoardUiUndoBit) != 0}, " +
+                                  $"recess={(boardUiNow & NetProtocol.BoardUiItemRecessBit) != 0}, " +
+                                  $"useCap={(boardUiNow & NetProtocol.BoardUiItemUseCapBit) != 0}, " +
+                                  $"shortRest={(boardUiNow & NetProtocol.BoardUiShortRestBit) != 0}, " +
+                                  $"longRest={(boardUiNow & NetProtocol.BoardUiLongRestBit) != 0}, " +
+                                  $"skip={(boardUiNow & NetProtocol.BoardUiSkipBit) != 0}, " +
+                                  $"decision={(boardUiNow & NetProtocol.BoardUiDecisionBit) != 0}), " +
+                                  $"wanted-glow mask={(boardUiNow >> 8) & 0x3} " +
+                                  "— peers show EXACTLY these controls (extension record 4).");
+            }
+            else
+            {
+                VRLog.Info("Net", "Board UI SENT: no live tray — record omitted (peers keep the last board state).");
+            }
+        }
+        _lastSentBoardUi = boardUiNow;
         // HEAD-MASK SIZE, riding the SAME trailing block (byte A bit 4 + one trailing byte — the
         // reserved-bit extension path both flag bytes' exhaustion forces us onto, see NetProtocol).
         // Sent ONLY when it differs from the default: absence already means "1.00x" to every

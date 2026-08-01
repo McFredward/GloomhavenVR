@@ -138,6 +138,14 @@ internal sealed class ButtonCluster
     private PhysicalButton? _skip;
     private bool _visible;
 
+    /// <summary>
+    /// Multiplayer board-UI read seam: true while the SKIP disc is visible on the DOCKED cluster
+    /// (i.e. on the control board — the only cluster member a remote board mirrors). Published as
+    /// a static because the cluster instance is a private of WorldUIModule; written every Tick,
+    /// cleared whenever the cluster is hidden/undocked/shut down.
+    /// </summary>
+    internal static bool BoardSkipShown { get; private set; }
+
     // Right-column layout state (user #8).
     private bool _dockedNow;
     private float _rootToLocal = 1f / 0.7f; // root-local → cluster-local unit factor (mount carries the 0.7 dock scale)
@@ -163,6 +171,7 @@ internal sealed class ButtonCluster
         if (!wantCluster)
         {
             SetVisible(false);
+            BoardSkipShown = false;
             return;
         }
 
@@ -188,7 +197,10 @@ internal sealed class ButtonCluster
         bool placed = PlaceCluster();
         SetVisible(placed);
         if (!placed)
+        {
+            BoardSkipShown = false;
             return;
+        }
 
         bool locked = CanvasConversion.IsLockedNow;
         // Button layout policy: confirmations/undo live ONLY on the right-hand board pads now
@@ -200,6 +212,10 @@ internal sealed class ButtonCluster
         _ready!.MirrorReady(null, locked);
         _undo!.MirrorUndo(null, locked);
         _skip!.MirrorSkip(choreographer!.m_SkipButton, locked);
+
+        // Publish the docked Skip's live visibility for the multiplayer board-UI record — the
+        // one cluster member a peer's copy of this board draws.
+        BoardSkipShown = _dockedNow && _skip.VisibleNow;
 
         // User #8: pack whatever is visible into the fixed right-side column, auto-sized
         // from the live count (transient buttons reflow slots only, never the anchor).
@@ -315,6 +331,7 @@ internal sealed class ButtonCluster
         _ready = _undo = _skip = null;
         _laserTray = null; // a rebuilt cluster must re-register its laser targets
         _dockedNow = false;
+        BoardSkipShown = false;
         _dockLocalFactor = -1f;
         _lastLayoutCount = -1;
         _lastLayoutRadius = 0f;

@@ -169,6 +169,38 @@ internal struct PresenceState
     /// this), not in whatever this client happens to use.
     /// </summary>
     public byte BoardStyleCode;
+
+    /// <summary>
+    /// True when this packet carries the sender's live BOARD-UI STATE (extension record
+    /// <see cref="NetProtocol.ExtIdBoardUi"/>): which board controls their own PlayTray currently
+    /// shows plus the wanted-slot glow mask. Sent on EVERY packet that carries a board pose, so
+    /// "record present, all bits clear" (owner's board shows no dynamic controls) is
+    /// distinguishable from "sender predates the field" (receiver keeps the legacy always-drawn
+    /// furniture).
+    /// </summary>
+    public bool HasBoardUi;
+
+    /// <summary>Visible-controls bitmask (<see cref="NetProtocol.BoardUiConfirmBit"/> …),
+    /// meaningful only when <see cref="HasBoardUi"/>.</summary>
+    public byte BoardButtonsMask;
+
+    /// <summary>Overlay byte: bits 0..1 are the wanted-slot glow mask
+    /// (<see cref="NetProtocol.BoardUiWantedMask"/>); the rest is reserved (0). Meaningful only
+    /// when <see cref="HasBoardUi"/>.</summary>
+    public byte BoardOverlayMask;
+
+    /// <summary>
+    /// True when this packet carries the board-local anchor POSITION of the sender's open
+    /// BOARD-ANCHORED fan (item or pile-browse — extension record
+    /// <see cref="NetProtocol.ExtIdFanAnchor"/>). Absent ⇒ receivers use the authored default
+    /// spot, exactly what pre-record peers render.
+    /// </summary>
+    public bool HasFanAnchor;
+
+    /// <summary>The fan root's position in the sender's control-board LOCAL frame (meaningful
+    /// only when <see cref="HasFanAnchor"/>). Receivers apply it as
+    /// <c>boardPos + boardRot · (this × boardScale)</c>.</summary>
+    public Vector3 FanAnchorLocal;
 }
 
 /// <summary>
@@ -197,7 +229,11 @@ internal struct PresenceState
 ///     if kindFlags bit7: EXTENSION TAIL [count]([id][len][payload])* — current record ids:
 ///                        1 hand scale (1 B), 2 ghost sides (1 B),
 ///                        3 MOD VERSION ([u16 build LE][UTF8 display ≤ 20 B] — sent on EVERY
-///                        packet; its absence marks a pre-handshake peer, see NetProtocol.ModBuild)
+///                        packet; its absence marks a pre-handshake peer, see NetProtocol.ModBuild),
+///                        4 BOARD UI ([buttons][overlays] — sent on every packet with a board pose;
+///                        see NetProtocol.ExtIdBoardUi for the bit layout),
+///                        5 FAN ANCHOR (3 × f32 LE board-local position of the open board-anchored
+///                        fan; absent = the authored default spot, see NetProtocol.ExtIdFanAnchor)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -229,9 +265,9 @@ internal static class PresenceSerializer
     /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
-    /// (mod version, the largest record) = 70, rounded up to 96 for headroom. Local buffer
-    /// bound only — nothing on the wire depends on it.</summary>
-    public const int MaxSize = 96;
+    /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) = 88, rounded up to
+    /// 112 for headroom. Local buffer bound only — nothing on the wire depends on it.</summary>
+    public const int MaxSize = 112;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -259,7 +295,8 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion;
+        bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
+                          || state.HasBoardUi || state.HasFanAnchor;
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -354,6 +391,28 @@ internal static class PresenceSerializer
                     buffer[i++] = (byte)(state.ModBuild >> 8);
                     for (int b = 0; b < text.Length; b++)
                         buffer[i++] = text[b];
+                    records++;
+                }
+                if (state.HasBoardUi)
+                {
+                    // BOARD UI: [buttons][overlays]. Like the mod version it is written whenever
+                    // its source exists (a live PlayTray) rather than only when non-default: the
+                    // receiver must tell "the owner's board shows no dynamic controls" apart from
+                    // "the sender predates the field" — the latter keeps the legacy furniture.
+                    buffer[i++] = NetProtocol.ExtIdBoardUi;
+                    buffer[i++] = 2;
+                    buffer[i++] = state.BoardButtonsMask;
+                    buffer[i++] = (byte)(state.BoardOverlayMask & NetProtocol.BoardUiWantedMask);
+                    records++;
+                }
+                if (state.HasFanAnchor)
+                {
+                    // FAN ANCHOR: 3 × f32 LE, the open board-anchored fan's board-local position.
+                    buffer[i++] = NetProtocol.ExtIdFanAnchor;
+                    buffer[i++] = 12;
+                    AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.x);
+                    AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.y);
+                    AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.z);
                     records++;
                 }
                 buffer[countAt] = records;
@@ -549,6 +608,28 @@ internal static class PresenceSerializer
                         state.ModBuild = (ushort)(buffer[i] | (buffer[i + 1] << 8));
                         int textLen = System.Math.Min(len - 2, NetProtocol.ModVersionTextMaxBytes);
                         state.ModVersionText = DecodeModVersionText(buffer, i + 2, textLen);
+                    }
+                    else if (id == NetProtocol.ExtIdBoardUi && len >= 2)
+                    {
+                        state.HasBoardUi = true;
+                        state.BoardButtonsMask = buffer[i];
+                        state.BoardOverlayMask = (byte)(buffer[i + 1] & NetProtocol.BoardUiWantedMask);
+                    }
+                    else if (id == NetProtocol.ExtIdFanAnchor && len >= 12)
+                    {
+                        int j = i;
+                        float fx = AvatarSerializer.ReadF32(buffer, ref j);
+                        float fy = AvatarSerializer.ReadF32(buffer, ref j);
+                        float fz = AvatarSerializer.ReadF32(buffer, ref j);
+                        // Never let wire garbage place a fan at NaN/∞ — degrade to "record absent"
+                        // (the authored default spot) instead.
+                        if (!float.IsNaN(fx) && !float.IsInfinity(fx)
+                            && !float.IsNaN(fy) && !float.IsInfinity(fy)
+                            && !float.IsNaN(fz) && !float.IsInfinity(fz))
+                        {
+                            state.HasFanAnchor = true;
+                            state.FanAnchorLocal = new Vector3(fx, fy, fz);
+                        }
                     }
                     i += len; // known or not, the record's own length is how we move past it
                 }

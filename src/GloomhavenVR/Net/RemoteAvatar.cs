@@ -217,6 +217,32 @@ internal sealed class RemoteAvatar
     internal UnityEngine.Vector3 BoardAnchorLocal(CardFxAnchor anchor) =>
         _controlBoard.AnchorLocalLive(anchor);
 
+    /// <summary>
+    /// True when the sender broadcasts their live BOARD-UI state (extension record 4): which
+    /// controls their own board currently shows + the wanted-slot glow mask. False for peers that
+    /// predate the field — <see cref="RemoteBoardFurniture"/> then keeps the legacy always-drawn
+    /// furniture, so an old peer's board looks exactly as before.
+    /// </summary>
+    public bool HasBoardUi { get; private set; }
+
+    /// <summary>Visible-controls bitmask (<see cref="NetProtocol.BoardUiConfirmBit"/> …),
+    /// meaningful only when <see cref="HasBoardUi"/>.</summary>
+    public byte BoardButtonsMask { get; private set; }
+
+    /// <summary>The sender's wanted-slot glow mask (bit0 = left slot, bit1 = right), meaningful
+    /// only when <see cref="HasBoardUi"/>. The blink itself is animated locally at the shared
+    /// period — synced state, local clock.</summary>
+    public int WantedGlowMask { get; private set; }
+
+    /// <summary>True when the sender transmitted the board-local anchor of their open
+    /// BOARD-ANCHORED fan (extension record 5). Absent ⇒ the authored default spot.</summary>
+    public bool HasFanAnchor { get; private set; }
+
+    /// <summary>The open board-anchored fan's position in the sender's board-LOCAL frame
+    /// (meaningful only when <see cref="HasFanAnchor"/>). Applied as
+    /// <c>BoardPosition + BoardRotation · (this × BoardScale)</c>.</summary>
+    public Vector3 FanAnchorLocal { get; private set; }
+
     /// <summary>True while the sender's fan-carrying hand is faded ("ghost hand"). False for peers
     /// that predate the field — their hands simply stay solid.</summary>
     public bool GhostHand { get; private set; }
@@ -403,6 +429,19 @@ internal sealed class RemoteAvatar
         ItemCardCount = p.HasItemFan ? p.ItemCardCount : 0;
         ItemFanHeld = p.HasItemFan && p.ItemFanHeld;
         ItemFanLeftHand = ItemFanHeld && p.ItemFanLeftHand;
+
+        // Board UI (extension record 4): authoritative when present — the furniture then shows
+        // EXACTLY the controls the owner sees. Absent = the sender predates the field; the
+        // furniture falls back to the legacy always-drawn look (never to "all hidden").
+        HasBoardUi = p.HasBoardUi;
+        BoardButtonsMask = p.HasBoardUi ? p.BoardButtonsMask : (byte)0;
+        WantedGlowMask = p.HasBoardUi ? p.BoardOverlayMask & NetProtocol.BoardUiWantedMask : 0;
+
+        // Fan anchor (extension record 5): where the sender's open board-anchored fan really
+        // sits, board-local. Reset when absent — "absent" must mean the authored default spot,
+        // never a stale anchor from a fan that has since closed or moved.
+        HasFanAnchor = p.HasFanAnchor;
+        FanAnchorLocal = p.HasFanAnchor ? p.FanAnchorLocal : Vector3.zero;
 
         // Pile browse (additive field, same reasoning as the item fan): an absent flag means the
         // sender closed the fan OR predates the field — both mean "no fan", and the receiver's

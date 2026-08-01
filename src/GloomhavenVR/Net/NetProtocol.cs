@@ -392,8 +392,72 @@ internal static class NetProtocol
     //     the record is an additive TLV that old readers skip by length).
     // =====================================================================================
     /// <summary>Monotonic mod build number, the version-handshake comparison key (see the
-    /// block comment above — bump by +1 on every build handed to another player).</summary>
-    public const ushort ModBuild = 1;
+    /// block comment above — bump by +1 on every build handed to another player).
+    /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
+    /// 15 Hz board pose while moving).</summary>
+    public const ushort ModBuild = 2;
+
+    /// <summary>
+    /// Extension record id: the sender's live BOARD-UI STATE — 2 bytes,
+    /// <c>[byte0 buttons][byte1 overlays]</c>. This is what makes a peer's copy of a control
+    /// board show EXACTLY the controls its owner currently sees (user requirement: the remote
+    /// board used to draw ALL buttons permanently), plus the "wanted slot" glow state so the
+    /// teal blink is synced (the blink ANIMATION stays local-clock driven at the shared period —
+    /// synced state, locally animated, zero per-frame traffic).
+    ///
+    /// byte 0 (buttons — 1 = that control is VISIBLE on the owner's board right now):
+    ///   bit0 CONFIRM keycap        bit1 UNDO keycap
+    ///   bit2 item-use RECESS       bit3 item-use USE cap
+    ///   bit4 SHORT-rest disc       bit5 LONG-rest disc
+    ///   bit6 turn-flow SKIP disc   bit7 decision drawer OCCUPIED (a prompt is docked)
+    /// byte 1 (overlays):
+    ///   bits0..1 the wanted-slot glow mask (bit0 = left slot, bit1 = right slot — the exact
+    ///            mask the owner's PlayTray.SetWantedSlots currently shows);
+    ///   bits2..7 reserved (written 0, ignored on read).
+    ///
+    /// Unlike the "only when non-default" records, this one is written on EVERY extras packet
+    /// that also carries a board pose: the receiver must distinguish "the owner's board shows
+    /// no dynamic controls" (record present, byte0 = 0) from "the sender predates the field"
+    /// (record absent → the receiver keeps the legacy always-drawn furniture, so a build-1 peer
+    /// looks exactly as before). ~4 bytes at 5 Hz. No card identity is derivable from any bit —
+    /// the wanted mask reveals only "slot still empty during selection", which the board's own
+    /// card backs (and vanilla's ready tracker) already show.
+    /// </summary>
+    public const byte ExtIdBoardUi = 4;
+
+    // Board-UI record byte 0 (buttons) bit assignments — wire constants, append-only.
+    public const byte BoardUiConfirmBit = 1 << 0;
+    public const byte BoardUiUndoBit = 1 << 1;
+    public const byte BoardUiItemRecessBit = 1 << 2;
+    public const byte BoardUiItemUseCapBit = 1 << 3;
+    public const byte BoardUiShortRestBit = 1 << 4;
+    public const byte BoardUiLongRestBit = 1 << 5;
+    public const byte BoardUiSkipBit = 1 << 6;
+    public const byte BoardUiDecisionBit = 1 << 7;
+
+    /// <summary>Board-UI record byte 1: mask of the wanted-slot glow bits (bits 0..1).</summary>
+    public const byte BoardUiWantedMask = 0x03;
+
+    /// <summary>
+    /// Extension record id: the board-local ANCHOR POSITION of the sender's open BOARD-ANCHORED
+    /// fan (item fan or pile-browse fan — at most one is ever open, the Cards layer enforces the
+    /// mutual exclusion) — 12 bytes, 3 × float32 LE, in the sender's control-board LOCAL frame
+    /// (same axes the slot/pile anchors use; the receiver applies it as
+    /// <c>boardPos + boardRot · (local × boardScale)</c>).
+    ///
+    /// WHY: the receivers used to place both fans at the AUTHORED default spot above the board
+    /// (BoardTopLocalY + 0.26), but the owner's own fan sits at that base PLUS their per-board
+    /// <c>[Cards] BrowseFanOffset / ItemCardOffset</c> tuning — local config that never crossed
+    /// the wire, so a tuned player's fan floated somewhere else on every other screen. Syncing
+    /// the actual anchor (the fan ROOT's live board-local position) reproduces the owner's real
+    /// placement for zero guessing. Rotation is deliberately NOT synced: both sides billboard the
+    /// fan to the owner's (synced) head every frame, so the rotation is already derived state.
+    ///
+    /// Written only while a board-anchored fan is actually open; absent means "use the authored
+    /// default spot", which is exactly what pre-record peers render. HELD fans (riding the palm)
+    /// keep the existing hand-relative placement and never write this record.
+    /// </summary>
+    public const byte ExtIdFanAnchor = 5;
 
     /// <summary>Defensive cap on the version DISPLAY string's UTF8 bytes (the record also
     /// carries the 2-byte build). Plenty for "0.1.0"-style tags; a runaway string is truncated

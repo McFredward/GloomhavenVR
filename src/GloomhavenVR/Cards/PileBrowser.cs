@@ -105,6 +105,16 @@ internal sealed class PileBrowser
     internal bool IsHeldByLeftHand => _followHand != null && _followHand.Side == HandSide.Left;
 
     /// <summary>
+    /// The open BOARD-ANCHORED browse fan's board-local anchor position (the root is a child of
+    /// the board root, so <c>localPosition</c> IS the board frame), or null while closed /
+    /// hand-held / head-fallback. Multiplayer read seam for the fan-anchor wire record — carries
+    /// the owner's live <c>[Cards] BrowseFanOffset</c> tuning that a receiver cannot derive.
+    /// Mirrors <see cref="ItemsPile.BoardLocalAnchor"/>.
+    /// </summary>
+    internal Vector3? BoardLocalAnchor =>
+        IsOpen && _boardAnchored && _root != null ? _root.localPosition : null;
+
+    /// <summary>
     /// The OPEN pile browser, or null while every pile fan is closed. Exists for exactly one
     /// reason: the multiplayer extras sender (<c>Net.NetAvatarDriver.TickExtrasSend</c>) has to
     /// answer "does this player have a pile fan up, which pile, how many cards" once per extras

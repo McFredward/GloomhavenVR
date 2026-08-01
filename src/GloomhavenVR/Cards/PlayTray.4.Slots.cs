@@ -406,6 +406,36 @@ internal sealed partial class PlayTray
         }
     }
 
+    // ---- multiplayer board-UI read seam (Net.NetAvatarDriver.TickExtrasSend) -----------------
+    // Pure reads of state this file already owns, published so the extras sender can put the
+    // owner's LIVE board-UI onto the wire (extension record 4) without reaching into privates.
+
+    /// <summary>The wanted-slot glow mask exactly as currently shown (bit0 = left slot, bit1 =
+    /// right slot; 0 before the driver ever wrote one). Wire input of the board-UI record.</summary>
+    internal int WantedSlotMask => _wantedMask > 0 ? _wantedMask & 0x3 : 0;
+
+    /// <summary>True while a CONFIRM control is visible on this board — the mod keycap, or the
+    /// docked native Continue widget that replaces it at the same spot (either way the owner
+    /// SEES a confirm control there, which is what a peer must reproduce).</summary>
+    internal bool ConfirmControlShown =>
+        (_confirm != null && _confirm.LogicalVisible)
+        || (WorldUI.Surfaces.TrayControlDockSurface.ContinueDocked
+            && WorldUI.Surfaces.TrayControlDockSurface.ContinueVisible);
+
+    /// <summary>True while an UNDO control is visible on this board (mod keycap or the docked
+    /// native Undo widget) — see <see cref="ConfirmControlShown"/>.</summary>
+    internal bool UndoControlShown =>
+        (_undo != null && _undo.LogicalVisible)
+        || WorldUI.Surfaces.TrayControlDockSurface.UndoDocked;
+
+    /// <summary>True while the item-use clip-in RECESS is shown (ItemsPile toggles it while the
+    /// owner is handling a usable item).</summary>
+    internal bool ItemUseSlotShown => _itemUseSlot != null && _itemUseSlot.gameObject.activeSelf;
+
+    /// <summary>True while the item-use USE cap is up (a card is clipped in / a demand pick is
+    /// ready — the dynamic third member of the confirm cluster).</summary>
+    internal bool ItemUseCapShown => _itemUseActive;
+
     /// <summary>
     /// Visually park a card in a slot (game-state sync happens separately).
     /// <paramref name="announce"/> is true only on the REAL drop path — the

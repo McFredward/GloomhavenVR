@@ -38,6 +38,18 @@ internal sealed class RestControls
     internal System.Action? ShortRestRequested;
     internal System.Action? LongRestRequested;
 
+    // ---- multiplayer board-UI read seam (Net.NetAvatarDriver.TickExtrasSend) -----------------
+    // The RestControls instance is a private of CardsDriver, so the LIVE keycap visibility is
+    // published as statics the same way PileBrowser.Current / ItemsPile.Current publish theirs.
+    // Written by TickStatus (per frame while the tray shows), cleared on Destroy so a torn-down
+    // board never advertises stale rest discs.
+
+    /// <summary>True while the SHORT-rest keycap is visible on the local board.</summary>
+    internal static bool ShortRestShown { get; private set; }
+
+    /// <summary>True while the LONG-rest keycap is visible on the local board.</summary>
+    internal static bool LongRestShown { get; private set; }
+
     internal void EnsureBuilt(PlayTray tray)
     {
         // Feature 6a: the rest controls seat in the board's two rest-notches. PER-BOARD: the
@@ -141,6 +153,8 @@ internal sealed class RestControls
             Object.DestroyImmediate(_longButton.gameObject);
         _shortButton = null;
         _longButton = null;
+        ShortRestShown = false; // never advertise rest discs off a torn-down board
+        LongRestShown = false;
     }
 
     /// <summary>
@@ -186,5 +200,9 @@ internal sealed class RestControls
         _longButton?.SetVisible(longVisible);
         _shortButton?.SetState(canShort, accent: shortSelected);
         _longButton?.SetState(canLong, accent: longSelected);
+
+        // Publish for the multiplayer board-UI record (only meaningful while the caps exist).
+        ShortRestShown = _shortButton != null && shortVisible;
+        LongRestShown = _longButton != null && longVisible;
     }
 }
