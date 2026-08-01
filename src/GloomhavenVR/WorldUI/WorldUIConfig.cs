@@ -231,6 +231,15 @@ internal static class WorldUIConfig
     internal static bool VirtualMouseButtons =>
         !string.Equals(ClickMode.Value, "execute", System.StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Part 10 kill-switch: float UNKNOWN in-scenario windows (IDs not enrolled in
+    /// FallbackIds / the polls / any claim) after a short grace, instead of letting them
+    /// wait invisibly on the hidden 2D stack (the ItemCardPicker silent-deadlock class).
+    /// The explicit enrollments (story/level-message/dialog/reward polls, the
+    /// GlobalErrorMessage poll) are NOT gated by this — they stay on regardless.
+    /// </summary>
+    internal static ConfigEntry<bool> CatchAllModals = null!;
+
     /// <summary>True when fallback windows float individually ([WorldUI] ModalStyle != "screen").</summary>
     internal static bool ModalWindowStyle =>
         !string.Equals(ModalStyle.Value, "screen", System.StringComparison.OrdinalIgnoreCase);
@@ -334,6 +343,15 @@ internal static class WorldUIConfig
             "and never shown in VR (the vanilla 2D menu tooltip is unaffected). Wired to the " +
             "in-VR settings panel and read live, so toggling takes effect without a restart.");
 
+        CatchAllModals = _file.Bind("WorldUI", "CatchAllModals", Defaults.CatchAllModals,
+            "Deadlock insurance: any UNKNOWN game window that opens during a scenario (an ID " +
+            "the mod has not enrolled explicitly — scene-serialized IDs are invisible in code, " +
+            "so future game patches can always add one) is floated as a grabbable VR window " +
+            "with an X after a ~2-tick grace, instead of waiting invisibly on the hidden 2D " +
+            "stack while the game blocks on it (the ItemCardPicker silent-deadlock class). " +
+            "Each floated unknown window logs one warning naming it, so it can be enrolled " +
+            "explicitly later. Off = only explicitly enrolled windows are handled (pre-catch-" +
+            "all behavior); the manual A/X screen chord remains the universal rescue.");
         ForceMouseMode = _file.Bind("WorldUI", "ForceMouseMode", Defaults.ForceMouseMode,
             "Keep InputManager in mouse mode while VR runs so the 'Game' (not 'Game_gamepad') " +
             "scene variants load and buttons commit without gamepad long-press flows.");

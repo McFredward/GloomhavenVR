@@ -249,6 +249,17 @@ internal static partial class ModalFallback
         UIWindowID.IntroductionScreen,
         // MODAL: UIRewardsManager — UIBlackOverlay blocker (:148) + confirm-action
         // hold (:164/178), waits for the click (:190).
+        // MID-SCENARIO SHOWCASE VERIFICATION (part 10, 2026-08-01): the treasure-chest
+        // showcase (Choreographer WaitingForRewardsProcess) does NOT provably open this
+        // ID. ScenarioRewardManager is abstract; the campaign subclass routes to
+        // CampaignRewardsManager → UICampaignRewardWindow — a DIFFERENT UIWindow whose
+        // scene-serialized ID appears nowhere in code (UIWindowID.RewardsPanel exists
+        // ONLY as the enum member; no code assigns any window ID). Only the guildmaster
+        // subclass reaches UIRewardsManager, the class this annotation maps to. The
+        // showcase is therefore enrolled by POLL (ScenarioRewardManager.IsShown →
+        // concrete window per subclass, ModalFallback.10.CatchAll.cs) — this entry stays
+        // for whatever window IS serialized as RewardsPanel; the poll dedupes if they
+        // coincide.
         UIWindowID.RewardsPanel,
         // MODAL: UIResultsManager — end-of-scenario; its IsShown gates/suppresses
         // the rest of the UI (CardsHandManager.cs:1214, BaseButtons.cs:68).

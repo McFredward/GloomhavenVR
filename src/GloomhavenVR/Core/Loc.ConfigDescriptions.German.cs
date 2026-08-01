@@ -1595,6 +1595,16 @@ internal static partial class Loc
                 + "ein Fenster sich nicht umwandeln lässt (Grund wird protokolliert). \"screen\": Verhalten vor "
                 + "P8 — für jedes Rückfallfenster erscheint das komplette 2D-Composite. Die manuelle "
                 + "A/X-Kombination holt davon unabhängig immer die volle Leinwand.",
+            ["WorldUI/CatchAllModals"] =
+                "Deadlock-Versicherung: jedes UNBEKANNTE Spielfenster, das während eines Szenarios aufgeht "
+                + "(eine ID, die der Mod nicht ausdrücklich eingetragen hat — szenen-serialisierte IDs sind im "
+                + "Code unsichtbar, künftige Spiel-Patches können also jederzeit eine hinzufügen), wird nach "
+                + "einer ~2-Tick-Schonfrist als greifbares VR-Fenster mit X-Knopf geschwebt, statt unsichtbar "
+                + "auf dem versteckten 2D-Stapel zu warten, während das Spiel darauf blockiert (die "
+                + "ItemCardPicker-Klasse stiller Deadlocks). Jedes so geschwebte Fenster protokolliert eine "
+                + "Warnung mit seinem Namen, damit es später ausdrücklich eingetragen werden kann. Aus = nur "
+                + "ausdrücklich eingetragene Fenster werden behandelt (Verhalten vor dem Catch-All); die "
+                + "manuelle A/X-Kombination bleibt die universelle Rettung.",
             ["WorldUI/ManualScreenChord"] =
                 "Selbstrettungs-Tastenkombination: HALTE im Szenario die untere Fronttaste der "
                 + "NICHT-dominanten Hand (A oder X) für ManualScreenChordSeconds, um die schwebende 2D-Leinwand "

@@ -276,6 +276,17 @@ internal static partial class ModalFallback
             // like the other sub-menu/modal windows. Build reads the host's just-placed HMD
             // pose so the panel does not jump.
             bool isResultsPanel = IsResultsPanel(window.ID);
+            // Part 10 (reward-showcase enrollment): the mid-scenario chest showcase window
+            // (UICampaignRewardWindow — reached via the ScenarioRewardManager poll; its
+            // UIWindowID is scene-serialized and unprovable from code, see the part-10
+            // verification comment) must NOT carry the mod X. Its ONLY sane exit is its
+            // native continue button: the close chain runs CampaignRewardsManager.Confirm →
+            // Finish → the Choreographer callback that clears m_BlockClientMessageProcessing
+            // (Choreographer.cs:2419-2426) — an X calling Hide() would close the window
+            // WITHOUT that callback, leaving the message pump blocked forever with no way
+            // to reopen the showcase: a worse deadlock than the one being fixed. Matched by
+            // COMPONENT (provable from code) rather than by the unprovable ID.
+            bool isRewardShowcase = window.GetComponent<UICampaignRewardWindow>() != null;
             var grab = new GrabbableModal();
             // Problem #4 (HUD bleed-through): the pause/options/confirmation menu family gets a
             // coplanar DEPTH MASK behind its content so the game's transparent HUD (initiative
@@ -305,11 +316,13 @@ internal static partial class ModalFallback
             // Sieg/Niederlage results windows: the ONLY way out of the end-of-scenario window
             // must remain its native continue/retry/exit buttons (an X would Hide() the window
             // and strand the scenario-end flow with no way to re-open it).
-            if (!isResultsPanel && !isStoryBox)
+            if (!isResultsPanel && !isStoryBox && !isRewardShowcase)
                 ModalCloseButton.Attach(panel, window);
             else
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
-                                      $"({(isResultsPanel ? "results window — native buttons are the only exit" : "click-through story box")}).");
+                                      $"({(isResultsPanel ? "results window — native buttons are the only exit"
+                                          : isRewardShowcase ? "reward showcase — native continue is the only exit (its callback releases the message pump)"
+                                          : "click-through story box")}).");
 
             Converted.Add(new WindowPanel
             {
