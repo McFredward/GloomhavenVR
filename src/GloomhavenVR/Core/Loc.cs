@@ -221,8 +221,9 @@ internal static partial class Loc
                                       "Pflicht-Bonus braucht eine Auswahl — Leiste unter dem Board nutzen"),
 
         // ---- SettingsPanel: sections / labels / buttons ----
+        // ["table_scale"] is GONE with its row (user ruling 2026-08: the "Tischgröße" setting
+        // was removed — [Rig] WorldScale is a documented legacy no-op now).
         ["comfort"] = Pair("Comfort", "Komfort"),
-        ["table_scale"] = Pair("Table scale", "Tischgröße"),
         ["turning"] = Pair("Turning", "Drehen"),
         ["table_height"] = Pair("Table height", "Tischhöhe"),
         ["free_movement"] = Pair("Free movement", "Freie Bewegung"),
@@ -272,6 +273,9 @@ internal static partial class Loc
         ["vr_o_rotate"] = Pair("Rotate the world", "Welt drehen"),
         ["vr_o_scale"] = Pair("Resize the world", "Welt skalieren"),
         ["vr_o_recenterhold"] = Pair("Recenter hold", "Zentrieren halten"),
+        // PARKED with the world tilt (2026-08, VRRigDriver.WorldTilt.cs): the caption and its
+        // h_ hint below are kept so reviving the feature is exactly "restore the clamp + the
+        // curated row" — an unused Loc key costs nothing and cannot mislabel anything.
         ["vr_o_worldtilt"] = Pair("World tilt", "Weltneigung"),
         ["vr_o_primaryhand"] = Pair("Dominant hand", "Dominante Hand"),
         ["vr_o_rayalways"] = Pair("Laser always on", "Laser immer an"),
@@ -300,6 +304,10 @@ internal static partial class Loc
         ["boardmove_free"] = Pair("Free", "Frei"),
         ["boardmove_limited"] = Pair("Limited", "Begrenzt"),
         ["boardmove_pitch"] = Pair("Limited + tilt", "Begrenzt mit Neigung"),
+        // The per-board pitch window that "Begrenzt mit Neigung" clamps the grab to — the rows
+        // sit directly under the movement-scheme dropdown (user request: they must be findable).
+        ["vr_o_pitchmin"] = Pair("Tilt limit down", "Neigungslimit unten"),
+        ["vr_o_pitchmax"] = Pair("Tilt limit up", "Neigungslimit oben"),
         ["vr_o_inspectscale"] = Pair("Close-up size", "Nahansicht"),
         ["vr_o_revealmode"] = Pair("Fan opens by", "Fächer öffnen"),
         ["vr_o_grabbutton"] = Pair("Grab button", "Greif-Taste"),
@@ -337,7 +345,8 @@ internal static partial class Loc
         ["h_vr_o_scale"] = Pair("Let a two-handed grab resize the table.", "Erlaubt, den Tisch mit beiden Händen zu skalieren."),
         ["h_table_height"] = Pair("Raises or lowers the whole table.", "Hebt oder senkt den ganzen Tisch."),
         ["h_vr_o_recenterhold"] = Pair("How long to hold B+Y before the view recentres.", "Wie lange B+Y gehalten wird, bis die Ansicht neu zentriert."),
-        ["h_table_scale"] = Pair("How large the board is in front of you.", "Wie groß das Brett vor dir ist."),
+        // h_vr_o_worldtilt is PARKED with the world tilt row (see vr_o_worldtilt above);
+        // h_table_scale is gone with the removed "Tischgröße" row.
         ["h_vr_o_worldtilt"] = Pair("Tips the table towards you so far edges are easier to see.", "Neigt den Tisch zu dir, damit ferne Ränder besser zu sehen sind."),
         ["h_vr_o_primaryhand"] = Pair("Which hand holds the laser and plays cards.", "Welche Hand den Laser führt und Karten spielt."),
         ["h_vr_o_rayalways"] = Pair("Keep the laser visible instead of only when aiming.", "Laser dauerhaft zeigen statt nur beim Zielen."),
@@ -365,6 +374,8 @@ internal static partial class Loc
         ["h_vr_o_trayscale"] = Pair("How large the control board is.", "Wie groß das Kontrollbrett ist."),
         ["h_vr_o_trayfollow"] = Pair("The board stays in front of you instead of fixed in the room.", "Das Brett bleibt vor dir statt fest im Raum."),
         ["h_vr_o_boardmove"] = Pair("What grabbing the handle bar may do: keep the board level, let it tilt within limits, or move it freely in all axes.", "Was der Griff an der Leiste darf: Brett waagerecht halten, begrenzt neigen oder frei in alle Richtungen bewegen."),
+        ["h_vr_o_pitchmin"] = Pair("'Limited + tilt' only: how far the grab may tilt this board DOWN, away from you (degrees).", "Nur bei 'Begrenzt mit Neigung': wie weit der Griff dieses Brett nach UNTEN, von dir weg neigen darf (Grad)."),
+        ["h_vr_o_pitchmax"] = Pair("'Limited + tilt' only: how far the grab may tilt this board UP, towards you (degrees).", "Nur bei 'Begrenzt mit Neigung': wie weit der Griff dieses Brett nach OBEN, zu dir hin neigen darf (Grad)."),
         ["h_vr_o_inspectscale"] = Pair("How large a card gets when you hold it up to look at it.", "Wie groß eine Karte wird, wenn du sie zum Ansehen hochhältst."),
         ["h_vr_o_revealmode"] = Pair("Whether turning your wrist opens the card fan, or it is always out.", "Ob ein Drehen des Handgelenks den Fächer öffnet oder er immer offen ist."),
         ["h_vr_o_grabbutton"] = Pair("Which button picks a card up.", "Mit welcher Taste du eine Karte aufnimmst."),

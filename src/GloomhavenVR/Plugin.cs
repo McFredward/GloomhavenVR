@@ -57,9 +57,11 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<int> InitDelayFrames = null!;
 
     /// <summary>
-    /// Diorama scale: game world units per real-world meter (the VR rig is scaled up
-    /// by this factor so the board reads as a table).
-    /// 0 = auto: derived from the hex tile size (UnityGameEditorRuntime.s_TileSize).
+    /// LEGACY — no effect (user ruling 2026-08: "Tischgröße" removed). The base diorama scale
+    /// is now ALWAYS derived from the hex tile size (UnityGameEditorRuntime.s_TileSize, see
+    /// VRRigDriver.ResolveWorldScale); the table size a player actually tunes is the two-hand
+    /// pinch gesture, persisted as [Comfort] SavedScaleMultiplier. Stays bound so existing
+    /// .cfg files keep loading; nothing reads <c>.Value</c> any more.
     /// </summary>
     internal static ConfigEntry<float> WorldScale = null!;
 
@@ -82,22 +84,25 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<bool> Experimental3DMap = null!;
 
     /// <summary>
-    /// [Rig] Demeo-style world tilt (degrees, 0-60): the whole diorama APPEARS tilted toward
-    /// the player by counter-rotating the tracking space around the board center
-    /// (VRRigDriver.TickWorldTilt). World coordinates never change — multiplayer-safe.
+    /// [Rig] Demeo-style world tilt (degrees, 0-60) — FEATURE PARKED (user ruling 2026-08:
+    /// "macht zu viele Probleme, vorerst entfernen"). The entry stays bound so a tuned value
+    /// survives in the .cfg, but the runtime clamps the effective tilt to 0
+    /// (VRRigDriver.WorldTilt.cs, <c>TargetTiltDegrees</c>) and the UI row is gone.
+    /// Revival = remove that one clamp + restore the curated row (VROptionsTab.4.Curated.cs).
     /// </summary>
     internal static ConfigEntry<float> WorldTiltDegrees = null!;
 
     /// <summary>
     /// [Rig] Masked tilt re-aim: head yaw angular speed (deg/s) above which the frozen tilt
     /// axis may silently rotate toward the current view (VRRigDriver.TickWorldTilt).
+    /// Dormant while the world tilt is parked (tilt is forced to 0).
     /// </summary>
     internal static ConfigEntry<float> MaskedReaimHeadRate = null!;
 
-    /// <summary>[Rig] Masked tilt re-aim: correction speed as a fraction of the head's yaw speed (subthreshold gain).</summary>
+    /// <summary>[Rig] Masked tilt re-aim: correction speed as a fraction of the head's yaw speed (subthreshold gain). Dormant while the world tilt is parked.</summary>
     internal static ConfigEntry<float> MaskedReaimGain = null!;
 
-    /// <summary>[Rig] Masked tilt re-aim: view-vs-tilt yaw errors below this (degrees) are ignored entirely.</summary>
+    /// <summary>[Rig] Masked tilt re-aim: view-vs-tilt yaw errors below this (degrees) are ignored entirely. Dormant while the world tilt is parked.</summary>
     internal static ConfigEntry<float> MaskedReaimDeadband = null!;
 
     /// <summary>Disable PPv2 (PostProcessLayer/PostProcessVolume) while VR runs (P1 default: on).</summary>
@@ -298,8 +303,11 @@ public class Plugin : BaseUnityPlugin
             "xrCreateSession works. 0 (default) = initialize immediately in plugin Awake.");
         WorldScale = Config.Bind(
             "Rig", "WorldScale", Defaults.WorldScale,
-            "Diorama scale: game world units per real-world meter (the rig is scaled by this, " +
-            "making the board read as a table). 0 = auto from the hex tile size (~10-20 typical).");
+            "LEGACY — no effect (setting removed 2026-08 by user ruling: it duplicated the real " +
+            "table-size control and confused it). The base diorama scale is always derived " +
+            "automatically from the hex tile size now; resize the table with the two-hand pinch " +
+            "gesture instead (persisted as [Comfort] SavedScaleMultiplier). Kept bound so " +
+            "existing config files load unchanged; nothing reads this value.");
         MenuRig = Config.Bind(
             "Rig", "MenuRig", Defaults.MenuRig,
             "Head-track the game's menu camera while no scenario runs (main menu, guildmaster " +
@@ -323,36 +331,34 @@ public class Plugin : BaseUnityPlugin
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             new ConfigDescription(
-                "Demeo-style world tilt in degrees (0-60, 0 = off/default). The ENTIRE play area " +
-                "(board, figures, everything) appears tilted toward you — great when playing " +
-                "reclined or lying down. Implemented rig-side: the VR tracking space is " +
-                "counter-rotated around the board center, so your viewpoint orbits up and over " +
-                "the board while world coordinates stay untouched (multiplayer-safe: boards and " +
-                "figures never move for anyone; other players merely see your avatar orbit, " +
-                "which is the physically honest picture). COMFORT WARNING: tilting reorients " +
-                "gravity relative to your head — the horizon no longer matches your inner ear. " +
-                "Increase in small steps (the settings panel steps 5 degrees) and prefer " +
-                "moderate angles. Live: changes apply immediately and persist. The declared " +
-                "0-60 range is what turns the curated settings row into a SLIDER (item 13); " +
-                "the runtime clamped to the same range before the range was declared, so no " +
-                "stored value changes meaning.",
+                "LEGACY — no effect (feature PARKED 2026-08 by user ruling: the world tilt " +
+                "caused too many problems and is disabled for now; it may return later). This " +
+                "was the Demeo-style world tilt in degrees (0-60): the entire play area " +
+                "appeared tilted toward you, implemented rig-side and multiplayer-safe. The " +
+                "value is kept so a tuned angle survives in this file, but the runtime clamps " +
+                "the effective tilt to 0 regardless (VRRigDriver.WorldTilt.cs, " +
+                "TargetTiltDegrees). Revival = remove that one clamp and restore the curated " +
+                "options row.",
                 new AcceptableValueRange<float>(0f, 60f)));
         MaskedReaimHeadRate = Config.Bind(
             "Rig", "MaskedReaimHeadRate", Defaults.MaskedReaimHeadRate,
-            "World tilt only. When you physically turn your body/head, the direction the " +
+            "LEGACY — no effect while the world tilt is parked (see [Rig] WorldTiltDegrees). " +
+            "World tilt only: when you physically turn your body/head, the direction the " +
             "tilt tips toward is silently re-aimed to your view — but ONLY while your head " +
             "is rotating faster than this threshold (degrees per second), so the correction " +
             "is perceptually masked by your own motion (redirected-rotation technique). " +
             "Below the threshold the world stays bit-frozen. Default 30.");
         MaskedReaimGain = Config.Bind(
             "Rig", "MaskedReaimGain", Defaults.MaskedReaimGain,
-            "World tilt only. Speed of the masked tilt re-aim as a fraction of your head's " +
+            "LEGACY — no effect while the world tilt is parked (see [Rig] WorldTiltDegrees). " +
+            "World tilt only: speed of the masked tilt re-aim as a fraction of your head's " +
             "yaw speed (0-0.5). 0.15 = the axis re-aims at 15% of however fast your head is " +
             "turning — far below the ~20% rotation-gain detection threshold, so the world " +
             "never visibly moves. Higher converges faster but risks being noticeable.");
         MaskedReaimDeadband = Config.Bind(
             "Rig", "MaskedReaimDeadband", Defaults.MaskedReaimDeadband,
-            "World tilt only. View-vs-tilt direction errors smaller than this (degrees) are " +
+            "LEGACY — no effect while the world tilt is parked (see [Rig] WorldTiltDegrees). " +
+            "World tilt only: view-vs-tilt direction errors smaller than this (degrees) are " +
             "ignored — ordinary looking-around never triggers any correction, and a residual " +
             "misalignment this small is visually indistinguishable from a perfect aim.");
         DisablePostProcessing = Config.Bind(

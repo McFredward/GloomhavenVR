@@ -11,9 +11,22 @@ internal sealed partial class VRRigDriver
 {
     // ---- Demeo-style world tilt ([Rig] WorldTiltDegrees) -----------------------------------
 
-    /// <summary>Configured tilt target, clamped to the supported 0-60° range (0 while unbound).</summary>
-    private static float TargetTiltDegrees =>
-        Plugin.WorldTiltDegrees != null ? Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f) : 0f;
+    // ============================== FEATURE PARKED (2026-08) ==============================
+    // WORLD TILT IS DISABLED BY USER RULING ("Die Weltneigung macht zu viele Probleme — bitte
+    // entferne sie vorerst"). The ONE line below forces the effective tilt to 0 regardless of
+    // the [Rig] WorldTiltDegrees value, which provably reduces every tilt code path to the
+    // pre-feature behavior (the tilt-0 bit-identical invariant maintained through every
+    // iteration): TickWorldTilt takes its fast path (zero transform writes),
+    // CurrentTiltSwing returns identity (WorldGrab's rotation write is pure yaw again), and
+    // NotifyWorldGrabMotion returns before touching any state. The cfg entry stays bound
+    // (documented dormant at the bind site) so a tuned angle survives in the file.
+    // REVIVAL = restore the commented-out line below + the curated options row
+    // (VROptionsTab.4.Curated.cs, "Rig/WorldTiltDegrees") — nothing else was removed.
+    // =======================================================================================
+
+    /// <summary>Effective tilt target — FORCED TO 0 while the feature is parked (see above).
+    /// Was: <c>Plugin.WorldTiltDegrees != null ? Mathf.Clamp(Plugin.WorldTiltDegrees.Value, 0f, 60f) : 0f</c>.</summary>
+    private static float TargetTiltDegrees => 0f;
 
     /// <summary>
     /// The yaw-only (horizon-aligned) part of a rig rotation, via swing–twist decomposition

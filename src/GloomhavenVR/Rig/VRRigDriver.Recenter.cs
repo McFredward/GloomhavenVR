@@ -113,17 +113,16 @@ internal sealed partial class VRRigDriver
     }
 
     /// <summary>
-    /// WorldScale config wins when &gt; 0; otherwise derive from the runtime hex tile
-    /// size (<c>UnityGameEditorRuntime.s_TileSize</c>, BOARD-INPUT §2: x = hex width in
+    /// Base diorama scale, ALWAYS derived from the runtime hex tile size
+    /// (<c>UnityGameEditorRuntime.s_TileSize</c>, BOARD-INPUT §2: x = hex width in
     /// world units) so one hex reads as ~15 cm on the table. Falls back to 12× when the
-    /// tile size isn't initialized yet (outside a scenario).
+    /// tile size isn't initialized yet (outside a scenario). The old <c>[Rig] WorldScale</c>
+    /// manual override is LEGACY (user ruling 2026-08, "Tischgröße" removed): the auto
+    /// derivation was the default all along, and the table size a player tunes is the
+    /// two-hand pinch gesture ([Comfort] SavedScaleMultiplier) on top of this base.
     /// </summary>
     private static float ResolveWorldScale()
     {
-        float configured = Plugin.WorldScale.Value;
-        if (configured > 0f)
-            return Mathf.Clamp(configured, 1f, 100f);
-
         float tileSize = UnityGameEditorRuntime.s_TileSize.x;
         if (tileSize <= 0.001f)
             return FallbackWorldScale;

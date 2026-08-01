@@ -39,9 +39,9 @@ internal static class ConfigSteps
     private static readonly Dictionary<string, double> Explicit = new(StringComparer.Ordinal)
     {
         // ---- Komfort ▸ Tisch & Welt -------------------------------------------------------
-        ["Rig/WorldScale"] = 0.5d,               // world units per metre, ~10-20 typical
+        // Rig/WorldScale is GONE (2026-08: the "Tischgröße" setting was removed, legacy no-op).
         ["Comfort/TableHeightOffset"] = 0.01d,   // metres — a table height moves in centimetres
-        ["Rig/WorldTiltDegrees"] = 5d,           // its own description: "increase in small steps"
+        ["Rig/WorldTiltDegrees"] = 5d,           // PARKED feature — kept for its revival; row gone
 
         // ---- Komfort ▸ Bewegung & Drehen --------------------------------------------------
         ["Comfort/SnapTurnDegrees"] = 15d,       // the angles anyone wants: 15/30/45/60/90

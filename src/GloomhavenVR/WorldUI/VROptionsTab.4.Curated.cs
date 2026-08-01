@@ -100,12 +100,15 @@ internal static partial class VROptionsTab
             {
                 new()
                 {
+                    // 2026-08 user rulings: the "Tischgröße" row ([Rig] WorldScale) is REMOVED —
+                    // it duplicated the real table-size control (the two-hand pinch gesture) and
+                    // read as having no effect; the entry is a documented legacy no-op now. The
+                    // "Weltneigung" row ([Rig] WorldTiltDegrees) is REMOVED with the parked world
+                    // tilt (VRRigDriver.WorldTilt.cs) — revival restores that clamp AND this row.
                     LocKey = "sec_table_world",
                     Entries = new CuratedEntry[]
                     {
-                        new("Rig", "WorldScale", "table_scale"),
                         new("Comfort", "TableHeightOffset", "table_height"),
-                        new("Rig", "WorldTiltDegrees", "vr_o_worldtilt"),
                     },
                 },
                 new()
@@ -231,6 +234,18 @@ internal static partial class VROptionsTab
                         // Neigung) — a special row (TryBuildSpecialRow) so the dropdown shows
                         // localized labels instead of the raw enum member names.
                         new("Cards", "BoardMoveMode", "vr_o_boardmove"),
+                        // The pitch window the "Begrenzt mit Neigung" scheme clamps to. The keys
+                        // are per-board, so all three variants are listed and the per-variant
+                        // filter (IsShownForCurrentVariant) shows exactly the selected board's
+                        // pair — the user asked where these rows live, and the answer must be
+                        // HERE, right under the movement scheme they belong to (they also stay
+                        // reachable under Debug ▸ Brett-Geometrie like all per-board tuning).
+                        new("Cards", "BoardPitchMin_Oak", "vr_o_pitchmin"),
+                        new("Cards", "BoardPitchMin_Steel", "vr_o_pitchmin"),
+                        new("Cards", "BoardPitchMin_Bronze", "vr_o_pitchmin"),
+                        new("Cards", "BoardPitchMax_Oak", "vr_o_pitchmax"),
+                        new("Cards", "BoardPitchMax_Steel", "vr_o_pitchmax"),
+                        new("Cards", "BoardPitchMax_Bronze", "vr_o_pitchmax"),
                         new("Cards", "InspectScale", "vr_o_inspectscale"),
                         new("Cards", "RevealMode", "vr_o_revealmode"),
                         new("Cards", "GrabButton", "vr_o_grabbutton"),

@@ -146,14 +146,21 @@ internal static partial class VROptionsTab
     /// <summary>
     /// The caption for a per-variant row: the property's own name, without the variant. Null for
     /// everything else, which leaves the catalog's own display name in place.
+    ///
+    /// <para>The LOCALIZED name wins when one exists (2026-08 naming sweep): the name table's
+    /// family wildcard ("Cards/BoardTilt_*") already resolves for the full per-variant key and
+    /// is variant-free by construction, so the row reads "Brett: Grundneigung (°)" rather than
+    /// "Board Tilt". Only an unnamed per-variant entry falls back to stripping the variant off
+    /// the spaced-out key.</para>
     /// </summary>
     private static string? VariantFreeCaption(ConfigCatalog.ConfigItem item)
     {
         EnsureLookup();
         var v = VariantOf(item);
-        return v == null
-            ? null
-            : ConfigCatalog.Spaced(v.Value.Family.Strip(item.Key, v.Value.Variant));
+        if (v == null)
+            return null;
+        return Loc.ConfigDisplayName(item.Section, item.Key)
+               ?? ConfigCatalog.Spaced(v.Value.Family.Strip(item.Key, v.Value.Variant));
     }
 
     /// <summary>
