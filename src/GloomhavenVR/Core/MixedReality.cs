@@ -177,6 +177,16 @@ internal static class MixedReality
     // and fully intact — MR still hides the backdrop mesh so the chroma key shows through.
 
     /// <summary>
+    /// True while the MR readability treatment is wanted (WorldUI.MrBacking): the SAME want
+    /// condition <see cref="Tick"/> keys the whole mode off, so backings appear/vanish with the
+    /// one existing MR switch (user ruling: no second toggle). Reads the config WITHOUT forcing
+    /// a Bind — before the rig has ticked once there is no VR session, hence no MR, hence false;
+    /// binding stays owned by the rig path.
+    /// </summary>
+    internal static bool BackingsWanted =>
+        _file != null && Enabled.Value && VRSession.IsRunning;
+
+    /// <summary>
     /// No-op (kept for its ModalFallback call sites). The floated-menu-vs-sky occlusion is now fixed
     /// by rendering the MODAL on top (WorldUI.CanvasConversion 'renderOnTop'); the sky is never
     /// disabled for a menu any more, so there is nothing to do here.
@@ -200,7 +210,9 @@ internal static class MixedReality
             "whole game turns the flat solid KeyColor and every skybox is disabled, so Virtual " +
             "Desktop (or any compositor) can chroma-key that color and show the diorama/table " +
             "floating over your real room. The 3D geometry keeps rendering — only the sky becomes " +
-            "the flat key color. Restored fully when turned off.");
+            "the flat key color. While ON, the mod's floating UI (menus, captions, name tags) " +
+            "additionally gets opaque backing plates so text stays readable over the passthrough " +
+            "room. Restored fully (plates included) when turned off.");
         KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +

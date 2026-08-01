@@ -266,6 +266,7 @@ internal sealed partial class PlayTray
         {
             var mat = new Material(shader) { color = new Color(0.85f, 0.78f, 0.62f, 0.85f) }; // parchment
             plate.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            WorldUI.MrBacking.Opacify(mat); // 0.85 parchment lets the room shimmer through in MR
         }
 
         var textGo = new GameObject("Label");

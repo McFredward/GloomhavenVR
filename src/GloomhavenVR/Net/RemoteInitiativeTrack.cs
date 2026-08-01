@@ -257,6 +257,9 @@ internal sealed class RemoteInitiativeTrack
             _root.SetParent(parent, worldPositionStays: false);
 
             _plateMat = BoardVisual.Unlit(PlayerTint);
+            // MR: alpha-only opacify — Set() keeps retinting the RGB (player/enemy), which the
+            // helper deliberately leaves alone.
+            WorldUI.MrBacking.Opacify(_plateMat);
             _plate = BoardVisual.Quad(_root, "Plate", new Vector2(MaxChipW * 0.94f, ChipH), _plateMat);
             _plate.transform.localPosition = new Vector3(0f, 0f, 0.001f);
 

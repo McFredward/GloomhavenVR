@@ -222,6 +222,7 @@ internal sealed partial class FlatScreen
             text.color = new Color(0.75f, 0.75f, 0.78f, 1f);
             var rect = (RectTransform)_indicator.transform;
             rect.sizeDelta = new Vector2(3f, 1f);
+            MrBacking.Label(text); // free-floating over the room when MR is already on at start
             VRLayers.Apply(_indicator); // head camera masks include the mod layer (CAMERA-POLICY §2)
             VRLog.Info("WorldUI", "Starting indicator shown (pre-menu scene, FlatScreen gated).");
         }

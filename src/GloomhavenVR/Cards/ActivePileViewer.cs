@@ -85,6 +85,7 @@ internal sealed class ActivePileViewer
         _title.color = new Color(1f, 0.9f, 0.6f);
         WorldUI.NativeButtonSkin.ApplyFont(_title); // native HUD font, like the pile captions
         Core.TmpFit.Fit(_title, 0.09f, 0.024f, maxFontSize: 0.22f, wrap: false);
+        WorldUI.MrBacking.Label(_title); // off-board title → sky/room behind it in MR
 
         // Live language following: the title is built once — re-read it on a language change.
         if (!_locHooked)

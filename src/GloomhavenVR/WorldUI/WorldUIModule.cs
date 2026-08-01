@@ -228,6 +228,7 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("AvatarMirror", _avatarMirror.Tick));
             update.Add(("DevPanels", _devPanels.Tick));
             update.Add(("CanvasConversion", CanvasConversion.Tick));
+            update.Add(("MrBacking", MrBacking.Tick)); // after CanvasConversion: host plates read post-fit rects
             _updateSteps = update.ToArray();
 
             _lateSteps = new (string, Action)[]
@@ -293,6 +294,7 @@ internal sealed class WorldUIModule : IVRModule
             _tooltips.Shutdown();
             _hexHintFacing.Shutdown();
             _devPanels.Shutdown();
+            MrBacking.Shutdown(); // destroys the MR plates, restores every opacified alpha
             ActorBars.ReleaseAll();
         }
     }

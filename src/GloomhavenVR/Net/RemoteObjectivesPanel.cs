@@ -77,6 +77,7 @@ internal sealed class RemoteObjectivesPanel
 
         _plate = BoardVisual.Quad(_root, "Plate", new Vector2(Width, RowHeight),
             BoardVisual.Unlit(new Color(0.07f, 0.07f, 0.06f, 0.92f)));
+        WorldUI.MrBacking.Opacify(_plate.sharedMaterial); // 0.92 → 1 while MR is on (rows ride this plate)
 
         _title = RemoteBoardContent.Label(_root, "Title", Vector3.zero,
             new Vector2(Width * 0.9f, 0.020f), 0.05f,

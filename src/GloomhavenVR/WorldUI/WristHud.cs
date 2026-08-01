@@ -366,6 +366,7 @@ internal sealed class WristHud
         bg.transform.SetParent(_root.transform, worldPositionStays: false);
         var bgImage = bg.AddComponent<UnityEngine.UI.Image>();
         bgImage.color = new Color(0.05f, 0.05f, 0.08f, 0.82f);
+        MrBacking.Opacify(bgImage); // 0.82 backdrop lets the room shimmer through in MR
         var bgRect = (RectTransform)bg.transform;
         bgRect.anchorMin = Vector2.zero;
         bgRect.anchorMax = Vector2.one;

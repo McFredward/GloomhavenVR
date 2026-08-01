@@ -319,6 +319,7 @@ internal sealed class ItemsPile
         _title.alignment = TextAlignmentOptions.Center;
         _title.color = new Color(1f, 0.9f, 0.6f);
         Core.TmpFit.Fit(_title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
+        WorldUI.MrBacking.Label(_title); // fan title floats over the room in MR
     }
 
     // ------------------------------------------------------------------ per-frame --

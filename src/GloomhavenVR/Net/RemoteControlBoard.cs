@@ -808,6 +808,7 @@ internal sealed class RemoteControlBoard
             captionTmp.color = new Color(0.85f, 0.8f, 0.7f);
             WorldUI.NativeButtonSkin.ApplyFont(captionTmp);
             TmpFit.Fit(captionTmp, 0.095f, 0.024f, maxFontSize: 0.22f, wrap: false);
+            WorldUI.MrBacking.Label(captionTmp); // below the slabs → sky/room behind it in MR
         }
 
         /// <summary>Write the count (change-gated); an empty pile greys its TOP SLAB out, exactly

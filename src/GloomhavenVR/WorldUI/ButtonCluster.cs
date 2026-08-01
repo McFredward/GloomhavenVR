@@ -835,6 +835,10 @@ internal sealed class ButtonCluster
             // length varies per state/language — long strings previously wrapped past
             // the 0.05 m box and clipped (test #12). Fit: shrink/wrap inside the box.
             Core.TmpFit.Fit(_label, 0.24f, 0.07f, maxFontSize: 0.35f);
+            // Undocked labels park IN FRONT of the base plate (free-floating); docked ones sit
+            // on the opaque cap, where the plate lands a hair inside the cap and depth-fails
+            // (invisible) — one registration is safe for both states.
+            MrBacking.Label(_label);
             _labelAnchored = anchor != null;
             _labelHomePos = labelGo.transform.localPosition;
             _labelHomeRot = labelGo.transform.localRotation;

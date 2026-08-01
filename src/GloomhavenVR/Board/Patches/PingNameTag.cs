@@ -182,6 +182,7 @@ internal sealed class PingNameTag : MonoBehaviour
         _label.color = _baseColor;
         _label.fontStyle = FontStyles.Bold;
         TmpFit.Fit(_label, Width, Height, wrap: false);
+        WorldUI.MrBacking.Label(_label); // free-floating over the room in MR (plate dies with the tag)
         VRLayers.Apply(gameObject);
     }
 

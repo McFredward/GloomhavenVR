@@ -53,6 +53,7 @@ internal sealed class VersionDialog
         bg.transform.SetParent(go.transform, worldPositionStays: false);
         var image = bg.AddComponent<Image>();
         image.color = new Color(0.09f, 0.10f, 0.16f, 0.96f);
+        WorldUI.MrBacking.Opacify(image); // near-opaque, but MR wants a fully solid dialog plate
         Stretch((RectTransform)bg.transform, Vector2.zero);
 
         var titleText = MakeText(go.transform, "Title", title, 34f, FontStyles.Bold,

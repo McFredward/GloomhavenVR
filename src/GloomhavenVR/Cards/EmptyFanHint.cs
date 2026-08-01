@@ -149,7 +149,12 @@ internal sealed class EmptyFanHint
         if (_plateMaterial != null)
         {
             Color c = _plateMaterial.color;
-            c.a = PlateAlpha * k;
+            // MR readability: the 0.55 parchment is the weakest backing in the mod — the room
+            // bleeds straight through it in see-through mode. While MR is on the plate runs
+            // opaque (the fade tail still applies, so it still ghosts away); alpha is rewritten
+            // here every frame, so the OFF state restores itself the next tick (no registration
+            // with MrBacking — this site keeps its own fade authority).
+            c.a = (WorldUI.MrBacking.WantOpaque ? 1f : PlateAlpha) * k;
             _plateMaterial.color = c;
         }
         if (_label != null)
