@@ -120,6 +120,15 @@ internal static partial class ModalFallback
     /// <summary>Floating-window distance in front of the HMD, real meters (reading distance).</summary>
     private const float WindowDistanceMeters = 1.2f;
 
+    /// <summary>
+    /// Closer float distance for the LEVEL-MESSAGE family (tutorial boxes / help-text action
+    /// strips), real meters. User report (torbogen screenshot, hardware log 2026-08-02): the
+    /// tutorial windows read as "too far away" at the shared 1.2 m — they are small (a 644x90 px
+    /// strip / a ~0.45 m box) and text-dense, so they get a dedicated reading distance while
+    /// every other modal family keeps <see cref="WindowDistanceMeters"/> untouched.
+    /// </summary>
+    private const float LevelMessageDistanceMeters = 0.95f;
+
     /// <summary>Extra shrink on the host scale (a full-screen-wide window subtends ~60° at 1.2 m).</summary>
     private const float WindowScaleFactor = 0.7f;
 

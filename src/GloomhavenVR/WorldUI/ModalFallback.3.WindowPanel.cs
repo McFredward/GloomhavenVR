@@ -116,6 +116,16 @@ internal static partial class ModalFallback
         /// </summary>
         public float OutOfViewSince;
 
+        /// <summary>
+        /// LEVEL-MESSAGE RE-SHOW RECALL (torbogen report): the last scripted message key
+        /// (<see cref="CurrentLevelMessageKey"/>) seen displayed in this level-message group
+        /// window. The tutorial chains messages through ONE kept-alive float, so a key CHANGE
+        /// means a new hint just re-showed inside the existing panel at its old pose —
+        /// <see cref="TickMenuRecall"/> then re-places it immediately if that pose is outside
+        /// the current view. Null for non-level-message windows / before the first message.
+        /// </summary>
+        public string? LastLevelMessageKey;
+
         // ---- user #12: results-window thumbstick scroll ----------------------------------
 
         /// <summary>This float is a Sieg/Niederlage results window (<see cref="IsResultsPanel"/>)

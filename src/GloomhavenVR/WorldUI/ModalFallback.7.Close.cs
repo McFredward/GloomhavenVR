@@ -333,6 +333,51 @@ internal static partial class ModalFallback
         return false;
     }
 
+    /// <summary>
+    /// True when <paramref name="window"/> is one of the two level-message GROUP windows
+    /// (tutorial box / help-text action strip, <c>LevelMessagesUIHandler.s_Instance</c>'s
+    /// serialized groups). This is the family with the dedicated spawn placement — closer
+    /// (<see cref="LevelMessageDistanceMeters"/>), gaze-centered inside the view cone — and
+    /// the re-show recall (user report 2026-08-02: tutorial boxes/strips spawned too far away
+    /// and outside the player's view).
+    /// </summary>
+    private static bool IsLevelMessageWindow(UIWindow? window)
+    {
+        if (window == null)
+            return false;
+        LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
+        if (handler == null)
+            return false;
+        return (handler.LevelMessageBoxLayoutGroup != null
+                && ReferenceEquals(handler.LevelMessageBoxLayoutGroup.window, window))
+               || (handler.LevelMessageHelpTextLayoutGroup != null
+                   && ReferenceEquals(handler.LevelMessageHelpTextLayoutGroup.window, window));
+    }
+
+    /// <summary>
+    /// The scripted message currently displayed in this level-message group window (its
+    /// <c>MessageName</c>; null when none / not a level-message window) — the CHANGE SIGNAL of
+    /// the re-show recall in <see cref="TickMenuRecall"/>: the tutorial chains messages through
+    /// ONE kept-alive float (deadlock #2 do-no-harm gate), so when the key changes a NEW hint
+    /// just re-showed inside the existing panel at its OLD pose.
+    /// </summary>
+    private static string? CurrentLevelMessageKey(UIWindow? window)
+    {
+        if (window == null)
+            return null;
+        LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
+        if (handler == null)
+            return null;
+        ScenarioRuleLibrary.CustomLevels.CLevelMessage? msg = null;
+        if (handler.LevelMessageBoxLayoutGroup != null
+            && ReferenceEquals(handler.LevelMessageBoxLayoutGroup.window, window))
+            msg = handler.CurrentlyDisplayedBoxMessage;
+        else if (handler.LevelMessageHelpTextLayoutGroup != null
+                 && ReferenceEquals(handler.LevelMessageHelpTextLayoutGroup.window, window))
+            msg = handler.CurrentlyDisplayedHelpTextMessage;
+        return msg == null ? null : msg.MessageName ?? "<unnamed>";
+    }
+
     /// <summary>Change-gated log key of <see cref="ActionDismissedLevelMessage"/> — the
     /// classification is polled per frame (Cards driver + RayInteractor read
     /// <see cref="BlockingWindowModalActive"/>), so the ruling logs once per message.</summary>

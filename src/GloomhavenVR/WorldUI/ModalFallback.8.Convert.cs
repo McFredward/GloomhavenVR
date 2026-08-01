@@ -254,7 +254,10 @@ internal static partial class ModalFallback
             // do not coincide with the primary.
             float extraScale = DeriveWindowScale(panel);
             int staggerIndex = Converted.Count;
-            PlaceAtHmd(panel, extraScale, staggerIndex);
+            // Torbogen report: level-message windows (tutorial box / action strip) get the
+            // closer, gaze-centered, view-cone-guaranteed placement; every other family keeps
+            // the shared 1.2 m spawn unchanged.
+            PlaceAtHmd(panel, extraScale, staggerIndex, IsLevelMessageWindow(window));
             // ONE-SHOT FACING (task #1): the host was just yawed to face the head (ComputeHmdPose,
             // PanelPlacement convention) — a spawn-only orient, not a per-frame billboard, so once
             // the grab frame is seeded from it below the user's grab-rotation is authoritative and
@@ -377,17 +380,19 @@ internal static partial class ModalFallback
             // every tick) — placing the host directly would be snapped straight back by the
             // next follow tick. (Every floated modal is grabbable now; the PlaceAtHmd branch
             // remains as a safety net should Grab ever be null.)
+            bool levelMessage = IsLevelMessageWindow(wp.Window);
             if (wp.Grab != null)
             {
                 // User request A: pass the panel's size so the refloat pose also avoids the
                 // control board / other open modals (this panel excluded from the obstacles).
                 Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
-                if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, wp.Panel))
+                if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, wp.Panel,
+                        levelMessage))
                     wp.Grab.PlaceFrameAt(pos, rot);
             }
             else
             {
-                PlaceAtHmd(wp.Panel, wp.ExtraScale);
+                PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
             }
             count++;
         }
