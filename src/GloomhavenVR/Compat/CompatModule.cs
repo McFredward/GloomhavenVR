@@ -74,6 +74,34 @@ internal sealed class CompatModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
         WallSegmentFade.Install();
 
+        // Tutorial VR bridge ([Compat] TutorialVRAdapt, default on): the tutorial's
+        // camera-familiarization step waits on the flat room-camera button
+        // (CameraRoomButtonPressed — its ONLY producer, RoomCameraButton.OnClick, is
+        // unreachable while the P1 rig patches park the game camera), so the scripted hint
+        // chain deadlocks right after the camera hint (hardware log
+        // .planning/debug/tutorial/LogOutput.log:989). Three read-only/additive seams, all
+        // runtime-gated to tutorial scenarios (TutorialVR.IsTutorialActive — never touches
+        // normal play, refuses online sessions):
+        // - TutorialFlowPatches: postfix diagnostics that dump every scripted message's
+        //   display/dismiss trigger + loc keys (the tutorial data is an unreadable binary
+        //   blob in the repo — the dump makes the next hardware run the proof).
+        // - TutorialHintPatches: swaps camera-controls hint text (keyed by LOCALIZATION
+        //   KEY, never display string) for VR movement instructions (Loc DE+EN).
+        // - TutorialVR.NotifyLocomotion (fed by Rig.WorldGrab/SnapTurn): posts the game's
+        //   own CameraRoomButtonPressed UIEvent once real VR locomotion happened while a
+        //   tutorial trigger provably waits for it. Zero wire (the event's single
+        //   subscriber is LevelEventsController).
+        if (Plugin.TutorialVRAdapt.Value)
+        {
+            VRSession.Harmony?.PatchAll(typeof(LevelEventsController_StartListeningForEvents_Patch));
+            VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDisplayed_Patch));
+            VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDismissed_Patch));
+            VRSession.Harmony?.PatchAll(typeof(LevelMessagePageUI_OnLanguageChanged_Patch));
+            VRSession.Harmony?.PatchAll(typeof(LevelMessageUILayout_Title_Patch));
+            VRLog.Info(Name, "Tutorial VR bridge armed — camera step completes from world-grab "
+                + "locomotion, flat camera hints show VR movement text (tutorial scenarios only).");
+        }
+
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)
             names.AddRange(PostProcessingTypes);

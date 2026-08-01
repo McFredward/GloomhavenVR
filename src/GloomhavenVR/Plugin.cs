@@ -115,6 +115,13 @@ public class Plugin : BaseUnityPlugin
     /// </summary>
     internal static ConfigEntry<bool> WallFade = null!;
 
+    /// <summary>
+    /// [Compat] Tutorial VR bridge: complete the tutorial's camera-familiarization step
+    /// from VR locomotion + swap flat camera-control hints for VR movement text.
+    /// Runtime-gated to tutorial scenarios (Compat.TutorialVR.IsTutorialActive).
+    /// </summary>
+    internal static ConfigEntry<bool> TutorialVRAdapt = null!;
+
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
     internal static ConfigEntry<string> PrimaryHand = null!;
 
@@ -376,6 +383,14 @@ public class Plugin : BaseUnityPlugin
             "solid — the VR behavior so far. Purely visual and local (per-renderer material " +
             "property blocks): multiplayer peers are unaffected. Live-togglable from the VR " +
             "settings panel.");
+        TutorialVRAdapt = Config.Bind(
+            "Compat", "TutorialVRAdapt", Defaults.TutorialVRAdapt,
+            "Make the game tutorial playable in VR. The tutorial's camera-familiarization " +
+            "step waits for the flat room-camera button, which VR locomotion replaces — with " +
+            "this ON, actually moving the world (stick-click drag / rotate / zoom, stick turn) " +
+            "completes that step through the game's own event, and tutorial hints that teach " +
+            "mouse/keyboard camera controls show VR movement instructions instead. Only active " +
+            "inside tutorial scenarios; OFF restores fully vanilla tutorial behavior.");
         PrimaryHand = Config.Bind(
             "Hands", "PrimaryHand", Defaults.PrimaryHand,
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +

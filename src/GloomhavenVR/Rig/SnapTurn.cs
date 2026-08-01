@@ -101,6 +101,10 @@ internal sealed class SnapTurn : MonoBehaviour
         // axis must co-rotate THIS frame — an eased catch-up would read as the horizon
         // slowly rolling right after every turn (comfort: see VRRigDriver.TickWorldTilt).
         VRRigDriver.NotifyTiltAxisSnap("stick turn");
+        // Tutorial camera step: a stick turn (snap = one full step, smooth = per-frame
+        // degrees, both arrive here) is camera familiarization for the tutorial bridge
+        // (Compat.TutorialVR; cold path = two static reads outside tutorials).
+        Compat.TutorialVR.NotifyLocomotion(0f, Mathf.Abs(degrees), 0f);
     }
 
     private static VRHand? ResolveTurnHand() =>
