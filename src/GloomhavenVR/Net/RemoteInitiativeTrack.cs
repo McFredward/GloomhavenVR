@@ -22,13 +22,20 @@ namespace GloomhavenVR.Net;
 /// disappears — nothing drawn here has a collider, so there is nothing to click — and the user's
 /// standing requirement is that every element of the control board is represented on a peer's board.
 ///
-/// SOURCE (global list + per-actor numbers, zero wire): <c>ScenarioManager.Scenario.AllAliveActors</c>
-/// filtered and DEDUPED BY <c>CActor.Class</c>, which is exactly what
-/// <c>InitiativeTrack.UpdateInitiativeTrack</c> does when it builds its entries (it skips hero
-/// summons and prop/object actors and keeps one entry per <c>CClass</c>, so a monster GROUP is one
-/// row). Order mirrors <c>InitiativeTrackActorBehaviour.CompareTo</c>'s effect: ascending
-/// <c>CActor.Initiative()</c>, with every entry whose initiative is not (yet) knowable pushed to the
-/// end — the same place vanilla's negative order-priorities put them.
+/// SOURCE (global list + per-actor numbers, zero wire) — THE GAME'S OWN TRACK, VERBATIM
+/// (defect 1 of the 1:1 parity round, "Initiativreihenfolge wild falsch"): the primary read is
+/// <c>InitiativeTrack.Instance.actorsUI</c> — the very entry list the shared 2D track renders —
+/// taken in its LIVE on-screen order (ascending sibling index under the track holder; vanilla's
+/// <c>UpdateSortingOrder</c> writes the display order into the sibling order via
+/// <c>SetAsFirstSibling</c>). That reproduces every rule of
+/// <c>InitiativeTrackActorBehaviour.CompareTo</c> — order priorities, SubInitiative tie-breaks,
+/// the online selection-phase grouping, dead/exhausted player placement — without re-deriving a
+/// single one of them, and it is bit-identical on every client because the 2D track itself is.
+/// The owner's board docks that same canvas, so this IS the order the owner sees. The previous
+/// derivation (re-sorting <c>ScenarioManager.Scenario.AllAliveActors</c> by displayed label)
+/// survives only as the FALLBACK for when the game track does not exist (menu, mid-load): it
+/// got ties, sub-initiatives, long rests and the mid-round reorder wrong — "wildly", per the
+/// hardware session.
 ///
 /// ANTI-CHEAT — vanilla's rule, verbatim. A foreign player's initiative reads "?" while
 /// <c>FFSNetwork.IsOnline &amp;&amp; phase == SelectAbilityCardsOrLongRest &amp;&amp;
@@ -71,6 +78,7 @@ internal sealed class RemoteInitiativeTrack
     private readonly Chip[] _chips = new Chip[MaxChips];
     private readonly List<CActor> _entries = new(MaxChips);
     private readonly List<CClass> _seen = new(MaxChips);
+    private readonly List<InitiativeTrackActorBehaviour> _gameEntries = new(16);
 
     private string _signature = string.Empty;
 
@@ -89,18 +97,24 @@ internal sealed class RemoteInitiativeTrack
         _root.gameObject.SetActive(false);
     }
 
-    /// <summary>Re-read the scenario's actor list + initiatives and repaint on an actual change.
+    /// <summary>Re-read the game track's entries + initiatives and repaint on an actual change.
     /// Wrapped whole: a half-initialised scenario must degrade to an empty track, never throw.</summary>
     public void Refresh()
     {
         _entries.Clear();
         _seen.Clear();
-        try { Collect(); }
+        try
+        {
+            // Primary: the game's own track in its LIVE display order (see the class note).
+            // Fallback: the old AllAliveActors derivation + label sort, for when the game track
+            // does not exist yet.
+            if (!CollectFromGameTrack())
+            {
+                Collect();
+                _entries.Sort(static (a, b) => SortKey(a).CompareTo(SortKey(b)));
+            }
+        }
         catch { _entries.Clear(); }
-
-        // Ascending initiative; everything not (yet) knowable to the end — the effect of vanilla's
-        // own negative order priorities for actors whose initiative is unknown.
-        _entries.Sort(static (a, b) => SortKey(a).CompareTo(SortKey(b)));
 
         var sb = new StringBuilder(96);
         for (int i = 0; i < _entries.Count; i++)
@@ -130,8 +144,43 @@ internal sealed class RemoteInitiativeTrack
         }
     }
 
-    /// <summary>Filter + dedupe exactly like <c>InitiativeTrack.UpdateInitiativeTrack</c>: alive
-    /// actors, one entry per <c>CClass</c>, no hero summons and no prop/object actors.</summary>
+    /// <summary>
+    /// Read <c>InitiativeTrack.Instance.actorsUI</c> — the exact entries the shared 2D track
+    /// shows — in their ON-SCREEN order (ascending sibling index; vanilla's sort writes the
+    /// display order into the sibling order). Returns false when the game track is unavailable
+    /// or empty so the caller can fall back to the model derivation.
+    /// </summary>
+    private bool CollectFromGameTrack()
+    {
+        InitiativeTrack track = InitiativeTrack.Instance;
+        if (track == null)
+            return false;
+        List<InitiativeTrackActorBehaviour> ui = track.actorsUI;
+        if (ui == null || ui.Count == 0)
+            return false;
+
+        _gameEntries.Clear();
+        for (int i = 0; i < ui.Count; i++)
+        {
+            InitiativeTrackActorBehaviour beh = ui[i];
+            if (beh == null || !beh.gameObject.activeSelf || beh.Actor == null)
+                continue;
+            _gameEntries.Add(beh);
+        }
+        if (_gameEntries.Count == 0)
+            return false;
+
+        // Display order = sibling order (left → right = acting order on the shared track).
+        _gameEntries.Sort(static (a, b) =>
+            a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex()));
+        for (int i = 0; i < _gameEntries.Count && _entries.Count < MaxChips; i++)
+            _entries.Add(_gameEntries[i].Actor);
+        return true;
+    }
+
+    /// <summary>FALLBACK: filter + dedupe like <c>InitiativeTrack.UpdateInitiativeTrack</c> (alive
+    /// actors, one entry per <c>CClass</c>, no hero summons and no prop/object actors) — used only
+    /// while the game track itself does not exist.</summary>
     private void Collect()
     {
         CScenario? scenario = ScenarioManager.Scenario;

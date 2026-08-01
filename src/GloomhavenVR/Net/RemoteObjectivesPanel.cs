@@ -18,15 +18,23 @@ namespace GloomhavenVR.Net;
 /// left, same base offset <c>PlayTray.ObjectivesMountBase</c>, so a peer's task list hangs exactly
 /// where that player sees their own).
 ///
-/// SOURCE (global, zero wire): <c>ScenarioManager.CurrentScenarioState.WinObjectives/LoseObjectives</c>
-/// — the same lists <c>MissionObjectiveContainer.Init</c> feeds its rows from, filtered by the same
-/// rule it uses (<c>LocKey != "" &amp;&amp; IsActive &amp;&amp; !IsHidden</c>,
-/// MissionObjectiveContainer.InitialiseObjective). Text comes from the game's own extension
-/// <c>LocalizationObjectiveConveter.LocalizeText(objective, initialState: false)</c> — the identical
-/// call <c>MissionObjectiveUI.UpdateMissionText</c> makes, so the wording (incl. the "X remaining"
-/// live counts) matches the local panel word for word in every shipped language. Progress comes from
-/// <c>CObjective.GetObjectiveProgress(partySize, out total, out current)</c>, the identical call
-/// <c>MissionObjectiveUI.UpdateMissionProgress</c> makes.
+/// SOURCE (global, zero wire) — THE LIVE GAME PANEL, VERBATIM (defect 2 of the 1:1 parity round,
+/// "Aufgaben falsch angezeigt"): the primary read is
+/// <c>UIManager.Instance.MissionObjectiveContainer.ObjectiveInstances</c> — the very row widgets
+/// the owner's board docks (<c>ObjectivesSurface</c> converts that same container) — mirrored in
+/// their LIVE on-screen order (ascending sibling index; the container inserts rows with
+/// <c>SetAsFirstSibling</c>, so lose objectives sit above win objectives, reversed within each
+/// list) and only while each row is actually active. That inherits, for free, everything the old
+/// derivation got wrong: rows the game REMOVED on completion (<c>CheckToRemoveObjectives</c> —
+/// the owner's panel no longer shows them, this one kept drawing them ticked), runtime-added
+/// rows (<c>AddObjective</c>), the display order, and the QUEST HEADER (the scenario/quest name
+/// row the hardware session showed missing — mirrored from the container's own
+/// <c>questHeader.questText</c> into this panel's title). Text still comes from the game's own
+/// <c>LocalizationObjectiveConveter.LocalizeText(objective, initialState: false)</c> and progress
+/// from <c>CObjective.GetObjectiveProgress</c> — the identical calls
+/// <c>MissionObjectiveUI.UpdateMissionText/UpdateMissionProgress</c> make. The old
+/// WinObjectives/LoseObjectives scan survives only as the FALLBACK for when the container does
+/// not exist (mid-load).
 ///
 /// ANTI-CHEAT: nothing here is per-player. The objectives are printed on the local player's own board
 /// already; rendering the same list a second time at a peer's pose reveals literally nothing new.
@@ -55,6 +63,8 @@ internal sealed class RemoteObjectivesPanel
 
     private string _signature = string.Empty;
     private int _shownRows = -1;
+    private string _shownTitle = string.Empty;
+    private readonly List<MissionObjectiveUI> _mirrorRows = new(MaxRows * 2);
 
     /// <summary>How many objective rows are currently drawn (diagnostics).</summary>
     public int RowCount { get; private set; }
@@ -98,6 +108,17 @@ internal sealed class RemoteObjectivesPanel
         try { party = Mathf.Max(1, state.Players != null ? state.Players.Count : 1); }
         catch { party = 1; }
 
+        // PRIMARY: mirror the LIVE game container — the widget the owner's board actually shows
+        // (see the class note). FALLBACK (container absent, mid-load): the old model scan.
+        try
+        {
+            if (MirrorContainer(party))
+                return;
+        }
+        catch { /* fall through to the model scan */ }
+
+        RefreshTitle(null); // fallback path: the mod caption, no quest header to mirror
+
         var sb = new StringBuilder(96);
         int row = 0;
         row = Append(state.WinObjectives, party, sb, row);
@@ -109,6 +130,90 @@ internal sealed class RemoteObjectivesPanel
         _signature = sig;
         SetRowCount(row);
         RowCount = row;
+    }
+
+    /// <summary>
+    /// Mirror <c>UIManager.MissionObjectiveContainer</c>'s live rows (active instances only, in
+    /// sibling = display order) plus its quest header. Returns false when the container is not
+    /// available so the caller can fall back to the model scan.
+    /// </summary>
+    private bool MirrorContainer(int party)
+    {
+        UIManager? manager = UIManager.Instance;
+        MissionObjectiveContainer? container = manager != null ? manager.MissionObjectiveContainer : null;
+        if (container == null)
+            return false;
+        List<MissionObjectiveUI> instances = container.ObjectiveInstances;
+        if (instances == null)
+            return false;
+
+        // Quest header (campaign/guildmaster): the scenario/quest name row the owner's panel
+        // shows above the rows — mirrored into this panel's title when active.
+        string? quest = null;
+        try
+        {
+            UIScenarioQuest header = container.questHeader;
+            if (header != null && header.gameObject.activeSelf && header.questText != null)
+                quest = header.questText.text;
+        }
+        catch { quest = null; }
+
+        _mirrorRows.Clear();
+        for (int i = 0; i < instances.Count; i++)
+        {
+            MissionObjectiveUI ui = instances[i];
+            if (ui == null || ui.m_Objective == null || !ui.gameObject.activeSelf)
+                continue;
+            _mirrorRows.Add(ui);
+        }
+        // Display order = sibling order (the container inserts with SetAsFirstSibling).
+        _mirrorRows.Sort(static (a, b) =>
+            a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex()));
+
+        RefreshTitle(quest);
+
+        var sb = new StringBuilder(96);
+        if (quest != null)
+            sb.Append('#').Append(quest).Append(';');
+        int row = 0;
+        for (int i = 0; i < _mirrorRows.Count && row < MaxRows; i++)
+        {
+            CObjective o = _mirrorRows[i].m_Objective;
+
+            string text;
+            try { text = LocalizationObjectiveConveter.LocalizeText(o, initialState: false) ?? (o.LocKey ?? "?"); }
+            catch { text = "?"; }
+
+            int total = 1, current = o.IsComplete ? 1 : 0;
+            try { o.GetObjectiveProgress(party, out total, out current); }
+            catch { /* degrade to the complete/incomplete pip */ }
+
+            _rows[row].Set(text, current, total, o.IsComplete);
+            sb.Append(text).Append('|').Append(current).Append('/').Append(total)
+              .Append(o.IsComplete ? '+' : '-').Append(';');
+            row++;
+        }
+
+        string sig = sb.ToString();
+        if (sig == _signature)
+            return true;
+        _signature = sig;
+        SetRowCount(row);
+        RowCount = row;
+        return true;
+    }
+
+    /// <summary>Change-gated title write: the mirrored quest header when the owner's panel shows
+    /// one, else the mod's own localized caption.</summary>
+    private void RefreshTitle(string? quest)
+    {
+        string want = string.IsNullOrEmpty(quest)
+            ? Loc.Mod("objectives").ToUpperInvariant()
+            : quest!;
+        if (want == _shownTitle)
+            return;
+        _shownTitle = want;
+        RemoteBoardContent.SetText(_title, want);
     }
 
     /// <summary>Fill rows from one objective list; returns the next free row index. The signature

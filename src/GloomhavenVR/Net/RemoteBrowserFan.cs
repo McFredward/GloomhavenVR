@@ -398,14 +398,11 @@ internal sealed class RemoteBrowserFan
     ///
     /// <paramref name="rootScale"/> reproduces WHICH transform the local fan hangs under: the
     /// board-anchored fan is a child of the board root and therefore inherits the sender's BOARD
-    /// scale, while the held fan hangs off their palm and inherits their RIG scale. The sender's
-    /// debug-menu <c>[Cards] BrowseFanOffset</c> is deliberately NOT applied — it is receiver-local
-    /// tuning, not wire state, exactly as <see cref="RemoteItemFan"/> ignores the item-fan offset.
-    ///
-    /// That <paramref name="rootScale"/> rule is where this method and its near-twin
-    /// <c>RemoteItemFan.TryResolvePose</c> genuinely diverge: the item fan wears the sender's RIG
-    /// scale even when board-anchored. See the note on that method — the two look mergeable and are
-    /// not.
+    /// scale, while the held fan hangs off their palm and inherits their RIG scale. Since the
+    /// 1:1 parity round the SENDER's live board-local fan position (which includes their
+    /// <c>[Cards] BrowseFanOffset</c> tuning) rides the wire as extension record 5 and is
+    /// preferred here; the authored default survives for pre-record senders. The near-twin
+    /// <c>RemoteItemFan.TryResolvePose</c> now follows the identical scale + anchor rules.
     /// </summary>
     private bool TryResolveAnchor(out Vector3 pos, out Quaternion rot, out float rootScale)
     {
@@ -426,7 +423,12 @@ internal sealed class RemoteBrowserFan
             if (!_owner.HasBoard)
                 return false;
             rootScale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
-            var local = new Vector3(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+            // Defect 6: prefer the SYNCED board-local anchor (extension record 5 — the owner's
+            // real fan spot incl. their [Cards] BrowseFanOffset tuning); the authored default
+            // survives only for pre-record senders / while the record is absent.
+            Vector3 local = _owner.HasFanAnchor
+                ? _owner.FanAnchorLocal
+                : new Vector3(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
             pos = _owner.BoardPosition + _owner.BoardRotation * (local * rootScale);
         }
 
