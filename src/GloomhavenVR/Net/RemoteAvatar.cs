@@ -50,6 +50,7 @@ internal sealed class RemoteAvatar
     private readonly RemoteItemFan _itemFan;   // report 5: the peer's equipped-item fan
     private readonly RemoteCardFx _cardFx;     // report 6: replayed card animations
     private readonly RemoteBrowserFan _browserFan; // the peer's discard/burnt pile-browse reading fan
+    private readonly RemoteNameTag _nameTag;   // username + Steam avatar floating above the mask
 
     // Card-FX de-duplication. The event byte is re-sent for redundancy on the unreliable extras
     // stream, so the flight plays only when the SEQUENCE changes. _fxSeqInit exists because the
@@ -293,6 +294,7 @@ internal sealed class RemoteAvatar
         _itemFan = new RemoteItemFan(this);
         _cardFx = new RemoteCardFx(this);
         _browserFan = new RemoteBrowserFan(this);
+        _nameTag = new RemoteNameTag(this); // appended last — never reorder the ctor above (ghosts-before-BuildHands)
 
         VRLog.Info("Net", $"Remote avatar created for player {playerId}.");
     }
@@ -505,6 +507,7 @@ internal sealed class RemoteAvatar
         _itemFan.Tick(dt);
         _cardFx.Tick(dt);
         _browserFan.Tick(dt);
+        _nameTag.Tick();
     }
 
     private static void UpdatePart(Transform holder, bool valid, in RigPose pose, float k)
@@ -638,6 +641,7 @@ internal sealed class RemoteAvatar
         _itemFan.Destroy();
         _cardFx.Destroy();
         _browserFan.Destroy();
+        _nameTag.Destroy();
         if (_heldCardMesh != null)
             Object.Destroy(_heldCardMesh); // asset — not freed with the GameObject tree
         _heldCardMesh = null;

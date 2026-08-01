@@ -296,6 +296,7 @@ internal static partial class VROptionsTab
                         new("Net", "Enabled", "vr_o_netenabled"),
                         new("Rig", "SpawnInCircle", "vr_o_circle"),
                         new("Net", "RemoteBoards", "remote_boards"),
+                        new("Net", "NameTags", "vr_o_nametags"),
                     },
                 },
                 new()
