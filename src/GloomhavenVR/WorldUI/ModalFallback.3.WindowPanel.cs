@@ -63,11 +63,15 @@ internal static partial class ModalFallback
         public float ExtraScale = WindowScaleFactor;
 
         /// <summary>
-        /// Item 1 (pause-menu size): true once a full-screen menu's board-relative scale has been
-        /// re-derived from its FITTED host width (after the one-shot content fit shrank the rect)
-        /// and pushed to <see cref="Grab"/>. One-shot latch — the re-derive runs once per open.
+        /// Item 1 (pause-menu size): the <see cref="ConvertedPanel.FitAppliedGeneration"/> the
+        /// board-relative scale was last re-derived from, after the one-shot content fit shrank
+        /// the host rect. WHY a generation and not the original bool latch (round 3, first-open
+        /// size bug): the fit's new VERIFY phase may CORRECT a committed rect that turned out not
+        /// to contain its own content, and a bool latch would leave the window carrying the scale
+        /// derived from the rect that was just proven wrong. 0 = never derived (the first applied
+        /// fit is generation 1).
         /// </summary>
-        public bool ScaleReDerived;
+        public int ScaleReDerivedAtFit;
 
         /// <summary>
         /// First-open pose fix (2026-08-02): the placement inputs the rule-1 spawn consumed, so the
@@ -82,6 +86,15 @@ internal static partial class ModalFallback
         /// re-placed OR permanently excluded, so the evaluation runs exactly once per open and can
         /// never oscillate with the reveal gate's pose-stability counter.</summary>
         public bool PoseRePlaceDone;
+
+        /// <summary>
+        /// The <see cref="ConvertedPanel.FitAppliedGeneration"/> <see cref="PoseRePlaceDone"/> was
+        /// latched at. A one-shot VERIFY correction (round 3) advances the generation, which
+        /// re-arms the latch so the placement is replayed against the CORRECTED geometry — while
+        /// the window is still render-hidden. <c>TickPoseRePlaceOne</c> refuses to move an already
+        /// revealed window on its own, so a late correction can never yank a visible window around.
+        /// </summary>
+        public int PoseRePlacedAtFit;
 
         /// <summary>
         /// Item 6 (parallel windows): a player-reachable menu (<see cref="NonBlockingMenus"/>) is
