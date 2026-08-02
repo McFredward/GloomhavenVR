@@ -53,7 +53,16 @@ namespace GloomhavenVR.Core;
 /// materials and is left alone), classify the load via the publicized
 /// <c>_handles</c>/<c>_loadedMaterials</c>, and heal per state: never-started/null-result/
 /// pending-forever → release + re-trigger <c>data.LoadMaterials()</c>; done-stuck → assign
-/// the already-loaded materials and re-enable directly. Genuinely in-flight loads are
+/// the already-loaded materials and re-enable directly.
+///
+/// ROUND 5 (hardware log 2026-08-02, every stuck floor renderer <c>ml=done-stuck</c>): the
+/// null-slot signature is only valid for the RE-TRIGGER states. In the done-stuck deadlock
+/// the assignment never ran, so the renderer still carries its authored prefab placeholder
+/// materials and looked "fully materialed" — the old global pre-gate therefore blocked the
+/// exact heal it was built for (0 done-stuck heals on hardware). The gate is now per-state;
+/// foreign disables are instead recognized by <see cref="MaterialsAlreadyAssigned"/>
+/// (loader finished ⇒ its results are ON the renderer) plus a hard skip of anything under
+/// a <c>UnityGameEditorDoorProp</c> (the game's own door hide unit). Genuinely in-flight loads are
 /// NEVER touched (30 s grace), no entry is touched until it has been observed stuck for
 /// 3 s (lets the game's own deferred Start land first), retries are throttled to one per
 /// 5 s and capped at 5 per entry (then ONE error naming the assets). Zero behavior when
@@ -119,7 +128,15 @@ internal static class MaterialLoaderHeal
     internal static string DescribeForRenderer(Renderer renderer)
     {
         MaterialLoaderData? data = FindLoaderData(renderer, out _);
-        return data == null ? "no-loader" : Describe(data, renderer.enabled);
+        if (data == null)
+            return "no-loader";
+        string described = Describe(data, renderer.enabled);
+        // Census nuance (round 5): a disabled renderer whose loaded materials are already
+        // assigned is NOT the healer's done-stuck target — another system disabled it
+        // (door wings). Name it distinctly so the log matches the heal decision.
+        if (described == "done-stuck" && MaterialsAlreadyAssigned(data, renderer))
+            return "done-disabled(foreign)";
+        return described;
     }
 
     /// <summary>The MaterialLoaderData referencing <paramref name="renderer"/>, found by
@@ -205,10 +222,43 @@ internal static class MaterialLoaderHeal
         };
     }
 
-    /// <summary>A renderer still waiting on its loader has ≥1 null sharedMaterial slot (the
-    /// loader exists precisely because the materials are stripped for Addressables). A
-    /// renderer with a full material set that is disabled was disabled by someone ELSE for
-    /// a reason — the healer must not fight them.</summary>
+    /// <summary>Every loaded handle's material is already reference-present on the
+    /// renderer — i.e. <c>CheckAllMaterialLoaded</c> DID run its assignment, so the loader
+    /// reached its terminal state and the current disable belongs to another system (door
+    /// wings hidden by MakeDoor/ApparanceLayer are the known case). Distinguishes a
+    /// genuinely stuck loader (assignment never happened — renderer still carries prefab
+    /// placeholders) from a finished one, which handle-state alone cannot.</summary>
+    private static bool MaterialsAlreadyAssigned(MaterialLoaderData data, Renderer renderer)
+    {
+        AsyncOperationHandle<Material>[]? handles = data._handles;
+        if (handles == null || handles.Length == 0)
+            return false;
+        Material[] shared = renderer.sharedMaterials;
+        foreach (AsyncOperationHandle<Material> h in handles)
+        {
+            if (!h.IsValid() || !h.IsDone)
+                return false;
+            Material? m;
+            try { m = h.Result; }
+            catch { return false; }
+            if (m == null)
+                return false;
+            bool present = false;
+            foreach (Material s in shared)
+            {
+                if (ReferenceEquals(s, m)) { present = true; break; }
+            }
+            if (!present)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>A renderer still waiting on its loader's RE-TRIGGER states has ≥1 null
+    /// sharedMaterial slot (the loader exists precisely because the materials are stripped
+    /// for Addressables). NOTE (round 5): this is deliberately NOT a global pre-gate — a
+    /// done-stuck renderer keeps its authored prefab placeholders because the assignment
+    /// never ran, so it looks fully materialed while being exactly the state to heal.</summary>
     private static bool HasNullMaterialSlot(Renderer renderer)
     {
         Material[] shared = renderer.sharedMaterials;
@@ -325,14 +375,36 @@ internal static class MaterialLoaderHeal
                         _tracks.Remove(data); // healthy/hidden — restart observation if it re-sticks
                         continue;
                     }
-                    if (!HasNullMaterialSlot(r))
-                    {
-                        _tracks.Remove(data); // fully materialed: someone else's deliberate disable
-                        continue;
-                    }
-
                     LoaderState state = Classify(data, rendererEnabled: false, out _, out _, out _);
                     if (state == LoaderState.EmptyRefs || state == LoaderState.Done)
+                        continue;
+
+                    // ROUND 5 (hardware log 2026-08-02, ml=done-stuck on every stuck floor
+                    // renderer): the old "fully materialed ⇒ someone else's deliberate
+                    // disable" pre-gate silently blocked the DONE-STUCK heal path — in the
+                    // sizing deadlock the loader never ASSIGNS its loaded materials, so the
+                    // renderer still carries its authored (non-null) prefab placeholders and
+                    // looked "fully materialed". The gate now applies only to the re-trigger
+                    // states: a fully-materialed renderer is healed EXCLUSIVELY via the
+                    // provable done-stuck path below, never by re-running its loader.
+                    bool fullyMaterialed = !HasNullMaterialSlot(r);
+                    if (fullyMaterialed && state != LoaderState.DoneStuck)
+                    {
+                        _tracks.Remove(data); // someone else's deliberate disable
+                        continue;
+                    }
+                    // A done-stuck-looking entry whose loaded materials are ALREADY on the
+                    // renderer is a loader that finished its job — the disable came from a
+                    // game system afterwards (MakeDoor/ApparanceLayer hide door wings this
+                    // way). Never re-enable those.
+                    if (state == LoaderState.DoneStuck && MaterialsAlreadyAssigned(data, r))
+                    {
+                        _tracks.Remove(data);
+                        continue;
+                    }
+                    // Defense in depth for the same class: the door prop subtree is the
+                    // game's own hide unit — the healer never touches anything inside it.
+                    if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null)
                         continue;
 
                     if (!_tracks.TryGetValue(data, out Track track))

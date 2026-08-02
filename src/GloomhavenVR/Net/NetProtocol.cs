@@ -395,7 +395,10 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 10;
+    public const ushort ModBuild = 11;
+    // Build 11: MaterialLoaderHeal round 5 — done-stuck heal path unblocked (per-state
+    // gate + materials-already-assigned foreign-disable discriminator + door-prop skip).
+    // Local-rendering only — no wire changes, same-build enforcement.
     // Build 10: doorways never fade (door-state gating + hard-hide removed, user ruling) +
     // MaterialLoaderHeal watchdog for stranded reveal-time material loads. Local-rendering
     // only — no wire changes, same-build enforcement.
