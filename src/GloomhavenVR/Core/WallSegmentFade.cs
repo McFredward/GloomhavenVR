@@ -200,30 +200,17 @@ internal static class WallFadeTuning
 /// the head only rotated. No other head-motion-coupled term exists in the decision. The
 /// fade value itself stays exponentially damped (tau 0.12s ≈ 0.35s visible transition).
 ///
-/// DOORWAY RULING (user, torbogen3.png round 3 — HARD HIDE replaces the shader fade for
-/// OPEN doorways entirely): archway frame/pillar renderers are adopted PER DOOR (spatial
-/// link to the UnityGameEditorDoorProp roots, <see cref="FadeDriver.FindDoorwayRoot"/> —
-/// the round-1 ancestor walk found +0 siblings because the frames parent flat under an
-/// 'L :' section container). Door CLOSED → the whole archway is held SOLID exactly like
-/// the door itself, coverage notwithstanding. Door OPEN (animator "Open" state, the
-/// game's own check from Choreographer.OpenDoor; CObjectDoor.DoorIsOpen as rules-side
-/// fallback) → the coverage decision hides the ENTIRE archway assembly as one unit via
-/// renderer/light disables + particle stops — NOT the MaterialPropertyBlock fade, which
-/// round 2's hardware run proved partial: the wooden wings, glow lights and the doorway
-/// entity's non-WallFade stone stubs carry no fade-capable shader and survived every
-/// MPB (torbogen3.png: wings + two glows + a floating wall chunk). The assembly is the
-/// door prop's COMPLETE subtree (the game's own hide unit — ApparanceLayer.Create and
-/// UnityGameEditorRuntime.MakeDoor both sweep GetComponentsInChildren&lt;Renderer&gt; on
-/// it and toggle enabled, read from source) + the archway's fade renderers + a
-/// conservative AABB sweep for container-mates (<see cref="FadeDriver.CollectDoorwayAssembly"/>).
-/// The flat game merely swings the wings open (Choreographer.OpenDoor plays "Open";
-/// nothing sinks or hides), so "open doorway must never block the view nor leave floating
-/// remnants" is delivered here, not mirrored. Every touched component is tracked and
-/// restored exactly on unfade/door-close/teardown; every diag/flip line carries
-/// door=open/closed.
+/// DOORWAY RULING (user, 2026-08-02 — final, supersedes every previous doorway ruling):
+/// archway/doorway segments NEVER fade — no open/closed differentiation, no hard hide.
+/// They are always solid. Fade renderers hugging a door prop are still RECOGNIZED per
+/// door (spatial link to the UnityGameEditorDoorProp roots,
+/// <see cref="FadeDriver.FindDoorwayRoot"/>) so an archway can never merge into a
+/// fadeable wall segment — the per-door segment is held permanently SOLID and never
+/// enters the fade decision. The three rounds of open-doorway fade/hide experiments
+/// (and how to revive them) are parked in <c>.planning/doorway-fade-experiments.md</c>.
 ///
 /// MULTIPLAYER: purely local rendering (MaterialPropertyBlocks + locally created textures);
-/// nothing synced, peers unaffected (door state is READ-only: animator + rules flag).
+/// nothing synced, peers unaffected.
 /// Gated LIVE by [Compat] WallFade — OFF clears every block
 /// immediately (exactly today's solid walls, zero per-frame cost beyond the enabled check).
 /// </summary>
@@ -318,46 +305,13 @@ internal static class WallSegmentFade
         /// <summary>0 = restored/untouched, 2 = hidden (siblings have no dissolve ramp — they
         /// run arbitrary opaque shaders, so they pop with the END of the wall's dissolve).</summary>
         public int SiblingState;
-        /// <summary>DOORWAY ruling (user, torbogen3.png round 3): non-null marks this segment as
-        /// a DOORWAY — its fade renderers (frame/pillars) were adopted per-door, keyed by the
-        /// door prop root ('ThinDoor : (guid)', the UnityGameEditorDoorProp object whose child
-        /// is the ApparanceLayer wings prefab instance with the "Open" animator). The segment's
-        /// fade is GATED on the door state instead of look-at coverage alone: door CLOSED →
-        /// the whole archway is held solid exactly like the door itself (never fades); door
-        /// OPEN → the coverage decision HARD-HIDES the complete assembly (the doorway hard-hide
-        /// sets below) instead of running the shader fade — see the class-header ruling.</summary>
+        /// <summary>DOORWAY marker (user ruling 2026-08-02: doorways NEVER fade): non-null
+        /// keys this segment to its door prop root ('ThinDoor : (guid)', the
+        /// UnityGameEditorDoorProp object) — every fade renderer hugging that door lands in
+        /// this ONE per-door segment, which the decision loop holds permanently SOLID. The
+        /// keying exists purely so archway frames can never merge into a fadeable wall
+        /// segment; parked experiments in .planning/doorway-fade-experiments.md.</summary>
         public Transform? DoorRoot;
-        /// <summary>Door state as of the last evaluation tick (animator "Open" state, with the
-        /// rules-side CObjectDoor.DoorIsOpen as fallback). Only meaningful when
-        /// <see cref="DoorRoot"/> is set.</summary>
-        public bool DoorOpen;
-        /// <summary>DOORWAY HARD-HIDE set (user ruling R3, torbogen3.png): EVERY renderer of
-        /// the open-doorway assembly — the archway's own fade renderers, the door prop
-        /// subtree's renderers of ANY type/shader (wooden wings, glow quads, lock, trim), and
-        /// the conservatively AABB-swept container-mates (the doorway entity's non-WallFade
-        /// stone stubs). Hidden via <c>enabled=false</c> when the fade holds, restored exactly
-        /// (only ever contains renderers that were enabled when collected).</summary>
-        public readonly List<Renderer> DoorwayRenderers = new();
-        public readonly List<Renderer> PrevDoorwayRenderers = new();
-        /// <summary>Light components of the assembly (door-subtree + swept candle/lantern
-        /// glows) — <c>enabled=false</c> while hidden, restored exactly.</summary>
-        public readonly List<Light> DoorwayLights = new();
-        public readonly List<Light> PrevDoorwayLights = new();
-        /// <summary>ParticleSystems of the assembly (flame VFX) — stopped+cleared while
-        /// hidden (a merely disabled ParticleSystemRenderer would leave the Lights module
-        /// glowing), replayed on restore. Only ever contains systems that were playing.</summary>
-        public readonly List<ParticleSystem> DoorwayParticles = new();
-        public readonly List<ParticleSystem> PrevDoorwayParticles = new();
-        /// <summary>0 = restored/untouched, 2 = assembly hidden.</summary>
-        public int DoorwayHideState;
-        /// <summary>Collection census for the diag/flip lines (how the assembly was found).</summary>
-        public int DoorwaySubtreeCount;
-        public int DoorwaySweptCount;
-        /// <summary>First few swept container-mate names ("what the AABB rule included" —
-        /// the log deliverable proving the rule stayed conservative).</summary>
-        public string DoorwaySweptNames = string.Empty;
-        /// <summary>Signature of the last logged assembly census (change-triggered log).</summary>
-        public int DoorwayLoggedSig = -1;
         public Bounds Bounds;
         public bool HasBounds;
 
@@ -491,15 +445,15 @@ internal static class WallSegmentFade
         /// <summary>Ancestor-walk depth cap — prefab roots sit 1-3 levels above their meshes;
         /// anything deeper is scene structure.</summary>
         private const int MaxAssetRootDepth = 4;
-        // ---- doorway door-state gating (user ruling, torbogen2.png round 2) ---------------
+        // ---- doorway recognition (user ruling 2026-08-02: doorways NEVER fade) ------------
         /// <summary>Door prop roots rebuilt each rescan: every live
         /// <c>UnityGameEditorDoorProp</c> transform (the 'ThinDoor : (guid)' objects the
         /// Choreographer opens via <c>ObjectCacheService.GetPropObject</c>). Fade renderers
         /// adjacent to one of these are grouped into a per-DOOR segment (see
-        /// <see cref="FindDoorwayRoot"/>) so the whole archway shares one fade unit and one
-        /// door-state gate. Entrance/exit doors lose their prop component at spawn
-        /// (ApparanceLayer.Create destroys procDoor) — they never open, are not listed, and
-        /// their frames keep the generic adopted behaviour (accepted fail-open).</summary>
+        /// <see cref="FindDoorwayRoot"/>) that is held permanently SOLID — an archway must
+        /// never merge into a fadeable wall segment. Entrance/exit doors lose their prop
+        /// component at spawn (ApparanceLayer.Create destroys procDoor) — they are not
+        /// listed and their frames keep the generic adopted behaviour (accepted).</summary>
         private readonly List<Transform> _doorRoots = new();
         /// <summary>Max XZ gap (wu) between a fade renderer's AABB and a door prop position for
         /// the renderer to count as that doorway's frame — mirrors the game's own wall-search
@@ -507,33 +461,6 @@ internal static class WallSegmentFade
         /// Frames/pillars hug the door; the next parallel wall run is ≥ a hex (~1.72 wu) of
         /// clear floor away, so 2.2 cannot swallow a neighbouring wall.</summary>
         private const float DoorwayLinkMaxXZ = 2.2f;
-        /// <summary>Horizontal/upward slack (wu) around the archway segment's AABB inside which
-        /// a container-mate renderer/light/particle counts as part of the doorway ASSEMBLY
-        /// (the AABB sweep of <see cref="CollectDoorwayAssembly"/>). Deliberately below half a
-        /// hex (~0.86 wu of clear floor separates the archway from the next wall run, and
-        /// neighbouring wall meshes are excluded by shader/ancestry anyway) — the sweep must
-        /// stay conservative: it exists for the doorway entity's own non-WallFade stone stubs,
-        /// candles and banners generated INTO the archway footprint.</summary>
-        private const float DoorwayAssemblyMarginWU = 1.0f;
-        // ---- doorway hard-hide collection scratch (rescan-scope) --------------------------
-        /// <summary>Cross-type dedupe for one rescan's doorway assemblies: every component any
-        /// doorway adopted (renderer, light or particle system) — exactly ONE segment may own
-        /// and restore each, the sibling-ownership rule extended to the whole assembly.</summary>
-        private readonly HashSet<UnityEngine.Object> _doorwaySeen = new();
-        private readonly List<Renderer> _rendererScratch = new();
-        private readonly List<Light> _lightScratch = new();
-        private readonly List<ParticleSystem> _psScratch = new();
-        /// <summary>"Same container" evidence per doorway: the parents and ProceduralMapTile
-        /// ancestors of the segment's own fade renderers (frames sit flat in the 'L :'
-        /// container; the doorway entity generates its stone stubs into the same place).</summary>
-        private readonly HashSet<Transform> _containerParents = new();
-        private readonly HashSet<Transform> _containerTiles = new();
-        /// <summary>Scene sweeps captured once per rescan (renderers by
-        /// <see cref="AdoptShaderMatchedWalls"/>; lights/particles fetched lazily only when a
-        /// doorway segment exists) so the assembly sweep never re-walks the scene per door.</summary>
-        private MeshRenderer[]? _sceneRenderers;
-        private Light[]? _sceneLights;
-        private ParticleSystem[]? _sceneParticles;
 
         /// <summary>Room-registry census as last logged (reveal re-anchor diagnostic).</summary>
         private int _lastRoomCensusCount = -1;
@@ -718,6 +645,10 @@ internal static class WallSegmentFade
 
                 // Undecidable-as-one-unit segments (see NeutralizeEngulfingSegments) are held
                 // solid: state forced off, the fade below decays any residual block away.
+                // DOORWAY segments (user ruling 2026-08-02): archways/doorways NEVER fade —
+                // held permanently solid, no open/closed differentiation; recognition (the
+                // per-door DoorRoot keying) exists only so their renderers cannot merge into
+                // a fadeable wall segment. Any in-flight fade/MPB decays away right here.
                 // ROOM-REVEAL FAIL-SAFE (fehlender_boden.png ruling): a wall whose room has no
                 // VALID floor grid — unassociated, tile-UNANCHORED plane (median/bounds guess),
                 // or a zero-sample grid (over the MaxTotalSamples budget) — must never fade:
@@ -725,7 +656,7 @@ internal static class WallSegmentFade
                 // (the mid-scenario reveal case), and a wrong fade deletes geometry. Solid is
                 // the vanilla look, strictly safe; the wall joins the fade the moment its room
                 // is anchored (next 2s rescan / reveal-triggered rescan).
-                if (seg.Engulfing || !RoomDecisionValid(seg.RoomIndex))
+                if (seg.Engulfing || seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
                 {
                     seg.State = false;
                     seg.PendingRaw = false;
@@ -747,44 +678,21 @@ internal static class WallSegmentFade
                     {
                         seg.Smooth += (fraction - seg.Smooth) * fracStep;
                     }
-                    // DOORWAY ruling (user, torbogen2.png round 2): a doorway segment's fade
-                    // follows the DOOR STATE, not look-at coverage alone. CLOSED → the whole
-                    // archway (frame, pillars — and the wings/trim siblings that only hide at
-                    // full fade anyway) is held SOLID exactly like the door itself; any
-                    // in-flight fade decays right back (reversible). OPEN → the doorway must
-                    // never block the view: the normal coverage decision applies and hides
-                    // the segment as a unit WITH the door subtree siblings. The EMA above
-                    // keeps integrating either way so the diag shows live numbers and an
-                    // opening door starts from current coverage, not a stale one.
-                    if (seg.DoorRoot != null)
-                        seg.DoorOpen = DoorIsOpen(seg.DoorRoot);
-                    if (seg.DoorRoot != null && !seg.DoorOpen)
+                    bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
+                    if (raw != seg.PendingRaw)
                     {
-                        if (seg.State)
-                        {
-                            seg.State = false;
-                            LogStateFlip(seg); // door closed under a held fade — log the revert
-                        }
-                        seg.PendingRaw = false;
+                        seg.PendingRaw = raw;
+                        seg.PendingSince = now;
                     }
-                    else
+                    if (seg.PendingRaw != seg.State)
                     {
-                        bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
-                        if (raw != seg.PendingRaw)
+                        float dwell = seg.PendingRaw
+                            ? EnterDwellSeconds
+                            : (reevalArmed ? exitDwellMoved : exitDwellStationary);
+                        if (now - seg.PendingSince >= dwell)
                         {
-                            seg.PendingRaw = raw;
-                            seg.PendingSince = now;
-                        }
-                        if (seg.PendingRaw != seg.State)
-                        {
-                            float dwell = seg.PendingRaw
-                                ? EnterDwellSeconds
-                                : (reevalArmed ? exitDwellMoved : exitDwellStationary);
-                            if (now - seg.PendingSince >= dwell)
-                            {
-                                seg.State = seg.PendingRaw;
-                                LogStateFlip(seg); // R2 deliverable: shader variant + door state
-                            }
+                            seg.State = seg.PendingRaw;
+                            LogStateFlip(seg); // R2 deliverable: shader variant applied
                         }
                     }
                 }
@@ -822,8 +730,7 @@ internal static class WallSegmentFade
                 _heartbeatSegCount = _segments.Count;
                 LogFloorColumnCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
-                int siblings = 0, failSafeSegs = 0, doorways = 0, doorsOpen = 0;
-                int doorwayRenderers = 0, doorwayLights = 0, doorwayParticles = 0;
+                int siblings = 0, failSafeSegs = 0, doorways = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
@@ -834,13 +741,7 @@ internal static class WallSegmentFade
                     siblings += s.Siblings.Count;
                     if (!RoomDecisionValid(s.RoomIndex)) failSafeSegs++;
                     if (s.DoorRoot != null)
-                    {
                         doorways++;
-                        if (s.DoorOpen) doorsOpen++;
-                        doorwayRenderers += s.DoorwayRenderers.Count;
-                        doorwayLights += s.DoorwayLights.Count;
-                        doorwayParticles += s.DoorwayParticles.Count;
-                    }
                 }
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
@@ -854,10 +755,8 @@ internal static class WallSegmentFade
                     + $"+ {_censusAdopted} adopted; {_splitAnchors.Count} room-engulfing wall(s) "
                     + $"split per renderer, {engulfSegs} unsplittable held solid; {foliage} foliage "
                     + $"attachment(s) + {siblings} asset-sibling(s) ride their wall's fade; "
-                    + $"{doorways} DOORWAY segment(s) gated by door state ({doorsOpen} open — "
-                    + $"closed archways held solid, open ones HARD-HIDE their whole assembly: "
-                    + $"{doorwayRenderers} renderer(s)/{doorwayLights} light(s)/"
-                    + $"{doorwayParticles} particle system(s) collected); "
+                    + $"{doorways} DOORWAY segment(s) held permanently solid (doorway fade "
+                    + $"disabled — user ruling 2026-08-02); "
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
                     + $"{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
@@ -1080,41 +979,8 @@ internal static class WallSegmentFade
             if (!seg.FromWallCache)
                 wall += "~"; // shader-adopted group (tile/parent-anchored), not a cache wall
             string variant = seg.VariantHigh ? (seg.VariantLow ? "HIGH+LOW" : "HIGH") : "LOW";
-            // Doorway segments carry their gate state on every flip line — the deliverable
-            // that lets a hardware log pin each archway fade to the door that ruled it.
-            string door = seg.DoorRoot != null
-                ? (seg.DoorOpen ? " door=open" : " door=closed")
-                : string.Empty;
             if (seg.State)
             {
-                if (seg.DoorRoot != null && seg.DoorOpen)
-                {
-                    // HARD-HIDE deliverable (R3): list the FULL hidden set — renderers by
-                    // source plus lights and particle systems — so the next hardware run
-                    // proves completeness (round 2's "6 renderer(s) … +0 asset-sibling(s)"
-                    // line was the smoking gun for the surviving wings/glows/stone chunk).
-                    var hl = new System.Text.StringBuilder();
-                    int listedH = 0;
-                    foreach (Renderer r in seg.DoorwayRenderers)
-                    {
-                        if (r == null)
-                            continue;
-                        if (listedH++ >= 8) { hl.Append(", …"); break; }
-                        if (hl.Length > 0) hl.Append(", ");
-                        hl.Append(r.name).Append('@').Append(r.bounds.max.y.ToString("F1"));
-                    }
-                    VRLog.Info(Name,
-                        $"fade ON '{wall}' [{variant}] door=open — HARD HIDE whole archway "
-                        + $"assembly (no shader fade): {seg.DoorwayRenderers.Count} renderer(s) "
-                        + $"= {seg.Renderers.Count} archway fade + {seg.DoorwaySubtreeCount} "
-                        + $"door-subtree + {seg.DoorwaySweptCount} swept"
-                        + (seg.DoorwaySweptCount > 0 ? $" [{seg.DoorwaySweptNames}]" : "")
-                        + $" + {seg.DoorwayLights.Count} light(s) + "
-                        + $"{seg.DoorwayParticles.Count} particle system(s): {hl} — "
-                        + "enabled=false / Stop+clear at fade end, restored exactly on "
-                        + "unfade/door-close.");
-                    return;
-                }
                 // Which renderers this fade actually touches (name@AABB-top, first six): the
                 // decisive line when a "hole" appears — if a floor piece is listed here, it is
                 // either a ground renderer the strip missed or ground fused into a wall MESH.
@@ -1131,7 +997,7 @@ internal static class WallSegmentFade
                 string cutoff = $"map occ(r=1,a=0)→m=0, _Cutoff={seg.HeldCutoff:0.00} " +
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
-                    $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}]{door} " +
+                    $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
                     $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage, " +
                     $"+{seg.Siblings.Count} asset-sibling(s)) — held state: " +
                     cutoff + " → " +
@@ -1142,16 +1008,9 @@ internal static class WallSegmentFade
                         : "discard above object-Y 0.4 only — base course below the hard " +
                           "shader gate stays solid (flat-game faded look, view-independent)"));
             }
-            else if (seg.DoorRoot != null && seg.DoorOpen)
-            {
-                VRLog.Info(Name, $"fade OFF '{wall}' [{variant}]{door} — archway assembly "
-                    + $"restored ({seg.DoorwayRenderers.Count} renderer(s), "
-                    + $"{seg.DoorwayLights.Count} light(s), {seg.DoorwayParticles.Count} "
-                    + "particle system(s) back on), solid.");
-            }
             else
             {
-                VRLog.Info(Name, $"fade OFF '{wall}' [{variant}]{door} — MPB removed, solid.");
+                VRLog.Info(Name, $"fade OFF '{wall}' [{variant}] — MPB removed, solid.");
             }
         }
 
@@ -1226,10 +1085,9 @@ internal static class WallSegmentFade
                 _diagSb.Append(" !FAT");
             if (seg.Engulfing)
                 _diagSb.Append(" !ENGULF");
-            // Doorway gate state (user ruling): closed = held solid regardless of coverage,
-            // open = coverage decision hides the whole archway incl. door-subtree siblings.
+            // Doorway recognition (user ruling 2026-08-02): held permanently solid.
             if (seg.DoorRoot != null)
-                _diagSb.Append(seg.DoorOpen ? " door=open" : " door=closed");
+                _diagSb.Append(" DOORWAY");
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -1305,79 +1163,6 @@ internal static class WallSegmentFade
             seg.SiblingState = 2;
         }
 
-        /// <summary>Restore the ENTIRE doorway assembly (renderers, lights, particles) —
-        /// called on every path where the segment stops owning it (unfade, door close,
-        /// segment drop, group split, toggle-off, teardown), so nothing can stay hidden
-        /// without an owner. enabled-toggle + Play only; the collection lists only ever hold
-        /// components that were enabled/playing when collected, so this restore is exact.</summary>
-        private static void RestoreDoorwayAssembly(Segment seg)
-        {
-            if (seg.DoorwayHideState == 0)
-                return;
-            seg.DoorwayHideState = 0;
-            foreach (Renderer r in seg.DoorwayRenderers)
-            {
-                if (r != null && !r.enabled)
-                    r.enabled = true;
-            }
-            foreach (Light l in seg.DoorwayLights)
-            {
-                if (l != null && !l.enabled)
-                    l.enabled = true;
-            }
-            foreach (ParticleSystem ps in seg.DoorwayParticles)
-            {
-                if (ps != null && !ps.isPlaying)
-                    ps.Play(withChildren: false);
-            }
-        }
-
-        /// <summary>
-        /// HARD HIDE of an OPEN doorway (user ruling R3, torbogen3.png — replaces the shader
-        /// fade for door=open entirely; anything without a fade-capable shader could never
-        /// disappear through an MPB). Engages when the damped fade reaches the same threshold
-        /// the sibling/foliage held state uses, drops the moment it falls below — visually a
-        /// single all-at-once pop, which is exactly the ruling: the whole assembly or nothing,
-        /// never a partial remnant. Loops every frame while held (no early-out on state) so a
-        /// renderer Apparance regenerates mid-hide is caught next frame, not next rescan.
-        /// Any stale MPB is cleared first: an open doorway never runs the shader path.
-        /// </summary>
-        private void ApplyDoorwayAssembly(Segment seg)
-        {
-            if (seg.HasBlock)
-            {
-                seg.HasBlock = false;
-                foreach (MeshRenderer r in seg.Renderers)
-                {
-                    if (r != null)
-                        r.SetPropertyBlock(null);
-                }
-            }
-            if (seg.Fade < FoliageHideFade)
-            {
-                RestoreDoorwayAssembly(seg);
-                return;
-            }
-            foreach (Renderer r in seg.DoorwayRenderers)
-            {
-                if (r != null && r.enabled)
-                    r.enabled = false;
-            }
-            foreach (Light l in seg.DoorwayLights)
-            {
-                if (l != null && l.enabled)
-                    l.enabled = false;
-            }
-            foreach (ParticleSystem ps in seg.DoorwayParticles)
-            {
-                // Stop+clear rather than a mere renderer disable: the Lights module of a
-                // flame system emits real light that survives its renderer being off.
-                if (ps != null && ps.isPlaying)
-                    ps.Stop(withChildren: false, ParticleSystemStopBehavior.StopEmittingAndClear);
-            }
-            seg.DoorwayHideState = 2;
-        }
-
         /// <summary>
         /// Drive the segment's foliage attachments alongside its fade: mid-dissolve the cutout
         /// leaves ride an alpha-cutoff ramp (visually the same dissolve as the wall), and in the
@@ -1424,18 +1209,9 @@ internal static class WallSegmentFade
 
         private void Apply(Segment seg)
         {
-            // DOORWAY door=open (user ruling R3): the shader-fade path below never touches
-            // an open doorway — its whole assembly hard-hides as one unit instead. Closed
-            // doorways fall through to the normal path, where the decision loop already
-            // forces them solid (never fades), and the assembly is restored on the way.
-            if (seg.DoorRoot != null && seg.DoorOpen)
-            {
-                RestoreSegmentFoliage(seg); // doorway segments own no dressing attachments —
-                RestoreSegmentSiblings(seg); // defensively free any handover leftovers
-                ApplyDoorwayAssembly(seg);
-                return;
-            }
-            RestoreDoorwayAssembly(seg);
+            // DOORWAY segments (user ruling 2026-08-02) take this same path: the decision
+            // loop pins their state to solid, so the fade decays to 0 and any residual
+            // MPB/foliage/sibling state clears through the normal branches below.
             ApplyFoliage(seg);
             ApplySiblings(seg);
             if (seg.Fade <= 0f)
@@ -1610,7 +1386,6 @@ internal static class WallSegmentFade
                 {
                     RestoreSegmentFoliage(kv.Value);
                     RestoreSegmentSiblings(kv.Value);
-                    RestoreDoorwayAssembly(kv.Value);
                     _deadKeys.Add(kv.Key!); // destroyed Unity object — reference still hashes
                 }
             }
@@ -1642,8 +1417,9 @@ internal static class WallSegmentFade
                     _claimedRenderers.Add(r);
             }
 
-            // Doorway registry (door-state gating): the live door props, refreshed before the
-            // adoption sweep so FindDoorwayRoot can re-anchor frame/pillar renderers per door.
+            // Doorway registry (recognition only — doorways never fade, user ruling
+            // 2026-08-02): the live door props, refreshed before the adoption sweep so
+            // FindDoorwayRoot can re-anchor frame/pillar renderers per door.
             _doorRoots.Clear();
             UnityGameEditorDoorProp[] doorProps =
                 UnityEngine.Object.FindObjectsOfType<UnityGameEditorDoorProp>();
@@ -1731,7 +1507,6 @@ internal static class WallSegmentFade
                     // Segment leaves the table — free ALL its attachments (bushes AND doors).
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
-                    RestoreDoorwayAssembly(seg);
                     _deadKeys.Add(kv.Key);
                     continue;
                 }
@@ -1789,6 +1564,9 @@ internal static class WallSegmentFade
                 Segment seg = kv.Value;
                 if (!seg.HasBounds || seg.RoomIndex < 0)
                     continue;
+                if (seg.DoorRoot != null)
+                    continue; // doorway: held permanently solid anyway — and a split would
+                              // strip the DoorRoot off the pieces, making the archway fadeable
                 if (Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z) <= GroupSlabMaxHorizontal)
                     continue; // thin slab — cannot contain a room
                 if (InsideOwnRoomFraction(seg) < EngulfSampleFraction)
@@ -1810,7 +1588,6 @@ internal static class WallSegmentFade
                 _segments.Remove(engulfing.Key);
                 RestoreSegmentFoliage(group); // pieces re-adopt the bushes on the next rescan
                 RestoreSegmentSiblings(group); // ditto for asset siblings (doors/trim)
-                RestoreDoorwayAssembly(group); // and for a doorway's hard-hidden assembly
                 if (group.HasBlock)
                 {
                     foreach (MeshRenderer r in group.Renderers)
@@ -1889,9 +1666,7 @@ internal static class WallSegmentFade
 
             _censusFadeRenderers = 0;
             _censusAdopted = 0;
-            // Kept for the doorway-assembly AABB sweep this rescan (CollectDoorwayAssembly)
-            // so it never pays a second FindObjectsOfType walk per door.
-            MeshRenderer[] all = _sceneRenderers = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
+            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
             foreach (MeshRenderer r in all)
             {
                 if (r == null || !RendererUsesWallFade(r))
@@ -1907,12 +1682,13 @@ internal static class WallSegmentFade
                 Component? anchor = r.GetComponentInParent<ProceduralTileObserver>();
                 if (anchor == null)
                     anchor = r.transform.parent != null ? r.transform.parent : r.transform;
-                // DOORWAY override (user ruling): a fade renderer hugging a door prop is that
-                // DOORWAY's frame/pillar — anchor it on the door root so every renderer of one
-                // archway lands in ONE per-door segment whose fade the door state gates. This
-                // outranks both the tile/parent grouping (the round-1 'L :' layer container
-                // that mixed two doorways into one look-at segment) and the split routing (a
-                // doorway is archway-sized, never a room-engulfing slab).
+                // DOORWAY override (user ruling 2026-08-02: doorways NEVER fade): a fade
+                // renderer hugging a door prop is that DOORWAY's frame/pillar — anchor it on
+                // the door root so every renderer of one archway lands in ONE per-door segment
+                // the decision loop holds permanently SOLID. This outranks both the
+                // tile/parent grouping (the round-1 'L :' layer container that mixed two
+                // doorways into one look-at segment — which would fade as a wall) and the
+                // split routing (a doorway is archway-sized, never a room-engulfing slab).
                 Transform? doorRoot = FindDoorwayRoot(r);
                 if (doorRoot != null)
                     anchor = doorRoot;
@@ -1963,7 +1739,6 @@ internal static class WallSegmentFade
                     // attachments must not outlive it (restore-everywhere discipline).
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
-                    RestoreDoorwayAssembly(seg);
                     _deadKeys.Add(kv.Key);
                 }
             }
@@ -2102,33 +1877,6 @@ internal static class WallSegmentFade
         }
 
         /// <summary>
-        /// Is the doorway's door OPEN? Primary: the game's own rendering-true check —
-        /// <c>MF.GameObjectAnimatorControllerIsCurrentState(root, "Open")</c>, exactly what
-        /// <c>Choreographer.OpenDoor</c> plays and <c>UnityGameEditorDoorProp.OnCursorEnter</c>
-        /// reads (the animator lives on the ApparanceLayer wings prefab under the prop root;
-        /// the state is entered the moment the opening animation starts and never left).
-        /// Fallback: the rules-side <c>CObjectDoor.DoorIsOpen</c> via the prop root's
-        /// <c>UnityGameEditorObject.PropObject</c> (covers a mid-load animator not yet bound).
-        /// Read-only on both paths; any throw (PathFinder mid-teardown) reads CLOSED — the
-        /// fail-safe that holds the archway solid, the vanilla look.
-        /// </summary>
-        private static bool DoorIsOpen(Transform root)
-        {
-            try
-            {
-                if (MF.GameObjectAnimatorControllerIsCurrentState(root.gameObject, "Open"))
-                    return true;
-                UnityGameEditorObject? obj = root.GetComponent<UnityGameEditorObject>();
-                return obj != null && obj.PropObject is ScenarioRuleLibrary.CObjectDoor door
-                    && door.DoorIsOpen;
-            }
-            catch
-            {
-                return false; // unknown = closed = held solid (fail-safe, vanilla look)
-            }
-        }
-
-        /// <summary>
         /// ASSET-COMPLETE FADE collection (adopted groups only — cache walls keep their
         /// deliberate "props/doors under the same entity are never touched" contract, their
         /// foliage path already covers the dressing): re-attach, per rescan, every non-fade
@@ -2146,8 +1894,6 @@ internal static class WallSegmentFade
         private void CollectAdoptedSiblings()
         {
             _siblingOwned.Clear();
-            _doorwaySeen.Clear();
-            EnsureDoorwaySceneSweeps();
             foreach (Segment seg in _segments.Values)
             {
                 if (seg.FromWallCache)
@@ -2157,24 +1903,15 @@ internal static class WallSegmentFade
                 seg.Siblings.Clear();
                 if (seg.DoorRoot != null)
                 {
-                    // DOORWAY segment (user ruling R3, torbogen3.png): the open-door case is
-                    // a HARD HIDE of the complete assembly, collected by
-                    // CollectDoorwayAssembly — the generic asset-sibling path plays no part.
-                    // Anything the old sibling path still hides is restored right here
-                    // (ownership handover; nothing may stay hidden without an owner).
+                    // DOORWAY segment (user ruling 2026-08-02: never fades — held
+                    // permanently solid): needs no sibling attachments. Restore anything a
+                    // previous owner state still hides (ownership handover; nothing may
+                    // stay hidden without an owner).
                     if (seg.SiblingState != 0)
                         RestoreSegmentSiblings(seg);
                     seg.PrevSiblings.Clear();
-                    CollectDoorwayAssembly(seg);
                     continue;
                 }
-                // Segment stopped being a doorway (door prop died / re-anchor handover):
-                // restore and drop its old assembly — same no-orphan discipline.
-                if (seg.DoorwayHideState != 0)
-                    RestoreDoorwayAssembly(seg);
-                seg.DoorwayRenderers.Clear();
-                seg.DoorwayLights.Clear();
-                seg.DoorwayParticles.Clear();
                 if (RoomDecisionValid(seg.RoomIndex))
                 {
                     float ceiling = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
@@ -2222,300 +1959,6 @@ internal static class WallSegmentFade
                 }
                 seg.PrevSiblings.Clear();
             }
-        }
-
-        /// <summary>Fetch the per-rescan light/particle sweeps — only when a doorway segment
-        /// exists at all (the arrays feed nothing else, and most rescans track zero doorways).
-        /// Renderers come from <see cref="AdoptShaderMatchedWalls"/>'s existing walk.</summary>
-        private void EnsureDoorwaySceneSweeps()
-        {
-            _sceneLights = null;
-            _sceneParticles = null;
-            foreach (Segment seg in _segments.Values)
-            {
-                if (seg.FromWallCache || seg.DoorRoot == null)
-                    continue;
-                _sceneLights = UnityEngine.Object.FindObjectsOfType<Light>();
-                _sceneParticles = UnityEngine.Object.FindObjectsOfType<ParticleSystem>();
-                return;
-            }
-        }
-
-        /// <summary>
-        /// DOORWAY ASSEMBLY collection (user ruling R3, torbogen3.png — the round-2 hardware
-        /// run left the wooden wings, two glow lights and a floating stone chunk behind
-        /// because only shader-matched frame/pillar renderers were ever collected). Rebuilt
-        /// every rescan, three sources:
-        /// <list type="number">
-        /// <item>The archway's own fade renderers (<see cref="Segment.Renderers"/>) — under
-        ///   door=open they hard-hide with the assembly instead of MPB-fading.</item>
-        /// <item>The door prop root's COMPLETE subtree: every <see cref="Renderer"/> of ANY
-        ///   type/shader (the wings prefab instance ApparanceLayer.Create parents there,
-        ///   its glow quads, trim, lock — the game's own hide unit: ApparanceLayer.Create /
-        ///   UnityGameEditorRuntime.MakeDoor sweep exactly this subtree with
-        ///   GetComponentsInChildren&lt;Renderer&gt; and toggle enabled), plus its
-        ///   <see cref="Light"/>s and <see cref="ParticleSystem"/>s. No renderer-count cap
-        ///   (the round-2 "+0 asset-sibling(s)" failure) and no tile/wall-logic exclusions:
-        ///   everything under the prop root IS the door. Only actors are excluded
-        ///   defensively, and game-disabled renderers stay the game's (unrevealed wings).</item>
-        /// <item>A CONSERVATIVE AABB sweep for container-mates — the doorway entity
-        ///   (ProceduralDoorway, read from source) generates non-WallFade wall-stub/stone
-        ///   meshes and dressing (candles, banners) flat into the same 'L :' container as
-        ///   the frames, NOT under the prop root; that is the floating stone chunk. Rule:
-        ///   enabled, non-fade-capable, AABB WHOLLY inside the archway box expanded by
-        ///   <see cref="DoorwayAssemblyMarginWU"/> (XZ + top), above the ground band (floor
-        ///   never rides), no ProceduralWall/ActorBehaviour/TileBehaviour ancestry, and
-        ///   provably the SAME CONTAINER (under the door root, sharing a fade renderer's
-        ///   parent, or sharing its ProceduralMapTile ancestor). Whole-AABB containment plus
-        ///   ancestry is what keeps neighbouring wall segments and floor out; every swept
-        ///   inclusion is logged by name.</item>
-        /// </list>
-        /// Lights/particles are swept by position under the same container rule (the glows:
-        /// prefab data is bundle-side, so whether each is a Light, a flame ParticleSystem or
-        /// an emissive mesh is handled uniformly rather than assumed). Ownership/restore
-        /// discipline mirrors the sibling path exactly: one owner per component, leavers
-        /// restored on the spot, everything restored when the segment stops qualifying.
-        /// </summary>
-        private void CollectDoorwayAssembly(Segment seg)
-        {
-            bool wasHidden = seg.DoorwayHideState == 2;
-            seg.PrevDoorwayRenderers.Clear();
-            seg.PrevDoorwayRenderers.AddRange(seg.DoorwayRenderers);
-            seg.DoorwayRenderers.Clear();
-            seg.PrevDoorwayLights.Clear();
-            seg.PrevDoorwayLights.AddRange(seg.DoorwayLights);
-            seg.DoorwayLights.Clear();
-            seg.PrevDoorwayParticles.Clear();
-            seg.PrevDoorwayParticles.AddRange(seg.DoorwayParticles);
-            seg.DoorwayParticles.Clear();
-            seg.DoorwaySubtreeCount = 0;
-            seg.DoorwaySweptCount = 0;
-            seg.DoorwaySweptNames = string.Empty;
-
-            Transform? door = seg.DoorRoot;
-            // Fail-safe symmetry with the fade decision: without a trusted room plane the
-            // segment is held solid anyway (RoomDecisionValid gate in Tick), so an empty
-            // assembly is correct — and the ground exclusion below needs the plane.
-            if (door != null && seg.HasBounds && RoomDecisionValid(seg.RoomIndex))
-            {
-                float ceiling = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
-
-                // (1) the archway's own fade renderers ride the hard hide.
-                foreach (MeshRenderer r in seg.Renderers)
-                {
-                    if (r != null && _doorwaySeen.Add(r))
-                        seg.DoorwayRenderers.Add(r);
-                }
-
-                // (2) the door prop's complete subtree — any Renderer type, plus lights
-                // and particle systems.
-                door.GetComponentsInChildren(includeInactive: false, _rendererScratch);
-                foreach (Renderer c in _rendererScratch)
-                {
-                    if (c == null || _doorwaySeen.Contains(c))
-                        continue;
-                    // Game-disabled (MakeDoor/ApparanceLayer hide unrevealed doors this
-                    // way) is not ours to manage — except a renderer WE hid last rescan.
-                    if (!c.enabled && !(wasHidden && seg.PrevDoorwayRenderers.Contains(c)))
-                        continue;
-                    if (c.GetComponentInParent<ActorBehaviour>() != null)
-                        continue; // never an actor, even one parented under the prop
-                    _doorwaySeen.Add(c);
-                    seg.DoorwayRenderers.Add(c);
-                    seg.DoorwaySubtreeCount++;
-                    if (c is MeshRenderer mc)
-                        _siblingOwned.Add(mc); // one owner per renderer, assembly included
-                }
-                door.GetComponentsInChildren(includeInactive: false, _lightScratch);
-                foreach (Light l in _lightScratch)
-                {
-                    if (l == null || _doorwaySeen.Contains(l))
-                        continue;
-                    if (!l.enabled && !(wasHidden && seg.PrevDoorwayLights.Contains(l)))
-                        continue;
-                    _doorwaySeen.Add(l);
-                    seg.DoorwayLights.Add(l);
-                }
-                door.GetComponentsInChildren(includeInactive: false, _psScratch);
-                foreach (ParticleSystem ps in _psScratch)
-                {
-                    if (ps == null || _doorwaySeen.Contains(ps))
-                        continue;
-                    if (!ps.isPlaying && !(wasHidden && seg.PrevDoorwayParticles.Contains(ps)))
-                        continue;
-                    _doorwaySeen.Add(ps);
-                    seg.DoorwayParticles.Add(ps);
-                }
-
-                // (3) conservative AABB sweep for container-mates (the stone stubs).
-                BuildContainerSets(seg);
-                Bounds box = seg.Bounds;
-                box.Expand(new Vector3(2f * DoorwayAssemblyMarginWU, 0f, 2f * DoorwayAssemblyMarginWU));
-                float topCap = seg.Bounds.max.y + DoorwayAssemblyMarginWU;
-                if (_sceneRenderers != null)
-                {
-                    foreach (MeshRenderer c in _sceneRenderers)
-                    {
-                        if (c == null || _doorwaySeen.Contains(c) || _siblingOwned.Contains(c))
-                            continue;
-                        if (!c.enabled && !(wasHidden && seg.PrevDoorwayRenderers.Contains(c)))
-                            continue;
-                        if (RendererUsesWallFade(c))
-                            continue; // other segments' territory — never swept
-                        Bounds cb = c.bounds;
-                        if (cb.max.y <= ceiling || cb.max.y > topCap)
-                            continue; // floor never rides; taller = neighbouring column
-                        if (cb.min.x < box.min.x || cb.max.x > box.max.x
-                            || cb.min.z < box.min.z || cb.max.z > box.max.z)
-                            continue; // must sit WHOLLY inside the expanded archway box
-                        if (c.GetComponentInParent<ProceduralWall>() != null
-                            || c.GetComponentInParent<ActorBehaviour>() != null
-                            || c.GetComponentInParent<TileBehaviour>() != null)
-                            continue; // cache-wall territory / live game logic
-                        if (!SameArchwayContainer(c.transform, door))
-                            continue;
-                        _doorwaySeen.Add(c);
-                        _siblingOwned.Add(c);
-                        seg.DoorwayRenderers.Add(c);
-                        seg.DoorwaySweptCount++;
-                        if (seg.DoorwaySweptCount <= 6)
-                        {
-                            seg.DoorwaySweptNames +=
-                                (seg.DoorwaySweptNames.Length > 0 ? ", " : "")
-                                + c.name + "@" + cb.max.y.ToString("F1");
-                        }
-                    }
-                }
-                if (_sceneLights != null)
-                {
-                    foreach (Light l in _sceneLights)
-                    {
-                        if (l == null || _doorwaySeen.Contains(l))
-                            continue;
-                        if (!l.enabled && !(wasHidden && seg.PrevDoorwayLights.Contains(l)))
-                            continue;
-                        Vector3 p = l.transform.position;
-                        if (p.x < box.min.x || p.x > box.max.x
-                            || p.z < box.min.z || p.z > box.max.z
-                            || p.y <= ceiling || p.y > topCap)
-                            continue;
-                        if (l.GetComponentInParent<ActorBehaviour>() != null)
-                            continue;
-                        if (!SameArchwayContainer(l.transform, door))
-                            continue;
-                        _doorwaySeen.Add(l);
-                        seg.DoorwayLights.Add(l);
-                    }
-                }
-                if (_sceneParticles != null)
-                {
-                    foreach (ParticleSystem ps in _sceneParticles)
-                    {
-                        if (ps == null || _doorwaySeen.Contains(ps))
-                            continue;
-                        if (!ps.isPlaying
-                            && !(wasHidden && seg.PrevDoorwayParticles.Contains(ps)))
-                            continue;
-                        Vector3 p = ps.transform.position;
-                        if (p.x < box.min.x || p.x > box.max.x
-                            || p.z < box.min.z || p.z > box.max.z
-                            || p.y <= ceiling || p.y > topCap)
-                            continue;
-                        if (ps.GetComponentInParent<ActorBehaviour>() != null)
-                            continue;
-                        if (!SameArchwayContainer(ps.transform, door))
-                            continue;
-                        _doorwaySeen.Add(ps);
-                        seg.DoorwayParticles.Add(ps);
-                    }
-                }
-            }
-
-            // Leaver restore (no-orphan discipline): anything hidden that did not make the
-            // new set is restored NOW — nothing else ever points at it again.
-            if (wasHidden)
-            {
-                foreach (Renderer prev in seg.PrevDoorwayRenderers)
-                {
-                    if (prev != null && !prev.enabled && !seg.DoorwayRenderers.Contains(prev))
-                        prev.enabled = true;
-                }
-                foreach (Light prev in seg.PrevDoorwayLights)
-                {
-                    if (prev != null && !prev.enabled && !seg.DoorwayLights.Contains(prev))
-                        prev.enabled = true;
-                }
-                foreach (ParticleSystem prev in seg.PrevDoorwayParticles)
-                {
-                    if (prev != null && !seg.DoorwayParticles.Contains(prev))
-                        prev.Play(withChildren: false);
-                }
-                if (seg.DoorwayRenderers.Count == 0 && seg.DoorwayLights.Count == 0
-                    && seg.DoorwayParticles.Count == 0)
-                    seg.DoorwayHideState = 0;
-            }
-            seg.PrevDoorwayRenderers.Clear();
-            seg.PrevDoorwayLights.Clear();
-            seg.PrevDoorwayParticles.Clear();
-
-            // Census log, change-triggered (the deliverable proving the AABB rule stayed
-            // conservative and the assembly is complete BEFORE the next hardware round).
-            int sig = seg.DoorwayRenderers.Count
-                + 1000 * seg.DoorwaySubtreeCount
-                + 100000 * seg.DoorwaySweptCount
-                + 10000000 * seg.DoorwayLights.Count
-                + 100000000 * seg.DoorwayParticles.Count;
-            if (sig != seg.DoorwayLoggedSig)
-            {
-                seg.DoorwayLoggedSig = sig;
-                string doorName = door != null ? door.name : "<dead>";
-                VRLog.Info(Name,
-                    $"doorway assembly '{doorName}': {seg.DoorwayRenderers.Count} renderer(s) "
-                    + $"= {seg.Renderers.Count} archway fade + {seg.DoorwaySubtreeCount} "
-                    + $"door-subtree (any shader, incl. wings) + {seg.DoorwaySweptCount} "
-                    + $"AABB-swept container-mate(s)"
-                    + (seg.DoorwaySweptCount > 0 ? $" [{seg.DoorwaySweptNames}]" : "")
-                    + $"; {seg.DoorwayLights.Count} light(s), {seg.DoorwayParticles.Count} "
-                    + $"particle system(s) — door={(seg.DoorOpen ? "open" : "closed")}; "
-                    + $"swept rule: enabled, non-fade shader, AABB wholly inside archway box "
-                    + $"+{DoorwayAssemblyMarginWU:0.0} wu, above ground band, same "
-                    + "container/tile, no wall/actor/tile-logic ancestry.");
-            }
-        }
-
-        /// <summary>Per-doorway "same container" evidence: the immediate parents and
-        /// ProceduralMapTile ancestors of the segment's own fade renderers (see
-        /// <see cref="CollectDoorwayAssembly"/> source (3)).</summary>
-        private void BuildContainerSets(Segment seg)
-        {
-            _containerParents.Clear();
-            _containerTiles.Clear();
-            foreach (MeshRenderer r in seg.Renderers)
-            {
-                if (r == null)
-                    continue;
-                Transform t = r.transform;
-                if (t.parent != null)
-                    _containerParents.Add(t.parent);
-                ProceduralMapTile? tile = r.GetComponentInParent<ProceduralMapTile>();
-                if (tile != null)
-                    _containerTiles.Add(tile.transform);
-            }
-        }
-
-        /// <summary>Is this transform provably part of the SAME archway container as the
-        /// segment (under the door prop root, flat beside a fade renderer, or under the same
-        /// ProceduralMapTile)? The cross-hierarchy guard of the AABB sweep: mod rig objects,
-        /// held cards/figures, UI panels and sky geometry can all transiently intersect the
-        /// archway box but never share this ancestry.</summary>
-        private bool SameArchwayContainer(Transform t, Transform door)
-        {
-            if (t.IsChildOf(door))
-                return true;
-            if (t.parent != null && _containerParents.Contains(t.parent))
-                return true;
-            ProceduralMapTile? tile = t.GetComponentInParent<ProceduralMapTile>();
-            return tile != null && _containerTiles.Contains(tile.transform);
         }
 
         /// <summary>
@@ -3197,7 +2640,6 @@ internal static class WallSegmentFade
                 seg.SmoothInit = false;
                 RestoreSegmentFoliage(seg);
                 RestoreSegmentSiblings(seg);
-                RestoreDoorwayAssembly(seg);
                 if (!seg.HasBlock)
                     continue;
                 seg.HasBlock = false;
@@ -3227,9 +2669,6 @@ internal static class WallSegmentFade
             _roomSampleCount.Clear();
             _allSamples.Clear();
             _floorYByRenderer.Clear();
-            _sceneRenderers = null; // release the per-rescan scene sweeps (doorway assembly)
-            _sceneLights = null;
-            _sceneParticles = null;
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }
