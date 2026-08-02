@@ -258,24 +258,29 @@ internal static partial class ModalFallback
             // closer, gaze-centered, view-cone-guaranteed placement; every other family keeps
             // the shared 1.2 m spawn unchanged.
             bool isLevelMsg = IsLevelMessageWindow(window);
-            // CHAIN POSE CONTINUITY (user ruling 2026-08-02) — rule 2: a level-message group
-            // window that reopens MID-CHAIN (the game closed the group between two messages)
-            // takes the previous message's stored pose VERBATIM: no gaze placement, no pitch/
+            // CHAIN POSE CONTINUITY (user ruling 2026-08-02) — rule 2: EVERY scripted
+            // level-message window (tutorial box AND help-text strip — the store is SHARED
+            // across the kinds, hardware round 2026-08-02) that opens mid-chain takes the
+            // previous scripted window's stored pose VERBATIM: no gaze placement, no pitch/
             // board/view-cone clamps, no overlap resolve, no one-shot facing — the player
-            // approved that exact spot by leaving (or grab-moving) the window there; only
-            // finiteness was sanity-checked (TryGetChainPose). Rule 1 — the in-front,
-            // view-cone-guaranteed spawn below — applies only when no valid chain pose
-            // exists: the chain's FIRST message, after the scenario/teardown reset, or after
-            // presence regain invalidated a stale pose. Same scale convention as PlaceAtHmd
-            // (ComputeHmdPose: PanelLayout.WorldScale × the window's board-relative shrink).
-            if (isLevelMsg && TryGetChainPose(window, out Vector3 chainPos, out Quaternion chainRot))
+            // approved that exact spot by leaving (or grab-moving) the previous window there;
+            // only finiteness was sanity-checked (TryGetChainPose). The pose is the host
+            // PIVOT = window CENTER (both hosts share the centered pivot, CanvasConversion),
+            // so a differently-sized window center-aligns with its predecessor. Rule 1 — the
+            // in-front, view-cone-guaranteed spawn below — applies only when no valid chain
+            // pose exists: the chain's FIRST window after the scenario/teardown reset, or
+            // after presence regain invalidated a stale pose. Same scale convention as
+            // PlaceAtHmd (ComputeHmdPose: PanelLayout.WorldScale × board-relative shrink).
+            if (isLevelMsg && TryGetChainPose(window, out Vector3 chainPos, out Quaternion chainRot,
+                    out string chainSetBy))
             {
                 CanvasConversion.PlaceHost(panel, chainPos, chainRot,
                     PanelLayout.WorldScale * extraScale);
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) re-floated at the stored " +
-                                      $"chain pose ({chainPos.x:F2},{chainPos.y:F2},{chainPos.z:F2}) — " +
-                                      "position continuity: the next hint of a scripted chain appears " +
-                                      "exactly where the previous one was read (rule 2, pose verbatim).");
+                                      $"chain pose ({chainPos.x:F2},{chainPos.y:F2},{chainPos.z:F2}) " +
+                                      $"shared by all scripted windows, last set by the {chainSetBy} — " +
+                                      "position continuity: the next scripted window appears exactly " +
+                                      "where the previous one was read (rule 2, center-aligned verbatim).");
             }
             else
             {
@@ -351,7 +356,7 @@ internal static partial class ModalFallback
                                           : isRewardShowcase ? "reward showcase — native continue is the only exit (its callback releases the message pump)"
                                           : "click-through story box")}).");
 
-            Converted.Add(new WindowPanel
+            var wp = new WindowPanel
             {
                 Window = window,
                 Panel = panel,
@@ -376,7 +381,16 @@ internal static partial class ModalFallback
                 // this convert (null → current key would just re-store the just-placed pose).
                 // Null for every non-level-message window.
                 LastLevelMessageKey = CurrentLevelMessageKey(window),
-            });
+            };
+            Converted.Add(wp);
+            // CHAIN CONTINUITY: every scripted PLACEMENT — the rule-1 first spawn just as much
+            // as a rule-2 verbatim re-float — makes THIS window the shared chain anchor. This
+            // is what welds the kinds together: the first tutorial box's rule-1 pose is stored
+            // immediately, so a help-text strip opening moments later (box still floating, no
+            // key change, no release edge yet) already inherits the box's spot instead of
+            // rule-1-spawning at its own gaze position (the two-places bug).
+            if (isLevelMsg)
+                StoreChainPose(wp);
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
                                   "restored to 2D when it closes.");
@@ -405,7 +419,7 @@ internal static partial class ModalFallback
         // captured MID-donning can be junk. Drop the store (rule 1) and re-seed it below from
         // the fresh in-front pose of any level-message float being re-placed, so continuity
         // resumes from where the chain is NOW readable.
-        ResetChainPoses("presence regained — a pose captured around the doff/don is untrusted");
+        ResetChainPose("presence regained — a pose captured around the doff/don is untrusted");
         int count = 0;
         for (int i = 0; i < Converted.Count; i++)
         {

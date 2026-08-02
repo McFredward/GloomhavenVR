@@ -18,39 +18,63 @@ internal static partial class ModalFallback
     /// CHAIN POSE CONTINUITY (user ruling 2026-08-02, partially superseding the short-lived
     /// re-show recall below): only the FIRST window of a tutorial/scripted-message chain
     /// spawns in front of the player (rule 1 — the 0.95 m, view-cone-guaranteed placement);
-    /// EVERY SUBSEQUENT message appears at EXACTLY the spot the PREVIOUS one was read at —
-    /// including a spot the player grab-moved the window to. The player reads the whole hint
-    /// chain at ONE stable, self-chosen location instead of each hint re-yanking to the gaze.
+    /// EVERY SUBSEQUENT scripted window appears at EXACTLY the spot the PREVIOUS one was
+    /// read at — including a spot the player grab-moved the window to. The player reads the
+    /// whole hint chain at ONE stable, self-chosen location instead of each hint re-yanking
+    /// to the gaze.
     ///
-    /// The chain shares one float per GROUP (tutorial box / help-text strip — the same
-    /// UIWindow re-used across messages), but the game sometimes CLOSES the group window
-    /// briefly between two messages, which drops the float. This per-group store carries
-    /// the last live pose across those gaps: CAPTURED at message-key change (the reading
-    /// spot was just implicitly approved) and at float release (the gap's edge), CONSUMED
-    /// verbatim by the next convert (<see cref="TryConvertWindow"/> rule 2 — no re-clamp,
-    /// no re-facing: the player approved that spot by leaving the window there; only
-    /// finiteness is sanity-checked). RESET on scenario end/teardown and on presence regain
-    /// (a pose captured around a doff/don may sit behind the player — rule 1 wins there,
-    /// the stale-pose fix).
+    /// ONE SHARED store for ALL scripted window kinds (hardware round 2026-08-02): the store
+    /// was originally per GROUP (tutorial box / help-text strip — each a distinct UIWindow
+    /// re-used across its messages), which made each group internally consistent but let the
+    /// two kinds live in two DIFFERENT places — the "Zeige auf …" instruction strips kept
+    /// appearing away from where the box messages were parked. The ruling is cross-kind
+    /// ("every subsequent scripted window", not "of the same kind"), so the store is now a
+    /// SINGLE pose shared by the whole chain, updated whenever ANY scripted window is placed,
+    /// grab-moved or captured at an edge — the most recently touched window is "the previous
+    /// window" the next one lands on, whatever its kind.
+    ///
+    /// UPDATE EDGES: window placement (rule 1 AND rule 2 — the just-placed window becomes
+    /// the anchor immediately, so a strip opening right after the box's first spawn already
+    /// lands on it), every tick WHILE gripped (a grab-move re-anchors live, so a window that
+    /// spawns while its predecessor is still in-hand follows the hand's spot), message-key
+    /// change (the reading spot was just implicitly approved), float release (the game
+    /// sometimes CLOSES a group window briefly between two messages — the release is that
+    /// gap's edge), and the recall/refloat re-placements. CONSUMED verbatim by the next
+    /// convert (<see cref="TryConvertWindow"/> rule 2 — no re-clamp, no re-facing: the
+    /// player approved that exact spot; only finiteness is sanity-checked). RESET on
+    /// scenario end/teardown and on presence regain (a pose captured around a doff/don may
+    /// sit behind the player — rule 1 wins there, the stale-pose fix).
+    ///
+    /// POSE = WINDOW CENTER (size-difference handling): every converted host gets pivot
+    /// (0.5, 0.5) and centered content (CanvasConversion.Convert), so the stored host pose
+    /// IS the window's visual center. Placing a differently-sized window verbatim at the
+    /// shared pose therefore CENTER-aligns it with its predecessor — deliberate: the eyes
+    /// are parked on the previous window's middle, and a taller box after a short strip
+    /// grows symmetrically up/down instead of plunging toward the board the way top-edge
+    /// anchoring would. No pivot conversion is needed as long as both hosts keep the
+    /// centered pivot.
     /// </summary>
     private struct ChainPose
     {
         public bool Valid;
         public Vector3 Position;
         public Quaternion Rotation;
+
+        /// <summary>Which window kind last wrote the pose (<see cref="LevelMessageKindName"/>)
+        /// — diagnostics only, surfaced in the rule-2 "re-floated at the stored chain pose"
+        /// log line so a hardware log shows WHOSE spot the next window inherited.</summary>
+        public string? SetBy;
     }
 
-    /// <summary>Per-group stored chain pose — indexed by <see cref="LevelMessageGroupIndex"/>
-    /// (0 = tutorial box group, 1 = help-text strip group). The two groups may be parked at
-    /// different spots, so their poses persist independently.</summary>
-    private static readonly ChainPose[] ChainPoses = new ChainPose[2];
+    /// <summary>The ONE chain pose shared by all scripted level-message window kinds.</summary>
+    private static ChainPose _chainPose;
 
     /// <summary>
-    /// Capture the LIVE host pose of a level-message float into its group's chain store
+    /// Capture the LIVE host pose of a level-message float into the shared chain store
     /// (no-op for other windows / dead panels / non-finite poses). The live pose IS the
-    /// grab-moved pose — a grab writes the host every tick — so reading it at the capture
-    /// edges (message change, release) automatically persists a deliberate move without any
-    /// extra grab bookkeeping.
+    /// grab-moved pose — a grab writes the host every tick — so reading it at the update
+    /// edges (placement, grip, message change, release) persists a deliberate move without
+    /// any extra grab bookkeeping.
     /// </summary>
     private static void StoreChainPose(WindowPanel wp)
     {
@@ -62,38 +86,42 @@ internal static partial class ModalFallback
         Quaternion rot = host.rotation;
         if (!IsFinitePose(pos, rot))
             return; // never poison the store — the next spawn then falls back to rule 1
-        ChainPoses[g].Valid = true;
-        ChainPoses[g].Position = pos;
-        ChainPoses[g].Rotation = rot;
+        _chainPose.Valid = true;
+        _chainPose.Position = pos;
+        _chainPose.Rotation = rot;
+        _chainPose.SetBy = LevelMessageKindName(g);
     }
 
-    /// <summary>The stored chain pose for this level-message window's group, if a valid one
-    /// exists (rule 2). A non-finite stored pose is dropped and reported false — the minimal
-    /// safety the ruling keeps: a genuinely lost/invalid pose falls back to rule 1.</summary>
-    private static bool TryGetChainPose(UIWindow? window, out Vector3 pos, out Quaternion rot)
+    /// <summary>The shared chain pose, if a valid one exists (rule 2) — only ever consulted
+    /// for level-message windows (<paramref name="window"/> is the defensive re-check).
+    /// <paramref name="setBy"/> names the window kind that last wrote it (diagnostics). A
+    /// non-finite stored pose is dropped and reported false — the minimal safety the ruling
+    /// keeps: a genuinely lost/invalid pose falls back to rule 1.</summary>
+    private static bool TryGetChainPose(UIWindow? window, out Vector3 pos, out Quaternion rot,
+        out string setBy)
     {
-        int g = LevelMessageGroupIndex(window);
-        if (g >= 0 && ChainPoses[g].Valid)
+        if (IsLevelMessageWindow(window) && _chainPose.Valid)
         {
-            pos = ChainPoses[g].Position;
-            rot = ChainPoses[g].Rotation;
+            pos = _chainPose.Position;
+            rot = _chainPose.Rotation;
+            setBy = _chainPose.SetBy ?? "<unknown>";
             if (IsFinitePose(pos, rot))
                 return true;
-            ChainPoses[g].Valid = false; // poisoned somehow → rule 1, never place at NaN
+            _chainPose.Valid = false; // poisoned somehow → rule 1, never place at NaN
         }
         pos = default;
         rot = Quaternion.identity;
+        setBy = "<none>";
         return false;
     }
 
-    /// <summary>Drop both groups' stored poses (scenario end / teardown / presence regain).
+    /// <summary>Drop the shared stored pose (scenario end / teardown / presence regain).
     /// Change-gated: silent no-op while nothing is stored, one log line otherwise.</summary>
-    private static void ResetChainPoses(string reason)
+    private static void ResetChainPose(string reason)
     {
-        if (!ChainPoses[0].Valid && !ChainPoses[1].Valid)
+        if (!_chainPose.Valid)
             return;
-        ChainPoses[0] = default;
-        ChainPoses[1] = default;
+        _chainPose = default;
         VRLog.Info("WorldUI", $"LEVEL-MESSAGE CHAIN: stored window pose(s) dropped ({reason}) — the next " +
                               "scripted message spawns in front of the player again (rule 1).");
     }
@@ -138,7 +166,7 @@ internal static partial class ModalFallback
     /// lost blocking box. The IMMEDIATE "re-place when a new message re-shows out of view"
     /// path that briefly shipped here is SUPERSEDED by position continuity (user ruling):
     /// a message-key change (<see cref="CurrentLevelMessageKey"/>) now CAPTURES the live
-    /// pose into the per-group chain store (<see cref="ChainPoses"/>) instead of yanking a
+    /// pose into the shared chain store (<see cref="_chainPose"/>) instead of yanking a
     /// deliberately parked window back to the gaze.</para>
     /// </summary>
     private static void TickMenuRecall()
@@ -183,6 +211,14 @@ internal static partial class ModalFallback
             // A gripped panel is being deliberately placed — never recall mid-carry.
             if (wp.Grab != null && wp.Grab.IsGrabbed)
             {
+                // CHAIN CONTINUITY: a gripped level message re-anchors the SHARED chain pose
+                // LIVE (the host follows the grab frame every tick, so this reads the hand's
+                // current spot). Without it, a scripted window that spawns while its
+                // predecessor is still in-hand — or whose predecessor's message key changes
+                // mid-carry (this branch skips the key-change capture below) — would land on
+                // the stale pre-grab spot instead of where the player is holding the chain.
+                if (isLevelMsg)
+                    StoreChainPose(wp);
                 wp.OutOfViewSince = 0f;
                 continue;
             }
@@ -196,9 +232,9 @@ internal static partial class ModalFallback
             // its previous pose — exactly what the ruling wants, so nothing is re-placed here
             // (the re-show recall that briefly lived at this spot is superseded: continuity
             // WINS, even when the player parked the window out of the current view). The key
-            // change is instead the CAPTURE EDGE for the per-group chain store: the pose the
+            // change is instead a CAPTURE EDGE for the shared chain store: the pose the
             // previous hint was read at (grab-moves included — this reads the live host pose)
-            // becomes the spot a gap-reopened group window returns to (TryConvertWindow rule
+            // becomes the spot the NEXT scripted window of ANY kind lands on (TryConvertWindow rule
             // 2). Runs before the visibility bookkeeping so a parked-out-of-view chain still
             // captures every approved pose.
             if (isLevelMsg)
