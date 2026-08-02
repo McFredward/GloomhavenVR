@@ -23,61 +23,117 @@ namespace GloomhavenVR.Core;
 ///   subtree anyway.</item>
 /// </list>
 ///
-/// THE RULE IS THE USER'S OWN PHRASING, taken literally and geometrically: a renderer rides a
-/// wall's fade when it (a) is AIRBORNE — its AABB bottom stands at least
-/// <see cref="FadeDriver.MountedClearanceWU"/> above that room's tile-anchored floor plane, so
-/// it cannot be resting on the floor and WOULD float once the wall goes — and (b) HUGS that
-/// wall — horizontal AABB gap to the wall slab ≤ <see cref="FadeDriver.MountedLinkMaxXZ"/>,
-/// vertically inside the wall's own span (plus a small cap overhang). Floor-standing braziers,
-/// chests, tokens, obstacles and figures fail (a) by construction; a chandelier in the middle of
-/// the room fails (b). Nearest wall wins, one owner per renderer.
+/// THE RULE IS THE USER'S OWN PHRASING, taken literally and geometrically: a prop rides a wall's
+/// fade when it is AIRBORNE — at least <see cref="FadeDriver.MountedClearanceWU"/> above that
+/// room's tile-anchored floor plane, so it cannot be resting on the floor and WOULD float once
+/// the wall goes — and HUGS that wall (horizontal gap ≤ <see cref="FadeDriver.MountedLinkMaxXZ"/>,
+/// inside the wall's own vertical span plus a small cap overhang). Floor-standing braziers,
+/// chests, tokens, obstacles and figures fail the first test by construction; a chandelier in the
+/// middle of the room fails the second. Nearest wall wins, one owner per renderer.
+///
+/// WHICH GEOMETRY THE TEST READS (round 2 — the "candles blink" bug): for a MESH the renderer's
+/// AABB is the right handle, but for a PARTICLE SYSTEM it is not: its bounds enclose the LIVE
+/// particles and therefore drift every frame. The first hardware log caught it red-handed — the
+/// same 'p_Moths_Torch_Wall' reads y[2.3..2.3] on one rescan and y[0.7..1.8] on the next, so it
+/// was attached, hidden, released (bounds now "floor-supported"), restored, re-attached… which
+/// is exactly the reported "Kerzen verschwinden kurz, tauchen wieder auf". Particle props are
+/// therefore judged by their EMITTER (transform position, which is where the torch is bolted to
+/// the wall and does not move), and the dressing-size cap — meaningless for a smoke plume, it
+/// was rejecting the torches' own 'distort' heat haze at y[1.2..4.7] — applies to meshes only.
+///
+/// OWNERSHIP IS STICKY WHILE THE WALL IS FADED (same round): a prop attached to a segment that is
+/// mid-fade or held faded is never re-evaluated and never released. Even if some future geometry
+/// test flickers, a prop cannot come back while its wall is gone — the release happens only once
+/// the wall is solid again.
 ///
 /// LIGHTS ARE NEVER TOUCHED (user, same message: "Die Lichter selber sollen nie ausgeblendet
 /// werden — also an den Lichtverhältnissen darf sich durch das Ausblenden nie etwas ändern").
-/// The ONLY mutation in this whole file is <c>Renderer.enabled = false</c> on the visible mesh /
-/// particle / sprite. A <see cref="Light"/> is not a Renderer: it keeps emitting, its range,
-/// colour, shadows and cookie are untouched, and no GameObject is ever deactivated (which WOULD
-/// take the light with it). Same for halos, lens flares and light probes. Reversal is the exact
-/// inverse (<c>enabled = true</c>) — nothing else was ever written.
+/// Nothing here writes to a <see cref="Light"/>, and no GameObject is ever deactivated (which
+/// WOULD take the light with it). The mutations are: the renderer's own MaterialPropertyBlock
+/// (alpha / cutoff ramp), a particle system's start colour, start size and emission RATE, and
+/// finally <c>Renderer.enabled</c>. Range, colour, intensity, shadows and cookies of every Light
+/// stay exactly as authored; halos, lens flares and light probes are untouched. Every one of
+/// those writes is snapshotted at attach time and restored bit-for-bit on unfade.
 ///
-/// TIMING: props switch off at the END of the wall's ~0.35s dissolve (<see cref="FadeDriver
-/// .FoliageHideFade"/>, the same threshold the asset siblings use) and come back the moment the
-/// fade drops — the wall is essentially gone by then, so the flame does not vanish in front of
-/// an intact wall.
+/// DISSOLVE, SYNCHRONOUS WITH THE WALL (round 2 — the "es ploppt" report): the props used to
+/// switch off at the END of the wall's dissolve, so the flame outlived the wall and then popped.
+/// They now ride the SAME <c>seg.Fade</c> 0→1 the wall's own cutoff sweep runs on, through
+/// whichever channel the prop's material actually offers (the tier is decided once at attach and
+/// LOGGED, so a remaining pop is decidable from the log):
+/// <list type="bullet">
+/// <item>ALPHA — the material exposes <c>_TintColor</c> / <c>_Color</c> / <c>_BaseColor</c>:
+///   per-renderer MPB ramps the authored colour's alpha to 0. Works on live particles
+///   immediately.</item>
+/// <item>CUTOFF — no colour property but a <c>_Cutoff</c> ("Mask Clip Value"): the foliage
+///   dissolve, an alpha-cutoff ramp that eats the cutout texels away.</item>
+/// <item>PARTICLES — additionally and independently of the material: start-colour alpha, start
+///   size and emission rate all ramp to zero, so the fire visibly dies down instead of being
+///   switched off. This channel needs no shader support at all.</item>
+/// </list>
+/// The renderer is still disabled at the very end (<see cref="FadeDriver.FoliageHideFade"/>) as
+/// the guarantee that nothing survives — by then it is transparent, unlit and emitting nothing.
 ///
-/// MULTIPLAYER: local rendering only (renderer.enabled on locally-owned scenery), nothing on the
-/// wire, peers unaffected — same contract as every other WallSegmentFade attachment.
+/// MULTIPLAYER: local rendering only (property blocks, particle modules and renderer.enabled on
+/// locally-owned scenery), nothing on the wire, peers unaffected — same contract as every other
+/// WallSegmentFade attachment.
 /// </summary>
 internal static partial class WallSegmentFade
 {
     private sealed partial class Segment
     {
-        /// <summary>WALL-MOUNTED props (torch sconces, candle racks, flame billboards, banners —
-        /// see the file header): airborne renderers hugging this wall, hidden with it via
-        /// <c>enabled</c> only. Never contains a Light (Lights are not Renderers).</summary>
-        public readonly List<Renderer> Mounted = new();
-        public readonly List<Renderer> PrevMounted = new();
-        /// <summary>0 = restored/untouched, 2 = hidden (no dissolve ramp — arbitrary shaders).</summary>
+        /// <summary>WALL-MOUNTED props (torch flames, candles, sconces, wall coins — see the file
+        /// header): airborne props hugging this wall, dissolved and hidden with it. Never contains
+        /// a Light (Lights are not Renderers and are never written to).</summary>
+        public readonly List<MountedProp> Mounted = new();
+        public readonly List<MountedProp> PrevMounted = new();
+        /// <summary>0 = restored/untouched, 1 = dissolving, 2 = hidden.</summary>
         public int MountedState;
+    }
+
+    /// <summary>
+    /// One wall-mounted prop plus everything needed to dissolve it and to put it back EXACTLY as
+    /// authored. Built once when the prop is attached (see <see cref="FadeDriver.ClassifyProp"/>).
+    /// </summary>
+    private sealed class MountedProp
+    {
+        public Renderer Renderer = null!;
+        /// <summary>Non-null for particle props — the system driving this renderer.</summary>
+        public ParticleSystem? System;
+        /// <summary>Colour property the alpha ramp writes, or -1.</summary>
+        public int ColorId = -1;
+        /// <summary>Authored value of <see cref="ColorId"/> (RGB preserved, alpha ramped).</summary>
+        public Color BaseColor = Color.white;
+        /// <summary>Cutoff property the dissolve ramp writes when there is no colour, or -1.</summary>
+        public int CutoffId = -1;
+        /// <summary>Authored "Mask Clip Value" the cutoff ramp starts from.</summary>
+        public float BaseCutoff = 0.35f;
+        // Particle-module snapshot (restored bit-for-bit on unfade).
+        public ParticleSystem.MinMaxGradient StartColor;
+        public bool HasStartColor;
+        public float StartSize;
+        public float EmissionRate;
+        /// <summary>Which channel(s) this prop dissolves through — for the census line.</summary>
+        public string Tier = "none";
     }
 
     private sealed partial class FadeDriver
     {
-        /// <summary>AIRBORNE bar: a prop whose AABB bottom sits at least this far (wu) above its
-        /// room's floor plane cannot be standing ON the floor — it hangs, and would float once
-        /// the wall is gone. Deliberately the same 1.0 wu the ground exclusion uses (≈ half a hex
-        /// tile), so "ground" and "airborne" are complementary by construction.</summary>
+        /// <summary>AIRBORNE bar: a prop this far (wu) above its room's floor plane cannot be
+        /// standing ON the floor — it hangs, and would float once the wall is gone. Deliberately
+        /// the same 1.0 wu the ground exclusion uses (≈ half a hex tile), so "ground" and
+        /// "airborne" are complementary by construction.</summary>
         private const float MountedClearanceWU = GroundExclusionHeightWU;
-        /// <summary>Max horizontal AABB gap (wu) between a prop and the wall slab it rides. A
-        /// sconce/candle rack touches its wall (gap ≈ 0); the next parallel wall run is ≥ a hex
-        /// (~1.72 wu) of clear floor away, so this cannot reach across a room.</summary>
+        /// <summary>Max horizontal gap (wu) between a prop and the wall slab it rides. A sconce
+        /// touches its wall (gap ≈ 0); the next parallel wall run is ≥ a hex (~1.72 wu) of clear
+        /// floor away, so this cannot reach across a room.</summary>
         private const float MountedLinkMaxXZ = 0.9f;
         /// <summary>How far (wu) above the wall's own AABB top a prop may still start — cap-mounted
         /// dressing sits slightly proud of the wall top.</summary>
         private const float MountedLinkMaxAboveTopWU = 0.6f;
-        /// <summary>Dressing-sized only: a prop bigger than this in ANY axis (wu) is architecture,
-        /// not dressing, and is left alone (fail-open — the remnant stays visible, which beats
-        /// hiding a structure).</summary>
+        /// <summary>MESHES only: a prop bigger than this in any axis (wu) is architecture, not
+        /// dressing, and is left alone (fail-open). Never applied to particle systems — their
+        /// bounds are a smoke plume, not an object size (it was rejecting the torches' own heat
+        /// haze at y[1.2..4.7]).</summary>
         private const float MountedMaxSpanWU = 3.0f;
         /// <summary>Runaway guard — no wall run carries more dressing than this.</summary>
         private const int MountedMaxPerSegment = 32;
@@ -85,32 +141,153 @@ internal static partial class WallSegmentFade
         /// attached is logged with its rejection reason, so a leftover that still floats in a
         /// hardware screenshot is decidable from the log alone.</summary>
         private const float MountedNearMissXZ = 2.5f;
-        /// <summary>Cap on the per-heartbeat census/near-miss lists (log hygiene).</summary>
+        /// <summary>Cap on the per-census/near-miss lists (log hygiene).</summary>
         private const int MountedCensusCap = 12;
+        /// <summary>How small a particle system's start size gets at full fade (relative) — the
+        /// flame shrinks as it dims instead of just thinning out.</summary>
+        private const float MountedParticleShrink = 0.15f;
+        /// <summary>The prop ramp LEADS the wall's own sweep by this factor: it starts at the same
+        /// instant (what "gleichzeitig" means here) but reaches zero at ~80% of the dissolve. The
+        /// reason is particle lifetime — a flame particle emitted at fade 0 is still alive 0.35s
+        /// later, so a strictly 1:1 ramp would leave a few bright stragglers for the final
+        /// renderer-disable to cut off, i.e. exactly the pop this round is removing.</summary>
+        private const float MountedFadeLead = 1.25f;
+
+        private static readonly int TintColorId = Shader.PropertyToID("_TintColor");
+        private static readonly int ColorPropId = Shader.PropertyToID("_Color");
+        private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
         /// <summary>Renderers owned by a mounted list THIS rescan (one owner per renderer).</summary>
         private readonly HashSet<Renderer> _mountedOwned = new();
-        /// <summary>Every renderer WE currently hold hidden — the orphan guard's ledger. A prop
-        /// in here whose owner segment died is re-enabled by the next rescan even if no explicit
-        /// restore path fired.</summary>
-        private readonly HashSet<Renderer> _mountedHidden = new();
+        /// <summary>Every renderer WE currently hold hidden or ramped — the orphan guard's ledger.
+        /// A prop in here whose owner segment died is restored by the next rescan even if no
+        /// explicit restore path fired.</summary>
+        private readonly Dictionary<Renderer, MountedProp> _mountedTouched = new();
         /// <summary>Renderers already spoken for by another attachment type (wall renderers,
         /// foliage, asset siblings) — rebuilt each rescan.</summary>
         private readonly HashSet<Renderer> _attachmentOwned = new();
-        private readonly List<Renderer> _mountedScratch = new();
+        private readonly List<MountedProp> _mountedScratch = new();
         private readonly List<string> _mountedCensus = new();
         private readonly List<string> _mountedRejects = new();
+        private MaterialPropertyBlock? _mountedMpb;
         private int _censusMounted;
         private int _censusMountedRejected;
         private int _lastLoggedMountedCount = -1;
         private int _lastLoggedMountedRejected = -1;
 
-        /// <summary>Return one mounted prop to vanilla (visible). enabled-toggle only.</summary>
-        private void RestoreMountedRenderer(Renderer? r)
+        // ---- delivery -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Decide ONCE how this prop can dissolve and snapshot everything the restore needs. The
+        /// snapshot is the whole reversibility contract: authored colour, authored cutoff, and the
+        /// three particle-module values. Never reads or writes a Light.
+        /// </summary>
+        private static MountedProp ClassifyProp(Renderer r)
         {
-            _mountedHidden.Remove(r!); // destroyed Unity object — the reference still hashes
+            var p = new MountedProp { Renderer = r };
+            Material? mat = r.sharedMaterial;
+            if (mat != null)
+            {
+                if (mat.HasProperty(TintColorId)) p.ColorId = TintColorId;
+                else if (mat.HasProperty(ColorPropId)) p.ColorId = ColorPropId;
+                else if (mat.HasProperty(BaseColorId)) p.ColorId = BaseColorId;
+                if (p.ColorId >= 0)
+                    p.BaseColor = mat.GetColor(p.ColorId);
+                else if (mat.HasProperty(CutoffId))
+                {
+                    p.CutoffId = CutoffId;
+                    p.BaseCutoff = Mathf.Clamp01(mat.GetFloat(CutoffId));
+                }
+            }
+            if (r is ParticleSystemRenderer)
+            {
+                ParticleSystem? ps = r.GetComponent<ParticleSystem>();
+                if (ps != null)
+                {
+                    p.System = ps;
+                    ParticleSystem.MainModule main = ps.main;
+                    p.StartColor = main.startColor;
+                    p.HasStartColor = main.startColor.mode == ParticleSystemGradientMode.Color
+                        || main.startColor.mode == ParticleSystemGradientMode.TwoColors;
+                    p.StartSize = main.startSizeMultiplier;
+                    p.EmissionRate = ps.emission.rateOverTimeMultiplier;
+                }
+            }
+            p.Tier = (p.ColorId >= 0 ? "alpha" : p.CutoffId >= 0 ? "cutoff" : "no-material-channel")
+                + (p.System != null ? "+particles" : string.Empty);
+            return p;
+        }
+
+        /// <summary>Alpha-scaled copy of a start-colour snapshot (Color / TwoColors modes only —
+        /// gradient modes are left alone and rely on the emission ramp).</summary>
+        private static ParticleSystem.MinMaxGradient ScaledStartColor(MountedProp p, float alpha)
+        {
+            if (p.StartColor.mode == ParticleSystemGradientMode.TwoColors)
+            {
+                Color a = p.StartColor.colorMin, b = p.StartColor.colorMax;
+                a.a *= alpha;
+                b.a *= alpha;
+                return new ParticleSystem.MinMaxGradient(a, b);
+            }
+            Color c = p.StartColor.color;
+            c.a *= alpha;
+            return new ParticleSystem.MinMaxGradient(c);
+        }
+
+        /// <summary>Drive one prop to the given fade (0 = authored, 1 = gone). Pure delivery — the
+        /// caller owns the state machine.</summary>
+        private void DriveProp(MountedProp p, float fade)
+        {
+            Renderer r = p.Renderer;
             if (r == null)
                 return;
+            float visible = Mathf.Clamp01(1f - fade);
+            if (p.ColorId >= 0)
+            {
+                _mountedMpb ??= new MaterialPropertyBlock();
+                _mountedMpb.Clear();
+                Color c = p.BaseColor;
+                c.a *= visible;
+                _mountedMpb.SetColor(p.ColorId, c);
+                r.SetPropertyBlock(_mountedMpb);
+            }
+            else if (p.CutoffId >= 0)
+            {
+                _mountedMpb ??= new MaterialPropertyBlock();
+                _mountedMpb.Clear();
+                _mountedMpb.SetFloat(p.CutoffId, Mathf.Lerp(p.BaseCutoff, FoliageCutoffEnd, fade));
+                r.SetPropertyBlock(_mountedMpb);
+            }
+            if (p.System != null)
+            {
+                ParticleSystem.MainModule main = p.System.main;
+                if (p.HasStartColor)
+                    main.startColor = ScaledStartColor(p, visible);
+                main.startSizeMultiplier = p.StartSize * Mathf.Lerp(1f, MountedParticleShrink, fade);
+                ParticleSystem.EmissionModule em = p.System.emission;
+                em.rateOverTimeMultiplier = p.EmissionRate * visible;
+            }
+        }
+
+        /// <summary>Put one prop back exactly as authored: property block cleared, particle
+        /// modules restored from the snapshot, renderer visible again.</summary>
+        private void RestoreProp(MountedProp p)
+        {
+            _mountedTouched.Remove(p.Renderer);
+            Renderer r = p.Renderer;
+            if (r == null)
+                return;
+            if (p.ColorId >= 0 || p.CutoffId >= 0)
+                r.SetPropertyBlock(null);
+            if (p.System != null)
+            {
+                ParticleSystem.MainModule main = p.System.main;
+                if (p.HasStartColor)
+                    main.startColor = p.StartColor;
+                main.startSizeMultiplier = p.StartSize;
+                ParticleSystem.EmissionModule em = p.System.emission;
+                em.rateOverTimeMultiplier = p.EmissionRate;
+            }
             if (!r.enabled)
                 r.enabled = true;
         }
@@ -123,52 +300,65 @@ internal static partial class WallSegmentFade
             if (seg.MountedState == 0)
                 return;
             seg.MountedState = 0;
-            foreach (Renderer m in seg.Mounted)
-                RestoreMountedRenderer(m);
+            foreach (MountedProp p in seg.Mounted)
+                RestoreProp(p);
         }
 
         /// <summary>
-        /// Hide the segment's mounted props exactly while the segment holds fully faded. No
-        /// dissolve ramp (they run arbitrary opaque/particle shaders where a cutoff MPB means
-        /// nothing), so they switch off at the END of the wall's dissolve and back on the moment
-        /// the fade drops. Renderer.enabled ONLY — Lights are untouched by construction.
+        /// Drive the segment's mounted dressing alongside its fade — the SAME 0→1 the wall's own
+        /// cutoff sweep runs on, so flame and wall go together instead of the flame outliving the
+        /// wall and popping. The renderer is disabled at the very end as the guarantee that
+        /// nothing survives; everything reverses exactly on unfade.
         /// </summary>
         private void ApplyMounted(Segment seg)
         {
             if (seg.Mounted.Count == 0)
                 return;
-            if (seg.Fade < FoliageHideFade)
+            int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
+            if (want == 0)
             {
                 RestoreSegmentMounted(seg);
                 return;
             }
-            if (seg.MountedState == 2)
-                return; // already hidden — nothing per-frame to do
-            foreach (Renderer m in seg.Mounted)
+            if (want == 2 && seg.MountedState == 2)
+                return; // fully hidden — nothing per-frame to do
+            float ramp = Mathf.Clamp01(seg.Fade * MountedFadeLead);
+            foreach (MountedProp p in seg.Mounted)
             {
-                if (m == null || !m.enabled)
+                if (p.Renderer == null)
                     continue;
-                m.enabled = false;
-                _mountedHidden.Add(m);
+                _mountedTouched[p.Renderer] = p;
+                DriveProp(p, ramp);
+                if (want == 2)
+                {
+                    if (p.Renderer.enabled)
+                        p.Renderer.enabled = false;
+                }
+                else if (!p.Renderer.enabled)
+                {
+                    p.Renderer.enabled = true;
+                }
             }
-            seg.MountedState = 2;
+            seg.MountedState = want;
         }
 
-        /// <summary>Re-enable EVERY renderer in the hidden ledger and empty it (teardown / mod
-        /// disable): after this call the mod holds nothing hidden, owner or not.</summary>
+        /// <summary>Re-authorize EVERY prop we ever touched and empty the ledger (teardown / mod
+        /// disable): after this call the mod holds nothing hidden or ramped, owner or not.</summary>
         private void RestoreAllMountedProps()
         {
-            if (_mountedHidden.Count == 0)
+            if (_mountedTouched.Count == 0)
                 return;
             _mountedScratch.Clear();
-            _mountedScratch.AddRange(_mountedHidden);
-            foreach (Renderer r in _mountedScratch)
-                RestoreMountedRenderer(r);
+            _mountedScratch.AddRange(_mountedTouched.Values);
+            foreach (MountedProp p in _mountedScratch)
+                RestoreProp(p);
             _mountedScratch.Clear();
-            _mountedHidden.Clear();
+            _mountedTouched.Clear();
             foreach (Segment seg in _segments.Values)
                 seg.MountedState = 0;
         }
+
+        // ---- collection ---------------------------------------------------------------------
 
         /// <summary>Renderer families that can be wall dressing. SkinnedMeshRenderer is excluded
         /// on purpose (characters, our own hands); Line/Trail renderers are effects, never
@@ -184,11 +374,20 @@ internal static partial class WallSegmentFade
             return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
+        /// <summary>Horizontal (XZ) gap between an AABB and a point.</summary>
+        private static float HorizontalGap(Bounds a, Vector3 p)
+        {
+            float dx = Mathf.Max(0f, Mathf.Max(a.min.x - p.x, p.x - a.max.x));
+            float dz = Mathf.Max(0f, Mathf.Max(a.min.z - p.z, p.z - a.max.z));
+            return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
         /// <summary>
         /// Re-attach, per rescan, every airborne dressing renderer hugging a wall segment (see the
-        /// file header for the rule and the light guarantee). Runs LAST in <c>Rescan</c>: it needs
-        /// the final segment table, their room association and their ground-stripped AABBs.
-        /// Leavers and orphans are restored here, so nothing can stay hidden without an owner.
+        /// file header for the rule, the emitter-anchor decision and the light guarantee). Runs
+        /// LAST in <c>Rescan</c>: it needs the final segment table, their room association and
+        /// their ground-stripped AABBs. Leavers and orphans are restored here, so nothing can stay
+        /// hidden without an owner.
         /// </summary>
         /// <param name="sceneRenderers">The rescan's single scene sweep (shared with the wall
         /// adoption pass — one FindObjectsOfType per rescan, not two).</param>
@@ -201,12 +400,25 @@ internal static partial class WallSegmentFade
             _censusMounted = 0;
             _censusMountedRejected = 0;
 
-            // Park the previous lists and record who is already spoken for.
+            // Park the previous lists and record who is already spoken for. STICKY OWNERSHIP: a
+            // segment that is mid-fade or held faded keeps every prop it already owns — releasing
+            // one while its wall is gone is exactly the blink the first hardware round produced.
             foreach (Segment seg in _segments.Values)
             {
                 seg.PrevMounted.Clear();
                 seg.PrevMounted.AddRange(seg.Mounted);
                 seg.Mounted.Clear();
+                bool sticky = seg.MountedState != 0 || seg.Fade > 0f;
+                if (sticky)
+                {
+                    foreach (MountedProp p in seg.PrevMounted)
+                    {
+                        if (p.Renderer == null || !_mountedOwned.Add(p.Renderer))
+                            continue;
+                        seg.Mounted.Add(p);
+                        _censusMounted++;
+                    }
+                }
                 foreach (MeshRenderer r in seg.Renderers)
                 {
                     if (r != null) _attachmentOwned.Add(r);
@@ -243,16 +455,24 @@ internal static partial class WallSegmentFade
                         continue;
                     if (c is MeshRenderer mr && RendererUsesWallFade(mr))
                         continue; // a wall in its own right (tracked as a segment)
+
+                    // WHICH GEOMETRY DECIDES (see the file header): a mesh is judged by its AABB,
+                    // a particle system by its EMITTER — its bounds enclose the live particles and
+                    // drift every frame, which is what made the candles blink.
+                    bool particles = c is ParticleSystemRenderer;
                     Bounds b = c.bounds;
+                    float anchorY = particles ? c.transform.position.y : b.min.y;
+                    float topY = particles ? c.transform.position.y : b.max.y;
+
                     // Anything sitting essentially ON the floor is not a candidate at all and is
-                    // dropped here (the cheap bulk filter). Between that and the airborne bar
-                    // lies the ONE failure mode this rule can plausibly get wrong — a sconce or
-                    // bracket whose mesh reaches far enough down to look floor-supported — so
-                    // those still run the wall search and are LOGGED with their exact bottom
-                    // height instead of disappearing silently from the diagnostics.
-                    if (b.min.y < minFloorY + MountedClearanceWU * 0.25f)
+                    // dropped here (the cheap bulk filter). Between that and the airborne bar lies
+                    // the ONE failure mode this rule can plausibly get wrong — a sconce whose mesh
+                    // reaches far enough down to look floor-supported — so those still run the
+                    // wall search and are LOGGED with their exact height instead of vanishing
+                    // silently from the diagnostics.
+                    if (anchorY < minFloorY + MountedClearanceWU * 0.25f)
                         continue;
-                    bool belowBar = b.min.y < airborneBar;
+                    bool belowBar = anchorY < airborneBar;
 
                     // Nearest eligible wall wins. Doorway segments (never fade) and segments
                     // without a trusted room plane attach nothing.
@@ -263,16 +483,18 @@ internal static partial class WallSegmentFade
                     {
                         if (!seg.HasBounds || seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
                             continue;
-                        float gap = HorizontalGap(seg.Bounds, b);
+                        float gap = particles
+                            ? HorizontalGap(seg.Bounds, c.transform.position)
+                            : HorizontalGap(seg.Bounds, b);
                         if (gap < nearestAny)
                             nearestAny = gap;
                         if (belowBar || gap > MountedLinkMaxXZ || gap >= bestGap)
                             continue;
-                        if (b.min.y < _roomFloorY[seg.RoomIndex] + MountedClearanceWU)
+                        if (anchorY < _roomFloorY[seg.RoomIndex] + MountedClearanceWU)
                             continue; // airborne against THIS room's plane, not just the lowest
-                        if (b.min.y > seg.Bounds.max.y + MountedLinkMaxAboveTopWU)
+                        if (anchorY > seg.Bounds.max.y + MountedLinkMaxAboveTopWU)
                             continue; // floats above the wall, not in it
-                        if (b.max.y < seg.Bounds.min.y)
+                        if (topY < seg.Bounds.min.y)
                             continue; // below the wall's span
                         if (seg.Mounted.Count >= MountedMaxPerSegment)
                             continue;
@@ -281,20 +503,22 @@ internal static partial class WallSegmentFade
                     }
                     if (belowBar)
                     {
-                        NoteMountedReject(c, b, nearestAny,
-                            $"bottom {b.min.y:F2} under the airborne bar {airborneBar:F2} — "
+                        NoteMountedReject(c, anchorY, nearestAny,
+                            $"anchor {anchorY:F2} under the airborne bar {airborneBar:F2} — "
                             + "reads as floor-supported, so it would NOT float");
                         continue;
                     }
                     if (best == null)
                     {
-                        NoteMountedReject(c, b, nearestAny, "no wall within reach / outside its span");
+                        NoteMountedReject(c, anchorY, nearestAny, "no wall within reach / outside its span");
                         continue;
                     }
-                    if (b.size.x > MountedMaxSpanWU || b.size.y > MountedMaxSpanWU
-                        || b.size.z > MountedMaxSpanWU)
+                    // Size cap for MESHES only — a particle system's bounds are a smoke plume, not
+                    // an object size (it was rejecting the torches' own heat haze).
+                    if (!particles && (b.size.x > MountedMaxSpanWU || b.size.y > MountedMaxSpanWU
+                        || b.size.z > MountedMaxSpanWU))
                     {
-                        NoteMountedReject(c, b, bestGap, "too big for dressing (architecture)");
+                        NoteMountedReject(c, anchorY, bestGap, "too big for dressing (architecture)");
                         continue;
                     }
                     if (c.GetComponentInParent<ActorBehaviour>() != null
@@ -302,35 +526,40 @@ internal static partial class WallSegmentFade
                         || c.GetComponentInParent<Canvas>() != null
                         || c.GetComponent<TMPro.TMP_Text>() != null)
                     {
-                        NoteMountedReject(c, b, bestGap, "game logic / worldspace UI");
+                        NoteMountedReject(c, anchorY, bestGap, "game logic / worldspace UI");
                         continue;
                     }
                     // A renderer the GAME disabled is not ours to manage — except one WE hold
                     // hidden (dropping it now would re-enable + re-hide it in a one-frame flash).
-                    if (!c.enabled && !_mountedHidden.Contains(c))
+                    if (!c.enabled && !_mountedTouched.ContainsKey(c))
                         continue;
-                    best.Mounted.Add(c);
+                    // Reuse the existing record when we already know this prop (keeps the authored
+                    // snapshot — re-reading a material we are CURRENTLY ramping would snapshot our
+                    // own ramp as the "authored" value).
+                    if (!_mountedTouched.TryGetValue(c, out MountedProp? prop))
+                        prop = ClassifyProp(c);
+                    best.Mounted.Add(prop);
                     _mountedOwned.Add(c);
                     _censusMounted++;
                     if (_mountedCensus.Count < MountedCensusCap)
                     {
                         string wall = best.Anchor != null ? best.Anchor.name : "<dead>";
                         _mountedCensus.Add(
-                            $"'{c.name}'[{RendererKind(c)}] y[{b.min.y:F1}..{b.max.y:F1}] "
+                            $"'{c.name}'[{RendererKind(c)}→{prop.Tier}] anchor {anchorY:F1} "
                             + $"gap {bestGap:F2} → '{wall}'");
                     }
                 }
             }
 
-            // Leavers: restore anything this segment held hidden that it no longer owns.
+            // Leavers: restore anything this segment held that it no longer owns.
             foreach (Segment seg in _segments.Values)
             {
                 if (seg.MountedState != 0)
                 {
-                    foreach (Renderer prev in seg.PrevMounted)
+                    foreach (MountedProp prev in seg.PrevMounted)
                     {
-                        if (prev != null && !seg.Mounted.Contains(prev))
-                            RestoreMountedRenderer(prev);
+                        if (prev.Renderer != null && !seg.Mounted.Contains(prev))
+                            RestoreProp(prev);
                     }
                     if (seg.Mounted.Count == 0)
                         seg.MountedState = 0;
@@ -338,28 +567,31 @@ internal static partial class WallSegmentFade
                 seg.PrevMounted.Clear();
             }
 
-            // ORPHAN GUARD (the foliage-orphan lesson, made unconditional): anything in our hidden
-            // ledger that no live segment owns any more comes back NOW — even if the segment died
+            // ORPHAN GUARD (the foliage-orphan lesson, made unconditional): anything in our ledger
+            // that no live segment owns any more is re-authorized NOW — even if the segment died
             // on a path that forgot to restore. Worst case a prop stays hidden for one rescan.
-            if (_mountedHidden.Count > 0)
+            if (_mountedTouched.Count > 0)
             {
                 _mountedScratch.Clear();
-                _mountedScratch.AddRange(_mountedHidden);
-                foreach (Renderer r in _mountedScratch)
+                foreach (MountedProp p in _mountedTouched.Values)
                 {
-                    if (r == null || !_mountedOwned.Contains(r))
-                        RestoreMountedRenderer(r);
+                    if (p.Renderer == null || !_mountedOwned.Contains(p.Renderer))
+                        _mountedScratch.Add(p);
                 }
+                foreach (MountedProp p in _mountedScratch)
+                    RestoreProp(p);
                 _mountedScratch.Clear();
             }
 
             // Apparance streams the dressing in over several rescans, so the scenario's first
-            // heartbeat would report a half-built table forever: re-log whenever the attached
-            // set actually changed. Steady state prints nothing.
+            // heartbeat would report a half-built table forever: re-log whenever the attached set
+            // actually changed. Steady state prints nothing.
             if (_censusMounted != _lastLoggedMountedCount
                 || _censusMountedRejected != _lastLoggedMountedRejected)
                 LogMountedCensus();
         }
+
+        // ---- diagnostics --------------------------------------------------------------------
 
         /// <summary>First few mounted prop names for the fade-ON line (static — LogStateFlip is).</summary>
         private static string MountedNames(Segment seg)
@@ -368,13 +600,13 @@ internal static partial class WallSegmentFade
                 return "none";
             var sb = new System.Text.StringBuilder();
             int listed = 0;
-            foreach (Renderer m in seg.Mounted)
+            foreach (MountedProp p in seg.Mounted)
             {
-                if (m == null)
+                if (p.Renderer == null)
                     continue;
                 if (listed++ >= 4) { sb.Append(", …"); break; }
                 if (sb.Length > 0) sb.Append(", ");
-                sb.Append(m.name).Append('@').Append(m.bounds.min.y.ToString("F1"));
+                sb.Append(p.Renderer.name).Append('/').Append(p.Tier);
             }
             return sb.Length > 0 ? sb.ToString() : "none";
         }
@@ -382,20 +614,20 @@ internal static partial class WallSegmentFade
         private static string RendererKind(Renderer r) =>
             r is ParticleSystemRenderer ? "particles" : r is SpriteRenderer ? "sprite" : "mesh";
 
-        private void NoteMountedReject(Renderer c, Bounds b, float gap, string why)
+        private void NoteMountedReject(Renderer c, float anchorY, float gap, string why)
         {
             if (gap > MountedNearMissXZ)
                 return; // not near any wall — not a leftover candidate at all
             _censusMountedRejected++;
             if (_mountedRejects.Count < MountedCensusCap)
-                _mountedRejects.Add($"'{c.name}'[{RendererKind(c)}] y[{b.min.y:F1}..{b.max.y:F1}] gap {gap:F2}: {why}");
+                _mountedRejects.Add($"'{c.name}'[{RendererKind(c)}] anchor {anchorY:F1} gap {gap:F2}: {why}");
         }
 
         /// <summary>
-        /// Heartbeat forensics for the "schwebende Items" class: WHAT rides a wall's fade and —
-        /// the decisive half — which airborne renderer NEAR a wall was rejected and WHY. If a
-        /// flame still floats in the next hardware screenshot, the matching NEAR-MISS entry names
-        /// it, its height band, its gap to the wall and the rule that excluded it.
+        /// Heartbeat forensics for the "schwebende Items" class: WHAT rides a wall's fade, through
+        /// WHICH dissolve channel (alpha / cutoff / particles / none — a prop stuck on
+        /// "no-material-channel" is the one that can still pop), and which airborne renderer NEAR
+        /// a wall was rejected and why.
         /// </summary>
         private void LogMountedCensus()
         {
@@ -403,17 +635,15 @@ internal static partial class WallSegmentFade
             _lastLoggedMountedRejected = _censusMountedRejected;
             if (_censusMounted == 0 && _censusMountedRejected == 0)
                 return;
-            string riding = _mountedCensus.Count > 0
-                ? string.Join("; ", _mountedCensus)
-                : "none";
+            string riding = _mountedCensus.Count > 0 ? string.Join("; ", _mountedCensus) : "none new";
             string misses = _mountedRejects.Count > 0
                 ? " | NEAR-MISS (stays visible): " + string.Join("; ", _mountedRejects)
                 : string.Empty;
             VRLog.Info(Name,
-                $"WALL-MOUNTED DRESSING: {_censusMounted} prop(s) ride their wall's fade "
-                + $"(airborne ≥{MountedClearanceWU:0.0} wu over the room floor, XZ gap "
-                + $"≤{MountedLinkMaxXZ:0.00} wu, ≤{MountedMaxSpanWU:0.0} wu across; "
-                + $"renderer.enabled only — Lights/halos are NEVER touched): {riding}"
+                $"WALL-MOUNTED DRESSING: {_censusMounted} prop(s) dissolve WITH their wall "
+                + $"(airborne ≥{MountedClearanceWU:0.0} wu over the room floor — meshes by AABB, "
+                + $"particles by EMITTER anchor; XZ gap ≤{MountedLinkMaxXZ:0.00} wu; ownership "
+                + $"sticky while faded; Lights are NEVER written to): {riding}"
                 + $"{misses} ({_censusMountedRejected} near-miss total).");
         }
     }

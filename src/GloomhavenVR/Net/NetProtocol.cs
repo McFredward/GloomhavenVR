@@ -395,7 +395,12 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 26;
+    public const ushort ModBuild = 27;
+    // Build 27: wall dressing round 2 — props now DISSOLVE with their wall instead of popping at
+    // the end (alpha/cutoff ramp + particle emission/size/start-colour ramp on the same fade
+    // curve), particle props are judged by their EMITTER instead of their drifting live bounds,
+    // and ownership is sticky while faded (that pair was the "candles blink" bug).
+    // Local-only rendering — no wire changes.
     // Build 26: wall-mounted dressing (torch/candle flames left floating when a wall faded) now
     // rides its wall's fade — airborne renderers hugging the wall slab are hidden via
     // renderer.enabled ONLY; Lights are never touched, so the lighting is unchanged.
