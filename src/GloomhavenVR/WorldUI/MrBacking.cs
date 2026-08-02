@@ -439,9 +439,19 @@ internal static class MrBacking
         if (plate.gameObject.layer != layer)
             plate.gameObject.layer = layer;
 
-        // World gap → anchor-local units (the anchor's Z scale carries local→world).
+        // REAL gap → anchor-local units (the anchor's Z scale carries local→world).
+        //
+        // ROUND 6 (one-eye flicker hunt): the gap is specified in REAL metres, so it must be
+        // converted to WORLD units before the local conversion. Inside a scenario the diorama runs
+        // at ~48 game units per real metre, so the old code — which treated the constant as world
+        // units — seated the plate 2 mm / 48 ≈ 0.04 mm behind the content it backs. At HMD depth
+        // precision that is co-planar, and co-planar surfaces in this project are a KNOWN per-eye
+        // artifact (INVARIANTS-WorldUI: the round-token label z-fought "per-eye under stereo" at
+        // sub-millimetre separation) — an opaque plate doing that behind a menu is a flicker at the
+        // panel edges, where the grazing angle makes the depth difference smallest. Outside a
+        // scenario WorldScale is 1 and this is bit-identical to the shipped behaviour.
         float lossyZ = Mathf.Abs(anchor.lossyScale.z);
-        float zLocal = PlateGapMeters / Mathf.Max(lossyZ, 1e-5f);
+        float zLocal = PlateGapMeters * PanelLayout.WorldScale / Mathf.Max(lossyZ, 1e-5f);
         plate.localPosition = new Vector3(center.x, center.y, zLocal);
         plate.localRotation = Quaternion.identity;
         var scale = new Vector3(size.x, size.y, 1f);
