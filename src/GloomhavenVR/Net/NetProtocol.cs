@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 22;
+    public const ushort ModBuild = 23;
+    // Build 23: cold-open menu round 6 — the window was FROZEN mid show-animation (15% scale),
+    // so no rect could be right: land the animation, then fit to a re-measured fixed point.
+    // Reveal flip moved to LateUpdate and the MR backing plate gap converted to real metres
+    // (one-eye flicker class). Local-only UI — no wire changes.
     // Build 22: cold-open menu — the authored union is now clamped to the same canvas design
     // height Convert clamps the host to (open #1 fitted 407x2040 vs 412x1080 warm: a host twice
     // as tall as its content). Local-only UI — no wire changes.
