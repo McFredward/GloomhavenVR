@@ -269,18 +269,40 @@ internal sealed class WorldUIModule : IVRModule
             }
         }
 
+        // ROUND 7: the tick steps run inside a marked FRAME PHASE. On a MultiPass rig the only safe
+        // moment to change a panel's visibility is the main-thread phase — both eye passes render
+        // after every Update and LateUpdate — and `Camera.current` alone cannot prove we are in it
+        // (Unity leaves it pointing at the last camera that rendered, which produced a false
+        // one-eye alarm on ModBuild 23). Being inside these markers IS that proof; see
+        // CanvasConversion.BeginFramePhase.
         private void Update()
         {
-            var steps = _updateSteps;
-            for (int i = 0; i < steps.Length; i++)
-                TickGuard.Run(steps[i].name, steps[i].fn, "WorldUI");
+            CanvasConversion.BeginFramePhase("Update");
+            try
+            {
+                var steps = _updateSteps;
+                for (int i = 0; i < steps.Length; i++)
+                    TickGuard.Run(steps[i].name, steps[i].fn, "WorldUI");
+            }
+            finally
+            {
+                CanvasConversion.EndFramePhase();
+            }
         }
 
         private void LateUpdate()
         {
-            var steps = _lateSteps;
-            for (int i = 0; i < steps.Length; i++)
-                TickGuard.Run(steps[i].name, steps[i].fn, "WorldUI");
+            CanvasConversion.BeginFramePhase("LateUpdate");
+            try
+            {
+                var steps = _lateSteps;
+                for (int i = 0; i < steps.Length; i++)
+                    TickGuard.Run(steps[i].name, steps[i].fn, "WorldUI");
+            }
+            finally
+            {
+                CanvasConversion.EndFramePhase();
+            }
         }
 
         private void OnDestroy()

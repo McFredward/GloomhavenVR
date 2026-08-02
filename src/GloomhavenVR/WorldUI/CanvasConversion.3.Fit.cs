@@ -419,33 +419,32 @@ internal static partial class CanvasConversion
         return sum;
     }
 
+    // ROUND 5's ClampAuthoredToCanvasHeight is RETIRED with the authored-union fit source it served.
+    // The design-height cap now lands on the COMMITTED size (below) and on the target's own rect
+    // (ReassertConversionFrame) — the two places that actually decide what the host becomes.
+
     /// <summary>
-    /// ROUND 5: clamp an AUTHORED union's height to the same canvas design height Convert clamps
-    /// the host rect to (<c>capHeightToCanvas</c> family only — ESC/Options full-screen menus).
-    /// The authored geometry of those menus is ~2040 px tall while the game never draws them
-    /// taller than the CanvasScaler's ~1080 design height; adopting the raw authored height gave
-    /// the cold open a host twice as tall as its content (empty half in front, menu displaced).
-    /// Symmetric about the union's centre, mirroring Convert's centred-pivot <c>size.y</c> clamp.
-    /// No-op for every other window family, for a missing/undersized cap, and for a union that is
-    /// already within it — so a settled window and all non-menu modals are bit-identical.
+    /// ROUND 7: cap the COMMITTED fit height of the full-screen-menu family to the same canvas
+    /// design height <see cref="Convert"/> capped the captured size to. See the call site for why
+    /// the Convert-time cap alone stopped holding (the game grows the window's own rect afterwards,
+    /// so the target-frame clamp no longer bounds the fit). The cap is the height the game itself
+    /// never draws past, so this can only ever remove empty space. No-op for every other family and
+    /// for a fit already inside the cap, so nothing else moves by a pixel.
     /// </summary>
-    private static void ClampAuthoredToCanvasHeight(ConvertedPanel panel, ref Vector2 min, ref Vector2 max)
+    private static void ClampFittedHeightToCanvas(ConvertedPanel panel, ref Vector2 size)
     {
         if (!panel.FitHeightCapped || panel.Target == null)
             return;
         float cap = ResolveStableHeightCap(panel.Target, panel.FitHeightCapName, out string source);
-        float height = max.y - min.y;
-        if (cap <= 1f || height <= cap + 0.5f)
+        if (cap <= 1f || size.y <= cap + 0.5f)
             return;
-        float centre = (min.y + max.y) * 0.5f;
-        min.y = centre - cap * 0.5f;
-        max.y = centre + cap * 0.5f;
-        s_lastAuthoredHeightCap = $"authored height {height:F0} -> {cap:F0} px via {source}";
+        s_lastFittedHeightCap = $"fitted height {size.y:F0} -> {cap:F0} px via {source}";
+        size.y = cap;
     }
 
-    /// <summary>Diagnostic for the fit log: what the authored height clamp did on this pass
-    /// (empty when it did nothing). Cleared by the measure that reports it.</summary>
-    private static string s_lastAuthoredHeightCap = string.Empty;
+    /// <summary>Diagnostic for the fit log: what <see cref="ClampFittedHeightToCanvas"/> did on this
+    /// pass (empty when it did nothing). Cleared by the measure that reports it.</summary>
+    private static string s_lastFittedHeightCap = string.Empty;
 
     /// <summary>Authored (scale-neutral) host-local rect of <paramref name="rt"/> — its own
     /// <see cref="RectTransform.rect"/> placed at <see cref="AuthoredOffset"/>.</summary>
@@ -480,6 +479,10 @@ internal static partial class CanvasConversion
 
     /// <summary>Number of contributor slots kept per measure pass for the fit log.</summary>
     private const int MeasureTopCount = 3;
+
+    /// <summary>Largest contributor of the last measure pass — the probe
+    /// <see cref="LogContentChain"/> walks up from.</summary>
+    private static Graphic? s_lastTopGraphic;
 
     private static readonly string[] MeasureTopNames = new string[MeasureTopCount];
     private static readonly Vector4[] MeasureTopRects = new Vector4[MeasureTopCount];
@@ -547,15 +550,17 @@ internal static partial class CanvasConversion
           .Append(s_lastAuthoredUnionMin.y.ToString("F0")).Append("), rendered/authored ratio ")
           .Append(s_lastMeasureRatio.x.ToString("F2")).Append('/')
           .Append(s_lastMeasureRatio.y.ToString("F2"))
+          // Round 7: the fit ALWAYS uses the live union now. A ratio away from 1 no longer switches
+          // the basis — it only says "this window is not at its final geometry yet", which is what
+          // the settle gate reads.
           .Append(s_lastMeasureAnimating
-              ? " → SHOW ANIMATION IN FLIGHT, fit uses the AUTHORED union (the geometry the window ends at)"
-              : " → settled, fit uses the LIVE union");
-        // Round 5: state whether the authored union had to be clamped to the canvas design height
-        // (the cold-menu defect: authored 2040 vs the 1080 the game actually draws).
-        if (s_lastAuthoredHeightCap.Length > 0)
+              ? " → NOT AT ITS AUTHORED GEOMETRY (settle gate holds; the fit still uses the LIVE union — what the player sees)"
+              : " → settled, live == authored");
+        // Round 5/7: state whether the canvas design-height cap had to bound this measurement.
+        if (s_lastFittedHeightCap.Length > 0)
         {
-            sb.Append(" [").Append(s_lastAuthoredHeightCap).Append(']');
-            s_lastAuthoredHeightCap = string.Empty;
+            sb.Append(" [").Append(s_lastFittedHeightCap).Append(']');
+            s_lastFittedHeightCap = string.Empty;
         }
         return sb.ToString();
     }
@@ -697,24 +702,24 @@ internal static partial class CanvasConversion
             s_lastMeasureAnimating = Mathf.Abs(s_lastMeasureRatio.x - 1f) > ShowAnimationScaleTol
                                      || Mathf.Abs(s_lastMeasureRatio.y - 1f) > ShowAnimationScaleTol;
         }
-        if (s_lastMeasureAnimating)
-        {
-            // Fit the geometry the window ENDS AT, not the frame of the animation we happened to
-            // catch. Everything downstream — settle gate, verify, cross-open memory — then compares
-            // like with like on a cold and a warm open.
-            min = aMinAll;
-            max = aMaxAll;
-            // ROUND 5 (hardware ModBuild 21, the cold ESC menu AGAIN): the authored union is the
-            // layout's own geometry — and for the full-screen-menu family that geometry is TALLER
-            // than anything the game ever draws. Convert clamps their host height to the root
-            // CanvasScaler's design height ("height capped 2040->1080"); the authored union knows
-            // nothing about that clamp, so open #1 fitted a 407x2040 host while every warm open
-            // fits 412x1080 — a host twice as tall as the content, the visible menu in one half and
-            // an empty frame in the other. That IS the reported "empty window in front, the menu
-            // far behind". Apply the SAME clamp here, symmetric about the union's centre (the host
-            // pivot is centred, so this is exactly what Convert's size.y clamp does).
-            ClampAuthoredToCanvasHeight(panel, ref min, ref max);
-        }
+        // ROUND 7 — THE AUTHORED UNION IS NO LONGER A FIT SOURCE, ONLY A DIAGNOSTIC AND A GATE.
+        //
+        // Rounds 4-6 switched the fit to the AUTHORED union whenever the two disagreed, on the
+        // theory that it was "the geometry the window ends at". The ModBuild 23 hardware log
+        // refutes that outright: the rendered rects sat at host-local x ≈ 621 while the authored
+        // union was centred on 0, and a pure scale can never move content 621 px sideways. The
+        // authored construction erases EVERY intermediate localScale, including ones that are real
+        // — and the same log finally named the real one: the conversion TARGET's own
+        // `localScale 0.14` (see ReassertConversionFrame). Fitting the authored phantom is what
+        // produced a correctly-sized host around content rendering at 14 % somewhere else: the
+        // reported "big frame, thin strip of content, sitting further back".
+        //
+        // So there is ONE basis now — the LIVE one, i.e. what the player actually sees. The
+        // authored union is still measured, because the RATIO between them is the cheapest possible
+        // "is this window at its final geometry yet?" signal and the settle gate uses it (a window
+        // whose rendered geometry is not its authored geometry has not settled). It just never
+        // decides the rect any more. The worst case is now a host that hugs whatever is visible —
+        // wrong-sized, but never a frame around content that is somewhere else.
         s_lastUnionMin = min;
         s_lastUnionMax = max;
 
@@ -735,25 +740,16 @@ internal static partial class CanvasConversion
         Vector2 frameMax = new(float.MaxValue, float.MaxValue);
         if (!panel.FitFrameDegenerate)
         {
-            if (s_lastMeasureAnimating)
-            {
-                // Round 4: an animation that scales the window also scales its FRAME through the
-                // world corners — clamping the authored union to a shrunken frame would hand back
-                // the very freeze-frame rect the authored union exists to replace. The authored
-                // frame is the target's own rect at its layout position (Convert pins the target's
-                // scale to 1, so on a settled window this is identical to the corner path).
-                AuthoredHostRect(panel, panel.Target, out frameMin, out frameMax);
-            }
-            else
-            {
-                panel.Target.GetWorldCorners(CornerScratch);
-                Vector3 frameA = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
-                Vector3 frameB = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
-                // Min/max-normalized: a mid-animation rotation/negative scale must not
-                // invert the frame and turn the clamp into garbage.
-                frameMin = Vector2.Min(frameA, frameB);
-                frameMax = Vector2.Max(frameA, frameB);
-            }
+            // Round 7: ONE basis. The frame is the target's LIVE rect (world corners → host-local),
+            // exactly like the content it bounds — the round-4 authored-frame branch is gone with
+            // the authored union it existed to support.
+            panel.Target.GetWorldCorners(CornerScratch);
+            Vector3 frameA = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
+            Vector3 frameB = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
+            // Min/max-normalized: a mid-animation rotation/negative scale must not
+            // invert the frame and turn the clamp into garbage.
+            frameMin = Vector2.Min(frameA, frameB);
+            frameMax = Vector2.Max(frameA, frameB);
             // Round 3 diagnostics: a union the FRAME cropped is a different animal from one the
             // content itself bounded — the fit log now says which of the two it committed.
             s_lastFrameClamped = min.x < frameMin.x || min.y < frameMin.y
@@ -770,6 +766,15 @@ internal static partial class CanvasConversion
         sz += Vector2.one * (2f * Padding);
         sz.x = Mathf.Min(sz.x, frameMax.x - frameMin.x);
         sz.y = Mathf.Min(sz.y, frameMax.y - frameMin.y);
+        // ROUND 7 ("vertikal zu lang", user, ModBuild 23): the full-screen-menu family's host
+        // height is capped to the canvas DESIGN height at Convert — but only there. The game's
+        // layout then grows the window's own rect (the cold open measured a 1920x2040 target frame
+        // where Convert had pinned 1920x1080), so the frame clamp above stopped bounding anything
+        // and the committed height leaked past the cap (412x1104 cold versus 412x1080 warm — and
+        // far worse whenever the union itself is tall). The cap belongs on the COMMITTED size, not
+        // only on the captured one: it is the same number Convert used, applied to the same family,
+        // at the one point that decides what the host actually becomes.
+        ClampFittedHeightToCanvas(panel, ref sz);
 
         size = sz;
         center = (min + max) * 0.5f;
@@ -809,6 +814,11 @@ internal static partial class CanvasConversion
         MeasureTopRects[slot] = new Vector4(gMin.x, gMin.y, gMax.x, gMax.y);
         Transform? parent = g.transform.parent;
         MeasureTopNames[slot] = parent != null ? parent.name + "/" + g.name : g.name;
+        // Round 7: the LARGEST contributor is the probe the ancestor/depth dump walks up from —
+        // the element that actually spans the measured union, so its chain is the one that decides
+        // where and how big the window renders.
+        if (slot == 0)
+            s_lastTopGraphic = g;
     }
 
     /// <summary>
@@ -1146,21 +1156,32 @@ internal static partial class CanvasConversion
     {
         var sb = new System.Text.StringBuilder(160);
         sb.Append("apply: ");
-        // Kill the coupling at its source where we are allowed to: Convert pinned the target to
-        // centred anchors precisely so the host rect could be resized underneath it, and the log
-        // proves something re-drove them. Re-asserting them (position and rect size preserved)
-        // makes the host resize a no-op for the target from here on.
-        if (NeutralizeHostAnchorCoupling(panel, out string anchorNote))
-            sb.Append(anchorNote).Append("; ");
+        // Kill the coupling at its source where we are allowed to: Convert pinned the target's
+        // whole frame precisely so the host rect could be resized underneath it and so the measure
+        // reads real geometry. The hardware log proves the game re-drives it.
+        if (ReassertConversionFrame(panel, out string frameNote))
+            sb.Append(frameNote).Append("; ");
 
         for (int pass = 1; ; pass++)
         {
+            // The whole reason this loop exists is the RESIZE: shifting the target is a rigid move
+            // that cannot change what the next measurement reports, while resizing the host can
+            // (that is the coupling the ModBuild 22 log proved). When the size is already right,
+            // the single shift is exact — skip the re-measure and its forced canvas flush, which is
+            // the expensive part of an applied fit.
+            bool resized = Mathf.Abs(panel.HostRect.rect.width - size.x) > 0.5f
+                           || Mathf.Abs(panel.HostRect.rect.height - size.y) > 0.5f;
             panel.HostRect.sizeDelta = size;
             panel.Target.anchoredPosition -= center;
             sb.Append('#').Append(pass).Append(" host=").Append(size.x.ToString("F0")).Append('x')
               .Append(size.y.ToString("F0")).Append(" shift=").Append((-center.x).ToString("F0"))
               .Append(',').Append((-center.y).ToString("F0"));
 
+            if (!resized)
+            {
+                sb.Append(" → rigid re-centre only (host size unchanged, nothing can have moved)");
+                break;
+            }
             if (pass >= FitApplyIterations)
             {
                 sb.Append(" (iteration cap reached — see the verify watch)");
@@ -1196,38 +1217,122 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
-    /// Re-assert the rigid, centred anchoring <see cref="Convert"/> gave the target — the invariant
-    /// the whole content fit rests on: with <c>anchorMin == anchorMax == 0.5</c> the target's
-    /// position is independent of the host rect, so writing <c>HostRect.sizeDelta</c> cannot move
-    /// the content. The ModBuild 22 log proves the invariant was broken by fit time (the target
-    /// moved by half the host width change), which is what made the open-loop apply diverge.
+    /// ROUND 7 — THE CONVERSION FRAME IS AN INVARIANT, AND IT HAS TO BE MAINTAINED, NOT ASSUMED.
     ///
-    /// Position and size are preserved exactly: <c>localPosition</c> is written back and
-    /// <c>sizeDelta</c> is set to the CURRENT <c>rect.size</c> (with the anchors collapsed,
-    /// sizeDelta IS the size), so this is a pure re-parametrisation — nothing on screen moves.
-    /// Reversibility is untouched: <see cref="Release"/> restores the ORIGINAL anchors it captured
-    /// at Convert. Returns true (with a log-ready note) only when it actually had to correct
-    /// something, so a healthy panel produces no note at all.
+    /// <see cref="Convert"/> pins six properties on the target the moment it adopts it: centred
+    /// anchors and pivot, <c>localScale = 1</c>, identity rotation, <c>localPosition.z = 0</c> and
+    /// (for the full-screen-menu family) a height-capped <c>sizeDelta</c>. Everything downstream
+    /// assumes they hold — the host can only be resized underneath a target whose position does not
+    /// depend on the host rect, and the content measure only means anything if the subtree renders
+    /// at the scale it was authored at. The game re-drives them, and the hardware proved it twice:
+    ///
+    ///   ModBuild 22: anchors found at (0,0)..(0,0) — the host resize then dragged the content by
+    ///                half the width change on every applied fit.
+    ///   ModBuild 23: `target frame 1920x2040 px … localScale 0.14` — the ENTIRE converted subtree
+    ///                was rendering at 14 %, which is the whole "rendered/authored 0.21/0.15" the
+    ///                last three rounds mistook for a show animation in flight, and the rect had
+    ///                grown to 2040 px where Convert had pinned 1080 ("vertikal zu lang").
+    ///
+    /// A target at 14 % renders its content small and displaced (the scale is about the pivot, and
+    /// the content sits off-centre inside the target), which reads exactly as the user described it:
+    /// "als sei der Inhalt deutlich weiter hinten und verschoben". Restoring the frame is not a new
+    /// visual policy — it is the policy Convert has always applied; these windows have never been
+    /// meant to render at anything but scale 1 inside their host.
+    ///
+    /// Every correction is logged the first time it fires per panel, with the value found, so the
+    /// log names the drift instead of implying it. Reversibility is untouched: <see cref="Release"/>
+    /// restores the ORIGINALS captured at Convert. Returns true (with a log-ready note) only when
+    /// something actually had to be corrected — a healthy panel costs six compares and no writes.
     /// </summary>
-    private static bool NeutralizeHostAnchorCoupling(ConvertedPanel panel, out string note)
+    /// <param name="includeHeightCap">Re-pin the target's own rect height to the canvas design
+    /// height too. TRUE on the paths that own the window's geometry anyway (pre-reveal maintenance
+    /// and every applied fit); FALSE for the cheap steady-state guard, because the game may drive
+    /// that rect from a layout component and re-writing it every frame forever would be a fight,
+    /// not a fix — the committed host height is capped independently by
+    /// <see cref="ClampFittedHeightToCanvas"/>.</param>
+    private static bool ReassertConversionFrame(ConvertedPanel panel, out string note,
+        bool includeHeightCap = true)
     {
         note = string.Empty;
-        RectTransform t = panel.Target;
-        var half = new Vector2(0.5f, 0.5f);
-        if ((t.anchorMin - half).sqrMagnitude <= 1e-6f && (t.anchorMax - half).sqrMagnitude <= 1e-6f)
+        RectTransform? t = panel.Target;
+        if (t == null)
             return false;
-        Vector2 anchorMin = t.anchorMin, anchorMax = t.anchorMax;
-        Vector2 keepSize = t.rect.size;
-        Vector3 keepPos = t.localPosition;
-        t.anchorMin = half;
-        t.anchorMax = half;
-        t.sizeDelta = keepSize;
-        t.localPosition = keepPos;
-        note = $"target anchors had drifted to ({anchorMin.x:F2},{anchorMin.y:F2})..({anchorMax.x:F2}," +
-               $"{anchorMax.y:F2}) — RE-CENTRED (position/size preserved) so the host resize can no " +
-               "longer drag the content";
-        VRLog.Warn("WorldUI", $"MODAL FIT: '{panel.HostGo.name}' {note}. That coupling is what moved the " +
-                              "cold menu's content by half the host width change on every applied fit.");
+
+        var sb = new System.Text.StringBuilder(96);
+        var half = new Vector2(0.5f, 0.5f);
+
+        // 1. SCALE — the round-7 headline. A drifted scale corrupts the measure itself (the union
+        //    is read through world corners), so it is corrected before anything else looks at it.
+        Vector3 scale = t.localScale;
+        if (Mathf.Abs(scale.x - 1f) > 0.001f || Mathf.Abs(scale.y - 1f) > 0.001f
+            || Mathf.Abs(scale.z - 1f) > 0.001f)
+        {
+            t.localScale = Vector3.one;
+            sb.Append($"localScale was ({scale.x:F2},{scale.y:F2},{scale.z:F2}) → 1");
+        }
+
+        // 2. ROTATION + 3. DEPTH — a converted panel is a flat plane coplanar with its host. A
+        //    z-displaced or tilted target renders at a different depth than the frame, X and grab
+        //    bar that follow the host: the same "content sits further back" reading, and on a
+        //    stereo rig it is the disparity that makes it obvious.
+        if (Quaternion.Angle(t.localRotation, Quaternion.identity) > 0.05f)
+        {
+            sb.Append(sb.Length > 0 ? "; " : string.Empty)
+              .Append($"localRotation was {t.localRotation.eulerAngles} → identity");
+            t.localRotation = Quaternion.identity;
+        }
+        Vector3 lp = t.localPosition;
+        if (Mathf.Abs(lp.z) > 0.01f)
+        {
+            sb.Append(sb.Length > 0 ? "; " : string.Empty).Append($"localPosition.z was {lp.z:F1} → 0");
+            lp.z = 0f;
+            t.localPosition = lp;
+        }
+
+        // 4. ANCHORS/PIVOT (ModBuild 22): with the anchors collapsed to the centre the target's
+        //    position is independent of the host rect, which is what lets the fit resize the host
+        //    without dragging the content. Position and size are preserved exactly, so this is a
+        //    pure re-parametrisation: nothing on screen moves.
+        if ((t.anchorMin - half).sqrMagnitude > 1e-6f || (t.anchorMax - half).sqrMagnitude > 1e-6f)
+        {
+            Vector2 aMin = t.anchorMin, aMax = t.anchorMax;
+            Vector2 keepSize = t.rect.size;
+            Vector3 keepPos = t.localPosition;
+            t.anchorMin = half;
+            t.anchorMax = half;
+            t.sizeDelta = keepSize;
+            t.localPosition = keepPos;
+            sb.Append(sb.Length > 0 ? "; " : string.Empty)
+              .Append($"anchors had drifted to ({aMin.x:F2},{aMin.y:F2})..({aMax.x:F2},{aMax.y:F2}) → " +
+                      "re-centred (position/size preserved)");
+        }
+
+        // 5. HEIGHT CAP: Convert pinned this family's target rect to the canvas design height so it
+        //    would also be the frame the fit clamps to. The game's layout grew it to 2040 px, which
+        //    is how the over-height leaked back in. Re-pin it (width and position untouched).
+        if (includeHeightCap && panel.FitHeightCapped)
+        {
+            float cap = ResolveStableHeightCap(t, panel.FitHeightCapName, out _);
+            if (cap > 1f && t.rect.height > cap + 0.5f)
+            {
+                float had = t.rect.height;
+                t.sizeDelta = new Vector2(t.sizeDelta.x, t.sizeDelta.y - (t.rect.height - cap));
+                sb.Append(sb.Length > 0 ? "; " : string.Empty)
+                  .Append($"target rect height was {had:F0} → capped to {cap:F0}");
+            }
+        }
+
+        if (sb.Length == 0)
+            return false;
+        note = "conversion frame RE-ASSERTED: " + sb;
+        if (!panel.FrameDriftLogged)
+        {
+            panel.FrameDriftLogged = true;
+            VRLog.Warn("WorldUI", $"MODAL FIT: '{panel.HostGo.name}' {note}. The game re-drove the frame " +
+                                  "Convert pinned; everything the content fit measures is expressed in that " +
+                                  "frame, so it is restored before the measure is trusted. (Reported once " +
+                                  "per panel; the fit lines carry the per-apply note.)");
+        }
         return true;
     }
 
@@ -1695,6 +1800,10 @@ internal static partial class CanvasConversion
             ? $"previous open committed {previous.Value.x:F0}x{previous.Value.y:F0} px " +
               $"(target at {previous.Value.z:F0},{previous.Value.w:F0})"
             : "no previous open in this session (this IS the cold one)";
+        // Round 7: one chain dump per open at the LOCK, so a hardware log always carries the
+        // cold/warm comparison the coordinator asked for — the cold open's dump (emitted when the
+        // drift detector tripped) next to a settled one from the same window.
+        LogContentChain(panel, "at the one-shot lock (settled reference)");
         VRLog.Info("WorldUI", $"MODAL FIT SUMMARY '{panel.HostGo.name}' open #{panel.FitOpenIndex}: " +
                               $"final host {host.width:F0}x{host.height:F0} px, last measured content " +
                               $"{s_lastMeasureSize.x:F0}x{s_lastMeasureSize.y:F0} px at offset " +
@@ -1929,20 +2038,19 @@ internal static partial class CanvasConversion
         }
         panel.FitOneShotStableGraphics = graphics;
 
-        // ROUND 6 — THE BASIS GATE. A measurement whose rendered geometry is NOT the authored
-        // geometry (rendered/authored ratio materially off 1) must never certify a fit, however
-        // still it looks. WHY this is THE cold-open criterion: the fit centres what it measures,
-        // but with a scale s in the chain the RENDERED content sits at T + s·P while the AUTHORED
-        // union we commit sits at T + P — centring the latter necessarily leaves the former off by
-        // (1-s)·P. On the hardware cold open s ≈ 0.15 and P ≈ -769 px, i.e. the visible menu ended
-        // ~640 px outside a 406 px host: "an almost empty frame in front, the content far to the
-        // side". No rect can be right while s ≠ 1, so the gate waits for s (and, below, actively
-        // lands it) instead of certifying a freeze-frame. The cold open is ALSO the only state that
-        // passes the strict "absolutely still" tier — a half-built, stalled layout does not move at
-        // all — so this gate is exactly the discriminator that tier lacked.
+        // THE BASIS GATE (round 6, re-justified in round 7). A measurement whose RENDERED geometry
+        // is not its AUTHORED geometry must never certify a fit, however still it looks — the fit
+        // centres what it measures, and a subtree rendering at a fraction of its authored size is a
+        // window that has not arrived. Round 7 changed what happens NEXT, not the gate: the fit no
+        // longer switches to the authored union (that phantom is what put a correct frame around
+        // content sitting somewhere else); it holds, the conversion frame is re-asserted — which is
+        // what the drift actually was — and the LIVE union is committed either way at the deadline.
+        // The cold open is also the only state that passes the strict "absolutely still" tier (a
+        // half-built, drifted layout does not move at all), so this is the discriminator that tier
+        // lacked.
         bool atAuthoredGeometry = !s_lastMeasureAnimating;
-        Vector2 gateRatio = s_lastMeasureRatio; // the landing below may re-measure and overwrite it
-        TickShowAnimationLanding(panel, root);
+        Vector2 gateRatio = s_lastMeasureRatio;
+        TickGeometryDrift(panel, root, atAuthoredGeometry);
 
         // Tier A (the real gate): nothing left for the layout to apply, no content arrived between
         // the last two checks, and the measurement held — relatively for the historic number of
@@ -1969,133 +2077,173 @@ internal static partial class CanvasConversion
                  $"forced rebuild changed the measurement " +
                  $"{panel.FitSettleRebuildChanges}x (this check: {(layoutWasDirty ? "YES" : "no")}" +
                  (settled ? ")" : boundReached ? "; committed on the animated-content bound)" : ")") +
-                 $"; geometry basis: {(atAuthoredGeometry ? "RENDERED == AUTHORED (fit is on the real thing)" : $"rendered/authored {gateRatio.x:F2}/{gateRatio.y:F2} — NOT the final geometry, gate held")}" +
-                 $"; show animation landed: {(panel.FitShowAnimationLanded ? "yes" : "no")}" +
-                 $" (stall streak {panel.FitAnimStalledChecks})";
+                 $"; geometry basis: {(atAuthoredGeometry ? "RENDERED == AUTHORED (the window is at its real geometry)" : $"rendered/authored {gateRatio.x:F2}/{gateRatio.y:F2} — NOT there yet, gate held")}" +
+                 $"; drift streak {panel.FitAnimStalledChecks}" +
+                 $", chain dumped: {(panel.FrameChainDumps > 0 ? "yes" : "no")}";
 
         return settled || boundReached ? SettleResult.Settled : SettleResult.Settling;
     }
 
     /// <summary>
-    /// Consecutive settle checks the show-animation ratio may fail to IMPROVE before the animation
-    /// is declared STALLED and landed deterministically. ~0.14 s at 72 Hz. A healthy LeanTween
-    /// scale-in (~0.3 s) moves the ratio by ~0.05 EVERY frame, so it can never reach this; the
-    /// hardware cold open sat at 0.15/0.14 for the entire pre-reveal budget and would reach it in a
-    /// tenth of a second.
+    /// Consecutive settle checks the rendered/authored ratio may fail to IMPROVE before the window
+    /// is declared DRIFTED rather than animating. ~0.14 s at 72 Hz. A healthy show animation moves
+    /// the ratio by ~0.05 EVERY frame, so it can never reach this; the hardware cold open sat at a
+    /// constant 0.21/0.15 for the entire pre-reveal budget and reaches it in a tenth of a second.
     /// </summary>
-    private const int ShowAnimationStalledChecks = 10;
+    private const int GeometryDriftChecks = 10;
 
-    /// <summary>Ratio improvement (per axis, per check) that counts as PROGRESS — below it the
-    /// animation is not moving in any way that will land inside the reveal budget.</summary>
-    private const float ShowAnimationProgressEpsilon = 0.02f;
+    /// <summary>Ratio improvement (per axis, per check) that counts as PROGRESS — below it nothing
+    /// is moving in a way that will land inside the reveal budget.</summary>
+    private const float GeometryDriftProgressEpsilon = 0.02f;
 
-    /// <summary>Scratch for the animator sweep (settle-time only, single-threaded).</summary>
-    private static readonly List<GUIAnimator> AnimatorScratch = new(4);
+    /// <summary>Chain dumps emitted per panel (<see cref="LogContentChain"/>) — it is a multi-line
+    /// dump answering a cold/warm comparison, so it is capped rather than throttled.</summary>
+    private const int FrameChainDumpCap = 2;
 
     /// <summary>
-    /// ROUND 6 — LAND A STALLED SHOW ANIMATION INSTEAD OF WAITING FOR ONE THAT NEVER ENDS.
+    /// ROUND 7 — WHAT REPLACED THE ROUND-6 "LAND THE SHOW ANIMATION" ACTION.
     ///
-    /// The measure reports rendered/authored per check. While a real tween runs, that ratio climbs
-    /// every frame. The hardware cold ESC menu instead held 0.15/0.14 across the whole pre-reveal
-    /// budget with SIX absolutely-still checks — the window was frozen part-way through its show
-    /// animation, not animating. Waiting for it is therefore not an option (it never lands inside
-    /// the 0.6 s reveal bound) and revealing it is not either (that IS the reported defect), so the
-    /// remaining move is to finish the animation ourselves, while the window is still render-hidden
-    /// and the player can see nothing.
+    /// Round 6 read a constant sub-1 rendered/authored ratio as a stalled LeanTween and sent every
+    /// GUIAnimator in the subtree to its finish state. The ModBuild 23 log killed that theory in one
+    /// line: 13 animators were sent to their finish state, NONE reported <c>IsPlaying</c>, and the
+    /// ratio stayed at 0.21/0.15. It was never a tween — and the same log's frame diagnostic named
+    /// the real cause: the conversion target's own <c>localScale 0.14</c>.
     ///
-    /// WHAT IS CALLED AND WHY IT IS SAFE (verified in decompiled/GH.Runtime):
-    ///  * <c>GUIAnimator.GoToFinishState()</c> is public and the GAME ITSELF uses it in six places
-    ///    (UILoadingIconAnimator, InfusionElementUI, EventButton, UIPartyCharacterEquipmentDisplay,
-    ///    UIUseSlot, NewPartyDisplayUI) — it is the supported way to end a transition early.
-    ///  * It is <c>Stop(); ResetFinishState();</c> — the tweens are cancelled and every animation
-    ///    setting is written to its authored <c>ToValue</c> (scale/move/fade/colour), i.e. exactly
-    ///    the state the animation was heading for. <c>OnAnimationFinished</c> is NOT invoked (only
-    ///    <c>OnAnimationStopped</c>), and no C# listener of the ESC menu's animator exists: ESCMenu
-    ///    only reads <c>GetSettings()</c> to retune the background fade, and UIWindow holds no
-    ///    animator reference at all. A stalled animation's completion callback was never going to
-    ///    fire anyway.
-    ///  * It runs ONCE per open (<see cref="ConvertedPanel.FitShowAnimationLanded"/>) and only for
-    ///    a STALLED animation, so a healthy show animation is never interrupted.
+    /// The blanket call is therefore GONE, and not only because it was useless: a menu carries a
+    /// dozen animators for buttons, highlights and HIDE transitions, and forcing all of them to
+    /// their end state can apply a hide animation's end value just as easily as a show animation's.
+    /// It was a scattergun aimed at a symptom.
+    ///
+    /// What remains is diagnosis plus the correct repair: the drift streak (how long the window has
+    /// been away from its authored geometry without improving), the ancestor/depth dump that NAMES
+    /// what holds it there, and <see cref="ReassertConversionFrame"/> — which restores the frame
+    /// Convert pinned and the game re-drove. All of it while the window is render-hidden, so nothing
+    /// the player can see ever moves.
     /// </summary>
-    private static void TickShowAnimationLanding(ConvertedPanel panel, RectTransform root)
+    private static void TickGeometryDrift(ConvertedPanel panel, RectTransform root, bool atAuthoredGeometry)
     {
-        if (!s_lastMeasureAnimating)
+        if (atAuthoredGeometry)
         {
             panel.FitAnimStalledChecks = 0;
             panel.FitAnimLastRatio = s_lastMeasureRatio;
             return;
         }
         Vector2 ratio = s_lastMeasureRatio;
-        bool improving = Mathf.Abs(ratio.x - panel.FitAnimLastRatio.x) > ShowAnimationProgressEpsilon
-                         || Mathf.Abs(ratio.y - panel.FitAnimLastRatio.y) > ShowAnimationProgressEpsilon;
+        bool improving = Mathf.Abs(ratio.x - panel.FitAnimLastRatio.x) > GeometryDriftProgressEpsilon
+                         || Mathf.Abs(ratio.y - panel.FitAnimLastRatio.y) > GeometryDriftProgressEpsilon;
         panel.FitAnimLastRatio = ratio;
         panel.FitAnimStalledChecks = improving ? 0 : panel.FitAnimStalledChecks + 1;
-        if (panel.FitShowAnimationLanded || panel.FitAnimStalledChecks < ShowAnimationStalledChecks)
+        // '==' so this fires exactly ONCE per drift episode instead of on every check after it.
+        if (panel.FitAnimStalledChecks != GeometryDriftChecks)
             return;
 
-        panel.FitShowAnimationLanded = true; // one attempt per open, found or not
-        if (panel.Target == null)
+        // 1. SAY WHAT IS HOLDING IT THERE — the evidence the last three rounds had to infer.
+        LogContentChain(panel, $"drifted at rendered/authored {ratio.x:F2}/{ratio.y:F2} for " +
+                               $"{GeometryDriftChecks} checks without improving");
+
+        // 2. CORRECT IT. The conversion frame is ours to maintain and a drifted one is exactly what
+        //    the dump keeps showing; re-asserting it is the repair, not a workaround.
+        if (!ReassertConversionFrame(panel, out string note))
             return;
-
-        // includeInactive: a GUIAnimator whose GameObject was deactivated mid-tween is one of the
-        // ways an animation ENDS UP stalled in the first place (GUIAnimator.OnDisable → Stop(),
-        // which cancels the tweens WITHOUT going to the finish state — the values then stay frozen
-        // wherever they were). Those are exactly the ones that must be finished, and asking an
-        // already-finished animator costs a value write per setting.
-        AnimatorScratch.Clear();
-        panel.Target.GetComponentsInChildren(includeInactive: true, AnimatorScratch);
-        int landed = 0, wasPlaying = 0, failed = 0;
-        for (int i = 0; i < AnimatorScratch.Count; i++)
-        {
-            GUIAnimator animator = AnimatorScratch[i];
-            if (animator == null)
-                continue;
-            if (animator.IsPlaying)
-                wasPlaying++;
-            // Game code, called from our tick: an animator with an unserialized config would throw
-            // and take the whole WorldUI step down with it (an NRE in a tick starves VR input).
-            try
-            {
-                animator.GoToFinishState();
-                landed++;
-            }
-            catch (System.Exception e)
-            {
-                failed++;
-                VRLog.Warn("WorldUI", $"MODAL WINDOW: GUIAnimator '{animator.name}' threw on " +
-                                      $"GoToFinishState ({e.GetType().Name}) — skipped, the fit falls back " +
-                                      "to the authored geometry for this window.");
-            }
-        }
-        AnimatorScratch.Clear();
-
-        if (landed == 0 && failed == 0)
-        {
-            VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' is frozen mid show animation " +
-                                  $"(rendered/authored {ratio.x:F2}/{ratio.y:F2}, unchanged for " +
-                                  $"{ShowAnimationStalledChecks} checks) but carries NO GUIAnimator — the " +
-                                  "frozen geometry comes from somewhere else (report this line: the fit can " +
-                                  "only commit the authored geometry here).");
-            return;
-        }
-
-        // The geometry just changed under the gate: flush it and start the settle streak over so
-        // nothing certifies a measurement taken across the jump.
         FlushPendingLayout(panel);
         panel.FitOneShotStableCount = 0;
         panel.FitSettleStillCount = 0;
         panel.FitOneShotStableGraphics = 0;
         panel.FitAnimStalledChecks = 0;
         bool measured = TryMeasureContent(panel, root, out Vector2 size, out Vector2 center);
-        VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' show animation was STALLED at " +
-                              $"rendered/authored {ratio.x:F2}/{ratio.y:F2} for {ShowAnimationStalledChecks} " +
-                              $"consecutive checks — sent {landed} GUIAnimator(s) ({wasPlaying} still " +
-                              "reporting IsPlaying) to their FINISH state while the window is render-hidden, " +
-                              "so the fit measures the geometry the player will actually see. Re-measured " +
+        VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' was rendering at " +
+                              $"{ratio.x:F2}/{ratio.y:F2} of its authored geometry and not converging — " +
+                              $"{note}. Re-measured " +
                               (measured
                                   ? $"{size.x:F0}x{size.y:F0} px at ({center.x:F0},{center.y:F0}), new ratio " +
                                     $"{s_lastMeasureRatio.x:F2}/{s_lastMeasureRatio.y:F2}."
                                   : "nothing measurable (the settle gate keeps retrying)."));
+    }
+
+    /// <summary>
+    /// ROUND 7 INSTRUMENTATION (coordinator request): dump the ancestor chain from the largest
+    /// visible content graphic up to the host, so the log NAMES what holds the content at a fraction
+    /// of its authored size and away from its frame, instead of us modelling it from two bounding
+    /// boxes. Per level: local scale, local position INCLUDING Z, anchors, pivot, sizeDelta and rect
+    /// size, plus the running scale product (which IS the rendered/authored ratio). Then the DEPTH
+    /// answer the user's description asks for — the content plane's host-local Z against the host
+    /// plane, which is 0 by construction — and the clock state, because a paused scaled clock
+    /// freezing a tween is the competing hypothesis and this settles it.
+    ///
+    /// Capped at <see cref="FrameChainDumpCap"/> per panel: it is a multi-line dump answering a
+    /// cold/warm comparison, not a per-frame trend.
+    /// </summary>
+    private static void LogContentChain(ConvertedPanel panel, string when)
+    {
+        if (panel.FrameChainDumps >= FrameChainDumpCap || panel.HostRect == null || panel.HostGo == null)
+            return;
+        Graphic? probe = s_lastTopGraphic;
+        if (probe == null)
+            return;
+        panel.FrameChainDumps++;
+
+        var sb = new System.Text.StringBuilder(512);
+        sb.Append("MODAL CHAIN DUMP '").Append(panel.HostGo.name).Append("' (").Append(when)
+          .Append("), open #").Append(panel.FitOpenIndex).Append(", probe graphic '")
+          .Append(probe.name).Append("':");
+
+        // The depth question, answered directly: the host plane is z = 0 by construction, so a
+        // non-zero host-local Z here IS the content sitting in front of or behind its own frame
+        // (in host pixels — the X, grab bar and depth masks all live on the z = 0 plane).
+        var probeRect = (RectTransform)probe.transform;
+        probeRect.GetWorldCorners(CornerScratch);
+        float zMin = float.MaxValue, zMax = float.MinValue;
+        for (int c = 0; c < 4; c++)
+        {
+            float z = panel.HostRect.InverseTransformPoint(CornerScratch[c]).z;
+            zMin = Mathf.Min(zMin, z);
+            zMax = Mathf.Max(zMax, z);
+        }
+        sb.Append(" content plane host-local z ").Append(zMin.ToString("F1")).Append("..")
+          .Append(zMax.ToString("F1"))
+          .Append(" px (host plane = 0; non-zero = the content is NOT coplanar with its frame)");
+
+        Vector3 product = Vector3.one;
+        int level = 0;
+        for (Transform? t = probe.transform; t != null && level < 24; t = t.parent, level++)
+        {
+            Vector3 ls = t.localScale;
+            Vector3 lp = t.localPosition;
+            sb.Append("\n    [").Append(level).Append("] '").Append(t.name).Append("' scale=(")
+              .Append(ls.x.ToString("F3")).Append(',').Append(ls.y.ToString("F3")).Append(',')
+              .Append(ls.z.ToString("F3")).Append(") pos=(").Append(lp.x.ToString("F1")).Append(',')
+              .Append(lp.y.ToString("F1")).Append(',').Append(lp.z.ToString("F1")).Append(')');
+            if (t is RectTransform rt)
+            {
+                Rect r = rt.rect;
+                sb.Append(" rect=").Append(r.width.ToString("F0")).Append('x')
+                  .Append(r.height.ToString("F0")).Append(" sizeDelta=(")
+                  .Append(rt.sizeDelta.x.ToString("F0")).Append(',')
+                  .Append(rt.sizeDelta.y.ToString("F0")).Append(") anchors=(")
+                  .Append(rt.anchorMin.x.ToString("F2")).Append(',').Append(rt.anchorMin.y.ToString("F2"))
+                  .Append(")..(").Append(rt.anchorMax.x.ToString("F2")).Append(',')
+                  .Append(rt.anchorMax.y.ToString("F2")).Append(") pivot=(")
+                  .Append(rt.pivot.x.ToString("F2")).Append(',').Append(rt.pivot.y.ToString("F2")).Append(')');
+            }
+            if (ReferenceEquals(t, panel.Target))
+                sb.Append("  <== CONVERSION TARGET (Convert pins scale 1, identity rotation, z 0, centred anchors)");
+            if (ReferenceEquals(t, panel.HostRect))
+            {
+                sb.Append("  <== HOST (walk ends here)");
+                break;
+            }
+            product = new Vector3(product.x * ls.x, product.y * ls.y, product.z * ls.z);
+        }
+        sb.Append("\n    accumulated scale content→host = (").Append(product.x.ToString("F3")).Append(',')
+          .Append(product.y.ToString("F3")).Append(',').Append(product.z.ToString("F3"))
+          .Append(") — THIS is the rendered/authored ratio; (1,1,1) means the window renders at the ")
+          .Append("size it was authored at.");
+        sb.Append("\n    clock: timeScale=").Append(Time.timeScale.ToString("F2"))
+          .Append(" deltaTime=").Append(Time.deltaTime.ToString("F4"))
+          .Append(" unscaledDeltaTime=").Append(Time.unscaledDeltaTime.ToString("F4"))
+          .Append(" (a frozen scaled clock beside a live unscaled one = the game is paused, which ")
+          .Append("would freeze any tween that does not ignore time scale).");
+        VRLog.Warn("WorldUI", sb.ToString());
     }
 
     /// <summary>

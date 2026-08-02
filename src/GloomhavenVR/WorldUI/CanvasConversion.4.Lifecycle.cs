@@ -279,7 +279,16 @@ internal static partial class CanvasConversion
             // dominant order between sweeps = flicker. Re-assert every frame for the
             // (few) modal hosts: cheap (a handful of adopted entries), change-gated writes.
             if (panel.Diagnostic)
+            {
                 ReassertAdoptedSorting(panel);
+                // ROUND 7 steady-state guard: the same reason the sorting is re-asserted every
+                // frame for modal hosts — a game writer that re-drives the conversion frame AFTER
+                // the reveal would otherwise leave the window rendering at a fraction of its size,
+                // or off its own plane, with the fit already locked and nothing left to notice.
+                // Height cap excluded here on purpose (see the parameter's doc): a rect the game
+                // drives from a layout component must not be fought every frame.
+                ReassertConversionFrame(panel, out _, includeHeightCap: false);
+            }
 
             TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
 
@@ -346,6 +355,15 @@ internal static partial class CanvasConversion
         // otherwise draw at the pre-fit pose. The pass is idempotent: anything already disabled is
         // skipped, so a steady pending panel costs one component walk and zero writes.
         SetPanelRenderVisible(panel, visible: false);
+
+        // ROUND 7: maintain the conversion frame BEFORE anything measures this frame. Convert pins
+        // the target's scale, rotation, depth, anchors and (for the menu family) its capped height;
+        // the game re-drives them, and the ModBuild 23 log caught the target rendering at
+        // localScale 0.14 with a 2040 px rect where 1080 was pinned. Everything the fit measures is
+        // expressed in that frame, so it is restored while the window is still render-hidden — the
+        // one window in which correcting it is guaranteed to be invisible. Six compares and no
+        // writes on a healthy panel.
+        ReassertConversionFrame(panel, out _);
 
         // Pose-stability tracking (criterion 3): any real change resets the stillness counter.
         Transform t = panel.HostGo.transform;
@@ -434,11 +452,10 @@ internal static partial class CanvasConversion
         bool fitDone = !panel.FitEnabled || panel.FitMeasuredOnce;
         Transform t = panel.HostGo.transform;
 
-        // Decisive phase evidence for the next hardware run: a non-null Camera.current would mean
-        // this ran INSIDE a camera's render, i.e. between the two eye passes.
-        string phase = Camera.current == null
-            ? "LateUpdate (both eyes render after this — one consistent frame)"
-            : $"INSIDE the render of camera '{Camera.current.name}' — ONE-EYE HAZARD, report this";
+        // Decisive phase evidence for the next hardware run. Round 7: read from the mod's own frame
+        // phase markers, NOT from Camera.current — Unity keeps that property pointing at the last
+        // camera that rendered, which made the round-6 line cry wolf on hardware.
+        string phase = CurrentFramePhase;
 
         SetPanelRenderVisible(panel, visible: true, out int shownCanvases, out int shownRenderers);
         panel.RevealPending = false;
