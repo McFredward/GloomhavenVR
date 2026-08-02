@@ -249,9 +249,12 @@ internal static class BoardPick
         _inScenario = true;
         int mask = controller.m_ActiveSelectionRaycastLayer.value;
 
-        // Direct fingertip touch on hexes ([Board] TouchTilesWithFingertip, default on),
-        // with [Board] ForceFarMode as the hard "laser only" override for desktop/dev runs.
-        if (BoardConfig.TouchTilesWithFingertip.Value && !BoardConfig.ForceFarMode.Value)
+        // Direct fingertip touch on hexes — [Board] TouchTilesWithFingertip is the SINGLE
+        // switch (default on). [Board] ForceFarMode is a retired legacy no-op and deliberately
+        // NOT read here: every tuned cfg on disk carries its old `true`, which silently shipped
+        // this feature dead (see the BoardConfig bind comment). The grip gate in TryNearPick is
+        // what makes the near pick safe now.
+        if (BoardConfig.TouchTilesWithFingertip.Value)
         {
             TryNearPick(VRHands.Left, mask);
             TryNearPick(VRHands.Right, mask);

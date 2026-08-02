@@ -134,13 +134,12 @@ internal sealed class BoardModule : IVRModule
         _driverGo.AddComponent<SelectionReadyHighlighter>();
 
         VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
-        VRLog.Info(Name, BoardConfig.TouchTilesWithFingertip.Value && !BoardConfig.ForceFarMode.Value
+        VRLog.Info(Name, BoardConfig.TouchTilesWithFingertip.Value
             ? "FINGERTIP TILE TOUCH armed: hold the GRIP and put an index fingertip on a hex to commit " +
               $"the same click the laser trigger commits (range {BoardConfig.TouchRange.Value:0.00} m real, " +
               "one commit per hex entry, laser cannot double-commit while the finger owns the pick)."
-            : "FINGERTIP TILE TOUCH off ([Board] TouchTilesWithFingertip=" +
-              $"{BoardConfig.TouchTilesWithFingertip.Value}, ForceFarMode={BoardConfig.ForceFarMode.Value}) — " +
-              "board commits come from the laser trigger only.");
+            : "FINGERTIP TILE TOUCH off ([Board] TouchTilesWithFingertip=false) — board commits come " +
+              "from the laser trigger only. ([Board] ForceFarMode is retired and no longer read.)");
     }
 
     public void Shutdown()
