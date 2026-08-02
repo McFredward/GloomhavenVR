@@ -190,10 +190,15 @@ internal sealed class ConvertedPanel
     public int BackgroundSweepNextFrame;
 
     // ---- item 5 (pause-menu size consistency): one-shot fit layout-settle gate ------------
-    /// <summary>Last measured visible-content size while a one-shot fit settles (stability clock).</summary>
+    /// <summary>Last measured visible-content size while a settled first fit is pending (stability
+    /// clock). Shared by BOTH pre-commit settle paths — the one-shot menu fit
+    /// (<c>SettleOneShotFit</c>) and the pre-reveal first fit of every other render-hidden host
+    /// (<c>SettlePreRevealFirstFit</c>, user ruling 2026-08-02) — which never run on the same
+    /// panel (a panel is either one-shot or not).</summary>
     public Vector2 FitOneShotStableSize;
 
-    /// <summary>Consecutive fit checks the measured content size has held steady (see <c>SettleOneShotFit</c>).</summary>
+    /// <summary>Consecutive fit checks the measured content size has held steady (see
+    /// <c>SettleOneShotFit</c> / <c>SettlePreRevealFirstFit</c>).</summary>
     public int FitOneShotStableCount;
 
     // ---- task #4 (world-space scroll clipping) --------------------------------------------
@@ -240,6 +245,43 @@ internal sealed class ConvertedPanel
 
     /// <summary>Earliest unscaled time the render-hidden modal host may be revealed (see <see cref="RevealPending"/>).</summary>
     public float RevealNotBefore;
+
+    // ---- final-pose reveal settle (user ruling 2026-08-02: no post-reveal pose/scale jump) ----
+    /// <summary>
+    /// Unscaled time the reveal gate was armed (Convert). WHY: the user ruling demands the window
+    /// become visible only at its FINAL pose and scale — the reveal log reports how long that
+    /// settle took, measured from here, so a hardware log can prove the gate's timing.
+    /// </summary>
+    public float RevealRequestedAt;
+
+    /// <summary>
+    /// Hard reveal deadline (unscaled). Past this the host is shown even when the settle criteria
+    /// (first fit + stable pose) were never met — a window must NEVER stay invisible (an
+    /// unmeasurable, still-animating window would otherwise be an un-dismissable invisible
+    /// blocker). A Warn line names what was still pending.
+    /// </summary>
+    public float RevealDeadline;
+
+    /// <summary>True once a pose snapshot exists — the first tracked frame has nothing to compare against.</summary>
+    public bool RevealHasSnapshot;
+
+    /// <summary>Host world position at the previous reveal-gate check (pose-stability tracking).</summary>
+    public Vector3 RevealLastPos;
+
+    /// <summary>Host world rotation at the previous reveal-gate check.</summary>
+    public Quaternion RevealLastRot;
+
+    /// <summary>Host lossy scale at the previous reveal-gate check (catches the one-shot scale re-derivation).</summary>
+    public Vector3 RevealLastScale;
+
+    /// <summary>Host rect size (px) at the previous reveal-gate check (catches the content fit resize).</summary>
+    public Vector2 RevealLastRectSize;
+
+    /// <summary>Consecutive reveal-gate checks the host pose/scale/rect held still (reset to 0 on any change).</summary>
+    public int RevealPoseStableFrames;
+
+    /// <summary>Last unmet settle criterion (treatment/fit/pose) — the reveal log names what the gate waited for last.</summary>
+    public string RevealLastBlocker = "";
 
     // ---- per-host depth compose (initiative portraits blended with a floated menu) --------
     /// <summary>
