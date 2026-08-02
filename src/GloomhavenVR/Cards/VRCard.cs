@@ -14,7 +14,8 @@ namespace GloomhavenVR.Cards;
 /// <see cref="CardFan"/>, <see cref="PlayTray"/> or <see cref="HalfSelection"/> via
 /// the home-pose API. No per-frame allocations in <see cref="Update"/>.
 /// </summary>
-internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IGrabbableHandFilter
+internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IGrabbableHandFilter,
+    IFanSweepTarget
 {
     /// <summary>
     /// P7 (hardware test #10): hand excluded from ALL card interaction — the fan-
@@ -1675,6 +1676,33 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         distance = Vector3.Distance(worldTip, _box.ClosestPoint(worldTip));
         return true;
     }
+
+    // ---- IFanSweepTarget (explicit: the shared sweep election, no public surface widened) ----
+
+    /// <summary>A card that cannot be grabbed (rooted, bug B) or is already in a hand must never
+    /// win the sweep — a dead winner would suppress the lift of a live card right beside it.</summary>
+    bool IFanSweepTarget.SweepEligible => !IsHeld && CanGrab;
+
+    /// <summary>
+    /// The card's width in WORLD units — the size the shared reach is derived from
+    /// (<see cref="FanSweep.ResolveReach"/>).
+    ///
+    /// Deliberately the AUTHORED width (<c>CardsConfig.CardWidth</c> through the live transform
+    /// chain), NOT <see cref="_fullColliderSize"/>. The collider is fit to the VISIBLE ART, which
+    /// is inset by <see cref="VisibleFaceFraction"/> and letterboxed to the face canvas' aspect —
+    /// roughly 0.88 of the authored width, a rendering detail. Feeding that in would have quietly
+    /// retuned the ABILITY hand fan by ~12 %, and the hand fan is the one thing that must not move:
+    /// with the authored width it resolves to relative size exactly 1 and gets its proven constants
+    /// back untouched. The SAME card in the board-anchored browse arc reports the board's scale and
+    /// the arc's enlargement through <c>lossyScale</c>, which is the whole point.
+    /// </summary>
+    float IFanSweepTarget.SweepFaceWidthWorld
+        => CardsConfig.CardWidth.Value * transform.lossyScale.x;
+
+    bool IFanSweepTarget.TrySweepDistance(Vector3 worldPoint, out float distance)
+        => TryFingertipDistance(worldPoint, out distance);
+
+    string IFanSweepTarget.SweepName => name;
 
     public void OnPoke(VRHand hand)
     {

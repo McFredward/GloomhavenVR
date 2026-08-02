@@ -1540,15 +1540,10 @@ internal sealed class CardFan
     /// the Gaussian width — higher = only the immediate neighbours move, lower = the whole
     /// fan spreads. FanSplitMultiplier = 0 disables the split entirely.
     /// </summary>
-    private static float SplitOffset(int signed)
-    {
-        float d = Mathf.Abs(signed);
-        float falloff = Mathf.Max(0.0001f, CardsConfig.FanSplitFalloff.Value);
-        float x = d / falloff;
-        // FanHoverSplitScale (global, live-tunable) keeps the gap proportional to the wider card spacing.
-        float splitScale = Mathf.Max(0f, CardsConfig.FanHoverSplitScale.Value);
-        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * CardsConfig.FanSplitMultiplier.Value * splitScale;
-    }
+    /// (Body extracted to <see cref="FanSweep.SplitOffset"/> unchanged — the pile browse arc and the
+    /// item fan now open the same gap around their own highlight, so the shape, the falloff and the
+    /// live FanSplit* tuning are shared instead of copied.)
+    private static float SplitOffset(int signed) => FanSweep.SplitOffset(signed);
 
     // ------------------------------------------------------------------ reveal / hide animation --
 

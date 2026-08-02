@@ -50,19 +50,12 @@ internal sealed class PileBrowser
     private const float BoardFloatProudZ = -0.05f;
 
     // ---- physical hand sweep (single-winner highlight) ---------------------------
-    // The browse arc gets the SAME physical-hand behaviour as the palm fan: as the free
-    // (dominant) hand's index fingertip moves THROUGH the arc, the card nearest the tip
-    // lifts/enlarges and every other card drops immediately — exactly ONE highlight at a
-    // time, sweeping smoothly left-right. These reach constants mirror
-    // CardsDriver.UpdateHandContactArbitration / CardFan.FingertipHoverReach (scale-1 metres):
-    // a browse card is a CANDIDATE when the index tip is within ContactTipReach OR the palm
-    // within ContactPalmReach of its collider; the WINNER is the nearest by index-tip distance
-    // ALONE (palm noise stays out of the winner choice so the between-two-cards midpoint
-    // resolves deterministically), with a small incumbent hysteresis so the lift never
-    // flutters at a card boundary.
-    private const float ContactTipReach = 0.035f;   // ~3.5 cm index-tip candidacy
-    private const float ContactPalmReach = 0.13f;   // ~13 cm palm candidacy
-    private const float ContactStickyMargin = 0.02f; // incumbent hysteresis (m, scale 1)
+    // The browse arc runs the SAME election as the palm fan, literally: FanSweep.Score. Its
+    // reach constants used to be MIRRORED here as scale-1 metres, which was the bug — a browse
+    // card sits under the CONTROL BOARD and therefore carries the board's scale on top of the
+    // rig's, so a real-metre reach meant something different on every player's board. The reach
+    // now comes from FanSweep.ResolveReach, derived from the card's own live world width. See
+    // FanSweep for the full root-cause note.
 
     /// <summary>
     /// The poke-toggle fan's FIXED board-local base anchor (above the board top edge, slightly
@@ -84,6 +77,15 @@ internal sealed class PileBrowser
     private VRCard? _handWinner;
     private readonly List<VRCard> _handSuppressed = new(16);
     private float _nextHandLogAt; // throttle clock (unscaled s) for the winner-change log
+    private float _nextHandMissLogAt; // throttle clock for the "nothing won, here is why" line
+
+    /// <summary>
+    /// Arc index of the current hand-sweep winner, or -1 — the browse fan's counterpart of
+    /// <c>CardFan._pokeHoveredIndex</c>. Drives the SPLIT (see <see cref="Relayout"/>): the
+    /// highlighted card is the pivot and its neighbours step aside, which is the visible half of
+    /// "exactly one card at a time" the user asked the pile fans to copy from the hand cards.
+    /// </summary>
+    private int _handWinnerIndex = -1;
 
     // Requirement 5 (emerge from the pile): the world position of the pile STACK this browse
     // opened over; the first content layout pre-seats every card AT this point so the existing
@@ -361,6 +363,20 @@ internal sealed class PileBrowser
         float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
+        // HAND-FAN PARITY, part 1 (the collider strip). Each card's grab collider shrinks to the
+        // chord between neighbouring card centres, anchored at its exposed LEFT edge, exactly as
+        // CardFan.Relayout does — so the per-card regions TILE the arc instead of overlapping by
+        // half a card. Without this the fingertip measured 0.0 cm to two or three browse cards at
+        // once, ties never displaced the incumbent, and the sweep skipped every 2nd/3rd card
+        // (the user's report). The chord is fan-local; the cards are enlarged by CardScale, so it
+        // is divided back into card-local metres.
+        float fullWidth = CardsConfig.CardWidth.Value;
+        float strip = FanSweep.StripWidth(n, radius, step, fullWidth, CardScale);
+        // HAND-FAN PARITY, part 2 (the split): the highlighted card is the pivot and stays put;
+        // its neighbours slide aside so the winner is unmistakable. Offsets are authored for the
+        // hand fan's card scale, so they ride CardScale into this arc's larger cards.
+        int hovered = _handWinnerIndex >= 0 && _handWinnerIndex < n ? _handWinnerIndex : -1;
+
         for (int i = 0; i < n; i++)
         {
             VRCard card = _cards[i];
@@ -377,8 +393,15 @@ internal sealed class PileBrowser
                                   (Mathf.Cos(rad) - 1f) * radius * 0.55f,
                                   -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * 0.85f);
+            if (hovered >= 0 && i != hovered)
+                pos += rot * new Vector3(FanSweep.SplitOffset(i - hovered) * CardScale, 0f, 0f);
             card.SetHome(_root, pos, rot, CardScale, instant);
-            card.ResetColliderRegion(); // browse cards are not fan-stripped
+            // The last card in the arc is fully exposed (nothing draws over it) and so is the
+            // hovered pivot, whose neighbours have just stepped aside — both keep the full width.
+            if (i == n - 1 || i == hovered)
+                card.SetColliderRegion(fullWidth, 0f);
+            else
+                card.SetColliderRegion(strip, FanSweep.StripOffset(fullWidth, strip));
             // Requirement 5 (emerge): on the first content layout after open, drop the card ONTO the
             // pile stack world point; SetHome left _instantNext=false, so the per-card home-lerp then
             // flies it up into the arc — the cards visibly emerge FROM the stack.
@@ -394,10 +417,10 @@ internal sealed class PileBrowser
     /// Physical HAND sweep over the browse arc — the browse counterpart of
     /// <see cref="CardFan.UpdateFingertipHover"/> + <c>CardsDriver.UpdateHandContactArbitration</c>.
     /// Reads the free (dominant) hand's index fingertip + palm DIRECTLY from the rig every
-    /// frame and elects a SINGLE winner among the browse cards: the card nearest the index
-    /// tip (candidacy by tip ≤ <see cref="ContactTipReach"/> OR palm ≤ <see cref="ContactPalmReach"/>,
-    /// ranked by tip distance alone, with a <see cref="ContactStickyMargin"/> incumbent bonus so
-    /// the lift never flutters between two cards). The winner lifts via
+    /// frame and elects a SINGLE winner among the browse cards through the SHARED election
+    /// <see cref="FanSweep.Score{T}"/> — the same code the ability hand fan runs, with the reach
+    /// resolved from each card's own live world size (<see cref="FanSweep.ResolveReach"/>) so the
+    /// board's scale can no longer change the feel. The winner lifts via
     /// <see cref="VRCard.SetFingertipHover"/> (the same pop the laser gives) and EVERY other browse
     /// card is <see cref="VRCard.SetHandPopSuppressed">pop-suppressed</see> for the sweeping hand,
     /// so a hand moving through the arc can never raise more than one card — exactly like the fan.
@@ -423,9 +446,9 @@ internal sealed class PileBrowser
         _handSuppressed.Clear();
 
         VRHand? dom = VRHands.Primary;
-        VRCard? winner = null, runnerUp = null;
-        float winnerTip = 0f, runnerTip = 0f;
-        float bestScore = float.MaxValue, secondScore = float.MaxValue;
+        FanSweepPick<VRCard> pick = FanSweepPick<VRCard>.Empty;
+        FanReach reach = default;
+        float worldScale = 1f;
 
         // The sweeping hand is the dominant/free hand: it must be tracked and NOT busy holding
         // something. In HELD mode the pinch that opened the browse holds via _followHand, whose
@@ -435,62 +458,59 @@ internal sealed class PileBrowser
         {
             Vector3 tip = dom.Rig.IndexTip.position;
             Vector3 palm = dom.Rig.PalmCenter.position;
-            float scale = dom.WorldScale;
-            float tipReach = ContactTipReach * scale;
-            float palmReach = ContactPalmReach * scale;
-            float sticky = ContactStickyMargin * scale;
+            worldScale = dom.WorldScale;
 
             for (int i = 0; i < _cards.Count; i++)
             {
                 VRCard c = _cards[i];
-                // Skip held/rooted cards: a card that cannot pop must not win, or a dead card
-                // would suppress the lift of a real candidate right next to it.
-                if (c == null || c.IsHeld || !c.CanGrab)
+                if (c == null)
                     continue;
-                if (!c.TryFingertipDistance(tip, out float tipDist)
-                    || !c.TryFingertipDistance(palm, out float palmDist))
-                    continue;
-                if (tipDist > tipReach && palmDist > palmReach)
-                    continue; // out of BOTH reaches — not a candidate (palm still qualifies)
-                float score = tipDist; // rank by the index tip alone; palm only qualified candidacy
-                if (ReferenceEquals(c, _handWinner))
-                    score -= sticky; // hysteresis: the current lift holds until a rival is decisively closer
-                if (score < bestScore)
-                {
-                    runnerUp = winner; secondScore = bestScore; runnerTip = winnerTip;
-                    winner = c; bestScore = score; winnerTip = tipDist;
-                }
-                else if (score < secondScore)
-                {
-                    runnerUp = c; secondScore = score; runnerTip = tipDist;
-                }
+                // Reach per card from its OWN live world width: a browse card carries the board's
+                // scale, so a real-metre constant would mean something different on every player's
+                // board (the 0,32× vs 0,80× split in the 2026-08-02 hardware logs). Held/rooted
+                // cards are rejected inside Score via IFanSweepTarget.SweepEligible.
+                reach = FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)c).SweepFaceWidthWorld);
+                FanSweep.Score(c, tip, palm, reach, _handWinner, tipFirst: true, ref pick);
             }
         }
 
+        VRCard? winner = pick.Winner;
         if (!ReferenceEquals(winner, _handWinner))
         {
             _handWinner?.SetFingertipHover(false);
             _handWinner = winner;
             _handWinner?.SetFingertipHover(true);
+            // Re-split the arc around the new pivot (hand-fan parity): the winner holds still and
+            // its neighbours step aside. Only on a CHANGE, so the layout is not touched per frame.
+            int index = winner != null ? _cards.IndexOf(winner) : -1;
+            if (index != _handWinnerIndex)
+            {
+                _handWinnerIndex = index;
+                Relayout(instant: false);
+            }
 
-            // Throttled log: winner + its index-tip distance + runner-up, so the next hardware
-            // log proves the single-winner tip-first resolution (rate-limited against a flood).
             float now = Time.unscaledTime;
             if (winner != null && now >= _nextHandLogAt)
             {
                 _nextHandLogAt = now + 0.5f;
-                string runner = runnerUp != null
-                    ? $"'{runnerUp.name}' (index-tip {runnerTip * 100f:F1} cm)"
-                    : "none";
-                Core.VRLog.Info("Cards",
-                    $"Pile-browse hand sweep: '{winner.name}' — index-tip {winnerTip * 100f:F1} cm; " +
-                    $"runner-up {runner}. The card nearest the index finger lifts; sweeping keeps " +
-                    "exactly ONE browse card highlighted.");
+                FanSweep.LogWinner("Pile-browse", dom != null ? dom.Side.ToString() : "—", pick,
+                    FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)winner).SweepFaceWidthWorld));
             }
         }
 
         if (winner == null)
+        {
+            // Nothing won: say by how much the nearest card was missed, against the reach that was
+            // actually in force. Throttled hard — a hand resting near the board would flood it.
+            if (pick.Miss != null && dom != null && Time.unscaledTime >= _nextHandMissLogAt
+                && pick.MissContact <= reach.Palm * 2f)
+            {
+                _nextHandMissLogAt = Time.unscaledTime + 2f;
+                FanSweep.LogNearMiss("Pile-browse", dom.Side.ToString(), pick,
+                    FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)pick.Miss).SweepFaceWidthWorld));
+            }
             return;
+        }
         // Scope the suppression to the sweeping hand (the same static the fan arbitration uses;
         // dom == VRHands.Primary here, so this agrees with CardsDriver's own per-frame set).
         VRCard.HandArbitrationHand = dom;
@@ -511,6 +531,7 @@ internal sealed class PileBrowser
         if (_handWinner != null)
             _handWinner.SetFingertipHover(false);
         _handWinner = null;
+        _handWinnerIndex = -1; // the split closes with the lift
         for (int i = 0; i < _handSuppressed.Count; i++)
         {
             if (_handSuppressed[i] != null)
@@ -540,17 +561,30 @@ internal sealed class PileBrowser
     ///    trigger-pull jerk). The browse arc uses exact half-extents.
     /// </summary>
     internal bool TryRaycast(Vector3 origin, Vector3 direction, VRCard? sticky,
-        out VRCard? card, out Vector3 point, out float distance)
+        out VRCard? card, out Vector3 point, out float distance,
+        bool allowNearMiss = false)
     {
         card = null;
         point = default;
         distance = float.PositiveInfinity;
+        LastLaserPick = FanSweep.FanLaserPick.None;
 
         if (!IsOpen || _root == null)
             return false;
 
         float halfW = CardsConfig.CardWidth.Value * 0.5f;
         float halfH = CardsConfig.CardHeight * 0.5f;
+
+        // PASS 2 bookkeeping (the angular rescue): the least-overshooting card that missed the
+        // exact rect, and by how much relative to the pad it was allowed at its own distance.
+        VRCard? rescue = null;
+        Vector3 rescuePoint = default;
+        float rescueDist = 0f, rescueOvershoot = 0f, rescuePad = 0f, rescueRatio = float.MaxValue;
+        float rescueWidth = 0f;
+        // Nearest card the beam missed ENTIRELY (recorded even when the pad could not save it) —
+        // "the ray was 4 cm off 'Wunde' with 1 cm of pad" is the line that decides aim vs. logic.
+        var miss = FanSweep.FanLaserPick.None;
+        float missOvershoot = float.MaxValue;
 
         for (int i = 0; i < _cards.Count; i++)
         {
@@ -568,14 +602,56 @@ internal sealed class PileBrowser
 
             Vector3 hit = origin + direction * dist;
             Vector3 local = t.InverseTransformPoint(hit); // scale-aware (enlarged cards)
-            if (Mathf.Abs(local.x) > halfW || Mathf.Abs(local.y) > halfH)
+            float overX = Mathf.Abs(local.x) - halfW;
+            float overY = Mathf.Abs(local.y) - halfH;
+            if (overX > 0f || overY > 0f)
+            {
+                // Outside the exact face. ANGULAR RESCUE (see FanSweep.LaserMinHalfAngleDegrees):
+                // a browse card under a shrunken board can subtend less than the controller's own
+                // aim jitter, so it is granted a minimum angular half-size — but only as this
+                // second-chance pass, and never for the occluder (allowNearMiss defaults to false),
+                // so a rescued near-miss can never start hiding game UI behind the arc.
+                if (!allowNearMiss)
+                    continue;
+                float lossy = Mathf.Max(t.lossyScale.x, 1e-5f);
+                float overshoot = Mathf.Max(overX, 0f) * lossy + Mathf.Max(overY, 0f) * lossy;
+                float pad = FanSweep.LaserPad(dist, Mathf.Max(halfW, halfH) * lossy);
+                if (overshoot < missOvershoot)
+                {
+                    missOvershoot = overshoot;
+                    miss = new FanSweep.FanLaserPick
+                    {
+                        Hit = false, Rescued = false, Name = c.name, Distance = dist,
+                        Overshoot = overshoot, Pad = pad, FaceWidthWorld = halfW * 2f * lossy,
+                    };
+                }
+                if (pad <= 0f || overshoot > pad)
+                    continue;
+                float ratio = overshoot / pad;
+                if (ReferenceEquals(c, sticky))
+                    ratio *= 0.5f; // the incumbent keeps the beam through a graze (same hysteresis as below)
+                if (ratio >= rescueRatio)
+                    continue;
+                rescue = c;
+                rescuePoint = hit;
+                rescueDist = dist;
+                rescueOvershoot = overshoot;
+                rescuePad = pad;
+                rescueRatio = ratio;
+                rescueWidth = halfW * 2f * lossy;
                 continue;
+            }
 
             if (ReferenceEquals(c, sticky))
             {
                 card = c;
                 point = hit;
                 distance = dist;
+                LastLaserPick = new FanSweep.FanLaserPick
+                {
+                    Hit = true, Rescued = false, Name = c.name, Distance = dist,
+                    Overshoot = 0f, Pad = 0f, FaceWidthWorld = halfW * 2f * Mathf.Max(t.lossyScale.x, 1e-5f),
+                };
                 return true;
             }
 
@@ -584,8 +660,35 @@ internal sealed class PileBrowser
             card = c;
             point = hit;
             distance = dist;
+            LastLaserPick = new FanSweep.FanLaserPick
+            {
+                Hit = true, Rescued = false, Name = c.name, Distance = dist,
+                Overshoot = 0f, Pad = 0f, FaceWidthWorld = halfW * 2f * Mathf.Max(t.lossyScale.x, 1e-5f),
+            };
         }
 
+        if (card == null && rescue != null)
+        {
+            card = rescue;
+            point = rescuePoint;
+            distance = rescueDist;
+            LastLaserPick = new FanSweep.FanLaserPick
+            {
+                Hit = true, Rescued = true, Name = rescue.name, Distance = rescueDist,
+                Overshoot = rescueOvershoot, Pad = rescuePad, FaceWidthWorld = rescueWidth,
+            };
+        }
+        else if (card == null)
+        {
+            LastLaserPick = miss;
+        }
         return card != null;
     }
+
+    /// <summary>
+    /// What the last <see cref="TryRaycast"/> decided — hit or miss, which card, dead-on or
+    /// rescued by the angular pad. Read by <c>CardsDriver.UpdateBrowseLaser</c> for the throttled
+    /// laser diagnostic; the pick itself runs per frame per hand and must stay silent.
+    /// </summary>
+    internal FanSweep.FanLaserPick LastLaserPick { get; private set; } = FanSweep.FanLaserPick.None;
 }

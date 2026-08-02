@@ -85,13 +85,12 @@ internal sealed class ItemsPile
     /// </summary>
     private static Vector3 ItemFanOffset => CardsConfig.ItemCardOffset(CardsConfig.CurrentBoard).Value;
 
-    // Physical hand-sweep reach (mirror of PileBrowser.ContactTipReach/PalmReach/StickyMargin,
-    // scale-1 metres): a chip is a candidate when the dominant index tip is within TipReach OR
-    // the palm within PalmReach; the winner is the nearest by index tip alone, with a small
-    // incumbent hysteresis so the lift never flutters at a card boundary.
-    private const float ContactTipReach = 0.035f;
-    private const float ContactPalmReach = 0.13f;
-    private const float ContactStickyMargin = 0.02f;
+    // The hand-sweep reach constants that used to be mirrored here (scale-1 metres) are gone: the
+    // item fan now runs the SHARED election (FanSweep.Score) with the reach resolved from each
+    // chip's own live world size (FanSweep.ResolveReach). That is the fix for the 2026-08-02
+    // report where one player could barely touch a chip and the other could not reproduce it —
+    // the chips hang under the CONTROL BOARD and carry its scale, and the two players' boards
+    // were 0,32× and 0,80×. Full root cause on FanSweep.ResolveReach.
 
     /// <summary>Drop-into-use capture radius (world metres at board scale 1; scaled by the slot's live scale).</summary>
     private const float UseSlotRadius = 0.13f;
@@ -113,6 +112,15 @@ internal sealed class ItemsPile
     private VRHand? _handWinnerHand;
     private float _nextHandLogAt;
     private float _nextHandMissLogAt;
+
+    /// <summary>Arc index of the hand-sweep winner, or -1 — drives the fan SPLIT in
+    /// <see cref="Relayout"/> (hand-fan parity: the highlighted chip is the pivot, its neighbours
+    /// step aside, so the single winner is unmistakable while a hand sweeps through).</summary>
+    private int _handWinnerIndex = -1;
+
+    /// <summary>Chips this tick's sweep pop-suppressed, so the set can be cleared from scratch
+    /// next tick (stale-flag proof: a chip that left the fan mid-frame cannot stay suppressed).</summary>
+    private readonly List<ItemChip> _handSuppressed = new(12);
 
     // Diagnostics dedup for the live USE-slot gate log ("ITEM USE SLOT: shown/hidden …").
     private bool _useSlotShownLogged;
@@ -623,6 +631,18 @@ internal sealed class ItemsPile
         float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
+        // HAND-FAN PARITY (the collider strip — see FanSweep.StripWidth). Item chips overlap each
+        // other by roughly half a card in this arc, and until now each one carried a FULL-size
+        // grab box: a fingertip inside the overlap measured 0.0 cm to two or three chips at once,
+        // which is exactly what the 2026-08-02 hardware log shows ("contact 0,0 cm; runner-up
+        // 0,0 cm"). Ties do not displace the incumbent, so the lift stuck and the sweep skipped
+        // chips. Shrinking each chip's box to the chord between neighbouring centres makes the
+        // per-chip regions TILE, which also fixes the ProximityGrabber (it picks the nearest
+        // collider by the same ClosestPoint metric) — "what pops is what I grab", by geometry.
+        // The chord is fan-local; chips are enlarged by ChipScale, hence the divide.
+        float stripFanLocal = n > 1 ? FanSweep.ArcChord(radius, step) / ChipScale : float.MaxValue;
+        int hovered = _handWinnerIndex >= 0 && _handWinnerIndex < n ? _handWinnerIndex : -1;
+
         for (int i = 0; i < n; i++)
         {
             ItemChip chip = _chips[i];
@@ -638,21 +658,34 @@ internal sealed class ItemsPile
             // SPENT items lie "tapped": roll the chip 90° in its slot (requirement 3).
             if (chip.State == ItemChip.Visual.Spent)
                 rot *= Quaternion.Euler(0f, 0f, 90f);
+            // Split the arc around the highlighted chip (hand-fan parity): the pivot holds still,
+            // its neighbours slide along their OWN local right so the winner reads unmistakably.
+            if (hovered >= 0 && i != hovered)
+                pos += rot * new Vector3(FanSweep.SplitOffset(i - hovered) * ChipScale, 0f, 0f);
             chip.SetHome(pos, rot, ChipScale);
+            // The last chip in the arc is fully exposed and the split pivot has room on both
+            // sides — both keep their full grab box; everything else wears its visible strip.
+            // A chip CLIPPED into the use slot (#6) is not in the arc at all and keeps its full
+            // box, or pulling it back out of the slot would get harder the moment the sweep
+            // re-laid the fan out around some other chip.
+            chip.SetGrabStrip(chip.PendingUse || i == n - 1 || i == hovered
+                ? float.MaxValue
+                : stripFanLocal);
         }
     }
 
     // ------------------------------------------------------------------ hand sweep --
 
     /// <summary>
-    /// Physical HAND sweep over the item fan (the item counterpart of
-    /// <see cref="PileBrowser.UpdateHandSweep"/>): EITHER free hand's index tip elects a SINGLE
-    /// winner among the chips (candidacy by tip ≤ <see cref="ContactTipReach"/> OR palm ≤
-    /// <see cref="ContactPalmReach"/> — both world-scaled; ranked by whichever of the two is
-    /// nearer, with incumbent hysteresis). The winner POPS (lift/enlarge) and every other chip
-    /// drops — so sweeping a hand through the fan keeps exactly ONE chip highlighted, just like
-    /// the ability-card fan. Read-only: it only lifts for readability; the pinch/laser own the
-    /// pull-into-hand.
+    /// Physical HAND sweep over the item fan — now literally the SAME election the ability hand
+    /// fan runs (<see cref="FanSweep.Score{T}"/>), which is what the user asked for ("gleiche die
+    /// Fächer der Piles an das System der Handkarten an"): EITHER free hand's index tip elects a
+    /// SINGLE winner among the chips, candidacy by tip OR palm against the reach resolved from the
+    /// chip's own live world size (<see cref="FanSweep.ResolveReach"/>), ranked TIP-FIRST with
+    /// incumbent hysteresis. The winner POPS and every other chip is suppressed for that hand
+    /// (<see cref="ItemChip.SetHandSuppressed"/>) so the ProximityGrabber's own candidate — and
+    /// therefore the trigger grab — lands on the same single chip. Read-only: it only lifts for
+    /// readability; the pinch/laser own the pull-into-hand.
     ///
     /// ROOT CAUSE this fixes (user report 2026-08-02, MP host: "physically I could only grab
     /// chips with the LEFT hand, but the LEFT hand produced no highlights; the RIGHT hand
@@ -670,30 +703,31 @@ internal sealed class ItemsPile
     /// Sweeping BOTH hands makes the highlight policy match the grab policy — every hand that
     /// can take a chip also lights it up first.
     ///
-    /// SCORING (second half of the same report): the winner used to be ranked by the INDEX-TIP
-    /// distance alone even when only the PALM had qualified it, so a chip the palm brushed could
-    /// win while the tip was a hand-length away — the log then read like a broken threshold.
-    /// Ranking by <c>min(tip, palm)</c> makes the lifted chip the one the hand is actually
-    /// nearest to, and keeps candidacy and ranking on the same measurement.
+    /// SCORING: ranked TIP-FIRST, like every other fan. This method used to rank by
+    /// <c>min(tip, palm)</c> — the one place the three copies of the election had genuinely
+    /// drifted apart — which let a chip the PALM brushed outrank the chip the index finger was
+    /// pointing at. With the colliders now tiling the arc (see <see cref="Relayout"/>) the tip
+    /// distance is a clean partition, so tip-first is both correct and the shared behaviour.
     /// </summary>
     private void UpdateHandSweep()
     {
-        ItemChip? winner = null, runnerUp = null;
-        VRHand? winnerHand = null;
-        float winnerDist = 0f, runnerDist = 0f;
-        float bestScore = float.MaxValue, secondScore = float.MaxValue;
+        // Re-derive the per-hand suppression from scratch every tick (stale-flag proof).
+        for (int i = 0; i < _handSuppressed.Count; i++)
+        {
+            if (_handSuppressed[i] != null)
+                _handSuppressed[i].SetHandSuppressed(null);
+        }
+        _handSuppressed.Clear();
 
-        // Per-hand NEAR-MISS bookkeeping for the diagnostic below: the nearest chip each hand
-        // came to WITHOUT qualifying. A silent sweep was indistinguishable from a broken one in
-        // the 2026-08-02 hardware log — this makes "the hand was 19 cm out, reach is 13 cm" a
-        // readable fact instead of an inference.
-        ItemChip? missChip = null;
+        FanSweepPick<ItemChip> pick = FanSweepPick<ItemChip>.Empty;
+        VRHand? winnerHand = null;
         VRHand? missHand = null;
-        float missDist = float.MaxValue, missTip = 0f, missPalm = 0f;
+        float winnerScale = 1f, missScale = 1f;
 
         // BOTH hands sweep (see doc): a hand qualifies while it is tracked and NOT holding
         // anything. A hand holding a chip is excluded on purpose — the held chip already rides
-        // that hand, and popping a second one under it reads as a phantom.
+        // that hand, and popping a second one under it reads as a phantom. Each hand runs its own
+        // election and the better of the two wins, so "which hand" is never guessed.
         for (int h = 0; h < 2; h++)
         {
             VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
@@ -703,90 +737,102 @@ internal sealed class ItemsPile
             Vector3 tip = hand.Rig.IndexTip.position;
             Vector3 palm = hand.Rig.PalmCenter.position;
             float scale = Mathf.Max(hand.WorldScale, 1e-4f);
-            float tipReach = ContactTipReach * scale;
-            float palmReach = ContactPalmReach * scale;
-            float sticky = ContactStickyMargin * scale;
 
+            FanSweepPick<ItemChip> handPick = FanSweepPick<ItemChip>.Empty;
             for (int i = 0; i < _chips.Count; i++)
             {
                 ItemChip c = _chips[i];
-                if (c == null || c.Holder != null || c.PendingUse)
-                    continue; // a chip clipped into the use slot is not a sweep candidate (#6)
-                if (!c.TryFingertipDistance(tip, out float tipDist)
-                    || !c.TryFingertipDistance(palm, out float palmDist))
+                if (c == null)
                     continue;
-                if (tipDist > tipReach && palmDist > palmReach)
+                // Reach from the chip's OWN live world width — the fix for "same build, different
+                // board scale, different behaviour". Held / clipped chips are rejected inside
+                // Score via IFanSweepTarget.SweepEligible.
+                FanReach reach = FanSweep.ResolveReach(scale, ((IFanSweepTarget)c).SweepFaceWidthWorld);
+                FanSweep.Score(c, tip, palm, reach, _handWinner, tipFirst: true, ref handPick);
+            }
+
+            if (handPick.Winner != null && handPick.BestScore < pick.BestScore)
+            {
+                ItemChip? keptMiss = pick.Miss;
+                float keptMissContact = pick.MissContact;
+                float keptMissTip = pick.MissTip, keptMissPalm = pick.MissPalm;
+                pick = handPick;
+                winnerHand = hand;
+                winnerScale = scale;
+                if (keptMiss != null && keptMissContact < pick.MissContact)
                 {
-                    // Out of BOTH reaches — not a candidate. Remember the closest such miss so
-                    // the diagnostic can say by HOW MUCH the hand missed (see missChip).
-                    float missContact = Mathf.Min(tipDist, palmDist);
-                    if (missContact < missDist)
-                    {
-                        missDist = missContact; missChip = c; missHand = hand;
-                        missTip = tipDist; missPalm = palmDist;
-                    }
-                    continue;
+                    pick.Miss = keptMiss;
+                    pick.MissContact = keptMissContact;
+                    pick.MissTip = keptMissTip;
+                    pick.MissPalm = keptMissPalm;
                 }
-                // Rank by the NEARER of the two probes (see doc): candidacy and ranking must be
-                // the same measurement, or a palm-qualified chip wins with the tip elsewhere.
-                float contact = Mathf.Min(tipDist, palmDist);
-                float score = contact;
-                if (ReferenceEquals(c, _handWinner))
-                    score -= sticky; // hysteresis: the current lift holds until a rival is decisively closer
-                if (score < bestScore)
-                {
-                    runnerUp = winner; secondScore = bestScore; runnerDist = winnerDist;
-                    winner = c; bestScore = score; winnerDist = contact; winnerHand = hand;
-                }
-                else if (score < secondScore)
-                {
-                    runnerUp = c; secondScore = score; runnerDist = contact;
-                }
+            }
+            else if (handPick.Miss != null && handPick.MissContact < pick.MissContact)
+            {
+                pick.Miss = handPick.Miss;
+                pick.MissContact = handPick.MissContact;
+                pick.MissTip = handPick.MissTip;
+                pick.MissPalm = handPick.MissPalm;
+                missHand = hand;
+                missScale = scale;
             }
         }
 
+        ItemChip? winner = pick.Winner;
         _handWinnerHand = winner != null ? winnerHand : null;
         if (!ReferenceEquals(winner, _handWinner))
         {
             _handWinner?.SetFingertipPop(false);
             _handWinner = winner;
             _handWinner?.SetFingertipPop(true);
+            // Re-split the arc around the new pivot (hand-fan parity). Only on a CHANGE.
+            int index = winner != null ? _chips.IndexOf(winner) : -1;
+            if (index != _handWinnerIndex)
+            {
+                _handWinnerIndex = index;
+                Relayout();
+            }
 
             float now = Time.unscaledTime;
             if (winner != null && winnerHand != null && now >= _nextHandLogAt)
             {
                 _nextHandLogAt = now + 0.5f;
-                // Distances are REAL centimetres (world units ÷ the diorama world scale). The old
-                // line printed raw world units labelled "cm", which at the scenario's ~22.9× rig
-                // scale read as "index-tip 271,6 cm" for a chip 12 real cm away — the number that
-                // made this look like an unscaled threshold. Print the scale and the thresholds
-                // with it so the next hardware log can be checked without arithmetic.
-                float scale = Mathf.Max(winnerHand.WorldScale, 1e-4f);
-                string runner = runnerUp != null ? $"'{runnerUp.name}' ({runnerDist / scale * 100f:F1} cm)" : "none";
-                VRLog.Info("Cards", $"Item-fan hand sweep ({winnerHand.Side}): '{winner.name}' — contact " +
-                                    $"{winnerDist / scale * 100f:F1} cm (nearer of index-tip/palm); runner-up {runner}. " +
-                                    $"Reach: tip {ContactTipReach * 100f:F1} cm / palm {ContactPalmReach * 100f:F1} cm, " +
-                                    $"world scale {scale:F1}×. BOTH hands sweep and BOTH hands can pluck.");
+                FanSweep.LogWinner("Item-fan", winnerHand.Side.ToString(), pick,
+                    FanSweep.ResolveReach(winnerScale, ((IFanSweepTarget)winner).SweepFaceWidthWorld));
             }
         }
 
-        // NEAR-MISS diagnostic (throttled, only while a hand is genuinely reaching): nothing
-        // popped, but a hand was within twice the palm reach of a chip — name the hand, the
-        // chip, both probe distances and the thresholds they failed, all in REAL centimetres.
-        // This is the line that decides "the sweep is broken" vs "the hand was never close
-        // enough" on the next hardware log without any arithmetic.
-        if (winner == null && missChip != null && missHand != null)
+        if (winner == null)
         {
-            float scale = Mathf.Max(missHand.WorldScale, 1e-4f);
-            float now = Time.unscaledTime;
-            if (missDist <= ContactPalmReach * scale * 2f && now >= _nextHandMissLogAt)
+            // NEAR-MISS diagnostic (throttled, only while a hand is genuinely reaching): name the
+            // hand, the chip, both probe distances and the EFFECTIVE reaches they failed, all in
+            // real centimetres. This is the line that decides "the sweep is broken" versus "the
+            // hand was never close enough" on the next hardware log without any arithmetic.
+            if (pick.Miss != null && missHand != null && Time.unscaledTime >= _nextHandMissLogAt)
             {
-                _nextHandMissLogAt = now + 2f;
-                VRLog.Info("Cards", $"Item-fan hand sweep ({missHand.Side}): NO match — nearest '{missChip.name}' at " +
-                                    $"tip {missTip / scale * 100f:F1} cm / palm {missPalm / scale * 100f:F1} cm, " +
-                                    $"reach tip {ContactTipReach * 100f:F1} cm / palm {ContactPalmReach * 100f:F1} cm " +
-                                    $"(world scale {scale:F1}×). Reach closer — a chip lifts only inside ONE of the two reaches.");
+                FanReach missReach = FanSweep.ResolveReach(missScale,
+                    ((IFanSweepTarget)pick.Miss).SweepFaceWidthWorld);
+                if (pick.MissContact <= missReach.Palm * 2f)
+                {
+                    _nextHandMissLogAt = Time.unscaledTime + 2f;
+                    FanSweep.LogNearMiss("Item-fan", missHand.Side.ToString(), pick, missReach);
+                }
             }
+            return;
+        }
+
+        // SINGLE-WINNER for the GRAB too (user report "what lights up is not what I get"): every
+        // other chip refuses the winning hand in ItemChip.AllowsHand, so the ProximityGrabber —
+        // which picks the nearest collider by the very same ClosestPoint metric — cannot land on
+        // a chip the hand merely brushed while sweeping. Scoped to the WINNING hand only: the
+        // other hand keeps its own, independent candidate.
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c == null || c.Holder != null || ReferenceEquals(c, winner))
+                continue;
+            c.SetHandSuppressed(winnerHand);
+            _handSuppressed.Add(c);
         }
     }
 
@@ -795,6 +841,13 @@ internal sealed class ItemsPile
         _handWinner?.SetFingertipPop(false);
         _handWinner = null;
         _handWinnerHand = null;
+        _handWinnerIndex = -1; // the split closes with the lift
+        for (int i = 0; i < _handSuppressed.Count; i++)
+        {
+            if (_handSuppressed[i] != null)
+                _handSuppressed[i].SetHandSuppressed(null);
+        }
+        _handSuppressed.Clear();
     }
 
     /// <summary>
@@ -857,14 +910,32 @@ internal sealed class ItemsPile
     /// nearest rect actually under the ray.
     /// </summary>
     internal bool TryLaserRaycast(Vector3 origin, Vector3 direction, ItemChip? sticky,
-        out ItemChip? chip, out Vector3 point, out float distance)
+        out ItemChip? chip, out Vector3 point, out float distance,
+        bool allowNearMiss = false)
     {
         chip = null;
         point = default;
         distance = float.PositiveInfinity;
+        LastLaserPick = FanSweep.FanLaserPick.None;
 
         if (!IsOpen || _root == null)
             return false;
+
+        // ANGULAR RESCUE bookkeeping (the "I cannot reliably laser-hover the chips" report). The
+        // exact-rect test below is correct at the default board scale and a coin flip on a small
+        // one: at board 0,32× a chip is 2,5 × 3,5 REAL cm, so at a ~50 cm aim distance it subtends
+        // 1,4° × 2,0° half-angle — inside a hand-held controller's own aim jitter, while the same
+        // fan on the 0,80× default board subtends 5,7° × 8,0° and never misses. Each chip is
+        // therefore granted a minimum angular half-size (FanSweep.LaserMinHalfAngleDegrees) as a
+        // SECOND pass: while the beam is genuinely on a chip nothing changes, and the fan OCCLUDER
+        // (RayInteractor.ComputeFanOccluder) never passes allowNearMiss, so a rescued near-miss can
+        // never begin hiding game UI behind the fan.
+        ItemChip? rescue = null;
+        Vector3 rescuePoint = default;
+        float rescueDist = 0f, rescueOvershoot = 0f, rescuePad = 0f, rescueRatio = float.MaxValue;
+        float rescueWidth = 0f;
+        var miss = FanSweep.FanLaserPick.None;
+        float missOvershoot = float.MaxValue;
 
         for (int i = 0; i < _chips.Count; i++)
         {
@@ -885,8 +956,42 @@ internal sealed class ItemsPile
 
             Vector3 hit = origin + direction * dist;
             Vector3 local = t.InverseTransformPoint(hit); // scale-aware (ChipScale + pop grow)
-            if (Mathf.Abs(local.x) > c.FaceWidth * 0.5f || Mathf.Abs(local.y) > c.FaceHeight * 0.5f)
+            float halfW = c.FaceWidth * 0.5f;
+            float halfH = c.FaceHeight * 0.5f;
+            float overX = Mathf.Abs(local.x) - halfW;
+            float overY = Mathf.Abs(local.y) - halfH;
+            float lossy = Mathf.Max(t.lossyScale.x, 1e-5f);
+            if (overX > 0f || overY > 0f)
+            {
+                if (!allowNearMiss)
+                    continue;
+                float overshoot = (Mathf.Max(overX, 0f) + Mathf.Max(overY, 0f)) * lossy;
+                float pad = FanSweep.LaserPad(dist, Mathf.Max(halfW, halfH) * lossy);
+                if (overshoot < missOvershoot)
+                {
+                    missOvershoot = overshoot;
+                    miss = new FanSweep.FanLaserPick
+                    {
+                        Hit = false, Rescued = false, Name = c.name, Distance = dist,
+                        Overshoot = overshoot, Pad = pad, FaceWidthWorld = halfW * 2f * lossy,
+                    };
+                }
+                if (pad <= 0f || overshoot > pad)
+                    continue;
+                float ratio = overshoot / pad;
+                if (ReferenceEquals(c, sticky))
+                    ratio *= 0.5f; // the incumbent keeps the beam through a graze (same hysteresis as below)
+                if (ratio >= rescueRatio)
+                    continue;
+                rescue = c;
+                rescuePoint = hit;
+                rescueDist = dist;
+                rescueOvershoot = overshoot;
+                rescuePad = pad;
+                rescueRatio = ratio;
+                rescueWidth = halfW * 2f * lossy;
                 continue;
+            }
 
             if (ReferenceEquals(c, sticky))
             {
@@ -894,6 +999,11 @@ internal sealed class ItemsPile
                 chip = c;
                 point = hit;
                 distance = dist;
+                LastLaserPick = new FanSweep.FanLaserPick
+                {
+                    Hit = true, Rescued = false, Name = c.name, Distance = dist,
+                    Overshoot = 0f, Pad = 0f, FaceWidthWorld = halfW * 2f * lossy,
+                };
                 return true;
             }
 
@@ -902,10 +1012,38 @@ internal sealed class ItemsPile
             chip = c;
             point = hit;
             distance = dist;
+            LastLaserPick = new FanSweep.FanLaserPick
+            {
+                Hit = true, Rescued = false, Name = c.name, Distance = dist,
+                Overshoot = 0f, Pad = 0f, FaceWidthWorld = halfW * 2f * lossy,
+            };
         }
 
+        if (chip == null && rescue != null)
+        {
+            chip = rescue;
+            point = rescuePoint;
+            distance = rescueDist;
+            LastLaserPick = new FanSweep.FanLaserPick
+            {
+                Hit = true, Rescued = true, Name = rescue.name, Distance = rescueDist,
+                Overshoot = rescueOvershoot, Pad = rescuePad, FaceWidthWorld = rescueWidth,
+            };
+        }
+        else if (chip == null)
+        {
+            LastLaserPick = miss;
+        }
         return chip != null;
     }
+
+    /// <summary>
+    /// What the last <see cref="TryLaserRaycast"/> decided — hit or miss, which chip, dead-on or
+    /// rescued by the angular pad, and how far outside the face the ray crossed. Read by
+    /// <c>CardsDriver.UpdateItemFanLaser</c> for the throttled laser diagnostic; the pick itself
+    /// runs per frame per hand and must stay silent.
+    /// </summary>
+    internal FanSweep.FanLaserPick LastLaserPick { get; private set; } = FanSweep.FanLaserPick.None;
 
     // ------------------------------------------------------------------ use slot --
 
@@ -1147,6 +1285,15 @@ internal sealed class ItemsPile
     /// the frame they were written for. No-op when the chip is not (or no longer) under the slot.
     /// </summary>
     internal void UnclipChip(ItemChip chip) => chip?.UnclipFromSlot(_root);
+
+    /// <summary>Re-run the arc layout (poses, split, collider strips) without rebuilding content —
+    /// used when a chip rejoins the arc after a grab, so its full-size grab box is stripped back
+    /// down and the per-chip regions tile again.</summary>
+    internal void RefreshFanLayout()
+    {
+        if (IsOpen)
+            Relayout();
+    }
 
     /// <summary>Requirement 6 — drop the pending state + hide the Confirm button. Clears the chip's own
     /// PendingUse flag so a chip GRABBED back out glides home on release (instead of re-clipping); the
@@ -1739,7 +1886,8 @@ internal sealed class ItemsPile
     /// pinch-GRAB, and read-in-hand (<see cref="GetHeldPose"/>). Spent/consumed chips show the
     /// hosted card's own state FX (UpdateState); consumed chips carry NO separate burn plume.
     /// </summary>
-    internal sealed class ItemChip : GrabbableBehaviour, IPokeable
+    internal sealed class ItemChip : GrabbableBehaviour, IPokeable, IGrabbableHandFilter,
+        IFanSweepTarget
     {
         internal enum Visual { Ready, Spent, Consumed }
 
@@ -1761,6 +1909,14 @@ internal sealed class ItemsPile
         private const float PopScale = 1.18f;
         private const float PopLift = 0.02f;   // local -Z (toward the viewer) at full pop
         private const float PopLerpSpeed = 16f;
+
+        /// <summary>Grab-box margin around the rendered face (card-local metres) — a little slack
+        /// for easy laser/finger targeting. Named because <see cref="SetGrabStrip"/> has to rebuild
+        /// the box from the face size every layout and must not drift from <see cref="Create"/>.</summary>
+        private const float ColliderMargin = 0.006f;
+
+        /// <summary>Grab-box depth (card-local metres): the chip is a thin plate.</summary>
+        private const float ColliderDepth = 0.02f;
 
         private ItemsPile? _owner; // for the clip-in-to-use callback on release
         private Vector3 _homePos;
@@ -1950,7 +2106,7 @@ internal sealed class ItemsPile
             chip._usableFrame = chip.BuildUsableFrame(go.transform, cw, ch);
 
             // Now size the grab collider to the real card (a small margin for easy laser/finger targeting).
-            box.size = new Vector3(cw + 0.006f, ch + 0.006f, 0.02f);
+            box.size = new Vector3(cw + ColliderMargin, ch + ColliderMargin, ColliderDepth);
             // NOTE: do NOT VRLayers.Apply(go) — it recurses into the hosted ItemCardUI, which is a
             // GAME-owned canvas that must keep its authored UI layer (reversibility rule; it renders
             // via the VR camera's UI-layer bit owned by CanvasConversion). The mod-owned pieces
@@ -2677,6 +2833,11 @@ internal sealed class ItemsPile
             _fingerPopped = false;
             _laserPopped = false;
             _pop = 0f;
+            // A chip in the hand (or clipped into the use slot) is no longer part of the arc: give
+            // it its FULL grab box back so pulling it out of the slot again stays easy, and clear
+            // any sweep suppression it was carrying. Relayout re-strips it when it rejoins the arc.
+            SetGrabStrip(float.MaxValue);
+            SetHandSuppressed(null);
             // FIX 1 — keep the world pose across the base re-parent so TickHeldPose flies the chip from
             // its fan slot INTO the hand instead of teleporting (mirror of VRCard.OnGrab). The base snap
             // seats GetHeldPose; we capture that local target, then restore the pre-grab world pose and
@@ -2721,6 +2882,10 @@ internal sealed class ItemsPile
             transform.localScale = worldScale;
             _releaseGlide = ReleaseGlideSeconds;
             _owner?.OnChipReleased(this, dropWorldPos, hand);
+            // Re-derive the arc's collider strips: this chip carried a FULL grab box while it was
+            // in the hand (see OnGrab) and is about to glide back into the arc, where a full box
+            // would overlap its neighbours again and re-break the sweep for exactly one card.
+            _owner?.RefreshFanLayout();
             // Card sounds: a release that CLIPS into the use slot plays the place "thunk" (fired in
             // OnChipReleased, which sets PendingUse). A release that merely glides back to the fan
             // plays NOTHING — deliberately.
@@ -2881,6 +3046,69 @@ internal sealed class ItemsPile
             return true;
         }
 
+        // ---- single-winner grab gate (mirrors VRCard._handPopSuppressed / AllowsHand) ----
+
+        /// <summary>The hand this chip refuses because the owner's sweep gave that hand a
+        /// DIFFERENT winner (null = refuses nobody). Per-hand, not a static: the item fan sweeps
+        /// both hands and each hand must keep its own independent candidate.</summary>
+        private VRHand? _suppressedForHand;
+
+        /// <summary>Set by <see cref="ItemsPile.UpdateHandSweep"/>: this chip lost the election for
+        /// <paramref name="hand"/> and must stay out of that hand's proximity grab, so the chip
+        /// that POPPED is the chip the trigger takes ("what lights up is what I get").</summary>
+        internal void SetHandSuppressed(VRHand? hand) => _suppressedForHand = hand;
+
+        /// <summary>Per-hand grab/hover gate (<see cref="IGrabbableHandFilter"/>): a chip that lost
+        /// the hand sweep is invisible to that hand's <c>ProximityGrabber</c> — no highlight, no
+        /// grab, no haptic. The laser path is untouched (it arbitrates itself).</summary>
+        public bool AllowsHand(VRHand hand) => !ReferenceEquals(hand, _suppressedForHand);
+
+        /// <summary>
+        /// Shrink this chip's grab box to its VISIBLE strip in FAN-local metres (see
+        /// <see cref="FanSweep.StripWidth"/>), or <see cref="float.MaxValue"/> for the full face.
+        /// The strip is measured ALONG THE ARC, which for a SPENT chip — rolled 90° in its slot so
+        /// it reads as "tapped" — is the box's local Y, not X. Getting that axis wrong would leave
+        /// a tapped chip with a collider covering both its neighbours, i.e. exactly the overlap
+        /// this is here to remove. Idempotent: an unchanged box is not rewritten (a per-frame
+        /// physics-shape dirty for every chip is the cost this guard avoids).
+        /// </summary>
+        internal void SetGrabStrip(float stripFanLocal)
+        {
+            if (_box == null)
+                return;
+            float fullW = FaceWidth + ColliderMargin;
+            float fullH = FaceHeight + ColliderMargin;
+            bool tapped = State == Visual.Spent; // rolled 90°: the arc runs along local Y
+            float along = tapped ? fullH : fullW;
+            float strip = Mathf.Clamp(stripFanLocal, along * 0.25f, along);
+            float offset = -(along - strip) * 0.5f;
+            Vector3 size = tapped
+                ? new Vector3(fullW, strip, ColliderDepth)
+                : new Vector3(strip, fullH, ColliderDepth);
+            Vector3 center = tapped ? new Vector3(0f, offset, 0f) : new Vector3(offset, 0f, 0f);
+            if (_box.size == size && _box.center == center)
+                return;
+            _box.size = size;
+            _box.center = center;
+        }
+
+        // ---- IFanSweepTarget (explicit: no widening of the chip's surface) ----
+
+        /// <summary>A held chip rides a hand and a chip clipped into the use slot is awaiting a
+        /// decision (#6) — neither may win the sweep, or a dead chip would suppress the lift of a
+        /// live one beside it.</summary>
+        bool IFanSweepTarget.SweepEligible => Holder == null && !PendingUse;
+
+        /// <summary>The chip's rendered face width in WORLD units. This is the number that makes
+        /// the reach board-scale-invariant: an item fan on a 0,32× board reports ~2,5 real cm here
+        /// where the same fan on the 0,80× default reports ~6,3, and the reach follows.</summary>
+        float IFanSweepTarget.SweepFaceWidthWorld => FaceWidth * transform.lossyScale.x;
+
+        bool IFanSweepTarget.TrySweepDistance(Vector3 worldPoint, out float distance)
+            => TryFingertipDistance(worldPoint, out distance);
+
+        string IFanSweepTarget.SweepName => name;
+
         private void Update()
         {
             if (_collapsing)
@@ -2984,6 +3212,11 @@ internal sealed class ItemsPile
             if (Holder != null || !CanGrab)
                 return;
             _laserPopped = false;
+            // An EXPLICIT pluck overrides the hand sweep's arbitration for this chip. Without this
+            // the pull-jerk grace path could hand ForceGrab a chip the sweep had meanwhile
+            // suppressed for that very hand (AllowsHand=false → ForceGrab refuses), turning a
+            // promised pluck into a silent refusal. The sweep re-derives its set next tick anyway.
+            SetHandSuppressed(null);
             hand.Grabber.ForceGrab(this, releaseOnTriggerUp: true);
         }
 
