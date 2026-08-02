@@ -12,6 +12,107 @@ namespace GloomhavenVR.WorldUI;
 
 internal static partial class ModalFallback
 {
+    // ---- level-message chain pose continuity (user ruling 2026-08-02) -------------------
+
+    /// <summary>
+    /// CHAIN POSE CONTINUITY (user ruling 2026-08-02, partially superseding the short-lived
+    /// re-show recall below): only the FIRST window of a tutorial/scripted-message chain
+    /// spawns in front of the player (rule 1 — the 0.95 m, view-cone-guaranteed placement);
+    /// EVERY SUBSEQUENT message appears at EXACTLY the spot the PREVIOUS one was read at —
+    /// including a spot the player grab-moved the window to. The player reads the whole hint
+    /// chain at ONE stable, self-chosen location instead of each hint re-yanking to the gaze.
+    ///
+    /// The chain shares one float per GROUP (tutorial box / help-text strip — the same
+    /// UIWindow re-used across messages), but the game sometimes CLOSES the group window
+    /// briefly between two messages, which drops the float. This per-group store carries
+    /// the last live pose across those gaps: CAPTURED at message-key change (the reading
+    /// spot was just implicitly approved) and at float release (the gap's edge), CONSUMED
+    /// verbatim by the next convert (<see cref="TryConvertWindow"/> rule 2 — no re-clamp,
+    /// no re-facing: the player approved that spot by leaving the window there; only
+    /// finiteness is sanity-checked). RESET on scenario end/teardown and on presence regain
+    /// (a pose captured around a doff/don may sit behind the player — rule 1 wins there,
+    /// the stale-pose fix).
+    /// </summary>
+    private struct ChainPose
+    {
+        public bool Valid;
+        public Vector3 Position;
+        public Quaternion Rotation;
+    }
+
+    /// <summary>Per-group stored chain pose — indexed by <see cref="LevelMessageGroupIndex"/>
+    /// (0 = tutorial box group, 1 = help-text strip group). The two groups may be parked at
+    /// different spots, so their poses persist independently.</summary>
+    private static readonly ChainPose[] ChainPoses = new ChainPose[2];
+
+    /// <summary>
+    /// Capture the LIVE host pose of a level-message float into its group's chain store
+    /// (no-op for other windows / dead panels / non-finite poses). The live pose IS the
+    /// grab-moved pose — a grab writes the host every tick — so reading it at the capture
+    /// edges (message change, release) automatically persists a deliberate move without any
+    /// extra grab bookkeeping.
+    /// </summary>
+    private static void StoreChainPose(WindowPanel wp)
+    {
+        int g = LevelMessageGroupIndex(wp.Window);
+        if (g < 0 || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+            return;
+        Transform host = wp.Panel.HostGo.transform;
+        Vector3 pos = host.position;
+        Quaternion rot = host.rotation;
+        if (!IsFinitePose(pos, rot))
+            return; // never poison the store — the next spawn then falls back to rule 1
+        ChainPoses[g].Valid = true;
+        ChainPoses[g].Position = pos;
+        ChainPoses[g].Rotation = rot;
+    }
+
+    /// <summary>The stored chain pose for this level-message window's group, if a valid one
+    /// exists (rule 2). A non-finite stored pose is dropped and reported false — the minimal
+    /// safety the ruling keeps: a genuinely lost/invalid pose falls back to rule 1.</summary>
+    private static bool TryGetChainPose(UIWindow? window, out Vector3 pos, out Quaternion rot)
+    {
+        int g = LevelMessageGroupIndex(window);
+        if (g >= 0 && ChainPoses[g].Valid)
+        {
+            pos = ChainPoses[g].Position;
+            rot = ChainPoses[g].Rotation;
+            if (IsFinitePose(pos, rot))
+                return true;
+            ChainPoses[g].Valid = false; // poisoned somehow → rule 1, never place at NaN
+        }
+        pos = default;
+        rot = Quaternion.identity;
+        return false;
+    }
+
+    /// <summary>Drop both groups' stored poses (scenario end / teardown / presence regain).
+    /// Change-gated: silent no-op while nothing is stored, one log line otherwise.</summary>
+    private static void ResetChainPoses(string reason)
+    {
+        if (!ChainPoses[0].Valid && !ChainPoses[1].Valid)
+            return;
+        ChainPoses[0] = default;
+        ChainPoses[1] = default;
+        VRLog.Info("WorldUI", $"LEVEL-MESSAGE CHAIN: stored window pose(s) dropped ({reason}) — the next " +
+                              "scripted message spawns in front of the player again (rule 1).");
+    }
+
+    /// <summary>Finiteness sanity for a stored/consumed pose: every component a real number
+    /// and the rotation non-degenerate (a zeroed quaternion cannot orient a window). net472 —
+    /// no float.IsFinite, hence the explicit NaN/Infinity pairs.</summary>
+    private static bool IsFinitePose(Vector3 pos, Quaternion rot)
+    {
+        return !(float.IsNaN(pos.x) || float.IsInfinity(pos.x)
+                 || float.IsNaN(pos.y) || float.IsInfinity(pos.y)
+                 || float.IsNaN(pos.z) || float.IsInfinity(pos.z)
+                 || float.IsNaN(rot.x) || float.IsInfinity(rot.x)
+                 || float.IsNaN(rot.y) || float.IsInfinity(rot.y)
+                 || float.IsNaN(rot.z) || float.IsInfinity(rot.z)
+                 || float.IsNaN(rot.w) || float.IsInfinity(rot.w))
+               && rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w > 0.5f;
+    }
+
     // ---- lost-menu recall (incident fix) ------------------------------------------------
 
     /// <summary>
@@ -31,12 +132,14 @@ internal static partial class ModalFallback
     /// carrying it — never yank it out of their grip), and on recall. Unscaled time — the
     /// pause menu may freeze timeScale.
     ///
-    /// <para>LEVEL-MESSAGE extension (torbogen report 2026-08-02): the two level-message group
-    /// windows (tutorial box / action strip) participate too, with an ADDITIONAL immediate
-    /// path — when a NEW scripted message re-shows inside the kept-alive float while the panel
-    /// is outside the current view, it is re-placed at once (event-gated on the message-key
-    /// change, <see cref="CurrentLevelMessageKey"/>) instead of waiting out the timer. A float
-    /// the user parked IN view is never moved.</para>
+    /// <para>LEVEL-MESSAGE participation (torbogen report 2026-08-02, reconciled with the
+    /// chain-pose ruling): the two level-message group windows (tutorial box / action strip)
+    /// participate in the slow TIMER recall only — the deadlock safety net for a genuinely
+    /// lost blocking box. The IMMEDIATE "re-place when a new message re-shows out of view"
+    /// path that briefly shipped here is SUPERSEDED by position continuity (user ruling):
+    /// a message-key change (<see cref="CurrentLevelMessageKey"/>) now CAPTURES the live
+    /// pose into the per-group chain store (<see cref="ChainPoses"/>) instead of yanking a
+    /// deliberately parked window back to the gaze.</para>
     /// </summary>
     private static void TickMenuRecall()
     {
@@ -88,24 +191,23 @@ internal static partial class ModalFallback
             bool visible = IsInHeadView(head, pos)
                            && Vector3.Distance(headPos, pos) <= RecallDistanceMeters * scale;
 
-            // LEVEL-MESSAGE RE-SHOW RECALL (torbogen report): when a NEW scripted message
-            // re-shows inside the already-floated group window (message key changed — the
-            // float is deliberately kept alive across the whole chain, deadlock #2), it must
-            // be readable NOW: if the panel sits outside the current view (the player moved /
-            // turned since the previous hint) it is re-placed IMMEDIATELY instead of waiting
-            // out the lost-menu timer. Event-gated on the key change — a panel the user
-            // parked IN view (grabbed placement) is never touched, honoring deliberate
-            // placement; only an out-of-view float is recalled.
-            bool reshowRecall = false;
-            string? reshowKey = null;
+            // LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): a message-key change
+            // means the NEXT hint of the chain just re-showed inside the kept-alive float at
+            // its previous pose — exactly what the ruling wants, so nothing is re-placed here
+            // (the re-show recall that briefly lived at this spot is superseded: continuity
+            // WINS, even when the player parked the window out of the current view). The key
+            // change is instead the CAPTURE EDGE for the per-group chain store: the pose the
+            // previous hint was read at (grab-moves included — this reads the live host pose)
+            // becomes the spot a gap-reopened group window returns to (TryConvertWindow rule
+            // 2). Runs before the visibility bookkeeping so a parked-out-of-view chain still
+            // captures every approved pose.
             if (isLevelMsg)
             {
                 string? key = CurrentLevelMessageKey(wp.Window);
                 if (key != null && !string.Equals(key, wp.LastLevelMessageKey, StringComparison.Ordinal))
                 {
                     wp.LastLevelMessageKey = key;
-                    reshowRecall = !visible;
-                    reshowKey = key;
+                    StoreChainPose(wp);
                 }
             }
 
@@ -114,17 +216,14 @@ internal static partial class ModalFallback
                 wp.OutOfViewSince = 0f;
                 continue;
             }
-            if (!reshowRecall)
+            if (wp.OutOfViewSince <= 0f)
             {
-                if (wp.OutOfViewSince <= 0f)
-                {
-                    wp.OutOfViewSince = now;
-                    continue;
-                }
-                float outFor = now - wp.OutOfViewSince;
-                if (outFor < RecallOutOfViewSeconds)
-                    continue;
+                wp.OutOfViewSince = now;
+                continue;
             }
+            float outFor = now - wp.OutOfViewSince;
+            if (outFor < RecallOutOfViewSeconds)
+                continue;
 
             // RECALL — the same placement the window floated with (user request A: with the
             // panel's size passed along, the recall pose also avoids the control board /
@@ -141,14 +240,17 @@ internal static partial class ModalFallback
             {
                 PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, isLevelMsg);
             }
-            float wasOutFor = wp.OutOfViewSince > 0f ? now - wp.OutOfViewSince : 0f;
+            // Chain continuity: a recalled level message has a NEW player-visible pose — make
+            // it the chain's stored pose too, or a close/reopen gap right after the recall
+            // would jump the next hint back to the very lost spot the timer just rescued the
+            // window from.
+            if (isLevelMsg)
+                StoreChainPose(wp);
+            float wasOutFor = now - wp.OutOfViewSince; // > 0 by construction (timer path only)
             wp.OutOfViewSince = 0f;
-            VRLog.Info("WorldUI", reshowRecall
-                ? $"MODAL RECALL: '{wp.Window!.name}' — scripted message '{reshowKey}' re-shown while " +
-                  "the float was OUT of view — re-placed into the current view immediately."
-                : $"MODAL RECALL: '{wp.Window!.name}' was open but out of view for " +
-                  $"{wasOutFor:F0}s — recalled in front of the HMD (it blocks card/board " +
-                  "input while open).");
+            VRLog.Info("WorldUI", $"MODAL RECALL: '{wp.Window!.name}' was open but out of view for " +
+                                  $"{wasOutFor:F0}s — recalled in front of the HMD (it blocks card/board " +
+                                  "input while open).");
         }
     }
 

@@ -254,6 +254,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     // Free placement: the menu stays wherever the user left it while open; a re-open
     // re-floats it at the HMD (ModalFallback), so there is nothing to persist here.
+    // (Level-message chains are the one family whose pose DOES persist across the game's
+    // brief close/reopen gaps — but that lives in ModalFallback's per-group chain store,
+    // which simply reads the live host pose at its capture edges; still nothing to do here.)
     //
     // RE-FACE ON RELEASE (user request): the one-hand carry yaws the panel with the HAND
     // (CarryMode Level), so dragging a window to the side leaves it turned to wherever the wrist
