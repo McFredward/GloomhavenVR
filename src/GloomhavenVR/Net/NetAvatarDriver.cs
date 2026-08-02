@@ -164,8 +164,44 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _subscribed = false;
     }
 
+    /// <summary>
+    /// The live driver, or null (networking off / offline / module shut down). Exists ONLY as the
+    /// read seam for <see cref="CollectPeerHeads"/> — nothing writes through it.
+    /// </summary>
+    private static NetAvatarDriver? _instance;
+
+    /// <summary>
+    /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
+    /// how many were added.
+    ///
+    /// <para>WHY THIS SEAM EXISTS: the VR spawn ring (<see cref="Rig.SpawnRing"/>) has to know
+    /// where the other players are standing before it can seat a joining player in the largest
+    /// free wedge around the table. That information is ALREADY here — it rides the rig packets
+    /// the embodiment sync receives anyway — so the feature needs no new wire field, no new packet
+    /// and no extra traffic. Strictly read-only and strictly local; a peer with no valid head pose
+    /// yet is simply not counted.</para>
+    /// </summary>
+    internal static int CollectPeerHeads(List<Vector3> into)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || into == null)
+            return 0;
+
+        int added = 0;
+        foreach (KeyValuePair<int, RemoteAvatar> kv in driver._avatars)
+        {
+            if (kv.Value != null && kv.Value.TryGetHeadWorld(out Vector3 head))
+            {
+                into.Add(head);
+                added++;
+            }
+        }
+        return added;
+    }
+
     private void OnEnable()
     {
+        _instance = this;
         Subscribe();
     }
 
@@ -902,7 +938,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _avatars.Clear();
     }
 
-    private void OnDestroy() => DestroyAllAvatars();
+    private void OnDestroy()
+    {
+        if (ReferenceEquals(_instance, this))
+            _instance = null;
+        DestroyAllAvatars();
+    }
 
     // ---- frame conversion ---------------------------------------------------------------
 

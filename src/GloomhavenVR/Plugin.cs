@@ -68,7 +68,15 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Head-track the menu camera outside scenarios (menu rig, P5). Off = static menu view.</summary>
     internal static ConfigEntry<bool> MenuRig = null!;
 
-    /// <summary>Seat multiple VR players evenly around the board (distinct azimuth per player) instead of stacking them at one shared seat. No effect single-player.</summary>
+    /// <summary>
+    /// Multiplayer join placement (<see cref="Rig.SpawnRing"/>): seat an arriving VR player on a
+    /// ring around the BOARD at the azimuth that maximises the minimum angular distance to every
+    /// peer already present, facing the board, just outside the board's own footprint. Replaces
+    /// the old evenly-spaced-by-participant-index circle, which measured its azimuth in a
+    /// per-client frame and ignored where peers actually stood — hence "spawnt man direkt hinter
+    /// oder IN der anderen Maske". No effect single-player; the key name is kept so existing
+    /// .cfg files keep loading.
+    /// </summary>
     internal static ConfigEntry<bool> SpawnInCircle = null!;
 
     /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.
@@ -329,10 +337,15 @@ public class Plugin : BaseUnityPlugin
             "menu renders from a static viewpoint.");
         SpawnInCircle = Config.Bind(
             "Rig", "SpawnInCircle", Defaults.SpawnInCircle,
-            "Multiplayer: seat each VR player at a distinct azimuth evenly spaced around the " +
-            "board (360 / player-count apart), each facing the board center, so avatars no longer " +
-            "spawn stacked inside each other. No effect in single-player / offline (the solo seat " +
-            "is unchanged). Off = every player keeps the same shared seat as before.");
+            "Multiplayer: when you join a session or enter a scenario, seat you on a ring around " +
+            "the game board at the spot FURTHEST AWAY from every player already there (the widest " +
+            "free gap, so nobody ever spawns inside or behind another player's mask), facing the " +
+            "board. The ring sits just outside the board's own footprint at arm's reach, so you " +
+            "stay close to the table at any board size or zoom level. Placement happens ONCE on " +
+            "arrival — plus at most one correction in the first few seconds if a player shows up " +
+            "right after you; from then on only your own movement moves you. Purely local: " +
+            "nothing extra is sent over the network. No effect in single-player / offline (the " +
+            "solo seat is unchanged). Off = every player keeps the same shared seat as before.");
         Experimental3DMap = Config.Bind(
             "Rig", "Experimental3DMap", Defaults.Experimental3DMap,
             "RESERVED — CURRENTLY UNIMPLEMENTED placeholder for a future feature: explore the " +
