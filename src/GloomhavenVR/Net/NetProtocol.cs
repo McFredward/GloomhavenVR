@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 27;
+    public const ushort ModBuild = 28;
+    // Build 28: wall dressing round 3 — skinned meshes (hanging cloth and its hardware) can ride
+    // a fade, the size cap needs TWO fat axes so long-thin dressing is not rejected, and every
+    // structural skip (wrong renderer family / already owned / fade-capable) is now logged when
+    // it stands airborne near a wall. Local-only rendering — no wire changes.
     // Build 27: wall dressing round 2 — props now DISSOLVE with their wall instead of popping at
     // the end (alpha/cutoff ramp + particle emission/size/start-colour ramp on the same fade
     // curve), particle props are judged by their EMITTER instead of their drifting live bounds,

@@ -141,8 +141,11 @@ internal static partial class WallSegmentFade
         /// attached is logged with its rejection reason, so a leftover that still floats in a
         /// hardware screenshot is decidable from the log alone.</summary>
         private const float MountedNearMissXZ = 2.5f;
-        /// <summary>Cap on the per-census/near-miss lists (log hygiene).</summary>
+        /// <summary>Cap on the per-census list (log hygiene).</summary>
         private const int MountedCensusCap = 12;
+        /// <summary>Cap on the near-miss list — larger than the census cap because this is the
+        /// side that answers "why does THAT thing still float".</summary>
+        private const int MountedRejectCap = 24;
         /// <summary>How small a particle system's start size gets at full fade (relative) — the
         /// flame shrinks as it dims instead of just thinning out.</summary>
         private const float MountedParticleShrink = 0.15f;
@@ -164,8 +167,18 @@ internal static partial class WallSegmentFade
         /// explicit restore path fired.</summary>
         private readonly Dictionary<Renderer, MountedProp> _mountedTouched = new();
         /// <summary>Renderers already spoken for by another attachment type (wall renderers,
-        /// foliage, asset siblings) — rebuilt each rescan.</summary>
-        private readonly HashSet<Renderer> _attachmentOwned = new();
+        /// foliage, asset siblings) — rebuilt each rescan. The value carries WHO owns it, so a
+        /// leftover that was skipped structurally can name its owner (and that owner's fade) in
+        /// the census instead of vanishing from the diagnostics.</summary>
+        private readonly Dictionary<Renderer, OwnerRef> _attachmentOwned = new();
+
+        /// <summary>Who already owns a renderer, for the structural-skip diagnostic.</summary>
+        private readonly struct OwnerRef
+        {
+            public readonly Segment Seg;
+            public readonly string Kind;
+            public OwnerRef(Segment seg, string kind) { Seg = seg; Kind = kind; }
+        }
         private readonly List<MountedProp> _mountedScratch = new();
         private readonly List<string> _mountedCensus = new();
         private readonly List<string> _mountedRejects = new();
@@ -174,6 +187,8 @@ internal static partial class WallSegmentFade
         private int _censusMountedRejected;
         private int _lastLoggedMountedCount = -1;
         private int _lastLoggedMountedRejected = -1;
+        /// <summary>This pass's airborne bar, so the structural-skip diagnostic can use it.</summary>
+        private float _mountedAirborneBar = float.PositiveInfinity;
 
         // ---- delivery -----------------------------------------------------------------------
 
@@ -360,11 +375,41 @@ internal static partial class WallSegmentFade
 
         // ---- collection ---------------------------------------------------------------------
 
-        /// <summary>Renderer families that can be wall dressing. SkinnedMeshRenderer is excluded
-        /// on purpose (characters, our own hands); Line/Trail renderers are effects, never
+        /// <summary>Renderer families that can be wall dressing. SkinnedMeshRenderer is IN since
+        /// round 3: hanging cloth (banners, flags and their hardware) is routinely authored as a
+        /// skinned mesh, and characters — the reason it was excluded — are already caught by the
+        /// ActorBehaviour guard, our own hands by the mod-layer guard, and anything standing on
+        /// the floor by the airborne bar. Line/Trail renderers stay out: they are effects, never
         /// scenery.</summary>
         private static bool IsMountableRendererType(Renderer r) =>
-            r is MeshRenderer || r is ParticleSystemRenderer || r is SpriteRenderer;
+            r is MeshRenderer || r is ParticleSystemRenderer || r is SpriteRenderer
+            || r is SkinnedMeshRenderer;
+
+        /// <summary>
+        /// Log a renderer that left the sweep BEFORE any geometric test (wrong renderer family,
+        /// already owned by another attachment list, fade-capable) — but only when it is airborne
+        /// and near a wall, i.e. only when it could actually be a floating leftover. Bounded by
+        /// the reject-list cap, which is checked first so the common case is one int compare.
+        /// </summary>
+        private void NoteStructuralSkip(Renderer c, string why)
+        {
+            if (_mountedRejects.Count >= MountedRejectCap || float.IsInfinity(_mountedAirborneBar))
+                return;
+            Bounds b = c.bounds;
+            float anchorY = c is ParticleSystemRenderer ? c.transform.position.y : b.min.y;
+            if (anchorY < _mountedAirborneBar)
+                return; // rests on something — would not float even if the wall went
+            float nearest = float.PositiveInfinity;
+            foreach (Segment seg in _segments.Values)
+            {
+                if (!seg.HasBounds)
+                    continue;
+                float gap = HorizontalGap(seg.Bounds, b);
+                if (gap < nearest)
+                    nearest = gap;
+            }
+            NoteMountedReject(c, anchorY, nearest, why);
+        }
 
         /// <summary>Horizontal (XZ) gap between two AABBs; 0 when their footprints overlap.</summary>
         private static float HorizontalGap(Bounds a, Bounds b)
@@ -421,15 +466,15 @@ internal static partial class WallSegmentFade
                 }
                 foreach (MeshRenderer r in seg.Renderers)
                 {
-                    if (r != null) _attachmentOwned.Add(r);
+                    if (r != null) _attachmentOwned[r] = new OwnerRef(seg, "wall renderer");
                 }
                 foreach (MeshRenderer f in seg.Foliage)
                 {
-                    if (f != null) _attachmentOwned.Add(f);
+                    if (f != null) _attachmentOwned[f] = new OwnerRef(seg, "foliage");
                 }
                 foreach (MeshRenderer s in seg.Siblings)
                 {
-                    if (s != null) _attachmentOwned.Add(s);
+                    if (s != null) _attachmentOwned[s] = new OwnerRef(seg, "asset sibling");
                 }
             }
 
@@ -442,19 +487,43 @@ internal static partial class WallSegmentFade
                     minFloorY = _roomFloorY[i];
             }
 
+            _mountedAirborneBar = minFloorY + MountedClearanceWU;
             if (!float.IsInfinity(minFloorY) && sceneRenderers != null)
             {
-                float airborneBar = minFloorY + MountedClearanceWU;
+                float airborneBar = _mountedAirborneBar;
                 foreach (Renderer c in sceneRenderers)
                 {
-                    if (c == null || !IsMountableRendererType(c))
+                    if (c == null)
                         continue;
                     if (c.gameObject.layer == VRLayers.ModLayer)
                         continue; // mod-owned visual (hands, cards, panels) — never scenery
-                    if (_attachmentOwned.Contains(c) || _mountedOwned.Contains(c))
+                    if (_mountedOwned.Contains(c))
+                        continue; // already attached this rescan (sticky or earlier in the sweep)
+                    // STRUCTURAL SKIPS — the three ways a renderer leaves this sweep before any
+                    // geometric test runs. Each is LOGGED when it stands near a wall (round 3: a
+                    // banner's wooden bar survived a fade and appeared in no reject list at all,
+                    // because it left here silently). NoteStructuralSkip itself is cheap: it does
+                    // nothing unless the renderer is airborne AND close to a segment.
+                    if (!IsMountableRendererType(c))
+                    {
+                        NoteStructuralSkip(c, $"renderer type {c.GetType().Name} is not scenery");
                         continue;
+                    }
+                    if (_attachmentOwned.TryGetValue(c, out OwnerRef owner))
+                    {
+                        string wall = owner.Seg.Anchor != null ? owner.Seg.Anchor.name : "<dead>";
+                        NoteStructuralSkip(c,
+                            $"already the {owner.Kind} of '{wall}' (that wall's fade {owner.Seg.Fade:F2})");
+                        continue;
+                    }
                     if (c is MeshRenderer mr && RendererUsesWallFade(mr))
-                        continue; // a wall in its own right (tracked as a segment)
+                    {
+                        // A wall in its own right — it has its own fade decision. If it belongs to
+                        // a segment that is NOT fading while its neighbour is, that is exactly how
+                        // a piece of wall trim survives; the owner label above says which.
+                        NoteStructuralSkip(c, "carries a WallFade shader — no segment claimed it");
+                        continue;
+                    }
 
                     // WHICH GEOMETRY DECIDES (see the file header): a mesh is judged by its AABB,
                     // a particle system by its EMITTER — its bounds enclose the live particles and
@@ -514,9 +583,13 @@ internal static partial class WallSegmentFade
                         continue;
                     }
                     // Size cap for MESHES only — a particle system's bounds are a smoke plume, not
-                    // an object size (it was rejecting the torches' own heat haze).
-                    if (!particles && (b.size.x > MountedMaxSpanWU || b.size.y > MountedMaxSpanWU
-                        || b.size.z > MountedMaxSpanWU))
+                    // an object size (it was rejecting the torches' own heat haze). TWO fat axes
+                    // are required: dressing is routinely long and thin (a banner and the bar it
+                    // hangs from span a whole wall), while architecture is bulky in two.
+                    int fatAxes = (b.size.x > MountedMaxSpanWU ? 1 : 0)
+                        + (b.size.y > MountedMaxSpanWU ? 1 : 0)
+                        + (b.size.z > MountedMaxSpanWU ? 1 : 0);
+                    if (!particles && fatAxes >= 2)
                     {
                         NoteMountedReject(c, anchorY, bestGap, "too big for dressing (architecture)");
                         continue;
@@ -612,14 +685,18 @@ internal static partial class WallSegmentFade
         }
 
         private static string RendererKind(Renderer r) =>
-            r is ParticleSystemRenderer ? "particles" : r is SpriteRenderer ? "sprite" : "mesh";
+            r is ParticleSystemRenderer ? "particles"
+            : r is SpriteRenderer ? "sprite"
+            : r is SkinnedMeshRenderer ? "skinned"
+            : r is MeshRenderer ? "mesh"
+            : r.GetType().Name;
 
         private void NoteMountedReject(Renderer c, float anchorY, float gap, string why)
         {
             if (gap > MountedNearMissXZ)
                 return; // not near any wall — not a leftover candidate at all
             _censusMountedRejected++;
-            if (_mountedRejects.Count < MountedCensusCap)
+            if (_mountedRejects.Count < MountedRejectCap)
                 _mountedRejects.Add($"'{c.name}'[{RendererKind(c)}] anchor {anchorY:F1} gap {gap:F2}: {why}");
         }
 
