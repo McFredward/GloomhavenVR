@@ -232,20 +232,31 @@ internal sealed partial class PlayTray
             _followAnchor.localPosition = PinBase + offset;
     }
 
+    // WHY THE FIVE MOUNT BASES BELOW ARE `internal` AND NOT `private`
+    // ---------------------------------------------------------------
+    // A remote player's control board (Net/RemoteBoardLayout) must dock ITS copies of these panels
+    // where the OWNER's board docks them, and the only way to guarantee that without hand-tuning is
+    // to read the SAME expression the local board reads. The alternative — a second copy of each
+    // number in Net/ — is precisely the drift scripts/check-mirrors.sh exists to police, and here it
+    // is avoidable at zero cost: these are authored layout constants with no behaviour attached, so
+    // widening them leaks nothing and gives the remote board one source of truth instead of a
+    // mirror. (The per-board OFFSET that adds on top is read from `Defaults`, which both sides
+    // already share; only the local player's own debug-menu RE-tuning stays private, as ever.)
+
     /// <summary>Fixed base local position of the discard/burn pile mount (per-board PileOffset adds on top).</summary>
-    private static Vector3 PileMountBase => new(BoardW * 0.5f + 0.012f, 0f, -0.004f);
+    internal static Vector3 PileMountBase => new(BoardW * 0.5f + 0.012f, 0f, -0.004f);
 
     /// <summary>Fixed base local position of the ACTIVE-cards mount (per-board ActiveOffset adds on top).</summary>
-    private static Vector3 ActiveMountBase => new(BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
+    internal static Vector3 ActiveMountBase => new(BoardW * 0.5f + 0.012f + ActiveMountOffsetX, 0f, -0.004f);
 
     // ---- Fixed base positions for the remaining board-attached elements (items 4/6). Each
     // per-board offset from the debug menu ADDS on top of these. ----
 
     /// <summary>Fixed base local position of the OBJECTIVES ('Aufgaben') dock mount.</summary>
-    private static Vector3 ObjectivesMountBase => new(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
+    internal static Vector3 ObjectivesMountBase => new(-BoardW * 0.5f - 0.012f, 0f, -0.004f);
 
     /// <summary>Fixed base local position of the ELEMENT infusion ('Elemente') dock mount (left column below objectives).</summary>
-    private static Vector3 ElementMountBase =>
+    internal static Vector3 ElementMountBase =>
         new(-BoardW * 0.5f - 0.012f,
             -(ObjectivesMountMaxHeight * 0.5f + 0.012f + ElementMountMaxHeight * 0.5f),
             -0.004f);
@@ -274,7 +285,7 @@ internal sealed partial class PlayTray
     private const float ItemUseLabelHeight = 0.030f;
 
     /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
-    private static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
+    internal static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
 
     /// <summary>Fixed base local position of the FOLLOW/PIN toggle button (bottom-right corner).</summary>
     private static Vector3 PinBase => new(BoardW * 0.5f - 0.045f, -BoardH * 0.5f - 0.030f, -FixedProudZ);

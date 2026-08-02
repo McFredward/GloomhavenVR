@@ -49,6 +49,7 @@ internal sealed class RemoteStatusReadouts
     private readonly TextMeshPro _initiative;
     private readonly TextMeshPro _rest;
     private readonly Transform _restRoot;
+    private readonly Transform _iniRoot;
 
     private int _roundShown = int.MinValue;
     private string _langShown = string.Empty;
@@ -58,12 +59,16 @@ internal sealed class RemoteStatusReadouts
     public string RestText { get; private set; } = string.Empty;
     public string RoundText { get; private set; } = "-";
 
-    public RemoteStatusReadouts(Transform boardRoot)
+    public RemoteStatusReadouts(Transform boardRoot, in RemoteBoardLayout layout)
     {
-        // --- round: top-right, mirroring PlayTray.ReadoutBase (ButtonZoneX 0.235, y 0.125).
+        // --- round: top-right, at the OWNER's own seat — PlayTray.ReadoutBase plus the AUTHORED
+        //     per-board ReadoutOffset, keyed by the peer's synced style (RemoteBoardLayout). The
+        //     old hardcoded (0.235, 0.125, −0.004) dropped the per-board term, which on the Steel
+        //     board of the hardware session put "Runde N" 40 mm right, 22 mm low and 44 mm behind
+        //     where the owner has it — part of defect (c) of the 1:1-parity round.
         var roundRoot = new GameObject("RoundReadout").transform;
         roundRoot.SetParent(boardRoot, worldPositionStays: false);
-        roundRoot.localPosition = new Vector3(0.235f, 0.125f, RemoteControlBoard.ProudZLocal);
+        roundRoot.localPosition = layout.ReadoutMount;
         BoardVisual.Quad(roundRoot, "Plate", new Vector2(0.13f, 0.036f),
             BoardVisual.Unlit(new Color(0.12f, 0.11f, 0.10f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.001f);
@@ -74,7 +79,11 @@ internal sealed class RemoteStatusReadouts
 
         // --- initiative: top-centre, in the strip between the round-card tops (y 0.104) and the
         //     board's top edge (y 0.16) — where the local board's docked initiative track sits.
-        var iniRoot = new GameObject("InitiativeReadout").transform;
+        //     REMOTE-ONLY BY CONSTRUCTION: the owner's own board has no such badge (their number is
+        //     on the docked initiative track), so it is a stand-in that only earns its place while
+        //     the real track cannot be shown — see SetShownWhileTrackFallback.
+        _iniRoot = new GameObject("InitiativeReadout").transform;
+        Transform iniRoot = _iniRoot;
         iniRoot.SetParent(boardRoot, worldPositionStays: false);
         iniRoot.localPosition = new Vector3(0f, 0.132f, RemoteControlBoard.ProudZLocal);
         BoardVisual.Quad(iniRoot, "Plate", new Vector2(0.11f, 0.042f),
@@ -102,6 +111,20 @@ internal sealed class RemoteStatusReadouts
             new Vector2(0.18f, 0.028f), 0.05f,
             new Color(0.95f, 0.86f, 0.62f), TextAlignmentOptions.Center, FontStyles.Bold);
         _restRoot.gameObject.SetActive(false);
+    }
+
+    /// <summary>
+    /// Show or hide the mod's own "INI" badge. It is a REMOTE-ONLY stand-in: the owner's board does
+    /// not carry one — their initiative is on the docked initiative TRACK — so as soon as
+    /// <see cref="RemoteInitiativeTrack"/> is mirroring the real track (which shows this player's
+    /// number in the same place and under the same vanilla gate), the badge stops being parity and
+    /// starts being an extra widget the owner does not have. It comes back the moment the track
+    /// falls back to the mod-drawn chip strip, so the number is never simply lost.
+    /// </summary>
+    public void SetShownWhileTrackFallback(bool shown)
+    {
+        if (_iniRoot != null && _iniRoot.gameObject.activeSelf != shown)
+            _iniRoot.gameObject.SetActive(shown);
     }
 
     /// <summary>Re-read round / initiative / rest. <paramref name="showFronts"/> is the shared

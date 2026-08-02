@@ -373,8 +373,16 @@ internal static class CardsConfig
     /// <para>Only the properties that genuinely differ per board are tabled; the rest keep a single
     /// literal at their bind, because a table whose three entries are equal only invites them to
     /// drift apart.</para>
+    ///
+    /// <para>WHY `internal` AND NOT `private`: a REMOTE player's board (<c>Net/RemoteBoardLayout</c>)
+    /// has to seat the very same elements on the very same board, keyed by the style that peer
+    /// SYNCED — and it cannot read their <c>ConfigEntry</c>s, because a player's own dial-ins never
+    /// ride the wire. It therefore needs exactly this table: the SHIPPED per-board layout, which
+    /// every client compiles in identically. Reading it directly is what keeps the two boards from
+    /// drifting; the alternative was a second copy of these numbers in <c>Net/</c>, i.e. the very
+    /// failure mode <c>scripts/check-mirrors.sh</c> exists to catch.</para>
     /// </summary>
-    private static class BoardDefaults
+    internal static class BoardDefaults
     {
         internal static readonly Vector3[] RestButtonOffset = { Defaults.RestButtonOffset_Oak, Defaults.RestButtonOffset_Steel, Defaults.RestButtonOffset_Bronze };
         internal static readonly float[] RestButtonDiameter = { Defaults.RestButtonDiameter_Oak, Defaults.RestButtonDiameter_Steel, Defaults.RestButtonDiameter_Bronze };
