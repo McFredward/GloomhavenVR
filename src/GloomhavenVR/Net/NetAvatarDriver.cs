@@ -846,6 +846,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         foreach (KeyValuePair<int, RemoteAvatar> kv in _avatars)
         {
             RemoteAvatar avatar = kv.Value;
+            // Steam-avatar fetch pump, BEFORE the visuals and on its own catch: the game's
+            // join-time fetch leaves every peer holding its grey placeholder (NetPlayerActors
+            // .ClassifyAvatar), so the picture only appears if the mod re-asks. It is driven from
+            // HERE — per KNOWN PEER, not per visible tag — so it runs the moment a peer exists,
+            // whatever the NameTags config says and whichever role we are.
+            try { NetPlayerActors.TickAvatarFetch(kv.Key); }
+            catch (Exception e) { LogPhaseError($"Avatar fetch pump for player {kv.Key}", e); }
             // Per-avatar catch: one broken avatar must not stop the OTHERS from ticking, nor
             // block the staleness sweep below it (same isolation contract as ApplyPending).
             try { avatar.Tick(dt); }
@@ -864,6 +871,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 avatar.Destroy();
                 _avatars.Remove(id);
                 NetFigures.ReleaseRemote(id); // drop any figure this peer was holding
+                NetPlayerActors.ForgetAvatarFetch(id); // a rejoin gets a fresh attempt budget
             }
         }
     }
@@ -879,6 +887,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             avatar.Destroy();
             _avatars.Remove(playerId);
             NetFigures.ReleaseRemote(playerId);
+            NetPlayerActors.ForgetAvatarFetch(playerId);
         }
     }
 
@@ -888,6 +897,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         {
             kv.Value.Destroy();
             NetFigures.ReleaseRemote(kv.Key);
+            NetPlayerActors.ForgetAvatarFetch(kv.Key);
         }
         _avatars.Clear();
     }
