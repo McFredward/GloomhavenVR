@@ -76,12 +76,21 @@ internal static partial class ModalFallback
     /// edges (placement, grip, message change, release) persists a deliberate move without
     /// any extra grab bookkeeping.
     /// </summary>
-    private static void StoreChainPose(WindowPanel wp)
+    private static void StoreChainPose(WindowPanel wp) => StoreChainPose(wp.Window, wp.Panel);
+
+    /// <summary>
+    /// <see cref="StoreChainPose(WindowPanel)"/> on the two pieces it actually needs, so callers
+    /// that hold no window record can re-seed the store too — today the one-shot pose re-place
+    /// (<see cref="TickPoseRePlaceOne"/>): a rule-1 level-message spawn seeds the chain at convert
+    /// time, and if the re-place then corrects that pose the store must follow, or the NEXT
+    /// scripted window would inherit a spot this window no longer occupies.
+    /// </summary>
+    private static void StoreChainPose(UIWindow? window, ConvertedPanel panel)
     {
-        int g = LevelMessageGroupIndex(wp.Window);
-        if (g < 0 || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+        int g = LevelMessageGroupIndex(window);
+        if (g < 0 || panel == null || !panel.IsAlive || panel.HostGo == null)
             return;
-        Transform host = wp.Panel.HostGo.transform;
+        Transform host = panel.HostGo.transform;
         Vector3 pos = host.position;
         Quaternion rot = host.rotation;
         if (!IsFinitePose(pos, rot))

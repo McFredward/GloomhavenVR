@@ -390,6 +390,18 @@ internal static partial class CanvasConversion
         panel.RevealPending = false;
         float waitedMs = (now - panel.RevealRequestedAt) * 1000f;
         string fitState = panel.FitMeasuredOnce ? "applied" : panel.FitEnabled ? "pending" : "n/a";
+        // First-open pose fix (2026-08-02): state WHERE the revealed pose came from. The placement
+        // runs at convert time, i.e. from the PRE-fit rect/scale, so ModalFallback replays it once
+        // against the final geometry while the panel is still hidden — this line is the proof that
+        // it happened (or the reason it deliberately did not) for the next hardware log.
+        string poseState = panel.PoseRePlaced
+            ? $"pose RE-PLACED after the fit: " +
+              $"({panel.PoseRePlacedFrom.x:F2},{panel.PoseRePlacedFrom.y:F2},{panel.PoseRePlacedFrom.z:F2})" +
+              $" → ({panel.PoseRePlacedTo.x:F2},{panel.PoseRePlacedTo.y:F2},{panel.PoseRePlacedTo.z:F2})"
+            : $"pose from spawn ({panel.PoseRePlaceReason})";
+        // `t` is this host's transform, read at the top of the gate — the same value the pose
+        // stability check tracked, i.e. the scale the first visible frame renders at.
+        string finalScale = t.lossyScale.x.ToString("F3");
         if (settled)
         {
             string lastWait = panel.RevealLastBlocker.Length > 0
@@ -399,8 +411,9 @@ internal static partial class CanvasConversion
                                   $"({waitedMs:F0} ms; last waited on {lastWait}; fit={fitState}, " +
                                   $"pose still for {panel.RevealPoseStableFrames} frame(s)) — revealed at " +
                                   "its FINAL pose/scale (mod layer + background hidden) — zero-flicker " +
-                                  $"pop-in; unhid {shownCanvases} canvas(es) + {shownRenderers} renderer(s) " +
-                                  "(grab bar, X, depth masks, MR plate) in this ONE frame.");
+                                  $"pop-in; {poseState}, final scale {finalScale}; unhid {shownCanvases} " +
+                                  $"canvas(es) + {shownRenderers} renderer(s) (grab bar, X, depth masks, " +
+                                  "MR plate) in this ONE frame.");
         }
         else
         {
@@ -410,7 +423,10 @@ internal static partial class CanvasConversion
                                   $"(deadline {RevealMaxWaitSeconds * 1000f:F0} ms; still waiting on " +
                                   $"{(!treated ? "treatment" : !fitDone ? "first content fit" : "pose stillness")}; " +
                                   $"fit={fitState}) — revealing anyway, a window must never stay invisible; " +
-                                  $"unhid {shownCanvases} canvas(es) + {shownRenderers} renderer(s).");
+                                  $"{poseState}, final scale {finalScale}; unhid {shownCanvases} canvas(es) " +
+                                  $"+ {shownRenderers} renderer(s). NOTE: any pose re-place still pending is " +
+                                  "now permanently SKIPPED — moving a visible window is the jump this gate " +
+                                  "exists to prevent.");
         }
     }
 

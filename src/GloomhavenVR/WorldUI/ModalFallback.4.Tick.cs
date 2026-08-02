@@ -534,6 +534,18 @@ internal static partial class ModalFallback
                                   "compact, consistent every open.");
         }
 
+        // 5b-pose. FIRST-OPEN POSE FIX (user report 2026-08-02): a window is PLACED at convert
+        //     time, i.e. before the content fit (5b's trigger) and before the scale re-derivation
+        //     5b just did — so every spawn clamp (board-top clearance, eye cap, overlap box test,
+        //     level-message view cone) was computed from the PRE-fit half-size, which for a
+        //     full-screen menu is several times the fitted one. While the window is still
+        //     render-hidden behind the reveal gate, replay that ONE placement against the now
+        //     final rect/scale; the reveal gate itself lives in CanvasConversion.Tick, which runs
+        //     LATER in this same Update, so the correction always lands BEFORE the first visible
+        //     frame and never after it. Runs directly after 5b so a window whose scale was
+        //     re-derived THIS tick is re-placed in the same tick (one-shot, see TickPoseRePlace).
+        TickPoseRePlace();
+
         // 5c. LOST-MENU RECALL (incident fix): a floated STICKY full-screen menu whose game
         //     window is still OPEN blocks card/board input BY DESIGN — so it must never be
         //     lost off-view (the user laser-carried the ESC menu away, it drifted out of
