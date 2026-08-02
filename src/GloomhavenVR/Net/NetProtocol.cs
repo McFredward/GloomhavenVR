@@ -395,7 +395,10 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 16;
+    public const ushort ModBuild = 17;
+    // Build 17: complete pre-reveal window hide (grab bar/depth masks/MR plate), grip-gated
+    // fingertip tile touch, figure-grab intent peek + extra tutorial step. Local-only
+    // rendering/input — no wire changes, same-build enforcement.
     // Build 16: settings window exempt from the game's tutorial-wide InteractabilityManager
     // click veto (root cause of dead tabs, proven) + floated windows reveal only at their
     // final pose/scale (no more spawn jump). Local-only UI — no wire changes.
