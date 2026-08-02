@@ -34,7 +34,8 @@ namespace GloomhavenVR;
 internal static partial class Defaults
 {
     // ---- Board/BoardConfig.cs ------------------------------------------------------
-    internal const bool ForceFarMode = true;         // => [Board] ForceFarMode
+    internal const bool ForceFarMode = false;        // => [Board] ForceFarMode  (pinned: the tuned cfg's `true` predates the GRIP gate — the fingertip used to steal the pick from the laser on any accidental brush, so far-only was the only safe shipped setting. Since TouchTilesWithFingertip the near pick exists ONLY while the grip is held, which is what makes the feature safe to ship on; keeping the far-only override at `true` would ship it dead.)
+    internal const bool TouchTilesWithFingertip = true;  // => [Board] TouchTilesWithFingertip
     internal const float TouchRange = 0.10f;         // => [Board] TouchRange
     internal const bool SnapToHexCenter = false;     // => [Board] SnapToHexCenter
     internal const bool HoverHaptics = true;         // => [Board] HoverHaptics

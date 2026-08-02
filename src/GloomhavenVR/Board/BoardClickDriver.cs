@@ -3,14 +3,42 @@ using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using HarmonyLib;
 using ScenarioRuleLibrary;
+using UnityEngine;
 
 namespace GloomhavenVR.Board;
 
 /// <summary>
-/// Click commit (Phase 3a): trigger-press (far mode) / fingertip poke-touch (near
-/// mode) while a pick target exists → one game click, injected at the game's OWN
+/// Click commit (Phase 3a): trigger-press (far mode) / fingertip touch (near mode)
+/// while a pick target exists → one game click, injected at the game's OWN
 /// click-detection point so everything downstream (double-click semantics, second-
 /// click-to-confirm, undo, MP replication) is byte-identical to a mouse click.
+///
+/// DIRECT FINGERTIP TOUCH (user requirement 2026-08 — the gesture the tutorial teaches).
+/// Putting the index fingertip onto a hex commits exactly what a laser click on that hex
+/// commits: the SAME <see cref="RequestClick"/>, the same injection point, the same
+/// suppression (<c>ModalFallback.HardCommitLockActive</c>), so there is no second
+/// game-state path and multiplayer stays byte-identical. Its three rules:
+///
+/// - <b>Grip-gated.</b> <see cref="BoardPick.TryNearPick"/> only produces a near pick while
+///   that hand holds the grip and holds nothing; <see cref="TickNear"/> re-checks the grip at
+///   commit time. Letting go of the grip mid-touch therefore commits nothing — the pick is
+///   gone on that very frame and the arming state is dropped.
+/// - <b>One commit per hex ENTRY, not continuously.</b> The commit fires when the fingertip
+///   reaches <see cref="ContactDepth"/> on a target, and then that target is spent. Re-arming
+///   takes one of: the fingertip moving onto a DIFFERENT target (sliding along a row of hexes
+///   commits each hex once, as it should), retracting past <see cref="ReleaseDepth"/> above the
+///   same target (touch the same hex twice — this is how second-click-to-confirm is done with
+///   the finger), or the pick going away at all (grip released / finger out of range).
+/// - <b>Anti-jitter floor.</b> <see cref="TouchCooldownSeconds"/> between two commits of the
+///   same hand, because the target-changed re-arm is exactly what tracking jitter on a hex
+///   BORDER produces at frame rate (the same flip-flop <see cref="ArmPlacementTile"/> was
+///   written for). It is far below any deliberate second touch and stays inside the game's
+///   0.3 s double-click window, so a deliberate double-touch still reads as a double click.
+///
+/// The laser cannot double-commit what the finger commits: near and far are mutually
+/// exclusive per frame by construction (<see cref="BoardPick"/> arbitration — the switch in
+/// <see cref="Tick"/> reaches ONE of the two branches), so with the fingertip in range and
+/// the grip held the trigger is simply not a board click.
 ///
 /// INJECTION STRATEGY — postfix on <c>Controller.CommonLoop</c> (the single input
 /// read the click dispatcher uses). Rationale, from the decompiled Controller.cs
@@ -50,9 +78,42 @@ internal static class BoardClickDriver
     /// than a shared constant — REVIEW-Hands-Board-Core §P3).</summary>
     private const float ReleaseDepth = 0.02f;
 
+    /// <summary>
+    /// Minimum seconds between two fingertip commits of the SAME hand. Not a dwell and not a
+    /// feel knob: the "target changed → re-arm" rule is what makes a hex BORDER dangerous,
+    /// because tracking jitter flips the resolved target between two adjacent hexes at frame
+    /// rate. Deliberately under the game's 0.3 s double-click window (Controller.CommonLoop)
+    /// so touching one hex twice on purpose still produces a double click.
+    /// </summary>
+    private const float TouchCooldownSeconds = 0.15f;
+
+    /// <summary>Seconds between two Info-level touch-commit lines for the same hand+hex (below it: Debug).</summary>
+    private const float TouchLogIntervalSeconds = 1f;
+
+    /// <summary>
+    /// Per-hand fingertip-touch arming. <see cref="Target"/> is the thing under the fingertip
+    /// on the last near-pick frame (the <c>CInteractable</c> when there is one, else the raw
+    /// collider) — identity only, never dereferenced, which is what makes "did the finger ENTER
+    /// something new?" a reference comparison instead of a coordinate one.
+    /// </summary>
+    private struct NearTouch
+    {
+        public bool Armed;
+        public Component? Target;
+        public float LastCommitTime;
+
+        /// <summary>Back to "nothing touched, ready to fire" — the state a fresh approach starts in.</summary>
+        public void Clear()
+        {
+            Armed = true;
+            Target = null;
+        }
+    }
+
     private static bool _pending;
-    private static bool _armedLeft = true;
-    private static bool _armedRight = true;
+    private static readonly NearTouch[] _near = { new() { Armed = true }, new() { Armed = true } };
+    private static string _lastTouchLogKey = string.Empty;
+    private static float _lastTouchLogTime = float.NegativeInfinity;
 
     /// <summary>Consumed by the CommonLoop postfix (once per game frame).</summary>
     public static bool ConsumePendingClick()
@@ -65,8 +126,10 @@ internal static class BoardClickDriver
     public static void Reset()
     {
         _pending = false;
-        _armedLeft = true;
-        _armedRight = true;
+        _near[0] = new NearTouch { Armed = true };
+        _near[1] = new NearTouch { Armed = true };
+        _lastTouchLogKey = string.Empty;
+        _lastTouchLogTime = float.NegativeInfinity;
     }
 
     /// <summary>Per-frame from <see cref="BoardDriver"/> (before the game's LateUpdate).</summary>
@@ -80,39 +143,66 @@ internal static class BoardClickDriver
                 TickNear();
                 break;
             case BoardPick.PickSource.Far:
-                _armedLeft = _armedRight = true;
+                _near[0].Clear();
+                _near[1].Clear();
                 TickFar();
                 break;
             default:
-                _armedLeft = _armedRight = true;
+                _near[0].Clear();
+                _near[1].Clear();
                 break;
         }
     }
 
+    /// <summary>
+    /// Direct fingertip touch on a board hex. See the class remarks for the grip gate, the
+    /// one-commit-per-entry rule and the laser arbitration; this is the mechanism.
+    /// </summary>
     private static void TickNear()
     {
         VRHand hand = BoardPick.SourceHand!;
-        ref bool armed = ref (hand.Side == HandSide.Left ? ref _armedLeft : ref _armedRight);
+        int index = (int)hand.Side;
 
-        // The other hand is not touching the board — keep it armed.
-        if (hand.Side == HandSide.Left)
-            _armedRight = true;
-        else
-            _armedLeft = true;
+        // The other hand is not touching the board — it starts its next approach armed.
+        _near[1 - index].Clear();
+
+        ref NearTouch state = ref _near[index];
+
+        // Grip gate, re-checked at COMMIT time. BoardPick already refuses to produce a near
+        // pick without the grip, so this is belt-and-braces against a future pick source —
+        // but it is also the line that makes "releasing grip mid-touch does not commit" true
+        // by construction rather than by chain of reasoning.
+        if (!hand.GripPressed || hand.Grabber.Held != null)
+        {
+            state.Clear();
+            return;
+        }
 
         float scale = hand.WorldScale;
         float surface = BoardPick.NearSurfaceDistance;
+        Component? target = ResolveTouchTarget();
 
-        if (armed)
+        // ENTRY: the fingertip moved onto something else — that is a new touch, so re-arm.
+        // (Leaving the board entirely lands in the Far/None branches above, which Clear().)
+        if (!ReferenceEquals(target, state.Target))
+        {
+            state.Target = target;
+            state.Armed = true;
+        }
+
+        if (state.Armed)
         {
             // Don't double-fire when the fingertip is actually pressing a registered
             // pokeable or a world-space canvas — the Poke interactor owns those.
             if (surface <= ContactDepth * scale
                 && hand.Poke.Hovered == null
-                && hand.Poke.HoveredUi == null)
+                && hand.Poke.HoveredUi == null
+                && Time.unscaledTime - state.LastCommitTime >= TouchCooldownSeconds)
             {
-                armed = false;
-                RequestClick(hand, "near touch");
+                state.Armed = false;
+                state.LastCommitTime = Time.unscaledTime;
+                LogTouchCommit(hand);
+                RequestClick(hand, "fingertip touch");
 
                 // P5 (MISSION A.8): poking an actor miniature additionally announces
                 // the actor on the bus — WorldUI opens its world-space stat panel.
@@ -128,8 +218,64 @@ internal static class BoardClickDriver
         }
         else if (surface > ReleaseDepth * scale)
         {
-            armed = true;
+            // Lifted off the same target — touching it AGAIN is allowed (second-click-to-confirm).
+            state.Armed = true;
         }
+    }
+
+    /// <summary>
+    /// Identity of whatever the fingertip is over: the <c>CInteractable</c> the game itself
+    /// would resolve (so every collider of one hex/miniature counts as ONE target), falling
+    /// back to the raw collider when the hit carries none. Reference identity only.
+    /// </summary>
+    private static Component? ResolveTouchTarget()
+    {
+        Collider? collider = BoardPick.HitCollider;
+        if (collider == null)
+            return null;
+        CInteractable? interactable = collider.GetComponentInParent<CInteractable>();
+        if (interactable != null)
+            return interactable;
+        return collider;
+    }
+
+    /// <summary>
+    /// The hardware-log proof of a fingertip commit: WHICH hex, WHICH hand, and that the grip
+    /// really was held. Throttled to one Info line per hand+hex per
+    /// <see cref="TouchLogIntervalSeconds"/> (repeats inside that window drop to Debug), so
+    /// walking a finger along a row cannot turn the log into a flood.
+    /// </summary>
+    private static void LogTouchCommit(VRHand hand)
+    {
+        string hex = DescribeTouchedHex();
+        string message = $"FINGERTIP TOUCH commit: hex {hex}, {hand.Side} hand, grip HELD " +
+                         $"(grip={hand.GripValue:0.00}, depth={-BoardPick.NearSurfaceDistance * 1000f / Mathf.Max(0.0001f, hand.WorldScale):0}mm " +
+                         $"into the surface, mode={VRModeStateMachine.CurrentMode}) — routed through the " +
+                         "same click path as a laser trigger click.";
+
+        string key = hand.Side + "|" + hex;
+        float now = Time.unscaledTime;
+        if (key == _lastTouchLogKey && now - _lastTouchLogTime < TouchLogIntervalSeconds)
+        {
+            VRLog.Debug("Board", message);
+            return;
+        }
+        _lastTouchLogKey = key;
+        _lastTouchLogTime = now;
+        VRLog.Info("Board", message);
+    }
+
+    /// <summary>"(x,y)" of the touched hex, or the hit object's name when the hit is not a tile
+    /// (miniatures, doors, chests — the finger commits on those exactly like the laser does).</summary>
+    private static string DescribeTouchedHex()
+    {
+        Collider? collider = BoardPick.HitCollider;
+        if (collider == null)
+            return "none";
+        TileBehaviour? tile = collider.GetComponentInParent<TileBehaviour>();
+        if (tile != null && tile.m_ClientTile != null && tile.m_ClientTile.m_Tile != null)
+            return $"({tile.m_ClientTile.m_Tile.m_ArrayIndex.X},{tile.m_ClientTile.m_Tile.m_ArrayIndex.Y})";
+        return "non-tile '" + collider.name + "'";
     }
 
     private static void TickFar()

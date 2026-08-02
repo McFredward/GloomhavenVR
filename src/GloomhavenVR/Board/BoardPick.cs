@@ -21,9 +21,22 @@ namespace GloomhavenVR.Board;
 /// Two pick sources, arbitrated near-over-far:
 /// - **Near**: an index fingertip within <c>[Board] TouchRange</c> above the board —
 ///   a short downward raycast from the fingertip (either hand; closest surface wins).
+///   GRIP-GATED (see <see cref="TryNearPick"/>): it only exists while that hand holds
+///   the grip button.
 /// - **Far**: the primary hand's <see cref="RayInteractor"/> pick
 ///   (<see cref="VRHands.PrimaryPick"/> per INTERFACES-P2 §2) — including the
 ///   [Dev] SimulateHands fallback, which drives the same RayInteractor.
+///
+/// LASER vs FINGERTIP ARBITRATION (user requirement 2026-08, "the laser must not
+/// double-commit what the finger committed"). It is decided HERE, once, by the
+/// near-over-far order below, and <see cref="BoardClickDriver"/> inherits it for free
+/// because it switches on <see cref="Source"/>: exactly one source exists per frame, so
+/// exactly one commit path runs. Concretely — while a hand holds the grip AND its
+/// fingertip is inside <c>[Board] TouchRange</c> of the board, the FINGERTIP owns the
+/// pick and the trigger cannot commit anything on the board (the far branch is never
+/// reached). Take the finger out of range, or let go of the grip, and the far ray is
+/// the pick again on the very next frame. The visible beam is untouched by this — only
+/// which pick the game sees, and therefore which commit path can fire.
 ///
 /// Inactive (all queries return false, patches run the ORIGINAL game code) while:
 /// no scenario / modal UI (<see cref="VRModeStateMachine"/> Menu2D/ModalUI), the
@@ -236,7 +249,9 @@ internal static class BoardPick
         _inScenario = true;
         int mask = controller.m_ActiveSelectionRaycastLayer.value;
 
-        if (!BoardConfig.ForceFarMode.Value)
+        // Direct fingertip touch on hexes ([Board] TouchTilesWithFingertip, default on),
+        // with [Board] ForceFarMode as the hard "laser only" override for desktop/dev runs.
+        if (BoardConfig.TouchTilesWithFingertip.Value && !BoardConfig.ForceFarMode.Value)
         {
             TryNearPick(VRHands.Left, mask);
             TryNearPick(VRHands.Right, mask);
@@ -249,10 +264,31 @@ internal static class BoardPick
             ResolveCursorWorld();
     }
 
+    /// <summary>
+    /// The fingertip pick of one hand — the near half of the near-over-far arbitration.
+    ///
+    /// <para>SAFETY GATE (explicit user requirement, 2026-08): the fingertip only picks while
+    /// that hand HOLDS THE GRIP — "Faust mit ausgestrecktem Zeigefinger". A hand drifting over
+    /// the board with the grip open is inert; it neither steals the pick from the laser nor can
+    /// it commit anything, so an accidental brush across the diorama is impossible. The gesture
+    /// is also self-illustrating: grip held with the trigger released is exactly
+    /// <see cref="HandPose.Point"/>, which the FingerCurler renders as a fist with the index
+    /// finger extended — the player's hand SHOWS the mode it is in.</para>
+    ///
+    /// <para>A hand that is HOLDING something is excluded as well: the grip is what grabs world
+    /// panels and control boards (<c>IGrabbable.GrabWithGrip</c>), so a held object means the
+    /// grip was pressed to carry it, not to touch a hex. Without this a player could not drag a
+    /// board across the diorama without clicking every hex it passed over. Mirrors the same
+    /// <c>Grabber.Held == null</c> condition the far click already carries.</para>
+    /// </summary>
     private static void TryNearPick(VRHand? hand, int mask)
     {
         // Near-touch follows the Poke interactor's mode policy (BoardTargeting: Ray+Poke).
         if (hand == null || !hand.HasPose || !hand.Poke.Enabled)
+            return;
+
+        // The two gates above (see the doc comment): deliberate gesture, empty hand.
+        if (!hand.GripPressed || hand.Grabber.Held != null)
             return;
 
         float scale = hand.WorldScale;
