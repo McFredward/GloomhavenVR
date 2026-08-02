@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -219,6 +220,13 @@ internal sealed class RayUguiDriver
 
         TickStickScroll(); // task #8: pointing hand's thumbstick scrolls a hovered ScrollRect
 
+        // SETTINGS CLICK TRACE (user ruling 2026-08-02, round 3): every trigger press landing on
+        // the mod settings surface logs the full delivery state — after two blind hardware
+        // rounds this line makes the next log decisive about WHERE a dead click died, whatever
+        // the cause turns out to be (see LogSettingsClickTrace).
+        if (_hand.TriggerDown && WorldUI.ModalFallback.IsSettingsSurface(_canvas))
+            LogSettingsClickTrace(hit, top);
+
         if (_hand.TriggerDown && hit && _hand.Grabber.Held == null)
         {
             _pressing = true;
@@ -385,6 +393,151 @@ internal sealed class RayUguiDriver
             $"{(blocking ? "; BLOCKING modal lock active" : "")}) to the mod settings surface " +
             $"'{settings.name}' ({settingsDist:F2} m) — the settings menu is never input-blocked " +
             "(user ruling 2026-08-02).");
+    }
+
+    /// <summary>Next unscaled time a settings click trace may log (shared across hands): the
+    /// trace fires on the press EDGE only, but a double-fire (both hands, jittered re-press)
+    /// must not double the multi-line payload.</summary>
+    private static float s_nextClickTraceAt;
+
+    /// <summary>
+    /// SETTINGS CLICK TRACE (user ruling 2026-08-02, round 3 diagnostics): one Info line per
+    /// trigger press that lands on the mod settings surface, carrying everything needed to
+    /// attribute a dead click from the log alone:
+    /// <list type="bullet">
+    /// <item>the FULL path of the top raycast hit (or the explicit no-hit case, where a press
+    /// dies on the canvas plane with no widget under the beam);</item>
+    /// <item>the resolved click handler (<c>ExecuteEvents.GetEventHandler</c> — the exact object
+    /// UguiPointer will deliver pointerClick to on release) — "none" means the press cannot
+    /// become a click at all;</item>
+    /// <item>the nearest Selectable's <c>interactable</c> flag AND its effective
+    /// <c>IsInteractable()</c> (false here with interactable=true = a CanvasGroup gate);</item>
+    /// <item>the ancestor CanvasGroup chain with each group's interactable/blocksRaycasts —
+    /// the candidate the game-side window stack would use to soft-disable the window;</item>
+    /// <item>the game's InteractabilityManager state: whether the global veto is armed
+    /// (<c>ShouldTryPreventControl</c>) and the per-widget gate verdict for the handler's widget
+    /// type — AFTER the mod's SettingsClickExemption postfix, so "gate ARMED, verdict allowed"
+    /// is the exemption proving itself, while "verdict VETOED" pinpoints a still-active game
+    /// gate.</item>
+    /// </list>
+    /// WHY so heavy: two hardware rounds died blind because the game's own veto only logs to the
+    /// Unity log, which BepInEx does not capture here — this line is the mod-side replacement.
+    /// Edge-only (trigger press) + throttled; allocations are fine at that rate.
+    /// </summary>
+    private void LogSettingsClickTrace(bool hit, in RaycastResult top)
+    {
+        if (Time.unscaledTime < s_nextClickTraceAt)
+            return;
+        s_nextClickTraceAt = Time.unscaledTime + 0.25f;
+
+        if (!hit || top.gameObject == null)
+        {
+            Core.VRLog.Info("Interact",
+                $"SETTINGS CLICK TRACE: {_hand.Side} press on settings surface — NO uGUI hit " +
+                "under the beam (raycast miss: the press dies on the canvas plane, no widget, " +
+                "no handler).");
+            return;
+        }
+
+        GameObject go = top.gameObject;
+
+        // A held grabbable consumes the trigger — the press below is skipped entirely, and the
+        // trace must say so or a "dead click" would be mis-attributed to the widget chain.
+        string delivery = _hand.Grabber.Held == null
+            ? "press delivered"
+            : "press NOT delivered (hand holds a grabbable)";
+
+        // Full path, leaf-last, so the log names the widget inside its window unambiguously.
+        var path = new StringBuilder(128);
+        BuildTransformPath(go.transform, path);
+
+        GameObject? clickHandler = ExecuteEvents.GetEventHandler<IPointerClickHandler>(go);
+
+        Selectable? selectable = go.GetComponentInParent<Selectable>();
+        string selectableInfo = selectable == null
+            ? "none"
+            : $"'{selectable.name}' interactable={selectable.interactable} " +
+              $"effective={selectable.IsInteractable()}";
+
+        // Ancestor CanvasGroup chain (leaf → root): the mechanism a game-side window stack
+        // would use to soft-disable a background window without touching raycasters.
+        var groups = new StringBuilder(64);
+        for (Transform? t = go.transform; t != null; t = t.parent)
+        {
+            CanvasGroup? cg = t.GetComponent<CanvasGroup>();
+            if (cg == null)
+                continue;
+            if (groups.Length > 0)
+                groups.Append(", ");
+            groups.Append('\'').Append(t.name).Append("'(i=").Append(cg.interactable ? 1 : 0)
+                  .Append(",b=").Append(cg.blocksRaycasts ? 1 : 0)
+                  .Append(cg.ignoreParentGroups ? ",ignoreParent" : string.Empty).Append(')');
+        }
+
+        Core.VRLog.Info("Interact",
+            $"SETTINGS CLICK TRACE: {_hand.Side} press → '{path}' ({delivery}) | " +
+            $"clickHandler={(clickHandler != null ? $"'{clickHandler.name}'" : "NONE")} | " +
+            $"selectable={selectableInfo} | canvasGroups=[{groups}] | {DescribeGameGate(clickHandler)}.");
+    }
+
+    /// <summary>Leaf-last '/'-joined transform path (root/…/leaf) for the trace line.</summary>
+    private static void BuildTransformPath(Transform leaf, StringBuilder into)
+    {
+        if (leaf.parent != null)
+        {
+            BuildTransformPath(leaf.parent, into);
+            into.Append('/');
+        }
+        into.Append(leaf.name);
+    }
+
+    /// <summary>
+    /// The game-side InteractabilityManager verdict for the widget that will receive the click:
+    /// global veto armed? and, for the five gated widget families, the exact ShouldAllowClickFor*
+    /// result (evaluated through the mod's SettingsClickExemption postfix — see the trace doc).
+    /// Reflection-free direct calls (repo-normal for game types); exception-guarded so a game
+    /// update can never turn the diagnostic into a crash.
+    /// </summary>
+    private static string DescribeGameGate(GameObject? clickHandler)
+    {
+        try
+        {
+            bool armed = InteractabilityManager.ShouldTryPreventControl();
+            string verdict;
+            if (clickHandler == null)
+            {
+                verdict = "no handler to gate";
+            }
+            else if (clickHandler.GetComponent<ExtendedToggle>() is { } et)
+            {
+                verdict = $"ExtendedToggle allow={InteractabilityManager.ShouldAllowClickForExtendedToggle(et)}";
+            }
+            else if (clickHandler.GetComponent<ExtendedButton>() is { } eb)
+            {
+                verdict = $"ExtendedButton allow={InteractabilityManager.ShouldAllowClickForExtendedButton(eb)}";
+            }
+            else if (clickHandler.GetComponent<UITab>() is { } tab)
+            {
+                verdict = $"UITab allow={InteractabilityManager.ShouldAllowClickForTab(tab)}";
+            }
+            else if (clickHandler.GetComponent<TrackedToggle>() is { } tt)
+            {
+                verdict = $"TrackedToggle allow={InteractabilityManager.ShouldAllowClickForTrackedToggle(tt)}";
+            }
+            else if (clickHandler.GetComponent<TrackedButton>() is { } tb)
+            {
+                verdict = $"TrackedButton allow={InteractabilityManager.ShouldAllowClickForTrackedButton(tb)}";
+            }
+            else
+            {
+                verdict = "ungated widget type (plain uGUI)";
+            }
+            return $"gameGate={(armed ? "ARMED" : "off")}, {verdict}";
+        }
+        catch (System.Exception e)
+        {
+            return $"gameGate=probe threw {e.GetType().Name}";
+        }
     }
 
     // Reused corner buffer (GetWorldCorners fills in place — no per-frame allocations).
