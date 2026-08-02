@@ -241,8 +241,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     Transform? IPanelGrabOwner.GrabRoot => _frame;
 
+    // User ruling 2026-08-02 round 2: a window that is still render-hidden behind the reveal gate
+    // must not be grabbable either — "grabbing/poking an invisible panel" is impossible by
+    // construction here, because PanelGrabHandle.CanGrab reads GrabVisible and BOTH grab paths
+    // consult it (RayGrabDriver's bar-collider ray test and ProximityGrabber's palm candidate
+    // scan). The uGUI side needs nothing extra: the poke and the laser skip surfaces whose Canvas
+    // is not isActiveAndEnabled (PokeInteractor.TickCanvases / RayUguiDriver), and the hide
+    // disables the host canvas — nested X hit-canvases are only ever consulted through a winning
+    // host, so they cannot be reached either.
     bool IPanelGrabOwner.GrabVisible =>
-        _panel != null && _panel.IsAlive && _holder != null && _holder.gameObject.activeInHierarchy;
+        _panel != null && _panel.IsAlive && !_panel.RenderHidden
+        && _holder != null && _holder.gameObject.activeInHierarchy;
 
     // Carry the yaw with the hand like the combat log — nothing else authors the
     // modal's rotation, so there is no two-writer jitter. Level in the plain WORLD
@@ -643,6 +652,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         // Render-only mod layer — grabs/pokes route through the registries, not layers.
         VRLayers.Apply(holderGo);
+
+        // User ruling 2026-08-02 round 2 ("ein Aufploppen der Greifbar ... woanders"): this holder
+        // is a SCENE-ROOT tree, not a child of the host — the host follows the frame, not the other
+        // way round — so the reveal gate's host-canvas hide could never touch the bar's MeshRenderer
+        // or the modal depth mask. Register it as an extra render root: the panel's render hide now
+        // walks this tree too, and because the panel is already render-hidden when Build runs, the
+        // registration hides the bar in the very frame it was created (it is built at the PRE-FIT
+        // rect/scale, which is exactly the wrong place the user saw it pop in at).
+        CanvasConversion.AddRenderRoot(_panel, _holder);
         VRLog.Info("WorldUI", $"MODAL GRAB: '{_logName}' is now a grabbable/scalable world element " +
                               "(grip the bar to move, two hands to resize 0.5x-2x).");
     }

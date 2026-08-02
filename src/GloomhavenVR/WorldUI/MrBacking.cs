@@ -295,7 +295,15 @@ internal static class MrBacking
             }
 
             Rect r = host.rect;
-            bool visible = panel.HostGo.activeInHierarchy && r.width > 2f && r.height > 2f;
+            // User ruling 2026-08-02 round 2: never plate a panel that is still render-hidden
+            // behind the reveal gate. This plate is OPAQUE and exactly host-rect sized, so on a
+            // freshly floated window it would pop in as a solid dark rectangle at the PRE-FIT rect
+            // — a window-shaped block in the wrong place for the whole settle window. The panel's
+            // render hide would switch the plate's renderer off in LateUpdate anyway; refusing it
+            // here means the plate is not even built at the wrong pose. (This Tick runs AFTER
+            // CanvasConversion.Tick, so RenderHidden is this frame's settled value.)
+            bool visible = panel.HostGo.activeInHierarchy && !panel.RenderHidden
+                           && r.width > 2f && r.height > 2f;
             if (entry.Plate == null)
             {
                 if (!visible)
