@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 14;
+    public const ushort ModBuild = 15;
+    // Build 15: static batching REMOVED entirely (root cause of invisible revealed rooms —
+    // Apparance clones of batched sources are born without material slots; user ruling),
+    // no mod X on tutorial windows, settings menu never input-blocked (laser fall-through).
+    // Local-rendering/UI only — no wire changes.
     // Build 14: MaterialLoaderHeal round 8 — heal foreign-disabled tile renderers too
     // (materials assigned, disabled by another system; stale static-batch state cleared),
     // census order fix + staticBatch/mat0 forensics. Local-rendering only.
