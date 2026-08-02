@@ -300,19 +300,16 @@ internal static class PerfSceneProfile
                     + "the property-block/render-queue count above is worth an A/B — if it were "
                     + "not for the property blocks and queue bumps, these could merge.");
         }
-        // The batching state is now something the MOD can change, so this sentence has to name who
-        // owns the number rather than asserting the old "nobody batches here" as a standing fact.
+        // The mod's own experimental batching pass was REMOVED (2026-08 user ruling — see
+        // .planning/static-batching-removed.md), so a non-zero count can only come from the
+        // game's own debug hotkey.
         if (staticBatched == 0)
             sb.Append(" NOTHING is statically batched (the game only ever calls "
                       + "StaticBatchingUtility.Combine from a debug hotkey, and its board geometry "
-                      + "is generated at runtime, so this is expected rather than a regression). "
-                      + "The mod's own experimental pass ([Batching] Mode, Core.StaticBatcher) is "
-                      + "therefore either off or has not run yet — its [Batch] PROBE/APPLY lines "
-                      + "say which.");
+                      + "is generated at runtime, so this is expected rather than a regression).");
         else
-            sb.Append(" — and since the game itself never batches outside a debug hotkey, that "
-                      + "count is the mod's own experimental pass ([Batching] Mode); compare it "
-                      + "against the renderer total on the [Batch] APPLY line.");
+            sb.Append(" — the mod never batches, so that count is the game's own debug-hotkey "
+                      + "StaticBatchingUtility.Combine.");
 
         sb.Append(" | mod-owned (layer ").Append(modLayer).Append("): ").Append(modOwned)
           .Append(" renderer(s), ").Append(modOwnedEnabled).Append(" enabled (")

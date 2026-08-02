@@ -327,25 +327,6 @@ internal static partial class Loc
             ["Optimize/HeadCullingMaskDrop"] = Pair("Camera: skip layers", "Kamera: Ebenen auslassen"),
             ["Optimize/HeadMaskFromScenarioCamera"] = Pair("Camera mask from game", "Kameramaske vom Spiel"),
 
-            // ---- [Batching] — experimental object merging -----------------------------------
-            ["Batching/Mode"] = Pair("Merging: mode", "Bündelung: Modus"),
-            ["Batching/Roots"] = Pair("Merging: scene roots", "Bündelung: Wurzeln"),
-            ["Batching/AutoDetectRoots"] = Pair("Auto-detect roots", "Wurzeln automatisch finden"),
-            ["Batching/MinRenderers"] = Pair("Minimum renderers (N)", "Mindest-Renderer (N)"),
-            ["Batching/MaxVertices"] = Pair("Vertex budget (N)", "Vertex-Budget (N)"),
-            ["Batching/SettleSeconds"] = Pair("Wait after load (s)", "Wartezeit nach Laden (s)"),
-            ["Batching/RescanSeconds"] = Pair("Re-check every (s)", "Neuprüfung alle (s)"),
-            ["Batching/RescanGrowth"] = Pair("Re-merge after N new", "Neubündeln ab N neuen"),
-            ["Batching/IncludeInactive"] = Pair("Include inactive rooms", "Auch Inaktives bündeln"),
-            ["Batching/Watchdog"] = Pair("Movement watchdog", "Bewegungs-Wächter"),
-            ["Batching/WatchdogAutoRevert"] = Pair("Watchdog: revert all", "Wächter: sofort zurück"),
-            ["Batching/WatchdogAutoExclude"] = Pair("Watchdog: exclude object", "Wächter: Objekt ausschließen"),
-            ["Batching/ExcludeLayers"] = Pair("Excluded layers", "Ausgeschlossene Ebenen"),
-            ["Batching/ExcludeNames"] = Pair("Excluded names", "Ausgeschlossene Namen"),
-            ["Batching/ExcludeComponents"] = Pair("Excluded components", "Ausgeschl. Komponenten"),
-            ["Batching/FreeCombinedCpuCopy"] = Pair("Free CPU mesh copy", "CPU-Kopie freigeben"),
-            ["Batching/VerboseLog"] = Pair("Verbose log", "Ausführliches Log"),
-
             // ---- [WorldUI] — panels, screen, input ------------------------------------------
             ["WorldUI/Master"] = Pair("All world panels", "Physische Oberfläche"),
             ["WorldUI/ButtonCluster"] = Pair("Wrist buttons", "Handgelenk-Tasten"),
