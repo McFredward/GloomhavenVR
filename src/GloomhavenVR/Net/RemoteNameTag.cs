@@ -43,15 +43,18 @@ namespace GloomhavenVR.Net;
 /// peers). Adding an identity field to our packet would be a second source of truth for
 /// something the game is authoritative about — the same rule <see cref="OwnerTag"/> records.
 ///
-/// PASSIVE READING IS NOT ENOUGH (MP-test defect 2): the game's automatic fetch on join
+/// PASSIVE READING IS NOT ENOUGH (MP-test defects 2 + 3): the game's automatic fetch on join
 /// (<c>NetworkPlayer.Attached()</c>) feeds Steam a 32-BIT AccountId where a 64-bit SteamId is
-/// required, so it never lands and <c>.Avatar</c> stays null on every machine until one of the
-/// game's flat UI rows happens to call <c>UpdatePlayerProfileAvatar()</c> (host: on character
-/// assignment; VR client: typically never). While the sprite is missing this tag therefore
-/// re-triggers that same seam itself via <see cref="NetPlayerActors.RequestAvatarFetch"/> —
-/// one attempt per <see cref="FetchRetrySeconds"/>, hard-capped at
-/// <see cref="FetchMaxAttempts"/>, stopped for good when Steam is not running locally
-/// (non-Steam session, logged once). Still zero wire, still the game's own data path.
+/// required, so it resolves to nobody and the game stamps its OWN GREY PLACEHOLDER onto
+/// <c>.Avatar</c> — non-null, which is why the first fix's "sprite is null" retry never fired and
+/// both roles kept the silhouette (host until its roster row happened to re-fetch on character
+/// assignment, VR client forever). The re-fetch therefore no longer lives here: it is the pump in
+/// <see cref="NetPlayerActors.TickAvatarFetch"/>, driven per KNOWN PEER by
+/// <see cref="NetAvatarDriver"/> and gated on <see cref="NetPlayerActors.ClassifyAvatar"/> (real
+/// picture vs. the game's placeholder), so it runs the moment the peer exists — with this tag
+/// hidden, with name tags switched off, and on both roles. Still zero wire, still the game's own
+/// data path. This tag only DISPLAYS whatever sprite the game currently holds and swaps in the
+/// real picture the frame it lands (the change gate below).
 ///
 /// Degrades gracefully: no avatar sprite → name only (logged once per player, never a throw);
 /// no username → "Player &lt;id&gt;". Purely cosmetic; owned/ticked/torn down by
@@ -77,15 +80,6 @@ internal sealed class RemoteNameTag
     /// placement): half the placeholder head (0.10) + the tag's own half height + air.</summary>
     private const float Rise = 0.30f;
 
-    /// <summary>Re-trigger the game's avatar fetch at most this often while the sprite is missing
-    /// (seconds, unscaled). Generous: the fetch is async anyway, and each attempt costs a
-    /// reflection invoke into the game's UI seam.</summary>
-    private const float FetchRetrySeconds = 5f;
-
-    /// <summary>Hard cap on fetch attempts per peer (≈40 s with <see cref="FetchRetrySeconds"/>).
-    /// After it the tag stays name-only exactly as before — the cap only ends the retrying.</summary>
-    private const int FetchMaxAttempts = 8;
-
     /// <summary>Readability floor for the tag's visual scale. The sender's rig scale (their world
     /// zoom) drops far below 1 when they lean into the diorama, and glyphs that render ~3 cm or
     /// smaller stop resolving at table distance in-headset. CHOICE: floor at 0.4× (≈3.2 cm row
@@ -108,13 +102,6 @@ internal sealed class RemoteNameTag
     // Mask-bounds anchor: the renderers under the head holder, cached until one of them dies
     // (mask style swap destroys the old HeadVisual → Unity-null entries → refetch next tick).
     private Renderer[] _maskRenderers = System.Array.Empty<Renderer>();
-
-    // Active avatar-fetch retry state (defect 2) — per peer, capped, never throws.
-    private int _fetchAttempts;
-    private float _nextFetchAt;            // Time.unscaledTime gate between attempts
-    private bool _fetchStopped;            // permanent: no Steam / cap reached
-    private bool _loggedFetchStart;        // one line when we first re-trigger the game's fetch
-    private bool _loggedFetchStop;         // one line when we stop for good
 
     public RemoteNameTag(RemoteAvatar owner)
     {
@@ -154,9 +141,11 @@ internal sealed class RemoteNameTag
         // Identity refresh, change-gated exactly like OwnerTag: the registry fills late on join
         // (bad-word masking + async Steam avatar), so keep polling; a rebuild only happens when
         // the sprite reference or the name actually changes.
+        // NOTE: no fetch here. Asking for the picture is the pump's job
+        // (NetPlayerActors.TickAvatarFetch, driven per peer by NetAvatarDriver) — a tag that only
+        // ticks while it is VISIBLE is the wrong place to own a network retry, and the sprite the
+        // game holds may be its placeholder rather than nothing at all.
         Sprite? avatar = NetPlayerActors.AvatarFor(_owner.PlayerId);
-        if (avatar == null)
-            MaybeRequestAvatarFetch(); // the game's own join-time fetch is broken — nudge its UI seam
         string? name = NetPlayerActors.NameFor(_owner.PlayerId);
         if (string.IsNullOrEmpty(name))
             name = _fallbackName;
@@ -245,69 +234,6 @@ internal sealed class RemoteNameTag
         return any;
     }
 
-    /// <summary>
-    /// Retry policy for the ACTIVE avatar fetch (class remarks): while the registry sprite is
-    /// missing, ask <see cref="NetPlayerActors.RequestAvatarFetch"/> to re-run the game's own
-    /// <c>UpdatePlayerProfileAvatar()</c> seam — at most once per <see cref="FetchRetrySeconds"/>,
-    /// at most <see cref="FetchMaxAttempts"/> times, and never again once Steam reads as not
-    /// running (non-Steam session — the game path is a hard no-op then). A landed sprite ends the
-    /// loop implicitly: the caller only invokes this while the sprite is null, and non-Steam PEERS
-    /// land the game's default sprite through the very same call. Never throws (the reflection
-    /// seam swallows); an attempt that reports <c>Unavailable</c> (peer not registered yet, seam
-    /// missing) just burns one capped attempt.
-    /// </summary>
-    private void MaybeRequestAvatarFetch()
-    {
-        if (_fetchStopped)
-            return;
-        float now = Time.unscaledTime;
-        if (now < _nextFetchAt)
-            return;
-        _nextFetchAt = now + FetchRetrySeconds;
-
-        if (_fetchAttempts >= FetchMaxAttempts)
-        {
-            _fetchStopped = true;
-            if (!_loggedFetchStop)
-            {
-                _loggedFetchStop = true;
-                VRLog.Info("Net", $"Name tag for player {_owner.PlayerId}: no avatar sprite after "
-                    + $"{FetchMaxAttempts} re-triggered fetches — giving up, staying name-only "
-                    + "(the picture still appears by itself if the game fills it later).");
-            }
-            return;
-        }
-        _fetchAttempts++;
-
-        switch (NetPlayerActors.RequestAvatarFetch(_owner.PlayerId))
-        {
-            case NetPlayerActors.AvatarFetch.NoSteam:
-                _fetchStopped = true;
-                if (!_loggedFetchStop)
-                {
-                    _loggedFetchStop = true;
-                    VRLog.Info("Net", $"Name tag for player {_owner.PlayerId}: local Steam client "
-                        + "not running (non-Steam session) — avatar fetch impossible, staying "
-                        + "name-only without further retries.");
-                }
-                break;
-            case NetPlayerActors.AvatarFetch.Requested:
-                if (!_loggedFetchStart)
-                {
-                    _loggedFetchStart = true;
-                    VRLog.Info("Net", $"Name tag for player {_owner.PlayerId}: re-triggered the "
-                        + "game's own avatar fetch (NetworkPlayer.UpdatePlayerProfileAvatar — the "
-                        + "seam its MP user rows call, which uses the full 64-bit SteamId; the "
-                        + "automatic join-time fetch feeds Steam a 32-bit AccountId and never "
-                        + $"lands). Retrying every {FetchRetrySeconds:0}s until a sprite arrives, "
-                        + $"max {FetchMaxAttempts} attempts.");
-                }
-                break;
-                // Unavailable: quiet — transient (peer not in the registry yet) or the bridge is
-                // disabled; the attempt cap bounds both.
-        }
-    }
-
     private void Rebuild(Sprite? avatar, string name)
     {
         // Clear previous visuals (children of the billboard root) AND our material clone —
@@ -339,10 +265,10 @@ internal sealed class RemoteNameTag
         else if (!_loggedNameOnly)
         {
             _loggedNameOnly = true;
-            VRLog.Info("Net", $"Name tag for player {_owner.PlayerId}: no Steam avatar sprite in the "
-                + "game's registry yet — showing the name only while the active fetch retries "
-                + "(see the RequestAvatarFetch lines); the picture appears by itself once a "
-                + "sprite lands.");
+            VRLog.Info("Net", $"Name tag for player {_owner.PlayerId}: the game holds NO avatar "
+                + "sprite at all right now — showing the name only. The fetch pump keeps asking "
+                + "(see the 'Steam avatar fetch' lines) and the picture is swapped in the frame it "
+                + "lands.");
         }
 
         var labelGo = new GameObject("Name");
