@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 23;
+    public const ushort ModBuild = 24;
+    // Build 24: cold-open menu ROOT CAUSE — the game re-drives the converted target after
+    // Convert pins it (localScale 0.14, rect height 1080→2040); the frame is now maintained,
+    // the fit uses only the LIVE union, and the design-height cap applies to the target rect.
+    // Local-only UI — no wire changes.
     // Build 23: cold-open menu round 6 — the window was FROZEN mid show-animation (15% scale),
     // so no rect could be right: land the animation, then fit to a re-measured fixed point.
     // Reveal flip moved to LateUpdate and the MR backing plate gap converted to real metres
