@@ -201,6 +201,35 @@ internal sealed class ConvertedPanel
     /// <c>SettleOneShotFit</c> / <c>SettlePreRevealFirstFit</c>).</summary>
     public int FitOneShotStableCount;
 
+    /// <summary>
+    /// First-open size bug (2026-08-02): measured content CENTER of the stability candidate, part
+    /// of the settle signature alongside <see cref="FitOneShotStableSize"/>. A partially laid-out
+    /// menu can keep its box size while the whole column slides sideways once the layout lands
+    /// (hardware: the cold first open measured its content 288 px to the right of every warm
+    /// open), and a fit committed there is mis-centered even though its size looked steady.
+    /// </summary>
+    public Vector2 FitOneShotStableCenter;
+
+    /// <summary>
+    /// First-open size bug: how many graphics contributed to the PREVIOUS settle check's measure.
+    /// The strongest cheap signal that content is still arriving — an element that becomes real
+    /// changes the count immediately, even when it sits inside the current bounding box and
+    /// therefore moves neither the size nor the center. Compared per check (it must not reset the
+    /// size/center streak: a pulsing element toggles it forever without moving the bounds).
+    /// </summary>
+    public int FitOneShotStableGraphics;
+
+    /// <summary>Total settle checks run before the first fit committed — reported by the fit log
+    /// so a hardware log can compare a cold first open against a warm re-open.</summary>
+    public int FitSettleChecks;
+
+    /// <summary>
+    /// How many settle checks saw the forced layout flush CHANGE the measurement (i.e. the layout
+    /// still had work pending). Expected to be &gt;0 on a session's first open of a window and 0 on
+    /// every later one — that difference IS the first-open bug, so the fit log reports it.
+    /// </summary>
+    public int FitSettleRebuildChanges;
+
     // ---- task #4 (world-space scroll clipping) --------------------------------------------
     /// <summary>
     /// Task #4 (scrolling extended the menu upward): <see cref="RectMask2D"/> components WE

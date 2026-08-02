@@ -45,6 +45,31 @@ internal static partial class CanvasConversion
     private const int OneShotSettleChecks = 6;
 
     /// <summary>
+    /// FIRST-OPEN SIZE BUG (user report 2026-08-02: the pause menu is tiny/far away on the VERY
+    /// FIRST open of a session, correct on every later open): how far BEFORE the reveal deadline
+    /// (<see cref="RevealMaxWaitSeconds"/>) a still-unsettled first fit is committed anyway with
+    /// the best measurement it has. WHY a lead and not the deadline itself: <c>Tick</c> runs
+    /// <c>TickRevealGate</c> BEFORE <see cref="TickFit"/>, so a commit exactly AT the deadline
+    /// would land one frame after the window was already shown — the visible re-fit jump the
+    /// reveal gate exists to prevent. Committing slightly earlier keeps the 0.6 s reveal bound
+    /// intact (a window can still never stay invisible) while guaranteeing the revealed rect is a
+    /// FITTED one instead of the full 1920x1080 window frame.
+    /// </summary>
+    private const float FitForceCommitLeadSeconds = 0.05f;
+
+    /// <summary>
+    /// Consecutive checks of a STEADY measured bound after which the settle gate commits even
+    /// though the forced layout flush still reports pending work (or the contributor count keeps
+    /// flipping). WHY a second, longer bar instead of only the strict criterion: genuinely
+    /// animated content — a story box typing its text, a pulsing prompt crossing the alpha floor —
+    /// dirties layout or toggles a graphic every frame forever, and a strict-only gate would hold
+    /// EVERY such window hidden until the reveal deadline on every open. ~0.25 s at 72 Hz: long
+    /// enough that a half-built menu (which converges within a frame or two of the first flush)
+    /// never reaches it, short enough to stay far inside the 0.6 s reveal bound.
+    /// </summary>
+    private const int SettleAnimatedFallbackChecks = 18;
+
+    /// <summary>
     /// Effective-alpha floor for the content FIT measure: anything fainter than this is
     /// treated as invisible and neither sizes nor centers the panel (historic 0.05 value —
     /// unchanged, so fit geometry is identical to the shipped builds).
@@ -139,6 +164,17 @@ internal static partial class CanvasConversion
         return true;
     }
 
+    /// <summary>
+    /// How many graphics actually CONTRIBUTED to the last <see cref="TryMeasureContent"/> pass
+    /// (passed <see cref="TryGetVisibleHostRect"/>). First-open size bug: the measured bounding
+    /// box alone is a lossy settle signal — a partially laid-out menu can hold the same small box
+    /// for several frames while its remaining rows are still zero-sized/culled. The contributor
+    /// COUNT changes the moment one more element becomes real, so the settle gate compares it
+    /// alongside size/center, and the fit log reports it (cold and warm opens must measure the
+    /// same number of graphics).
+    /// </summary>
+    private static int s_lastMeasureGraphics;
+
     /// <summary>Per-pass memo (keyed by a graphic's immediate parent — siblings share one walk)
     /// for <see cref="FindEnclosingClipper"/>; cleared at the start of every measure pass.</summary>
     private static readonly Dictionary<Transform, RectTransform?> ClipperMemo = new(32);
@@ -198,7 +234,7 @@ internal static partial class CanvasConversion
 
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
-        bool any = false;
+        int contributing = 0;
 
         ClipperMemo.Clear();
         GraphicScratch.Clear();
@@ -209,11 +245,12 @@ internal static partial class CanvasConversion
                 continue;
             min = Vector2.Min(min, gMin);
             max = Vector2.Max(max, gMax);
-            any = true;
+            contributing++;
         }
         GraphicScratch.Clear();
+        s_lastMeasureGraphics = contributing;
 
-        if (!any)
+        if (contributing == 0)
             return false; // nothing visible yet (fade-in) — caller retries
 
         // Clamp into the TARGET's own frame (in host-local space, via its world
@@ -478,10 +515,7 @@ internal static partial class CanvasConversion
         if (panel == null || panel.Target == null || panel.HostRect == null)
             return true; // nothing to do, do not retry
 
-        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
-                             && contentRoot.IsChildOf(panel.Target)
-            ? contentRoot
-            : panel.Target;
+        RectTransform root = ResolveFitRoot(panel, contentRoot);
 
         if (!TryMeasureContent(panel, root, out Vector2 size, out Vector2 center))
             return false; // nothing visible / degenerate yet (fade-in) — caller retries
@@ -618,67 +652,59 @@ internal static partial class CanvasConversion
     /// it, so an animated/unmeasurable menu still opens). The measure matches the final laid-out
     /// tree, identical every open. The reveal stays gated on <see cref="ConvertedPanel.FitOneShotApplied"/>,
     /// so the menu pops in already at its stable compact size — never flashing the full rect.
+    ///
+    /// FIRST-OPEN SIZE BUG (user report 2026-08-02, "tiny/very far away on the VERY FIRST open"):
+    /// stability alone was not enough. A half-built menu is perfectly STABLE — its unbuilt rows
+    /// are zero-sized or culled, so they contribute nothing and nothing moves for as many frames
+    /// as you care to count — and the cold open latched exactly that (259x294 px versus 396x1080
+    /// warm). The gate is content-aware now (<see cref="TickSettleGate"/>): the commit also
+    /// requires a forced layout flush to produce NO further change, and the flush itself was
+    /// re-ordered (<see cref="FlushPendingLayout"/>) so the measure no longer reads culling and
+    /// clipping computed from the PRE-rebuild geometry.
     /// </summary>
     private static void SettleOneShotFit(ConvertedPanel panel)
     {
         RectTransform? contentRoot = panel.FitContentRoot;
-        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
-                             && contentRoot.IsChildOf(panel.Target)
-            ? contentRoot
-            : panel.Target;
+        RectTransform root = ResolveFitRoot(panel, contentRoot);
 
-        // Deterministic layout: rebuild pending layout NOW so every open measures the same settled
-        // tree regardless of how warm the layout was (a cold first open is laid out identically to a
-        // warm re-open before we measure).
-        Canvas.ForceUpdateCanvases();
-        if (panel.Target != null)
-            LayoutRebuilder.ForceRebuildLayoutImmediate(panel.Target);
+        SettleResult state = TickSettleGate(panel, root, out string report);
+        bool giveUp = Time.unscaledTime >= panel.FitFirstDeadline;
+        bool revealDue = ForceCommitDue(panel);
 
-        bool measurable = TryMeasureContent(panel, root, out Vector2 size, out _);
-        bool deadline = Time.unscaledTime >= panel.FitFirstDeadline;
-
-        if (!measurable)
+        if (state == SettleResult.NotMeasurable)
         {
             // Nothing visible yet — keep retrying until the deadline, then give up to the full rect
             // (the reveal's deadline floor still pops the menu in, never an invisible one).
-            if (deadline && !panel.FitGaveUpLogged)
+            if (giveUp && !panel.FitGaveUpLogged)
             {
                 panel.FitGaveUpLogged = true;
                 panel.FitEnabled = false;
                 panel.FitMeasuredOnce = true;
                 VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' one-shot fit found nothing " +
-                                      $"measurable after {FitFirstWarnSeconds:F1}s — keeping the full rect.");
+                                      $"measurable after {FitFirstWarnSeconds:F1}s — keeping the full rect " +
+                                      $"({panel.FitSettleChecks} settle check(s)).");
             }
             return;
         }
 
-        // Stability gate: the measured size must hold steady across consecutive checks.
-        float tolX = Mathf.Max(panel.FitOneShotStableSize.x, size.x) * FitChangeFraction;
-        float tolY = Mathf.Max(panel.FitOneShotStableSize.y, size.y) * FitChangeFraction;
-        if (panel.FitOneShotStableCount > 0
-            && Mathf.Abs(size.x - panel.FitOneShotStableSize.x) <= tolX
-            && Mathf.Abs(size.y - panel.FitOneShotStableSize.y) <= tolY)
-        {
-            panel.FitOneShotStableCount++;
-        }
-        else
-        {
-            panel.FitOneShotStableSize = size;
-            panel.FitOneShotStableCount = 1;
-        }
+        if (state != SettleResult.Settled && !giveUp && !revealDue)
+            return; // still settling — keep measuring (render-hidden, so nothing visibly moves)
 
-        if (panel.FitOneShotStableCount < OneShotSettleChecks && !deadline)
-            return; // still settling — keep measuring
-
-        // Settled (or deadline forced): commit the single fit and LOCK. FitMeasuredOnce is still
-        // false here, so FitHostToContent applies the now-stable size immediately (no shrink damping).
+        // Settled (or forced): commit the single fit and LOCK. FitMeasuredOnce is still false here,
+        // so FitHostToContent applies the now-stable size immediately (no shrink damping).
         FitHostToContent(panel, contentRoot);
         panel.FitMeasuredOnce = true;
         panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
         panel.FitEnabled = false; // one-shot: freeze the rect (no per-frame re-fit flicker)
-        VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' full-screen menu fitted ONCE after its " +
-                              $"layout settled ({panel.FitOneShotStableCount} stable check(s)) — host rect locked " +
-                              "(same compact size every open, no re-fit flicker).");
+        if (state == SettleResult.Settled)
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' full-screen menu fitted ONCE after its " +
+                                  $"layout settled — {report} — host rect locked (same compact size every " +
+                                  "open, cold or warm, no re-fit flicker).");
+        else
+            VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' full-screen menu fit FORCED before its " +
+                                  $"layout settled ({(revealDue ? "reveal deadline" : "first-fit deadline")}) — " +
+                                  $"{report} — host rect locked at the best measurement available; the first " +
+                                  "open may differ from later ones (report this line).");
     }
 
     /// <summary>
@@ -697,48 +723,228 @@ internal static partial class CanvasConversion
     /// log lines) and must keep re-fitting through the normal periodic growth check. Unmeasurable
     /// content (still fading in) simply retries next frame — the reveal DEADLINE caps the total
     /// hidden time, after which <see cref="TickFit"/> falls back to the historic first-fit path.
+    ///
+    /// FIRST-OPEN SIZE BUG (2026-08-02): this path shares the defect the ESC menu exposed — it ran
+    /// the same "canvas update, then layout rebuild" flush and the same size-only stability gate —
+    /// so it is fixed the same way, through the shared <see cref="TickSettleGate"/>. A story box or
+    /// level message opened for the FIRST time in a session now waits for the same proof that its
+    /// layout has nothing left to apply before its rect is committed.
     /// </summary>
     private static void SettlePreRevealFirstFit(ConvertedPanel panel)
     {
         RectTransform? contentRoot = panel.FitContentRoot;
-        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
-                             && contentRoot.IsChildOf(panel.Target)
+        RectTransform root = ResolveFitRoot(panel, contentRoot);
+
+        SettleResult state = TickSettleGate(panel, root, out string report);
+        if (state == SettleResult.NotMeasurable)
+            return; // nothing visible yet (fade-in) — retry next frame, bounded by the reveal deadline
+
+        bool revealDue = ForceCommitDue(panel);
+        if (state != SettleResult.Settled && !revealDue)
+            return; // still settling — keep measuring (render-hidden, so nothing visibly moves)
+
+        // Stable (or forced just before the reveal deadline): commit the FIRST fit (undamped —
+        // FitMeasuredOnce is still false) and hand the host to the normal periodic growth re-check.
+        // The reveal gate sees FitMeasuredOnce and — once the host pose also held still — pops the
+        // window in already at this final rect.
+        FitHostToContent(panel, contentRoot);
+        panel.FitMeasuredOnce = true;
+        panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
+        if (state == SettleResult.Settled)
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' pre-reveal first fit committed after its " +
+                                  $"layout settled — {report} — the window reveals at this rect (later growth " +
+                                  "still re-fits through the periodic check).");
+        else
+            VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' pre-reveal first fit FORCED at the reveal " +
+                                  $"deadline before its layout settled — {report} — revealing at the best " +
+                                  "measurement available (report this line).");
+    }
+
+    /// <summary>
+    /// Shared measure root resolution: the caller's narrower content root when it is usable
+    /// (active and genuinely inside the converted subtree), else the conversion target itself.
+    /// Extracted so the per-frame fit and BOTH settle paths can never drift apart in what they
+    /// measure — the whole point of the settle gate is that the committing measure is the same
+    /// measure that was proven stable.
+    /// </summary>
+    private static RectTransform ResolveFitRoot(ConvertedPanel panel, RectTransform? contentRoot) =>
+        contentRoot != null && contentRoot.gameObject.activeInHierarchy
+        && contentRoot.IsChildOf(panel.Target)
             ? contentRoot
             : panel.Target;
 
-        // Deterministic layout NOW: without this, a text/layout rebuild scheduled by the game
-        // this frame would be measured one frame LATE — past the reveal in the worst case.
+    /// <summary>
+    /// Flush EVERY pending uGUI rebuild of a converting panel — LAYOUT FIRST, canvas update
+    /// SECOND. THE ORDER IS THE FIRST-OPEN BUG (user report 2026-08-02: pause menu tiny on the
+    /// very first open of a session, correct on every later open):
+    ///
+    /// <see cref="Canvas.ForceUpdateCanvases"/> is what drives <c>CanvasUpdateRegistry</c> — the
+    /// graphic rebuilds AND the clipping pass (<see cref="RectMask2D"/>/<see cref="Mask"/> →
+    /// <c>CanvasRenderer.cull</c> + the clip rects). The content measure reads exactly those
+    /// results: <see cref="TryGetVisibleHostRect"/> SKIPS any graphic whose canvasRenderer is
+    /// culled and CLAMPS the rest to their clipper's rect. Running the canvas update BEFORE the
+    /// layout rebuild (the old order) therefore evaluated culling/clipping against the PRE-rebuild
+    /// geometry, and every rect the rebuild then moved or resized carried a stale cull flag and a
+    /// stale clip rect into the measure.
+    ///
+    /// On a WARM re-open that is harmless: the subtree still carries the settled rects from the
+    /// previous open, the rebuild changes nothing, and the stale state is already the correct
+    /// state. On a COLD first open the game's layout for this window has NEVER run (proof in the
+    /// hardware log: the ESC menu's own root rect converts at 1080 px on the first open and at
+    /// 2040 px — "height capped 2040->1080" — on every later one), so the rebuild moves and
+    /// resizes nearly everything, the whole measure ran against stale culling, and the fit locked
+    /// a small mis-centered box (259x294 px at offset -486,468 versus 396x1080 at -774,0 warm).
+    /// Rebuilding first and updating the canvases afterwards makes the measure read culling and
+    /// clipping that belong to the geometry it is measuring.
+    /// </summary>
+    private static void FlushPendingLayout(ConvertedPanel panel)
+    {
+        if (panel.Target == null)
+            return;
+        LayoutRebuilder.ForceRebuildLayoutImmediate(panel.Target);
         Canvas.ForceUpdateCanvases();
-        if (panel.Target != null)
-            LayoutRebuilder.ForceRebuildLayoutImmediate(panel.Target);
+    }
 
-        if (!TryMeasureContent(panel, root, out Vector2 size, out _))
-            return; // nothing visible yet (fade-in) — retry next frame, bounded by the reveal deadline
+    /// <summary>Outcome of one <see cref="TickSettleGate"/> check.</summary>
+    private enum SettleResult
+    {
+        /// <summary>Nothing visible/measurable yet (still fading in, still zero-sized).</summary>
+        NotMeasurable,
 
-        // Same stability gate as SettleOneShotFit (shared scratch fields — the two paths are
-        // mutually exclusive per panel): a mid-animation measure never commits.
-        float tolX = Mathf.Max(panel.FitOneShotStableSize.x, size.x) * FitChangeFraction;
-        float tolY = Mathf.Max(panel.FitOneShotStableSize.y, size.y) * FitChangeFraction;
-        if (panel.FitOneShotStableCount > 0
-            && Mathf.Abs(size.x - panel.FitOneShotStableSize.x) <= tolX
-            && Mathf.Abs(size.y - panel.FitOneShotStableSize.y) <= tolY)
+        /// <summary>Measurable, but the content is still changing — do not commit yet.</summary>
+        Settling,
+
+        /// <summary>A forced rebuild changes nothing and the measurement held steady — commit.</summary>
+        Settled,
+    }
+
+    /// <summary>
+    /// Measure the content the way the fit will, and REPORT whether a forced layout flush changes
+    /// that measurement. This is the content-aware settle criterion that replaced the old
+    /// time/stability-only gate: "the numbers did not move for N frames" is satisfiable by a
+    /// half-built menu (its remaining rows are zero-sized or culled, so they contribute nothing
+    /// and nothing moves), whereas "a forced rebuild + canvas update produces the SAME
+    /// measurement" can only be true once the layout genuinely has nothing left to do.
+    /// <paramref name="layoutWasDirty"/> is that answer; it also covers the contributor COUNT, so
+    /// one more element becoming real is caught even when the bounding box happens not to grow.
+    /// </summary>
+    private static bool TryMeasureSettled(ConvertedPanel panel, RectTransform root,
+        out Vector2 size, out Vector2 center, out int graphics, out bool layoutWasDirty)
+    {
+        bool preOk = TryMeasureContent(panel, root, out Vector2 preSize, out Vector2 preCenter);
+        int preGraphics = s_lastMeasureGraphics;
+
+        FlushPendingLayout(panel);
+
+        bool postOk = TryMeasureContent(panel, root, out size, out center);
+        graphics = s_lastMeasureGraphics;
+
+        layoutWasDirty = preOk != postOk || preGraphics != graphics
+                         || (postOk && !MeasureMatches(preSize, preCenter, size, center));
+        return postOk;
+    }
+
+    /// <summary>
+    /// Two content measurements are the same within the fit's own <see cref="FitChangeFraction"/>
+    /// tolerance (never below 1 px, so float noise on a large rect cannot masquerade as a change).
+    /// Compares the CENTER as well as the size: a partially laid-out menu can keep its box size
+    /// while the column slides sideways (measured on hardware: the cold first open sat 288 px to
+    /// the right of the warm one), and a fit committed there is mis-centered even when its size
+    /// looks right.
+    /// </summary>
+    private static bool MeasureMatches(Vector2 aSize, Vector2 aCenter, Vector2 bSize, Vector2 bCenter)
+    {
+        float tolX = Mathf.Max(Mathf.Max(aSize.x, bSize.x) * FitChangeFraction, 1f);
+        float tolY = Mathf.Max(Mathf.Max(aSize.y, bSize.y) * FitChangeFraction, 1f);
+        return Mathf.Abs(aSize.x - bSize.x) <= tolX && Mathf.Abs(aSize.y - bSize.y) <= tolY
+               && Mathf.Abs(aCenter.x - bCenter.x) <= tolX && Mathf.Abs(aCenter.y - bCenter.y) <= tolY;
+    }
+
+    /// <summary>
+    /// One settle check, shared by the one-shot menu fit and the pre-reveal first fit (they are
+    /// mutually exclusive per panel, so they share the settle scratch fields). Commits nothing —
+    /// it only advances the gate and hands the caller a log-ready <paramref name="report"/>.
+    ///
+    /// A check is SETTLED when both hold:
+    ///  1. the forced layout flush (<see cref="FlushPendingLayout"/>) did not change the
+    ///     measurement — deterministic proof that the layout has nothing left to apply, which is
+    ///     what a cold first open lacks and a warm re-open has from the start; and
+    ///  2. the measurement (size, center AND contributor count) has held steady for
+    ///     <see cref="OneShotSettleChecks"/> consecutive checks — the historic bound against
+    ///     committing mid show-animation, unchanged.
+    /// </summary>
+    private static SettleResult TickSettleGate(ConvertedPanel panel, RectTransform root, out string report)
+    {
+        report = string.Empty;
+        panel.FitSettleChecks++;
+
+        if (!TryMeasureSettled(panel, root, out Vector2 size, out Vector2 center,
+                out int graphics, out bool layoutWasDirty))
+        {
+            if (layoutWasDirty)
+                panel.FitSettleRebuildChanges++;
+            panel.FitOneShotStableCount = 0;
+            panel.FitOneShotStableGraphics = 0;
+            return SettleResult.NotMeasurable;
+        }
+        if (layoutWasDirty)
+            panel.FitSettleRebuildChanges++;
+
+        // Geometry streak — the HISTORIC criterion, semantics unchanged (size, plus the center the
+        // old gate ignored). Deliberately NOT reset by the contributor count: a pulsing/blinking
+        // element crossing the alpha floor toggles the count every other frame without moving the
+        // bounds, and resetting on it would starve the streak forever.
+        bool held = panel.FitOneShotStableCount > 0
+                    && MeasureMatches(panel.FitOneShotStableSize, panel.FitOneShotStableCenter, size, center);
+        // Evaluated per check (not streak-resetting): content ARRIVING changes the contributor
+        // count between two consecutive checks, which is the signal a stable bounding box hides.
+        bool sameContent = panel.FitOneShotStableCount > 0 && graphics == panel.FitOneShotStableGraphics;
+        if (held)
         {
             panel.FitOneShotStableCount++;
         }
         else
         {
             panel.FitOneShotStableSize = size;
+            panel.FitOneShotStableCenter = center;
             panel.FitOneShotStableCount = 1;
         }
-        if (panel.FitOneShotStableCount < OneShotSettleChecks)
-            return; // still settling — keep measuring (render-hidden, so nothing visibly moves)
+        panel.FitOneShotStableGraphics = graphics;
 
-        // Stable: commit the FIRST fit (undamped — FitMeasuredOnce is still false) and hand the
-        // host to the normal periodic growth re-check. The reveal gate sees FitMeasuredOnce and
-        // — once the host pose also held still — pops the window in already at this final rect.
-        FitHostToContent(panel, contentRoot);
-        panel.FitMeasuredOnce = true;
-        panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
+        // Tier A (the real gate): nothing left for the layout to apply, no content arrived between
+        // the last two checks, and the measurement held for the historic number of checks.
+        bool settled = !layoutWasDirty && sameContent
+                       && panel.FitOneShotStableCount >= OneShotSettleChecks;
+        // Tier B (bound): genuinely ANIMATED content (a typewriter story text, a pulsing prompt)
+        // can keep dirtying the layout or flipping a graphic in and out indefinitely — never
+        // committing would hold the window hidden until the reveal deadline on EVERY open. Once
+        // the measured bounds themselves have held steady this much longer, commit anyway: the
+        // bounds are what the fit uses, and they stopped moving.
+        bool boundReached = panel.FitOneShotStableCount >= SettleAnimatedFallbackChecks;
+
+        // Reported on the committing line so a hardware log can PROVE cold/warm equality: the
+        // first open and every later one must show the same measured size, the same contributor
+        // count and the same committed rect — and the rebuild-change counter says whether the
+        // cold open needed the flush at all.
+        report = $"measured {size.x:F0}x{size.y:F0} px at ({center.x:F0},{center.y:F0}) from " +
+                 $"{graphics} visible graphic(s); {panel.FitOneShotStableCount} stable check(s) of " +
+                 $"{panel.FitSettleChecks}; forced rebuild changed the measurement " +
+                 $"{panel.FitSettleRebuildChanges}x (this check: {(layoutWasDirty ? "YES" : "no")}" +
+                 (settled ? ")" : boundReached ? "; committed on the animated-content bound)" : ")");
+
+        return settled || boundReached ? SettleResult.Settled : SettleResult.Settling;
     }
+
+    /// <summary>
+    /// True when a render-hidden panel's first fit must be committed NOW with whatever it last
+    /// measured, because the reveal deadline is about to open the gate (see
+    /// <see cref="FitForceCommitLeadSeconds"/> for why it fires slightly early). This is the
+    /// BOUND on the content-aware gate: a window whose layout never settles still reveals within
+    /// <see cref="RevealMaxWaitSeconds"/>, and it reveals at a fitted rect rather than at the raw
+    /// full-screen window frame.
+    /// </summary>
+    private static bool ForceCommitDue(ConvertedPanel panel) =>
+        panel.RevealPending && panel.RevealDeadline > 0f
+        && Time.unscaledTime >= panel.RevealDeadline - FitForceCommitLeadSeconds;
 
 }
