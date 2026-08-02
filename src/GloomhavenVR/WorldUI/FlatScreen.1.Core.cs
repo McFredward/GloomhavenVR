@@ -204,6 +204,18 @@ internal sealed partial class FlatScreen
     private bool _vmPressed;
     private RenderTexture? _rt;
     private bool _visible;
+
+    /// <summary>
+    /// Static mirror of <see cref="_visible"/> for diagnostics that cannot reach the instance.
+    ///
+    /// <para>WHY (round 8): the flat screen owns the ONLY per-eye render targets in the mod (the
+    /// stereo screen's left/right RTs), so "was the screen even up?" is the first question any
+    /// one-eye artifact report has to answer. In a scenario it is HIDDEN — the game cameras are
+    /// scrubbed to an offscreen sink instead — which makes the whole per-eye RT machinery inert
+    /// there and rules it out of a scenario-side artifact in one log line. Written only by
+    /// Show/Hide (rare), read only by log paths.</para>
+    /// </summary>
+    internal static bool ScreenVisible { get; private set; }
     private bool _pressing;
     private bool _mirrorLogged;
 

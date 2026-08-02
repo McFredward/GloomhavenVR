@@ -165,6 +165,9 @@ internal static partial class ModalFallback
             return;
         _attached = false;
         VREvents.WindowVisibility -= OnWindow;
+        // Round 8: hand every pre-convert blackout back BEFORE anything else — a game window we
+        // switched off must never survive the module (see part 11).
+        ReleaseAllPreConvertHide("module shutdown");
         RestoreMenuSelectionGuard(); // put InControl mouse-hover focus back before we drop the windows
         Core.MixedReality.KeepMenusUnclipped(false); // item 5a: release the backdrop depth override
         ReleaseAllWindows("module shutdown");
@@ -200,12 +203,22 @@ internal static partial class ModalFallback
         CatchAllObserve(e.Window, e.Shown);
         if (!e.Shown)
         {
+            ReleasePreConvertHide(e.Window, "the game hid it again");
             if (Open.Remove(e.Window))
                 VRLog.Info("WorldUI", $"Modal fallback: window '{e.Window.name}' (ID {e.Id}) hidden — untracked.");
             return;
         }
         if (!IsFallbackWindow(e.Id))
             return;
+
+        // ROUND 8 (the left-eye left-edge flicker) — THE ONE PLACE THIS CAN BE FIXED. This
+        // postfix runs SYNCHRONOUSLY inside the game's own Show(), before the frame renders;
+        // the conversion below only runs in the NEXT tick, so between the two the game's 2D
+        // window is drawn once — by the head camera, which renders every layer — at its
+        // screen-space home. Switch its rendering off right here; TryConvertWindow hands it
+        // straight back so the conversion's own hide/reveal bookkeeping stays exact. Full
+        // reasoning, evidence and the safety bounds: ModalFallback part 11.
+        PreConvertHide(e.Window);
         // Test #10: track fallback windows EVEN outside a scenario. The scenario-start
         // story/intro windows open during loading, BEFORE the mode machine's scenario
         // signal (Choreographer alive) settles — an edge-triggered event gated on
@@ -242,6 +255,11 @@ internal static partial class ModalFallback
     /// </summary>
     internal static void Tick()
     {
+        // Round 8, FIRST — before any step that could throw: end every pre-convert 2D blackout
+        // whose window will not be floated after all, and enforce the frame budget (part 11).
+        // A window the mod switched off must never outlive the reason it was switched off.
+        TickPreConvertHide();
+
         bool inScenario = VRModeStateMachine.ScenarioBoardExists;
 
         // LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): the shared stored

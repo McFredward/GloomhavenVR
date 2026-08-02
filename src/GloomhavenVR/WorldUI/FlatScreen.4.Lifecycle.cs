@@ -308,6 +308,7 @@ internal sealed partial class FlatScreen
 
         PlaceScreen(instant: true);
         _visible = true;
+        ScreenVisible = true;
         VRLog.Info("WorldUI", "FlatScreen shown (backbuffer camera stack → RenderTexture; " +
                               "desktop mirror engages at end of frame).");
     }
@@ -354,6 +355,19 @@ internal sealed partial class FlatScreen
         if (_visible)
             VRLog.Info("WorldUI", "FlatScreen hidden — captured cameras restored to the backbuffer.");
         _visible = false;
+        ScreenVisible = false;
+
+        // ROUND 8 (one-frame backbuffer gap, same artifact family as the pre-convert 2D blackout).
+        // ReleaseStack() above puts every captured game camera back on the BACKBUFFER — and under
+        // active XR the backbuffer IS the HMD eye textures, so a desktop-only (stereoTargetEye =
+        // None) camera composites into an eye for that frame. TickDesktopCameraScrub, which is
+        // what normally keeps those cameras off the backbuffer, already ran at the TOP of this
+        // same Tick (it saw _visible == true and stood down), so without this call the game's 2D
+        // UI and 3D composite reach the headset for exactly one frame on every screen hide.
+        // Re-running it here — after _visible went false, so it now WANTS the scrub — closes the
+        // hand-off inside the frame instead of one frame later. It is the identical work the next
+        // tick would do, just not one render too late; ReleaseDesktopScrub cannot re-enter Hide().
+        TickDesktopCameraScrub();
         _mirrorLogged = false;
         _handsDiagLogged = false;
         _placedHead = null;
