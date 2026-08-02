@@ -1920,9 +1920,17 @@ internal static partial class Loc
             ["SquareCaps/Travel"] = "veraltet",
             // ---- [Board] ----
             ["Board/ForceFarMode"] =
-                "Deaktiviert das Zeigen aus der Nähe mit der Fingerspitze und benutzt immer den Fernstrahl. "
-                + "Nützlich für Desktop-/Entwicklertests ([Dev] SimulateHands), bei denen die Fake-Hände das "
-                + "Spielbrett nie erreichen.",
+                "Hauptschalter dagegen: die Fingerspitze zeigt und klickt nie auf dem Spielbrett, es gilt "
+                + "immer der Fernstrahl. Schaltet damit auch TouchTilesWithFingertip ab. Nützlich für "
+                + "Desktop-/Entwicklertests ([Dev] SimulateHands), bei denen die Fake-Hände das Spielbrett "
+                + "nie erreichen.",
+            ["Board/TouchTilesWithFingertip"] =
+                "Tippe ein hervorgehobenes Feld direkt mit der Zeigefingerspitze an — das löst genau die "
+                + "Aktion aus, die auch ein Klick mit dem Laser auf dieses Feld auslöst. Es passiert nur, "
+                + "solange der GRIFF gedrückt ist (Faust mit ausgestrecktem Zeigefinger), damit ein "
+                + "versehentliches Streifen über das Brett niemals etwas auslöst. Ein Auslöser pro Feld: "
+                + "verlasse das Feld, hebe den Finger ab oder lass den Griff los, um den nächsten scharf "
+                + "zu machen.",
             ["Board/TouchRange"] =
                 "Wie nah (in echten Metern, mit dem Diorama skaliert) die Zeigefingerspitze über dem "
                 + "Spielbrett sein muss, bevor das Zeigen aus der Nähe den Fernstrahl ablöst.",

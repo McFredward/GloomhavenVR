@@ -152,6 +152,7 @@ internal static partial class Loc
 
             // ---- [Board] / [HexHighlight] / [SelectionReady] — board & targeting ------------
             ["Board/ForceFarMode"] = Pair("Far-ray picking only", "Nur Fernstrahl-Auswahl"),
+            ["Board/TouchTilesWithFingertip"] = Pair("Touch hexes with fingertip", "Feld mit Finger antippen"),
             ["Board/TouchRange"] = Pair("Fingertip pick range (m)", "Fingertipp-Reichweite (m)"),
             ["Board/SnapToHexCenter"] = Pair("Snap to hex centre", "Auf Hexmitte einrasten"),
             ["Board/HoverHaptics"] = Pair("Haptics on new target", "Vibration bei Feldwechsel"),

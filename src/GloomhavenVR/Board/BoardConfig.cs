@@ -14,6 +14,13 @@ internal static class BoardConfig
     /// <summary>Disable fingertip near-touch picking; always use the far ray (desktop/dev testing).</summary>
     public static ConfigEntry<bool> ForceFarMode = null!;
 
+    /// <summary>
+    /// Grip-gated direct fingertip touch on board hexes (the gesture the tutorial teaches):
+    /// hold the GRIP, put the index fingertip on a hex, and the game receives the SAME click
+    /// the laser trigger would have sent on that hex.
+    /// </summary>
+    public static ConfigEntry<bool> TouchTilesWithFingertip = null!;
+
     /// <summary>Fingertip-to-board distance (real meters) below which near-touch picking takes over.</summary>
     public static ConfigEntry<float> TouchRange = null!;
 
@@ -39,9 +46,16 @@ internal static class BoardConfig
 
         ForceFarMode = config.Bind(
             "Board", "ForceFarMode", Defaults.ForceFarMode,
-            "Disable fingertip near-touch picking and always use the far ray. " +
-            "Useful for desktop/dev testing ([Dev] SimulateHands) where the fake hands " +
-            "never reach the board.");
+            "Master override: never let the index fingertip pick or click the board, always " +
+            "use the far ray. Kills TouchTilesWithFingertip too. Useful for desktop/dev testing " +
+            "([Dev] SimulateHands) where the fake hands never reach the board.");
+        TouchTilesWithFingertip = config.Bind(
+            "Board", "TouchTilesWithFingertip", Defaults.TouchTilesWithFingertip,
+            "Touch a highlighted hex directly with your index fingertip to commit the same " +
+            "action the laser click commits. Only ever fires while the GRIP button is held " +
+            "(make a fist and stick the index finger out), so accidental brushes across the " +
+            "board can never trigger anything. One commit per hex entry; leave the hex, lift " +
+            "the finger or let go of the grip to arm the next one.");
         TouchRange = config.Bind(
             "Board", "TouchRange", Defaults.TouchRange,
             "How close (real meters, scaled by the diorama) the index fingertip must be " +

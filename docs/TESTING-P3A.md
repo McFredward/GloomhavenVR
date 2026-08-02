@@ -8,6 +8,13 @@
 > mode, or always with `[Hands] RayAlwaysOn`). **Near mode** = an index fingertip
 > within `[Board] TouchRange` (default 10 cm real) above the board takes over from
 > the ray; touching a hex commits a click. AoE patterns rotate with the thumbstick.
+>
+> Near mode is **grip-gated** (`[Board] TouchTilesWithFingertip`, default on): it only
+> exists while that hand HOLDS THE GRIP and holds no object — "fist with the index
+> finger out". With the grip open the fingertip is inert and the laser keeps the pick,
+> so brushing the board triggers nothing. While the finger owns the pick the trigger
+> cannot commit on the board, so the two can never both fire. One commit per hex
+> entry; re-arm by moving to another hex, lifting the finger, or releasing the grip.
 
 ## 0. Desktop smoke test first (no HMD needed)
 
@@ -121,7 +128,8 @@ restores the mouse. (In real VR the game camera is rig-driven, so this is moot.)
 |---|---|
 | Hover ignores the hands, follows the mouse | Overlay mode — ray only runs in BoardTargeting unless `RayAlwaysOn`; hands must be tracked (`VRHands.Ready`). |
 | Highlight follows ray but clicks do nothing | Turn control: is it your decision point? Log should show `[Board] click requested…`; if present but no selection, capture `Choreographer` wait state from the overlay. |
-| Near mode never engages | `[Board] ForceFarMode` still true from desktop testing? `TouchRange` too small for your play scale? |
+| Near mode never engages | Is the GRIP held (near mode is grip-gated) and the hand empty? `[Board] TouchTilesWithFingertip` off, or `ForceFarMode` still true from desktop testing? `TouchRange` too small for your play scale? |
+| Fingertip touch commits nothing | Log must show `[Board] FINGERTIP TOUCH commit: hex (x,y), <side> hand, grip HELD …`. Line present but no selection → same triage as "clicks do nothing" (turn control / wait state). Line absent → the grip gate or the pick, not the commit. |
 | AoE won't rotate | Only RANGED AoE rotates via stick (range > 1); melee follows hover. Stick deadzone: raise/lower `AoeFlickThreshold`. |
 | Clicks land on wrong hex | Try `SnapToHexCenter = true`; if still off, note whether near or far mode and the diorama scale — fingertip lift constant may need tuning. |
 | Stat panel flickers while pointing at enemies | Report — hover projection may be oscillating between eyes; note HMD + scale. |
