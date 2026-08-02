@@ -439,16 +439,18 @@ internal static partial class Loc
                 + "außerhalb von Szenarien funktionieren. Aus = das Menü wird aus einem festen Blickpunkt "
                 + "gerendert.",
             ["Rig/SpawnInCircle"] =
-                "Mehrspieler: Beim Beitreten zu einer Sitzung bzw. beim Betreten eines Szenarios wirst du auf "
-                + "einem Kreis um das Spielbrett genau dort abgesetzt, wo der Abstand zu ALLEN bereits "
-                + "anwesenden Spielern am größten ist (die breiteste freie Lücke) — mit Blick zur Brettmitte. "
-                + "So spawnt niemand mehr hinter oder in der Maske eines Mitspielers. Der Kreis liegt knapp "
-                + "außerhalb der Brettfläche in bequemer Armreichweite, also bleibst du bei jeder Brettgröße "
-                + "und jedem Zoom nah am Tisch. Die Platzierung passiert EINMAL bei der Ankunft — plus "
-                + "höchstens eine Korrektur in den ersten Sekunden, falls direkt nach dir noch jemand "
-                + "auftaucht; danach bewegt dich nur noch deine eigene Bewegung. Rein lokal: es wird nichts "
-                + "zusätzlich über das Netzwerk gesendet. Ohne Wirkung im Einzelspieler/Offline (der Solo-Platz "
-                + "bleibt unverändert). Aus = alle Spieler behalten wie bisher denselben gemeinsamen Platz.",
+                "Mehrspieler: Beim Beitreten zu einer Sitzung bzw. beim Betreten eines Szenarios wirst du "
+                + "GEGENÜBER den bereits anwesenden Spielern abgesetzt — bei einem Mitspieler genau "
+                + "gegenüber, mit direktem Blick auf seine Maske; bei mehreren in der breitesten freien "
+                + "Lücke. So spawnt niemand mehr hinter oder in der Maske eines Mitspielers. Du stehst dabei "
+                + "AM TISCHRAND dieser Seite (die tatsächliche Brettkante in dieser Richtung plus etwas "
+                + "Standabstand), also weder über dem Spielfeld noch weit davor — bei jeder Brettgröße und "
+                + "jedem Zoom. Die Platzierung passiert EINMAL bei der Ankunft — plus höchstens eine Korrektur "
+                + "in den ersten Sekunden, falls direkt nach dir noch jemand auftaucht — und endet endgültig, "
+                + "sobald du dich selbst bewegst. Rein lokal: es wird nichts zusätzlich über das Netzwerk "
+                + "gesendet. Ohne Wirkung im Einzelspieler/Offline (der Solo-Platz bleibt unverändert). "
+                + "Aus = alle Spieler behalten wie bisher denselben gemeinsamen Platz. Jeder Ausgang wird "
+                + "protokolliert (platziert / wartet auf Mitspieler / noch kein Brett / aus).",
             ["Rig/Experimental3DMap"] =
                 "RESERVIERT — DERZEIT NICHT UMGESETZTER Platzhalter für eine künftige Funktion: die "
                 + "Kampagnen-/Weltkarte als kopfgetracktes 3D-Diorama erkunden statt auf der flachen "

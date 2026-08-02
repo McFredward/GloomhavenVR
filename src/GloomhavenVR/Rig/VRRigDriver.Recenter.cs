@@ -15,12 +15,19 @@ internal sealed partial class VRRigDriver
     /// <para>DELIBERATELY WITHOUT THE SPAWN RING. This is the entry point a HUMAN pulls (B+Y hold,
     /// the dev key) plus the [Comfort] TableHeightOffset change handler, and re-solving the
     /// multiplayer ring here would teleport a player around the table on an unrelated slider edit.
-    /// The ring is a JOIN placement, not a recenter behaviour: it is applied once, by the rig's own
-    /// first-pose recenter, and at most once more inside the settle window (see
-    /// <see cref="TickSpawnRingSettle"/>). A manual recenter keeps the azimuth the player is
-    /// currently at — exactly what it has always done.</para>
+    /// The ring is a JOIN placement, not a recenter behaviour — it lives entirely in
+    /// <see cref="TickSpawnRingSettle"/>. A manual recenter keeps the azimuth the player is
+    /// currently at, exactly what it has always done, and it also CLOSES the ring's window: a
+    /// player who has just placed themselves by hand must never be moved again.</para>
     /// </summary>
-    internal static void RequestRecenter() => Instance?.Recenter();
+    internal static void RequestRecenter()
+    {
+        VRRigDriver? drv = Instance;
+        if (drv == null)
+            return;
+        drv.CloseRingWindow("the player recentered manually");
+        drv.Recenter();
+    }
 
     /// <summary>
     /// Reposition the rig so the player's CURRENT head pose ends up at the configured
@@ -29,14 +36,13 @@ internal sealed partial class VRRigDriver
     /// back (the STANDING preset + [Comfort] TableHeightOffset — there is no seated preset any
     /// more, see <see cref="ComfortSettings.StandingEyeHeightMeters"/>). Called automatically
     /// on the first tracked pose, and bound to the B+Y hold chord (see <see cref="Comfort"/>).
+    ///
+    /// <para>UNCONDITIONAL BEHAVIOUR (round 2 of the spawn ring): this method no longer knows the
+    /// ring exists. The round-1 version took a <c>useSpawnRing</c> flag and branched inside, which
+    /// is how the ring's only failure mode came to hide inside a line that says "Recentered" — see
+    /// <see cref="SpawnRing"/> for the log-proven post-mortem.</para>
     /// </summary>
-    /// <param name="useSpawnRing">
-    /// True only for the JOIN placements (first-pose recenter and the one settle-window
-    /// correction): solve the multiplayer spawn ring and seat the player in the largest free wedge
-    /// around the board instead of at the shared table-edge spot. False — every other caller —
-    /// keeps the historical behaviour byte for byte.
-    /// </param>
-    internal void Recenter(bool useSpawnRing = false)
+    internal void Recenter()
     {
         if (_rigRoot == null || _camera == null)
             return;
@@ -53,38 +59,6 @@ internal sealed partial class VRRigDriver
 
         float scale = _rigRoot.transform.localScale.x;
 
-        // SPAWN RING (multiplayer join comfort — see SpawnRing for the full WHY), solved BEFORE
-        // anything is written so a solve that cannot place can still abort the whole recenter
-        // below without having disturbed the rig.
-        //
-        // Only the join placements ask for it. Single-player, the SpawnInCircle-off case and every
-        // other caller keep the EXACT prior behaviour: rotation untouched, seat direction = current
-        // yaw, seat point = the orbit focus. When it DOES apply, both the seat direction and the
-        // facing come out of the solve: the head lands on a ring around the BOARD's own centre at
-        // the free-est azimuth, looking at that centre. The re-seated head world pose is then
-        // broadcast unchanged (the embodiment sync is world-frame), so peers see us arrive at the
-        // free seat with no extra wire traffic.
-        SpawnRing.Seat seat = default;
-        bool ringAttempted = useSpawnRing && Plugin.SpawnInCircle.Value;
-        bool ringApplied = false;
-        if (ringAttempted)
-        {
-            _ringOutcome = SpawnRing.Solve(controller.FocusPoint, _scenarioBaseYaw, scale, out seat);
-            ringApplied = _ringOutcome == SpawnRing.Outcome.Placed;
-
-            // ALREADY SEATED AND THE RING CANNOT PLACE ⇒ DO NOTHING AT ALL. Falling through to the
-            // ordinary table-edge seat here would drag a player who is already standing where the
-            // ring put them back to the shared spot — the precise "never fight the player" rule
-            // this feature is bound by. Only the very first (deferred) placement is allowed to
-            // land on the ordinary seat, and at that point the player has not been placed yet.
-            if (!ringApplied && _ringPlaced)
-            {
-                VRLog.Info("Rig", $"Spawn ring: correction skipped — solve returned {_ringOutcome}; " +
-                                  $"leaving the player where they are.");
-                return;
-            }
-        }
-
         // World tilt composition: the seat math below is authored for a yaw-only rig
         // (seatYaw reads the current rotation; offsets assume a level horizon). Flatten the
         // tilt out first — TickWorldTilt re-applies the configured tilt on top of the fresh
@@ -100,113 +74,202 @@ internal sealed partial class VRRigDriver
         _axisSnapReason = "recenter";
 
         Quaternion seatYaw = _rigRoot.transform.rotation;
-        Vector3 desiredHeadWorld;
-        if (ringApplied)
-        {
-            // FACE THE BOARD, LITERALLY. The user's complaint was two-part: "spawnt man direkt
-            // hinter oder IN der anderen Maske UND MUSS SICH ERST AUSRICHTEN". Writing seat.Yaw
-            // straight onto the rig only fixes the first half — the player's VIEW is
-            // rigRotation ∘ headLocalRotation, so someone physically turned away at the moment of
-            // the join would still arrive looking at the wall. Absorbing the head's own yaw into
-            // the rig (the masked re-aim Demeo performs in InputTracking.Recenter /
-            // AvatarController.cs:684-694, and the reason _axisSnapReason is set above) makes the
-            // HEAD's world yaw exactly seat.Yaw, whatever direction the player is standing in.
-            // The position write below is unaffected: it derives the rig root from the desired
-            // HEAD pose, using this same rotation for the head offset.
-            seatYaw = seat.Yaw * Quaternion.Inverse(YawOnly(_camera.transform.localRotation));
-            _rigRoot.transform.rotation = seatYaw;
-            desiredHeadWorld = seat.HeadFlat + Vector3.up * (ComfortSettings.EffectiveEyeHeightMeters * scale);
-        }
-        else
-        {
-            desiredHeadWorld = controller.FocusPoint
-                               + seatYaw * (Vector3.back * (ComfortSettings.EffectiveEyeBackMeters * scale))
-                               + Vector3.up * (ComfortSettings.EffectiveEyeHeightMeters * scale);
-        }
+        Vector3 desiredHeadWorld = controller.FocusPoint
+                                   + seatYaw * (Vector3.back * (ComfortSettings.EffectiveEyeBackMeters * scale))
+                                   + Vector3.up * (ComfortSettings.EffectiveEyeHeightMeters * scale);
 
         Vector3 headOffsetWorld = seatYaw * (_camera.transform.localPosition * scale);
         _rigRoot.transform.position = desiredHeadWorld - headOffsetWorld;
         RigClamp.Apply(_rigRoot.transform);
         RigPoseVersion++; // P6: world-anchored panels re-derive their seat yaw on recenter
 
-        if (ringApplied)
-        {
-            _ringPlaced = true;
-            _ringPeersAtPlacement = seat.PeerCount;
-            // THE HARDWARE-LOG PROOF LINE: everything needed to verify the placement from a log
-            // alone — the chosen azimuth, the minimum angular distance it achieved, the ring
-            // radius and where it came from, the board centre, and how many peers were known.
-            VRLog.Info("Rig", $"Spawn ring: seated at azimuth {seat.AngleDegrees:F1}deg, min angular " +
-                              $"distance to peers {seat.MinGapDegrees:F1}deg, ring radius " +
-                              $"{seat.RadiusMeters:F2} m ({seat.RadiusWorld:F2} world units, from board " +
-                              $"footprint radius {seat.BoardRadiusMeters:F2} m + reach " +
-                              $"{SpawnRing.ReachMarginMeters:F2} m), board centre {seat.Center}, " +
-                              $"{seat.PeerCount} peer pose(s) known of {seat.ParticipantCount - 1} peer(s) in " +
-                              $"the session{(seat.FromIndexFallback ? " — INDEX FALLBACK (no peer pose yet)" : "")}. " +
-                              $"Head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position}.");
-        }
-        else
-        {
-            VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at {_rigRoot.transform.position} " +
-                              $"(table-edge seat{(ringAttempted ? $", spawn ring deferred: {_ringOutcome}" : "")}).");
-        }
+        VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at " +
+                          $"{_rigRoot.transform.position} (table-edge seat).");
     }
 
     /// <summary>
-    /// The spawn ring's bounded settle window, polled every
-    /// <see cref="CircleReseatIntervalFrames"/> frames while a scenario rig lives. It exists for
-    /// the two degenerate cases the join placement cannot solve on its own, and it does NOTHING
-    /// else — in particular it never re-seats a settled player.
+    /// Write a solved spawn-ring seat onto the rig. Same transform math as
+    /// <see cref="Recenter"/>, but the seat direction AND the facing come out of the solve
+    /// instead of the current rig yaw.
     ///
-    /// <list type="number">
-    ///   <item><b>Board / session not ready yet.</b> The rig can be built (and the first tracked
-    ///     pose can arrive) before the scenario's hex tiles are in the object cache or before the
-    ///     FFSNet participant list is populated. The placement is then deferred: we keep the
-    ///     ordinary table-edge seat and retry here — but only once
-    ///     <see cref="SpawnRing.Ready"/> says a solve would actually place, so a single-player
-    ///     session never gets a speculative recenter thrown at it.</item>
-    ///   <item><b>A peer arrived after we were seated.</b> Peers stream at
-    ///     <see cref="Net.NetProtocol.SendRateHz"/>, so a player who joins first (or faster) can be
-    ///     placed while knowing nobody. Exactly ONE correction is allowed, only while the window is
-    ///     open, only when the number of known peer poses actually grew, and it is logged.</item>
-    /// </list>
+    /// <para>FACE THE BOARD, LITERALLY. The user's complaint was two-part: "spawnt man direkt
+    /// hinter oder IN der anderen Maske UND MUSS SICH ERST AUSRICHTEN". Writing
+    /// <c>seat.Yaw</c> straight onto the rig only fixes the first half — the player's VIEW is
+    /// <c>rigRotation ∘ headLocalRotation</c>, so someone physically turned away at the moment of
+    /// the join would still arrive looking at the wall. Absorbing the head's own yaw into the rig
+    /// (the masked re-aim Demeo performs in InputTracking.Recenter / AvatarController.cs:684-694,
+    /// and the reason <c>_axisSnapReason</c> is set below) makes the HEAD's world yaw exactly
+    /// <c>seat.Yaw</c>, whatever direction the player is standing in.</para>
+    /// </summary>
+    /// <returns>The world head position the seat was written for (log material).</returns>
+    private Vector3 ApplyRingSeat(in SpawnRing.Seat seat)
+    {
+        float scale = _rigRoot!.transform.localScale.x;
+
+        if (_tiltActive)
+            _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
+        _axisSnapReason = "spawn ring seat";
+
+        Quaternion seatYaw = seat.Yaw * Quaternion.Inverse(YawOnly(_camera!.transform.localRotation));
+        _rigRoot.transform.rotation = seatYaw;
+
+        Vector3 desiredHeadWorld = seat.HeadFlat
+                                   + Vector3.up * (ComfortSettings.EffectiveEyeHeightMeters * scale);
+        Vector3 headOffsetWorld = seatYaw * (_camera.transform.localPosition * scale);
+        _rigRoot.transform.position = desiredHeadWorld - headOffsetWorld;
+        RigClamp.Apply(_rigRoot.transform);
+        RigPoseVersion++;
+        return desiredHeadWorld;
+    }
+
+    /// <summary>
+    /// THE WHOLE SPAWN RING, and the only code that ever places a join seat. It runs once on the
+    /// first tracked pose and then every <see cref="CircleReseatIntervalFrames"/> frames while the
+    /// window is open — both call sites are THIS method, so there is exactly one place where the
+    /// decision is made and exactly one place where it is logged. Round 1 split the logic between
+    /// <c>Recenter(useSpawnRing: true)</c> and a poll, and its single failure mode ended up
+    /// reported inside a line that says "Recentered"; here EVERY outcome — including "did nothing
+    /// because X" — leaves its own line. That is a hard user requirement: the next hardware test
+    /// must be diagnosable from the log alone.
     ///
-    /// <para>When the window closes — or when the one correction is spent — <c>_ringSettled</c>
-    /// latches and this method is a pure early-out for the rest of the scenario. From that moment
-    /// the player's own locomotion is the only thing that moves them.</para>
+    /// <para>THE WINDOW (opened at the FIRST TRACKED POSE, not at rig build — the round-1 window
+    /// was largely consumed by the scenario load before the player was even tracked) is what keeps
+    /// this from being a leash. Inside it we retry while the board or the peers are still coming
+    /// up, place ONCE, and allow at most ONE correction if a peer's first pose lands after we were
+    /// seated. It also closes EARLY the moment the player moves themselves
+    /// (<see cref="CloseRingWindow"/>) — from that instant their own locomotion is authoritative
+    /// and nothing may move them again.</para>
     /// </summary>
     private void TickSpawnRingSettle()
     {
         if (_ringSettled)
             return;
 
+        // CONFIG GATE, logged and latched: off ⇒ one line, then the step is gone from the frame.
+        if (!Plugin.SpawnInCircle.Value)
+        {
+            CloseRingWindow("[Rig] SpawnInCircle is off");
+            return;
+        }
+
+        if (_rigRoot == null || _camera == null)
+        {
+            CloseRingWindow("the rig went away before a seat could be placed");
+            return;
+        }
+
+        CameraController controller = CameraController.s_CameraController;
+        if (controller == null)
+        {
+            CloseRingWindow("the scenario CameraController is gone (no focus plane to seat on)");
+            return;
+        }
+
         if (Time.unscaledTime >= _ringWindowEnd)
         {
-            _ringSettled = true;
-            // Only the "we wanted to place and never could" case is worth a line; single-player
-            // is a silent no-op by design and must not log once per scenario.
-            if (!_ringPlaced && _ringOutcome == SpawnRing.Outcome.BoardPending)
-                VRLog.Info("Rig", $"Spawn ring: gave up after {SpawnRingSettleSeconds:F0}s — the board's " +
-                                  $"tiles never appeared; keeping the ordinary table-edge seat.");
+            CloseRingWindow(_ringPlaced
+                ? $"the {SpawnRingSettleSeconds:F0}s window closed on a placed seat — it is final now"
+                : $"the {SpawnRingSettleSeconds:F0}s window closed WITHOUT a placement after " +
+                  $"{_ringAttempts} attempt(s); last reason: {_ringOutcome} ({_ringProbe}). " +
+                  "The ordinary table-edge seat stands");
             return;
         }
 
-        if (!_ringPlaced)
+        _ringAttempts++;
+        float scale = _rigRoot.transform.localScale.x;
+        SpawnRing.Outcome outcome = SpawnRing.Solve(controller.FocusPoint, _scenarioBaseYaw, scale,
+                                                    out SpawnRing.Seat seat, out SpawnRing.Probe probe);
+        bool outcomeChanged = outcome != _ringOutcome || _ringAttempts == 1;
+        _ringOutcome = outcome;
+        _ringProbe = probe;
+
+        if (outcome != SpawnRing.Outcome.Placed)
         {
-            if (SpawnRing.Ready())
-                Recenter(useSpawnRing: true);
+            // NOT PLACED — and that is a logged event, not silence. Offline latches nothing (a
+            // session can come online while a scenario already runs: the 2026-08-02 host log shows
+            // exactly that host, alone in its scenario, going online ~600 log lines after its
+            // recenter), so we keep polling the window out; we simply do not spam it. Offline is
+            // logged on CHANGE only — single player must not repeat the same line ten times per
+            // scenario — while the two transient "still coming up" reasons do beat, because how
+            // long they persist is exactly what a future test needs to see.
+            if (outcomeChanged
+                || (outcome != SpawnRing.Outcome.Offline && Time.unscaledTime >= _ringNextLogTime))
+            {
+                _ringNextLogTime = Time.unscaledTime + RingLogIntervalSeconds;
+                VRLog.Info("Rig", $"Spawn ring: NOT SEATED ({Explain(outcome)}) — attempt " +
+                                  $"{_ringAttempts}, {probe}. Keeping the ordinary table-edge seat; " +
+                                  $"retrying for another {Mathf.Max(0f, _ringWindowEnd - Time.unscaledTime):F0}s.");
+            }
             return;
         }
 
-        int peers = SpawnRing.KnownPeerCount();
-        if (peers <= _ringPeersAtPlacement)
-            return;
+        // PLACED. Either the join seat (first placement) or the ONE allowed correction.
+        bool correction = _ringPlaced;
+        if (correction && seat.PeerCount <= _ringPeersAtPlacement)
+            return; // nothing new to correct with — never re-write a settled seat
 
-        _ringSettled = true; // the ONE correction — spent whether or not the solve places again
-        VRLog.Info("Rig", $"Spawn ring: correcting the join seat — {peers} peer pose(s) known now, " +
-                          $"{_ringPeersAtPlacement} when we were seated. This is the one correction the " +
-                          $"settle window allows; the seat is final afterwards.");
-        Recenter(useSpawnRing: true);
+        Vector3 head = ApplyRingSeat(seat);
+        _ringPlaced = true;
+        _ringPeersAtPlacement = seat.PeerCount;
+        _ringNextLogTime = Time.unscaledTime + RingLogIntervalSeconds;
+
+        // THE HARDWARE-LOG PROOF LINE: everything needed to verify the placement from a log alone —
+        // the chosen azimuth, the angular distance it achieved (180° = straight across from a lone
+        // peer), where the radius came from, the footprint it was measured on, and the evidence.
+        VRLog.Info("Rig", $"Spawn ring: SEATED{(correction ? " (CORRECTION)" : "")} at azimuth " +
+                          $"{seat.AngleDegrees:F1}deg, nearest peer {seat.MinGapDegrees:F1}deg away " +
+                          $"(180 = straight across the board), facing the board centre {seat.Center}. " +
+                          $"Radius {seat.RadiusMeters:F2} m ({seat.RadiusWorld:F2} world units) = board " +
+                          $"edge {seat.EdgeMeters:F2} m along that direction + {SpawnRing.EdgeClearanceMeters:F2} m " +
+                          $"standing clearance{(seat.RadiusClamped ? $" [CLAMPED to {SpawnRing.MinRadiusMeters:F2}..{SpawnRing.MaxRadiusMeters:F2} m]" : "")}; " +
+                          $"board half-extents {seat.BoardHalfMeters.x:F2}x{seat.BoardHalfMeters.y:F2} m. " +
+                          $"{probe}{(seat.FromIndexFallback ? " — INDEX FALLBACK (no peer pose yet; the one correction will refine it)" : "")}. " +
+                          $"Head at {head}, rig root at {_rigRoot.transform.position}.");
+
+        if (correction)
+            CloseRingWindow("the one allowed correction has been spent — the seat is final");
+    }
+
+    /// <summary>Human-readable WHY for a non-placing outcome (log text only).</summary>
+    private static string Explain(SpawnRing.Outcome outcome) => outcome switch
+    {
+        SpawnRing.Outcome.Offline =>
+            "no multiplayer session — single player keeps the ordinary seat unchanged",
+        SpawnRing.Outcome.PeersUnknown =>
+            "multiplayer, but no peer position is known yet: no peer rig packet has arrived and the " +
+            "FFSNet participant list is still empty (it lags the join handshake by seconds)",
+        SpawnRing.Outcome.BoardPending =>
+            "the scenario's hex tiles are not in the object cache yet — no board to sit around",
+        _ => outcome.ToString(),
+    };
+
+    /// <summary>
+    /// Close the spawn-ring window for good and say why. Called on every terminal path: window
+    /// expiry, the spent correction, the config gate, and — the "do not fight the player" rule —
+    /// the first time the player moves themselves (<see cref="NotifyPlayerLocomotion"/>).
+    /// Idempotent, and silent once latched.
+    /// </summary>
+    private void CloseRingWindow(string reason)
+    {
+        if (_ringSettled)
+            return;
+        _ringSettled = true;
+        if (_kind == RigKind.Scenario)
+            VRLog.Info("Rig", $"Spawn ring: window closed — {reason}. " +
+                              $"{(_ringPlaced ? "Seated" : "Never seated")} after {_ringAttempts} attempt(s).");
+    }
+
+    /// <summary>
+    /// The player moved themselves — world grab, stick turn, manual recenter. The spawn ring is a
+    /// JOIN placement and nothing more, so this closes its window permanently: after this, only
+    /// the player's own locomotion ever moves the player. Static and cheap (one null check plus an
+    /// already-latched early-out) because it is called from per-frame locomotion paths.
+    /// </summary>
+    internal static void NotifyPlayerLocomotion(string what)
+    {
+        VRRigDriver? drv = Instance;
+        if (drv != null && !drv._ringSettled)
+            drv.CloseRingWindow($"the player moved themselves ({what})");
     }
 
     /// <summary>

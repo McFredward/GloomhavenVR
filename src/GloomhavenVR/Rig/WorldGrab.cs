@@ -292,6 +292,9 @@ internal sealed class WorldGrab : MonoBehaviour
         // deliberate VR locomotion IS the "got familiar with the camera" the flat tutorial
         // waits for (Compat.TutorialVR; cold path = two static reads outside tutorials).
         Compat.TutorialVR.NotifyLocomotion(applied.magnitude / scale, 0f, 0f);
+        // Spawn ring: the player just placed themselves. Closes the join-placement window for
+        // good — nothing may teleport a moving player (VRRigDriver.NotifyPlayerLocomotion).
+        VRRigDriver.NotifyPlayerLocomotion("world grab drag");
         // Position-only write — tilt-safe by construction: the tilt heal (TickWorldTilt) keys
         // solely on ROTATION error (desired vs current rotation) and neither we nor RigClamp
         // (vertical lift only) touch the rotation here, so the only heal a drag can cause is
@@ -372,6 +375,9 @@ internal sealed class WorldGrab : MonoBehaviour
             Vector3.Distance(mid, _prevMid),
             Mathf.DeltaAngle(yawBefore, yaw),
             Mathf.Log(s / sBefore, 2f));
+        // Spawn ring: rotating/zooming the table is the player placing themselves too — the
+        // join-placement window closes here as well (VRRigDriver.NotifyPlayerLocomotion).
+        VRRigDriver.NotifyPlayerLocomotion("world grab rotate/zoom");
         _prevMid = mid;
         // TILT-CONSISTENT write (Bug A). The old bare yawRot write FLATTENED an actively
         // tilted rig every frame; TickWorldTilt (LateUpdate) then re-tilted it about a

@@ -1354,19 +1354,33 @@ head-mask id + size; hand style. (See the wire tables in Part I.)
 - **Confidence:** high
 
 ### `RigPoseVersion` bumps on build and recenter ONLY
-- **Where:** `VRRigDriver.RigPoseVersion`, bumped in `BuildRig` / `BuildMenuRig` / `Recenter` / `RecenterMenu`; consumed by `PanelLayout` and `PlayTray.SyncPinHolder`
+- **Where:** `VRRigDriver.RigPoseVersion`, bumped in `BuildRig` / `BuildMenuRig` / `Recenter` / `RecenterMenu` / `ApplyRingSeat`; consumed by `PanelLayout` and `PlayTray.SyncPinHolder`
 - **Rule:** Snap turn and world grab must **not** bump it.
 - **Why:** That is the point — world-anchored panels and pinned control boards must stay fixed in the world while the player merely turns or drags. Bumping it "for consistency" makes them chase every turn.
 - **Established by:** `66c0839` fix(rig): campaign/world map stays flat — scenario rig requires an actual scenario board
 - **Breaks if:** a "complete the pattern" pass adds the bump to `SnapTurn.Turn` or `WorldGrab`.
 - **Confidence:** high
 
-### Recenter applies the spawn azimuth to a FROZEN base yaw
-- **Where:** `VRRigDriver.Recenter`, `_scenarioBaseYaw` (frozen at `BuildRig` from the anchor's yaw), `_lastCircleIdx` / `_lastCircleTotal`, `CircleReseatIntervalFrames = 30`
-- **Rule:** `seatYaw = AngleAxis(360° · idx / total, up) * _scenarioBaseYaw`, applied on the frozen base — **never** on the live rotation. Only when `total > 1`; otherwise `seatYaw = rig.rotation`, so single-player is byte-for-byte the prior behaviour. The 30-frame poll re-runs `Recenter` **only when `(idx, total)` actually changes**.
-- **Why:** Applying to the live rotation accumulates on every recenter. Polling unconditionally would fight world grab and snap turn every 30 frames. The poll exists because the FFSNet registry may not be populated at the first-pose recenter (`LocalStableIndex` then returns `(0, 1)` = the solo seat).
-- **Established by:** `68da11e` feat(rig): spawn VR players in a circle around the board (per-player azimuth)
-- **Breaks if:** the azimuth is composed onto `rig.rotation`, or the change test is dropped.
+### The multiplayer join seat lives in `TickSpawnRingSettle` and NOWHERE else
+- **Where:** `VRRigDriver.TickSpawnRingSettle` (the only caller of `SpawnRing.Solve` and of `ApplyRingSeat`), reached from two places that are the same method: the first tracked pose and the 30-frame poll (`CircleReseatIntervalFrames`). `Recenter` knows nothing about the ring.
+- **Rule:** `Recenter` is unconditional table-edge behaviour. The ring never edits it, never branches inside it, and never runs from `RequestRecenter`. Every ring outcome — `Placed`, `Offline`, `PeersUnknown`, `BoardPending`, config-off, window-closed, correction — writes an `Info` line naming the reason **and** the evidence (`SpawnRing.Probe`).
+- **Why:** Round 1 put the ring inside `Recenter(useSpawnRing:)`, so its only real-world failure was reported inside a line that reads "Recentered", and the give-up path logged only for one of three non-placing outcomes. The 2026-08-02 hardware log therefore contained no line matching "Spawn ring" at all, and the feature looked as if it had never run.
+- **Established by:** `83499d7` (round 1), rewritten in the ModBuild-20 post-mortem round.
+- **Breaks if:** a "tidy up" folds the seat back into `Recenter`, or an outcome is allowed to return without a log line.
+- **Confidence:** high
+
+### The join seat is decided by PEER POSES, never by the FFSNet participant count
+- **Where:** `SpawnRing.SolveCore` — `FFSNetwork.IsOnline` gates single-player; `NetAvatarDriver.CollectPeerHeads` decides the azimuth; `NetPlayerActors.LocalStableIndex` feeds ONLY the index fallback and the log.
+- **Rule:** `Participants <= 1` must never be treated as "single player".
+- **Why:** `PlayerRegistry.Participants` is `AllPlayers.FindAll(x => x.IsParticipant)` and is empty for seconds after a join (the same handshake the mod's own "Broadcast WAITING: … our NetworkPlayer has no id yet" line reports). Round 1 gated the whole feature on it and no-opped on exactly the client that needed it, while that client was already receiving the peer's head packets.
+- **Breaks if:** a future refactor "simplifies" the online check back to a participant count.
+- **Confidence:** high
+
+### The join seat is armed on ARRIVAL only, and any self-movement ends it
+- **Where:** `VRRigDriver.BuildRig` (`_priorKind != RigKind.Scenario`), `CloseRingWindow`, `NotifyPlayerLocomotion` (called from `WorldGrab` drag + two-hand, `SnapTurn.Turn`, `RequestRecenter`), `SpawnRingSettleSeconds = 30` measured from the FIRST TRACKED POSE.
+- **Rule:** A scenario→scenario rig rebuild does not re-seat anyone. Exactly one placement plus at most one correction (only when the number of known peer poses grew). The window closes permanently on the first world grab, stick turn or manual recenter.
+- **Why:** The ring is a JOIN placement. Re-seating a player who is already standing somewhere — because a camera got re-anchored, or because a peer's first packet arrived 20 s in — is the "fighting the player" failure, and it is worse than not placing at all.
+- **Breaks if:** the window is armed in `BuildRig` unconditionally, or the locomotion notifications are dropped as "noise".
 - **Confidence:** high
 
 ### Recenter flattens the tilt first, and `LateUpdate` restores it the same frame
@@ -1594,8 +1608,8 @@ head-mask id + size; hand style. (See the wire tables in Part I.)
 
 ### Update ordering inside `VRRigDriver.Update`
 - **Where:** `VRRigDriver.Update`
-- **Rule:** teardown/rebuild check (consuming and clearing `_pendingRebuildRequest` at the top) → pending-recenter check (gated on a real tracked pose) → spawn-circle poll (only when `_kind == Scenario && !_pendingRecenter`) → the guarded tail.
-- **Why:** Rebuilding after recentering would recenter a rig about to be destroyed; polling the circle during a pending recenter would double-seat.
+- **Rule:** teardown/rebuild check (consuming and clearing `_pendingRebuildRequest` at the top) → pending-recenter check (gated on a real tracked pose; it arms the spawn-ring window, runs the ring's FIRST attempt, and falls back to `Recenter()` only when the ring did not place) → spawn-ring poll (only when `_kind == Scenario && !_pendingRecenter && !_ringSettled`) → the guarded tail.
+- **Why:** Rebuilding after recentering would recenter a rig about to be destroyed; polling the ring during a pending recenter would double-seat. The ring runs BEFORE the fallback recenter so that a joining client whose peer is already known never sees the shared table-edge seat at all.
 - **Established by:** `cbc1b52`, `68da11e`, `16f32ee`
 - **Confidence:** medium
 
@@ -1626,9 +1640,9 @@ head-mask id + size; hand style. (See the wire tables in Part I.)
 - **Confidence:** medium
 
 ### `TearDownRig` resets the whole tilt state machine
-- **Where:** `VRRigDriver.TearDownRig` — `_tiltActive`, `_axisSnapReason`, `_lastChangeTrigger`, `_lastTiltTarget = -1f`, `_tiltApplied`, `_tiltTweenFrom`, `_tiltAimYawDeg`, `_prevHeadYawValid`, `_burstActive`, plus the statics `RigRoot` / `HeadCamera` / `BaseWorldScale`
+- **Where:** `VRRigDriver.TearDownRig` — `_tiltActive`, `_axisSnapReason`, `_lastChangeTrigger`, `_lastTiltTarget = -1f`, `_tiltApplied`, `_tiltTweenFrom`, `_tiltAimYawDeg`, `_prevHeadYawValid`, `_burstActive`, the spawn-ring pair `_ringSettled = true` / `_ringPlaced = false`, plus the statics `RigRoot` / `HeadCamera` / `BaseWorldScale`
 - **Rule:** All of them, every teardown.
-- **Why:** A surviving `_lastTiltTarget` makes the next rig tween up from flat; a surviving `_prevHeadYawValid` fires a stale-rate re-aim on the first frame of the new rig; a surviving `_axisSnapReason` mis-attributes the first log line.
+- **Why:** A surviving `_lastTiltTarget` makes the next rig tween up from flat; a surviving `_prevHeadYawValid` fires a stale-rate re-aim on the first frame of the new rig; a surviving `_axisSnapReason` mis-attributes the first log line; a surviving `_ringPlaced` would make the NEXT rig's first-pose recenter think it had already been seated and skip it entirely (the menu rig would never take its vantage).
 - **Established by:** `e8a9446`, `6301f60`
 - **Breaks if:** the reset block is trimmed to "the ones that matter".
 - **Confidence:** high
