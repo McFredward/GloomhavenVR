@@ -1,4 +1,5 @@
 using System;
+using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI;
 using ScenarioRuleLibrary.CustomLevels;
@@ -13,6 +14,24 @@ namespace GloomhavenVR.Compat;
 /// shows the same turn preview. The taught behaviour is real, not aspirational — it is
 /// implemented by <see cref="FigureIntentPeek"/>, which drives the game's OWN portrait-hover
 /// display path from the held-figure registry (see that class for the source proof).
+///
+/// IT IS A REAL STEP, NOT A NOTE (hardware round 2). A tutorial step that can be talked over by
+/// the next scripted window, or that vanishes on a timer while the player is still working out
+/// what to do, is not a step. So this one behaves like every scripted step around it:
+/// <list type="number">
+/// <item>THE CHAIN WAITS. From the moment the step becomes pending, the game's own next scripted
+///   window is withheld by <see cref="TutorialChainHold"/> — in the tutorial that is <c>TB_11</c>
+///   ("Beim Drüberfahren siehst du die Absichten…"), which the game would otherwise open in the
+///   SAME frame that dismisses HT_10 (both hang off one <c>InitiativeAvatarHovered</c> event; the
+///   proof is in that class's header). Nothing is dropped or reordered: the held message is
+///   re-issued through the game's own show path the instant the hold releases.</item>
+/// <item>IT ENDS WHEN THE PLAYER DOES THE THING. The only ordinary way out is
+///   <see cref="PlayerHoldsFigure"/> — a figure actually in a hand. ANY figure counts, hero or
+///   monster: teaching a grab must never be gated on one specific mini, or a player who picks up
+///   the wrong one is stuck being told to do what they just did. There is no queue-based and no
+///   short time-based dismissal any more; both existed in round 1 and both were exactly the
+///   "it closed although I did nothing" defect the user reported.</item>
+/// </list>
 ///
 /// WHY A MOD-OWNED MESSAGE AND NOT A TEXT SWAP: the existing hint machinery
 /// (<see cref="TutorialHints"/>) can only REWRITE a scripted message the game already shows.
@@ -30,8 +49,11 @@ namespace GloomhavenVR.Compat;
 /// classification (<c>ModalFallback.ActionDismissedLevelMessage</c> reads the message's own
 /// <c>DismissTrigger.IsTriggeredByDismiss</c> — ours is false, exactly like every action-dismissed
 /// scripted strip, so board/cards/hands stay fully live and the taught grab is actually possible).
+/// Holding <c>TB_11</c> back matters for that too: <c>TB_11</c> is a BLOCKING box message
+/// (hardware log: "Modal commit-block ENGAGED" right after it opened), so with it on screen the
+/// room is in a modal state while the strip beside it asks for a two-handed board action.
 ///
-/// WHY IT CAN NEVER DEADLOCK THE SCRIPTED CHAIN — four independent guarantees:
+/// WHY IT CAN NEVER DEADLOCK THE SCRIPTED CHAIN:
 /// <list type="number">
 /// <item>It is NOT in <c>LevelEventsController.m_MessagesToShow</c> and its
 ///   <c>DisplayTrigger</c> is never consulted: the mod shows it directly. The controller's
@@ -41,13 +63,14 @@ namespace GloomhavenVR.Compat;
 ///   int.MaxValue</c>, not a UI-event trigger), so <c>ProcessEvent</c>'s dismiss check against
 ///   the currently displayed help text can never fire on it — the game will not consume a
 ///   gameplay event on our behalf either.</item>
-/// <item>QUEUE YIELD: the handler shows one help text at a time and queues the rest
-///   (<c>m_PendingHelpTextMessages</c>). The moment the game queues its OWN next strip behind
-///   ours, we dismiss immediately — so the scripted chain is never held for more than the frame
-///   in which it asks.</item>
-/// <item>Hard timeout + context checks: the step self-dismisses after
-///   <see cref="MaxShownSeconds"/>, on leaving the tutorial context, and on any error (latched,
-///   logged). Every exit path goes through the game's own
+/// <item>FAILSAFES — exactly four, and every one of them releases the hold as well:
+///   the tutorial context ending (scenario left / <c>LevelEventsController</c> inactive /
+///   <c>LevelMessagesUIHandler</c> gone / our window no longer on the strip), the
+///   <c>[Compat] TutorialVRAdapt</c> kill-switch being switched off, ANY exception (latched for
+///   the session and logged with its stack), and ONE absolute ceiling of
+///   <see cref="MaxStepSeconds"/> that logs a loud <c>Warn</c> first. See that field for why it
+///   is five minutes and not less.</item>
+/// <item>Every exit that involves our window goes through the game's own
 ///   <c>HideCurrentlyShownHelpTextMessage()</c>, i.e. exactly what the message's own close action
 ///   would do, so the handler's bookkeeping is always left consistent.</item>
 /// </list>
@@ -55,16 +78,9 @@ namespace GloomhavenVR.Compat;
 /// message name (<see cref="MessageName"/>) — no scripted trigger in the tutorial references it
 /// (the flow dump's ctxIds are all <c>TB_*</c>/<c>HT_*</c>), so it is inert by construction.
 ///
-/// DISMISSAL THE PLAYER CONTROLS: performing the taught action. <see cref="FigureIntentPeek.Active"/>
-/// goes true the instant a held figure drives a track preview — that is the same signal the
-/// feature itself runs on, so "the hint closes when you do it" cannot drift away from "it worked".
-/// (The help-text strip layout has no close button in the game's prefab — action-dismissed strips
-/// never do, HT_10 included — so matching the message it follows means matching that too; the
-/// timeout and the queue yield are the fallbacks.)
-///
 /// SCOPE: single-player tutorial only (<see cref="TutorialVR.IsTutorialActive"/> refuses online
 /// sessions outright), fires at most once per scenario, rides the <c>[Compat] TutorialVRAdapt</c>
-/// kill-switch. Off ⇒ nothing is ever shown and the tutorial is bit-for-bit vanilla.
+/// kill-switch. Off ⇒ nothing is ever shown or held and the tutorial is bit-for-bit vanilla.
 /// </summary>
 internal static class TutorialGrabStep
 {
@@ -89,68 +105,118 @@ internal static class TutorialGrabStep
     /// </summary>
     private const string PlaceholderTitleKey = "GUI_CONTINUE";
 
-    /// <summary>Settle time between HT_10's dismissal and our show. The dismissal synchronously
-    /// opens the scripted box that follows (TB_11) and posts a queued UIEvent; showing into that
-    /// same handover frame would race the handler's own <c>ShowNextHelpText</c> bookkeeping.</summary>
+    /// <summary>Settle time between HT_10's dismissal and our show. The dismissal is raised from
+    /// the middle of <c>ProcessEvent</c>, which then goes on to trigger the follow-up message and
+    /// posts a queued UIEvent; showing into that same handover frame would race the handler's own
+    /// <c>ShowNextHelpText</c> bookkeeping. The chain is already held at this point, so the wait
+    /// costs the player nothing.</summary>
     private const float ArmSettleSeconds = 0.75f;
 
-    /// <summary>Give up arming if the help-text strip never frees up (the scripted chain moved on
-    /// in a way we did not anticipate) — the step is a bonus, never a thing that waits forever.</summary>
-    private const float ArmGiveUpSeconds = 30f;
-
-    /// <summary>Hard ceiling on how long our strip may occupy the group. Generous enough to read
-    /// the box beside it and reach for the mini, short enough that a wedged state self-clears.</summary>
-    private const float MaxShownSeconds = 90f;
+    /// <summary>
+    /// THE ONE ABSOLUTE CEILING (arm → release), and the ONLY time-based exit that exists.
+    ///
+    /// It is deliberately far longer than "long enough to read a line": while the step is pending
+    /// the scripted chain is WAITING on it, so this timer is not a display timeout, it is the
+    /// anti-brick backstop for the whole hold. It must never expire on a player who is simply
+    /// slow — looking around the room, missing the mini a few times, taking off the headset for a
+    /// moment — because expiring is a visible failure of the step. Five minutes is far outside
+    /// any plausible "I am doing it" window and still bounded enough that a wedged state (say a
+    /// grab feature disabled by its own error latch, so the taught action cannot be performed at
+    /// all) self-clears within one sitting instead of ending the tutorial run. It logs a loud
+    /// <c>Warn</c> when it fires precisely because reaching it always means something else broke.
+    /// </summary>
+    private const float MaxStepSeconds = 300f;
 
     private static bool _disabledByError;
     private static bool _doneThisScenario;
-    private static float _armedAt = -1f;
-    private static CLevelMessage? _message;
+    private static float _startedAt = -1f;   // arm time; also the ceiling's origin
     private static float _shownAt = -1f;
+    private static CLevelMessage? _message;
+
+    /// <summary>Pending = armed or shown, and not yet satisfied. While true the scripted chain is
+    /// held back (<see cref="TutorialChainHold"/>).</summary>
+    private static bool Pending => _startedAt >= 0f;
+
+    /// <summary>
+    /// SATISFACTION — the taught action, read from the LOCAL grab registry. ANY held figure
+    /// counts. <see cref="HeldFigures"/> is the ground truth (a mini is in a hand);
+    /// <see cref="FigureIntentPeek.Active"/> is the narrower "and it is driving a track preview"
+    /// signal, which is false for a figure with no initiative-track entry (a summon, an actor mid
+    /// track-rebuild). ORing them means the step can be completed with whatever the player
+    /// reaches for first — the preview is the reward, not the pass mark.
+    /// </summary>
+    private static bool PlayerHoldsFigure => HeldFigures.Count > 0 || FigureIntentPeek.Active;
 
     /// <summary>Scenario boundary — called from the flow-dump postfix
-    /// (<c>StartListeningForEvents</c>), the one point where a new scripted level begins.</summary>
+    /// (<c>StartListeningForEvents</c>), the one point where a new scripted level begins. Anything
+    /// still withheld belongs to the level that just ended and is dropped with it.</summary>
     internal static void Reset()
     {
+        if (TutorialChainHold.Engaged)
+            TutorialChainHold.Discard("a new scenario started while the VR figure-grab step was pending");
+        ClearState();
         _doneThisScenario = false;
-        _armedAt = -1f;
-        _message = null;
+    }
+
+    private static void ClearState()
+    {
+        _startedAt = -1f;
         _shownAt = -1f;
+        _message = null;
     }
 
     /// <summary>
     /// ARM: the scripted strip we attach to was just dismissed (called from the existing
-    /// <c>MessageWasDismissed</c> diagnostics postfix — no new Harmony patch). We only record the
-    /// moment; the actual show happens from <see cref="Tick"/> once the handover has settled and
-    /// the help-text group is provably free.
+    /// <c>MessageWasDismissed</c> diagnostics postfix — no new Harmony patch). Two things happen
+    /// here and nothing else: the chain hold engages (this runs INSIDE the <c>ProcessEvent</c>
+    /// call that is about to trigger the follow-up message, which is the whole reason the
+    /// follow-up can be caught), and the moment is recorded. The actual show happens from
+    /// <see cref="Tick"/> once the handover has settled and the help-text group is provably free.
     /// </summary>
     internal static void NoteDismissed(CLevelMessage? messageDismissed)
     {
-        if (_disabledByError || _doneThisScenario || _armedAt >= 0f || _shownAt >= 0f)
+        if (_disabledByError || _doneThisScenario || Pending)
             return;
         if (messageDismissed == null || !Plugin.TutorialVRAdapt.Value)
             return;
         if (!string.Equals(messageDismissed.TitleKey, AfterTitleKey, StringComparison.OrdinalIgnoreCase))
             return;
-        _armedAt = Time.unscaledTime;
-        VRLog.Info("Tutorial", $"'{messageDismissed.MessageName}' (the laser/portrait step) was "
-            + "completed — the VR-only follow-up step (hold the enemy mini to see the same turn "
-            + "preview) is armed and will show as soon as the help-text strip is free.");
+
+        // Already holding a mini? Then the player has performed the taught action before being
+        // asked, and the step is complete before it starts. Do NOT hold the chain and do NOT open
+        // a window to teach what was just demonstrated.
+        if (PlayerHoldsFigure)
+        {
+            _doneThisScenario = true;
+            VRLog.Info("Tutorial", $"'{messageDismissed.MessageName}' (the laser/portrait step) was "
+                + "completed while a figure was already in hand — the VR-only follow-up step is "
+                + "skipped (it would teach an action the player just performed) and the scripted "
+                + "chain continues untouched.");
+            return;
+        }
+
+        _startedAt = Time.unscaledTime;
+        _doneThisScenario = true; // one attempt per scenario, decided here
+        TutorialChainHold.Engage($"'{messageDismissed.MessageName}' (the laser/portrait step) was "
+            + "completed, so the VR-only follow-up step (hold a figure to see the same turn "
+            + "preview) is now pending");
+        VRLog.Info("Tutorial", "VR figure-grab step ARMED — it will show as soon as the help-text "
+            + "strip is free, and it stays until the player actually takes a figure into their "
+            + "hand. The tutorial's next scripted window waits for that.");
     }
 
     /// <summary>
     /// Per-frame service (WorldUI driver, TickGuard-wrapped). Cold path: two static reads.
-    /// Owns BOTH transitions — arm→shown and shown→dismissed — so every exit is in one place.
+    /// Owns BOTH transitions — arm→shown and shown→finished — so every exit is in one place.
     /// </summary>
     internal static void Tick()
     {
-        if (_disabledByError || (_armedAt < 0f && _shownAt < 0f))
+        if (_disabledByError || !Pending)
             return;
         if (!Plugin.TutorialVRAdapt.Value)
         {
-            // Kill-switch flipped mid-step: drop our window through the game's own path.
-            DismissIfOurs("the tutorial VR adaptation was switched off");
-            Reset();
+            // FAILSAFE 2 — kill-switch flipped mid-step.
+            Finish("the tutorial VR adaptation was switched off");
             return;
         }
         try
@@ -159,10 +225,11 @@ internal static class TutorialGrabStep
         }
         catch (Exception ex)
         {
-            // Latch + self-clear: whatever went wrong, the scripted chain must be left alone.
+            // FAILSAFE 3 — latch + self-clear: whatever went wrong, the scripted chain must be
+            // handed back immediately and never held again this session.
             _disabledByError = true;
-            try { DismissIfOurs("the step threw"); } catch (Exception) { /* nothing left to do */ }
-            Reset();
+            try { Finish("the step threw"); }
+            catch (Exception) { TutorialChainHold.Release("the step threw during its own teardown"); }
             VRLog.Error("Tutorial", "VR figure-grab tutorial step threw and is disabled for this "
                 + $"session: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
         }
@@ -175,100 +242,88 @@ internal static class TutorialGrabStep
                           && TutorialVR.IsTutorialActive
                           && handler != null;
 
-        if (_shownAt >= 0f)
-        {
-            TickShown(handler, inTutorial);
-            return;
-        }
-
-        // ---- armed, waiting for a free strip ------------------------------------------------
-        float now = Time.unscaledTime;
+        // FAILSAFE 1 — scenario left / tutorial context lost / handler gone.
         if (!inTutorial)
         {
-            Disarm("the tutorial context ended before the step could be shown");
-            return;
-        }
-        if (now - _armedAt >= ArmGiveUpSeconds)
-        {
-            Disarm($"the help-text strip stayed busy for {ArmGiveUpSeconds:0}s");
-            return;
-        }
-        if (now - _armedAt < ArmSettleSeconds)
-            return;
-        if (handler!.DisplayDelayInEffect || handler.CurrentlyDisplayedHelpTextMessage != null)
-            return; // a scripted strip owns the group — never elbow it aside
-        if (FigureIntentPeek.Active)
-            return; // already holding one: the hint's own dismiss condition is met, so showing
-                    // it now would only flash. Wait for the release and teach it then.
-        // Guarded no-op in practice, stated for the record: CompleteLevel arms a one-shot
-        // "next dismissal ends the level" action (LevelEventsController.cs:929). We must never
-        // be the dismissal that consumes it, so we simply do not show while it is armed.
-        if (LevelEventsController.s_Instance == null
-            || LevelEventsController.s_Instance.m_ActionForNextMessageDismissal != null)
-            return;
-
-        Show(handler);
-    }
-
-    private static void TickShown(LevelMessagesUIHandler? handler, bool inTutorial)
-    {
-        if (!inTutorial || handler == null)
-        {
-            // Scenario/handler gone — the window went with it; just forget the step.
-            Reset();
-            return;
-        }
-        if (!ReferenceEquals(handler.CurrentlyDisplayedHelpTextMessage, _message))
-        {
-            // Something else owns the strip now. Never dismiss a message that is not ours.
-            VRLog.Info("Tutorial", "VR figure-grab step: the help-text strip is no longer ours — "
-                + "state dropped without touching the game's message.");
-            Reset();
+            Finish("the tutorial context ended (scenario left, or the message handler is gone)");
             return;
         }
 
-        if (FigureIntentPeek.Active)
+        // SATISFACTION — checked before anything else, in both states: a player who grabs a mini
+        // during the settle window has done the step and must not be shown a window about it.
+        if (PlayerHoldsFigure)
         {
-            Dismiss(handler, "the player picked a figure up — the taught action was performed");
+            Finish("the player picked a figure up — the taught action was performed");
             return;
         }
-        int queued = handler.m_PendingHelpTextMessages?.Count ?? 0;
-        if (queued > 1)
+
+        // FAILSAFE 4 — the one absolute ceiling. Loud, because reaching it means the taught
+        // action could not be performed at all (see MaxStepSeconds).
+        float now = Time.unscaledTime;
+        if (now - _startedAt >= MaxStepSeconds)
         {
-            // The game wants the strip back for its OWN next hint: yield the same frame.
-            Dismiss(handler, "the scripted chain queued its next help text behind us");
+            VRLog.Warn("Tutorial", $"VR figure-grab step: NO figure was picked up within "
+                + $"{MaxStepSeconds:0}s. That should be impossible for a player who is simply "
+                + "taking their time, so treat this as a symptom: check whether figure grab is "
+                + "available at all ([FigureGrab] GrabFigures, or its error latch in the log "
+                + "above). Releasing the tutorial chain now so the run can continue.");
+            Finish($"the {MaxStepSeconds:0}s absolute ceiling was reached (anti-brick backstop)");
             return;
         }
-        if (Time.unscaledTime - _shownAt >= MaxShownSeconds)
-            Dismiss(handler, $"the {MaxShownSeconds:0}s display ceiling was reached");
+
+        if (_shownAt < 0f)
+        {
+            // ---- armed, waiting for a free strip ----------------------------------------------
+            if (now - _startedAt < ArmSettleSeconds)
+                return;
+            if (handler!.DisplayDelayInEffect || handler.CurrentlyDisplayedHelpTextMessage != null)
+                return; // a scripted strip owns the group — never elbow it aside
+            // Guarded no-op in practice, stated for the record: CompleteLevel arms a one-shot
+            // "next dismissal ends the level" action (LevelEventsController.cs:929). We must never
+            // be the dismissal that consumes it, so we simply do not show while it is armed.
+            if (LevelEventsController.s_Instance == null
+                || LevelEventsController.s_Instance.m_ActionForNextMessageDismissal != null)
+                return;
+
+            Show(handler);
+            return;
+        }
+
+        // ---- shown ---------------------------------------------------------------------------
+        // FAILSAFE 1 (continued) — our window is no longer the one on the strip. Unreachable while
+        // the hold is engaged (every scripted message goes through the held funnel), kept because
+        // a step that has lost its window must not keep the chain waiting on it.
+        if (!ReferenceEquals(handler!.CurrentlyDisplayedHelpTextMessage, _message))
+            Finish("the help-text strip is no longer ours");
     }
 
     private static void Show(LevelMessagesUIHandler handler)
     {
         _message = BuildMessage();
-        _armedAt = -1f;
         _shownAt = Time.unscaledTime;
-        _doneThisScenario = true;
         // The game's own show path for a scripted HelpText strip (LevelEventsController.cs:865).
         handler.ShowHelpText(_message);
         VRLog.Info("Tutorial", $"VR figure-grab step '{MessageName}' SHOWN through the game's own "
             + "LevelMessagesUIHandler.ShowHelpText — same strip window, same VR float and chain "
-            + "pose, action-dismissed (non-blocking). It closes when a figure is picked up, when "
-            + "the scripted chain wants the strip back, or after the display ceiling.");
+            + "pose, action-dismissed (non-blocking). It closes ONLY when a figure is actually "
+            + "picked up; the tutorial's next scripted window is held back until then.");
     }
 
-    private static void Dismiss(LevelMessagesUIHandler handler, string reason)
+    /// <summary>
+    /// THE SINGLE EXIT. Closes our window if it is still ours, releases the chain hold (which
+    /// re-issues whatever was withheld, in order), and retires the step for this scenario.
+    /// </summary>
+    private static void Finish(string reason)
     {
-        // The game's own dismissal — identical to what the message's OnClosedPressedAction runs
-        // (LevelMessagesUIHandler.cs:163): hides the window, reports the dismissal, shows whatever
-        // the game queued behind us. Nothing bespoke, so the handler is never left half-updated.
-        handler.HideCurrentlyShownHelpTextMessage();
-        VRLog.Info("Tutorial", $"VR figure-grab step dismissed — {reason}.");
-        Reset();
+        DismissIfOurs(reason);
+        ClearState();
+        _doneThisScenario = true;
+        TutorialChainHold.Release(reason);
     }
 
-    /// <summary>Best-effort teardown for the abnormal exits (kill-switch, throw): only ever
-    /// dismisses while the strip provably still shows OUR message.</summary>
+    /// <summary>Only ever dismisses while the strip provably still shows OUR message — the game's
+    /// own dismissal path, identical to what the message's <c>OnClosedPressedAction</c> runs
+    /// (LevelMessagesUIHandler.cs:163), so the handler is never left half-updated.</summary>
     private static void DismissIfOurs(string reason)
     {
         LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
@@ -276,15 +331,7 @@ internal static class TutorialGrabStep
             || !ReferenceEquals(handler.CurrentlyDisplayedHelpTextMessage, _message))
             return;
         handler.HideCurrentlyShownHelpTextMessage();
-        VRLog.Info("Tutorial", $"VR figure-grab step dismissed — {reason}.");
-    }
-
-    private static void Disarm(string reason)
-    {
-        VRLog.Info("Tutorial", $"VR figure-grab step not shown — {reason}. The scripted chain is "
-            + "untouched (the step is additive; skipping it changes nothing).");
-        Reset();
-        _doneThisScenario = true; // do not retry inside the same scenario
+        VRLog.Info("Tutorial", $"VR figure-grab step window closed — {reason}.");
     }
 
     /// <summary>
