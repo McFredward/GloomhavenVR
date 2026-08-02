@@ -395,7 +395,10 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 24;
+    public const ushort ModBuild = 25;
+    // Build 25: the left-edge flash on opening a modal — the game's own 2D window was rendered
+    // by the head camera for one frame before conversion; its canvases are now blacked out from
+    // inside the game's Show() until Convert takes over. Local-only UI — no wire changes.
     // Build 24: cold-open menu ROOT CAUSE — the game re-drives the converted target after
     // Convert pins it (localScale 0.14, rect height 1080→2040); the frame is now maintained,
     // the fit uses only the LIVE union, and the design-height cap applies to the target rect.
