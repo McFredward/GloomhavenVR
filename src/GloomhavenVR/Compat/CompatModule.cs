@@ -120,6 +120,13 @@ internal sealed class CompatModule : IVRModule
             VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDismissed_Patch));
             VRSession.Harmony?.PatchAll(typeof(LevelMessagePageUI_OnLanguageChanged_Patch));
             VRSession.Harmony?.PatchAll(typeof(LevelMessageUILayout_Title_Patch));
+            // - TutorialChainHold: the sequencing gate for the mod-owned extra VR step
+            //   (TutorialGrabStep). Prefix on LevelEventsController.ShowLevelMessage — the single
+            //   funnel every scripted message passes through — so the tutorial's NEXT window
+            //   (TB_11) waits until the player has actually taken a figure into their hand, instead
+            //   of opening in the same ProcessEvent call that dismisses HT_10 and arms our step.
+            //   Inert unless the step engages it; releases hand the message straight back.
+            VRSession.Harmony?.PatchAll(typeof(TutorialChainHold));
             VRLog.Info(Name, "Tutorial VR bridge armed — camera step completes from world-grab "
                 + "locomotion, flat camera hints show VR movement text (tutorial scenarios only).");
         }
