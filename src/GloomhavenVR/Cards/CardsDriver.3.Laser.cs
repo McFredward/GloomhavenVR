@@ -866,8 +866,17 @@ internal sealed partial class CardsDriver
             // WorldUI.ModalFallback.HardCommitLockActive.
             if (_modalInputBlocked)
             {
-                VRLog.Info("Cards", $"Board: laser press on '{(best as MonoBehaviour)?.name ?? best!.ToString()}' " +
-                                    "SUPPRESSED — blocking modal open (commit gate; hover stays live).");
+                // Throttled + culprit-naming (user report 2026-08-02): the host's log carried 20+
+                // identical "SUPPRESSED — blocking modal open" lines that named neither the window
+                // nor the fact that it never released. One line per second, and it says WHICH
+                // window is holding the gate (DescribeBlockingWindows allocates — hence the gate).
+                if (Time.unscaledTime >= _nextPressSuppressLogAt)
+                {
+                    _nextPressSuppressLogAt = Time.unscaledTime + 1f;
+                    VRLog.Info("Cards", $"Board: laser press on '{(best as MonoBehaviour)?.name ?? best!.ToString()}' " +
+                                        "SUPPRESSED — blocking modal open (commit gate; hover stays live). " +
+                                        $"Blocking window(s): {WorldUI.ModalFallback.DescribeBlockingWindows()}.");
+                }
                 return;
             }
             // Route through Press for buttons so the log carries source=laser and
@@ -1012,6 +1021,12 @@ internal sealed partial class CardsDriver
     private ItemsPile.ItemChip? _itemChipGraceChip;
     private float _itemChipGraceUntil;
 
+    /// <summary>Throttle (unscaled) for the "press SUPPRESSED by a blocking modal" diagnostic —
+    /// shared by the board-element and item-chip press gates. A held trigger re-enters those
+    /// branches every frame; one named line per second is enough to make the next hardware log
+    /// decisive without drowning it (the 2026-08-02 host log had 20+ identical lines).</summary>
+    private float _nextPressSuppressLogAt;
+
     /// <summary>
     /// Laser path for the OPEN item fan — the item twin of <see cref="UpdateBrowseLaser"/>: same
     /// priority slot (yields to the fan/board/tray/browse hovers above it), same geometric pick
@@ -1084,6 +1099,21 @@ internal sealed partial class CardsDriver
             return;
         }
 
+        // SINGLE-OWNER contract ("what pops is what you grab", user report 2026-08-02): while the
+        // dominant hand is physically IN the fan, the hand owns both the pop and the trigger. Its
+        // beam is on the fan too at that range, and a laser hover sets Ray.UiHitOverride, which
+        // makes ProximityGrabber defer the trigger — so the popped chip (hand sweep) and the
+        // taken chip (beam) could disagree. Yielding here is the item-fan edition of the ability
+        // fan's UpdateFanHoverSplit ownership rule. Same chip = no conflict: the beam clamp is
+        // the honest one, so the laser keeps it.
+        ItemsPile.ItemChip? handOwned = _piles.HandOwnedItemChip(dom);
+        if (handOwned != null && !ReferenceEquals(handOwned, chip))
+        {
+            ClearItemFanHover();
+            _itemChipGraceChip = null; // no laser promise while the hand owns the fan
+            return;
+        }
+
         if (!ReferenceEquals(chip, _itemChipHover))
         {
             ClearItemFanHover();
@@ -1100,8 +1130,23 @@ internal sealed partial class CardsDriver
         dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
         // COMMIT gate (laser ruling 2026-08): hover pop + beam clamp above stay live under a
         // blocking modal; the pluck itself is a commit (chip → use slot spends the item).
-        if (dom.TriggerDown && !_modalInputBlocked)
+        if (dom.TriggerDown)
         {
+            if (_modalInputBlocked)
+            {
+                // The user's "the laser goes straight through the fan" case: the chip IS hovered
+                // (it popped), the trigger DID come down, and only the commit gate refused it.
+                // Without this line the refusal was completely silent — indistinguishable from a
+                // missed pick. Throttled + names the window holding the gate.
+                if (Time.unscaledTime >= _nextPressSuppressLogAt)
+                {
+                    _nextPressSuppressLogAt = Time.unscaledTime + 1f;
+                    VRLog.Info("Cards", $"Item fan: laser pluck of '{chip.name}' SUPPRESSED — blocking modal open " +
+                                        "(commit gate; the hover pop you see is live, the pluck is not). " +
+                                        $"Blocking window(s): {WorldUI.ModalFallback.DescribeBlockingWindows()}.");
+                }
+                return;
+            }
             ItemsPile.ItemChip pluck = chip;
             ClearItemFanHover();
             _itemChipGraceChip = null; // the promise is honoured — no stale grace after the pluck

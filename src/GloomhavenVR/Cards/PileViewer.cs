@@ -76,6 +76,12 @@ internal sealed class PileViewer
         out ItemsPile.ItemChip? chip, out Vector3 point, out float distance) =>
         _itemsBrowse.TryLaserRaycast(origin, direction, sticky, out chip, out point, out distance);
 
+    /// <summary>The item chip <paramref name="hand"/> is physically in contact with (hand-sweep
+    /// winner elected by that hand, else its proximity-grab candidate), or null. Forwarded so the
+    /// laser chain can honour the single-owner contract — see
+    /// <see cref="ItemsPile.HandOwnedChip"/> for WHY.</summary>
+    internal ItemsPile.ItemChip? HandOwnedItemChip(VRHand? hand) => _itemsBrowse.HandOwnedChip(hand);
+
     /// <summary>Requirement 4: dismiss the item fan on a foreign interaction (the item counterpart of
     /// <c>CardsDriver.CloseBrowser</c>). The item→ability mutual-exclusion is separate (<see cref="ItemsOpening"/>);
     /// this is the general click-away close for the item fan itself.</summary>
@@ -361,28 +367,27 @@ internal sealed class PileViewer
         PokeToggled?.Invoke(kind, hand);
     }
 
+    /// <summary>
+    /// Route a stack GRAB (pinch-to-browse-while-held). The ITEMS stack is deliberately absent:
+    /// its whole-fan grab was removed on the user's ruling (2026-08-02, see
+    /// <see cref="ItemsPile.TogglePoke"/>) and <see cref="PileStack.CanGrab"/> now refuses that
+    /// kind outright, so this can only ever be reached for discard/burnt. The early return is a
+    /// belt-and-braces guard: a stray Items grab must NOT fall through to
+    /// <see cref="GrabOpened"/>, which would open the ABILITY browser on an item stack.
+    /// </summary>
     internal void DispatchGrabOpen(PileKind kind, VRHand hand)
     {
         if (kind == PileKind.Items)
-        {
-            if (_hand != null)
-            {
-                ItemsOpening?.Invoke(); // close the ability browser first — one pile fan at a time
-                _itemsBrowse.OpenHeld(_hand, hand);
-            }
             return;
-        }
         _itemsBrowse.Close();
         GrabOpened?.Invoke(kind, hand);
     }
 
+    /// <inheritdoc cref="DispatchGrabOpen"/>
     internal void DispatchGrabRelease(PileKind kind, VRHand hand)
     {
         if (kind == PileKind.Items)
-        {
-            _itemsBrowse.ReleaseHeld(hand);
             return;
-        }
         GrabReleased?.Invoke(kind, hand);
     }
 
@@ -672,7 +677,18 @@ internal sealed class PileViewer
 
         // ---- grab (pinch-to-browse) ------------------------------------------------
 
-        public override bool CanGrab => base.CanGrab && _hasCards;
+        /// <summary>
+        /// Grabbable only for the discard/burnt stacks. The ITEMS stack is NOT grabbable any
+        /// more (user ruling 2026-08-02: "Das Greifen des GANZEN Fächers mit dem Trigger war
+        /// möglich — das komplett entfernen, das war nie gewollt"). Refusing it HERE — at the
+        /// registration gate <c>ProximityGrabber.UpdateHighlight</c> consults — is what makes
+        /// the removal complete: the stack no longer becomes a grab candidate at all, so the
+        /// trigger falls straight through to the laser/poke toggle instead of being claimed.
+        /// Removing it also un-breaks the other two item interactions, which were both early-out
+        /// on the grabbing hand's <c>Grabber.Held</c> / <c>_followHand</c> for as long as the fan
+        /// was held (no laser hover/pluck, no hand-sweep highlight — see <see cref="ItemsPile.TogglePoke"/>).
+        /// </summary>
+        public override bool CanGrab => base.CanGrab && _hasCards && _kind != PileKind.Items;
 
         public override void OnGrab(VRHand hand)
         {
