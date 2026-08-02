@@ -338,28 +338,40 @@ internal static partial class ModalFallback
     /// (tutorial box / help-text action strip, <c>LevelMessagesUIHandler.s_Instance</c>'s
     /// serialized groups). This is the family with the dedicated spawn placement — closer
     /// (<see cref="LevelMessageDistanceMeters"/>), gaze-centered inside the view cone — and
-    /// the re-show recall (user report 2026-08-02: tutorial boxes/strips spawned too far away
-    /// and outside the player's view).
+    /// the chain pose continuity (user ruling 2026-08-02: subsequent hints of a chain reopen
+    /// at the previous hint's pose, see <see cref="ChainPoses"/>).
     /// </summary>
-    private static bool IsLevelMessageWindow(UIWindow? window)
+    private static bool IsLevelMessageWindow(UIWindow? window) => LevelMessageGroupIndex(window) >= 0;
+
+    /// <summary>
+    /// Which level-message GROUP a window belongs to: 0 = tutorial box group, 1 = help-text
+    /// strip group, −1 = not a level-message window. The index doubles as the slot into the
+    /// per-group chain-pose store (<see cref="ChainPoses"/>) — box and strip may be parked
+    /// at different spots, so their chain poses persist independently.
+    /// </summary>
+    private static int LevelMessageGroupIndex(UIWindow? window)
     {
         if (window == null)
-            return false;
+            return -1;
         LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
         if (handler == null)
-            return false;
-        return (handler.LevelMessageBoxLayoutGroup != null
-                && ReferenceEquals(handler.LevelMessageBoxLayoutGroup.window, window))
-               || (handler.LevelMessageHelpTextLayoutGroup != null
-                   && ReferenceEquals(handler.LevelMessageHelpTextLayoutGroup.window, window));
+            return -1;
+        if (handler.LevelMessageBoxLayoutGroup != null
+            && ReferenceEquals(handler.LevelMessageBoxLayoutGroup.window, window))
+            return 0;
+        if (handler.LevelMessageHelpTextLayoutGroup != null
+            && ReferenceEquals(handler.LevelMessageHelpTextLayoutGroup.window, window))
+            return 1;
+        return -1;
     }
 
     /// <summary>
     /// The scripted message currently displayed in this level-message group window (its
-    /// <c>MessageName</c>; null when none / not a level-message window) — the CHANGE SIGNAL of
-    /// the re-show recall in <see cref="TickMenuRecall"/>: the tutorial chains messages through
-    /// ONE kept-alive float (deadlock #2 do-no-harm gate), so when the key changes a NEW hint
-    /// just re-showed inside the existing panel at its OLD pose.
+    /// <c>MessageName</c>; null when none / not a level-message window) — the CHANGE SIGNAL the
+    /// chain-pose capture in <see cref="TickMenuRecall"/> keys on: the tutorial chains messages
+    /// through ONE kept-alive float (deadlock #2 do-no-harm gate), so when the key changes a
+    /// NEW hint just re-showed inside the existing panel at its previous pose — which the
+    /// capture then persists (position continuity, user ruling 2026-08-02).
     /// </summary>
     private static string? CurrentLevelMessageKey(UIWindow? window)
     {

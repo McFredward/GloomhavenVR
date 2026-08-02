@@ -117,12 +117,15 @@ internal static partial class ModalFallback
         public float OutOfViewSince;
 
         /// <summary>
-        /// LEVEL-MESSAGE RE-SHOW RECALL (torbogen report): the last scripted message key
-        /// (<see cref="CurrentLevelMessageKey"/>) seen displayed in this level-message group
-        /// window. The tutorial chains messages through ONE kept-alive float, so a key CHANGE
-        /// means a new hint just re-showed inside the existing panel at its old pose —
-        /// <see cref="TickMenuRecall"/> then re-places it immediately if that pose is outside
-        /// the current view. Null for non-level-message windows / before the first message.
+        /// LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): the last scripted message
+        /// key (<see cref="CurrentLevelMessageKey"/>) seen displayed in this level-message
+        /// group window. The tutorial chains messages through ONE kept-alive float, so a key
+        /// CHANGE means a new hint just re-showed inside the existing panel at its previous
+        /// pose — <see cref="TickMenuRecall"/> then CAPTURES that live pose into the per-group
+        /// chain store (<see cref="ChainPoses"/>; it no longer re-places the panel — position
+        /// continuity superseded the brief re-show recall). Seeded at convert so the first
+        /// tick never mis-reads the just-placed pose as a message change. Null for
+        /// non-level-message windows / before the first message.
         /// </summary>
         public string? LastLevelMessageKey;
 

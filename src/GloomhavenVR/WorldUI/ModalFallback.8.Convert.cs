@@ -257,15 +257,39 @@ internal static partial class ModalFallback
             // Torbogen report: level-message windows (tutorial box / action strip) get the
             // closer, gaze-centered, view-cone-guaranteed placement; every other family keeps
             // the shared 1.2 m spawn unchanged.
-            PlaceAtHmd(panel, extraScale, staggerIndex, IsLevelMessageWindow(window));
-            // ONE-SHOT FACING (task #1): the host was just yawed to face the head (ComputeHmdPose,
-            // PanelPlacement convention) — a spawn-only orient, not a per-frame billboard, so once
-            // the grab frame is seeded from it below the user's grab-rotation is authoritative and
-            // persists. Log the applied yaw (window name) for on-device diagnosis.
-            if (panel.HostGo != null)
-                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) one-shot facing applied — " +
-                                      $"yawed {panel.HostGo.transform.eulerAngles.y:F1}° to face the head upright " +
-                                      "(spawn-only; grab-rotation authoritative afterwards).");
+            bool isLevelMsg = IsLevelMessageWindow(window);
+            // CHAIN POSE CONTINUITY (user ruling 2026-08-02) — rule 2: a level-message group
+            // window that reopens MID-CHAIN (the game closed the group between two messages)
+            // takes the previous message's stored pose VERBATIM: no gaze placement, no pitch/
+            // board/view-cone clamps, no overlap resolve, no one-shot facing — the player
+            // approved that exact spot by leaving (or grab-moving) the window there; only
+            // finiteness was sanity-checked (TryGetChainPose). Rule 1 — the in-front,
+            // view-cone-guaranteed spawn below — applies only when no valid chain pose
+            // exists: the chain's FIRST message, after the scenario/teardown reset, or after
+            // presence regain invalidated a stale pose. Same scale convention as PlaceAtHmd
+            // (ComputeHmdPose: PanelLayout.WorldScale × the window's board-relative shrink).
+            if (isLevelMsg && TryGetChainPose(window, out Vector3 chainPos, out Quaternion chainRot))
+            {
+                CanvasConversion.PlaceHost(panel, chainPos, chainRot,
+                    PanelLayout.WorldScale * extraScale);
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) re-floated at the stored " +
+                                      $"chain pose ({chainPos.x:F2},{chainPos.y:F2},{chainPos.z:F2}) — " +
+                                      "position continuity: the next hint of a scripted chain appears " +
+                                      "exactly where the previous one was read (rule 2, pose verbatim).");
+            }
+            else
+            {
+                PlaceAtHmd(panel, extraScale, staggerIndex, isLevelMsg);
+                // ONE-SHOT FACING (task #1): the host was just yawed to face the head (ComputeHmdPose,
+                // PanelPlacement convention) — a spawn-only orient, not a per-frame billboard, so once
+                // the grab frame is seeded from it below the user's grab-rotation is authoritative and
+                // persists. Log the applied yaw (window name) for on-device diagnosis. Rule-1 spawns
+                // only — a rule-2 chain spawn above keeps the stored rotation verbatim.
+                if (panel.HostGo != null)
+                    VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) one-shot facing applied — " +
+                                          $"yawed {panel.HostGo.transform.eulerAngles.y:F1}° to face the head upright " +
+                                          "(spawn-only; grab-rotation authoritative afterwards).");
+            }
             // Narrower measure root for the content fit (story window: the visible
             // UICharacterStoryBox, not the 1920x1080 stretch root). The fit itself
             // runs centrally in CanvasConversion.Tick (test #14 item 1).
@@ -347,6 +371,11 @@ internal static partial class ModalFallback
                 // User #12: Sieg/Niederlage window — thumbstick-Y scrolls its scroll area
                 // (target found lazily in TickResultsStickScroll; list content pools in late).
                 IsResults = isResultsPanel,
+                // Chain continuity: seed the message key so the first key-change capture in
+                // TickMenuRecall fires only on a genuine NEXT message, not on the tick after
+                // this convert (null → current key would just re-store the just-placed pose).
+                // Null for every non-level-message window.
+                LastLevelMessageKey = CurrentLevelMessageKey(window),
             });
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
@@ -370,6 +399,13 @@ internal static partial class ModalFallback
     /// </summary>
     internal static int RefloatOpenWindows()
     {
+        // CHAIN POSE CONTINUITY × presence regain (the stale-pose fix STAYS): a chain pose
+        // captured around a doff/don is untrustworthy — the user may have physically moved or
+        // turned while the HMD was off, so the parked spot can sit behind them, and a pose
+        // captured MID-donning can be junk. Drop the store (rule 1) and re-seed it below from
+        // the fresh in-front pose of any level-message float being re-placed, so continuity
+        // resumes from where the chain is NOW readable.
+        ResetChainPoses("presence regained — a pose captured around the doff/don is untrusted");
         int count = 0;
         for (int i = 0; i < Converted.Count; i++)
         {
@@ -381,6 +417,7 @@ internal static partial class ModalFallback
             // next follow tick. (Every floated modal is grabbable now; the PlaceAtHmd branch
             // remains as a safety net should Grab ever be null.)
             bool levelMessage = IsLevelMessageWindow(wp.Window);
+            bool placed = false;
             if (wp.Grab != null)
             {
                 // User request A: pass the panel's size so the refloat pose also avoids the
@@ -388,12 +425,21 @@ internal static partial class ModalFallback
                 Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
                 if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, wp.Panel,
                         levelMessage))
+                {
                     wp.Grab.PlaceFrameAt(pos, rot);
+                    placed = true;
+                }
             }
             else
             {
                 PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
+                placed = true;
             }
+            // Chain continuity: the refloat pose is the chain's new anchor (see the reset
+            // above) — only after a SUCCESSFUL placement, so a no-head-pose tick can never
+            // re-store the stale pre-doff pose.
+            if (placed && levelMessage)
+                StoreChainPose(wp);
             count++;
         }
         return count;

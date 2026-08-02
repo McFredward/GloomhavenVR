@@ -148,6 +148,7 @@ internal static partial class ModalFallback
         _escapeChordFired = false;
         _escapeArmingLogged = false;
         _lastActionDismissLogKey = null; // deadlock #3: re-log the ruling per fresh session
+        ResetChainPoses("module shutdown"); // chain continuity: teardown = rule 1 next time
         _forcedTabs.Clear();
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
         ScreenWanted = false;
@@ -213,6 +214,13 @@ internal static partial class ModalFallback
     internal static void Tick()
     {
         bool inScenario = VRModeStateMachine.ScenarioBoardExists;
+
+        // LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): the per-group stored
+        // window pose is scoped to ONE scenario — outside it there is no chain to continue,
+        // and a stale pose must never place the NEXT scenario's first tutorial box (that
+        // first window is a rule-1 in-front spawn by definition). Change-gated inside.
+        if (!inScenario)
+            ResetChainPoses("scenario ended / left");
 
         // Prune: scene unloads / ForceHideWindows can close windows without a clean
         // transition reaching us (window destroyed → no event). IsOpen is the game's
@@ -427,6 +435,14 @@ internal static partial class ModalFallback
                 wp.WindowCanvasGroup.blocksRaycasts = false;
                 wp.WindowCanvasGroup.interactable = false;
             }
+            // LEVEL-MESSAGE CHAIN CONTINUITY: the game sometimes CLOSES the group window
+            // briefly between two messages of a chain — this release is that gap's edge.
+            // Park the float's LIVE pose (grab-moves included) in the per-group chain store
+            // BEFORE the host is torn down, so the next message of the chain re-floats at
+            // exactly this spot (TryConvertWindow rule 2) instead of respawning at the gaze.
+            // Scenario-gated: on scenario exit the store is reset above, not re-fed here.
+            if (inScenario && IsLevelMessageWindow(wp.Window))
+                StoreChainPose(wp);
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
             wp.Grab?.Destroy(); // drop the mod-owned grab holder (sub-item B) before releasing the host
