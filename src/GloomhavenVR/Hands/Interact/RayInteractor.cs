@@ -156,11 +156,11 @@ internal sealed class RayInteractor : IPickProvider
     // shaders write no depth, so the depthless modal never does).
     private const int RayVisualSortingOrder = 5000;
 
-    // ---- P5 (MISSION A.5): ModalUI visual constraint --------------------------------------
-    // In ModalUI the ray stays ACTIVE (flat-screen pointer, dialogs) but its visuals only
-    // show while it points near a known UI surface, so the laser doesn't sweep the room
-    // while a dialog is up. UI surfaces = every registered UguiPokeSurfaces canvas plus
-    // explicitly registered extra targets (the WorldUI flat screen registers its quad).
+    // ---- P5 (MISSION A.5) — RETIRED: ModalUI visual constraint ----------------------------
+    // The ModalUI cone gate (visuals only near a known UI surface, so the laser would not
+    // sweep the room during a dialog) is retired by the 2026-08 user ruling: the beam
+    // renders unconditionally in every mode (see VisualsAllowed). The registry below stays
+    // populated (FlatScreen registers its quad) purely for reversibility of that policy.
 
     private static readonly List<Transform> UiTargets = new(4);
 
@@ -219,8 +219,9 @@ internal sealed class RayInteractor : IPickProvider
     ///                                 |                | (release re-checks the live button
     ///                                 |                | state every Tick; CancelAll on
     ///                                 |                | mode disable and tracking loss).
-    ///   ModalUI cone (VisualsAllowed) | visuals only   | no — recomputed per frame; leaves
-    ///                                 |                | with the mode.
+    ///   ModalUI cone (VisualsAllowed) | NOTHING any    | no — the cone gate is retired
+    ///                                 | more (retired) | (user ruling 2026-08: beam always
+    ///                                 |                | renders; VisualsAllowed ≡ true).
     ///   UiHitOverride                 | nothing        | no — clamps beam LENGTH only,
     ///                                 |                | one-frame freshness window.
     ///   dominance switch              | via mode mask  | no — HandsDriver reapplies masks
@@ -324,15 +325,17 @@ internal sealed class RayInteractor : IPickProvider
             FanOccluderDistance = float.PositiveInfinity;
         }
 
-        // Modal input-block (menu open): while a modal window floats
-        // (ModalFallback.WindowModalActive) or we are in ModalUI, the ray PICK must not hit
-        // non-modal targets. Board hexes, cards and tray buttons all live on physics
-        // colliders; the modal window and every registered modal surface (the WorldUI flat
-        // screen quad) are collider-less uGUI reached through the virtual-mouse path — so
-        // suppressing the physics pick leaves ONLY the menu clickable. Visuals (the ModalUI
-        // cone) are unaffected. Recomputed + logged once per frame, shared by both hands.
-        UpdateModalPickBlock();
-        if (!_modalPickBlocked && Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, Mask))
+        // The physics pick ALWAYS runs — in every mode, under every modal (user ruling
+        // 2026-08: the laser must exist and collide without exception). The former modal
+        // input-block suppressed this raycast so nothing behind a floating menu was
+        // pickable; that duty is now carried entirely by the COMMIT layer (see
+        // UpdateCommitSuppression + ModalFallback.HardCommitLockActive for the decision
+        // table): the modal's own uGUI still wins the trigger wherever the beam is on it
+        // (nearest-hit arbitration; a physics hit NEARER than the panel occludes it
+        // honestly, exactly as it visually occludes the panel via depth test), and
+        // board/card/tray commit seams each apply their own per-target policy.
+        UpdateCommitSuppression();
+        if (Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, Mask))
         {
             if (hit.distance > FanOccluderDistance + FanOcclusionEpsilonMeters * scale)
             {
@@ -363,85 +366,65 @@ internal sealed class RayInteractor : IPickProvider
     }
 
     /// <summary>
-    /// ModalUI visual gate (MISSION A.5): true when the ray visuals should show.
-    /// Outside ModalUI (or with [Hands] RayAlwaysOn / a zero cone) always true;
-    /// in ModalUI only while pointing within [Hands] ModalRayConeDegrees of a
-    /// registered UI surface (poke canvases + extra targets like the flat screen).
+    /// Ray visuals policy — ALWAYS true, in every mode (user ruling 2026-08: "Ich möchte,
+    /// dass der Laser ausnahmslos da ist und collidet, egal in welcher Phase sich das Spiel
+    /// aktuell befindet."). This method used to be the MISSION A.5 ModalUI cone gate (beam
+    /// hidden unless pointing within [Hands] ModalRayConeDegrees of a registered UI surface,
+    /// so the laser would not sweep the room while a dialog was up) — and exactly that gate
+    /// was the tutorial's "no laser at all on the playfield while the instruction box is
+    /// open". The ruling overrules the sweep-the-room concern outright: the beam renders
+    /// wherever the hand points, in every phase. [Hands] RayAlwaysOn / ModalRayConeDegrees
+    /// are inert now (kept so existing configs load cleanly); UiTargets/RegisterUiTarget
+    /// stay registered by FlatScreen for reversibility, they are just no longer consulted.
+    /// The signature is kept so a future policy change slots back in at this one seam.
     /// </summary>
-    private bool VisualsAllowed(Vector3 origin, Vector3 direction)
-    {
-        if (VRModeStateMachine.CurrentMode != VRMode.ModalUI || Plugin.RayAlwaysOn.Value)
-            return true;
-        // Hardware test #13: the ray IS on a UI surface right now (RayUguiDriver /
-        // fan / flat screen clamped the beam) — visuals must always show. The cone
-        // below measures the angle to the canvas CENTER only; on a floated story
-        // window (1920 px × 0.7 scale ≈ 1.3 m wide at 1.2 m) the outer half sat
-        // outside the 25° cone, so the dot vanished while clicks kept landing.
-        if (HasFreshUiHit)
-            return true;
-        float cone = Plugin.ModalRayConeDegrees.Value;
-        if (cone <= 0f)
-            return true;
+    private bool VisualsAllowed(Vector3 origin, Vector3 direction) => true;
 
-        var canvases = UguiPokeSurfaces.Surfaces;
-        for (int i = 0; i < canvases.Count; i++)
-        {
-            Canvas canvas = canvases[i];
-            if (canvas == null || !canvas.isActiveAndEnabled)
-                continue;
-            if (WithinCone(origin, direction, canvas.transform.position, cone))
-                return true;
-        }
-        for (int i = UiTargets.Count - 1; i >= 0; i--)
-        {
-            Transform target = UiTargets[i];
-            if (target == null)
-            {
-                UiTargets.RemoveAt(i);
-                continue;
-            }
-            if (target.gameObject.activeInHierarchy && WithinCone(origin, direction, target.position, cone))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool WithinCone(Vector3 origin, Vector3 direction, Vector3 target, float coneDegrees)
-    {
-        Vector3 to = target - origin;
-        return to.sqrMagnitude > 1e-8f && Vector3.Angle(direction, to) <= coneDegrees;
-    }
-
-    // ---- modal input-block: gate the physics pick to the menu only ---------------------
+    // ---- commit suppression: the beam always picks; only COMMITS are modal-gated -------
 
     /// <summary>
-    /// True while a modal menu is open — the ray physics pick is suppressed so nothing
-    /// behind the menu (board hexes / cards / tray buttons) is pickable. Static because
-    /// it is a global mode fact shared by both hands; recomputed once per frame in
-    /// <see cref="UpdateModalPickBlock"/>. The modal window itself stays clickable through
-    /// its own uGUI (virtual-mouse) path, which this never touches.
+    /// Commit-suppression state (user ruling 2026-08, see
+    /// <see cref="WorldUI.ModalFallback.HardCommitLockActive"/> for the full per-target
+    /// decision table). The former "modal input-block" here SUPPRESSED THE PHYSICS PICK
+    /// while a blocking modal floated / ModalUI was asserted, so nothing behind the menu
+    /// (board hexes / cards / tray buttons) was pickable — which also killed the beam's
+    /// collision and every hover behind the menu (the reported "laser appears but collides
+    /// only with the grab bar"). The pick now ALWAYS runs; the anti-click-through duty
+    /// moved entirely to the COMMIT layer: the modal's own uGUI wins the trigger wherever
+    /// the beam is on it (nearest-hit arbitration + HasFreshUiHit already do this
+    /// structurally), board clicks self-gate through the game's own CommonLoop/LateUpdate
+    /// seams except under the hard lock (results/error families —
+    /// BoardClickDriver.RequestClick), and card/tray commits stay gated on the Cards side
+    /// (CardsDriver TickInteractionsAndStatus). This method only TRACKS the two commit
+    /// flags once per frame (shared by both hands) and logs the policy on state change so
+    /// hardware logs always show why a trigger did or did not commit.
     /// </summary>
-    private static bool _modalPickBlocked;
-    private static int _modalPickFrame = -1;
+    private static bool _cardTrayCommitsSuppressed;
+    private static bool _boardClickCommitsSuppressed;
+    private static int _commitPolicyFrame = -1;
 
-    /// <summary>Recompute the modal pick-block once per frame (shared by both hands) and log each transition.</summary>
-    private static void UpdateModalPickBlock()
+    /// <summary>Recompute the commit-suppression flags once per frame and log each transition.</summary>
+    private static void UpdateCommitSuppression()
     {
-        if (Time.frameCount == _modalPickFrame)
+        if (Time.frameCount == _commitPolicyFrame)
             return;
-        _modalPickFrame = Time.frameCount;
+        _commitPolicyFrame = Time.frameCount;
         // Item 4 (user): a NON-blocking reachable menu (pause/ESC, Options, Multiplayer,
-        // Compendium) must NOT gate board/card/tray picks — the player keeps interacting while
-        // it floats. Only BLOCKING floated windows (story/results/durability), which also assert
-        // ModalUI, gate the pick. So key on BlockingWindowModalActive, not WindowModalActive.
-        bool blocked = WorldUI.ModalFallback.BlockingWindowModalActive
-                       || VRModeStateMachine.CurrentMode == VRMode.ModalUI;
-        if (blocked == _modalPickBlocked)
+        // Compendium) and action-dismissed level messages impose ZERO restrictions. Only
+        // BLOCKING floated windows gate the card/tray commit layer, and only the hard
+        // families (results screens / error box) gate board clicks.
+        bool cardTray = WorldUI.ModalFallback.BlockingWindowModalActive;
+        bool board = WorldUI.ModalFallback.HardCommitLockActive;
+        if (cardTray == _cardTrayCommitsSuppressed && board == _boardClickCommitsSuppressed)
             return;
-        _modalPickBlocked = blocked;
-        Core.VRLog.Info("Hands", blocked
-            ? "Modal input-block ENGAGED — ray physics pick gated to the modal menu; non-modal board/card/tray targets ignored."
-            : "Modal input-block RELEASED — ray physics pick restored to all targets.");
+        _cardTrayCommitsSuppressed = cardTray;
+        _boardClickCommitsSuppressed = board;
+        string families = !cardTray && !board
+            ? "none — all commit targets live"
+            : (cardTray ? "cards+tray (blocking modal)" : "")
+              + (cardTray && board ? ", " : "")
+              + (board ? "board clicks (results/error family)" : "");
+        Core.VRLog.Info("Hands", $"laser gating: beam+collision always on; commit suppression active for [{families}].");
     }
 
     // ---- visuals -----------------------------------------------------------------------
@@ -451,9 +434,9 @@ internal sealed class RayInteractor : IPickProvider
         if (_laser == null)
             CreateVisuals();
 
-        // ModalUI constraint: keep the pick alive but hide the beam unless it points
-        // at a UI surface (MISSION A.5). Change-deduped log (test #19): every visual
-        // flip must be attributable from the log.
+        // Visuals policy: always shown (user ruling 2026-08 — VisualsAllowed doc). The
+        // change-deduped log below (test #19) stays so any future visual flip remains
+        // attributable from the log.
         bool show = VisualsAllowed(origin, direction);
         if (_laser!.gameObject.activeSelf != show)
         {

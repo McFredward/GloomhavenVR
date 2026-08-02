@@ -209,6 +209,22 @@ internal static class BoardClickDriver
 
     private static void RequestClick(VRHand hand, string kind)
     {
+        // COMMIT layer only (user ruling 2026-08: beam/collision/hover are never gated —
+        // BoardPick stays live under every modal). Board clicks are ALLOWED under ordinary
+        // blocking modals (story / level messages / dialogs / rewards): the injection point
+        // is Controller.CommonLoop, so the game's OWN LateUpdate gating runs in full
+        // (InteractabilityManager, ThisPlayerHasTurnControl, tutorial isolation; story and
+        // error blockers stall processing via UpdateBlocker) — a stray click self-gates.
+        // The ONE exception is the hard lock (results screens / error box), where vanilla
+        // makes such clicks physically impossible (full-screen blocker →
+        // s_StartedButtonDownInGUI) and our injection clears exactly that flag — see the
+        // decision table on WorldUI.ModalFallback.HardCommitLockActive.
+        if (GloomhavenVR.WorldUI.ModalFallback.HardCommitLockActive)
+        {
+            VRLog.Info("Board", $"click SUPPRESSED ({kind}, {hand.Side}) — hard commit lock " +
+                                "(results/error family modal open); beam+hover stay live.");
+            return;
+        }
         _pending = true;
         hand.SendHaptic(HapticPreset.ClickPulse);
         // Test #13 diagnostics: the mode matters — hero placement commits in

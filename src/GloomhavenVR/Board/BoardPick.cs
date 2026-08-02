@@ -213,9 +213,14 @@ internal static class BoardPick
         _hasHit = false;
         _hitCollider = null;
 
-        // Vanilla passthrough outside the scenario and behind modal locks.
+        // Vanilla passthrough outside the scenario only (no board exists in the 2D menu).
+        // ModalUI deliberately does NOT bail any more (user ruling 2026-08: the laser
+        // collides in every phase): the pick, the cursor projection and the game's own hex
+        // hover highlight stay live under blocking modals — only the CLICK commit is
+        // modal-gated, per target, in BoardClickDriver.RequestClick (decision table:
+        // WorldUI.ModalFallback.HardCommitLockActive).
         VRMode mode = VRModeStateMachine.CurrentMode;
-        if (mode == VRMode.Menu2D || mode == VRMode.ModalUI)
+        if (mode == VRMode.Menu2D)
             return;
 
         // Verified vs real GH.Runtime.dll (ilspycmd 8.2, 2026-07-15):
