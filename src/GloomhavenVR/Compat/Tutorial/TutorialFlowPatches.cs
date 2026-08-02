@@ -61,13 +61,23 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
                 sb.Append($"\n       display: {TutorialVR.Describe(m.DisplayTrigger)}"
                     + $" | dismiss: {TutorialVR.Describe(m.DismissTrigger)}");
             }
+            // Scenario boundary — drop the previous scenario's recorded card references BEFORE
+            // the sweep below re-records this one's.
+            TutorialCardNames.Reset();
             List<CLevelEvent>? evs = __instance.m_LevelEventsToShow;
             for (int i = 0; i < (evs?.Count ?? 0); i++)
             {
                 CLevelEvent? e = evs![i];
-                if (e != null)
-                    sb.Append($"\n  event[{i}] {e.EventType} repeats={e.Repeats}"
-                        + $" display: {TutorialVR.Describe(e.DisplayTrigger)}");
+                if (e == null)
+                    continue;
+                sb.Append($"\n  event[{i}] {e.EventType} repeats={e.Repeats}"
+                    + (string.IsNullOrEmpty(e.EventResource) ? "" : $" resource='{e.EventResource}'")
+                    + $" display: {TutorialVR.Describe(e.DisplayTrigger)}");
+                // Some level events NAME a card the VR hints must be able to talk about (the
+                // forced short-rest burn). Recording it here needs no extra patch — this dump
+                // already walks the queue — and it must happen before the game consumes its own
+                // copy (LevelEventsController.RunActionIfShortRestDataPending).
+                TutorialCardNames.NoteLevelEvent(e);
             }
             VRLog.Info("Tutorial", sb.ToString());
             TutorialVR.InvalidateWaitCache();
