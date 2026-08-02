@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using ScenarioRuleLibrary.CustomLevels;
@@ -20,7 +21,11 @@ namespace GloomhavenVR.Compat;
 /// Postfixes there get the last word after every path that (re)writes the text,
 /// including the gamepad-variant rewrites.
 ///
-/// MATCHING, three tiers (first hit wins; each replacement logged once per key):
+/// MATCHING, four tiers (first hit wins; each replacement logged once per key):
+/// 0. BURNT-CARD BOX (<see cref="TryOverrideBurntCard"/>) — the short-rest burn box (TB_20),
+///    whose flat explanation is a COLOUR tell ("the card is dark red now"). VR has no such
+///    tell: the mod's cards are physical and a burnt card goes to the burnt PILE stack, so
+///    the replacement states the rule and sends the player to that pile. See the method.
 /// 1. EXACT KEY table (<see cref="BodyOverrides"/>/<see cref="TitleOverrides"/>) —
 ///    keys pinned from the tutorial-2 hardware flow dump
 ///    (.planning/debug/LogOutput.log — TutorialFlowPatches prints every scripted
@@ -66,7 +71,15 @@ namespace GloomhavenVR.Compat;
 /// machinery on the scripted chain); where the VR tutorial genuinely needs an ADDITIONAL step,
 /// <see cref="TutorialGrabStep"/> shows a mod-owned message through the handler's public
 /// <c>ShowHelpText</c> instead, entirely beside the controller's trigger stores. Such messages
-/// are matched here by MESSAGE NAME (tier 0 in <see cref="TryOverrideTitle"/>), not by loc key.
+/// are matched here by MESSAGE NAME (in <see cref="TryOverrideTitle"/>), not by loc key.
+///
+/// NAMING THE CARD: a hint that demands ONE SPECIFIC card must NAME it — in VR the player
+/// opens their own hand fan, so "play the requested card" means brute-forcing (user ruling
+/// 2026-08). <see cref="NamedVariants"/> maps such a step's generic mod text to a "{0}"
+/// variant that <see cref="TutorialCardNames"/> fills from the GAME's own data at display
+/// time (the step's own trigger carries the card's localization term). A step whose card
+/// cannot be resolved keeps the generic wording and logs a Warn naming it — never a guessed
+/// or English-only name.
 /// </summary>
 internal static class TutorialHints
 {
@@ -115,6 +128,48 @@ internal static class TutorialHints
             ["TUTORIAL_2_HELP_024_5"] = "tut_vr_confirm",      // dismiss: ConfirmButtonPressed
         };
 
+    /// <summary>
+    /// Generic step text → its NAMED variant (a "{0}" format string). Applied whenever the
+    /// step's own trigger identifies the card (see <see cref="TutorialCardNames"/>): these
+    /// are exactly the steps that demand ONE specific card be played/placed/selected, where
+    /// an unnamed instruction forces the player to brute-force the hand fan. Steps that
+    /// name no card (confirm, hex pick, execute, rest, skip …) are deliberately absent.
+    /// </summary>
+    private static readonly Dictionary<string, string> NamedVariants =
+        new(StringComparer.Ordinal)
+        {
+            ["tut_vr_pick_card"] = "tut_vr_pick_card_named",     // AbilityCardSelected(card)
+            ["tut_vr_pick_card2"] = "tut_vr_pick_card2_named",   // AbilityCardSelected(card)
+            ["tut_vr_half_bottom"] = "tut_vr_half_bottom_named", // CardBottomHalfSelected(card)
+            ["tut_vr_half_top"] = "tut_vr_half_top_named",       // CardTopHalfSelected(card)
+        };
+
+    /// <summary>
+    /// Tier-0 BURNT-CARD box. Page 1 of the short-rest burn box (TB_20, displayed by the
+    /// game's own <c>ShortRestChoseToBurn</c> event — flow dump, .planning/debug/LogOutput.log)
+    /// is the immediate reaction to the burn, so replacing it is correct BY CONSTRUCTION
+    /// whatever the flat wording was (the same structural argument the exact table rests on).
+    /// </summary>
+    private const string BurntCardPage = "TUTORIAL_2_TEXT_020_1";
+
+    /// <summary>The burn box's remaining pages. They keep the game's own prose UNLESS they
+    /// still carry the flat COLOUR tell (<see cref="ColourTellMarkers"/>) — that sentence is
+    /// simply false in VR, where a burnt card is identified by WHERE IT LIES, not by a tint.
+    /// A hit is logged as a Warn so the pin can be moved to the real page after one run.</summary>
+    private static readonly string[] BurntCardFollowPages =
+        { "TUTORIAL_2_TEXT_020_2", "TUTORIAL_2_TEXT_020_3" };
+
+    /// <summary>Colour-tell tokens (EN + DE), matched ONLY inside the burn box's own pages —
+    /// narrow on purpose: a bare "rot"/"red" would collide with prose ("verrottet", "reddish
+    /// glow"), these compounds cannot mean anything but "the card is tinted".</summary>
+    private static readonly string[] ColourTellMarkers =
+    {
+        "dunkelrot", "dunkelrote", "dunkelroten", "dunkelrotem",
+        "dark red", "dark-red", "darkred",
+        "rot gefärbt", "rot eingefärbt", "rot markiert", "wird rot",
+        "tinted red", "turns red", "red tint",
+    };
+
     /// <summary>Tier-2 key substrings — a loc KEY carrying one of these names a
     /// flat-controls hint (internal IDs, language-independent).</summary>
     private static readonly string[] KeyPatterns = { "CAMERA", "MOUSE", "KEYBOARD" };
@@ -146,34 +201,138 @@ internal static class TutorialHints
 
     internal static bool TryOverrideBody(string? key, string? controllerKey, string? resolved,
         out string text)
-        => TryOverride(key, controllerKey, resolved, BodyOverrides,
-            "tut_vr_move_body", "tut_vr_controls_body", "page", out text);
+        => TryOverrideBurntCard(key, controllerKey, resolved, out text)
+        || TryOverride(key, controllerKey, resolved, BodyOverrides,
+            "tut_vr_move_body", "tut_vr_controls_body", "page", null, out text);
 
-    internal static bool TryOverrideTitle(string? messageName, string? key, string? controllerKey,
-        string? resolved, out string text)
+    /// <summary>
+    /// Title override for a scripted (or mod-owned) message. Takes the whole
+    /// <see cref="CLevelMessage"/> because the card a step demands lives in the message's own
+    /// DISMISS trigger — the same trigger that will close the strip once that card is played
+    /// — so the instruction and the completion condition can never name different cards.
+    /// </summary>
+    internal static bool TryOverrideTitle(CLevelMessage message, string? resolved, out string text)
     {
-        // Tier 0 — MOD-OWNED messages (Compat.TutorialGrabStep's extra VR step). These carry a
+        // MOD-OWNED messages (Compat.TutorialGrabStep's extra VR step). These carry a
         // placeholder loc key on purpose (a mod-invented key would make the game's
         // LocalizationManager log "term not found"), so they are identified by MESSAGE NAME —
         // which the mod itself authored and which can never collide with a scripted one.
-        if (string.Equals(messageName, TutorialGrabStep.MessageName, StringComparison.Ordinal))
+        if (string.Equals(message.MessageName, TutorialGrabStep.MessageName, StringComparison.Ordinal))
         {
             text = Loc.Mod("tut_vr_grab_intent");
             return true;
         }
-        return TryOverride(key, controllerKey, resolved, TitleOverrides,
-            "tut_vr_move_title", "tut_vr_controls_line", "title", out text);
+        return TryOverride(message.TitleKey, message.TitleKeyController, resolved, TitleOverrides,
+            "tut_vr_move_title", "tut_vr_controls_line", "title", message.DismissTrigger, out text);
+    }
+
+    /// <summary>
+    /// The short-rest BURN box: state the rule (burnt = lost for the scenario) — naming the
+    /// card when it can be identified — and then point at the VR burnt PILE, the only place
+    /// the card can still be looked at once it has left the hand.
+    ///
+    /// The pile paragraph is appended ONLY while the pile stacks actually exist
+    /// ([Cards] PileViewer, default on): the mod must never teach an interaction the player's
+    /// own configuration has switched off. When they do exist the interaction is the stack's
+    /// real one — fingertip poke or board laser click toggles the browse fan
+    /// (<c>PileViewer.PileStack.OnPoke</c>/<c>LaserToggle</c>), and the stack is live because
+    /// the burn has just put a card on it (<c>_hasCards</c>; the hardware log shows
+    /// discard=0, burnt=1 the instant this box opens).
+    /// </summary>
+    private static bool TryOverrideBurntCard(string? key, string? controllerKey, string? resolved,
+        out string text)
+    {
+        text = string.Empty;
+        bool primary = Matches(BurntCardPage, key, controllerKey);
+        bool follow = !primary && MatchesAny(BurntCardFollowPages, key, controllerKey)
+                      && HasColourTell(resolved);
+        if (!primary && !follow)
+            return false;
+
+        string pileParagraph = PilesAvailable()
+            ? string.Format(Loc.Mod("tut_vr_burnt_card_pile"), PileViewer.Caption(PileKind.Burnt))
+            : string.Empty;
+
+        if (follow)
+        {
+            // The colour sentence sits on a page we did NOT pin. Replacing it with the pile
+            // paragraph keeps the box truthful; without the piles there is nothing to say
+            // instead, so the game's own page stays (it is prose, not an instruction).
+            if (pileParagraph.Length == 0)
+                return false;
+            text = pileParagraph;
+            if (Logged.Add("burnt-follow:" + key))
+                VRLog.Warn("Tutorial", $"burnt-card box: the flat COLOUR tell is on page '{key}', "
+                    + $"not on the pinned '{BurntCardPage}' — replaced it with the burnt-pile "
+                    + "paragraph. Move the pin to this key after this run.");
+            return true;
+        }
+
+        string rule;
+        if (TutorialCardNames.TryBurntCardName(out string card))
+        {
+            rule = string.Format(Loc.Mod("tut_vr_burnt_card"), card);
+        }
+        else
+        {
+            rule = Loc.Mod("tut_vr_burnt_card_plain");
+            if (Logged.Add("unnamed-burnt"))
+                VRLog.Warn("Tutorial", $"burnt-card step '{BurntCardPage}': the burnt card could "
+                    + "not be identified (no unique lost card and no SetShortRestCard level "
+                    + "event) — using the unnamed wording. The player has to open the burnt pile "
+                    + "to see which card it was.");
+        }
+
+        text = pileParagraph.Length == 0 ? rule : rule + "\n\n" + pileParagraph;
+        LogOnce(key ?? controllerKey ?? BurntCardPage, "page", "burnt-card", "tut_vr_burnt_card");
+        return true;
+    }
+
+    /// <summary>Do the VR pile stacks exist right now? Guarded: the config entry is only bound
+    /// once the Cards module has initialised.</summary>
+    private static bool PilesAvailable()
+    {
+        try
+        {
+            return CardsConfig.PileViewer != null && CardsConfig.PileViewer.Value;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool Matches(string pinned, string? key, string? controllerKey) =>
+        string.Equals(pinned, key, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(pinned, controllerKey, StringComparison.OrdinalIgnoreCase);
+
+    private static bool MatchesAny(string[] pinned, string? key, string? controllerKey)
+    {
+        foreach (string p in pinned)
+            if (Matches(p, key, controllerKey))
+                return true;
+        return false;
+    }
+
+    private static bool HasColourTell(string? resolved)
+    {
+        if (string.IsNullOrEmpty(resolved))
+            return false;
+        foreach (string marker in ColourTellMarkers)
+            if (resolved!.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        return false;
     }
 
     private static bool TryOverride(string? key, string? controllerKey, string? resolved,
         Dictionary<string, string> exact, string patternLocId, string markerLocId, string kind,
-        out string text)
+        CLevelTrigger? nameSource, out string text)
     {
         text = string.Empty;
 
         // Tier 1 — pinned key (primary, then the gamepad-variant key of the same hint).
-        if (TryExact(key, exact, kind, out text)
-            || TryExact(controllerKey, exact, kind, out text))
+        if (TryExact(key, exact, kind, nameSource, out text)
+            || TryExact(controllerKey, exact, kind, nameSource, out text))
             return true;
 
         // Tier 2 — controls-word in the KEY itself.
@@ -203,14 +362,36 @@ internal static class TutorialHints
     }
 
     private static bool TryExact(string? key, Dictionary<string, string> exact, string kind,
-        out string text)
+        CLevelTrigger? nameSource, out string text)
     {
         text = string.Empty;
         if (string.IsNullOrEmpty(key) || !exact.TryGetValue(key!, out string locId))
             return false;
-        text = Loc.Mod(locId);
+        text = Resolve(locId, key!, nameSource);
         LogOnce(key!, kind, "exact", locId);
         return true;
+    }
+
+    /// <summary>
+    /// The step's mod text — in its NAMED form when the step demands a specific card AND that
+    /// card resolves from the step's own trigger. The name itself comes from the game's
+    /// localization (see <see cref="TutorialCardNames"/>), so it always reads exactly like the
+    /// title printed on the card. If it cannot be resolved we keep the generic sentence rather
+    /// than print a raw term, and say so once per step in the log — that Warn is the signal
+    /// that a player was left to brute-force this step.
+    /// </summary>
+    private static string Resolve(string locId, string key, CLevelTrigger? nameSource)
+    {
+        if (!NamedVariants.TryGetValue(locId, out string namedId))
+            return Loc.Mod(locId);
+        if (TutorialCardNames.TryFromTrigger(nameSource, out string cardName))
+            return string.Format(Loc.Mod(namedId), cardName);
+        if (Logged.Add("unnamed:" + key))
+            VRLog.Warn("Tutorial", $"step '{key}' ({locId}) tells the player to play a SPECIFIC "
+                + "card, but its name could not be resolved from the step's own dismiss trigger "
+                + $"(ctxId '{nameSource?.EventTriggerContextId}') — falling back to the generic "
+                + "wording, so the player has to find the card by trial and error here.");
+        return Loc.Mod(locId);
     }
 
     private static bool HasKeyPattern(string? key)
@@ -280,8 +461,7 @@ internal static class LevelMessageUILayout_Title_Patch
                 return;
             if (message == null || ui.title == null || !ui.title.gameObject.activeSelf)
                 return;
-            if (TutorialHints.TryOverrideTitle(message.MessageName, message.TitleKey,
-                    message.TitleKeyController, ui.title.text, out string text))
+            if (TutorialHints.TryOverrideTitle(message, ui.title.text, out string text))
                 ui.title.text = text;
         }
         catch (Exception ex)

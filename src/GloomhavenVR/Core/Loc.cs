@@ -246,25 +246,44 @@ internal static partial class Loc
         // One id per ACTION the tutorial demands — each pinned HelpText strip instructs, in VR
         // terms, exactly the action its dismiss trigger waits for (structural classification —
         // see the TutorialHints header; the flat wording is not readable headless). Strips are
-        // ONE-LINERS: keep ≤ ~110 chars incl. the German. Card names are NOT baked in (the box
-        // right before each strip names the card in the game's language); controls are the
-        // mod's real bindings (WorldGrab stick-click, ProximityGrabber trigger grab, board
-        // keycaps, laser/fingertip picks — cross-checked against the input code).
+        // ONE-LINERS: keep ≤ ~110 chars incl. the German. Controls are the mod's real bindings
+        // (WorldGrab stick-click, ProximityGrabber trigger grab, board keycaps, laser/fingertip
+        // picks — cross-checked against the input code).
+        //
+        // NAMED VARIANTS ("…_named", {0} = the card/item): every step that demands ONE SPECIFIC
+        // card names it, because in VR the player opens the hand fan themselves and "the
+        // requested card" would mean brute-forcing (user ruling 2026-08). {0} is filled at
+        // DISPLAY time from the game's own data — the step's trigger carries the card's
+        // localization TERM and Loc.Game renders exactly the title printed on the card (see
+        // Compat.TutorialCardNames). The un-named ids below stay as the fallback for steps
+        // whose card cannot be resolved.
         ["tut_vr_pick_card"] = Pair(
             "Palm up: fan out your cards, grab the requested card (trigger) and place it in a board card slot.",
             "Handfläche nach oben: Fächer öffnen, die verlangte Karte greifen (Trigger) und in einen Brett-Slot legen."),
+        ["tut_vr_pick_card_named"] = Pair(
+            "Palm up: fan out your cards, grab \"{0}\" with the trigger and place it in a board card slot.",
+            "Handfläche nach oben: Fächer öffnen, \"{0}\" mit dem Trigger greifen und in einen Brett-Slot legen."),
         ["tut_vr_pick_card2"] = Pair(
             "Pick the second card the same way: grab it from the fan and drop it into the free board slot.",
             "Wähle die zweite Karte genauso: aus dem Fächer greifen und in den freien Brett-Slot legen."),
+        ["tut_vr_pick_card2_named"] = Pair(
+            "Second card: grab \"{0}\" from the fan and drop it into the free board slot.",
+            "Zweite Karte: \"{0}\" aus dem Fächer greifen und in den freien Brett-Slot legen."),
         ["tut_vr_confirm_cards"] = Pair(
             "Lock in your cards with the board's CONFIRM keycap.",
             "Bestätige deine Kartenwahl mit der BESTÄTIGEN-Taste am Brett."),
         ["tut_vr_half_bottom"] = Pair(
             "Your played cards sit in the board slots — poke the BOTTOM half of the requested card (or laser + trigger).",
             "Deine Karten liegen in den Brett-Slots — tippe die UNTERE Hälfte der verlangten Karte an (oder Laser + Trigger)."),
+        ["tut_vr_half_bottom_named"] = Pair(
+            "Your played cards sit in the board slots — poke the BOTTOM half of \"{0}\" (or laser + trigger).",
+            "Deine Karten liegen in den Brett-Slots — tippe die UNTERE Hälfte von \"{0}\" an (oder Laser + Trigger)."),
         ["tut_vr_half_top"] = Pair(
             "Poke the TOP half of the requested card in its board slot (or laser + trigger).",
             "Tippe die OBERE Hälfte der verlangten Karte im Brett-Slot an (oder Laser + Trigger)."),
+        ["tut_vr_half_top_named"] = Pair(
+            "Poke the TOP half of \"{0}\" in its board slot (or laser + trigger).",
+            "Tippe die OBERE Hälfte von \"{0}\" im Brett-Slot an (oder Laser + Trigger)."),
         // FINGERTIP TILE TOUCH — the direct touch only commits WHILE THE GRIP BUTTON IS HELD
         // (fist with an extended index finger; the grip requirement is what keeps a hand that
         // merely sweeps over the board from selecting tiles). The hints below therefore never
@@ -306,6 +325,35 @@ internal static partial class Loc
         ["tut_vr_skip"] = Pair(
             "Press the SKIP keycap on the board to pass this action.",
             "Drücke die ÜBERSPRINGEN-Taste am Brett, um die Aktion auszulassen."),
+
+        // ---- tutorial VR: the BURNT card after the short rest (TutorialHints, TB_20) ---------
+        // The flat tutorial explains the burn by COLOUR ("the card is dark red now") — the one
+        // tell VR does not have: the mod's cards are physical, and a burnt card leaves the hand
+        // for the burnt pile stack docked off the control board's right edge (PileViewer). The
+        // replacement therefore states the RULE (burnt = lost for the scenario) and then sends
+        // the player to the one place the card can still be looked at.
+        // Composed at display time from two parts so each half can stand alone: the rule line
+        // (named when the burnt card is identifiable, plain when it is not) plus the pile
+        // paragraph, which is appended ONLY while the VR pile stacks actually exist
+        // ([Cards] PileViewer) — never teach an interaction that is switched off.
+        // {0} = the burnt card's game-localized title; the pile paragraph's {0} = the pile's
+        // OWN caption, read from the game's GUI_CARD_SECTION_BURNT section noun (PileViewer.Caption),
+        // so the hint and the label physically written on the stack can never disagree.
+        ["tut_vr_burnt_card"] = Pair(
+            "\"{0}\" is BURNT — lost for the rest of the scenario.",
+            "\"{0}\" ist VERBRANNT — für den Rest des Szenarios verloren."),
+        ["tut_vr_burnt_card_plain"] = Pair(
+            "The card you just lost is BURNT — gone for the rest of the scenario.",
+            "Die eben verlorene Karte ist VERBRANNT — für den Rest des Szenarios verloren."),
+        ["tut_vr_burnt_card_pile"] = Pair(
+            "In VR a burnt card is not just tinted — it physically lies on the \"{0}\" pile, " +
+            "docked to the right of the control board.\n\n" +
+            "Open that pile once and look at the card: tap the stack with a fingertip, or point " +
+            "the laser at it and pull the trigger. Tapping again closes it.",
+            "In VR wird eine verbrannte Karte nicht nur eingefärbt — sie liegt körperlich auf dem " +
+            "Stapel \"{0}\" rechts am Kontrollbrett.\n\n" +
+            "Öffne den Stapel einmal und sieh dir die Karte an: Stapel mit der Fingerspitze antippen " +
+            "oder mit dem Laser anzielen und den Trigger drücken. Erneutes Antippen schließt ihn wieder."),
 
         // ---- tutorial VR generic controls (TutorialHints tier-3 marker safety net) ------------
         // Shown when an UNPINNED hint (tutorials without a flow dump yet) resolves to text
