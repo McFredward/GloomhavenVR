@@ -484,9 +484,21 @@ internal static partial class CanvasConversion
         }
         BgGraphicScratch.Clear();
         if (hidden > 0)
+        {
+            // ROUND 6: OUR OWN content change must reset the fit's settle streak. The ModBuild 22
+            // cold open committed its first fit one frame BEFORE this sweep caught two late-fading
+            // full-window images, so that fit measured a 1934 px wide union (the backings) and the
+            // very next measurement — of the 388 px menu column that actually remains — rejected it
+            // and burned a verify correction. A window whose measured content we just changed has
+            // not settled, by definition.
+            panel.FitOneShotStableCount = 0;
+            panel.FitSettleStillCount = 0;
+            panel.FitOneShotStableGraphics = 0;
             VRLog.Info("WorldUI", $"MODAL BACKGROUND: disabled {hidden} full-window backing/blur image(s) in " +
                                   $"'{panel.HostGo.name}' — the modal now shows only its foreground content " +
-                                  (initial ? "(transparent background)." : "(late fade-in)."));
+                                  (initial ? "(transparent background)" : "(late fade-in)") +
+                                  "; the content-fit settle streak was reset (the measured content just changed).");
+        }
     }
 
     // ---- 2D flatten (test #21) ------------------------------------------------------------

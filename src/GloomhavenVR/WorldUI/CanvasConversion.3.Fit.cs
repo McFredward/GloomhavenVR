@@ -1087,8 +1087,10 @@ internal static partial class CanvasConversion
         // Shifting the target by -center puts the content bound in the middle of
         // the resized host; the registered laser/poke plane now equals what the
         // user SEES (verify via the RayUguiDriver world-rect re-log lines).
-        panel.Target.anchoredPosition -= center;
-        panel.HostRect.sizeDelta = size;
+        //
+        // ROUND 6: the shift and the resize INTERACT, so they are applied as a converging
+        // fixed point instead of a single open-loop step — see ApplyFitConverging.
+        ApplyFitConverging(panel, root, ref size, ref center, out string applyTrace);
         panel.FitOneShotApplied = true; // item 1: a real resize happened — owner may re-derive its scale
         // Round 3: every APPLIED fit advances the generation. ModalFallback's one-shot followers
         // (5b board-scale re-derivation, 5b-pose re-place) latch on the generation instead of a
@@ -1098,8 +1100,150 @@ internal static partial class CanvasConversion
         panel.FitAppliedGeneration++;
         VRLog.Info("WorldUI", $"Host rect fit '{panel.HostGo.name}': " +
                               $"{host.width:F0}x{host.height:F0} → {size.x:F0}x{size.y:F0} px " +
-                              $"(content offset {center.x:F0},{center.y:F0}) — {DescribeLastMeasure()}.");
+                              $"(content offset {center.x:F0},{center.y:F0}) — {DescribeLastMeasure()} — " +
+                              $"{applyTrace} — {DescribeTargetFrame(panel)}.");
         return true;
+    }
+
+    /// <summary>
+    /// Iterations the fit APPLY may take to converge inside one call. Three is generous: the
+    /// coupling below is a single linear feedback term, so one correction pass already lands it;
+    /// the third only exists so a pathological layout still terminates with a logged verdict.
+    /// </summary>
+    private const int FitApplyIterations = 3;
+
+    /// <summary>
+    /// ROUND 6 — WHY THE FIT NOW ITERATES (proof, ModBuild 22 hardware log, cold ESC menu).
+    ///
+    /// The old apply was open-loop: measure the content, then in one step shift the target by
+    /// <c>-center</c> AND write the new host size. That is only correct if resizing the host leaves
+    /// the content where it was. It does not:
+    ///
+    ///   pass 2 measured the content at offset (-770,-12) and resized the host 1920 → 405 px;
+    ///   pass 3 re-measured the SAME content at (+758,0) — the union had moved +1528 px while the
+    ///   shift we applied was +770. The residual is +757.5 px = HALF the 1515 px width change,
+    ///   i.e. exactly what a target sitting on a non-centred anchor of the host does when the host
+    ///   rect shrinks (its anchor reference point moves from -960 to -202.5).
+    ///
+    /// So the correction was computed in the geometry BEFORE the resize and applied to the geometry
+    /// AFTER it, and each pass re-created an error of the same order it had just removed. Three
+    /// passes on the cold open burned both verify corrections and still left the content off-centre.
+    ///
+    /// The fix is to close the loop inside the call: write the size, flush the layout, RE-measure in
+    /// the state that now exists, and derive the shift from THAT measurement — repeating until the
+    /// re-measured content is genuinely centred in the host it is being fitted to. Every iteration
+    /// is derived from a fresh measurement, so the operation is idempotent by construction (a
+    /// converged panel measures ~0 offset and exits on the first check) and cannot accumulate error
+    /// across passes or across measurement bases. All of it happens inside one frame, before
+    /// anything renders — a hidden window never shows an intermediate step, and a visible one
+    /// (growth re-fit) still moves exactly once.
+    ///
+    /// <paramref name="size"/>/<paramref name="center"/> are updated to the last applied values so
+    /// the caller logs what actually landed, and <paramref name="trace"/> reports every iteration.
+    /// </summary>
+    private static void ApplyFitConverging(ConvertedPanel panel, RectTransform root,
+        ref Vector2 size, ref Vector2 center, out string trace)
+    {
+        var sb = new System.Text.StringBuilder(160);
+        sb.Append("apply: ");
+        // Kill the coupling at its source where we are allowed to: Convert pinned the target to
+        // centred anchors precisely so the host rect could be resized underneath it, and the log
+        // proves something re-drove them. Re-asserting them (position and rect size preserved)
+        // makes the host resize a no-op for the target from here on.
+        if (NeutralizeHostAnchorCoupling(panel, out string anchorNote))
+            sb.Append(anchorNote).Append("; ");
+
+        for (int pass = 1; ; pass++)
+        {
+            panel.HostRect.sizeDelta = size;
+            panel.Target.anchoredPosition -= center;
+            sb.Append('#').Append(pass).Append(" host=").Append(size.x.ToString("F0")).Append('x')
+              .Append(size.y.ToString("F0")).Append(" shift=").Append((-center.x).ToString("F0"))
+              .Append(',').Append((-center.y).ToString("F0"));
+
+            if (pass >= FitApplyIterations)
+            {
+                sb.Append(" (iteration cap reached — see the verify watch)");
+                break;
+            }
+
+            // Re-measure the state we just created. The flush is what makes it honest: a
+            // render-hidden panel gets no uGUI service, so without it the re-measure would read
+            // the pre-resize geometry and always report "converged".
+            FlushPendingLayout(panel);
+            if (!TryMeasureContent(panel, root, out Vector2 nextSize, out Vector2 nextCenter))
+            {
+                sb.Append(" → content unmeasurable after the resize; kept");
+                break;
+            }
+            float tolX = Mathf.Max(Mathf.Max(size.x, nextSize.x) * FitChangeFraction, 2f);
+            float tolY = Mathf.Max(Mathf.Max(size.y, nextSize.y) * FitChangeFraction, 2f);
+            if (Mathf.Abs(nextCenter.x) <= tolX && Mathf.Abs(nextCenter.y) <= tolY
+                && Mathf.Abs(nextSize.x - size.x) <= tolX && Mathf.Abs(nextSize.y - size.y) <= tolY)
+            {
+                sb.Append(" → CONVERGED (re-measured ").Append(nextSize.x.ToString("F0")).Append('x')
+                  .Append(nextSize.y.ToString("F0")).Append(" at ").Append(nextCenter.x.ToString("F0"))
+                  .Append(',').Append(nextCenter.y.ToString("F0")).Append(')');
+                break;
+            }
+            sb.Append(" → moved to ").Append(nextCenter.x.ToString("F0")).Append(',')
+              .Append(nextCenter.y.ToString("F0")).Append(" (").Append(nextSize.x.ToString("F0"))
+              .Append('x').Append(nextSize.y.ToString("F0")).Append("); ");
+            size = nextSize;
+            center = nextCenter;
+        }
+        trace = sb.ToString();
+    }
+
+    /// <summary>
+    /// Re-assert the rigid, centred anchoring <see cref="Convert"/> gave the target — the invariant
+    /// the whole content fit rests on: with <c>anchorMin == anchorMax == 0.5</c> the target's
+    /// position is independent of the host rect, so writing <c>HostRect.sizeDelta</c> cannot move
+    /// the content. The ModBuild 22 log proves the invariant was broken by fit time (the target
+    /// moved by half the host width change), which is what made the open-loop apply diverge.
+    ///
+    /// Position and size are preserved exactly: <c>localPosition</c> is written back and
+    /// <c>sizeDelta</c> is set to the CURRENT <c>rect.size</c> (with the anchors collapsed,
+    /// sizeDelta IS the size), so this is a pure re-parametrisation — nothing on screen moves.
+    /// Reversibility is untouched: <see cref="Release"/> restores the ORIGINAL anchors it captured
+    /// at Convert. Returns true (with a log-ready note) only when it actually had to correct
+    /// something, so a healthy panel produces no note at all.
+    /// </summary>
+    private static bool NeutralizeHostAnchorCoupling(ConvertedPanel panel, out string note)
+    {
+        note = string.Empty;
+        RectTransform t = panel.Target;
+        var half = new Vector2(0.5f, 0.5f);
+        if ((t.anchorMin - half).sqrMagnitude <= 1e-6f && (t.anchorMax - half).sqrMagnitude <= 1e-6f)
+            return false;
+        Vector2 anchorMin = t.anchorMin, anchorMax = t.anchorMax;
+        Vector2 keepSize = t.rect.size;
+        Vector3 keepPos = t.localPosition;
+        t.anchorMin = half;
+        t.anchorMax = half;
+        t.sizeDelta = keepSize;
+        t.localPosition = keepPos;
+        note = $"target anchors had drifted to ({anchorMin.x:F2},{anchorMin.y:F2})..({anchorMax.x:F2}," +
+               $"{anchorMax.y:F2}) — RE-CENTRED (position/size preserved) so the host resize can no " +
+               "longer drag the content";
+        VRLog.Warn("WorldUI", $"MODAL FIT: '{panel.HostGo.name}' {note}. That coupling is what moved the " +
+                              "cold menu's content by half the host width change on every applied fit.");
+        return true;
+    }
+
+    /// <summary>Fit diagnostic: the conversion target's own frame — the basis every measurement is
+    /// expressed in. A cold and a warm open MUST show the same anchors/pivot here; the rect and
+    /// anchored position say where the measured content sits inside it.</summary>
+    private static string DescribeTargetFrame(ConvertedPanel panel)
+    {
+        RectTransform? t = panel.Target;
+        if (t == null)
+            return "target gone";
+        Rect r = t.rect;
+        Vector2 ap = t.anchoredPosition;
+        return $"target frame {r.width:F0}x{r.height:F0} px at anchored ({ap.x:F0},{ap.y:F0}), " +
+               $"anchors ({t.anchorMin.x:F2},{t.anchorMin.y:F2})..({t.anchorMax.x:F2},{t.anchorMax.y:F2}), " +
+               $"pivot ({t.pivot.x:F2},{t.pivot.y:F2}), localScale {t.localScale.x:F2}";
     }
 
     /// <summary>
@@ -1785,18 +1929,35 @@ internal static partial class CanvasConversion
         }
         panel.FitOneShotStableGraphics = graphics;
 
+        // ROUND 6 — THE BASIS GATE. A measurement whose rendered geometry is NOT the authored
+        // geometry (rendered/authored ratio materially off 1) must never certify a fit, however
+        // still it looks. WHY this is THE cold-open criterion: the fit centres what it measures,
+        // but with a scale s in the chain the RENDERED content sits at T + s·P while the AUTHORED
+        // union we commit sits at T + P — centring the latter necessarily leaves the former off by
+        // (1-s)·P. On the hardware cold open s ≈ 0.15 and P ≈ -769 px, i.e. the visible menu ended
+        // ~640 px outside a 406 px host: "an almost empty frame in front, the content far to the
+        // side". No rect can be right while s ≠ 1, so the gate waits for s (and, below, actively
+        // lands it) instead of certifying a freeze-frame. The cold open is ALSO the only state that
+        // passes the strict "absolutely still" tier — a half-built, stalled layout does not move at
+        // all — so this gate is exactly the discriminator that tier lacked.
+        bool atAuthoredGeometry = !s_lastMeasureAnimating;
+        Vector2 gateRatio = s_lastMeasureRatio; // the landing below may re-measure and overwrite it
+        TickShowAnimationLanding(panel, root);
+
         // Tier A (the real gate): nothing left for the layout to apply, no content arrived between
         // the last two checks, and the measurement held — relatively for the historic number of
         // checks AND absolutely still (round 3) for the same number.
-        bool settled = !layoutWasDirty && sameContent
+        bool settled = atAuthoredGeometry && !layoutWasDirty && sameContent
                        && panel.FitOneShotStableCount >= OneShotSettleChecks
                        && panel.FitSettleStillCount >= OneShotSettleChecks;
         // Tier B (bound): genuinely ANIMATED content (a typewriter story text, a pulsing prompt)
         // can keep dirtying the layout or flipping a graphic in and out indefinitely — never
         // committing would hold the window hidden until the reveal deadline on EVERY open. Once
         // the measured bounds themselves have held steady this much longer, commit anyway: the
-        // bounds are what the fit uses, and they stopped moving.
-        bool boundReached = panel.FitOneShotStableCount >= SettleAnimatedFallbackChecks;
+        // bounds are what the fit uses, and they stopped moving. Round 6: subject to the same basis
+        // gate — "the bounds stopped moving" is worthless while the bounds are a freeze-frame.
+        bool boundReached = atAuthoredGeometry
+                            && panel.FitOneShotStableCount >= SettleAnimatedFallbackChecks;
 
         // Reported on the committing line so a hardware log can PROVE cold/warm equality: the
         // first open and every later one must show the same measured size, the same contributor
@@ -1807,9 +1968,134 @@ internal static partial class CanvasConversion
                  $"({panel.FitSettleStillCount} of them ABSOLUTELY still) of {panel.FitSettleChecks}; " +
                  $"forced rebuild changed the measurement " +
                  $"{panel.FitSettleRebuildChanges}x (this check: {(layoutWasDirty ? "YES" : "no")}" +
-                 (settled ? ")" : boundReached ? "; committed on the animated-content bound)" : ")");
+                 (settled ? ")" : boundReached ? "; committed on the animated-content bound)" : ")") +
+                 $"; geometry basis: {(atAuthoredGeometry ? "RENDERED == AUTHORED (fit is on the real thing)" : $"rendered/authored {gateRatio.x:F2}/{gateRatio.y:F2} — NOT the final geometry, gate held")}" +
+                 $"; show animation landed: {(panel.FitShowAnimationLanded ? "yes" : "no")}" +
+                 $" (stall streak {panel.FitAnimStalledChecks})";
 
         return settled || boundReached ? SettleResult.Settled : SettleResult.Settling;
+    }
+
+    /// <summary>
+    /// Consecutive settle checks the show-animation ratio may fail to IMPROVE before the animation
+    /// is declared STALLED and landed deterministically. ~0.14 s at 72 Hz. A healthy LeanTween
+    /// scale-in (~0.3 s) moves the ratio by ~0.05 EVERY frame, so it can never reach this; the
+    /// hardware cold open sat at 0.15/0.14 for the entire pre-reveal budget and would reach it in a
+    /// tenth of a second.
+    /// </summary>
+    private const int ShowAnimationStalledChecks = 10;
+
+    /// <summary>Ratio improvement (per axis, per check) that counts as PROGRESS — below it the
+    /// animation is not moving in any way that will land inside the reveal budget.</summary>
+    private const float ShowAnimationProgressEpsilon = 0.02f;
+
+    /// <summary>Scratch for the animator sweep (settle-time only, single-threaded).</summary>
+    private static readonly List<GUIAnimator> AnimatorScratch = new(4);
+
+    /// <summary>
+    /// ROUND 6 — LAND A STALLED SHOW ANIMATION INSTEAD OF WAITING FOR ONE THAT NEVER ENDS.
+    ///
+    /// The measure reports rendered/authored per check. While a real tween runs, that ratio climbs
+    /// every frame. The hardware cold ESC menu instead held 0.15/0.14 across the whole pre-reveal
+    /// budget with SIX absolutely-still checks — the window was frozen part-way through its show
+    /// animation, not animating. Waiting for it is therefore not an option (it never lands inside
+    /// the 0.6 s reveal bound) and revealing it is not either (that IS the reported defect), so the
+    /// remaining move is to finish the animation ourselves, while the window is still render-hidden
+    /// and the player can see nothing.
+    ///
+    /// WHAT IS CALLED AND WHY IT IS SAFE (verified in decompiled/GH.Runtime):
+    ///  * <c>GUIAnimator.GoToFinishState()</c> is public and the GAME ITSELF uses it in six places
+    ///    (UILoadingIconAnimator, InfusionElementUI, EventButton, UIPartyCharacterEquipmentDisplay,
+    ///    UIUseSlot, NewPartyDisplayUI) — it is the supported way to end a transition early.
+    ///  * It is <c>Stop(); ResetFinishState();</c> — the tweens are cancelled and every animation
+    ///    setting is written to its authored <c>ToValue</c> (scale/move/fade/colour), i.e. exactly
+    ///    the state the animation was heading for. <c>OnAnimationFinished</c> is NOT invoked (only
+    ///    <c>OnAnimationStopped</c>), and no C# listener of the ESC menu's animator exists: ESCMenu
+    ///    only reads <c>GetSettings()</c> to retune the background fade, and UIWindow holds no
+    ///    animator reference at all. A stalled animation's completion callback was never going to
+    ///    fire anyway.
+    ///  * It runs ONCE per open (<see cref="ConvertedPanel.FitShowAnimationLanded"/>) and only for
+    ///    a STALLED animation, so a healthy show animation is never interrupted.
+    /// </summary>
+    private static void TickShowAnimationLanding(ConvertedPanel panel, RectTransform root)
+    {
+        if (!s_lastMeasureAnimating)
+        {
+            panel.FitAnimStalledChecks = 0;
+            panel.FitAnimLastRatio = s_lastMeasureRatio;
+            return;
+        }
+        Vector2 ratio = s_lastMeasureRatio;
+        bool improving = Mathf.Abs(ratio.x - panel.FitAnimLastRatio.x) > ShowAnimationProgressEpsilon
+                         || Mathf.Abs(ratio.y - panel.FitAnimLastRatio.y) > ShowAnimationProgressEpsilon;
+        panel.FitAnimLastRatio = ratio;
+        panel.FitAnimStalledChecks = improving ? 0 : panel.FitAnimStalledChecks + 1;
+        if (panel.FitShowAnimationLanded || panel.FitAnimStalledChecks < ShowAnimationStalledChecks)
+            return;
+
+        panel.FitShowAnimationLanded = true; // one attempt per open, found or not
+        if (panel.Target == null)
+            return;
+
+        // includeInactive: a GUIAnimator whose GameObject was deactivated mid-tween is one of the
+        // ways an animation ENDS UP stalled in the first place (GUIAnimator.OnDisable → Stop(),
+        // which cancels the tweens WITHOUT going to the finish state — the values then stay frozen
+        // wherever they were). Those are exactly the ones that must be finished, and asking an
+        // already-finished animator costs a value write per setting.
+        AnimatorScratch.Clear();
+        panel.Target.GetComponentsInChildren(includeInactive: true, AnimatorScratch);
+        int landed = 0, wasPlaying = 0, failed = 0;
+        for (int i = 0; i < AnimatorScratch.Count; i++)
+        {
+            GUIAnimator animator = AnimatorScratch[i];
+            if (animator == null)
+                continue;
+            if (animator.IsPlaying)
+                wasPlaying++;
+            // Game code, called from our tick: an animator with an unserialized config would throw
+            // and take the whole WorldUI step down with it (an NRE in a tick starves VR input).
+            try
+            {
+                animator.GoToFinishState();
+                landed++;
+            }
+            catch (System.Exception e)
+            {
+                failed++;
+                VRLog.Warn("WorldUI", $"MODAL WINDOW: GUIAnimator '{animator.name}' threw on " +
+                                      $"GoToFinishState ({e.GetType().Name}) — skipped, the fit falls back " +
+                                      "to the authored geometry for this window.");
+            }
+        }
+        AnimatorScratch.Clear();
+
+        if (landed == 0 && failed == 0)
+        {
+            VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' is frozen mid show animation " +
+                                  $"(rendered/authored {ratio.x:F2}/{ratio.y:F2}, unchanged for " +
+                                  $"{ShowAnimationStalledChecks} checks) but carries NO GUIAnimator — the " +
+                                  "frozen geometry comes from somewhere else (report this line: the fit can " +
+                                  "only commit the authored geometry here).");
+            return;
+        }
+
+        // The geometry just changed under the gate: flush it and start the settle streak over so
+        // nothing certifies a measurement taken across the jump.
+        FlushPendingLayout(panel);
+        panel.FitOneShotStableCount = 0;
+        panel.FitSettleStillCount = 0;
+        panel.FitOneShotStableGraphics = 0;
+        panel.FitAnimStalledChecks = 0;
+        bool measured = TryMeasureContent(panel, root, out Vector2 size, out Vector2 center);
+        VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' show animation was STALLED at " +
+                              $"rendered/authored {ratio.x:F2}/{ratio.y:F2} for {ShowAnimationStalledChecks} " +
+                              $"consecutive checks — sent {landed} GUIAnimator(s) ({wasPlaying} still " +
+                              "reporting IsPlaying) to their FINISH state while the window is render-hidden, " +
+                              "so the fit measures the geometry the player will actually see. Re-measured " +
+                              (measured
+                                  ? $"{size.x:F0}x{size.y:F0} px at ({center.x:F0},{center.y:F0}), new ratio " +
+                                    $"{s_lastMeasureRatio.x:F2}/{s_lastMeasureRatio.y:F2}."
+                                  : "nothing measurable (the settle gate keeps retrying)."));
     }
 
     /// <summary>

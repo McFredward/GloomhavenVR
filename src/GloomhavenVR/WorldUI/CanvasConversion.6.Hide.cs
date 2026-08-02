@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
@@ -62,6 +63,37 @@ internal static partial class CanvasConversion
     private static readonly List<Canvas> HideCanvasScratch = new(16);
     private static readonly List<Renderer> HideRendererScratch = new(16);
 
+    /// <summary>Latch for <see cref="AssertNotInRenderPhase"/> — the hazard is structural, so one
+    /// line per session is enough and the check can never spam a frame loop.</summary>
+    private static bool s_renderPhaseViolationLogged;
+
+    /// <summary>
+    /// ROUND 6 (LEFT-EYE FLICKER) — THE INVARIANT, AND ITS DETECTOR.
+    ///
+    /// This is a MultiPass stereo rig: the head camera is rendered ONCE PER EYE, left first. A
+    /// visibility write is only ever correct when it happens in the main-thread frame phase — every
+    /// Update and LateUpdate runs before BOTH eye passes, so a window switched on there is on in
+    /// both. A write made from inside a camera callback (<c>Camera.onPreCull</c>,
+    /// <c>onPreRender</c>, <c>onPostRender</c>, <c>OnWillRenderObject</c>) lands BETWEEN the two eye
+    /// renders and is therefore visible in ONE EYE for one frame — exactly the reported "brief
+    /// flicker at the side of the LEFT eye".
+    ///
+    /// <c>Camera.current</c> is non-null only while a camera is rendering, so it is a precise,
+    /// free-in-the-common-case detector for that class of violation. Nothing in the mod is supposed
+    /// to trip it (the reveal runs from LateUpdate, the hide from Update + LateUpdate); if the next
+    /// hardware log ever carries this line, it names the offending camera and the case is closed.
+    /// </summary>
+    private static void AssertNotInRenderPhase(string what)
+    {
+        if (s_renderPhaseViolationLogged || Camera.current == null)
+            return;
+        s_renderPhaseViolationLogged = true;
+        VRLog.Warn("WorldUI", $"MODAL RENDER PHASE VIOLATION: a panel {what} ran INSIDE the render of camera " +
+                              $"'{Camera.current.name}' (stereo eye {Camera.current.stereoActiveEye}). On this " +
+                              "MultiPass rig that lands between the two eye passes and shows in ONE EYE for a " +
+                              "frame. Visibility must only ever change in Update/LateUpdate. Reported once.");
+    }
+
     /// <summary>
     /// Register a mod-drawn tree that belongs to <paramref name="panel"/> but lives OUTSIDE the
     /// host subtree (the <see cref="GrabbableModal"/> holder: grab bar + modal depth mask). It is
@@ -99,6 +131,7 @@ internal static partial class CanvasConversion
         renderersChanged = 0;
         if (panel == null)
             return;
+        AssertNotInRenderPhase(visible ? "reveal" : "hide");
 
         if (!visible)
         {

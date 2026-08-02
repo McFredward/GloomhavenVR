@@ -391,12 +391,58 @@ internal static partial class CanvasConversion
             return;
         }
 
-        // ATOMIC REVEAL (user ruling 2026-08-02 round 2): host canvas, every nested canvas and
-        // every mod-drawn renderer — content, grab bar, X + its depth stamp, depth masks, MR
-        // backing plate — become visible in ONE pass, in THIS frame, at the final pose. Nothing
-        // of the window was drawable anywhere before this line.
+        // ROUND 6 (LEFT-EYE FLICKER): the gate DECIDES here, in Update — the flip itself happens in
+        // LateUpdate (CompleteReveal, called from LateTick). See ConvertedPanel.RevealArmed for why
+        // a MultiPass rig makes the frame phase of a visibility write load-bearing.
+        panel.RevealArmed = true;
+        panel.RevealArmedSettled = settled;
+    }
+
+    /// <summary>
+    /// ROUND 6 — THE ATOMIC REVEAL, IN THE ONE FRAME PHASE BOTH EYES SHARE.
+    ///
+    /// MultiPass renders the head camera ONCE PER EYE, and both passes run after every Update and
+    /// every LateUpdate of the frame. Anything that changes a window's visibility, pose or size
+    /// AFTER the gate opened but BEFORE the render loop therefore lands in the first visible frame
+    /// unevenly, and anything that changes it DURING the render loop (a per-camera callback) lands
+    /// in ONE EYE ONLY — the reported left-eye flicker at the side of the view.
+    ///
+    /// The gate used to flip visibility from Update (CanvasConversion.Tick), and several mod
+    /// systems run after that in the same frame — MrBacking builds and re-fits the opaque per-host
+    /// backing plate one step later, the game's own scripts update in their own Update, and the
+    /// LateUpdate steps (flatten re-assert, tooltip/hex re-facing) run later still. The window was
+    /// therefore drawable for a whole phase during which its own backing plate could still be
+    /// created, moved or resized.
+    ///
+    /// Deferring the flip to LateUpdate — the last main-thread phase before rendering, identical
+    /// for both eye passes — removes that window entirely: everything that writes this frame has
+    /// written by then, and nothing runs between the flip and the two eye renders. The reveal stays
+    /// atomic (one pass over the recorded set) and the timing is unchanged (same frame), so the
+    /// 0.6 s bound and the no-jump guarantee are untouched.
+    /// </summary>
+    private static void CompleteReveal(ConvertedPanel panel)
+    {
+        if (panel.HostGo == null || panel.HostCanvas == null)
+        {
+            panel.RevealPending = false;
+            panel.RevealArmed = false;
+            return;
+        }
+        float now = Time.unscaledTime;
+        bool settled = panel.RevealArmedSettled;
+        bool treated = now >= panel.RevealNotBefore;
+        bool fitDone = !panel.FitEnabled || panel.FitMeasuredOnce;
+        Transform t = panel.HostGo.transform;
+
+        // Decisive phase evidence for the next hardware run: a non-null Camera.current would mean
+        // this ran INSIDE a camera's render, i.e. between the two eye passes.
+        string phase = Camera.current == null
+            ? "LateUpdate (both eyes render after this — one consistent frame)"
+            : $"INSIDE the render of camera '{Camera.current.name}' — ONE-EYE HAZARD, report this";
+
         SetPanelRenderVisible(panel, visible: true, out int shownCanvases, out int shownRenderers);
         panel.RevealPending = false;
+        panel.RevealArmed = false;
         float waitedMs = (now - panel.RevealRequestedAt) * 1000f;
         string fitState = panel.FitMeasuredOnce ? "applied" : panel.FitEnabled ? "pending" : "n/a";
         // First-open pose fix (2026-08-02): state WHERE the revealed pose came from. The placement
@@ -422,7 +468,8 @@ internal static partial class CanvasConversion
                                   "its FINAL pose/scale (mod layer + background hidden) — zero-flicker " +
                                   $"pop-in; {poseState}, final scale {finalScale}; unhid {shownCanvases} " +
                                   $"canvas(es) + {shownRenderers} renderer(s) (grab bar, X, depth masks, " +
-                                  "MR plate) in this ONE frame.");
+                                  $"MR plate) in this ONE frame at frame phase {phase}, frame " +
+                                  $"{Time.frameCount}.");
         }
         else
         {
@@ -433,7 +480,8 @@ internal static partial class CanvasConversion
                                   $"{(!treated ? "treatment" : !fitDone ? "first content fit" : "pose stillness")}; " +
                                   $"fit={fitState}) — revealing anyway, a window must never stay invisible; " +
                                   $"{poseState}, final scale {finalScale}; unhid {shownCanvases} canvas(es) " +
-                                  $"+ {shownRenderers} renderer(s). NOTE: any pose re-place still pending is " +
+                                  $"+ {shownRenderers} renderer(s) at frame phase {phase}, frame " +
+                                  $"{Time.frameCount}. NOTE: any pose re-place still pending is " +
                                   "now permanently SKIPPED — moving a visible window is the jump this gate " +
                                   "exists to prevent.");
         }
@@ -455,16 +503,6 @@ internal static partial class CanvasConversion
             if (panel.FlattenEnabled)
                 FlattenSubtree(panel);
 
-            // User ruling 2026-08-02 round 2 (THE hard guarantee): re-apply the complete render
-            // hide in LateUpdate — after EVERY Update ran and immediately before the frame renders.
-            // Update-time passes cannot cover children built by a tick step that runs AFTER
-            // CanvasConversion.Tick (MrBacking creates its opaque per-host backing plate there), nor
-            // anything a game script instantiates in its own Update. Whatever appeared this frame is
-            // switched off before it is ever drawn. Idempotent + change-gated: a steady pending
-            // panel costs one component walk and no writes, and only for the ≤0.6 s gate window.
-            if (panel.RevealPending)
-                SetPanelRenderVisible(panel, visible: false);
-
             // Sub-item A (INITIAL flicker — the residual): the mod-layer move + background hide
             // run from Tick() in Update, but the game instantiates / fades in / enables the
             // full-window opaque backing from its OWN Update, which may run AFTER ours. That frame
@@ -475,16 +513,41 @@ internal static partial class CanvasConversion
             // one-frame gap: whatever the game did to the backing this frame is corrected before
             // it is ever drawn. Bounded to the early-settle window (the menu show/fade animation);
             // writes are change-gated inside each helper, so a steady modal costs a cheap scan.
+            // ROUND 6: this runs BEFORE the reveal flip below, so the frame a window becomes
+            // visible in is already treated — the ordering the old Update-phase flip could not give.
             bool earlySettle = panel.EarlySettleUntil > 0f && Time.unscaledTime < panel.EarlySettleUntil;
-            if (!earlySettle)
-                continue;
-            if (panel.ModLayerEnabled)
+            if (earlySettle)
             {
-                AdoptNestedCanvases(panel);
-                ApplyModLayer(panel, initial: false);
+                if (panel.ModLayerEnabled)
+                {
+                    AdoptNestedCanvases(panel);
+                    ApplyModLayer(panel, initial: false);
+                }
+                if (panel.HideBackground)
+                    HideFullScreenBackground(panel, initial: false);
             }
-            if (panel.HideBackground)
-                HideFullScreenBackground(panel, initial: false);
+
+            if (!panel.RevealPending)
+                continue;
+
+            // ROUND 6 (left-eye flicker): the ONE place a panel's visibility is ever switched ON.
+            // TickRevealGate (Update) only ARMS the reveal; the flip happens here, after every
+            // Update-phase writer and immediately before the render loop — the last frame phase
+            // that is identical for both MultiPass eye passes. See CompleteReveal.
+            if (panel.RevealArmed)
+            {
+                CompleteReveal(panel);
+                continue;
+            }
+
+            // User ruling 2026-08-02 round 2 (THE hard guarantee): re-apply the complete render
+            // hide in LateUpdate — after EVERY Update ran and immediately before the frame renders.
+            // Update-time passes cannot cover children built by a tick step that runs AFTER
+            // CanvasConversion.Tick (MrBacking creates its opaque per-host backing plate there), nor
+            // anything a game script instantiates in its own Update. Whatever appeared this frame is
+            // switched off before it is ever drawn. Idempotent + change-gated: a steady pending
+            // panel costs one component walk and no writes, and only for the ≤0.6 s gate window.
+            SetPanelRenderVisible(panel, visible: false);
         }
     }
 

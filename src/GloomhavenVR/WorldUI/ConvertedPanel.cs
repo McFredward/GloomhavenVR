@@ -350,6 +350,26 @@ internal sealed class ConvertedPanel
     /// </summary>
     public int FitSettleRebuildChanges;
 
+    // ---- ROUND 6: the show animation that never lands --------------------------------------
+    /// <summary>
+    /// Consecutive settle checks whose measure reported the game's show animation IN FLIGHT
+    /// (rendered/authored ratio materially below 1) WITHOUT the ratio improving materially — i.e.
+    /// the animation is STALLED, not running. A healthy tween moves the ratio every single frame;
+    /// the cold ESC menu sat at 0.15/0.14 across the whole pre-reveal budget. Once this reaches
+    /// <c>CanvasConversion.ShowAnimationStalledChecks</c> the animation is landed deterministically
+    /// (see <c>CanvasConversion.TickShowAnimationLanding</c>).
+    /// </summary>
+    public int FitAnimStalledChecks;
+
+    /// <summary>Ratio (rendered/authored) of the previous settle check — the stall detector's
+    /// reference (see <see cref="FitAnimStalledChecks"/>).</summary>
+    public Vector2 FitAnimLastRatio = Vector2.one;
+
+    /// <summary>True once <c>CanvasConversion.TryLandShowAnimation</c> has forced this open's show
+    /// animation to its finish state. One-shot per open: the game's animator is asked ONCE, never
+    /// fought frame after frame.</summary>
+    public bool FitShowAnimationLanded;
+
     // ---- task #4 (world-space scroll clipping) --------------------------------------------
     /// <summary>
     /// Task #4 (scrolling extended the menu upward): <see cref="RectMask2D"/> components WE
@@ -428,6 +448,23 @@ internal sealed class ConvertedPanel
 
     /// <summary>Consecutive reveal-gate checks the host pose/scale/rect held still (reset to 0 on any change).</summary>
     public int RevealPoseStableFrames;
+
+    // ---- ROUND 6 (LEFT-EYE FLICKER): one frame phase for every visibility flip ---------------
+    /// <summary>
+    /// The Update-phase reveal gate DECIDED to show this window; the actual visibility flip is
+    /// deferred to <c>CanvasConversion.LateTick</c> (LateUpdate). WHY the split: MultiPass renders
+    /// the head camera once per eye AFTER every Update and LateUpdate, so LateUpdate is the last
+    /// frame phase that is provably identical for both eye passes — while Update is followed by
+    /// several mod systems (MrBacking's plate, the game's own scripts) that can still move, resize
+    /// or re-activate parts of the window. Flipping in Update therefore exposed the first visible
+    /// frame to writers that had not run yet; flipping in LateUpdate does not.
+    /// </summary>
+    public bool RevealArmed;
+
+    /// <summary>Whether the armed reveal met all settle criteria (false = the deadline forced it) —
+    /// carried from the Update-phase decision to the LateUpdate-phase flip so the reveal log is
+    /// unchanged in content.</summary>
+    public bool RevealArmedSettled;
 
     /// <summary>Last unmet settle criterion (treatment/fit/pose) — the reveal log names what the gate waited for last.</summary>
     public string RevealLastBlocker = "";
