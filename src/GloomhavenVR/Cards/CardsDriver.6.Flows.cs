@@ -1072,6 +1072,9 @@ internal sealed partial class CardsDriver
         Vector3? emergeFrom = _piles.TryGetPileWorld(kind, out Vector3 pileWorld, out _)
             ? pileWorld : (Vector3?)null;
         _browser.Open(kind, anchor, held ? hand : null, emergeFrom);
+        // Fresh fan → fresh borrow ledger (the -1 sentinel makes the first refresh always log).
+        _browseBorrowed = -1;
+        _browseLeftOnBoard = 0;
         VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held in hand" : "toggled")}, mode={mode}).");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
     }
@@ -1100,6 +1103,40 @@ internal sealed partial class CardsDriver
             _piles.CloseItemsBrowse();
         }
     }
+
+    /// <summary>
+    /// Does the CONTROL BOARD currently own this card's ONE physical visual?
+    ///
+    /// WHY THIS EXISTS: a game ability card has exactly one VRCard visual (the face is the
+    /// game's own live <c>FullAbilityCard</c> rect re-parented onto the VR card — it cannot be
+    /// in two places at once), while the same underlying card can be in two LOGICAL places at
+    /// once. The reported bug is exactly that overlap: once this turn's two played cards have
+    /// resolved, the game has already moved them into <c>DiscardedAbilityCards</c>, yet the
+    /// board must keep showing them lying in front of the player until the turn ends. Opening
+    /// the DISCARD fan therefore listed them as fan cards, and closing the fan swept them into
+    /// the stack — the board went empty mid-turn (user report, ModBuild 18, tutorial).
+    ///
+    /// So: a card the board is showing is NOT the fan's to borrow, lay out, lift or put away.
+    /// The zones are the ones the rebuild's own park sweep treats as "on the board": the docked
+    /// played/round cards (<see cref="_halfBuffer"/>), a card lying in a play slot, a pick-mode
+    /// drop-field occupant, the short-rest sacrifice card, and the ACTIVE column. All of these
+    /// are resolved for the current rebuild before the browser refresh runs (see the ordering
+    /// note in Rebuild), and they keep their last-rebuild value between rebuilds — which is
+    /// what the close path (outside Rebuild) needs. Read-only: no game state is touched.
+    /// </summary>
+    private bool BoardOwnsCardVisual(VRCard card) =>
+        _halfBuffer.Contains(card)              // this turn's played (round) cards, docked on the board
+        || _tray.SlotOf(card) >= 0              // a selected card lying in a play slot
+        || _fieldCards.Contains(card)           // pick-mode drop-field occupant
+        || ReferenceEquals(card, _shortRestCard) // short-rest sacrifice card in the left recess
+        || _active.Contains(card);              // the permanently-shown ACTIVE column (feature 6)
+
+    // Fan-borrow bookkeeping for the close-path Info line (requirement 5): how many pile cards
+    // the LAST browse refresh actually borrowed into the arc, and how many it deliberately left
+    // on the control board. Reset on open; re-stamped on every refresh.
+    private int _browseBorrowed;
+    private int _browseLeftOnBoard;
+    private float _nextBrowseLedgerLogAt; // unscaled-time throttle for the close ledger line
 
     private void CloseBrowser(string reason)
     {
@@ -1140,7 +1177,8 @@ internal sealed partial class CardsDriver
         float minArc = BoardArcMin();
         IReadOnlyList<VRCard> cards = _browser.Cards;
         int launched = 0;
-        int skippedActive = 0;
+        int skippedBoardOwned = 0;
+        int borrowed = cards.Count;
         for (int i = 0; i < cards.Count; i++)
         {
             VRCard card = cards[i];
@@ -1148,18 +1186,18 @@ internal sealed partial class CardsDriver
                 || !card.gameObject.activeInHierarchy)
                 continue;
 
-            // A CARD THE BOARD IS STILL SHOWING IS NOT THE BROWSER'S TO PUT AWAY. During the action
-            // phase the cards lying on the control board are the Active pile, and the same
-            // underlying game card also appears in the pile being browsed — one VRCard serves both,
-            // so it is in this list. Flying it away swept the player's own played cards into the
-            // stack along with the discards, which is not what closing a fan means: closing a fan
-            // clears THAT fan. It is still re-parented out, so it survives the browser root
-            // deactivating, and the rebuild that follows re-homes it into the active area.
+            // A CARD THE BOARD IS STILL SHOWING IS NOT THE BROWSER'S TO PUT AWAY. Belt-and-braces:
+            // UpdateBrowser already refuses to borrow a board-owned visual into the arc, so this
+            // list should hold only the fan's own cards. It can still go stale between the last
+            // rebuild and this close (a card that became a docked played / active card in the
+            // meantime), and closing a fan must clear THAT fan — never the cards lying on the
+            // board. Such a card is still re-parented out, so it survives the browser root
+            // deactivating, and the rebuild that follows re-homes it into its board zone.
             if (anchor != null)
                 card.transform.SetParent(anchor, worldPositionStays: true); // survive the root deactivation
-            if (_active.Contains(card))
+            if (BoardOwnsCardVisual(card))
             {
-                skippedActive++;
+                skippedBoardOwned++;
                 continue;
             }
             _flyingToPile.Add(card);
@@ -1173,11 +1211,28 @@ internal sealed partial class CardsDriver
             }, minArc);
             launched++;
         }
-        if (launched > 0 || skippedActive > 0)
+        if (launched > 0 || skippedBoardOwned > 0)
             VRLog.Info("Cards", $"Browse collapse: {launched} {kind.Value} card(s) fly back into their stack " +
                                 $"({FlyToPileSeconds:F2}s) before parking — the discard/burnt fan collapses like the item fan. " +
-                                $"{skippedActive} card(s) left alone because the control board is still showing them " +
+                                $"{skippedBoardOwned} card(s) left alone because the control board is still showing them " +
                                 "(closing a fan clears that fan, not the cards lying on the board).");
+
+        // Requirement 5 (borrow ledger, throttled): ONE line that proves from the hardware log alone
+        // that a fan only ever puts away what it itself borrowed. borrowed = the arc's own visuals at
+        // close; returned = the ones actually flown into the stack (+ any board-owned straggler the
+        // guard above caught); left on the board = the pile cards this fan REFUSED to borrow because
+        // the board is showing them (this turn's played cards, active column, slot/field occupants).
+        // Throttled so a pathological open/close loop cannot flood the log; a normal user close is
+        // far slower than the window, so every real close still prints.
+        float now = Time.unscaledTime;
+        if (now >= _nextBrowseLedgerLogAt)
+        {
+            _nextBrowseLedgerLogAt = now + 0.25f;
+            VRLog.Info("Cards", $"Pile fan ledger ({kind.Value}): borrowed {borrowed} card visual(s), " +
+                                $"returned {launched} to the stack ({skippedBoardOwned} straggler(s) handed back to the " +
+                                $"board instead); {_browseLeftOnBoard} pile card(s) were NEVER borrowed because the " +
+                                "control board is showing them (this turn's played cards stay put until the turn ends).");
+        }
     }
 
     /// <summary>
@@ -1199,20 +1254,54 @@ internal sealed partial class CardsDriver
         bool burnt = _browser.Kind == PileKind.Burnt;
         CardsGameApi.GetPileWidgets(hand, burnt, _pileWidgetBuffer);
         _browseBuffer.Clear();
+        int pileCount = 0;    // cards the GAME has in this pile (the truth behind the title count)
+        int leftOnBoard = 0;  // of those, the ones whose visual the board is showing right now
         for (int i = 0; i < _pileWidgetBuffer.Count; i++)
         {
             AbilityCardUI widget = _pileWidgetBuffer[i];
             if (widget.AbilityCard == null || widget.IsLongRest)
                 continue;
-            _browseBuffer.Add(AdoptedCard(widget));
+            pileCount++;
+            VRCard card = AdoptedCard(widget);
+            // THE FAN ONLY EVER BORROWS ITS OWN VISUALS. A card the control board is currently
+            // showing — above all this turn's two PLAYED cards, which the game has already moved
+            // into the discard pile while they must stay lying in front of the player until the
+            // turn ends — is not the fan's. Borrowing it made it a fan card in every sense: the
+            // arc re-homed it, the hand sweep lifted it, it became grabbable-as-browse, and the
+            // collapse-on-close flew it into the stack, which is the reported bug (the board went
+            // empty the moment the discard fan was opened and closed again). Skipping it here is
+            // the single point where that ownership is decided; every downstream browse path
+            // (layout, hover, pluck-return, collapse) then simply never sees it.
+            if (BoardOwnsCardVisual(card))
+            {
+                leftOnBoard++;
+                continue;
+            }
+            _browseBuffer.Add(card);
         }
-        if (_browseBuffer.Count == 0)
+        // The close is gated on the GAME's pile being empty, never on the borrowed count: a pile
+        // whose every card happens to be lying on the board (the tutorial's "both cards played and
+        // discarded" state) is NOT empty, and auto-closing there would make the pile un-openable.
+        if (pileCount == 0)
         {
             CloseBrowser("pile empty");
             return;
         }
         PileKind kind = burnt ? PileKind.Burnt : PileKind.Discard;
-        _browser.SetCards(_browseBuffer, $"{PileViewer.Caption(kind)} ({_browseBuffer.Count})");
+        // Title keeps the TRUE pile size — the player is told what the pile holds, even when some
+        // of those cards are physically on the board instead of in the arc.
+        _browser.SetCards(_browseBuffer, $"{PileViewer.Caption(kind)} ({pileCount})");
+
+        // Borrow ledger for the close-path Info line (requirement 5), plus a change-gated line here
+        // so the log also shows what the OPEN fan decided to borrow.
+        if (_browseBorrowed != _browseBuffer.Count || _browseLeftOnBoard != leftOnBoard)
+        {
+            _browseBorrowed = _browseBuffer.Count;
+            _browseLeftOnBoard = leftOnBoard;
+            VRLog.Info("Cards", $"Pile fan content ({kind}): borrowed {_browseBuffer.Count} of {pileCount} pile " +
+                                $"card(s) into the arc; {leftOnBoard} left on the control board (a played/active/" +
+                                "slotted card keeps its one visual on the board — the fan never takes it).");
+        }
     }
 
     // ------------------------------------------------------------------ active cards --

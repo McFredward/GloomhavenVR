@@ -478,14 +478,21 @@ internal sealed partial class CardsDriver
             _loggedPickSource = null; // re-entering a pick mode logs its source afresh (item 9)
         }
 
-        // Pile browse (test #21): refresh content or close — BEFORE the zone flags
-        // below so freshly closed browse cards park in this same pass.
-        UpdateBrowser(hand, mode);
-
         // ACTIVE CARDS area (feature 6): refresh the permanently-shown active-card column
         // — BEFORE the zone flags below so its cards are marked in-zone and kept out of the
         // park sweep (like the browse arc), and their active-half highlight is set here.
+        //
+        // ORDER (fan-close sweep fix): this runs BEFORE UpdateBrowser on purpose. The browse
+        // arc must only ever borrow card visuals the board is NOT already showing
+        // (BoardOwnsCardVisual), and the ACTIVE column is one of those board zones — so its
+        // membership has to be current for THIS rebuild before the browser filters against it.
+        // Every other board zone (_halfBuffer, tray slots, _fieldCards, _shortRestCard) is
+        // already resolved above.
         UpdateActive(hand);
+
+        // Pile browse (test #21): refresh content or close — BEFORE the zone flags
+        // below so freshly closed browse cards park in this same pass.
+        UpdateBrowser(hand, mode);
 
         // Configure cards per zone; everything else parks invisibly.
         for (int i = 0; i < _factory.All.Count; i++)
