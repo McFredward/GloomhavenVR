@@ -163,21 +163,31 @@ internal static class MaterialLoaderHeal
         if (data == null)
             return "no-loader";
         string described = Describe(data, renderer.enabled);
-        // Round 7 (discovery forensics): a stuck sample also names WHERE its loader
-        // lives — GameObject name, active state and hideFlags — so a log can prove why
-        // any given search strategy saw or missed it, with data instead of theory.
-        if (described != "done" && owner != null)
-        {
-            described += $" loader='{owner.gameObject.name}' "
-                + $"active={owner.gameObject.activeInHierarchy} "
-                + $"flags={owner.gameObject.hideFlags} "
-                + $"registered={IsRegistered(owner)}";
-        }
         // Census nuance (round 5): a disabled renderer whose loaded materials are already
         // assigned is NOT the healer's done-stuck target — another system disabled it
         // (door wings). Name it distinctly so the log matches the heal decision.
+        // ROUND 8 ORDER FIX: this check MUST run before the forensic suffixes are
+        // appended — round 7 appended first, so the literal comparison never matched and
+        // the log could no longer distinguish "loader stuck" from "loader finished,
+        // someone else disabled" — the exact question the round hinged on.
         if (described == "done-stuck" && MaterialsAlreadyAssigned(data, renderer))
-            return "done-disabled(foreign)";
+            described = "done-disabled(foreign)";
+        // Round 7/8 forensics: WHERE the loader lives (name/active/hideFlags/registered),
+        // plus the two fields that convict or acquit the remaining suspects in one run —
+        // isPartOfStaticBatch (did static batching touch this renderer or the template it
+        // was cloned from?) and the first material slot's actual content.
+        if (described != "done" && owner != null)
+        {
+            Material[] shared = renderer.sharedMaterials;
+            string mat0 = shared.Length == 0 ? "<no-slots>"
+                : shared[0] == null ? "<null>" : shared[0].name;
+            described += $" loader='{owner.gameObject.name}' "
+                + $"active={owner.gameObject.activeInHierarchy} "
+                + $"flags={owner.gameObject.hideFlags} "
+                + $"registered={IsRegistered(owner)} "
+                + $"staticBatch={renderer.isPartOfStaticBatch} "
+                + $"mat0='{mat0}'";
+        }
         return described;
     }
 
@@ -468,19 +478,36 @@ internal static class MaterialLoaderHeal
                         _tracks.Remove(data); // someone else's deliberate disable
                         continue;
                     }
-                    // A done-stuck-looking entry whose loaded materials are ALREADY on the
-                    // renderer is a loader that finished its job — the disable came from a
-                    // game system afterwards (MakeDoor/ApparanceLayer hide door wings this
-                    // way). Never re-enable those.
-                    if (state == LoaderState.DoneStuck && MaterialsAlreadyAssigned(data, r))
-                    {
-                        _tracks.Remove(data);
-                        continue;
-                    }
-                    // Defense in depth for the same class: the door prop subtree is the
-                    // game's own hide unit — the healer never touches anything inside it.
+                    // The door prop subtree is the game's own hide unit (MakeDoor/
+                    // ApparanceLayer disable the wings of unrevealed doors) — the healer
+                    // never touches anything inside it, in any state.
                     if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null)
                         continue;
+                    // ROUND 8: a done-stuck-looking entry whose loaded materials are
+                    // ALREADY on the renderer means the loader finished — the disable came
+                    // from elsewhere. Outside door props nothing in the game legitimately
+                    // leaves map-tile content disabled, so this is now HEALED rather than
+                    // skipped (rounds 4-7 skipped it silently — the last silent branch):
+                    // clear any stale static-batch state (a clone of a batched template
+                    // cannot render even when enabled) and switch the renderer back on.
+                    if (state == LoaderState.DoneStuck && MaterialsAlreadyAssigned(data, r))
+                    {
+                        bool hadBatch = r.isPartOfStaticBatch;
+                        if (hadBatch)
+                            StaticBatchInterop.ClearBatchState(r);
+                        r.enabled = true;
+                        nDone++;
+                        _touchedLoaders.Add(loader);
+                        _tracks.Remove(data);
+                        if (nDone <= 3)
+                            VRLog.Info(Name,
+                                $"MaterialLoaderHeal: re-enabled foreign-disabled renderer '{r.name}' "
+                                + $"(materials were loaded AND assigned; staticBatch={hadBatch}"
+                                + (hadBatch ? ", batch state cleared" : "")
+                                + ") — outside a door prop nothing legitimately leaves tile "
+                                + "content disabled.");
+                        continue;
+                    }
 
                     if (!_tracks.TryGetValue(data, out Track track))
                     {
