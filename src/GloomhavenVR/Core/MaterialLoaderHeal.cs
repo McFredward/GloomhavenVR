@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.ResourceManagement.AsyncOperations;
 
@@ -83,6 +84,37 @@ internal static class MaterialLoaderHeal
 
     private static HealDriver? _driver;
 
+    // ---------------------------------------------------------------------------------
+    // ROUND 7 — REGISTRY AT THE SOURCE (discovery is no longer searched, it is told):
+    // two hardware rounds proved that SCANNING for the stuck loaders is a minefield —
+    // the per-tile downward GetComponentsInChildren(activeOnly) never classified the
+    // floor entries, and the scene-wide FindObjectsOfType (round 6) found NOTHING at
+    // all, coins included, because Apparance flags its generated containers
+    // HideAndDontSave (ApparanceEntity, decompiled) and FindObjectsOfType skips
+    // DontSave-flagged objects. So a Harmony postfix on the game's own
+    // MaterialLoader.LoadMaterials() (its only trigger, called from Start) now REGISTERS
+    // every loader the moment it begins loading — no hierarchy, active-state or hideFlag
+    // assumption can ever hide a loader from the healer again. The per-tile deep scan
+    // (includeInactive: true — transform traversal ignores hideFlags) stays as a seed
+    // for loaders that ran before the patch landed.
+    // ---------------------------------------------------------------------------------
+
+    private static readonly List<MaterialLoader> RegisteredLoaders = new();
+    private static readonly HashSet<MaterialLoader> RegisteredSet = new();
+
+    /// <summary>Called by the Harmony postfix — every loader that starts loading enrolls
+    /// itself for supervision. Idempotent; dead entries are pruned by the driver.</summary>
+    internal static void Register(MaterialLoader? loader)
+    {
+        if (loader == null)
+            return;
+        if (RegisteredSet.Add(loader))
+            RegisteredLoaders.Add(loader);
+    }
+
+    /// <summary>Census forensics: is this loader under the healer's supervision?</summary>
+    private static bool IsRegistered(MaterialLoader loader) => RegisteredSet.Contains(loader);
+
     /// <summary>Install the watchdog (idempotent). No-op when VR isn't running.</summary>
     public static void Install()
     {
@@ -127,10 +159,20 @@ internal static class MaterialLoaderHeal
     /// </summary>
     internal static string DescribeForRenderer(Renderer renderer)
     {
-        MaterialLoaderData? data = FindLoaderData(renderer, out _);
+        MaterialLoaderData? data = FindLoaderData(renderer, out MaterialLoader? owner);
         if (data == null)
             return "no-loader";
         string described = Describe(data, renderer.enabled);
+        // Round 7 (discovery forensics): a stuck sample also names WHERE its loader
+        // lives — GameObject name, active state and hideFlags — so a log can prove why
+        // any given search strategy saw or missed it, with data instead of theory.
+        if (described != "done" && owner != null)
+        {
+            described += $" loader='{owner.gameObject.name}' "
+                + $"active={owner.gameObject.activeInHierarchy} "
+                + $"flags={owner.gameObject.hideFlags} "
+                + $"registered={IsRegistered(owner)}";
+        }
         // Census nuance (round 5): a disabled renderer whose loaded materials are already
         // assigned is NOT the healer's done-stuck target — another system disabled it
         // (door wings). Name it distinctly so the log matches the heal decision.
@@ -314,6 +356,7 @@ internal static class MaterialLoaderHeal
 
         private readonly Dictionary<MaterialLoaderData, Track> _tracks = new();
         private readonly List<MaterialLoader> _loaderScratch = new();
+        private readonly List<MaterialLoader> _tileLoaderScratch = new();
         private readonly List<MaterialLoaderData> _pruneScratch = new();
         private readonly HashSet<MaterialLoader> _touchedLoaders = new();
         private float _nextScan;
@@ -353,7 +396,40 @@ internal static class MaterialLoaderHeal
         private void HealAllLoaders(float now)
         {
             _loaderScratch.Clear();
-            _loaderScratch.AddRange(FindObjectsOfType<MaterialLoader>(includeInactive: true));
+            // Primary: the Harmony-fed registry (see the ROUND 7 header) — complete for
+            // every loader whose LoadMaterials ever ran, wherever Apparance parented it.
+            for (int i = RegisteredLoaders.Count - 1; i >= 0; i--)
+            {
+                MaterialLoader reg = RegisteredLoaders[i];
+                if (reg == null)
+                {
+                    // Destroyed with its scene — prune both stores (the set's stale key
+                    // compares equal to null via Unity's overload but keeps the slot).
+                    RegisteredSet.Remove(RegisteredLoaders[i]);
+                    RegisteredLoaders.RemoveAt(i);
+                    continue;
+                }
+                _loaderScratch.Add(reg);
+            }
+            // Seed/fallback: deep per-tile transform walk, includeInactive — immune to the
+            // HideAndDontSave flags that blind FindObjectsOfType (the round-6 failure) and
+            // covers loaders that ran before the Harmony patch landed (hot reload).
+            ProceduralMapTile[] tiles = FindObjectsOfType<ProceduralMapTile>();
+            foreach (ProceduralMapTile tile in tiles)
+            {
+                if (tile == null)
+                    continue;
+                _tileLoaderScratch.Clear();
+                tile.GetComponentsInChildren(includeInactive: true, _tileLoaderScratch);
+                foreach (MaterialLoader tl in _tileLoaderScratch)
+                {
+                    if (tl != null && RegisteredSet.Add(tl))
+                    {
+                        RegisteredLoaders.Add(tl);
+                        _loaderScratch.Add(tl);
+                    }
+                }
+            }
             if (_loaderScratch.Count == 0)
                 return;
 
@@ -660,5 +736,26 @@ internal static class MaterialLoaderHeal
                 _tracks.Remove(key);
             _pruneScratch.Clear();
         }
+    }
+}
+
+/// <summary>
+/// The ROUND-7 discovery fix (see the registry header in <see cref="MaterialLoaderHeal"/>):
+/// a postfix on the game's <c>MaterialLoader.LoadMaterials()</c> — the single entry point
+/// through which every material load starts (called from its <c>Start</c>; the healer's
+/// own re-triggers go through the DATA-level <c>MaterialLoaderData.LoadMaterials</c>, so
+/// they can never recurse into this patch) — enrolls the loader for supervision the moment
+/// it begins loading. Pure bookkeeping: the original method is untouched, vanilla behavior
+/// is bit-identical, and a throw inside Register can never reach the game (guarded).
+/// Registered by <c>CompatModule.Init</c> only while VR runs; removed with the mod's
+/// <c>UnpatchSelf</c> on hot reload.
+/// </summary>
+[HarmonyPatch(typeof(MaterialLoader), nameof(MaterialLoader.LoadMaterials))]
+internal static class MaterialLoader_LoadMaterials_RegisterPatch
+{
+    private static void Postfix(MaterialLoader __instance)
+    {
+        try { MaterialLoaderHeal.Register(__instance); }
+        catch { /* supervision is best-effort — never disturb the game's load path */ }
     }
 }

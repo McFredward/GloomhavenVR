@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 12;
+    public const ushort ModBuild = 13;
+    // Build 13: MaterialLoaderHeal round 7 — Harmony registry at the source (FindObjectsOfType
+    // is blind to Apparance's HideAndDontSave containers; loaders now enroll themselves in
+    // the LoadMaterials postfix), deep includeInactive tile-scan seed, loader-topology
+    // forensics in the census. Local-rendering only — no wire changes.
     // Build 12: MaterialLoaderHeal round 6 — scene-wide includeInactive loader scan (the
     // per-tile downward scan provably missed the stuck floor loaders), done-stuck healed
     // IMMEDIATELY (no observation delay), forensic strand line. Local-rendering only.

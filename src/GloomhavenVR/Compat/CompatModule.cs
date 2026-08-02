@@ -90,6 +90,11 @@ internal sealed class CompatModule : IVRModule
         // once per lifetime). This watchdog re-triggers/finishes stuck entries; see the
         // MaterialLoaderHeal header for the stranding mechanisms.
         MaterialLoaderHeal.Install();
+        // Round 7: loaders ENROLL THEMSELVES via this postfix on the game's
+        // MaterialLoader.LoadMaterials — scanning for them proved unreliable twice
+        // (Apparance parents generated content under HideAndDontSave containers that
+        // FindObjectsOfType skips entirely). Bookkeeping only, vanilla path untouched.
+        VRSession.Harmony?.PatchAll(typeof(MaterialLoader_LoadMaterials_RegisterPatch));
 
         // Tutorial VR bridge ([Compat] TutorialVRAdapt, default on): the tutorial's
         // camera-familiarization step waits on the flat room-camera button
