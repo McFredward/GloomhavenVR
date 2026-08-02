@@ -77,11 +77,11 @@ runtime, which is why a runtime audit could never do this job (see
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
 | `InitialInputSkip` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/InitialInputSkip.cs:28</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:59 |
-| `LevelEventsController_StartListeningForEvents_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:34</sub> | `LevelEventsController.StartListeningForEvents()` *(private)* | postfix | `CompatModule`:96 |
-| `LevelEventsController_MessageWasDisplayed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:87</sub> | `LevelEventsController.MessageWasDisplayed()` *(private)* | postfix | `CompatModule`:97 |
-| `LevelEventsController_MessageWasDismissed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:110</sub> | `LevelEventsController.MessageWasDismissed()` *(private)* | postfix | `CompatModule`:98 |
-| `LevelMessagePageUI_OnLanguageChanged_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:224</sub> | `LevelMessagePageUI.OnLanguageChanged()` *(private)* | postfix | `CompatModule`:99 |
-| `LevelMessageUILayout_Title_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:250</sub> | `LevelMessageUILayout.Init()` *(private)* | postfix | `CompatModule`:100 |
+| `LevelEventsController_StartListeningForEvents_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:34</sub> | `LevelEventsController.StartListeningForEvents()` *(private)* | postfix | `CompatModule`:104 |
+| `LevelEventsController_MessageWasDisplayed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:87</sub> | `LevelEventsController.MessageWasDisplayed()` *(private)* | postfix | `CompatModule`:105 |
+| `LevelEventsController_MessageWasDismissed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:110</sub> | `LevelEventsController.MessageWasDismissed()` *(private)* | postfix | `CompatModule`:106 |
+| `LevelMessagePageUI_OnLanguageChanged_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:224</sub> | `LevelMessagePageUI.OnLanguageChanged()` *(private)* | postfix | `CompatModule`:107 |
+| `LevelMessageUILayout_Title_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:250</sub> | `LevelMessageUILayout.Init()` *(private)* | postfix | `CompatModule`:108 |
 | &nbsp; | `LevelMessageUILayout.OnLanguageChanged()` *(private)* | postfix | &nbsp; |
 | `WallFadeDisable` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/WallFadeDisable.cs:53</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:74 |
 

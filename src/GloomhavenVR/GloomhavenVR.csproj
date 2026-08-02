@@ -34,6 +34,12 @@
     <Reference Include="ScenarioRuleLibrary" HintPath="$(GameManaged)\ScenarioRuleLibrary.dll" Publicize="true" Private="false" />
     <Reference Include="MapRuleLibrary" HintPath="$(GameManaged)\MapRuleLibrary.dll" Publicize="true" Private="false" />
     <Reference Include="InControl" HintPath="$(GameManaged)\InControl.dll" Publicize="true" Private="false" />
+    <!-- Apparance.Unity: ApparanceEngine (procedural map synthesis). Core.ApparanceDetailFocus
+         points its EnableDetailFocus/DetailFocus viewpoint override at the VR head — the engine
+         otherwise centres detail generation on the PARKED Camera.main and mid-scenario room
+         reveals never synthesize their geometry. Publicized for census diagnostics
+         (ApparanceEntity build state). -->
+    <Reference Include="Apparance.Unity" HintPath="$(GameManaged)\Apparance.Unity.dll" Publicize="true" Private="false" />
     <!-- Utilities.dll: VirtualMouseUtilities / InputSystemUtilities (PATCH-TARGETS §2 — separate assembly!) -->
     <Reference Include="Utilities" HintPath="$(GameManaged)\Utilities.dll" Publicize="true" Private="false" />
     <!-- ThirdParty.dll: defines I2.Loc.LocalizationManager (CurrentLanguage / OnLocalizeEvent) —

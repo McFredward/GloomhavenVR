@@ -74,6 +74,14 @@ internal sealed class CompatModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
         WallSegmentFade.Install();
 
+        // Revealed-room geometry (fehlender_boden2.png root cause): Apparance synthesizes
+        // map content around Camera.main, which the rig PARKS — a door-open reveal
+        // re-creates the room's native entities (ApparanceEntity.CheckEntity destroys them
+        // while hidden) and re-synthesis against the parked viewpoint never materializes
+        // the floor/walls. The driver points the engine's own EnableDetailFocus/DetailFocus
+        // override at the VR head instead. Reversible, no Harmony, rendering-only.
+        ApparanceDetailFocus.Install();
+
         // Tutorial VR bridge ([Compat] TutorialVRAdapt, default on): the tutorial's
         // camera-familiarization step waits on the flat room-camera button
         // (CameraRoomButtonPressed — its ONLY producer, RoomCameraButton.OnClick, is
@@ -146,6 +154,7 @@ internal sealed class CompatModule : IVRModule
         // Nothing to undo here for the patch; what this line DOES undo is the segment fade,
         // which clears every property block and destroys its textures.
         WallSegmentFade.Uninstall();
+        ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         if (_hooked)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
