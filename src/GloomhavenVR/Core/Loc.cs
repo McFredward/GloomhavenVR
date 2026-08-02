@@ -265,21 +265,35 @@ internal static partial class Loc
         ["tut_vr_half_top"] = Pair(
             "Poke the TOP half of the requested card in its board slot (or laser + trigger).",
             "Tippe die OBERE Hälfte der verlangten Karte im Brett-Slot an (oder Laser + Trigger)."),
+        // FINGERTIP TILE TOUCH — the direct touch only commits WHILE THE GRIP BUTTON IS HELD
+        // (fist with an extended index finger; the grip requirement is what keeps a hand that
+        // merely sweeps over the board from selecting tiles). The hints below therefore never
+        // say "touch it" on its own: every tile hint names BOTH commit routes and states the
+        // grip condition, so the strip stays self-explanatory without a preceding box.
         ["tut_vr_hex"] = Pair(
-            "Choose a highlighted hex: touch it with a fingertip, or point the laser and pull the trigger.",
-            "Wähle ein markiertes Feld: mit der Fingerspitze berühren oder mit dem Laser zielen und den Trigger drücken."),
+            "Choose a highlighted hex: laser + trigger — or hold the GRIP button and touch it with a fingertip.",
+            "Wähle ein markiertes Feld: Laser + Trigger — oder GRIFF-Taste halten und mit der Fingerspitze antippen."),
         ["tut_vr_hex_target"] = Pair(
-            "Choose the target: touch the highlighted enemy hex, or point the laser and pull the trigger.",
-            "Wähle das Ziel: das markierte Gegnerfeld berühren oder mit dem Laser zielen und den Trigger drücken."),
+            "Choose the target: laser + trigger on the marked enemy hex — or hold GRIP and touch it with a fingertip.",
+            "Wähle das Ziel: Laser + Trigger auf das markierte Gegnerfeld — oder GRIFF-Taste halten und antippen."),
         ["tut_vr_execute"] = Pair(
-            "Execute: tap the chosen hex again — or press the board's CONFIRM keycap.",
-            "Ausführen: das gewählte Feld erneut antippen — oder BESTÄTIGEN am Brett drücken."),
+            "Execute: pick the chosen hex again (laser + trigger, or GRIP + fingertip) — or press CONFIRM on the board.",
+            "Ausführen: Feld erneut wählen (Laser + Trigger oder GRIFF-Taste + Fingerspitze) — oder BESTÄTIGEN am Brett."),
         ["tut_vr_confirm"] = Pair(
             "Continue with the board's CONFIRM keycap.",
             "Weiter mit der BESTÄTIGEN-Taste am Brett."),
         ["tut_vr_initiative"] = Pair(
             "Point the laser at the enemy's portrait on the initiative track to preview its turn.",
             "Zeige mit dem Laser auf das Gegner-Porträt in der Initiativleiste, um seinen Zug zu sehen."),
+        // MOD-OWNED EXTRA STEP (Compat.TutorialGrabStep) — shown right after the portrait-hover
+        // strip above, teaching the VR-native ALTERNATIVE to that hover: holding the enemy mini
+        // drives the very same preview (WorldUI.FigureIntentPeek highlights the actor's
+        // initiative-track avatar, the one path the game itself uses on portrait hover). The
+        // strip closes the moment the player actually picks a figure up, so the text is a
+        // promise the step keeps. Trigger = the figure grab button (ProximityGrabber's trigger).
+        ["tut_vr_grab_intent"] = Pair(
+            "Or pick the enemy figure up with your hand (trigger) — while you hold it, its turn is shown too.",
+            "Oder nimm die Gegnerfigur in die Hand (Trigger) — solange du sie hältst, siehst du seinen Zug."),
         ["tut_vr_choice_panel"] = Pair(
             "Decide on the floating panel: poke a button, or point the laser and pull the trigger.",
             "Entscheide im schwebenden Fenster: Knopf antippen oder mit dem Laser zielen und den Trigger drücken."),

@@ -60,10 +60,13 @@ namespace GloomhavenVR.Compat;
 /// hardware log ever shows one, widen the gate deliberately then.
 ///
 /// Story/game-rule hints are untouched: anything matching no tier keeps the game's own
-/// translation. Reversible: config off ⇒ postfixes no-op ⇒ vanilla text. "New windows"
-/// (task 5) are served by RICHER REPLACEMENT TEXT in the same box — the funnel rewrites
-/// text only; injecting extra CLevelMessages into LevelEventsController.m_MessagesToShow
-/// would be new machinery on the scripted chain and is deliberately not built.
+/// translation. Reversible: config off ⇒ postfixes no-op ⇒ vanilla text. This funnel rewrites
+/// TEXT only — it can never add a step. Injecting extra CLevelMessages into
+/// <c>LevelEventsController.m_MessagesToShow</c> stays deliberately unbuilt (that IS new
+/// machinery on the scripted chain); where the VR tutorial genuinely needs an ADDITIONAL step,
+/// <see cref="TutorialGrabStep"/> shows a mod-owned message through the handler's public
+/// <c>ShowHelpText</c> instead, entirely beside the controller's trigger stores. Such messages
+/// are matched here by MESSAGE NAME (tier 0 in <see cref="TryOverrideTitle"/>), not by loc key.
 /// </summary>
 internal static class TutorialHints
 {
@@ -146,10 +149,21 @@ internal static class TutorialHints
         => TryOverride(key, controllerKey, resolved, BodyOverrides,
             "tut_vr_move_body", "tut_vr_controls_body", "page", out text);
 
-    internal static bool TryOverrideTitle(string? key, string? controllerKey, string? resolved,
-        out string text)
-        => TryOverride(key, controllerKey, resolved, TitleOverrides,
+    internal static bool TryOverrideTitle(string? messageName, string? key, string? controllerKey,
+        string? resolved, out string text)
+    {
+        // Tier 0 — MOD-OWNED messages (Compat.TutorialGrabStep's extra VR step). These carry a
+        // placeholder loc key on purpose (a mod-invented key would make the game's
+        // LocalizationManager log "term not found"), so they are identified by MESSAGE NAME —
+        // which the mod itself authored and which can never collide with a scripted one.
+        if (string.Equals(messageName, TutorialGrabStep.MessageName, StringComparison.Ordinal))
+        {
+            text = Loc.Mod("tut_vr_grab_intent");
+            return true;
+        }
+        return TryOverride(key, controllerKey, resolved, TitleOverrides,
             "tut_vr_move_title", "tut_vr_controls_line", "title", out text);
+    }
 
     private static bool TryOverride(string? key, string? controllerKey, string? resolved,
         Dictionary<string, string> exact, string patternLocId, string markerLocId, string kind,
@@ -266,8 +280,8 @@ internal static class LevelMessageUILayout_Title_Patch
                 return;
             if (message == null || ui.title == null || !ui.title.gameObject.activeSelf)
                 return;
-            if (TutorialHints.TryOverrideTitle(message.TitleKey, message.TitleKeyController,
-                    ui.title.text, out string text))
+            if (TutorialHints.TryOverrideTitle(message.MessageName, message.TitleKey,
+                    message.TitleKeyController, ui.title.text, out string text))
                 ui.title.text = text;
         }
         catch (Exception ex)
