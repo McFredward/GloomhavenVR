@@ -581,6 +581,53 @@ internal static partial class ModalFallback
         return false;
     }
 
+    /// <summary>
+    /// SETTINGS-CLICK EXEMPTION companion (user ruling 2026-08-02, escalation round 3): is this
+    /// widget transform INSIDE the floated options window — the mod-owned settings surface whose
+    /// clicks must never be swallowed?
+    ///
+    /// WHY this exists: the round-2 laser fall-through (<see cref="IsSettingsSurface"/> +
+    /// RayUguiDriver.TrySettingsFallThrough) fixed only the MOD-side arbitration — but the
+    /// hardware log (ModBuild 15) proved the press was DELIVERED to the tab widget all along
+    /// ("uGUI click: 'GloomhavenVR.OptionsTab'/'Cat.N'" lines with zero effect): the click died
+    /// GAME-side inside <c>ExtendedToggle.OnPointerClick</c>, which early-returns when
+    /// <c>InteractabilityManager.ShouldAllowClickForExtendedToggle</c> vetoes it. During a
+    /// scripted tutorial an interaction profile stays loaded (LevelEventsController
+    /// .MessageWasDisplayed/-Dismissed → LoadProfile/LoadDefaultMessagelessProfile) and
+    /// <c>s_EventsControllerActive</c> is true, so EVERY Extended*/Tracked*/UITab widget not on
+    /// an isolated control's allow list silently eats its click — including all options-window
+    /// tabs and the cloned VR-tab/sub-tab toggles. <see cref="Patches.SettingsClickExemption"/>
+    /// postfixes those gate methods and consults THIS predicate to flip the veto — only for
+    /// widgets under the floated options window.
+    ///
+    /// Scope mirrors <see cref="IsSettingsSurface"/> exactly (Options / OptionsSubmenu floats,
+    /// alive, not user-closing) and the check is by TRANSFORM ANCESTRY against the float's host
+    /// rect (everything the conversion reparented under the host: the window's own tabs AND the
+    /// mod-injected VR tab clones) with the window root as fallback. The moment the options
+    /// float releases, this returns false and every gate verdict is byte-identical vanilla again
+    /// — nothing is mutated, so there is nothing to restore.
+    /// </summary>
+    internal static bool IsUnderFloatedSettingsWindow(Transform? widget)
+    {
+        if (widget == null)
+            return false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Window == null || wp.UserClosing || !wp.Panel.IsAlive)
+                continue;
+            UIWindowID id = wp.Window.ID;
+            if (id != UIWindowID.Options && id != UIWindowID.OptionsSubmenu)
+                continue;
+            RectTransform? host = wp.Panel.HostRect;
+            if (host != null && widget.IsChildOf(host))
+                return true;
+            if (widget.IsChildOf(wp.Window.transform))
+                return true;
+        }
+        return false;
+    }
+
     private static bool ContainsWindow(List<UIWindow> list, UIWindow window)
     {
         for (int i = 0; i < list.Count; i++)
