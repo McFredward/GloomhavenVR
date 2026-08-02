@@ -333,16 +333,15 @@ internal static class MaterialLoaderHeal
                 return;
             _nextScan = now + ScanInterval;
 
-            // Active tiles only: hidden tiles have no live content, and the census proved
-            // the stuck renderers live under the revealed tile's active 'Full' child.
-            ProceduralMapTile[] tiles = FindObjectsOfType<ProceduralMapTile>();
-            for (int i = 0; i < tiles.Length; i++)
-            {
-                ProceduralMapTile tile = tiles[i];
-                if (tile == null)
-                    continue;
-                HealTile(tile, now);
-            }
+            // ROUND 6: scene-wide, includeInactive — the per-tile downward
+            // GetComponentsInChildren scan provably missed the stuck floor loaders (two
+            // hardware runs: the renderer-upward census said done-stuck while the heal
+            // loop never even classified those entries), so NO hierarchy assumption
+            // survives: every MaterialLoader in the scene is visited, wherever Apparance
+            // parented it and whatever its own GameObject's active state — the per-entry
+            // renderer filter (activeInHierarchy && !enabled) already scopes the work to
+            // live content on its own.
+            HealAllLoaders(now);
 
             if (now >= _nextPrune)
             {
@@ -351,10 +350,10 @@ internal static class MaterialLoaderHeal
             }
         }
 
-        private void HealTile(ProceduralMapTile tile, float now)
+        private void HealAllLoaders(float now)
         {
             _loaderScratch.Clear();
-            tile.GetComponentsInChildren(includeInactive: false, _loaderScratch);
+            _loaderScratch.AddRange(FindObjectsOfType<MaterialLoader>(includeInactive: true));
             if (_loaderScratch.Count == 0)
                 return;
 
@@ -449,11 +448,30 @@ internal static class MaterialLoaderHeal
                         case LoaderState.DoneStuck:
                             // Everything is already loaded — re-running the loader would hit
                             // the Addressables double-load error; finish its job directly.
-                            if (stuckFor >= MinStuckSeconds && TryFinishDirect(data, r))
+                            // ROUND 6: IMMEDIATELY (user ruling: the room must appear at
+                            // once, like every other room) — no observation delay: all
+                            // handles complete + materials not assigned is already a
+                            // terminal, provable state the game can never leave on its own.
+                            if (TryFinishDirect(data, r))
                             {
                                 nDone++;
                                 _touchedLoaders.Add(loader);
                                 _tracks.Remove(data);
+                                if (nDone <= 3) // forensic sample: WHICH strand was it?
+                                    LogDoneStuckForensics(data, r);
+                            }
+                            else
+                            {
+                                // Round-5 blind spot: this false path was silent, so a
+                                // classification/finish disagreement was invisible. Once.
+                                if (!track.GaveUp)
+                                {
+                                    track.GaveUp = true;
+                                    VRLog.Warn(Name,
+                                        $"MaterialLoaderHeal: done-stuck entry for renderer '{r.name}' "
+                                        + "could NOT be finished directly (handle state changed between "
+                                        + "classify and finish?) — will retry next scan.");
+                                }
                             }
                             break;
                     }
@@ -469,15 +487,15 @@ internal static class MaterialLoaderHeal
                 if (nPending > 0) reasons.Add($"pending-forever x{nPending}");
                 VRLog.Info(Name,
                     $"MaterialLoaderHeal: re-triggered {_touchedLoaders.Count} loader(s) "
-                    + $"({retriggered} renderer(s)) under tile '{tile.name}' — reason: "
+                    + $"({retriggered} renderer(s)) — reason: "
                     + string.Join(", ", reasons));
             }
             if (nDone > 0)
             {
                 VRLog.Info(Name,
-                    $"MaterialLoaderHeal: completed {nDone} stalled renderer(s) directly under tile "
-                    + $"'{tile.name}' — reason: done-stuck (all handles loaded, CheckAllMaterialLoaded "
-                    + "never re-enabled — its sizing deadlock)");
+                    $"MaterialLoaderHeal: completed {nDone} stalled renderer(s) directly — "
+                    + "reason: done-stuck (all handles loaded, the game's CheckAllMaterialLoaded "
+                    + "never re-enabled them)");
             }
         }
 
@@ -594,6 +612,38 @@ internal static class MaterialLoaderHeal
             r.sharedMaterials = final;
             r.enabled = true;
             return true;
+        }
+
+        /// <summary>
+        /// One-shot forensic line for a healed done-stuck entry (first 3 per scan): names
+        /// WHICH stranding mechanism produced it — <c>_released=true</c> ⇒ the game called
+        /// <c>Release()</c> and every later completion callback no-opped;
+        /// <c>saveExisted=true</c> with ≥1 authored non-null material ⇒ the
+        /// CheckAllMaterialLoaded sizing deadlock; neither ⇒ the completion callbacks never
+        /// ran at all (subscription raced the synchronous completion). Ends the five-round
+        /// "which strand is it" guesswork with data instead of inference.
+        /// </summary>
+        private static void LogDoneStuckForensics(MaterialLoaderData data, Renderer r)
+        {
+            bool released = false;
+            try { released = data._released; } catch { /* publicized access — defensive */ }
+            int authoredNonNull = 0, slots = 0;
+            Material[] shared = r.sharedMaterials;
+            slots = shared.Length;
+            foreach (Material m in shared)
+            {
+                if (m != null) authoredNonNull++;
+            }
+            var tile = r.GetComponentInParent<ProceduralMapTile>();
+            VRLog.Info(Name,
+                $"MaterialLoaderHeal forensics '{r.name}' (tile '{(tile != null ? tile.name : "<none>")}'): "
+                + $"_released={released}, saveExisted={data.IsSaveExistedMaterials}, "
+                + $"authoredMaterials={authoredNonNull}/{slots}, handles={data._handles?.Length ?? -1}, "
+                + $"refs={data.MaterialReferences?.Count ?? -1} — mechanism: "
+                + (released ? "Release() no-opped the completion callbacks"
+                    : data.IsSaveExistedMaterials && authoredNonNull > 0
+                        ? "CheckAllMaterialLoaded sizing deadlock"
+                        : "completion callbacks never ran"));
         }
 
         private void PruneTracks(float now)
