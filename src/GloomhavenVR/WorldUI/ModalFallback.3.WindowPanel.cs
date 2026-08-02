@@ -121,8 +121,8 @@ internal static partial class ModalFallback
         /// key (<see cref="CurrentLevelMessageKey"/>) seen displayed in this level-message
         /// group window. The tutorial chains messages through ONE kept-alive float, so a key
         /// CHANGE means a new hint just re-showed inside the existing panel at its previous
-        /// pose — <see cref="TickMenuRecall"/> then CAPTURES that live pose into the per-group
-        /// chain store (<see cref="ChainPoses"/>; it no longer re-places the panel — position
+        /// pose — <see cref="TickMenuRecall"/> then CAPTURES that live pose into the shared
+        /// chain store (<see cref="_chainPose"/>; it no longer re-places the panel — position
         /// continuity superseded the brief re-show recall). Seeded at convert so the first
         /// tick never mis-reads the just-placed pose as a message change. Null for
         /// non-level-message windows / before the first message.

@@ -338,16 +338,18 @@ internal static partial class ModalFallback
     /// (tutorial box / help-text action strip, <c>LevelMessagesUIHandler.s_Instance</c>'s
     /// serialized groups). This is the family with the dedicated spawn placement — closer
     /// (<see cref="LevelMessageDistanceMeters"/>), gaze-centered inside the view cone — and
-    /// the chain pose continuity (user ruling 2026-08-02: subsequent hints of a chain reopen
-    /// at the previous hint's pose, see <see cref="ChainPoses"/>).
+    /// the chain pose continuity (user ruling 2026-08-02: subsequent scripted windows of a
+    /// chain — of ANY kind — reopen at the previous window's pose, see <see cref="_chainPose"/>).
     /// </summary>
     private static bool IsLevelMessageWindow(UIWindow? window) => LevelMessageGroupIndex(window) >= 0;
 
     /// <summary>
     /// Which level-message GROUP a window belongs to: 0 = tutorial box group, 1 = help-text
-    /// strip group, −1 = not a level-message window. The index doubles as the slot into the
-    /// per-group chain-pose store (<see cref="ChainPoses"/>) — box and strip may be parked
-    /// at different spots, so their chain poses persist independently.
+    /// strip group, −1 = not a level-message window. Classification only — the chain-pose
+    /// store is deliberately NOT per group anymore (hardware round 2026-08-02: two per-group
+    /// stores let the box and strip chains live in two different places); the index now just
+    /// gates "is scripted" and names the kind for diagnostics
+    /// (<see cref="LevelMessageKindName"/>).
     /// </summary>
     private static int LevelMessageGroupIndex(UIWindow? window)
     {
@@ -364,6 +366,12 @@ internal static partial class ModalFallback
             return 1;
         return -1;
     }
+
+    /// <summary>Human-readable name of a level-message group (diagnostics: the shared chain
+    /// store records which kind last anchored it, surfaced in the rule-2 re-float log so a
+    /// hardware log shows whose spot a window inherited).</summary>
+    private static string LevelMessageKindName(int groupIndex) =>
+        groupIndex == 0 ? "tutorial box" : "help-text strip";
 
     /// <summary>
     /// The scripted message currently displayed in this level-message group window (its
