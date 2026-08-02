@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 20;
+    public const ushort ModBuild = 21;
+    // Build 21: MP round 2 — join seat actually runs (session flag + peer poses), remote board
+    // pin state/dock heights/lit round plate/overlay offsets/eased scale/synced card highlight
+    // (additive records: board-UI pinned bit, ExtIdCardHighlight 6), pile+item fans sweep like
+    // the hand fan, cold-menu fit ignores the show animation, name tag centred on its ink.
     // Build 20: MP round — remote board mirrors the REAL initiative track + objectives and
     // seats every dock at the owner's own mount offsets, Steam picture on both roles, join
     // seat on a ring at the widest gap to peers, item fan usable under MP roster windows
