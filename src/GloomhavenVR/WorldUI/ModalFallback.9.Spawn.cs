@@ -801,8 +801,19 @@ internal static partial class ModalFallback
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
+            // Round 3 (first-open size bug): a one-shot VERIFY correction re-fits a committed rect
+            // that turned out not to contain its own content. That advances the panel's applied-fit
+            // generation, which RE-ARMS this latch so the placement is replayed against the
+            // corrected half-size — otherwise the window would keep the spawn clamps computed from
+            // the rejected rect. TickPoseRePlaceOne itself refuses to move an already REVEALED
+            // window, so a late correction can never yank a visible window around.
+            if (wp.PoseRePlaceDone && wp.PoseRePlacedAtFit != wp.Panel.FitAppliedGeneration)
+                wp.PoseRePlaceDone = false;
             TickPoseRePlaceOne(wp.Panel, wp.Grab, wp.Window, wp.ExtraScale,
-                wp.OneShotFitted && !wp.ScaleReDerived, ref wp.SpawnAnchor, ref wp.PoseRePlaceDone);
+                wp.OneShotFitted && wp.ScaleReDerivedAtFit != wp.Panel.FitAppliedGeneration,
+                ref wp.SpawnAnchor, ref wp.PoseRePlaceDone);
+            if (wp.PoseRePlaceDone)
+                wp.PoseRePlacedAtFit = wp.Panel.FitAppliedGeneration;
         }
         // Part 10: the GlobalErrorMessage float is NOT a UIWindow and therefore has no WindowPanel
         // record — it carries its own anchor/latch pair so the identical re-place applies to it.

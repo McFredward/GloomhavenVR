@@ -522,13 +522,17 @@ internal static partial class ModalFallback
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
-            if (wp.ScaleReDerived || !wp.OneShotFitted || wp.Grab == null
-                || !wp.Panel.IsAlive || !wp.Panel.FitOneShotApplied)
+            // Round 3: keyed on the APPLIED-FIT GENERATION, not a bool latch — a one-shot VERIFY
+            // correction (CanvasConversion.VerifyOneShotFit) re-fits a rect that turned out not to
+            // contain its own content, and the board-relative scale must be re-derived from the
+            // corrected width instead of staying on the rejected one.
+            if (wp.ScaleReDerivedAtFit == wp.Panel.FitAppliedGeneration || !wp.OneShotFitted
+                || wp.Grab == null || !wp.Panel.IsAlive || !wp.Panel.FitOneShotApplied)
                 continue;
             float refit = DeriveWindowScale(wp.Panel);
             wp.ExtraScale = refit;
             wp.Grab.SetExtraScale(refit);
-            wp.ScaleReDerived = true;
+            wp.ScaleReDerivedAtFit = wp.Panel.FitAppliedGeneration;
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{(wp.Window != null ? wp.Window.name : "<menu>")}' " +
                                   $"re-scaled to the fitted content (extraScale → {refit:F3}) — board-sized, " +
                                   "compact, consistent every open.");

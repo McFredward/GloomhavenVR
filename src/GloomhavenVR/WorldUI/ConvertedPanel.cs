@@ -74,6 +74,83 @@ internal sealed class ConvertedPanel
     /// <summary>True once the give-up warning was logged (log hygiene).</summary>
     public bool FitGaveUpLogged;
 
+    // ---- one-shot fit: commit → VERIFY → lock (first-open size bug, round 3) ----------------
+    /// <summary>
+    /// True once the one-shot settle gate has COMMITTED its single fit. Distinct from
+    /// <see cref="FitOneShotApplied"/> (which only says a resize happened, and stays false when
+    /// the fit landed inside the 2 % no-op tolerance) and from the final lock: between commit and
+    /// lock the rect must still earn itself through <see cref="FitVerifyPending"/>.
+    /// </summary>
+    public bool FitCommitted;
+
+    /// <summary>
+    /// True while a committed one-shot fit is being VERIFIED — i.e. re-measured to prove the
+    /// content still sits centered in, and sized like, the host rect it was just fitted to. WHY
+    /// this phase exists: on hardware (ModBuild 18) the ESC menu's cold first open measured a
+    /// perfectly steady 271x282 px box, locked it, and the game's layout then moved the real
+    /// content to a place that did not overlap that box on EITHER axis — the reported "almost
+    /// empty window frame in front of the player, actual menu far off to the side". Nothing
+    /// observable AT COMMIT TIME distinguished that measurement from a good one, so the rect is
+    /// no longer trusted on commit: it is watched, and a materially self-inconsistent rect is
+    /// re-fitted (see <c>CanvasConversion.VerifyOneShotFit</c>).
+    /// </summary>
+    public bool FitVerifyPending;
+
+    /// <summary>Unscaled time the verify watch ends — after this the rect is locked at the best
+    /// measurement available, self-consistent or not (bounded: a window is never watched forever).</summary>
+    public float FitVerifyUntil;
+
+    /// <summary>
+    /// True when the committed rect reproduces this window's PREVIOUS open in this session (see
+    /// <c>CanvasConversion.LastOneShotFits</c>). A proven rect locks the moment it verifies —
+    /// warm re-opens keep their historic instant behaviour. An UNPROVEN one (the session's first
+    /// open, i.e. the defective case) stays under watch for the whole bounded window even after
+    /// the window has been revealed, because the hardware failure is a discrete LATE jump.
+    /// </summary>
+    public bool FitVerifyProven;
+
+    /// <summary>Next frame the verify watch samples once the window is VISIBLE (throttled: a
+    /// render-hidden panel checks every frame, a visible one only a few times a second).</summary>
+    public int FitVerifyNextCheckFrame;
+
+    /// <summary>
+    /// While &gt; 0 and not yet reached, the reveal gate keeps this window render-hidden even though
+    /// its fit is committed: an UNPROVEN one-shot rect (no earlier open of this window in the
+    /// session to compare against) uses the remaining, already-budgeted pre-reveal time to
+    /// re-verify instead of popping in at a rect nothing has corroborated. Always clamped inside
+    /// <see cref="RevealDeadline"/>, so the "a window may never stay invisible" bound is untouched.
+    /// </summary>
+    public float FitVerifyHoldRevealUntil;
+
+    /// <summary>Consecutive verify checks the committed rect was self-consistent (streak → lock).</summary>
+    public int FitVerifyStableCount;
+
+    /// <summary>Consecutive verify checks a MATERIAL self-consistency error persisted (streak →
+    /// one corrective re-fit; a single-frame animation artifact must never move the window).</summary>
+    public int FitVerifyErrorCount;
+
+    /// <summary>Corrective re-fits applied during this open's verify watch (hard-capped, so the
+    /// one-shot lock's "no re-fit flicker" promise only ever yields to a genuinely broken rect).</summary>
+    public int FitVerifyCorrections;
+
+    /// <summary>Measured content size at the previous MATERIALLY inconsistent verify check — the
+    /// correction requires the erroneous measurement to have stopped moving, so a window caught
+    /// mid animation is never re-fitted to an intermediate rect.</summary>
+    public Vector2 FitVerifyErrorSize;
+
+    /// <summary>Measured content center at the previous materially inconsistent verify check (see
+    /// <see cref="FitVerifyErrorSize"/>).</summary>
+    public Vector2 FitVerifyErrorCenter;
+
+    /// <summary>
+    /// Incremented by every APPLIED fit. ModalFallback's one-shot followers — the board-relative
+    /// scale re-derivation (5b) and the pose re-place at final geometry (5b-pose) — latch on this
+    /// value instead of a plain bool, so a VERIFY correction makes them replay against the
+    /// corrected geometry. Without it a corrected window would keep the scale and the spawn pose
+    /// derived from the rect that was just proven wrong.
+    /// </summary>
+    public int FitAppliedGeneration;
+
     /// <summary>Next periodic re-check frame (growth dirty-check throttle).</summary>
     public int FitNextCheckFrame;
 
@@ -222,6 +299,15 @@ internal sealed class ConvertedPanel
     /// <summary>Total settle checks run before the first fit committed — reported by the fit log
     /// so a hardware log can compare a cold first open against a warm re-open.</summary>
     public int FitSettleChecks;
+
+    /// <summary>
+    /// Round 3: consecutive settle checks the measurement held ABSOLUTELY still (within
+    /// <c>CanvasConversion.SettleStillEpsilonPx</c>), as opposed to within the 2 % relative
+    /// tolerance <see cref="FitOneShotStableCount"/> uses. The strict settle tier requires both:
+    /// 2 % of a small cold measure is several pixels per check, which let genuinely drifting
+    /// content pass as steady for a whole streak.
+    /// </summary>
+    public int FitSettleStillCount;
 
     /// <summary>
     /// How many settle checks saw the forced layout flush CHANGE the measurement (i.e. the layout

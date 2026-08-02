@@ -368,7 +368,14 @@ internal static partial class CanvasConversion
         panel.RevealLastRectSize = rect;
 
         bool treated = now >= panel.RevealNotBefore;
-        bool fitDone = !panel.FitEnabled || panel.FitMeasuredOnce;
+        // Round 3 (first-open size bug): a COMMITTED one-shot fit is not automatically a TRUSTED
+        // one. While its verify hold is running (an unproven first open of this window in the
+        // session — see CanvasConversion.ArmOneShotVerify) the window stays render-hidden and the
+        // fit keeps re-verifying, because on hardware a cold ESC-menu fit looked perfectly settled
+        // at commit time and its content then jumped to a disjoint place. The hold is clamped
+        // inside RevealDeadline, so the 0.6 s "never stay invisible" bound below is untouched.
+        bool fitTrusted = panel.FitVerifyHoldRevealUntil <= 0f || now >= panel.FitVerifyHoldRevealUntil;
+        bool fitDone = !panel.FitEnabled || (panel.FitMeasuredOnce && fitTrusted);
         bool poseStable = panel.RevealPoseStableFrames >= RevealStableFrames;
         bool settled = treated && fitDone && poseStable;
         bool deadline = now >= panel.RevealDeadline;
@@ -377,7 +384,9 @@ internal static partial class CanvasConversion
             // Remember the FIRST unmet criterion in gate order — when the gate opens next
             // frame(s), this is "what it waited for last" in the reveal log.
             panel.RevealLastBlocker = !treated ? "treatment (mod layer/backing)"
-                : !fitDone ? "first content fit (layout settle)"
+                : !fitDone ? (panel.FitMeasuredOnce
+                    ? "one-shot fit VERIFY (unproven first open — re-measuring while hidden)"
+                    : "first content fit (layout settle)")
                 : "host pose/scale stillness";
             return;
         }
