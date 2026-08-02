@@ -419,6 +419,34 @@ internal static partial class CanvasConversion
         return sum;
     }
 
+    /// <summary>
+    /// ROUND 5: clamp an AUTHORED union's height to the same canvas design height Convert clamps
+    /// the host rect to (<c>capHeightToCanvas</c> family only — ESC/Options full-screen menus).
+    /// The authored geometry of those menus is ~2040 px tall while the game never draws them
+    /// taller than the CanvasScaler's ~1080 design height; adopting the raw authored height gave
+    /// the cold open a host twice as tall as its content (empty half in front, menu displaced).
+    /// Symmetric about the union's centre, mirroring Convert's centred-pivot <c>size.y</c> clamp.
+    /// No-op for every other window family, for a missing/undersized cap, and for a union that is
+    /// already within it — so a settled window and all non-menu modals are bit-identical.
+    /// </summary>
+    private static void ClampAuthoredToCanvasHeight(ConvertedPanel panel, ref Vector2 min, ref Vector2 max)
+    {
+        if (!panel.FitHeightCapped || panel.Target == null)
+            return;
+        float cap = ResolveStableHeightCap(panel.Target, panel.FitHeightCapName, out string source);
+        float height = max.y - min.y;
+        if (cap <= 1f || height <= cap + 0.5f)
+            return;
+        float centre = (min.y + max.y) * 0.5f;
+        min.y = centre - cap * 0.5f;
+        max.y = centre + cap * 0.5f;
+        s_lastAuthoredHeightCap = $"authored height {height:F0} -> {cap:F0} px via {source}";
+    }
+
+    /// <summary>Diagnostic for the fit log: what the authored height clamp did on this pass
+    /// (empty when it did nothing). Cleared by the measure that reports it.</summary>
+    private static string s_lastAuthoredHeightCap = string.Empty;
+
     /// <summary>Authored (scale-neutral) host-local rect of <paramref name="rt"/> — its own
     /// <see cref="RectTransform.rect"/> placed at <see cref="AuthoredOffset"/>.</summary>
     private static void AuthoredHostRect(ConvertedPanel panel, RectTransform rt,
@@ -522,6 +550,13 @@ internal static partial class CanvasConversion
           .Append(s_lastMeasureAnimating
               ? " → SHOW ANIMATION IN FLIGHT, fit uses the AUTHORED union (the geometry the window ends at)"
               : " → settled, fit uses the LIVE union");
+        // Round 5: state whether the authored union had to be clamped to the canvas design height
+        // (the cold-menu defect: authored 2040 vs the 1080 the game actually draws).
+        if (s_lastAuthoredHeightCap.Length > 0)
+        {
+            sb.Append(" [").Append(s_lastAuthoredHeightCap).Append(']');
+            s_lastAuthoredHeightCap = string.Empty;
+        }
         return sb.ToString();
     }
 
@@ -669,6 +704,16 @@ internal static partial class CanvasConversion
             // like with like on a cold and a warm open.
             min = aMinAll;
             max = aMaxAll;
+            // ROUND 5 (hardware ModBuild 21, the cold ESC menu AGAIN): the authored union is the
+            // layout's own geometry — and for the full-screen-menu family that geometry is TALLER
+            // than anything the game ever draws. Convert clamps their host height to the root
+            // CanvasScaler's design height ("height capped 2040->1080"); the authored union knows
+            // nothing about that clamp, so open #1 fitted a 407x2040 host while every warm open
+            // fits 412x1080 — a host twice as tall as the content, the visible menu in one half and
+            // an empty frame in the other. That IS the reported "empty window in front, the menu
+            // far behind". Apply the SAME clamp here, symmetric about the union's centre (the host
+            // pivot is centred, so this is exactly what Convert's size.y clamp does).
+            ClampAuthoredToCanvasHeight(panel, ref min, ref max);
         }
         s_lastUnionMin = min;
         s_lastUnionMax = max;

@@ -65,6 +65,21 @@ internal sealed class ConvertedPanel
     /// is hidden by <see cref="ConvertedPanel.HideBackground"/>, so the fit measures only the
     /// stable foreground content — the other arm of that flicker is already gone).
     /// </summary>
+    /// <summary>
+    /// ROUND 5 (cold ESC menu, hardware ModBuild 21): this panel was converted with the
+    /// full-screen-menu HEIGHT CAP (<c>capHeightToCanvas</c>) — its host rect was clamped to the
+    /// root <c>CanvasScaler.referenceResolution.y</c> at convert (log: "height capped 2040-&gt;1080").
+    /// The AUTHORED union the round-4 fix measures is NOT subject to that clamp, so a cold open
+    /// adopted the raw authored 2040 px height while every warm open fits 1080 — a host twice as
+    /// tall as the game ever draws, with the visible menu sitting in one half and an empty frame
+    /// in the other (exactly the reported "empty window in front, menu far behind").
+    /// Remembering the flag lets the fit apply the SAME cap to an authored measurement.
+    /// </summary>
+    public bool FitHeightCapped;
+
+    /// <summary>The window name the height cap was resolved under (cap fallback key).</summary>
+    public string FitHeightCapName = string.Empty;
+
     public bool FitOneShot;
 
     /// <summary>Set true the frame a one-shot fit actually RESIZED the host — the owning modal

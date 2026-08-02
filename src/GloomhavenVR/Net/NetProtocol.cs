@@ -395,7 +395,10 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 21;
+    public const ushort ModBuild = 22;
+    // Build 22: cold-open menu — the authored union is now clamped to the same canvas design
+    // height Convert clamps the host to (open #1 fitted 407x2040 vs 412x1080 warm: a host twice
+    // as tall as its content). Local-only UI — no wire changes.
     // Build 21: MP round 2 — join seat actually runs (session flag + peer poses), remote board
     // pin state/dock heights/lit round plate/overlay offsets/eased scale/synced card highlight
     // (additive records: board-UI pinned bit, ExtIdCardHighlight 6), pile+item fans sweep like

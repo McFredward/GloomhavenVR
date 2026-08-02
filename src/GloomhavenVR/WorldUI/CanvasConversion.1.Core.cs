@@ -268,6 +268,12 @@ internal static partial class CanvasConversion
             panel.FitEnabled = true;
             panel.FitFrameDegenerate = degenerate;
             panel.FitOneShot = fitOneShot; // item 1: full-screen menus fit once then lock (no re-fit flicker)
+            // Round 5: remember that this family's host height is clamped to the canvas design
+            // height, so the fit can apply the SAME clamp to an AUTHORED measurement (see
+            // ConvertedPanel.FitHeightCapped — an uncapped authored union made the cold open's
+            // host twice as tall as any warm one).
+            panel.FitHeightCapped = capHeightToCanvas;
+            panel.FitHeightCapName = name;
             panel.FitNotBefore = Time.unscaledTime + FitDelaySeconds;
             panel.FitFirstDeadline = Time.unscaledTime + FitFirstWarnSeconds;
         }
