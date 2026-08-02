@@ -101,8 +101,20 @@ internal static class StaticBatchConfig
     // directory, a hot reload mid-frame). Each accessor answers with the SHIPPED default while
     // unbound, so an unbound config can never turn the experiment on by accident.
 
-    /// <summary>The mode, defaulting to <see cref="BatchMode.Off"/> while unbound.</summary>
-    internal static BatchMode CurrentMode => Mode == null ? BatchMode.Off : Mode.Value;
+    /// <summary>
+    /// PARKED (user ruling 2026-08-02, 8-round revealed-room investigation): static batching
+    /// is force-OFF regardless of config. Root cause of the invisible revealed rooms:
+    /// Apparance CLONES its reveal-time asset instances from in-scene sources; a source the
+    /// batcher had combined leaves its clones with an EMPTY sharedMaterials array and no
+    /// batch state (hardware forensics: <c>mat0='&lt;no-slots&gt;' staticBatch=False</c> on
+    /// every stuck renderer, healthy without batching) — the clone can never render, and no
+    /// loader heal can restore slots the clone was born without. The batcher cannot know
+    /// about future clones, so the interplay is structural, not a bug in its combine.
+    /// Revival would have to make Apparance-cloned content batch-safe FIRST (e.g. restore
+    /// per-renderer material arrays on the sources, or clear-and-refill on clone).
+    /// See .planning/static-batching-parked.md; config surface stays readable (legacy).
+    /// </summary>
+    internal static BatchMode CurrentMode => BatchMode.Off;
 
     internal static string RootNames => Roots == null ? "Maps" : Roots.Value ?? string.Empty;
 

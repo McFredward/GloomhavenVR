@@ -348,12 +348,16 @@ internal static partial class ModalFallback
             // Sieg/Niederlage results windows: the ONLY way out of the end-of-scenario window
             // must remain its native continue/retry/exit buttons (an X would Hide() the window
             // and strand the scenario-end flow with no way to re-open it).
-            if (!isResultsPanel && !isStoryBox && !isRewardShowcase)
+            // ALSO EXCLUDED (user ruling 2026-08-02): scripted tutorial/level-message windows
+            // — the player MUST engage with a tutorial hint (its own dismiss button or the
+            // action it demands); an X let them skip instruction chains and strand triggers.
+            if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg)
                 ModalCloseButton.Attach(panel, window);
             else
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
                                       $"({(isResultsPanel ? "results window — native buttons are the only exit"
                                           : isRewardShowcase ? "reward showcase — native continue is the only exit (its callback releases the message pump)"
+                                          : isLevelMsg ? "tutorial/level message — the player must engage, not dismiss (its own button/action is the only exit)"
                                           : "click-through story box")}).");
 
             var wp = new WindowPanel
