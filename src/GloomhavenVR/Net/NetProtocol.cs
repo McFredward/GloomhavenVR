@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 18;
+    public const ushort ModBuild = 19;
+    // Build 19: fingertip tile touch actually reachable (ForceFarMode retired — tuned cfgs
+    // shipped it dead), pile fan no longer sweeps the board's played cards, self-verifying
+    // one-shot menu fit (cold-open tiny/misplaced menu), VR burnt-card + named-card tutorial
+    // texts. Local-only rendering/input/UI — no wire changes.
     // Build 18: tutorial grab step is sequential (scripted chain held until a figure was
     // picked up), floated windows re-placed at their final fitted geometry, cold-open menu
     // fit fixed (layout flush order). Local-only UI — no wire changes.
