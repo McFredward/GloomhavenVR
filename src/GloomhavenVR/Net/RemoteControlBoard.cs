@@ -231,6 +231,18 @@ internal sealed class RemoteControlBoard
     /// <summary>False until the synced pose was applied once — the first apply SNAPS (a fresh
     /// board must not ease in from the origin); later applies ease (see Tick).</summary>
     private bool _poseInit;
+
+    /// <summary>The board's INTERPOLATED uniform scale — the third component of the eased pose
+    /// (see Tick). Seeded by the same first-apply snap that seeds position/rotation.</summary>
+    private float _easedScale = 1f;
+
+    /// <summary>Last logged (target, eased) scale pair — the change gate for
+    /// <see cref="LogScaleIfChanged"/>.</summary>
+    private float _loggedTargetScale = -1f;
+
+    /// <summary>Unscaled time the next scale line may be emitted (a zoom is a continuous stream;
+    /// the log states its start, its end and at most a couple of samples in between).</summary>
+    private float _nextScaleLogAt;
     private readonly RemoteBoardCard[] _cards = new RemoteBoardCard[2];
     private OwnerTag? _tag;
 
@@ -360,11 +372,24 @@ internal sealed class RemoteControlBoard
         // transmitted one (snap on first build so a fresh board never lerps in from the origin).
         Vector3 wantPos = _owner.BoardPosition;
         Quaternion wantRot = _owner.BoardRotation;
+        // SCALE IS PART OF THE POSE — defect (e) of this round ("das Bewegen ist jetzt flüssig,
+        // aber das Skalieren/Zoomen des Bretts nicht").
+        //
+        // The SENDER already treats it as such: TickExtrasSend's "moving" test includes the scale,
+        // so resizing a board raises the extras cadence to the rig rate (15 Hz) exactly like
+        // dragging it does, and the scale rides in the very same 24-byte board block. The RECEIVER
+        // was the asymmetry: position and rotation were eased on the shared avatar sharpness while
+        // the scale was ASSIGNED, so a smooth 15 Hz stream of scales was rendered as 15 visible
+        // steps per second — a board that glides while it moves and stutters while it zooms, which
+        // is precisely what was reported. Easing it on the SAME k (and snapping on the same first
+        // apply, so a fresh board never grows in from 1.0) makes zoom and move one motion.
+        float wantScale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         Transform rt = _root!.transform;
         if (!_poseInit)
         {
             _poseInit = true;
             rt.SetPositionAndRotation(wantPos, wantRot);
+            _easedScale = wantScale;
         }
         else
         {
@@ -372,8 +397,10 @@ internal sealed class RemoteControlBoard
             rt.SetPositionAndRotation(
                 Vector3.Lerp(rt.position, wantPos, k),
                 Quaternion.Slerp(rt.rotation, wantRot, k));
+            _easedScale = Mathf.Lerp(_easedScale, wantScale, k);
         }
-        _root.transform.localScale = Vector3.one * (_owner.BoardScale > 0f ? _owner.BoardScale : 1f);
+        rt.localScale = Vector3.one * _easedScale;
+        LogScaleIfChanged(wantScale);
 
         // Fallback board only: re-tint the flat frame when this peer switches their control board
         // (the real asset was rebuilt above instead; change-latched int compare either way).
@@ -499,6 +526,33 @@ internal sealed class RemoteControlBoard
     }
 
     /// <summary>
+    /// SCALE INTERPOLATION diagnostic (grep: "Remote board scale") — the evidence a future
+    /// "zooming still is not smooth" report needs, without a screenshot: the TARGET scale that
+    /// arrived on the wire, the EASED scale actually rendered this frame, and the gap between them
+    /// (which is the interpolation doing its job — a gap that never closes means packets stopped,
+    /// a gap that is always zero means the easing was bypassed).
+    ///
+    /// Change-gated on a 1 % dead band AND throttled to 2 Hz: a zoom is a continuous stream, so
+    /// this states its start, its end and a couple of samples in between, never one line per frame.
+    /// </summary>
+    private void LogScaleIfChanged(float target)
+    {
+        if (Mathf.Abs(target - _loggedTargetScale) < _loggedTargetScale * 0.01f + 0.0005f)
+            return;
+        float now = Time.unscaledTime;
+        if (now < _nextScaleLogAt)
+            return;
+        _nextScaleLogAt = now + 0.5f;
+        _loggedTargetScale = target;
+        VRLog.Info("Net", $"Remote board scale [{_owner.PlayerId}]: target {target:F3} " +
+                          $"(wire), rendering {_easedScale:F3} (eased), delta " +
+                          $"{(target - _easedScale) * 1000f:F1} mm/unit — SCALE is interpolated on " +
+                          $"the same sharpness ({NetProtocol.InterpolationSharpness:0}) as position " +
+                          "and rotation, and the sender raises the extras cadence to the rig rate " +
+                          "while it changes, so a zoom arrives as smoothly as a move.");
+    }
+
+    /// <summary>
     /// Change-gated diagnostic so the next hardware log states EXACTLY what a peer's board is
     /// rendering (grep: "Remote board content"). One line per actual change — the cadence tick
     /// itself is silent.
@@ -524,6 +578,11 @@ internal sealed class RemoteControlBoard
                       $"via {SectionTag(_track?.Source, _track?.Reason)}, " +
                       $"furniture[{(_furniture != null ? _furniture.StateLine : "-")}], " +
                       $"layout[{_layout}], " +
+                      $"seats[{Seats()}], " +
+                      $"highlight[hand={(_owner.HandHighlightIndex >= 0 ? _owner.HandHighlightIndex.ToString() : "none")}, " +
+                      $"fan={(_owner.FanHighlightIndex >= 0 ? _owner.FanHighlightIndex.ToString() : "none")}], " +
+                      $"scale[target={(_owner.BoardScale > 0f ? _owner.BoardScale : 1f):F3}, " +
+                      $"eased={_easedScale:F3}], " +
                       $"fronts={showFronts}";
         if (line == _loggedContent)
             return;
@@ -540,7 +599,34 @@ internal sealed class RemoteControlBoard
                           "and the mod's stand-in is up — the reason says which. 'layout[...]' is " +
                           "the peer's AUTHORED per-board dock layout every panel above is seated at " +
                           "(PlayTray mount bases + the shipped per-board offsets for their synced " +
-                          "board style), so a mis-placed panel is diagnosable without a screenshot.");
+                          "board style), so a mis-placed panel is diagnosable without a screenshot. " +
+                          "'seats[...]' resolves that layout one step further — the RESOLVED mount " +
+                          "position per dock, the board style it was keyed from, and how each " +
+                          "mirrored panel MEASURED itself ('converted host rect' = the owner's own " +
+                          "dock rect, so its size and lift are theirs by construction; 'graphics " +
+                          "union' = this client's fallback measure). 'highlight[...]' is the synced " +
+                          "card lift per fan (positions only — extension record 6 carries no card " +
+                          "identity); 'scale[target/eased]' separates the scale that ARRIVED from " +
+                          "the one being RENDERED, which is the whole question behind a 'zooming is " +
+                          "not smooth' report; and the furniture's 'tray=' says whether the owner's " +
+                          "board is PINNED or FOLLOWing (board-UI record byte 1 bit 2).");
+    }
+
+    /// <summary>
+    /// The RESOLVED mount seat per dock, for the per-peer content line. <see cref="RemoteBoardLayout"/>
+    /// already prints the derived offsets; this prints where they actually LANDED on this board —
+    /// the live board-local position of each dock root, plus the two mirrored panels' measure path.
+    /// A "his objectives/track sit somewhere else than mine" report is then answerable from the log
+    /// alone: compare the seat against the owner's own mount, and the measure path explains the size.
+    /// </summary>
+    private string Seats()
+    {
+        string track = _track != null ? _track.SeatLine : "-";
+        string objectives = _objectives != null ? _objectives.SeatLine : "-";
+        return $"style={_layout.Style}, initiative {track}, objectives {objectives}, " +
+               $"piles={AnchorLocal(CardFxAnchor.Discard, _layout):F3}, " +
+               $"slot0={AnchorLocalLive(CardFxAnchor.Slot0):F3}, " +
+               $"slot1={AnchorLocalLive(CardFxAnchor.Slot1):F3}";
     }
 
     /// <summary>Per-section fidelity tag for <see cref="LogContent"/>: which mechanism is drawing it,
@@ -775,6 +861,9 @@ internal sealed class RemoteControlBoard
         _track?.Destroy();
         _objectives?.Destroy();
         _poseInit = false; // a rebuilt board (style switch / bundle upgrade) snaps again
+        _easedScale = 1f;
+        _loggedTargetScale = -1f;
+        _nextScaleLogAt = 0f;
         if (_root != null)
         {
             Object.Destroy(_root);

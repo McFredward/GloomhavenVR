@@ -69,9 +69,21 @@ internal sealed class RemoteStatusReadouts
         var roundRoot = new GameObject("RoundReadout").transform;
         roundRoot.SetParent(boardRoot, worldPositionStays: false);
         roundRoot.localPosition = layout.ReadoutMount;
+        // THE BACKING PLATE — defect (c) of this round ("die Runden-Anzeige sitzt auf einem grauen
+        // Kasten, den der Besitzer nicht hat").
+        //
+        // The owner HAS a plate here (PlayTray.BuildRoundReadout builds one at the same 0.13 x
+        // 0.036 m) — but theirs is LIT (Tint → Standard) and seated 6 mm INTO the board behind the
+        // label, so under the scenario's own lighting it reads as a shadow on the board and the
+        // gold text simply floats on the wood. This copy was an UNLIT Sprites/Default quad at the
+        // same dark RGB, and an unlit quad ignores the scene entirely: it renders that colour at
+        // full brightness, flat and matte, next to a lit and shadowed board — the "grey box" in
+        // the screenshot. Parity here is not "remove the plate", it is "build the owner's plate":
+        // the same lit shader ladder the board's own furniture uses and the same 6 mm seat, so
+        // whatever the owner sees at their round readout is exactly what a peer sees at theirs.
         BoardVisual.Quad(roundRoot, "Plate", new Vector2(0.13f, 0.036f),
-            BoardVisual.Unlit(new Color(0.12f, 0.11f, 0.10f, 1f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.001f);
+            RemoteBoardContent.BoardLit(new Color(0.12f, 0.11f, 0.10f, 1f)))
+            .transform.localPosition = new Vector3(0f, 0f, 0.006f);
         _round = RemoteBoardContent.Label(roundRoot, "Text", Vector3.zero,
             new Vector2(0.12f, 0.028f), 0.06f,
             new Color(1f, 0.9f, 0.6f), TextAlignmentOptions.Center);

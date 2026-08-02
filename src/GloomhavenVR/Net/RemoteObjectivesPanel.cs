@@ -91,6 +91,18 @@ internal sealed class RemoteObjectivesPanel
     /// <summary>Why the real widget is not being mirrored, for the diagnostic line (empty when it is).</summary>
     public string Reason => _mirror.Reason;
 
+    /// <summary>The RESOLVED seat of this dock for the per-peer board log: the board-local mount
+    /// position (including the mount SCALE, which is part of this dock's authored layout) and which
+    /// measure sized the mirrored panel growing from it. See <c>RemoteControlBoard.Seats</c>.</summary>
+    public string SeatLine =>
+        $"mount={_root.localPosition:F3}(x{_root.localScale.x:F2}) via {_mirror.MeasurePath}";
+
+    /// <summary>Verbatim <c>ObjectivesSurface.DensityScale</c> — the per-panel multiplier on the
+    /// shared tray density that this dock (and only this dock) applies. A local copy for the same
+    /// reason as every other constant on the remote board: reading WorldUI's protected override is
+    /// not possible, and a mirrored panel drawn at a different density is not a mirror.</summary>
+    private const float ObjectivesDensityScale = 0.6f;
+
     public RemoteObjectivesPanel(Transform boardRoot, in RemoteBoardLayout layout)
     {
         _root = new GameObject("Objectives").transform;
@@ -102,8 +114,14 @@ internal sealed class RemoteObjectivesPanel
 
         // fitWidth:false mirrors ObjectivesSurface.FitWidthToMount — the container's content is
         // already forced to the width budget, so re-fitting it would only re-scale the glyphs.
+        // densityScale mirrors ObjectivesSurface.DensityScale (0.6): this ONE panel renders the
+        // same content pixels onto ~1.67x more tray metres than the shared tray density, because
+        // the objectives text was illegibly small at 1.0. Omitting it here rendered a peer's
+        // objectives at 60 % of the size their owner reads them at — a silent parity gap, since
+        // both panels then look "right" in isolation and only differ side by side.
         _mirror = new RemoteWidgetMirror("Objectives", _root,
-            layout.ObjectivesWidth, PlayTray.ObjectivesMountMaxHeight, Vector2.left, fitWidth: false);
+            layout.ObjectivesWidth, PlayTray.ObjectivesMountMaxHeight, Vector2.left, fitWidth: false,
+            densityScale: ObjectivesDensityScale);
 
         _fallbackRoot = new GameObject("Fallback").transform;
         _fallbackRoot.SetParent(_root, worldPositionStays: false);

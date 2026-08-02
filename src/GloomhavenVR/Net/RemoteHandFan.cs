@@ -158,6 +158,36 @@ internal sealed class RemoteHandFan
     /// peer's hand pose is already an interpolated, packet-rate signal.</summary>
     private const float Smoothing = 16f;
 
+    // ---- HIGHLIGHT (extension record 6) --------------------------------------------------------
+    // Verbatim copies of the LOCAL split + pop constants, so a peer's lifted card looks like the
+    // owner's lifted card. Local copies for the same reason as every constant above: the sender's
+    // live [Cards] tuning is theirs and never rides the wire (DELIBERATELY-NOT), so every client
+    // renders a given fan at the SHIPPED numbers.
+
+    /// <summary>CardsConfig.FanSplitMultiplier — the base sideways slide of a split neighbour.</summary>
+    private const float SplitMultiplier = Defaults.FanSplitMultiplier;
+
+    /// <summary>CardsConfig.FanSplitFalloff — how fast that slide decays with card distance.</summary>
+    private const float SplitFalloff = Defaults.FanSplitFalloff;
+
+    /// <summary>CardsConfig.FanHoverSplitScale — global gain keeping the gap proportional to the
+    /// card spacing.</summary>
+    private const float SplitScale = Defaults.FanHoverSplitScale;
+
+    /// <summary>CardsConfig.FanSelectedPopForward — how far a lifted card comes toward the viewer
+    /// (VRCard's pop, along the card's own −Z).</summary>
+    private const float PopForward = Defaults.FanSelectedPopForward;
+
+    /// <summary>VRCard's pop: the small upward component that rides with the forward lift.</summary>
+    private const float PopUp = 0.012f;
+
+    /// <summary>VRCard's pop: the extra size a lifted card takes (+18 %).</summary>
+    private const float PopScale = 0.18f;
+
+    /// <summary>VRCard's pop RAMP rate (units per second, MoveTowards) — the lift grows and relaxes
+    /// at the local speed, so the wire never carries an animation, only the index.</summary>
+    private const float PopRate = 8f;
+
     private readonly RemoteAvatar _owner;
 
     private GameObject? _root;              // fan pivot; child of the current hand holder
@@ -488,6 +518,16 @@ internal sealed class RemoteHandFan
         float apex = ComposeDepths(n);
         float maxToeDeg = 0f;
 
+        // WHICH CARD THE OWNER IS SINGLING OUT (extension record 6 — defect (f) "das Hervorheben
+        // von Karten ist gar nicht synchronisiert"). Locally, pointing at a card slides every OTHER
+        // card sideways to open a gap around it (CardFan.Relayout + SplitOffset) and pops the card
+        // itself toward the viewer (VRCard's pop). Both are reproduced below from the synced INDEX
+        // alone — no card identity, no per-frame transform. Clamped against OUR live slab count:
+        // an index may legitimately arrive a frame before/after the count it was measured against.
+        int hovered = _owner.HandHighlightIndex;
+        if (hovered < 0 || hovered >= _cards.Count)
+            hovered = -1;
+
         for (int i = 0; i < _cards.Count; i++)
         {
             float angle = start + step * i;
@@ -496,6 +536,13 @@ internal sealed class RemoteHandFan
                                   (Mathf.Cos(rad) - 1f) * Radius * arch,
                                   i < n ? _depths[i] : -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * tilt);
+
+            // Whole-fan SPLIT around the highlighted card: the neighbours slide along their own
+            // local right, most for the nearest (CardFan.SplitOffset, same falloff, same gain).
+            // The highlighted card is the pivot and does not move here — its lift is applied after
+            // the toe-in below, exactly like VRCard applies it on top of the layout's home pose.
+            if (hovered >= 0 && i != hovered)
+                pos += rot * new Vector3(SplitOffset(i - hovered), 0f, 0f);
 
             // Per-card TOE-IN (CardFan.Relayout): aim THIS card's normal at the owner's head instead
             // of inheriting the root's single billboard normal. FromToRotation is the minimal arc
@@ -530,11 +577,76 @@ internal sealed class RemoteHandFan
                 pos = Vector3.Lerp(seed, pos, e);
                 rot = Quaternion.Slerp(collapsedRot, rot, e);
             }
+            // The LIFT itself, applied on top of the finished home pose exactly as VRCard does:
+            // toward the viewer along the card's own −Z, a touch up its +Y, and 18 % bigger. The
+            // 0..1 ramp is eased locally on the same MoveTowards rate the local card uses, so the
+            // pop grows and relaxes at the local speed and the wire only ever carries the index.
+            float popT = PopAmount(i, hovered, dt);
+            if (popT > 0f)
+                pos += rot * new Vector3(0f, PopUp * popT, -PopForward * popT);
             t.localPosition = pos;
             t.localRotation = rot;
+            Vector3 want = Vector3.one * (1f + PopScale * popT);
+            if (t.localScale != want)
+                t.localScale = want;
         }
 
         LogGeometry(n, apex, maxToeDeg, haveHead);
+        LogHighlightIfChanged(hovered);
+    }
+
+    // ---------------------------------------------------------------- highlight (record 6) --
+
+    /// <summary>Per-slab pop ramp (0..1), index-aligned with <c>_cards</c>. Kept per slab rather
+    /// than as a single "the hovered card's ramp" so a lift MOVING from one card to the next has
+    /// the old card relaxing while the new one rises — which is what the local fan does.</summary>
+    private readonly float[] _pop = new float[MaxCards];
+
+    /// <summary>Last highlighted index stated in the log (−2 = never), so the diagnostic fires on
+    /// a real change and never per frame.</summary>
+    private int _loggedHighlight = -2;
+
+    /// <summary>Sideways slide of a split neighbour <paramref name="signed"/> cards away from the
+    /// highlighted one — <c>CardFan.SplitOffset</c> against the AUTHORED defaults.</summary>
+    private static float SplitOffset(int signed)
+    {
+        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, SplitFalloff);
+        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * SplitMultiplier * Mathf.Max(0f, SplitScale);
+    }
+
+    /// <summary>Advance and return slab <paramref name="i"/>'s pop ramp toward 1 while it is the
+    /// highlighted card and toward 0 otherwise, on <c>VRCard</c>'s own <see cref="PopRate"/>.</summary>
+    private float PopAmount(int i, int hovered, float dt)
+    {
+        if (i < 0 || i >= _pop.Length)
+            return 0f;
+        _pop[i] = Mathf.MoveTowards(_pop[i], i == hovered ? 1f : 0f, Mathf.Max(dt, 0f) * PopRate);
+        return _pop[i];
+    }
+
+    /// <summary>Drop every pop ramp (fan closed / rebuilt) so a re-opened fan never starts with a
+    /// stale card already lifted.</summary>
+    private void ClearPops()
+    {
+        for (int i = 0; i < _pop.Length; i++)
+            _pop[i] = 0f;
+        _loggedHighlight = -2;
+    }
+
+    /// <summary>Change-gated evidence that the synced highlight reached the render path (grep:
+    /// "Remote hand fan highlight"). A future "the lift is still not synced" report is then
+    /// answerable from the log alone: the sender's "Card highlight SENT" line, the receiver's
+    /// "Tray anchor mode"/extras parse, and this line are the three points of the chain.</summary>
+    private void LogHighlightIfChanged(int hovered)
+    {
+        if (hovered == _loggedHighlight)
+            return;
+        _loggedHighlight = hovered;
+        VRLog.Info("Net", $"Remote hand fan highlight [{_owner.PlayerId}]: " +
+                          $"index {(hovered >= 0 ? hovered.ToString() : "none")} of {_cards.Count} " +
+                          $"slab(s) (wire index {_owner.HandHighlightIndex}) — the neighbours split " +
+                          "apart on the authored FanSplit* curve and the card lifts on VRCard's own " +
+                          "pop, from the INDEX alone (extension record 6: no card identity).");
     }
 
     // ---------------------------------------------------------------- card presentation (derived) --
@@ -698,6 +810,7 @@ internal sealed class RemoteHandFan
         }
         _cards.Clear();
         _frontsShown = false;
+        ClearPops(); // a rebuilt fan must never open with a stale card already lifted
 
         Mesh mesh = SharedCardMesh;
         Material back = CardMesh.CreateBackMaterial(); // shared: back texture on a Standard material

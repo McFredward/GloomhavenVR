@@ -457,7 +457,9 @@ internal static class NetProtocol
     /// byte 1 (overlays):
     ///   bits0..1 the wanted-slot glow mask (bit0 = left slot, bit1 = right slot — the exact
     ///            mask the owner's PlayTray.SetWantedSlots currently shows);
-    ///   bits2..7 reserved (written 0, ignored on read).
+    ///   bit2     <see cref="BoardUiPinnedBit"/> — the owner's board is PINNED (world-anchored)
+    ///            rather than FOLLOWing their rig;
+    ///   bits3..7 reserved (written 0, ignored on read).
     ///
     /// Unlike the "only when non-default" records, this one is written on EVERY extras packet
     /// that also carries a board pose: the receiver must distinguish "the owner's board shows
@@ -483,6 +485,33 @@ internal static class NetProtocol
     public const byte BoardUiWantedMask = 0x03;
 
     /// <summary>
+    /// Board-UI record byte 1, bit 2 — the owner's control board is PINNED (world-anchored,
+    /// <c>[Cards] TrayFollow == false</c>) rather than FOLLOWing their rig. It is the state of the
+    /// FOLLOW/PIN keycap on their board: label "PINNED"/"FIXIERT" + the accented brass cap when
+    /// set, label "FOLLOW"/"FOLGEN" + the parchment idle cap when clear.
+    ///
+    /// WHY IT IS ON THE WIRE AT ALL, having been declared DELIBERATELY-NOT before: the earlier note
+    /// called the toggle "a private VR preference", so peers drew it in one fixed look. But it is a
+    /// LABELLED, TWO-STATE control on a board the user requires to read 1:1 like its owner's — a
+    /// board reading "FOLGEN" on every peer's screen while its owner's reads "FIXIERT" is exactly
+    /// the class of disagreement the wanted-glow and button-visibility bits were added to end.
+    ///
+    /// WHY BIT 2 MEANS *PINNED* AND NOT *FOLLOW*: a sender that predates this bit writes byte 1
+    /// with the reserved bits zeroed, so 0 must be the state those senders were already drawn in —
+    /// which is FOLLOW (the un-accented default look every previous build rendered). Cross-version
+    /// compatible in both directions, with no presence flag and no extra byte, exactly like the
+    /// board-style bits.
+    /// </summary>
+    public const byte BoardUiPinnedBit = 1 << 2;
+
+    /// <summary>Every DEFINED bit of the board-UI record's byte 1 (wanted glow + pinned). The
+    /// writer masks with this so undefined bits can never be pre-claimed by garbage, and the reader
+    /// masks again (never trust the wire). Widening it is how the next overlay bit ships — and it
+    /// is why old readers, which mask with the narrower <see cref="BoardUiWantedMask"/>, ignore the
+    /// new bits instead of mis-reading them.</summary>
+    public const byte BoardUiOverlayMask = 0x07;
+
+    /// <summary>
     /// Extension record id: the board-local ANCHOR POSITION of the sender's open BOARD-ANCHORED
     /// fan (item fan or pile-browse fan — at most one is ever open, the Cards layer enforces the
     /// mutual exclusion) — 12 bytes, 3 × float32 LE, in the sender's control-board LOCAL frame
@@ -502,6 +531,44 @@ internal static class NetProtocol
     /// keep the existing hand-relative placement and never write this record.
     /// </summary>
     public const byte ExtIdFanAnchor = 5;
+
+    /// <summary>
+    /// Extension record id: WHICH CARD IS HIGHLIGHTED in the sender's open fans — 2 bytes,
+    /// <c>[hand-fan index][board-fan index]</c>, <see cref="CardHighlightNone"/> (255) meaning
+    /// "nothing highlighted in that fan".
+    ///
+    /// WHY IT EXISTS: locally, pointing at a card lifts it toward the viewer, enlarges it and
+    /// splits its neighbours apart (<c>VRCard</c>'s pop + <c>CardFan.SetHovered</c>'s whole-fan
+    /// split, and the same pop on a pile-browse card via <c>PileBrowser</c>'s hand sweep / laser
+    /// hover). Peers rendered every fan flat, so the single most visible thing a player does with
+    /// an open fan — singling a card out, which is what the other players are watching when
+    /// someone says "this one?" — did not exist on anyone else's screen.
+    ///
+    /// WHY AN INDEX AND NOT A CARD: the standing rule is that no card IDENTITY ever rides this
+    /// wire (peers render backs), and a POSITION reveals nothing an observer cannot already see —
+    /// the fan itself, with its card count, is already rendered. One byte per fan also keeps the
+    /// cost at 4 bytes on a packet that only carries the record while something is actually
+    /// highlighted; an idle player's packet stays byte-identical to the previous build's.
+    ///
+    /// WHY TWO INDICES AND NOT THREE: at most ONE board fan (item fan or pile browser) can be open
+    /// at a time — the Cards layer enforces that mutual exclusion, which is the same reason
+    /// <see cref="ExtIdFanAnchor"/> needs only one anchor — so byte 1 addresses whichever of the
+    /// two the sender currently has open, and byte 0 addresses the hand fan independently.
+    ///
+    /// ADDITIVE TLV exactly like every record before it: an older peer steps over it by its
+    /// length and simply renders flat fans.
+    /// </summary>
+    public const byte ExtIdCardHighlight = 6;
+
+    /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
+    /// assumes when the record is absent, so absence and this value render identically.</summary>
+    public const byte CardHighlightNone = 0xFF;
+
+    /// <summary>Clamp a local fan index onto the wire byte: a negative/absent index and anything at
+    /// or past the 255-card ceiling both become <see cref="CardHighlightNone"/>, so a garbage index
+    /// can never single out the wrong card on a peer's screen.</summary>
+    public static byte EncodeHighlightIndex(int index) =>
+        index >= 0 && index < CardHighlightNone ? (byte)index : CardHighlightNone;
 
     /// <summary>Defensive cap on the version DISPLAY string's UTF8 bytes (the record also
     /// carries the 2-byte build). Plenty for "0.1.0"-style tags; a runaway string is truncated

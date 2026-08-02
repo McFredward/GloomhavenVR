@@ -132,6 +132,31 @@ internal sealed class PileBrowser
     /// only — the driver never mutates this list (Close/SetCards own it).</summary>
     internal IReadOnlyList<VRCard> Cards => _cards;
 
+    /// <summary>
+    /// Index of the browse card the player is currently SINGLING OUT (lifted + enlarged by the
+    /// hand sweep's elected winner or by the laser hover), or -1 when none is. Read off
+    /// <see cref="VRCard.IsHighlighted"/> — the predicate the pop animation itself obeys — so it
+    /// covers both sources with one test and can never disagree with what is on screen.
+    ///
+    /// Exists for the MULTIPLAYER mirror, exactly like <c>CardFan.HighlightedIndex</c>: the Net
+    /// layer broadcasts a bare fan INDEX (a position, never a card identity) so a peer's copy of
+    /// this arc lifts the same card. Exactly one card can be lifted at a time — the sweep elects a
+    /// single winner and pop-suppresses the rest — so the first match is the answer.
+    /// </summary>
+    internal int HighlightedIndex
+    {
+        get
+        {
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard c = _cards[i];
+                if (c != null && !c.IsHeld && c.IsHighlighted)
+                    return i;
+            }
+            return -1;
+        }
+    }
+
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>

@@ -287,6 +287,16 @@ internal sealed class RemoteBrowserFan
                 _emergeElapsed = -1f; // settled: assert the slots exactly from here on (see below)
         }
 
+        // WHICH CARD THE OWNER IS SINGLING OUT in this arc (extension record 6 — defect (f), the
+        // "pile fan" half of "das Hervorheben ... soll komplett synchronisiert werden"). Locally the
+        // hand sweep elects exactly ONE browse card and lifts it via VRCard.SetFingertipHover — the
+        // same pop the laser gives — and pop-suppresses the rest. Reproduced from the synced INDEX
+        // alone. Clamped against OUR live slab count: a packet may arrive a frame off the count it
+        // was measured against.
+        int hovered = _owner.FanHighlightIndex;
+        if (hovered < 0 || hovered >= _cards.Count)
+            hovered = -1;
+
         for (int i = 0; i < _cards.Count; i++)
         {
             float angle = start + step * i;
@@ -295,6 +305,15 @@ internal sealed class RemoteBrowserFan
                                   (Mathf.Cos(rad) - 1f) * Radius * ArchFactor,
                                   -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * TiltFactor);
+            // The LIFT, on top of the finished arc pose exactly as VRCard applies it: toward the
+            // viewer along the card's own −Z, a touch up its +Y, 18 % bigger. The 0..1 ramp runs on
+            // the LOCAL clock at VRCard's own rate, so the wire carries an index and never an
+            // animation. Deliberately NO whole-fan split here — the local browse arc does not split
+            // either (only the hand fan does), and inventing one would be a widget the owner lacks.
+            float popT = PopAmount(i, hovered, dt);
+            if (popT > 0f)
+                pos += rot * new Vector3(0f, PopUp * popT, -PopForward * popT);
+            float scale = CardScale * (1f + PopScale * popT);
             Transform t = _cards[i].transform;
             if (easing)
             {
@@ -305,9 +324,66 @@ internal sealed class RemoteBrowserFan
             {
                 t.localPosition = pos;
                 t.localRotation = rot;
-                t.localScale = Vector3.one * CardScale;
+                t.localScale = Vector3.one * scale;
             }
         }
+        LogHighlightIfChanged(hovered);
+    }
+
+    // ---------------------------------------------------------------- highlight (record 6) --
+
+    /// <summary>CardsConfig.FanSelectedPopForward — how far a lifted card comes toward the viewer
+    /// (VRCard's pop). Local copy of the AUTHORED default, like every other constant in this file:
+    /// the sender's live [Cards] tuning is theirs and never rides the wire.</summary>
+    private const float PopForward = Defaults.FanSelectedPopForward;
+
+    /// <summary>VRCard's pop: the small upward component riding with the forward lift.</summary>
+    private const float PopUp = 0.012f;
+
+    /// <summary>VRCard's pop: the extra size a lifted card takes (+18 %).</summary>
+    private const float PopScale = 0.18f;
+
+    /// <summary>VRCard's pop RAMP rate (units/second, MoveTowards).</summary>
+    private const float PopRate = 8f;
+
+    /// <summary>Per-slab pop ramp (0..1), index-aligned with <c>_cards</c> — kept per slab so a
+    /// lift MOVING between cards has the old one relaxing while the new one rises.</summary>
+    private readonly List<float> _pop = new(32);
+
+    /// <summary>Last highlighted index stated in the log (−2 = never).</summary>
+    private int _loggedHighlight = -2;
+
+    /// <summary>Advance and return slab <paramref name="i"/>'s pop ramp toward 1 while it is the
+    /// highlighted card and toward 0 otherwise. Grows the ramp list with the arc.</summary>
+    private float PopAmount(int i, int hovered, float dt)
+    {
+        while (_pop.Count <= i)
+            _pop.Add(0f);
+        _pop[i] = Mathf.MoveTowards(_pop[i], i == hovered ? 1f : 0f, Mathf.Max(dt, 0f) * PopRate);
+        return _pop[i];
+    }
+
+    /// <summary>Drop every pop ramp (arc closed / rebuilt) so a re-opened browse never starts with
+    /// a stale card already lifted.</summary>
+    private void ClearPops()
+    {
+        for (int i = 0; i < _pop.Count; i++)
+            _pop[i] = 0f;
+        _loggedHighlight = -2;
+    }
+
+    /// <summary>Change-gated evidence that the synced browse highlight reached the render path
+    /// (grep: "Remote browse fan highlight").</summary>
+    private void LogHighlightIfChanged(int hovered)
+    {
+        if (hovered == _loggedHighlight)
+            return;
+        _loggedHighlight = hovered;
+        Core.VRLog.Info("Net", $"Remote browse fan highlight [{_owner.PlayerId}]: " +
+                               $"index {(hovered >= 0 ? hovered.ToString() : "none")} of " +
+                               $"{_cards.Count} slab(s) (wire index {_owner.FanHighlightIndex}) — " +
+                               "the card lifts on VRCard's own pop, from the INDEX alone " +
+                               "(extension record 6: no card identity).");
     }
 
     // ------------------------------------------------------------------ close / collapse --
@@ -497,6 +573,7 @@ internal sealed class RemoteBrowserFan
         }
         _cards.Clear();
         _collapseFrom.Clear();
+        ClearPops(); // a rebuilt arc must never open with a stale card already lifted
 
         Material back = CardMesh.CreateBackMaterial(); // SHARED cache — never ours to destroy
         for (int i = 0; i < count; i++)

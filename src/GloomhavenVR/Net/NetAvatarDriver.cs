@@ -94,6 +94,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // (user defect 4/5). -1 = never sent. Human-paced changes; cannot become a stream.
     private int _lastSentBoardUi = -1;
 
+    // CARD HIGHLIGHT (extension record 6): the last broadcast (handIndex | fanIndex << 16), so a
+    // lift moving from card to card pre-empts the 5 Hz gate (capped at the rig interval — see the
+    // send site) and the confirmation log fires once per CHANGE. int.MinValue = never sent.
+    private int _lastSentHighlight = int.MinValue;
+
     // BOARD POSE MOTION (defect 7 "Bewegen kommt nicht flüssig an"): the last SENT board pose in
     // the shared anchor frame. While the pose is CHANGING (the owner drags/scales their board),
     // extras go out at the RIG rate (SendRateHz, 15 Hz) instead of the idle 5 Hz — the receiver's
@@ -496,13 +501,32 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             if (WorldUI.ModalFallback.DecisionDock.ActivePrompt() != null)
                 buttons |= NetProtocol.BoardUiDecisionBit;
             int overlays = trayNow.WantedSlotMask & NetProtocol.BoardUiWantedMask;
-            boardUiNow = buttons | (overlays << 8);
+            // FOLLOW/PIN (this round's defect (a)): the label AND the accent of the toggle on the
+            // owner's board follow [Cards] TrayFollow, so peers must see the same two-state cap
+            // rather than one fixed look. Bit set == PINNED, because a sender that predates the
+            // bit writes 0 and 0 has to mean the look those senders were already drawn in.
+            if (!CardsConfig.TrayFollow.Value)
+                overlays |= NetProtocol.BoardUiPinnedBit;
+            boardUiNow = buttons | ((overlays & NetProtocol.BoardUiOverlayMask) << 8);
         }
         bool boardUiChanged = boardUiNow != _lastSentBoardUi;
 
+        // CARD HIGHLIGHT (extension record 6, defect (f) "das Hervorheben von Karten ist gar nicht
+        // synchronisiert"): WHICH card in the hand fan and in the open board fan the owner is
+        // singling out. Read as a bare INDEX off the fans' own highlight predicate — never a card
+        // identity, which is the standing rule for this wire. -1 = nothing highlighted there.
+        int handHl = CardFan.Current?.HighlightedIndex ?? -1;
+        int fanHl = PileBrowser.Current?.HighlightedIndex ?? -1;
+        int highlightNow = (handHl & 0xFFFF) | (fanHl << 16);
+        // A hover is a HUMAN-PACED gesture, but sweeping a hand along a fan can step the index
+        // several times a second, so the pre-emption is capped at the rig interval exactly like
+        // the board pose: fast enough that the lift lands with the gesture, never a stream.
+        bool highlightChanged = highlightNow != _lastSentHighlight;
+        bool highlightDue = highlightChanged && _extrasAccumulator >= fastInterval;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
-            && !poseDue && !boardUiChanged)
+            && !poseDue && !boardUiChanged && !highlightDue)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -609,8 +633,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                   $"longRest={(boardUiNow & NetProtocol.BoardUiLongRestBit) != 0}, " +
                                   $"skip={(boardUiNow & NetProtocol.BoardUiSkipBit) != 0}, " +
                                   $"decision={(boardUiNow & NetProtocol.BoardUiDecisionBit) != 0}), " +
-                                  $"wanted-glow mask={(boardUiNow >> 8) & 0x3} " +
-                                  "— peers show EXACTLY these controls (extension record 4).");
+                                  $"wanted-glow mask={(boardUiNow >> 8) & NetProtocol.BoardUiWantedMask}, " +
+                                  $"tray={(((boardUiNow >> 8) & NetProtocol.BoardUiPinnedBit) != 0 ? "PINNED" : "FOLLOW")} " +
+                                  "— peers show EXACTLY these controls (extension record 4; the " +
+                                  "FOLLOW/PIN state is byte 1 bit 2, new this build).");
             }
             else
             {
@@ -618,6 +644,26 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             }
         }
         _lastSentBoardUi = boardUiNow;
+
+        // CARD HIGHLIGHT (extension record 6): written ONLY while something really is highlighted,
+        // so an idle player's packet stays byte-identical to the previous build's — "record absent"
+        // and "both indices none" render the same flat fans on every receiver.
+        if (handHl >= 0 || fanHl >= 0)
+        {
+            extras.HasCardHighlight = true;
+            extras.HandHighlightIndex = NetProtocol.EncodeHighlightIndex(handHl);
+            extras.FanHighlightIndex = NetProtocol.EncodeHighlightIndex(fanHl);
+        }
+        if (highlightChanged)
+        {
+            _lastSentHighlight = highlightNow;
+            VRLog.Info("Net", $"Card highlight SENT: hand fan index {(handHl >= 0 ? handHl.ToString() : "none")}, " +
+                              $"board fan index {(fanHl >= 0 ? fanHl.ToString() : "none")} — " +
+                              (extras.HasCardHighlight
+                                  ? "extension record 6 (2 B: positions only, NO card identity); " +
+                                    "peers lift the same card and split its neighbours apart."
+                                  : "nothing lifted, record omitted (peers render flat fans)."));
+        }
         // HEAD-MASK SIZE, riding the SAME trailing block (byte A bit 4 + one trailing byte — the
         // reserved-bit extension path both flag bytes' exhaustion forces us onto, see NetProtocol).
         // Sent ONLY when it differs from the default: absence already means "1.00x" to every
