@@ -98,12 +98,13 @@ internal static partial class ModalFallback
     /// player-reachable <see cref="NonBlockingMenus"/> (pause/ESC, Options, Multiplayer,
     /// Compendium…). Those reachable menus float, stay grabbable and carry the X, but must NOT
     /// freeze world interaction: the user keeps grabbing cards / picking board hexes while the
-    /// pause menu is open. The ray physics-pick block (RayInteractor.UpdateModalPickBlock) keys on
-    /// THIS instead of <see cref="WindowModalActive"/> (which is ANY floated window, and was
-    /// wrongly suppressing every board/card/tray pick behind a floating pause menu — the reported
-    /// "cards can't be grabbed while the menu is open"). Genuine blockers (story/results/durability)
-    /// also assert ModalUI, so the pick-block engages for them through the mode arm regardless — but
-    /// this keeps the two consistent and does NOT re-introduce the ModalUI lock for reachable menus.
+    /// pause menu is open. The COMMIT-suppression layer (RayInteractor.UpdateCommitSuppression +
+    /// the Cards driver's card/tray commit gate) keys on THIS instead of
+    /// <see cref="WindowModalActive"/> (which is ANY floated window, and was wrongly suppressing
+    /// every board/card/tray pick behind a floating pause menu — the reported "cards can't be
+    /// grabbed while the menu is open"). Since the 2026-08 laser ruling the beam, its physics
+    /// collision and hover are NEVER gated by this — only commits are (decision table on
+    /// <see cref="HardCommitLockActive"/>).
     /// Tutorial deadlock #3: the rule is <see cref="IsBlockingWindow"/> — it additionally exempts
     /// ACTION-dismissed scripted level messages ("Wähle Trampeln" instruction overlays), whose
     /// blocking treatment gated off the very card/board interaction their dismiss trigger waits on.

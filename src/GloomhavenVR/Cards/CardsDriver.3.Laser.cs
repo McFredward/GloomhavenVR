@@ -859,6 +859,17 @@ internal sealed partial class CardsDriver
         dom.Ray.UiHitOverride = bestPoint;
         if (dom.TriggerDown)
         {
+            // COMMIT gate (laser ruling 2026-08): hover/tint/beam-clamp above stay live under
+            // a blocking modal, but element presses COMMIT (tray buttons call game APIs
+            // directly, bypassing the 2D overlay raycast blocker vanilla relies on — END
+            // TURN / item use are non-undoable). Decision table:
+            // WorldUI.ModalFallback.HardCommitLockActive.
+            if (_modalInputBlocked)
+            {
+                VRLog.Info("Cards", $"Board: laser press on '{(best as MonoBehaviour)?.name ?? best!.ToString()}' " +
+                                    "SUPPRESSED — blocking modal open (commit gate; hover stays live).");
+                return;
+            }
             // Route through Press for buttons so the log carries source=laser and
             // rejected presses explain their gate (test #14); other pokeables (badge,
             // rest tokens) keep the plain OnPoke path.
@@ -950,7 +961,10 @@ internal sealed partial class CardsDriver
             // hovered fan/board/tray target, whose own grab/press routes ForeignInteraction),
             // so a real interaction still closes it there; and a trigger ONTO a browse card
             // takes the pluck path below instead, so grabbing/inspecting a pile card is unaffected.
-            if (dom.TriggerDown)
+            // COMMIT gate (laser ruling 2026-08): a stray trigger under a blocking modal —
+            // most likely aimed at the modal and near-missing — must not close the player's
+            // open pile either (the browse laser path itself stays live for hover).
+            if (dom.TriggerDown && !_modalInputBlocked)
                 ForeignInteraction("click-away (trigger off the pile)");
             return;
         }
@@ -1045,7 +1059,10 @@ internal sealed partial class CardsDriver
                 && _itemChipGraceChip.gameObject.activeInHierarchy)
             {
                 dom.Ray.SuppressFarClick();
-                if (dom.TriggerDown)
+                // COMMIT gate (laser ruling 2026-08): chip plucks are commits (an item chip
+                // dropped on the use slot spends the item — non-undoable); suppressed under a
+                // blocking modal while the SuppressFarClick above still claims the frame.
+                if (dom.TriggerDown && !_modalInputBlocked)
                 {
                     ItemsPile.ItemChip rescue = _itemChipGraceChip;
                     _itemChipGraceChip = null;
@@ -1060,7 +1077,9 @@ internal sealed partial class CardsDriver
             // branch when the chips left its scan): a trigger that misses every chip — and, by
             // the yield guard above, every fan/board/tray/browse target — closes the item fan
             // through the same ForeignInteraction seam as the discard/burnt browser's click-away.
-            if (dom.TriggerDown)
+            // COMMIT gate (laser ruling 2026-08): not under a blocking modal — a trigger meant
+            // for the modal must not close the player's item fan.
+            if (dom.TriggerDown && !_modalInputBlocked)
                 ForeignInteraction("click-away (trigger off the item fan)");
             return;
         }
@@ -1079,7 +1098,9 @@ internal sealed partial class CardsDriver
         _itemChipGraceUntil = Time.unscaledTime + FanHoverGraceSeconds;
 
         dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
-        if (dom.TriggerDown)
+        // COMMIT gate (laser ruling 2026-08): hover pop + beam clamp above stay live under a
+        // blocking modal; the pluck itself is a commit (chip → use slot spends the item).
+        if (dom.TriggerDown && !_modalInputBlocked)
         {
             ItemsPile.ItemChip pluck = chip;
             ClearItemFanHover();
@@ -1164,9 +1185,11 @@ internal sealed partial class CardsDriver
     // ------------------------------------------------------------------ modal input-block --
 
     /// <summary>
-    /// Modal input-block (called ONLY from <see cref="TickInteractionsAndStatus"/>, which owns the
-    /// predicate): force EVERY card non-poke/non-grab so nothing behind a blocking modal can be
-    /// plucked or fingertip-selected.
+    /// Modal COMMIT-block (called ONLY from <see cref="TickInteractionsAndStatus"/>, which owns
+    /// the predicate): force EVERY card non-poke/non-grab so nothing behind a blocking modal can
+    /// be plucked or fingertip-selected. Laser ruling 2026-08: this is a COMMIT gate only — the
+    /// laser paths keep running, so hover pops and beam clamps stay live on these cards; every
+    /// pluck/rescue/select refuses itself at its existing CanGrab / PokeSelectEnabled check.
     ///
     /// The gate is <see cref="WorldUI.ModalFallback.BlockingWindowModalActive"/>, NOT
     /// <c>WindowModalActive</c>. That is not a detail — <c>WindowModalActive</c> ("ANY floated

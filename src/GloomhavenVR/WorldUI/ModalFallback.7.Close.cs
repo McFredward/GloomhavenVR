@@ -466,6 +466,67 @@ internal static partial class ModalFallback
     private static bool IsBlockingWindow(UIWindow window) =>
         !NonBlockingMenus.Contains(window.ID) && !ActionDismissedLevelMessage(window);
 
+    /// <summary>
+    /// LASER-GATING POLICY HOME (user ruling 2026-08: "Ich möchte, dass der Laser ausnahmslos
+    /// da ist und collidet, egal in welcher Phase sich das Spiel aktuell befindet."). The BEAM,
+    /// its PHYSICS COLLISION and all HOVER feedback are now unconditional in every phase —
+    /// no modal state may suppress them anywhere (RayInteractor renders + raycasts always,
+    /// BoardPick projects the cursor always, the Cards laser paths hover always). What modal
+    /// state still gates is ONLY the COMMIT layer, per this decision table:
+    ///
+    ///   commit target                     | while a BLOCKING modal floats | rationale
+    ///   ----------------------------------+-------------------------------+---------------------------------
+    ///   modal window's own uGUI           | ALLOWED (the whole point)     | virtual-mouse / RayUgui path.
+    ///   non-modal converted panels (uGUI) | ALLOWED (never was gated)     | game GraphicRaycasters govern.
+    ///   panel grab bars (drag/X/escape)   | ALLOWED (never was gated)     | rescue affordances must survive.
+    ///   board tile/hex/actor CLICK        | ALLOWED — EXCEPT this lock    | injected at Controller.CommonLoop,
+    ///                                     |                               | so the game's OWN LateUpdate gating
+    ///                                     |                               | runs in full (InteractabilityManager,
+    ///                                     |                               | ThisPlayerHasTurnControl, tutorial
+    ///                                     |                               | isolation; story/error blockers
+    ///                                     |                               | stall processing via UpdateBlocker) —
+    ///                                     |                               | a stray click self-gates or no-ops.
+    ///   card pluck/select/poke            | SUPPRESSED (unchanged commit  | blocking dialogs float at reading
+    ///   (fan/tray/browse/active/field)    | policy; hover/pop now LIVE)   | distance IN the beam path to the fan;
+    ///                                     |                               | a pull meant for the dialog that
+    ///                                     |                               | misses lands on cards (test #15/#21
+    ///                                     |                               | history). Undo exists but the misfire
+    ///                                     |                               | class is constant; keep the gate.
+    ///   tray board buttons / pile stacks  | SUPPRESSED (unchanged)        | these call game APIs DIRECTLY,
+    ///   / item chips / click-away dismiss |                               | bypassing the 2D overlay raycast
+    ///                                     |                               | blocker vanilla relies on; END TURN /
+    ///                                     |                               | item use are non-undoable.
+    ///   long-rest pump / hand-switch pump | DEFERRED (unchanged)          | game-state-advancing background
+    ///                                     |                               | commits; never under a blocker.
+    ///
+    /// This property is the one HARD board-click commit lock: true only for the families where
+    /// a stray injected click genuinely bypasses a vanilla impossibility — the end-of-scenario
+    /// results windows (<see cref="IsResultsPanel"/>: vanilla physically eats those clicks via
+    /// s_StartedButtonDownInGUI on the full-screen blocker, and our CommonLoop injection clears
+    /// exactly that flag; the scenario is over, there is nothing legitimate to click) and the
+    /// global error box (<see cref="ErrorModalOpen"/>: the whole game is halted on
+    /// ShowingMessage; a click could only pollute double-click bookkeeping). Every OTHER
+    /// blocking window (story, level messages, dialog popups, take-damage, rewards…) leaves
+    /// board clicks LIVE — their targets self-gate through the game's own seams (see table).
+    /// Consumed by BoardClickDriver.RequestClick; logged centrally by
+    /// RayInteractor.UpdateCommitSuppression so hardware logs show the policy on state change.
+    /// </summary>
+    internal static bool HardCommitLockActive
+    {
+        get
+        {
+            if (ErrorModalOpen)
+                return true;
+            for (int i = 0; i < Converted.Count; i++)
+            {
+                UIWindow w = Converted[i].Window;
+                if (w != null && IsResultsPanel(w.ID) && IsBlockingWindow(w))
+                    return true;
+            }
+            return false;
+        }
+    }
+
     private static bool ContainsWindow(List<UIWindow> list, UIWindow window)
     {
         for (int i = 0; i < list.Count; i++)

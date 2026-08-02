@@ -602,16 +602,24 @@ internal sealed partial class CardsDriver
     {
         UpdatePalmGate();
 
-        // Modal input-block: while a BLOCKING modal floats (story/results/durability — NOT the
-        // player-reachable pause/ESC/Options family), nothing behind it may be clicked. Force every
-        // card non-poke/non-grab and skip all card/board/browse/active laser picks (clearing any
-        // live hover). Keyed on BlockingWindowModalActive, NOT WindowModalActive: the reachable
-        // menus (NonBlockingMenus) must impose ZERO restrictions — the user keeps grabbing cards /
-        // picking hexes with the pause menu open (explicit requirement). WindowModalActive was the
-        // bug here twice over: it is "ANY floated window", so (a) an open ESC menu froze all card
-        // input, and (b) a CLOSED menu whose sticky float hadn't been released yet STILL counted as
-        // open ("I closed the menu but cards stayed dead"). Exemptions live OUTSIDE this driver and
-        // stay untouched: the tray's PanelGrabHandle / panel-grab and the modal window host itself.
+        // Modal COMMIT-block: while a BLOCKING modal floats (story/results/durability — NOT the
+        // player-reachable pause/ESC/Options family), nothing behind it may be COMMITTED. Keyed on
+        // BlockingWindowModalActive, NOT WindowModalActive: the reachable menus (NonBlockingMenus)
+        // must impose ZERO restrictions — the user keeps grabbing cards / picking hexes with the
+        // pause menu open (explicit requirement). WindowModalActive was the bug here twice over:
+        // it is "ANY floated window", so (a) an open ESC menu froze all card input, and (b) a
+        // CLOSED menu whose sticky float hadn't been released yet STILL counted as open ("I closed
+        // the menu but cards stayed dead"). Exemptions live OUTSIDE this driver and stay
+        // untouched: the tray's PanelGrabHandle / panel-grab and the modal window host itself.
+        //
+        // LASER RULING (user 2026-08: "der Laser ist ausnahmslos da und collidet"): the block no
+        // longer skips the laser paths or clears hovers — the beam, its clamp onto cards/tray
+        // elements and all hover feedback stay LIVE under every modal. What the block still does
+        // is the COMMIT layer only (decision table: WorldUI.ModalFallback.HardCommitLockActive):
+        // cards are forced non-poke/non-grab (BlockCardInteractions → CanGrab false, so every
+        // laser pluck / rescue grab / fingertip select refuses itself at its existing CanGrab /
+        // PokeSelectEnabled seams) and the non-card commits inside the laser paths (tray element
+        // presses, item-chip plucks, click-away dismiss) check _modalInputBlocked directly.
         // Releases automatically — the next Rebuild restores each card's zone poke/grab flags.
         bool modalBlock = WorldUI.ModalFallback.BlockingWindowModalActive;
         if (modalBlock != _modalInputBlocked)
@@ -619,33 +627,23 @@ internal sealed partial class CardsDriver
             _modalInputBlocked = modalBlock;
             if (modalBlock)
             {
-                VRLog.Info("Cards", "Modal input-block ENGAGED — BLOCKING modal open (not the pause/options " +
-                                    "family): cards made non-poke/non-grab and all card/board laser picks gated off.");
+                VRLog.Info("Cards", "Modal commit-block ENGAGED — BLOCKING modal open (not the pause/options " +
+                                    "family): card/tray COMMITS gated off; laser beam, collision and hover stay live.");
             }
             else
             {
-                VRLog.Info("Cards", "Modal input-block RELEASED — blocking modal closed: restoring card poke/grab + laser picks.");
+                VRLog.Info("Cards", "Modal commit-block RELEASED — blocking modal closed: restoring card poke/grab commits.");
                 _dirty = true; // Rebuild re-applies each card's zone Grabbable/PokeSelectEnabled next frame
             }
         }
 
         if (modalBlock)
-        {
             BlockCardInteractions();
-            ClearLaserHover();
-            ClearBoardHover();
-            ClearBrowseHover();
-            ClearItemFanHover();
-            ClearActiveHover();
-        }
-        else
-        {
-            UpdateFanLaser();
-            UpdateBoardLaser();
-            UpdateBrowseLaser();
-            UpdateItemFanLaser(); // item fan: same geometric+sticky pick as the browse fan above
-            UpdateActiveLaser();
-        }
+        UpdateFanLaser();
+        UpdateBoardLaser();
+        UpdateBrowseLaser();
+        UpdateItemFanLaser(); // item fan: same geometric+sticky pick as the browse fan above
+        UpdateActiveLaser();
         // Issue A/B: elect the ONE fan/dock card the free hand is in contact with (closest,
         // with incumbent hysteresis) — every other card's hand-driven lift drops and the
         // grab follows the same winner. Runs after the laser paths so the laser-hovered
