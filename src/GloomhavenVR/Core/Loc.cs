@@ -651,21 +651,6 @@ internal static partial class Loc
 
         // ---- SettingsPanel: Debug — timing levers moved out of the user-facing category ----
 
-        // ---- SettingsPanel: Debug ▸ Leistung & Effekte ▸ Bündelung (2026-07, experimental) ----
-        // WORDING RULE, same as the render-trade block above: name the EFFECT and the RISK, never
-        // the mechanism. A player has never heard of static batching and does not need to — what
-        // they need to know is "this merges the dungeon's objects so the graphics card is asked
-        // fewer times", "it costs memory", and "it can be undone". The word "Batching" survives
-        // only in the config file and the log, where it has to match Unity's own vocabulary.
-        ["batching"] = Pair("Object merging", "Objekt-Bündelung"),
-        // 2026-07-28: this block used to say "never been through a hardware round" and to present
-        // merging as THE answer to the judder. Both became false the same evening — it ran, it
-        // worked, and it was then superseded by graphics jobs (see .planning/perf/FINDINGS.md).
-        // User-facing text that oversells a setting is worse than none, so it now says what the
-        // measurement says.
-        ["batch_mode_probe"] = Pair("Measure only", "Nur messen"),
-        ["batch_mode_on"] = Pair("On", "An"),
-
         // ---- SettingsPanel: Leistung — remaining row labels ----
         // The measurement labels that used to live here (perf_measurement / perf_enabled /
         // perf_interval / perf_attribution / perf_top_steps / perf_spikes / perf_spike_factor /

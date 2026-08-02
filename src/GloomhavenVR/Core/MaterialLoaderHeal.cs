@@ -488,13 +488,9 @@ internal static class MaterialLoaderHeal
                     // from elsewhere. Outside door props nothing in the game legitimately
                     // leaves map-tile content disabled, so this is now HEALED rather than
                     // skipped (rounds 4-7 skipped it silently — the last silent branch):
-                    // clear any stale static-batch state (a clone of a batched template
-                    // cannot render even when enabled) and switch the renderer back on.
+                    // switch the renderer back on.
                     if (state == LoaderState.DoneStuck && MaterialsAlreadyAssigned(data, r))
                     {
-                        bool hadBatch = r.isPartOfStaticBatch;
-                        if (hadBatch)
-                            StaticBatchInterop.ClearBatchState(r);
                         r.enabled = true;
                         nDone++;
                         _touchedLoaders.Add(loader);
@@ -502,10 +498,8 @@ internal static class MaterialLoaderHeal
                         if (nDone <= 3)
                             VRLog.Info(Name,
                                 $"MaterialLoaderHeal: re-enabled foreign-disabled renderer '{r.name}' "
-                                + $"(materials were loaded AND assigned; staticBatch={hadBatch}"
-                                + (hadBatch ? ", batch state cleared" : "")
-                                + ") — outside a door prop nothing legitimately leaves tile "
-                                + "content disabled.");
+                                + "(materials were loaded AND assigned) — outside a door prop "
+                                + "nothing legitimately leaves tile content disabled.");
                         continue;
                     }
 

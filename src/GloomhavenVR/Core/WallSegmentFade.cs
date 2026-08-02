@@ -257,8 +257,7 @@ internal static class WallSegmentFade
     /// THE game's own marker for "this mesh fades when it hides the play area": its material
     /// runs one of the WallFade shader family (Amp_Basic_WallFade, Amp_Low/Amp_Basic_WallFade_Low,
     /// and any themed sibling — the flat game's fade is purely shader-driven, it keeps no object
-    /// list). Single source of truth, shared with <see cref="StaticBatcher"/> so a fade-capable
-    /// renderer is never folded into a combined mesh the fade's property blocks cannot reach.
+    /// list). Single source of truth for "is this renderer fade-capable".
     /// </summary>
     internal static bool IsWallFadeShaderName(string shaderName) => shaderName.Contains("WallFade");
 

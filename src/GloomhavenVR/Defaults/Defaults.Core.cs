@@ -64,25 +64,6 @@ internal static partial class Defaults
     internal const string HeadCullingMaskDrop = "";          // => [Optimize] HeadCullingMaskDrop
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera
 
-    // ---- Core/StaticBatchConfig.cs -------------------------------------------------
-    internal const BatchMode Batching_Mode = BatchMode.On;  // => [Batching] Mode
-    internal const string Roots = "Maps";                   // => [Batching] Roots
-    internal const bool AutoDetectRoots = true;             // => [Batching] AutoDetectRoots
-    internal const int MinRenderers = 8;                    // => [Batching] MinRenderers
-    internal const int MaxVertices = 4_000_000;             // => [Batching] MaxVertices
-    internal const float SettleSeconds = 4f;                // => [Batching] SettleSeconds
-    internal const float RescanSeconds = 30f;               // => [Batching] RescanSeconds
-    internal const int RescanGrowth = 8;                    // => [Batching] RescanGrowth
-    internal const bool IncludeInactive = true;             // => [Batching] IncludeInactive
-    internal const bool Watchdog = true;                    // => [Batching] Watchdog
-    internal const bool WatchdogAutoRevert = true;          // => [Batching] WatchdogAutoRevert
-    internal const bool WatchdogAutoExclude = true;         // => [Batching] WatchdogAutoExclude
-    internal const string ExcludeLayers = "";               // => [Batching] ExcludeLayers
-    internal const string ExcludeNames = "Glow";            // => [Batching] ExcludeNames
-    internal const string ExcludeComponents = "";           // => [Batching] ExcludeComponents
-    internal const bool FreeCombinedCpuCopy = true;         // => [Batching] FreeCombinedCpuCopy
-    internal const bool VerboseLog = false;                 // => [Batching] VerboseLog
-
     // ---- Core/StereoModeConfig.cs --------------------------------------------------
     internal const string RenderMode = nameof(StereoModeConfig.Mode.MultiPass);  // => [Stereo] RenderMode
 
