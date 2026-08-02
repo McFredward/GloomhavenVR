@@ -102,6 +102,14 @@ internal sealed class RayUguiDriver
         Vector3 bestPoint = default;
         bool sawDead = false;
 
+        // Settings-surface exemption (user ruling 2026-08-02, see TrySettingsFallThrough):
+        // the mod-owned settings menu is tracked with its OWN distance budget — the shared
+        // bestDist budget skips every canvas behind the current winner, which is exactly
+        // the position the settings menu is in when a blocking modal floats in front of it.
+        Canvas? settings = null;
+        float settingsDist = MaxDistanceMeters * scale;
+        Vector3 settingsPoint = default;
+
         var surfaces = UguiPokeSurfaces.Surfaces;
         for (int i = 0; i < surfaces.Count; i++)
         {
@@ -119,6 +127,14 @@ internal sealed class RayUguiDriver
                 best = canvas;
                 bestDist = dist;
                 bestPoint = point;
+            }
+            if (WorldUI.ModalFallback.IsSettingsSurface(canvas)
+                && TryIntersect(canvas, pick.Origin, pick.Direction, settingsDist,
+                    out float sDist, out Vector3 sPoint))
+            {
+                settings = canvas;
+                settingsDist = sDist;
+                settingsPoint = sPoint;
             }
         }
 
@@ -143,6 +159,26 @@ internal sealed class RayUguiDriver
                 _hand.Ray.NoteFanOcclusion($"uGUI panel '{best.name}'", bestDist);
             fanOccluded = best;
             best = null;
+        }
+
+        // SETTINGS-SURFACE EXEMPTION (user ruling 2026-08-02: the mod's settings menu "soll
+        // nie geblockt werden von irgendwas"): when the nearest-canvas winner is NOT the
+        // settings surface but the settings surface lies farther along the SAME ray, and the
+        // winner has no interactive widget under the beam point (transparent host apron,
+        // inert backing/blocker graphics — the exact regions a gaze-parked BLOCKING level
+        // message put between the hand and the open settings menu), hover/press fall THROUGH
+        // to the settings surface instead of being silently eaten. Real widgets on the nearer
+        // window (a dismiss button, the story skip area, its scroll/drag areas) still win —
+        // blocking semantics for game surfaces stay byte-identical; only presses that today
+        // die on nothing are redirected, and only INTO the mod-owned settings UI.
+        if (best != null && settings != null && !ReferenceEquals(best, settings)
+            && settingsDist >= bestDist
+            && TrySettingsFallThrough(best, bestPoint, settingsDist, in pick, scale))
+        {
+            LogSettingsExemption(best, bestDist, settings, settingsDist);
+            best = settings;
+            bestDist = settingsDist;
+            bestPoint = settingsPoint;
         }
 
         if (!ReferenceEquals(best, _canvas))
@@ -280,6 +316,75 @@ internal sealed class RayUguiDriver
             _pressing = false;
             _pointer.Release(screenPos);
         }
+    }
+
+    // ---- settings-surface exemption (user ruling 2026-08-02) ---------------------------
+
+    /// <summary>Next unscaled time the settings-exemption Info line may log (shared across hands
+    /// — the redirect is a steady state while the beam crosses the blocking float, so the proof
+    /// line is throttled the same way the fan-occlusion note is).</summary>
+    private static float s_nextSettingsExemptLogAt;
+
+    /// <summary>
+    /// Should this frame's hover/press fall through the nearest-canvas winner to the mod-owned
+    /// settings surface behind it? True only when ALL of:
+    /// <list type="bullet">
+    /// <item>no solid physics hit and no raised card fan sits in front of the SETTINGS surface
+    /// (honest physical occlusion is not a modal lock — pointing through a miniature or the
+    /// hand of cards stays impossible, exactly as for every other canvas);</item>
+    /// <item>the winner has NO interactive widget under the beam point — the probe raycast
+    /// either misses entirely (transparent host apron around a floated modal's visible
+    /// content) or lands on a graphic with no click/drag/scroll handler anywhere above it
+    /// (an inert backing image or a raycast-target blocker without behavior). A real widget
+    /// (dismiss button, story skip area, sliders, scroll viewports) keeps the winner —
+    /// blocking windows keep their own surface byte-identical.</item>
+    /// </list>
+    /// WHY: without this, such a press is consumed by the nearer canvas and simply DIES — the
+    /// documented hardware failure ("Debug"/settings tabs unclickable while a scripted
+    /// instruction floated in front of the open settings menu). The redirect is scoped to the
+    /// settings surface as the TARGET only (see <c>ModalFallback.IsSettingsSurface</c>);
+    /// game-canvas-vs-game-canvas arbitration is untouched.
+    /// </summary>
+    private bool TrySettingsFallThrough(Canvas winner, Vector3 winnerPoint, float settingsDist,
+        in PickPose pick, float scale)
+    {
+        // Physical occlusion in front of the SETTINGS plane (same epsilon rules as the
+        // winner checks above): something solid, or the raised card fan, honestly blocks it.
+        if (pick.HasHit && pick.HitDistance < settingsDist - OcclusionEpsilonMeters * scale)
+            return false;
+        if (_hand.Ray.FanOccluderDistance < settingsDist - OcclusionEpsilonMeters * scale)
+            return false;
+
+        // Probe the winner at the beam point: does anything INTERACTIVE actually sit there?
+        if (!_pointer.TryRaycast(winner, ToScreen(winner, winnerPoint), out RaycastResult top)
+            || top.gameObject == null)
+            return true; // nothing at all under the beam — the press would die on the apron
+        GameObject hit = top.gameObject;
+        return ExecuteEvents.GetEventHandler<IPointerClickHandler>(hit) == null
+               && ExecuteEvents.GetEventHandler<IDragHandler>(hit) == null
+               && ExecuteEvents.GetEventHandler<IScrollHandler>(hit) == null;
+    }
+
+    /// <summary>
+    /// Hardware-log proof line for the settings exemption (user ruling 2026-08-02): names the
+    /// bypassed canvas, whether a BLOCKING modal lock is active right now (the incident
+    /// condition), and where the hover/press landed instead. Info on purpose — BepInEx's
+    /// default disk config drops Debug, and this line is what the next hardware log needs to
+    /// show the exemption engaging. Throttled (steady state while the beam crosses the float).
+    /// </summary>
+    private void LogSettingsExemption(Canvas bypassed, float bypassedDist, Canvas settings,
+        float settingsDist)
+    {
+        if (Time.unscaledTime < s_nextSettingsExemptLogAt)
+            return;
+        s_nextSettingsExemptLogAt = Time.unscaledTime + 1f;
+        bool blocking = WorldUI.ModalFallback.BlockingWindowModalActive;
+        Core.VRLog.Info("Interact",
+            $"SETTINGS EXEMPT: {_hand.Side} laser fell through '{bypassed.name}' " +
+            $"({bypassedDist:F2} m, no interactive widget under the beam" +
+            $"{(blocking ? "; BLOCKING modal lock active" : "")}) to the mod settings surface " +
+            $"'{settings.name}' ({settingsDist:F2} m) — the settings menu is never input-blocked " +
+            "(user ruling 2026-08-02).");
     }
 
     // Reused corner buffer (GetWorldCorners fills in place — no per-frame allocations).

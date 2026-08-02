@@ -535,6 +535,52 @@ internal static partial class ModalFallback
         }
     }
 
+    /// <summary>
+    /// SETTINGS-SURFACE EXEMPTION (user ruling 2026-08-02): is this canvas the world-space host
+    /// of the mod-owned settings UI — the floated options window that carries the injected
+    /// "VR Optionen" tab with its sub-tabs (Debug, config browser, every settings sub-page)?
+    ///
+    /// The ruling is absolute: "das Menü dort war nicht mehr wirklich bedienbar - das soll
+    /// nicht sein, es soll nie geblockt werden von irgendwas." — the settings menu must NEVER
+    /// be input-blocked by any modal state the mod maintains. The hardware incident behind it:
+    /// while a BLOCKING scripted level message floated (gaze-centered at
+    /// <see cref="LevelMessageDistanceMeters"/>, i.e. NEARER than every other float, and
+    /// hard-clamped INTO the view cone by ComputeHmdPose), its canvas plane sat between the
+    /// hand ray and the open settings menu — and RayUguiDriver's nearest-canvas arbitration
+    /// then delivered every hover/press to the blocking float's canvas, where regions without
+    /// a real widget (transparent host apron, inert backing graphics) simply ATE the press
+    /// with no fall-through. The settings tabs behind it were dead until the instruction
+    /// completed.
+    ///
+    /// Consumed by <c>RayUguiDriver</c>: a press/hover whose nearest-canvas winner has NO
+    /// interactive widget under the beam falls through to this surface when it lies farther
+    /// along the same ray (see <c>TrySettingsFallThrough</c>). Scoped DELIBERATELY tight —
+    /// only the Options window and its tab sub-windows (<see cref="UIWindowID.Options"/> /
+    /// <see cref="UIWindowID.OptionsSubmenu"/>, the surface hosting the mod's settings tab):
+    /// every other float (ESC menu, multiplayer, compendium, and every blocking game window)
+    /// keeps byte-identical arbitration, and a blocking window's OWN widgets (dismiss button,
+    /// story skip area) still win wherever they actually are under the beam. Local-only by
+    /// construction: floats exist only on this client, nothing here is networked. The moment
+    /// the options float releases, this returns false and the prior behavior is restored
+    /// exactly.
+    /// </summary>
+    internal static bool IsSettingsSurface(Canvas? canvas)
+    {
+        if (canvas == null)
+            return false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Window == null || wp.UserClosing || !wp.Panel.IsAlive)
+                continue;
+            UIWindowID id = wp.Window.ID;
+            if ((id == UIWindowID.Options || id == UIWindowID.OptionsSubmenu)
+                && ReferenceEquals(wp.Panel.HostCanvas, canvas))
+                return true;
+        }
+        return false;
+    }
+
     private static bool ContainsWindow(List<UIWindow> list, UIWindow window)
     {
         for (int i = 0; i < list.Count; i++)
