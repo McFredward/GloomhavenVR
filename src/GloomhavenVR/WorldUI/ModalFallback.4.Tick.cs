@@ -123,6 +123,34 @@ internal static partial class ModalFallback
         }
     }
 
+    /// <summary>
+    /// DIAGNOSTIC: names every floated window that currently counts as BLOCKING, as
+    /// <c>'name' (ID …)</c>, comma-joined — "none" when nothing blocks.
+    ///
+    /// WHY this exists (user report 2026-08-02, MP host): the suppression logs said only
+    /// "blocking modal open", so a hardware log could prove THAT a press was eaten but never
+    /// WHICH window ate it — pinning the multiplayer player picker as the culprit needed a
+    /// manual correlation across 300 log lines. Every suppression site now names its cause.
+    /// ALLOCATES (string building): call it from THROTTLED / change-gated log paths only,
+    /// never per frame.
+    /// </summary>
+    internal static string DescribeBlockingWindows()
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            UIWindow w = Converted[i].Window;
+            if (w == null || !IsBlockingWindow(w))
+                continue;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append('\'').Append(w.name).Append("' (ID ").Append(w.ID).Append(')');
+        }
+        if (ErrorModalOpen)
+            sb.Append(sb.Length > 0 ? ", " : "").Append("the global error box (game halted)");
+        return sb.Length > 0 ? sb.ToString() : "none";
+    }
+
     internal static void Attach()
     {
         if (_attached)

@@ -627,8 +627,13 @@ internal sealed partial class CardsDriver
             _modalInputBlocked = modalBlock;
             if (modalBlock)
             {
+                // Name the CULPRIT (user report 2026-08-02): "blocking modal open" alone could not
+                // tell a hardware log which window latched the gate — the MP player picker took a
+                // whole session to pin. DescribeBlockingWindows allocates, so it runs only here,
+                // on the state EDGE.
                 VRLog.Info("Cards", "Modal commit-block ENGAGED — BLOCKING modal open (not the pause/options " +
-                                    "family): card/tray COMMITS gated off; laser beam, collision and hover stay live.");
+                                    "family): card/tray COMMITS gated off; laser beam, collision and hover stay live. " +
+                                    $"Blocking window(s): {WorldUI.ModalFallback.DescribeBlockingWindows()}.");
             }
             else
             {

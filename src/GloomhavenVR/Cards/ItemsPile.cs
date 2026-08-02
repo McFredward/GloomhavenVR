@@ -14,8 +14,9 @@ namespace GloomhavenVR.Cards;
 /// <summary>
 /// The THIRD control-board pile (item 4, "Gegenstände"): the acting character's
 /// equipped ITEM cards, mounted below the burnt pile and browsed like the discard /
-/// burnt stacks (poke to toggle a fixed reading wall above the board, pinch-grab to
-/// raise it as a hand-held fan). Content is <see cref="CItem"/> read live from
+/// burnt stacks (poke — or the board laser — toggles a fixed reading wall above the
+/// board; there is NO hand-held variant, see <see cref="TogglePoke"/>). Content is
+/// <see cref="CItem"/> read live from
 /// <c>PlayerActor.Inventory.AllItems</c> (CInventory.cs:35); the inventory is read,
 /// never written (using an item goes through the game's own <c>UseItemService</c>).
 ///
@@ -65,7 +66,6 @@ internal sealed class ItemsPile
     private const float MaxStepDegrees = 10f;
     private const float ChipScale = 1.25f;
     private const float ZStagger = 0.004f;
-    private const float HandPalmOffset = 0.16f;
 
     // Shared board-top anchor (requirement 2): the poke-toggle item fan opens at the SAME
     // spot above the control board as the discard/burnt PileBrowser (mirror of
@@ -103,14 +103,16 @@ internal sealed class ItemsPile
     // MOUNT is only the null fallback). Used solely as the emerge/collapse converge point — it is
     // not a parent and not a placement scale reference.
     private Transform? _anchor;
-    private VRHand? _followHand;
     private CardsHandUI? _hand;
     private string _signature = string.Empty; // last-built inventory state, for cheap live refresh
-    private bool _boardAnchored; // poke-toggle fan parented under the board root (mirrors PileBrowser)
+    private bool _boardAnchored; // fan parented under the board root (mirrors PileBrowser)
 
-    // Hand-sweep single-winner state: the chip the physical hand currently lifts (null = none).
+    // Hand-sweep single-winner state: the chip the physical hand currently lifts (null = none)
+    // and WHICH hand elected it (either hand may sweep — see UpdateHandSweep).
     private ItemChip? _handWinner;
+    private VRHand? _handWinnerHand;
     private float _nextHandLogAt;
+    private float _nextHandMissLogAt;
 
     // Diagnostics dedup for the live USE-slot gate log ("ITEM USE SLOT: shown/hidden …").
     private bool _useSlotShownLogged;
@@ -126,16 +128,23 @@ internal sealed class ItemsPile
     private GameObject? _useGhost;
 
     internal bool IsOpen { get; private set; }
-    internal bool IsHandHeld => _followHand != null;
 
-    /// <summary>Which hand a HAND-HELD item fan follows (true = LEFT). Broadcast as a single wire
-    /// flag so a peer's ghost item fan hangs off the same hand the owner actually raised it with —
-    /// guessing "the dominant hand" put it on the wrong arm whenever they used the other one.</summary>
-    internal bool IsHeldByLeftHand => _followHand != null && _followHand.Side == HandSide.Left;
+    /// <summary>
+    /// ALWAYS FALSE since the whole-fan trigger grab was removed (user ruling 2026-08-02 — see
+    /// <see cref="TogglePoke"/>): the item fan has exactly one anchoring, board-anchored. Kept as
+    /// a property, not deleted, because it is a WIRE seam — <c>NetAvatarDriver</c> fills the
+    /// <c>ItemFanHeld</c>/<c>ItemFanLeftHand</c> extras fields from it, and the packet layout must
+    /// not shift (no ModBuild bump for a local-only interaction change). Peers therefore always
+    /// draw the ghost item fan board-anchored, which is now the only state that exists.
+    /// </summary>
+    internal bool IsHandHeld => false;
+
+    /// <inheritdoc cref="IsHandHeld"/>
+    internal bool IsHeldByLeftHand => false;
 
     /// <summary>
     /// The open BOARD-ANCHORED fan's board-local anchor position (its root sits under the board
-    /// root, so <c>localPosition</c> IS the board frame), or null while closed / hand-held.
+    /// root, so <c>localPosition</c> IS the board frame), or null while closed.
     /// Multiplayer read seam for the fan-anchor wire record: the base spot plus the owner's live
     /// per-board <c>[Cards] BrowseFanOffset + ItemCardOffset</c> tuning — the part a receiver
     /// could never derive, which is why their copy floated at the untuned default.
@@ -196,38 +205,38 @@ internal sealed class ItemsPile
 
     // ------------------------------------------------------------------ open/close --
 
-    /// <summary>Poke-toggle: open at a fixed reading wall above the board, or close if already open.</summary>
+    /// <summary>
+    /// Toggle: open at a fixed reading wall above the board, or close if already open. THE only
+    /// way the item fan opens (poke on the items stack, or the board laser's LaserToggle).
+    ///
+    /// REMOVED (user ruling 2026-08-02: "Das Greifen des GANZEN Fächers mit dem Trigger war
+    /// möglich — das komplett entfernen, das war nie gewollt."): the items stack used to also be
+    /// PINCH-GRABBABLE, which opened the fan as one object hanging off the grabbing palm
+    /// (<c>OpenHeld</c> / <c>ReleaseHeld</c> / a <c>_followHand</c> the whole fan parented to).
+    /// Besides being unwanted it broke both other item interactions for as long as it was held:
+    /// the grabbing hand's <c>Grabber.Held</c> was non-null, which is an early-out in
+    /// <c>CardsDriver.UpdateItemFanLaser</c> (no laser hover, no laser pluck — the reported
+    /// "the laser goes straight through the fan"), and that same hand was excluded from the
+    /// hand sweep (no highlights). Individual chip pluck is untouched.
+    /// </summary>
     internal void TogglePoke(CardsHandUI hand, VRHand vrHand)
     {
-        if (IsOpen && _followHand == null)
+        if (IsOpen)
         {
             Close();
             return;
         }
-        Open(hand, followHand: null);
+        Open(hand, vrHand);
     }
 
-    /// <summary>Pinch-grab: open (or re-pin) as a hand-held reading fan following the grabbing hand.</summary>
-    internal void OpenHeld(CardsHandUI hand, VRHand vrHand) => Open(hand, followHand: vrHand);
-
-    /// <summary>Grip released: dismiss a held fan (a poke-toggled wall stays up).</summary>
-    internal void ReleaseHeld(VRHand vrHand)
-    {
-        if (_followHand != null)
-            Close();
-    }
-
-    private void Open(CardsHandUI hand, VRHand? followHand)
+    private void Open(CardsHandUI hand, VRHand? by = null)
     {
         _hand = hand;
         EnsureRoot();
-        _followHand = followHand;
-        // Requirement 2: the poke-toggle fan anchors under the board root at the shared
-        // board-top spot; a held (grabbed) fan follows the grabbing hand.
-        Transform? boardRoot = followHand == null ? PlayTray.Current?.Root : null;
+        // Requirement 2: the fan anchors under the board root at the shared board-top spot.
+        Transform? boardRoot = PlayTray.Current?.Root;
         _boardAnchored = boardRoot != null;
-        Transform parent = followHand != null ? followHand.Rig.PalmCenter
-                         : boardRoot != null ? boardRoot
+        Transform parent = boardRoot != null ? boardRoot
                          : (_anchor != null ? _anchor : _root!.parent);
         if (parent != null && _root!.parent != parent)
             _root.SetParent(parent, worldPositionStays: false);
@@ -236,15 +245,14 @@ internal sealed class ItemsPile
         Current = this; // publish to the mirror + the net extras sender (see Current's doc comment)
         _signature = string.Empty; // force a build
         Populate(hand);
-        if (followHand != null)
-            Tick(hand); // seat by the holding hand immediately
-        else if (boardRoot != null)
+        if (boardRoot != null)
             PlaceAboveBoard(); // float above the board, inherit its scale (mirror PileBrowser)
         else
             PlaceAtHead(); // no board — head-relative fallback
         EmergeAll(); // req #5: fly the chips OUT of the pile stack (after _root is placed)
-        VRLog.Info("Cards", $"Items pile browse OPEN ({(followHand != null ? "held in hand" : boardRoot != null ? "board-anchored" : "toggled")}, " +
-                            $"{_chips.Count} item(s)).");
+        VRLog.Info("Cards", $"Items pile browse OPEN ({(boardRoot != null ? "board-anchored" : "head-relative fallback")}, " +
+                            $"{_chips.Count} item(s), opened by {(by != null ? by.Side.ToString() : "auto/flow")}). " +
+                            "Board-anchored is the ONLY mode — the whole-fan trigger grab was removed.");
     }
 
     internal void Close()
@@ -254,7 +262,6 @@ internal sealed class ItemsPile
         IsOpen = false;
         if (ReferenceEquals(Current, this))
             Current = null; // unpublish (mirror + net extras stop showing the fan this frame)
-        _followHand = null;
         _boardAnchored = false;
         ClearHandSweep();
         _pendingUseChip = null; // #6: drop any pending decision on close
@@ -286,7 +293,6 @@ internal sealed class ItemsPile
         if (ReferenceEquals(Current, this))
             Current = null;
         IsOpen = false;
-        _followHand = null;
         _boardAnchored = false;
         _hand = null;
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
@@ -402,16 +408,12 @@ internal sealed class ItemsPile
             }
         }
 
-        // Fan facing/position: HELD → float above the palm; BOARD-ANCHORED → re-read the shared
-        // board anchor (+ live BrowseFanOffset). Either way billboard toward the head (ISSUE #7).
+        // Fan facing/position: BOARD-ANCHORED → re-read the shared board anchor (+ live
+        // BrowseFanOffset) and billboard toward the head (ISSUE #7). The former hand-held branch
+        // died with the whole-fan trigger grab (see TogglePoke).
         if (_root == null)
             return;
-        if (_followHand != null)
-        {
-            _root.localPosition = new Vector3(0f, HandPalmOffset, 0f) + ItemFanOffset; // req #2 item nudge
-            FaceHead(_root);
-        }
-        else if (_boardAnchored)
+        if (_boardAnchored)
         {
             _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value + ItemFanOffset; // req #2 item nudge
             FaceHead(_root);
@@ -644,27 +646,63 @@ internal sealed class ItemsPile
 
     /// <summary>
     /// Physical HAND sweep over the item fan (the item counterpart of
-    /// <see cref="PileBrowser.UpdateHandSweep"/>): the free (dominant) hand's index tip elects a
-    /// SINGLE winner among the chips (nearest by tip distance, candidacy by tip ≤
-    /// <see cref="ContactTipReach"/> OR palm ≤ <see cref="ContactPalmReach"/>, incumbent
-    /// hysteresis). The winner POPS (lift/enlarge) and every other chip drops — so sweeping the
-    /// hand through the fan keeps exactly ONE chip highlighted, just like the ability-card fan.
-    /// Read-only: it only lifts for readability; the pinch/laser own the pull-into-hand.
+    /// <see cref="PileBrowser.UpdateHandSweep"/>): EITHER free hand's index tip elects a SINGLE
+    /// winner among the chips (candidacy by tip ≤ <see cref="ContactTipReach"/> OR palm ≤
+    /// <see cref="ContactPalmReach"/> — both world-scaled; ranked by whichever of the two is
+    /// nearer, with incumbent hysteresis). The winner POPS (lift/enlarge) and every other chip
+    /// drops — so sweeping a hand through the fan keeps exactly ONE chip highlighted, just like
+    /// the ability-card fan. Read-only: it only lifts for readability; the pinch/laser own the
+    /// pull-into-hand.
+    ///
+    /// ROOT CAUSE this fixes (user report 2026-08-02, MP host: "physically I could only grab
+    /// chips with the LEFT hand, but the LEFT hand produced no highlights; the RIGHT hand
+    /// highlighted but could not grab anything"). The two halves had DIFFERENT hand policies:
+    ///   • HIGHLIGHT was <c>VRHands.Primary</c> only — a hard dominant-hand filter, so the
+    ///     off-hand swept through the fan in complete silence no matter how close it got.
+    ///   • GRAB is <c>ProximityGrabber</c>, which runs on BOTH hands — but on the DOMINANT hand
+    ///     the trigger defers to the laser (<c>ProximityGrabber.Tick</c> yields whenever
+    ///     <c>Ray.HasFreshUiHit</c> is set, and the item-fan laser path sets
+    ///     <c>Ray.UiHitOverride</c> on every hovered chip), so on the dominant hand the pluck
+    ///     belongs to <c>CardsDriver.UpdateItemFanLaser</c> — which that session refused every
+    ///     pluck at its blocking-modal commit gate (the MP player picker, see
+    ///     <c>ModalFallback.NonBlockingMenus</c>). Net effect, exactly as reported: dominant
+    ///     hand = highlight, no grab; off hand = grab, no highlight.
+    /// Sweeping BOTH hands makes the highlight policy match the grab policy — every hand that
+    /// can take a chip also lights it up first.
+    ///
+    /// SCORING (second half of the same report): the winner used to be ranked by the INDEX-TIP
+    /// distance alone even when only the PALM had qualified it, so a chip the palm brushed could
+    /// win while the tip was a hand-length away — the log then read like a broken threshold.
+    /// Ranking by <c>min(tip, palm)</c> makes the lifted chip the one the hand is actually
+    /// nearest to, and keeps candidacy and ranking on the same measurement.
     /// </summary>
     private void UpdateHandSweep()
     {
-        VRHand? dom = VRHands.Primary;
         ItemChip? winner = null, runnerUp = null;
-        float winnerTip = 0f, runnerTip = 0f;
+        VRHand? winnerHand = null;
+        float winnerDist = 0f, runnerDist = 0f;
         float bestScore = float.MaxValue, secondScore = float.MaxValue;
 
-        // The sweeping hand is the dominant/free hand — tracked and NOT holding anything. In
-        // HELD mode the pinch that opened the fan holds via _followHand, naturally excluded.
-        if (dom != null && !ReferenceEquals(dom, _followHand) && dom.HasPose && dom.Grabber.Held == null)
+        // Per-hand NEAR-MISS bookkeeping for the diagnostic below: the nearest chip each hand
+        // came to WITHOUT qualifying. A silent sweep was indistinguishable from a broken one in
+        // the 2026-08-02 hardware log — this makes "the hand was 19 cm out, reach is 13 cm" a
+        // readable fact instead of an inference.
+        ItemChip? missChip = null;
+        VRHand? missHand = null;
+        float missDist = float.MaxValue, missTip = 0f, missPalm = 0f;
+
+        // BOTH hands sweep (see doc): a hand qualifies while it is tracked and NOT holding
+        // anything. A hand holding a chip is excluded on purpose — the held chip already rides
+        // that hand, and popping a second one under it reads as a phantom.
+        for (int h = 0; h < 2; h++)
         {
-            Vector3 tip = dom.Rig.IndexTip.position;
-            Vector3 palm = dom.Rig.PalmCenter.position;
-            float scale = dom.WorldScale;
+            VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
+            if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+                continue;
+
+            Vector3 tip = hand.Rig.IndexTip.position;
+            Vector3 palm = hand.Rig.PalmCenter.position;
+            float scale = Mathf.Max(hand.WorldScale, 1e-4f);
             float tipReach = ContactTipReach * scale;
             float palmReach = ContactPalmReach * scale;
             float sticky = ContactStickyMargin * scale;
@@ -678,22 +716,36 @@ internal sealed class ItemsPile
                     || !c.TryFingertipDistance(palm, out float palmDist))
                     continue;
                 if (tipDist > tipReach && palmDist > palmReach)
-                    continue; // out of BOTH reaches — not a candidate
-                float score = tipDist; // rank by the index tip alone; palm only qualified candidacy
+                {
+                    // Out of BOTH reaches — not a candidate. Remember the closest such miss so
+                    // the diagnostic can say by HOW MUCH the hand missed (see missChip).
+                    float missContact = Mathf.Min(tipDist, palmDist);
+                    if (missContact < missDist)
+                    {
+                        missDist = missContact; missChip = c; missHand = hand;
+                        missTip = tipDist; missPalm = palmDist;
+                    }
+                    continue;
+                }
+                // Rank by the NEARER of the two probes (see doc): candidacy and ranking must be
+                // the same measurement, or a palm-qualified chip wins with the tip elsewhere.
+                float contact = Mathf.Min(tipDist, palmDist);
+                float score = contact;
                 if (ReferenceEquals(c, _handWinner))
                     score -= sticky; // hysteresis: the current lift holds until a rival is decisively closer
                 if (score < bestScore)
                 {
-                    runnerUp = winner; secondScore = bestScore; runnerTip = winnerTip;
-                    winner = c; bestScore = score; winnerTip = tipDist;
+                    runnerUp = winner; secondScore = bestScore; runnerDist = winnerDist;
+                    winner = c; bestScore = score; winnerDist = contact; winnerHand = hand;
                 }
                 else if (score < secondScore)
                 {
-                    runnerUp = c; secondScore = score; runnerTip = tipDist;
+                    runnerUp = c; secondScore = score; runnerDist = contact;
                 }
             }
         }
 
+        _handWinnerHand = winner != null ? winnerHand : null;
         if (!ReferenceEquals(winner, _handWinner))
         {
             _handWinner?.SetFingertipPop(false);
@@ -701,12 +753,39 @@ internal sealed class ItemsPile
             _handWinner?.SetFingertipPop(true);
 
             float now = Time.unscaledTime;
-            if (winner != null && now >= _nextHandLogAt)
+            if (winner != null && winnerHand != null && now >= _nextHandLogAt)
             {
                 _nextHandLogAt = now + 0.5f;
-                string runner = runnerUp != null ? $"'{runnerUp.name}' ({runnerTip * 100f:F1} cm)" : "none";
-                VRLog.Info("Cards", $"Item-fan hand sweep: '{winner.name}' — index-tip {winnerTip * 100f:F1} cm; " +
-                                    $"runner-up {runner}. One chip lifts at a time (like the ability fan).");
+                // Distances are REAL centimetres (world units ÷ the diorama world scale). The old
+                // line printed raw world units labelled "cm", which at the scenario's ~22.9× rig
+                // scale read as "index-tip 271,6 cm" for a chip 12 real cm away — the number that
+                // made this look like an unscaled threshold. Print the scale and the thresholds
+                // with it so the next hardware log can be checked without arithmetic.
+                float scale = Mathf.Max(winnerHand.WorldScale, 1e-4f);
+                string runner = runnerUp != null ? $"'{runnerUp.name}' ({runnerDist / scale * 100f:F1} cm)" : "none";
+                VRLog.Info("Cards", $"Item-fan hand sweep ({winnerHand.Side}): '{winner.name}' — contact " +
+                                    $"{winnerDist / scale * 100f:F1} cm (nearer of index-tip/palm); runner-up {runner}. " +
+                                    $"Reach: tip {ContactTipReach * 100f:F1} cm / palm {ContactPalmReach * 100f:F1} cm, " +
+                                    $"world scale {scale:F1}×. BOTH hands sweep and BOTH hands can pluck.");
+            }
+        }
+
+        // NEAR-MISS diagnostic (throttled, only while a hand is genuinely reaching): nothing
+        // popped, but a hand was within twice the palm reach of a chip — name the hand, the
+        // chip, both probe distances and the thresholds they failed, all in REAL centimetres.
+        // This is the line that decides "the sweep is broken" vs "the hand was never close
+        // enough" on the next hardware log without any arithmetic.
+        if (winner == null && missChip != null && missHand != null)
+        {
+            float scale = Mathf.Max(missHand.WorldScale, 1e-4f);
+            float now = Time.unscaledTime;
+            if (missDist <= ContactPalmReach * scale * 2f && now >= _nextHandMissLogAt)
+            {
+                _nextHandMissLogAt = now + 2f;
+                VRLog.Info("Cards", $"Item-fan hand sweep ({missHand.Side}): NO match — nearest '{missChip.name}' at " +
+                                    $"tip {missTip / scale * 100f:F1} cm / palm {missPalm / scale * 100f:F1} cm, " +
+                                    $"reach tip {ContactTipReach * 100f:F1} cm / palm {ContactPalmReach * 100f:F1} cm " +
+                                    $"(world scale {scale:F1}×). Reach closer — a chip lifts only inside ONE of the two reaches.");
             }
         }
     }
@@ -715,6 +794,31 @@ internal sealed class ItemsPile
     {
         _handWinner?.SetFingertipPop(false);
         _handWinner = null;
+        _handWinnerHand = null;
+    }
+
+    /// <summary>
+    /// The chip THIS hand is physically in contact with, or null — the item counterpart of
+    /// <c>CardsDriver.HandOwnedFanCard</c>. It is the hand-sweep winner when this very hand
+    /// elected it, else the hand's own proximity-grab candidate (which is what its trigger would
+    /// actually take).
+    ///
+    /// WHY the laser consults this (user report 2026-08-02, "what lights up is not what I get"):
+    /// while a hand reaches INTO the fan its laser is usually on the fan too, and the laser path
+    /// sets <c>Ray.UiHitOverride</c> — which makes <c>ProximityGrabber</c> defer the trigger to
+    /// the laser. The pop the player sees then comes from the hand sweep while the grab comes
+    /// from the beam, and on an arc of overlapping chips those are routinely different cards.
+    /// <c>CardsDriver.UpdateItemFanLaser</c> therefore yields hover AND trigger to the hand
+    /// whenever this is non-null and disagrees with the ray chip — the same single-owner
+    /// contract the ability fan enforces in <c>UpdateFanHoverSplit</c>.
+    /// </summary>
+    internal ItemChip? HandOwnedChip(VRHand? hand)
+    {
+        if (hand == null || !IsOpen)
+            return null;
+        if (_handWinner != null && ReferenceEquals(_handWinnerHand, hand))
+            return _handWinner;
+        return hand.Grabber.Highlighted as ItemChip;
     }
 
     // ------------------------------------------------------------------ laser pick --
@@ -1243,7 +1347,7 @@ internal sealed class ItemsPile
         if (!IsOpen && Time.unscaledTime >= _demandNextOpenAt)
         {
             _demandNextOpenAt = Time.unscaledTime + 0.5f;
-            Open(hand!, followHand: null);
+            Open(hand!);
         }
 
         // The use slot IS the ask — visible for the whole demand (Tick's action-turn gate is
@@ -1478,7 +1582,7 @@ internal sealed class ItemsPile
         if (!IsOpen && Time.unscaledTime >= _tdNextOpenAt)
         {
             _tdNextOpenAt = Time.unscaledTime + 0.5f;
-            Open(hand!, followHand: null);
+            Open(hand!);
         }
 
         // Use slot: visible while a candidate chip is HELD or one is clipped (the toggle).

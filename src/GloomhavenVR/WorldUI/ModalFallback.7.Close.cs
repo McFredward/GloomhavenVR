@@ -468,11 +468,16 @@ internal static partial class ModalFallback
     /// <summary>
     /// THE blocking rule, shared by <see cref="BlockingWindowModalActive"/> and the Tick()
     /// ModalUI lock so the ray pick gate and the mode machine can never disagree: a window
-    /// blocks unless it is a player-reachable menu (<see cref="NonBlockingMenus"/>) or an
-    /// action-dismissed scripted level message (<see cref="ActionDismissedLevelMessage"/>).
+    /// blocks unless it is a player-reachable menu (<see cref="NonBlockingMenus"/>), a
+    /// multiplayer roster/assignment surface (<see cref="MultiplayerRosterMenus"/> — an
+    /// administrative window about OTHER players' seats, which must never freeze the local
+    /// player's own board/piles/item fan) or an action-dismissed scripted level message
+    /// (<see cref="ActionDismissedLevelMessage"/>).
     /// </summary>
     private static bool IsBlockingWindow(UIWindow window) =>
-        !NonBlockingMenus.Contains(window.ID) && !ActionDismissedLevelMessage(window);
+        !NonBlockingMenus.Contains(window.ID)
+        && !MultiplayerRosterMenus.Contains(window.ID)
+        && !ActionDismissedLevelMessage(window);
 
     /// <summary>
     /// LASER-GATING POLICY HOME (user ruling 2026-08: "Ich möchte, dass der Laser ausnahmslos

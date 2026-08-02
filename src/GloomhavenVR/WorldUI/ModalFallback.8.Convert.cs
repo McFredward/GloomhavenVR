@@ -492,6 +492,11 @@ internal static partial class ModalFallback
     /// modal path (story, level messages, dialog-confirms, results, durability) still blocks.
     /// These menus still float, stay grabbable, and carry the X button — only the mode lock is
     /// lifted for them.
+    ///
+    /// Membership here ALSO makes a window <see cref="WindowPanel.Sticky"/> (it survives the
+    /// ESC menu's single-window ToggleGroup) — that is a property of THIS family specifically,
+    /// which is why the multiplayer roster family lives in its own set
+    /// (<see cref="MultiplayerRosterMenus"/>) instead of being appended here.
     /// </summary>
     private static readonly HashSet<UIWindowID> NonBlockingMenus = new()
     {
@@ -502,6 +507,43 @@ internal static partial class ModalFallback
         UIWindowID.CompendiumPanel,
         UIWindowID.MultiplayerFriendList,
         UIWindowID.HelpBox,
+    };
+
+    /// <summary>
+    /// MULTIPLAYER ROSTER FAMILY — non-blocking like <see cref="NonBlockingMenus"/>, but NOT
+    /// sticky (they must close exactly when the game closes them; they are not part of the ESC
+    /// menu's ToggleGroup fight).
+    ///
+    /// ROOT CAUSE (user report 2026-08-02, HOST, hardware log
+    /// <c>.planning/debug/remote/LogOutput.log</c>): after the host assigned a mercenary to the
+    /// other player, HIS OWN item fan could not be opened at all any more — the log shows
+    /// <c>[Cards] Board: laser press on 'PileStack_Items' SUPPRESSED — blocking modal open</c>
+    /// repeating for the rest of the session, and the cause one screen earlier:
+    /// <c>MODAL FALLBACK: window 'UI Multiplayer Select Player Submenu_unified'
+    /// (ID MutiplayerPlayerPicker)</c> → <c>MODAL FALLBACK ASSERTED: … blocking=True</c> →
+    /// <c>Modal commit-block ENGAGED</c>, with NO matching RELEASED line anywhere after it (the
+    /// GAME keeps that window open while it waits for the other seats, so the mod's release loop
+    /// correctly never fired — the classification, not the lifecycle, was wrong).
+    ///
+    /// The picker is the host's "who plays this mercenary" chooser and
+    /// <see cref="UIWindowID.MutiplayerHeroAssignPanel"/> is the assignment roster: both are
+    /// ADMINISTRATIVE surfaces about OTHER players' seats. The local player's own board, piles
+    /// and item fan have nothing to do with them, the scenario keeps running underneath, and
+    /// their targets self-gate through the game's own seams. Treating them as commit-blocking is
+    /// the pause-menu bug all over again (both rounds are recorded on
+    /// <see cref="BlockingWindowModalActive"/>) — with the extra sting that it LATCHES for as
+    /// long as the roster window is up, i.e. potentially the whole session.
+    ///
+    /// Deliberately NOT included: <c>MutiplayerConfirmationBox</c> — a real yes/no confirmation
+    /// dialog, i.e. exactly the family whose stray near-miss trigger must not land on the cards
+    /// behind it. The "Warten, bis alle Spieler Söldner zugewiesen haben" banner is not a
+    /// UIWindow at all (<c>UIMultiplayerNotifications</c> → <c>UINotificationManager</c>), so it
+    /// never reached this classification in the first place.
+    /// </summary>
+    private static readonly HashSet<UIWindowID> MultiplayerRosterMenus = new()
+    {
+        UIWindowID.MutiplayerPlayerPicker,
+        UIWindowID.MutiplayerHeroAssignPanel,
     };
 
 }
