@@ -82,6 +82,15 @@ internal sealed class CompatModule : IVRModule
         // override at the VR head instead. Reversible, no Harmony, rendering-only.
         ApparanceDetailFocus.Install();
 
+        // Revealed-room geometry, round 4 (fehlender_boden3.png residue): the reveal-time
+        // content now BUILDS (ApparanceDetailFocus) but its renderers can stay stuck in the
+        // game MaterialLoader's mid-load state — active, disabled, materials never assigned
+        // (hardware census: 130/133 renderers 'disabled' under the revealed tile). The
+        // game's loader has no retry path at all (MaterialLoader.Start is its only trigger,
+        // once per lifetime). This watchdog re-triggers/finishes stuck entries; see the
+        // MaterialLoaderHeal header for the stranding mechanisms.
+        MaterialLoaderHeal.Install();
+
         // Tutorial VR bridge ([Compat] TutorialVRAdapt, default on): the tutorial's
         // camera-familiarization step waits on the flat room-camera button
         // (CameraRoomButtonPressed — its ONLY producer, RoomCameraButton.OnClick, is
@@ -155,6 +164,7 @@ internal sealed class CompatModule : IVRModule
         // which clears every property block and destroys its textures.
         WallSegmentFade.Uninstall();
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
+        MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert
         if (_hooked)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;

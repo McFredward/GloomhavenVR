@@ -2197,11 +2197,23 @@ internal static class WallSegmentFade
                         continue;
                     if (listed >= MaxChildRendererSamples) { sb.Append(" …"); break; }
                     Bounds b = mr.bounds;
+                    bool disabled = mr.gameObject.activeInHierarchy && !mr.enabled;
                     sb.Append(listed == 0 ? "; sample: '" : " '").Append(mr.name)
                       .Append("'[").Append(mr.gameObject.activeInHierarchy
                           ? (mr.enabled ? "on" : "disabled") : "off")
                       .Append(" y").Append(b.min.y.ToString("F1")).Append("..")
-                      .Append(b.max.y.ToString("F1")).Append(']');
+                      .Append(b.max.y.ToString("F1"));
+                    // ROUND 4: a sampled DISABLED renderer names its game MaterialLoader
+                    // state (ml=no-loader / never-started / loading a/b / null-result a/b /
+                    // done-stuck / done) — same classifier the MaterialLoaderHeal watchdog
+                    // acts on, so the next hardware log proves WHICH stranding mechanism
+                    // left the revealed room's renderers active-but-disabled.
+                    if (disabled)
+                    {
+                        try { sb.Append(" ml=").Append(MaterialLoaderHeal.DescribeForRenderer(mr)); }
+                        catch { sb.Append(" ml=?"); }
+                    }
+                    sb.Append(']');
                     listed++;
                 }
                 VRLog.Info(Name, sb.ToString());
