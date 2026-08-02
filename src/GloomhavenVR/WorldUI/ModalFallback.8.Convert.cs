@@ -108,6 +108,13 @@ internal static partial class ModalFallback
     private static bool TryConvertWindow(UIWindow window)
     {
         string name = window.name;
+        // ROUND 8 — hand the pre-convert 2D blackout back FIRST (part 11). The conversion's own
+        // complete render hide (CanvasConversion part 6) only records components whose `enabled`
+        // was TRUE when it cleared them, so a canvas still switched off by the blackout would be
+        // skipped by the hide AND by the reveal: a permanently invisible menu. Restoring here is
+        // free of any visible frame — nothing renders between this statement and the reveal gate's
+        // hide, which runs later in this same Update (CanvasConversion.Tick).
+        ReleasePreConvertHide(window, "the conversion takes over (its own pre-reveal hide records the true state)");
         try
         {
             var rect = window.transform as RectTransform;
