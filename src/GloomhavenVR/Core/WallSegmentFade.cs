@@ -200,8 +200,22 @@ internal static class WallFadeTuning
 /// the head only rotated. No other head-motion-coupled term exists in the decision. The
 /// fade value itself stays exponentially damped (tau 0.12s ≈ 0.35s visible transition).
 ///
+/// DOORWAY RULING (user, torbogen2.png round 2 — replaces look-at fade for doorway assets
+/// entirely): archway frame/pillar renderers are adopted PER DOOR (spatial link to the
+/// UnityGameEditorDoorProp roots, <see cref="FadeDriver.FindDoorwayRoot"/> — the round-1
+/// ancestor walk found +0 siblings because the frames parent flat under an 'L :' section
+/// container). Door CLOSED → the whole archway is held SOLID exactly like the door itself,
+/// coverage notwithstanding. Door OPEN (animator "Open" state, the game's own check from
+/// Choreographer.OpenDoor; CObjectDoor.DoorIsOpen as rules-side fallback) → the normal
+/// coverage decision hides the doorway as ONE unit, wings/trim/lock riding along as
+/// siblings taken from the door prop's own subtree. The flat game merely swings the wings
+/// open (Choreographer.OpenDoor plays "Open"; nothing sinks or hides), so "open doorway
+/// must never block the view nor leave floating remnants" is delivered here, not mirrored.
+/// Both transitions reversible; every diag/flip line carries door=open/closed.
+///
 /// MULTIPLAYER: purely local rendering (MaterialPropertyBlocks + locally created textures);
-/// nothing synced, peers unaffected. Gated LIVE by [Compat] WallFade — OFF clears every block
+/// nothing synced, peers unaffected (door state is READ-only: animator + rules flag).
+/// Gated LIVE by [Compat] WallFade — OFF clears every block
 /// immediately (exactly today's solid walls, zero per-frame cost beyond the enabled check).
 /// </summary>
 internal static class WallSegmentFade
@@ -295,6 +309,19 @@ internal static class WallSegmentFade
         /// <summary>0 = restored/untouched, 2 = hidden (siblings have no dissolve ramp — they
         /// run arbitrary opaque shaders, so they pop with the END of the wall's dissolve).</summary>
         public int SiblingState;
+        /// <summary>DOORWAY ruling (user, torbogen2.png round 2): non-null marks this segment as
+        /// a DOORWAY — its fade renderers (frame/pillars) were adopted per-door, keyed by the
+        /// door prop root ('ThinDoor : (guid)', the UnityGameEditorDoorProp object whose child
+        /// is the ApparanceLayer wings prefab instance with the "Open" animator). The segment's
+        /// fade is GATED on the door state instead of look-at coverage alone: door CLOSED →
+        /// the whole archway is held solid exactly like the door itself (never fades); door
+        /// OPEN → the normal coverage decision hides the segment TOGETHER with the door
+        /// subtree's own renderers (wings/trim/lock) as its siblings.</summary>
+        public Transform? DoorRoot;
+        /// <summary>Door state as of the last evaluation tick (animator "Open" state, with the
+        /// rules-side CObjectDoor.DoorIsOpen as fallback). Only meaningful when
+        /// <see cref="DoorRoot"/> is set.</summary>
+        public bool DoorOpen;
         public Bounds Bounds;
         public bool HasBounds;
 
@@ -428,6 +455,23 @@ internal static class WallSegmentFade
         /// <summary>Ancestor-walk depth cap — prefab roots sit 1-3 levels above their meshes;
         /// anything deeper is scene structure.</summary>
         private const int MaxAssetRootDepth = 4;
+        // ---- doorway door-state gating (user ruling, torbogen2.png round 2) ---------------
+        /// <summary>Door prop roots rebuilt each rescan: every live
+        /// <c>UnityGameEditorDoorProp</c> transform (the 'ThinDoor : (guid)' objects the
+        /// Choreographer opens via <c>ObjectCacheService.GetPropObject</c>). Fade renderers
+        /// adjacent to one of these are grouped into a per-DOOR segment (see
+        /// <see cref="FindDoorwayRoot"/>) so the whole archway shares one fade unit and one
+        /// door-state gate. Entrance/exit doors lose their prop component at spawn
+        /// (ApparanceLayer.Create destroys procDoor) — they never open, are not listed, and
+        /// their frames keep the generic adopted behaviour (accepted fail-open).</summary>
+        private readonly List<Transform> _doorRoots = new();
+        /// <summary>Max XZ gap (wu) between a fade renderer's AABB and a door prop position for
+        /// the renderer to count as that doorway's frame — mirrors the game's own wall-search
+        /// radius around a door (ProceduralTile.FindMapTileByPosition: FindWallsNear(pos, 2.2f)).
+        /// Frames/pillars hug the door; the next parallel wall run is ≥ a hex (~1.72 wu) of
+        /// clear floor away, so 2.2 cannot swallow a neighbouring wall.</summary>
+        private const float DoorwayLinkMaxXZ = 2.2f;
+
         /// <summary>Room-registry census as last logged (reveal re-anchor diagnostic).</summary>
         private int _lastRoomCensusCount = -1;
         private int _lastRoomCensusAnchored = -1;
@@ -640,21 +684,44 @@ internal static class WallSegmentFade
                     {
                         seg.Smooth += (fraction - seg.Smooth) * fracStep;
                     }
-                    bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
-                    if (raw != seg.PendingRaw)
+                    // DOORWAY ruling (user, torbogen2.png round 2): a doorway segment's fade
+                    // follows the DOOR STATE, not look-at coverage alone. CLOSED → the whole
+                    // archway (frame, pillars — and the wings/trim siblings that only hide at
+                    // full fade anyway) is held SOLID exactly like the door itself; any
+                    // in-flight fade decays right back (reversible). OPEN → the doorway must
+                    // never block the view: the normal coverage decision applies and hides
+                    // the segment as a unit WITH the door subtree siblings. The EMA above
+                    // keeps integrating either way so the diag shows live numbers and an
+                    // opening door starts from current coverage, not a stale one.
+                    if (seg.DoorRoot != null)
+                        seg.DoorOpen = DoorIsOpen(seg.DoorRoot);
+                    if (seg.DoorRoot != null && !seg.DoorOpen)
                     {
-                        seg.PendingRaw = raw;
-                        seg.PendingSince = now;
-                    }
-                    if (seg.PendingRaw != seg.State)
-                    {
-                        float dwell = seg.PendingRaw
-                            ? EnterDwellSeconds
-                            : (reevalArmed ? exitDwellMoved : exitDwellStationary);
-                        if (now - seg.PendingSince >= dwell)
+                        if (seg.State)
                         {
-                            seg.State = seg.PendingRaw;
-                            LogStateFlip(seg); // R2 deliverable: name the wall's shader variant
+                            seg.State = false;
+                            LogStateFlip(seg); // door closed under a held fade — log the revert
+                        }
+                        seg.PendingRaw = false;
+                    }
+                    else
+                    {
+                        bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
+                        if (raw != seg.PendingRaw)
+                        {
+                            seg.PendingRaw = raw;
+                            seg.PendingSince = now;
+                        }
+                        if (seg.PendingRaw != seg.State)
+                        {
+                            float dwell = seg.PendingRaw
+                                ? EnterDwellSeconds
+                                : (reevalArmed ? exitDwellMoved : exitDwellStationary);
+                            if (now - seg.PendingSince >= dwell)
+                            {
+                                seg.State = seg.PendingRaw;
+                                LogStateFlip(seg); // R2 deliverable: shader variant + door state
+                            }
                         }
                     }
                 }
@@ -692,7 +759,7 @@ internal static class WallSegmentFade
                 _heartbeatSegCount = _segments.Count;
                 LogFloorColumnCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
-                int siblings = 0, failSafeSegs = 0;
+                int siblings = 0, failSafeSegs = 0, doorways = 0, doorsOpen = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
@@ -702,6 +769,11 @@ internal static class WallSegmentFade
                     foliage += s.Foliage.Count;
                     siblings += s.Siblings.Count;
                     if (!RoomDecisionValid(s.RoomIndex)) failSafeSegs++;
+                    if (s.DoorRoot != null)
+                    {
+                        doorways++;
+                        if (s.DoorOpen) doorsOpen++;
+                    }
                 }
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
@@ -715,6 +787,8 @@ internal static class WallSegmentFade
                     + $"+ {_censusAdopted} adopted; {_splitAnchors.Count} room-engulfing wall(s) "
                     + $"split per renderer, {engulfSegs} unsplittable held solid; {foliage} foliage "
                     + $"attachment(s) + {siblings} asset-sibling(s) ride their wall's fade; "
+                    + $"{doorways} DOORWAY segment(s) gated by door state ({doorsOpen} open — "
+                    + $"closed archways held solid, open ones hide whole incl. door subtree); "
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
                     + $"{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
@@ -937,6 +1011,11 @@ internal static class WallSegmentFade
             if (!seg.FromWallCache)
                 wall += "~"; // shader-adopted group (tile/parent-anchored), not a cache wall
             string variant = seg.VariantHigh ? (seg.VariantLow ? "HIGH+LOW" : "HIGH") : "LOW";
+            // Doorway segments carry their gate state on every flip line — the deliverable
+            // that lets a hardware log pin each archway fade to the door that ruled it.
+            string door = seg.DoorRoot != null
+                ? (seg.DoorOpen ? " door=open" : " door=closed")
+                : string.Empty;
             if (seg.State)
             {
                 // Which renderers this fade actually touches (name@AABB-top, first six): the
@@ -955,7 +1034,7 @@ internal static class WallSegmentFade
                 string cutoff = $"map occ(r=1,a=0)→m=0, _Cutoff={seg.HeldCutoff:0.00} " +
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
-                    $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
+                    $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}]{door} " +
                     $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage, " +
                     $"+{seg.Siblings.Count} asset-sibling(s)) — held state: " +
                     cutoff + " → " +
@@ -968,7 +1047,7 @@ internal static class WallSegmentFade
             }
             else
             {
-                VRLog.Info(Name, $"fade OFF '{wall}' [{variant}] — MPB removed, solid.");
+                VRLog.Info(Name, $"fade OFF '{wall}' [{variant}]{door} — MPB removed, solid.");
             }
         }
 
@@ -1043,6 +1122,10 @@ internal static class WallSegmentFade
                 _diagSb.Append(" !FAT");
             if (seg.Engulfing)
                 _diagSb.Append(" !ENGULF");
+            // Doorway gate state (user ruling): closed = held solid regardless of coverage,
+            // open = coverage decision hides the whole archway incl. door-subtree siblings.
+            if (seg.DoorRoot != null)
+                _diagSb.Append(seg.DoorOpen ? " door=open" : " door=closed");
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -1369,6 +1452,17 @@ internal static class WallSegmentFade
                     _claimedRenderers.Add(r);
             }
 
+            // Doorway registry (door-state gating): the live door props, refreshed before the
+            // adoption sweep so FindDoorwayRoot can re-anchor frame/pillar renderers per door.
+            _doorRoots.Clear();
+            UnityGameEditorDoorProp[] doorProps =
+                UnityEngine.Object.FindObjectsOfType<UnityGameEditorDoorProp>();
+            foreach (UnityGameEditorDoorProp dp in doorProps)
+            {
+                if (dp != null)
+                    _doorRoots.Add(dp.transform);
+            }
+
             // Second discovery source: ADOPT every other fade-capable renderer in the scene.
             // The user report behind this ("fortgeschritteneres Szenario mit ganz anderen
             // Mauern — dort werden sie nicht mehr ausgeblendet"): advanced tilesets ship wall
@@ -1619,10 +1713,19 @@ internal static class WallSegmentFade
                 Component? anchor = r.GetComponentInParent<ProceduralTileObserver>();
                 if (anchor == null)
                     anchor = r.transform.parent != null ? r.transform.parent : r.transform;
+                // DOORWAY override (user ruling): a fade renderer hugging a door prop is that
+                // DOORWAY's frame/pillar — anchor it on the door root so every renderer of one
+                // archway lands in ONE per-door segment whose fade the door state gates. This
+                // outranks both the tile/parent grouping (the round-1 'L :' layer container
+                // that mixed two doorways into one look-at segment) and the split routing (a
+                // doorway is archway-sized, never a room-engulfing slab).
+                Transform? doorRoot = FindDoorwayRoot(r);
+                if (doorRoot != null)
+                    anchor = doorRoot;
                 // A group that proved too fat to be a slab is tracked per renderer instead
                 // (see _splitAnchors) — route straight to the per-renderer segment so its
                 // smoothing state survives every rescan.
-                if (_splitAnchors.Contains(anchor))
+                else if (_splitAnchors.Contains(anchor))
                     anchor = r;
                 if (!_segments.TryGetValue(anchor, out Segment? seg))
                 {
@@ -1630,6 +1733,7 @@ internal static class WallSegmentFade
                     _segments.Add(anchor, seg);
                     BeginRefresh(seg);
                 }
+                seg.DoorRoot = doorRoot; // re-stamped every rescan (null for non-doorways)
                 if (CollectWallFadeInfo(r, seg))
                 {
                     seg.Renderers.Add(r);
@@ -1771,6 +1875,65 @@ internal static class WallSegmentFade
         }
 
         /// <summary>
+        /// The door prop whose position the renderer's AABB hugs (XZ gap ≤
+        /// <see cref="DoorwayLinkMaxXZ"/>), nearest wins — the linkage from a fade renderer to
+        /// its OWNING door. Deliberately spatial, not hierarchical: the hardware log proved the
+        /// frames are parented flat under a big 'L :' Apparance section container (the ancestor
+        /// walk's documented fail-open), while the door prop is a SIBLING subtree — but the door
+        /// object knows exactly where it stands, and archway frames exist only around doors.
+        /// </summary>
+        private Transform? FindDoorwayRoot(MeshRenderer r)
+        {
+            if (_doorRoots.Count == 0)
+                return null;
+            Bounds b = r.bounds;
+            Transform? best = null;
+            float bestSq = DoorwayLinkMaxXZ * DoorwayLinkMaxXZ;
+            foreach (Transform door in _doorRoots)
+            {
+                if (door == null)
+                    continue;
+                Vector3 p = door.position;
+                float gx = Mathf.Max(0f, Mathf.Max(b.min.x - p.x, p.x - b.max.x));
+                float gz = Mathf.Max(0f, Mathf.Max(b.min.z - p.z, p.z - b.max.z));
+                float sq = gx * gx + gz * gz;
+                if (sq <= bestSq)
+                {
+                    bestSq = sq;
+                    best = door;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Is the doorway's door OPEN? Primary: the game's own rendering-true check —
+        /// <c>MF.GameObjectAnimatorControllerIsCurrentState(root, "Open")</c>, exactly what
+        /// <c>Choreographer.OpenDoor</c> plays and <c>UnityGameEditorDoorProp.OnCursorEnter</c>
+        /// reads (the animator lives on the ApparanceLayer wings prefab under the prop root;
+        /// the state is entered the moment the opening animation starts and never left).
+        /// Fallback: the rules-side <c>CObjectDoor.DoorIsOpen</c> via the prop root's
+        /// <c>UnityGameEditorObject.PropObject</c> (covers a mid-load animator not yet bound).
+        /// Read-only on both paths; any throw (PathFinder mid-teardown) reads CLOSED — the
+        /// fail-safe that holds the archway solid, the vanilla look.
+        /// </summary>
+        private static bool DoorIsOpen(Transform root)
+        {
+            try
+            {
+                if (MF.GameObjectAnimatorControllerIsCurrentState(root.gameObject, "Open"))
+                    return true;
+                UnityGameEditorObject? obj = root.GetComponent<UnityGameEditorObject>();
+                return obj != null && obj.PropObject is ScenarioRuleLibrary.CObjectDoor door
+                    && door.DoorIsOpen;
+            }
+            catch
+            {
+                return false; // unknown = closed = held solid (fail-safe, vanilla look)
+            }
+        }
+
+        /// <summary>
         /// ASSET-COMPLETE FADE collection (adopted groups only — cache walls keep their
         /// deliberate "props/doors under the same entity are never touched" contract, their
         /// foliage path already covers the dressing): re-attach, per rescan, every non-fade
@@ -1798,34 +1961,72 @@ internal static class WallSegmentFade
                 if (RoomDecisionValid(seg.RoomIndex))
                 {
                     float ceiling = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
-                    foreach (MeshRenderer r in seg.Renderers)
+                    if (seg.DoorRoot != null)
                     {
-                        if (r == null)
-                            continue;
-                        Transform? root = FindAssetRoot(r);
-                        if (root == null)
-                            continue;
-                        root.GetComponentsInChildren(includeInactive: false, _subtreeScratch);
-                        foreach (MeshRenderer c in _subtreeScratch)
+                        // DOORWAY segment: the door object knows its renderers — the sibling
+                        // set is the door prop root's OWN subtree (wings prefab instance,
+                        // trim, lock), no ancestor walk (which the flat 'L :' layout defeats,
+                        // the round-1 "+0 siblings" failure). Same exclusion discipline as
+                        // the generic path; the count cap stays as a tripwire against a
+                        // surprise container-sized prop root (then nothing attaches and only
+                        // the shader-matched frame fades — today's behaviour, fail-open).
+                        seg.DoorRoot.GetComponentsInChildren(
+                            includeInactive: false, _subtreeScratch);
+                        if (_subtreeScratch.Count <= MaxAssetRootRenderers)
                         {
-                            if (c == null || _siblingOwned.Contains(c))
+                            foreach (MeshRenderer c in _subtreeScratch)
+                            {
+                                if (c == null || _siblingOwned.Contains(c))
+                                    continue;
+                                // Game-disabled (e.g. ApparanceLayer hides wings of doors
+                                // not initially visible) is not ours — except one WE hid.
+                                if (!c.enabled
+                                    && !(seg.SiblingState == 2 && seg.PrevSiblings.Contains(c)))
+                                    continue;
+                                if (RendererUsesWallFade(c))
+                                    continue;
+                                if (c.bounds.max.y <= ceiling)
+                                    continue; // floor-ish — never rides a fade
+                                if (c.GetComponentInParent<ProceduralWall>() != null
+                                    || c.GetComponentInParent<ActorBehaviour>() != null
+                                    || c.GetComponentInParent<TileBehaviour>() != null)
+                                    continue; // cache-wall territory / live game logic
+                                _siblingOwned.Add(c);
+                                seg.Siblings.Add(c);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        foreach (MeshRenderer r in seg.Renderers)
+                        {
+                            if (r == null)
                                 continue;
-                            // A renderer the GAME disabled is not ours to manage — except one
-                            // WE hid last rescan (still held faded): dropping it now would
-                            // re-enable + re-hide it in a one-frame flash.
-                            if (!c.enabled
-                                && !(seg.SiblingState == 2 && seg.PrevSiblings.Contains(c)))
+                            Transform? root = FindAssetRoot(r);
+                            if (root == null)
                                 continue;
-                            if (RendererUsesWallFade(c))
-                                continue;
-                            if (c.bounds.max.y <= ceiling)
-                                continue; // floor-ish — never rides a fade, in any form
-                            if (c.GetComponentInParent<ProceduralWall>() != null
-                                || c.GetComponentInParent<ActorBehaviour>() != null
-                                || c.GetComponentInParent<TileBehaviour>() != null)
-                                continue;
-                            _siblingOwned.Add(c);
-                            seg.Siblings.Add(c);
+                            root.GetComponentsInChildren(includeInactive: false, _subtreeScratch);
+                            foreach (MeshRenderer c in _subtreeScratch)
+                            {
+                                if (c == null || _siblingOwned.Contains(c))
+                                    continue;
+                                // A renderer the GAME disabled is not ours to manage — except
+                                // one WE hid last rescan (still held faded): dropping it now
+                                // would re-enable + re-hide it in a one-frame flash.
+                                if (!c.enabled
+                                    && !(seg.SiblingState == 2 && seg.PrevSiblings.Contains(c)))
+                                    continue;
+                                if (RendererUsesWallFade(c))
+                                    continue;
+                                if (c.bounds.max.y <= ceiling)
+                                    continue; // floor-ish — never rides a fade, in any form
+                                if (c.GetComponentInParent<ProceduralWall>() != null
+                                    || c.GetComponentInParent<ActorBehaviour>() != null
+                                    || c.GetComponentInParent<TileBehaviour>() != null)
+                                    continue;
+                                _siblingOwned.Add(c);
+                                seg.Siblings.Add(c);
+                            }
                         }
                     }
                 }
@@ -1857,7 +2058,14 @@ internal static class WallSegmentFade
         {
             if (_roomBounds.Count == 0)
                 return;
-            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
+            // includeInactive ON (fehlender_boden2.png round 2): the first census could not
+            // tell "no floor renderer EXISTS" from "a floor renderer exists but something
+            // disabled it" — the exact fork between "Apparance never synthesized the room"
+            // (the confirmed reveal bug: ApparanceEntity.CheckEntity destroys hidden rooms'
+            // native entities and re-synthesis runs against the parked Camera.main viewpoint)
+            // and "our fade / the game disabled it". Disabled entries now carry WHO: the
+            // renderer's own enabled flag and the first inactive ancestor by name.
+            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>(includeInactive: true);
             var sb = new System.Text.StringBuilder();
             int rooms = Mathf.Min(_roomBounds.Count, 8);
             for (int r = 0; r < rooms; r++)
@@ -1872,7 +2080,7 @@ internal static class WallSegmentFade
                 int listed = 0;
                 foreach (MeshRenderer mr in all)
                 {
-                    if (mr == null || !mr.enabled || !mr.gameObject.activeInHierarchy)
+                    if (mr == null)
                         continue;
                     Bounds b = mr.bounds;
                     if (center.x < b.min.x || center.x > b.max.x
@@ -1889,13 +2097,157 @@ internal static class WallSegmentFade
                       .Append(m != null && m.shader != null ? m.shader.name : "?")
                       .Append("' q").Append(m != null ? m.renderQueue : -1)
                       .Append(mr.isPartOfStaticBatch ? " BATCHED" : "")
-                      .Append(mr.HasPropertyBlock() ? " OUR-MPB" : "")
-                      .Append(';');
+                      .Append(mr.HasPropertyBlock() ? " OUR-MPB" : "");
+                    // WHO turned it off: renderer.enabled = a component write (our fade only
+                    // ever touches foliage/siblings this way); inactive hierarchy = a
+                    // SetActive by name of the first inactive ancestor (ProceduralMapTile
+                    // .ShowContent visibility toggles read as 'Generated Content'/'Preview').
+                    if (!mr.enabled)
+                        sb.Append(" OFF");
+                    if (!mr.gameObject.activeInHierarchy)
+                    {
+                        Transform? t = mr.transform;
+                        while (t != null && t.gameObject.activeSelf)
+                            t = t.parent;
+                        sb.Append(" INACTIVE:'")
+                          .Append(t != null ? t.name : "?").Append('\'');
+                    }
+                    sb.Append(';');
                 }
                 if (listed == 0)
-                    sb.Append(" (no renderer over the room center at all)");
+                    sb.Append(" (no renderer over the room center at all — nothing exists, "
+                        + "not even disabled: the geometry was never generated)");
                 VRLog.Info(Name, sb.ToString());
             }
+            LogMapTileCensus(sb);
+            LogApparanceViewpoint(sb);
+        }
+
+        /// <summary>
+        /// One line per <see cref="ProceduralMapTile"/>: the game-side visibility state plus
+        /// the Apparance generation state — visibility (Preview vs All), whether 'Generated
+        /// Content' exists, how many of its children are active, whether the 'Preview' child
+        /// (the scattered hex islands of an unrevealed room) is still showing, and the
+        /// entity's IsPopulated/native-handle status. Decides in one log whether a missing
+        /// room floor is a VISIBILITY failure (Preview stuck on) or a SYNTHESIS failure
+        /// (visibility All, generation root empty — the parked-viewpoint reveal bug).
+        /// </summary>
+        private void LogMapTileCensus(System.Text.StringBuilder sb)
+        {
+            ProceduralMapTile[] tiles =
+                UnityEngine.Object.FindObjectsOfType<ProceduralMapTile>(includeInactive: true);
+            foreach (ProceduralMapTile tile in tiles)
+            {
+                if (tile == null)
+                    continue;
+                sb.Length = 0;
+                sb.Append("MAPTILE '").Append(tile.name)
+                  .Append("' pos(").Append(tile.transform.position.x.ToString("F1")).Append(',')
+                  .Append(tile.transform.position.z.ToString("F1"))
+                  .Append(") vis=").Append(tile.visibility)
+                  .Append(tile.gameObject.activeInHierarchy ? "" : " INACTIVE");
+                Transform? gen = FindChildByName(tile.transform, "Generated Content");
+                if (gen == null)
+                {
+                    sb.Append(" genContent=NONE (never generated)");
+                }
+                else
+                {
+                    int children = gen.childCount, active = 0, renderers = 0;
+                    bool previewActive = false;
+                    for (int i = 0; i < children; i++)
+                    {
+                        Transform c = gen.GetChild(i);
+                        if (c.gameObject.activeSelf)
+                        {
+                            active++;
+                            if (c.name == "Preview")
+                                previewActive = true;
+                        }
+                    }
+                    _subtreeScratch.Clear();
+                    gen.GetComponentsInChildren(includeInactive: true, _subtreeScratch);
+                    renderers = _subtreeScratch.Count;
+                    sb.Append(" genContent=").Append(gen.gameObject.activeSelf ? "on" : "OFF")
+                      .Append(" children ").Append(active).Append('/').Append(children)
+                      .Append(" active, ").Append(renderers).Append(" renderer(s)")
+                      .Append(previewActive ? ", PREVIEW STILL ON" : "");
+                }
+                try
+                {
+                    ApparanceEntity? entity = tile.GetComponent<ApparanceEntity>();
+                    if (entity != null)
+                        sb.Append(" entity populated=").Append(entity.IsPopulated)
+                          .Append(" handle=").Append(entity.m_EntityHandle != 0 ? "built" : "NONE");
+                }
+                catch { sb.Append(" entity=?"); }
+                VRLog.Info(Name, sb.ToString());
+            }
+        }
+
+        /// <summary>
+        /// The Apparance synthesis viewpoint line: which position the engine is generating
+        /// detail around — the parked Camera.main (the bug) or the mod's head-tracking
+        /// DetailFocus override (<see cref="ApparanceDetailFocus"/>, the fix). Proves from a
+        /// hardware log that the override engaged, and where the parked camera actually sat.
+        /// </summary>
+        private static void LogApparanceViewpoint(System.Text.StringBuilder sb)
+        {
+            sb.Length = 0;
+            sb.Append("APPARANCE VIEWPOINT: ");
+            try
+            {
+                ApparanceEngine? engine = ApparanceEngine.Instance;
+                if (engine == null)
+                {
+                    sb.Append("no engine instance");
+                }
+                else if (engine.EnableDetailFocus && engine.DetailFocus != null)
+                {
+                    Vector3 p = engine.DetailFocus.transform.position;
+                    sb.Append("DetailFocus override '").Append(engine.DetailFocus.name)
+                      .Append("' at (").Append(p.x.ToString("F1")).Append(',')
+                      .Append(p.y.ToString("F1")).Append(',')
+                      .Append(p.z.ToString("F1")).Append(')');
+                }
+                else
+                {
+                    Camera? main = Camera.main;
+                    if (main != null)
+                    {
+                        Vector3 p = main.transform.position;
+                        sb.Append("Camera.main '").Append(main.name)
+                          .Append("' (PARKED under VR) at (").Append(p.x.ToString("F1"))
+                          .Append(',').Append(p.y.ToString("F1")).Append(',')
+                          .Append(p.z.ToString("F1")).Append(')');
+                    }
+                    else
+                    {
+                        sb.Append("no Camera.main — engine falls back to first active camera");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                sb.Append("unreadable: ").Append(e.GetType().Name);
+            }
+            VRLog.Info(Name, sb.ToString());
+        }
+
+        /// <summary>Breadth-limited recursive child search by exact name (the game's own
+        /// FindInChildren equivalent — map tiles nest 'Generated Content' a level down).</summary>
+        private static Transform? FindChildByName(Transform root, string name)
+        {
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform c = root.GetChild(i);
+                if (c.name == name)
+                    return c;
+                Transform? deep = FindChildByName(c, name);
+                if (deep != null)
+                    return deep;
+            }
+            return null;
         }
 
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
