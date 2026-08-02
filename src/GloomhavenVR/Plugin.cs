@@ -247,6 +247,13 @@ public class Plugin : BaseUnityPlugin
             "been; drop to Warnings or Normal once the current round of debugging is done. Takes " +
             "effect on the next line — no restart.");
         VRLog.Level = LogLevel.Value;
+        // BUILD BANNER (added after a hardware round was accidentally run on the previous
+        // build and its log misread as a fix failure): ModBuild is the same monotonic
+        // counter the MP version handshake compares, so the log's first lines now prove
+        // exactly which build produced them. Note-level: survives every verbosity that can
+        // still print at all.
+        VRLog.Note("Core", $"GloomhavenVR ModBuild {Net.NetProtocol.ModBuild} " +
+                           $"(assembly {System.Reflection.Assembly.GetExecutingAssembly().GetName().Version}).");
         LogLevel.SettingChanged += (_, _) =>
         {
             VRLog.Level = LogLevel.Value;
