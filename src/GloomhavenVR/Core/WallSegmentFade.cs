@@ -2128,12 +2128,36 @@ internal static class WallSegmentFade
         /// the Apparance generation state — visibility (Preview vs All), whether 'Generated
         /// Content' exists, how many of its children are active, whether the 'Preview' child
         /// (the scattered hex islands of an unrevealed room) is still showing, and the
-        /// entity's IsPopulated/native-handle status. Decides in one log whether a missing
-        /// room floor is a VISIBILITY failure (Preview stuck on) or a SYNTHESIS failure
-        /// (visibility All, generation root empty — the parked-viewpoint reveal bug).
+        /// entity's IsPopulated/native-handle/IsBusy status plus the tile's distance from the
+        /// synthesis viewpoint. Decides in one log whether a missing room floor is a
+        /// VISIBILITY failure (Preview stuck on), a SYNTHESIS failure (visibility All,
+        /// generation root empty — the parked-viewpoint reveal bug), or a DETAIL failure
+        /// (built far from the viewpoint, coarse content only — the round-3 suspect).
+        ///
+        /// Round 3 added PER-CHILD forensics: the 'children 1/2 active, 229 renderer(s)'
+        /// summary could not say WHICH child of 'Generated Content' holds the renderers —
+        /// so a follow-up line per direct child names it, its activeSelf/activeInHierarchy
+        /// state, its renderer counts (total / active-in-hierarchy / actually drawing), its
+        /// combined bounds, and a sample of renderer names+y-bands+state. That splits
+        /// "content exists but was left inactive" from "only preview-grade content was ever
+        /// synthesized" without another blind hardware round.
         /// </summary>
         private void LogMapTileCensus(System.Text.StringBuilder sb)
         {
+            // Where the engine is generating detail around RIGHT NOW — mirror of
+            // ApparanceEngine.UpdateEngine's own source selection (focus override first,
+            // Camera.main otherwise). Distances on the MAPTILE lines are measured to this.
+            Vector3? viewpoint = null;
+            try
+            {
+                ApparanceEngine? engineNow = ApparanceEngine.Instance;
+                if (engineNow != null && engineNow.EnableDetailFocus && engineNow.DetailFocus != null)
+                    viewpoint = engineNow.DetailFocus.transform.position;
+                else if (Camera.main != null)
+                    viewpoint = Camera.main.transform.position;
+            }
+            catch { /* engine mid-teardown — distances become 'n/a' */ }
+
             ProceduralMapTile[] tiles =
                 UnityEngine.Object.FindObjectsOfType<ProceduralMapTile>(includeInactive: true);
             foreach (ProceduralMapTile tile in tiles)
@@ -2146,6 +2170,9 @@ internal static class WallSegmentFade
                   .Append(tile.transform.position.z.ToString("F1"))
                   .Append(") vis=").Append(tile.visibility)
                   .Append(tile.gameObject.activeInHierarchy ? "" : " INACTIVE");
+                if (viewpoint.HasValue)
+                    sb.Append(" focusDist=")
+                      .Append(Vector3.Distance(viewpoint.Value, tile.transform.position).ToString("F1"));
                 Transform? gen = FindChildByName(tile.transform, "Generated Content");
                 if (gen == null)
                 {
@@ -2178,9 +2205,89 @@ internal static class WallSegmentFade
                     ApparanceEntity? entity = tile.GetComponent<ApparanceEntity>();
                     if (entity != null)
                         sb.Append(" entity populated=").Append(entity.IsPopulated)
-                          .Append(" handle=").Append(entity.m_EntityHandle != 0 ? "built" : "NONE");
+                          .Append(" handle=").Append(entity.m_EntityHandle != 0 ? "built" : "NONE")
+                          .Append(" busy=").Append(entity.IsBusy)
+                          .Append(" dynDetail=").Append(entity.DynamicDetail);
                 }
                 catch { sb.Append(" entity=?"); }
+                VRLog.Info(Name, sb.ToString());
+
+                if (gen != null)
+                    LogGeneratedContentChildren(sb, tile.name, gen);
+            }
+        }
+
+        /// <summary>Renderer sample cap per 'Generated Content' child line — enough names to
+        /// recognize the asset family (Unseen preview hexes vs full CR floor/wall pieces)
+        /// without flooding a heartbeat.</summary>
+        private const int MaxChildRendererSamples = 8;
+
+        /// <summary>
+        /// The per-child forensics behind a MAPTILE line: for each DIRECT child of the
+        /// tile's 'Generated Content' (the containers <c>ProceduralMapTile.ShowContent</c>
+        /// toggles — 'Preview' vs the synthesized full-content groups), log activation,
+        /// renderer census and bounds. Bounds are the union of renderer AABBs
+        /// (world-space); inactive renderers still report usable transform-derived bounds,
+        /// which is exactly what we need to see WHERE never-shown content would render.
+        /// </summary>
+        private void LogGeneratedContentChildren(
+            System.Text.StringBuilder sb, string tileName, Transform gen)
+        {
+            for (int i = 0; i < gen.childCount; i++)
+            {
+                Transform child = gen.GetChild(i);
+                _subtreeScratch.Clear();
+                child.GetComponentsInChildren(includeInactive: true, _subtreeScratch);
+
+                int total = _subtreeScratch.Count, activeInHier = 0, drawing = 0;
+                Bounds union = default;
+                bool haveBounds = false;
+                foreach (MeshRenderer mr in _subtreeScratch)
+                {
+                    if (mr == null)
+                        continue;
+                    bool act = mr.gameObject.activeInHierarchy;
+                    if (act)
+                    {
+                        activeInHier++;
+                        if (mr.enabled)
+                            drawing++;
+                    }
+                    Bounds b = mr.bounds;
+                    if (!haveBounds) { union = b; haveBounds = true; }
+                    else union.Encapsulate(b);
+                }
+
+                sb.Length = 0;
+                sb.Append("MAPTILE '").Append(tileName)
+                  .Append("' child[").Append(i).Append("] '").Append(child.name)
+                  .Append("' self=").Append(child.gameObject.activeSelf ? "on" : "OFF")
+                  .Append(" hier=").Append(child.gameObject.activeInHierarchy ? "on" : "OFF")
+                  .Append(" renderers ").Append(total)
+                  .Append(" (").Append(activeInHier).Append(" activeInHierarchy, ")
+                  .Append(drawing).Append(" drawing)");
+                if (haveBounds)
+                    sb.Append(" bounds c(").Append(union.center.x.ToString("F1")).Append(',')
+                      .Append(union.center.y.ToString("F1")).Append(',')
+                      .Append(union.center.z.ToString("F1"))
+                      .Append(") s(").Append(union.size.x.ToString("F1")).Append(',')
+                      .Append(union.size.y.ToString("F1")).Append(',')
+                      .Append(union.size.z.ToString("F1")).Append(')');
+
+                int listed = 0;
+                foreach (MeshRenderer mr in _subtreeScratch)
+                {
+                    if (mr == null)
+                        continue;
+                    if (listed >= MaxChildRendererSamples) { sb.Append(" …"); break; }
+                    Bounds b = mr.bounds;
+                    sb.Append(listed == 0 ? "; sample: '" : " '").Append(mr.name)
+                      .Append("'[").Append(mr.gameObject.activeInHierarchy
+                          ? (mr.enabled ? "on" : "disabled") : "off")
+                      .Append(" y").Append(b.min.y.ToString("F1")).Append("..")
+                      .Append(b.max.y.ToString("F1")).Append(']');
+                    listed++;
+                }
                 VRLog.Info(Name, sb.ToString());
             }
         }
