@@ -111,13 +111,25 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     private const int SweepIntervalFrames = 30;
 
     /// <summary>
-    /// Spawn-circle re-seat poll cadence (frames). The FFSNet participant registry may not
-    /// be populated at the first-pose recenter (LocalStableIndex → (0,1) = solo seat), so we
-    /// re-sample on this cadence and re-run Recenter only when the deterministic (idx,total)
-    /// actually changes (players finished joining, or someone left). Stable session ⇒ one
-    /// change then silent.
+    /// Spawn-ring settle poll cadence (frames). Neither the FFSNet participant registry nor the
+    /// peers' rig packets are guaranteed to have landed at the first-pose recenter, so the ring is
+    /// re-evaluated on this cheap cadence — but ONLY inside
+    /// <see cref="SpawnRingSettleSeconds"/> and at most once after the placement
+    /// (<see cref="TickSpawnRingSettle"/>).
     /// </summary>
     private const int CircleReseatIntervalFrames = 30;
+
+    /// <summary>
+    /// How long after a scenario rig is built the spawn ring may still act, seconds (unscaled).
+    ///
+    /// <para>THIS BOUND IS THE WHOLE SAFETY ARGUMENT. Placement is a JOIN comfort, not a leash:
+    /// once the player has had a few seconds at the table, their own locomotion (world grab, snap
+    /// turn, physical steps) is authoritative and nothing may ever move them again. Inside the
+    /// window we (a) retry the placement while the board or the session registry is still coming
+    /// up, and (b) allow exactly ONE correction if a peer appears after we were seated. After it,
+    /// the ring is inert for the rest of the scenario.</para>
+    /// </summary>
+    private const float SpawnRingSettleSeconds = 12f;
 
     /// <summary>What the current rig is built around (P5: menu rig added, MISSION A.7).</summary>
     private enum RigKind
@@ -162,14 +174,24 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             Instance._pendingRebuildRequest = reason;
     }
 
-    // Spawn circle (FEATURE D). The scenario rig's FLAT board yaw, frozen at BuildRig — the
-    // circle azimuth is applied on top of THIS every recenter so repeated recenters are
-    // idempotent (never accumulate). The last (idx,total) a recenter applied, and the poll
-    // countdown that re-runs the seat when that pair changes after the registry populates.
+    // SPAWN RING (multiplayer join comfort — Rig/SpawnRing.cs). The scenario rig's FLAT board yaw,
+    // frozen at BuildRig: it is the zero-knowledge fallback seat direction, so "slice 0" of the
+    // ring is the vantage the flat game would have given the player.
     private Quaternion _scenarioBaseYaw = Quaternion.identity;
-    private int _lastCircleIdx = -1;
-    private int _lastCircleTotal = -1;
+
+    // Settle-window state, all reset per rig build. _ringPlaced: the join placement has landed;
+    // _ringPeersAtPlacement: how many peer poses it saw (the trigger for the ONE correction);
+    // _ringSettled: the ring is done and will never act again this rig; _ringWindowEnd: unscaled time the window
+    // closes; _ringOutcome: why the last attempt did or did not place (log + poll bookkeeping).
+    private bool _ringPlaced;
+    private bool _ringSettled;
+    private int _ringPeersAtPlacement = -1;
+    private float _ringWindowEnd;
+    private SpawnRing.Outcome _ringOutcome = SpawnRing.Outcome.SinglePlayer;
     private int _circleReseatCountdown;
+
+    /// <summary>Cached settle-poll delegate ([Optimize] CacheTickDelegates).</summary>
+    private System.Action? _tickSpawnRingSettle;
 
     // Per-frame maintenance ticks, each routed through the shared Core.TickGuard so a
     // throw in one (most plausibly MixedReality.Tick) is isolated + attributed instead of
@@ -501,26 +523,25 @@ internal sealed partial class VRRigDriver : MonoBehaviour
                 BuildMenuRig();
         }
 
-        // Recenter once tracking delivers the first real pose (localPosition leaves zero).
+        // Recenter once tracking delivers the first real pose (localPosition leaves zero). THIS is
+        // the join placement: the only automatic caller that asks for the spawn ring.
         if (_pendingRecenter && _camera != null && _camera.transform.localPosition.sqrMagnitude > 1e-6f)
         {
-            Recenter();
+            Recenter(useSpawnRing: _kind == RigKind.Scenario);
             _pendingRecenter = false;
         }
 
-        // Spawn-circle re-seat (FEATURE D, B3 robustness): the FFSNet participant registry may
-        // not be populated at the first-pose recenter, so LocalStableIndex returns (0,1) and the
-        // player gets the solo seat. Poll on a cheap cadence while the scenario rig lives; when
-        // the deterministic (idx,total) actually changes — players finished joining, or someone
-        // left — re-run Recenter to (re)apply the azimuth. In a stable session this fires once
-        // (when the registry populates) then stays silent, so it never fights world-grab/snap-turn.
-        if (_kind == RigKind.Scenario && !_pendingRecenter && _camera != null
+        // Spawn-ring settle window (bounded — see SpawnRingSettleSeconds). Once _ringSettled
+        // latches, the whole step is gone from the frame, not merely an early return.
+        if (_kind == RigKind.Scenario && !_pendingRecenter && !_ringSettled && _camera != null
             && Plugin.SpawnInCircle.Value && --_circleReseatCountdown <= 0)
         {
             _circleReseatCountdown = CircleReseatIntervalFrames;
-            int idx = NetPlayerActors.LocalStableIndex(out int total);
-            if (idx != _lastCircleIdx || total != _lastCircleTotal)
-                Recenter();
+            // ISOLATED + ATTRIBUTED: the settle poll reads GAME singletons (the scenario tile
+            // cache) and the FFSNet registry, so a throw here must never abort the rest of the
+            // rig's Update. Cached delegate — see the _tailSteps note above.
+            TickGuard.Run("Rig.SpawnRingSettle",
+                PerfConfig.CacheDelegates ? _tickSpawnRingSettle ??= TickSpawnRingSettle : TickSpawnRingSettle);
         }
 
         // Per-frame maintenance ticks, each ISOLATED + attributed via the shared
@@ -594,9 +615,13 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         _rigRoot.transform.rotation = _scenarioBaseYaw;
         _rigRoot.transform.localScale = Vector3.one * scale;
 
-        // Force the first-pose recenter to (re)evaluate the circle seat from scratch.
-        _lastCircleIdx = -1;
-        _lastCircleTotal = -1;
+        // Force the first-pose recenter to (re)evaluate the spawn ring from scratch, and open the
+        // bounded settle window in which it may still retry / correct itself.
+        _ringPlaced = false;
+        _ringSettled = false;
+        _ringPeersAtPlacement = -1;
+        _ringOutcome = SpawnRing.Outcome.SinglePlayer;
+        _ringWindowEnd = Time.unscaledTime + SpawnRingSettleSeconds;
         _circleReseatCountdown = CircleReseatIntervalFrames;
 
         // Clip planes seeded for this scale (~5 real cm near plane) and kept

@@ -82,7 +82,7 @@ internal static partial class Loc
 
             // ---- [Rig] / [Compat] — picture & world -----------------------------------------
             ["Rig/MenuRig"] = Pair("Main menu in VR", "Hauptmenü in VR"),
-            ["Rig/SpawnInCircle"] = Pair("Seat in a circle", "Im Kreis sitzen"),
+            ["Rig/SpawnInCircle"] = Pair("Free seat around the board", "Freier Platz am Brett"),
             ["Rig/VoidColor"] = Pair("Void colour around menus", "Leerraum-Farbe um Menüs"),
             ["Rig/ForwardRendering"] = Pair("Forward rendering", "Forward-Rendering"),
             ["Compat/DisablePostProcessing"] = Pair("Disable post-processing", "Post-Processing aus"),

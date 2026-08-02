@@ -104,6 +104,27 @@ internal sealed class RemoteAvatar
     /// <summary>Head-mask holder transform.</summary>
     public Transform HeadHolder => _headHolder;
 
+    /// <summary>
+    /// The last RECEIVED head world position, i.e. the interpolation TARGET rather than
+    /// <see cref="HeadHolder"/>'s eased pose. False before the first rig packet with a valid head.
+    ///
+    /// <para>WHY THE TARGET AND NOT THE HOLDER: the only consumer is
+    /// <see cref="Rig.SpawnRing"/>, which runs in the first seconds after a join — exactly when a
+    /// freshly created avatar's holder may still be inactive or mid-ease (see
+    /// <c>UpdatePart</c>'s first-activation snap). The target is the peer's true position from the
+    /// very first packet, which is what a "where is everyone standing?" question needs.</para>
+    /// </summary>
+    public bool TryGetHeadWorld(out Vector3 position)
+    {
+        if (_hasTarget && _target.HeadValid)
+        {
+            position = _target.Head.Position;
+            return true;
+        }
+        position = Vector3.zero;
+        return false;
+    }
+
     /// <summary>Left-hand holder transform.</summary>
     public Transform LeftHandHolder => _leftHolder;
 
