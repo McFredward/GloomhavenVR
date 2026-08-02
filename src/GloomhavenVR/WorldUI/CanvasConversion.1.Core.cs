@@ -307,9 +307,16 @@ internal static partial class CanvasConversion
             // Item 3a (DECISIVE initial-flicker fix): create the host RENDER-HIDDEN and pop it in
             // only once it is treated + stable. The initial ApplyModLayer / background-hide above
             // already ran with the canvas enabled (so the main backing is disabled), and the
-            // early-settle sweep keeps re-treating every frame; disabling the canvas now guarantees
+            // early-settle sweep keeps re-treating every frame; hiding the host now guarantees
             // NO untreated frame is ever drawn while a late/faded-in backing is caught.
-            hostCanvas.enabled = false;
+            //
+            // User ruling 2026-08-02 round 2 ("Aufploppen der Greifbar und des Fensters woanders"):
+            // hide the host COMPLETELY, not just its own canvas — every nested Canvas and every
+            // Renderer in the subtree, plus the mod-drawn trees registered as extra render roots.
+            // A bare `hostCanvas.enabled = false` left the grab bar, the depth masks, the X's depth
+            // stamp and the MR backing plate drawing at the PRE-FIT pose for the whole settle
+            // window. See CanvasConversion.6.Hide.cs for the full inventory and the restore proof.
+            SetPanelRenderVisible(panel, visible: false);
             panel.RevealPending = true;
             panel.RevealNotBefore = Time.unscaledTime + RevealDelaySeconds;
             // User ruling 2026-08-02: the reveal additionally waits for the FINAL pose/scale —

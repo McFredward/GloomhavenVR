@@ -283,6 +283,41 @@ internal sealed class ConvertedPanel
     /// <summary>Last unmet settle criterion (treatment/fit/pose) — the reveal log names what the gate waited for last.</summary>
     public string RevealLastBlocker = "";
 
+    // ---- COMPLETE render hide (user ruling 2026-08-02 round 2: nothing may pop in elsewhere) ----
+    /// <summary>
+    /// True while the panel is fully render-hidden by
+    /// <see cref="CanvasConversion.SetPanelRenderVisible"/>. WHY a panel-level flag and not just
+    /// <c>HostCanvas.enabled</c>: a floated window is drawn by far more than its host canvas —
+    /// nested <see cref="Canvas"/> components (adopted game canvases, the mod X's own draw/hit
+    /// canvases) are independent render roots, and the grab bar, the depth masks, the X's depth
+    /// stamp and the MR backing plate are <see cref="Renderer"/>s that the uGUI canvas path never
+    /// touches at all. Two of those (the grab bar and the modal depth mask) do not even live under
+    /// the host — they hang off the mod-owned <see cref="GrabbableModal"/> holder, see
+    /// <see cref="ExtraRenderRoots"/>. Consumers that must not act on an invisible window
+    /// (grab affordances, MR plates) read THIS instead of guessing from the canvas.
+    /// </summary>
+    public bool RenderHidden;
+
+    /// <summary>
+    /// Mod-drawn trees that belong to this window but are NOT children of the host: today the
+    /// <see cref="GrabbableModal"/> holder (grab bar + modal depth mask), which is a scene-root
+    /// GameObject the host merely follows. The render hide walks these exactly like the host
+    /// subtree, so "everything belonging to the window" really means everything.
+    /// </summary>
+    public readonly List<Transform> ExtraRenderRoots = new(2);
+
+    /// <summary>
+    /// Canvases THIS panel's render hide turned off, in the order they were turned off. Only
+    /// components that were <c>enabled == true</c> at hide time are recorded, so the restore
+    /// re-enables exactly what the hide disabled and can never switch on something that was
+    /// deliberately off (a game-disabled sub-canvas, a closed option tab).
+    /// </summary>
+    public readonly List<Canvas> HiddenCanvases = new(8);
+
+    /// <summary>Renderers this panel's render hide turned off — same exact-restore contract as
+    /// <see cref="HiddenCanvases"/> (grab bar, depth masks, X depth stamp, MR backing plate).</summary>
+    public readonly List<Renderer> HiddenRenderers = new(8);
+
     // ---- per-host depth compose (initiative portraits blended with a floated menu) --------
     /// <summary>
     /// Set by <see cref="GrabbableModal.Build"/> when the modal already owns a coplanar depth

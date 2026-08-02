@@ -15,6 +15,13 @@ internal static partial class CanvasConversion
             return;
         Active.Remove(panel);
 
+        // User ruling 2026-08-02 round 2: undo the COMPLETE render hide FIRST. A window closed
+        // while still behind the reveal gate (fast X, escape chord, scene teardown) would otherwise
+        // be restored into 2D with the GAME's own nested canvases still disabled by us — an
+        // invisible window the game never re-enables. The restore touches exactly what the hide
+        // disabled, so on an already-revealed panel this is a no-op.
+        SetPanelRenderVisible(panel, visible: true);
+
         if (panel.HostCanvas != null)
             UguiPokeSurfaces.Unregister(panel.HostCanvas); // drops nested registrations too
 
@@ -201,6 +208,10 @@ internal static partial class CanvasConversion
             {
                 // The game destroyed the UI (scene unload) — drop our host too.
                 Active.RemoveAt(i);
+                // Same reason as in Release: never leave a surviving game-owned nested canvas
+                // disabled by our reveal hide (IsAlive can be false for reasons other than the
+                // whole subtree being gone).
+                SetPanelRenderVisible(panel, visible: true);
                 if (panel.HostCanvas != null)
                     UguiPokeSurfaces.Unregister(panel.HostCanvas);
                 DestroyHostDepthMask(panel); // mesh asset — never leaked on a scene unload either
@@ -328,6 +339,14 @@ internal static partial class CanvasConversion
     {
         float now = Time.unscaledTime;
 
+        // User ruling 2026-08-02 round 2: re-apply the COMPLETE hide before evaluating the gate.
+        // ModalFallback.Tick runs EARLIER in this same Update than CanvasConversion.Tick, and it is
+        // where the grab bar (GrabbableModal.Build) and the mod X (ModalCloseButton.Attach) are
+        // built — so on the convert frame those children exist by the time we get here and would
+        // otherwise draw at the pre-fit pose. The pass is idempotent: anything already disabled is
+        // skipped, so a steady pending panel costs one component walk and zero writes.
+        SetPanelRenderVisible(panel, visible: false);
+
         // Pose-stability tracking (criterion 3): any real change resets the stillness counter.
         Transform t = panel.HostGo.transform;
         Vector3 pos = t.position;
@@ -363,7 +382,11 @@ internal static partial class CanvasConversion
             return;
         }
 
-        panel.HostCanvas.enabled = true;
+        // ATOMIC REVEAL (user ruling 2026-08-02 round 2): host canvas, every nested canvas and
+        // every mod-drawn renderer — content, grab bar, X + its depth stamp, depth masks, MR
+        // backing plate — become visible in ONE pass, in THIS frame, at the final pose. Nothing
+        // of the window was drawable anywhere before this line.
+        SetPanelRenderVisible(panel, visible: true, out int shownCanvases, out int shownRenderers);
         panel.RevealPending = false;
         float waitedMs = (now - panel.RevealRequestedAt) * 1000f;
         string fitState = panel.FitMeasuredOnce ? "applied" : panel.FitEnabled ? "pending" : "n/a";
@@ -375,7 +398,9 @@ internal static partial class CanvasConversion
             VRLog.Info("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' shown after settle " +
                                   $"({waitedMs:F0} ms; last waited on {lastWait}; fit={fitState}, " +
                                   $"pose still for {panel.RevealPoseStableFrames} frame(s)) — revealed at " +
-                                  "its FINAL pose/scale (mod layer + background hidden) — zero-flicker pop-in.");
+                                  "its FINAL pose/scale (mod layer + background hidden) — zero-flicker " +
+                                  $"pop-in; unhid {shownCanvases} canvas(es) + {shownRenderers} renderer(s) " +
+                                  "(grab bar, X, depth masks, MR plate) in this ONE frame.");
         }
         else
         {
@@ -384,7 +409,8 @@ internal static partial class CanvasConversion
             VRLog.Warn("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' FORCED after {waitedMs:F0} ms " +
                                   $"(deadline {RevealMaxWaitSeconds * 1000f:F0} ms; still waiting on " +
                                   $"{(!treated ? "treatment" : !fitDone ? "first content fit" : "pose stillness")}; " +
-                                  $"fit={fitState}) — revealing anyway, a window must never stay invisible.");
+                                  $"fit={fitState}) — revealing anyway, a window must never stay invisible; " +
+                                  $"unhid {shownCanvases} canvas(es) + {shownRenderers} renderer(s).");
         }
     }
 
@@ -403,6 +429,16 @@ internal static partial class CanvasConversion
                 continue;
             if (panel.FlattenEnabled)
                 FlattenSubtree(panel);
+
+            // User ruling 2026-08-02 round 2 (THE hard guarantee): re-apply the complete render
+            // hide in LateUpdate — after EVERY Update ran and immediately before the frame renders.
+            // Update-time passes cannot cover children built by a tick step that runs AFTER
+            // CanvasConversion.Tick (MrBacking creates its opaque per-host backing plate there), nor
+            // anything a game script instantiates in its own Update. Whatever appeared this frame is
+            // switched off before it is ever drawn. Idempotent + change-gated: a steady pending
+            // panel costs one component walk and no writes, and only for the ≤0.6 s gate window.
+            if (panel.RevealPending)
+                SetPanelRenderVisible(panel, visible: false);
 
             // Sub-item A (INITIAL flicker — the residual): the mod-layer move + background hide
             // run from Tick() in Update, but the game instantiates / fades in / enables the

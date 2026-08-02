@@ -1,0 +1,184 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace GloomhavenVR.WorldUI;
+
+// CanvasConversion part 6 (COMPLETE render hide for the reveal gate). NEW members only —
+// appended after parts 1-5 in the filename sort, so the existing member/static-initializer
+// order (which the refactor guard tracks and part 1's header explains) is untouched.
+
+internal static partial class CanvasConversion
+{
+    // ---- the complete, atomic render hide (user ruling 2026-08-02, round 2) -----------------
+    //
+    // WHAT WAS STILL RENDERING. The reveal gate (part 4, TickRevealGate) held a freshly floated
+    // window back with `HostCanvas.enabled = false`. That switches off ONE canvas's own batch —
+    // and a floated window is drawn by a lot more than that:
+    //
+    //  * THE GRAB BAR (the user named it: "ein Aufploppen der Greifbar"). GrabbableModal.EnsureFrame
+    //    builds `GloomhavenVR.ModalGrab_<name>/Frame/Bar` — a Cube MeshRenderer at BarSortingOrder —
+    //    in a SCENE-ROOT GameObject that is not under the host at all (the host follows the frame,
+    //    not the other way round). No canvas state on earth can hide it. It is built AFTER Convert,
+    //    from the host's PRE-FIT rect (SyncBar seats it under a 1920x1080-ish frame at the pre-fit
+    //    extraScale), so it popped in far too wide and far too low, then jumped to its real place
+    //    when the fit and the 5b scale re-derivation landed ~150 ms later.
+    //  * THE MODAL DEPTH MASK (same holder tree, GrabbableModal.BuildDepthMask): a depth-WRITING
+    //    per-graphic quad mesh. Its colour blend is Zero/One so it paints nothing — but it stamps
+    //    the pre-fit window footprint into the depth buffer at queue 2999, so for those ~150 ms
+    //    every transparent thing behind that oversized rectangle failed ZTest: a window-shaped
+    //    hole in the wrong place, which is exactly "das Fenster woanders".
+    //  * THE MR BACKING PLATE (MrBacking.TickPanels): an OPAQUE plate MeshRenderer parented under
+    //    HostRect for every live converted panel while MR backings are on, gated only on
+    //    `HostGo.activeInHierarchy`. A solid dark rectangle at the pre-fit rect.
+    //  * THE MOD X's DEPTH STAMP (ModalCloseButton.BuildDepthStamp): a MeshRenderer quad under the
+    //    host — again outside the canvas path entirely.
+    //  * NESTED CANVASES: the adopted game canvases and the X's own draw/hit canvases
+    //    (ModalCloseButton, `overrideSorting = true`) are independent render roots. Whether Unity
+    //    propagates a disabled parent Canvas down to them is version/override dependent and not
+    //    worth betting the fix on — so they are disabled explicitly and restored exactly.
+    //
+    // THE MECHANISM. One helper walks the host subtree AND every registered extra render root once,
+    // switching off every enabled Canvas and every enabled Renderer it finds and RECORDING each one.
+    // The reveal switches exactly the recorded set back on, in one pass, in one frame — so the first
+    // visible frame shows the whole window (content, bar, X, masks, plate) at its final pose, and
+    // nothing is ever visible anywhere else.
+    //
+    // WHY RECORD INSTEAD OF RE-ENABLING EVERYTHING: a converted subtree is full of components that
+    // are off ON PURPOSE — a game-disabled sub-canvas (a closed option tab), a renderer some other
+    // mod system parked. Recording only components whose `enabled` was TRUE at the moment we cleared
+    // it makes the restore exact by construction: the restore set is, element for element, the set
+    // the hide changed. Graphics are NOT touched at all (a uGUI Graphic is a CanvasRenderer user, not
+    // a Renderer), so the deliberate background hide (ConvertedPanel.HiddenBackgrounds) and every
+    // other Graphic-level decision keeps its own authority.
+    //
+    // WHY IT IS RE-APPLIED EVERY FRAME WHILE PENDING: the grab bar, the X and the MR plate are all
+    // built AFTER Convert, some of them in a later tick step than CanvasConversion.Tick. The hide is
+    // idempotent (an already-disabled component is skipped, never double-recorded), so it is simply
+    // re-run from TickRevealGate (Update — catches everything ModalFallback.Tick built earlier in the
+    // same frame) and from LateTick (LateUpdate, after EVERY Update and immediately before the frame
+    // renders — the hard guarantee that covers MrBacking, which ticks after us).
+
+    // Sweep scratch (single-threaded ticks; reused, no per-frame allocation).
+    private static readonly List<Canvas> HideCanvasScratch = new(16);
+    private static readonly List<Renderer> HideRendererScratch = new(16);
+
+    /// <summary>
+    /// Register a mod-drawn tree that belongs to <paramref name="panel"/> but lives OUTSIDE the
+    /// host subtree (the <see cref="GrabbableModal"/> holder: grab bar + modal depth mask). It is
+    /// hidden and revealed with the window from then on. If the panel is ALREADY render-hidden the
+    /// new root is hidden immediately, in the same frame it was built — a late-built child must
+    /// never get one visible frame of its own.
+    /// </summary>
+    internal static void AddRenderRoot(ConvertedPanel? panel, Transform? root)
+    {
+        if (panel == null || root == null || panel.ExtraRenderRoots.Contains(root))
+            return;
+        panel.ExtraRenderRoots.Add(root);
+        if (panel.RenderHidden)
+            HideTree(panel, root, out _, out _);
+    }
+
+    /// <summary>
+    /// Make everything that belongs to <paramref name="panel"/> invisible (false) or visible
+    /// (true): the host canvas, every nested Canvas in the host subtree, every Renderer in it
+    /// (X depth stamp, host depth mask, MR backing plate) AND every registered extra render root
+    /// (grab bar, modal depth mask). See the file header for what each of those is and why the
+    /// host canvas alone was not enough.
+    ///
+    /// HIDE is idempotent and meant to be re-applied while the reveal gate is pending — components
+    /// disabled by an earlier pass are skipped, so re-running it only ever catches newly built
+    /// children. REVEAL re-enables exactly the recorded set and clears it, so calling it twice is
+    /// a no-op.
+    /// </summary>
+    /// <param name="canvasesChanged">How many Canvas components this call actually switched.</param>
+    /// <param name="renderersChanged">How many Renderer components this call actually switched.</param>
+    internal static void SetPanelRenderVisible(ConvertedPanel? panel, bool visible,
+        out int canvasesChanged, out int renderersChanged)
+    {
+        canvasesChanged = 0;
+        renderersChanged = 0;
+        if (panel == null)
+            return;
+
+        if (!visible)
+        {
+            panel.RenderHidden = true;
+            if (panel.HostGo != null)
+                HideTree(panel, panel.HostGo.transform, out canvasesChanged, out renderersChanged);
+            for (int i = panel.ExtraRenderRoots.Count - 1; i >= 0; i--)
+            {
+                Transform root = panel.ExtraRenderRoots[i];
+                if (root == null)
+                {
+                    panel.ExtraRenderRoots.RemoveAt(i); // holder destroyed with the grab
+                    continue;
+                }
+                HideTree(panel, root, out int c, out int r);
+                canvasesChanged += c;
+                renderersChanged += r;
+            }
+            return;
+        }
+
+        // Reveal: exactly the recorded set, in one pass — everything becomes visible in the SAME
+        // frame. Destroyed components (Unity fake-null) are simply skipped.
+        for (int i = 0; i < panel.HiddenCanvases.Count; i++)
+        {
+            Canvas c = panel.HiddenCanvases[i];
+            if (c == null || c.enabled)
+                continue;
+            c.enabled = true;
+            canvasesChanged++;
+        }
+        panel.HiddenCanvases.Clear();
+        for (int i = 0; i < panel.HiddenRenderers.Count; i++)
+        {
+            Renderer r = panel.HiddenRenderers[i];
+            if (r == null || r.enabled)
+                continue;
+            r.enabled = true;
+            renderersChanged++;
+        }
+        panel.HiddenRenderers.Clear();
+        panel.RenderHidden = false;
+    }
+
+    /// <summary>Convenience overload for callers that do not report counts.</summary>
+    internal static void SetPanelRenderVisible(ConvertedPanel? panel, bool visible) =>
+        SetPanelRenderVisible(panel, visible, out _, out _);
+
+    /// <summary>
+    /// One render root's hide pass: every ENABLED Canvas and every ENABLED Renderer under
+    /// <paramref name="root"/> (inclusive) is switched off and recorded on the panel. Inactive
+    /// GameObjects are skipped deliberately — they render nothing, and if the game activates one
+    /// while the gate is still pending the next re-apply pass catches it before that frame draws.
+    /// </summary>
+    private static void HideTree(ConvertedPanel panel, Transform root,
+        out int canvasesChanged, out int renderersChanged)
+    {
+        canvasesChanged = 0;
+        renderersChanged = 0;
+
+        root.GetComponentsInChildren(false, HideCanvasScratch);
+        for (int i = 0; i < HideCanvasScratch.Count; i++)
+        {
+            Canvas c = HideCanvasScratch[i];
+            if (c == null || !c.enabled)
+                continue; // already off (by us on an earlier pass, or by the game on purpose)
+            c.enabled = false;
+            panel.HiddenCanvases.Add(c);
+            canvasesChanged++;
+        }
+
+        root.GetComponentsInChildren(false, HideRendererScratch);
+        for (int i = 0; i < HideRendererScratch.Count; i++)
+        {
+            Renderer r = HideRendererScratch[i];
+            if (r == null || !r.enabled)
+                continue;
+            r.enabled = false;
+            panel.HiddenRenderers.Add(r);
+            renderersChanged++;
+        }
+    }
+}
