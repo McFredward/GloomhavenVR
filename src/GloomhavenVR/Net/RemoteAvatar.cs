@@ -82,6 +82,7 @@ internal sealed class RemoteAvatar
     private float _appliedMaskSize = -1f;
     private float _loggedMaskSize = -1f; // one log line per received CHANGE, never per packet
     private int _loggedBoardStyle = -1;  // ditto for the received control-board style
+    private bool _loggedPinned;          // ditto for the received FOLLOW/PIN state (first packet + changes)
 
     // Held-card slab (additive FlagHeldCard wire field): one both-faces-back card slab eased
     // toward the sender's held-card pose — a card in a peer's HAND, distinct from their fan.
@@ -254,6 +255,24 @@ internal sealed class RemoteAvatar
     /// only when <see cref="HasBoardUi"/>. The blink itself is animated locally at the shared
     /// period — synced state, local clock.</summary>
     public int WantedGlowMask { get; private set; }
+
+    /// <summary>
+    /// True when the sender's control board is PINNED (world-anchored) rather than FOLLOWing their
+    /// rig — the live state of the FOLLOW/PIN keycap on their board (board-UI record byte 1 bit 2).
+    /// False both for a peer who really is in FOLLOW mode and for one that predates the bit, which
+    /// is deliberate: FOLLOW is the un-accented default look every previous build already drew.
+    /// </summary>
+    public bool TrayPinned { get; private set; }
+
+    /// <summary>Index of the card the sender is SINGLING OUT in their hand fan, or -1. A position,
+    /// never an identity (extension record 6); -1 both when nothing is lifted and when the sender
+    /// predates the record — identical rendering either way.</summary>
+    public int HandHighlightIndex { get; private set; } = -1;
+
+    /// <summary>Index of the card the sender is SINGLING OUT in their open BOARD fan (item fan or
+    /// pile browser — at most one is open), or -1. Same contract as
+    /// <see cref="HandHighlightIndex"/>.</summary>
+    public int FanHighlightIndex { get; private set; } = -1;
 
     /// <summary>True when the sender transmitted the board-local anchor of their open
     /// BOARD-ANCHORED fan (extension record 5). Absent ⇒ the authored default spot.</summary>
@@ -457,6 +476,27 @@ internal sealed class RemoteAvatar
         HasBoardUi = p.HasBoardUi;
         BoardButtonsMask = p.HasBoardUi ? p.BoardButtonsMask : (byte)0;
         WantedGlowMask = p.HasBoardUi ? p.BoardOverlayMask & NetProtocol.BoardUiWantedMask : 0;
+        // FOLLOW/PIN: absent record (or a sender that predates the bit) reads as FOLLOW — the
+        // un-accented default look, which is exactly what those builds were already drawn in.
+        bool pinned = p.HasBoardUi && (p.BoardOverlayMask & NetProtocol.BoardUiPinnedBit) != 0;
+        if (pinned != TrayPinned || !_loggedPinned)
+        {
+            _loggedPinned = true;
+            TrayPinned = pinned;
+            VRLog.Info("Net", $"Tray anchor mode RECEIVED from player {PlayerId}: " +
+                              $"{(pinned ? "PINNED (world-anchored)" : "FOLLOW (rig-anchored)")} " +
+                              (p.HasBoardUi
+                                  ? "(board-UI record byte 1 bit 2)"
+                                  : "(no board-UI record — pre-record peer, default FOLLOW look)") +
+                              " — their FOLLOW/PIN keycap now reads the same on this client.");
+        }
+
+        // CARD HIGHLIGHT (extension record 6): which card the sender is lifting in each fan.
+        // Absent ⇒ -1/-1, i.e. flat fans — never a stale lift from a fan that has since closed.
+        HandHighlightIndex = p.HasCardHighlight && p.HandHighlightIndex != NetProtocol.CardHighlightNone
+            ? p.HandHighlightIndex : -1;
+        FanHighlightIndex = p.HasCardHighlight && p.FanHighlightIndex != NetProtocol.CardHighlightNone
+            ? p.FanHighlightIndex : -1;
 
         // Fan anchor (extension record 5): where the sender's open board-anchored fan really
         // sits, board-local. Reset when absent — "absent" must mean the authored default spot,

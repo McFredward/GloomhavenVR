@@ -94,6 +94,32 @@ internal sealed class CardFan
 
     internal bool Contains(VRCard card) => _cards.Contains(card);
 
+    /// <summary>
+    /// Index of the card the player is currently SINGLING OUT in this fan (lifted + enlarged +
+    /// neighbours split apart), or -1 when none is. Read off <see cref="VRCard.IsHighlighted"/> —
+    /// the very predicate the pop animation obeys — rather than off <c>_hoveredIndex</c>, so a
+    /// grabber/fingertip lift that never went through <see cref="SetHovered"/> counts too and the
+    /// answer can never disagree with what is on screen.
+    ///
+    /// Exists for the MULTIPLAYER mirror (<c>Net.NetAvatarDriver</c> broadcasts it as a bare index
+    /// — a position, never a card identity — so a peer's copy of this fan lifts the same card).
+    /// Only ONE card can be lifted at a time (the local hand arbitration and the laser both
+    /// guarantee it), so the first match is the answer.
+    /// </summary>
+    internal int HighlightedIndex
+    {
+        get
+        {
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard c = _cards[i];
+                if (c != null && !c.IsHeld && c.IsHighlighted)
+                    return i;
+            }
+            return -1;
+        }
+    }
+
     // ------------------------------------------------------------------ lifecycle --
 
     internal void Open(VRHand hand)

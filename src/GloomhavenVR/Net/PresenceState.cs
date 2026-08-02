@@ -185,8 +185,10 @@ internal struct PresenceState
     public byte BoardButtonsMask;
 
     /// <summary>Overlay byte: bits 0..1 are the wanted-slot glow mask
-    /// (<see cref="NetProtocol.BoardUiWantedMask"/>); the rest is reserved (0). Meaningful only
-    /// when <see cref="HasBoardUi"/>.</summary>
+    /// (<see cref="NetProtocol.BoardUiWantedMask"/>), bit 2 is the FOLLOW/PIN state
+    /// (<see cref="NetProtocol.BoardUiPinnedBit"/>); the rest is reserved (0). Masked with
+    /// <see cref="NetProtocol.BoardUiOverlayMask"/> on write AND on read. Meaningful only when
+    /// <see cref="HasBoardUi"/>.</summary>
     public byte BoardOverlayMask;
 
     /// <summary>
@@ -201,6 +203,22 @@ internal struct PresenceState
     /// only when <see cref="HasFanAnchor"/>). Receivers apply it as
     /// <c>boardPos + boardRot · (this × boardScale)</c>.</summary>
     public Vector3 FanAnchorLocal;
+
+    /// <summary>
+    /// True when this packet names the sender's HIGHLIGHTED cards (extension record
+    /// <see cref="NetProtocol.ExtIdCardHighlight"/>). Written only while at least one fan really
+    /// has a card singled out, so an idle player's packet stays byte-identical to the previous
+    /// build's; absence means "nothing highlighted", which is what pre-record peers render.
+    /// </summary>
+    public bool HasCardHighlight;
+
+    /// <summary>Index of the highlighted card in the sender's HAND fan, or
+    /// <see cref="NetProtocol.CardHighlightNone"/>. A POSITION, never an identity.</summary>
+    public byte HandHighlightIndex;
+
+    /// <summary>Index of the highlighted card in the sender's open BOARD fan (item fan or pile
+    /// browser — at most one is ever open), or <see cref="NetProtocol.CardHighlightNone"/>.</summary>
+    public byte FanHighlightIndex;
 }
 
 /// <summary>
@@ -233,7 +251,9 @@ internal struct PresenceState
 ///                        4 BOARD UI ([buttons][overlays] — sent on every packet with a board pose;
 ///                        see NetProtocol.ExtIdBoardUi for the bit layout),
 ///                        5 FAN ANCHOR (3 × f32 LE board-local position of the open board-anchored
-///                        fan; absent = the authored default spot, see NetProtocol.ExtIdFanAnchor)
+///                        fan; absent = the authored default spot, see NetProtocol.ExtIdFanAnchor),
+///                        6 CARD HIGHLIGHT ([hand-fan index][board-fan index], 255 = none — only
+///                        written while something is highlighted, see NetProtocol.ExtIdCardHighlight)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -265,8 +285,9 @@ internal static class PresenceSerializer
     /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
-    /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) = 88, rounded up to
-    /// 112 for headroom. Local buffer bound only — nothing on the wire depends on it.</summary>
+    /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
+    /// = 92, rounded up to 112 for headroom. Local buffer bound only — nothing on the wire
+    /// depends on it.</summary>
     public const int MaxSize = 112;
 
     // ---- write --------------------------------------------------------------------------
@@ -296,7 +317,7 @@ internal static class PresenceSerializer
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
         bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
-                          || state.HasBoardUi || state.HasFanAnchor;
+                          || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight;
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -402,7 +423,10 @@ internal static class PresenceSerializer
                     buffer[i++] = NetProtocol.ExtIdBoardUi;
                     buffer[i++] = 2;
                     buffer[i++] = state.BoardButtonsMask;
-                    buffer[i++] = (byte)(state.BoardOverlayMask & NetProtocol.BoardUiWantedMask);
+                    // Masked to the DEFINED overlay bits (wanted glow + FOLLOW/PIN): an undefined
+                    // bit must never be pre-claimed by garbage, or widening the mask later would
+                    // decode old packets as if they had opted into the new state.
+                    buffer[i++] = (byte)(state.BoardOverlayMask & NetProtocol.BoardUiOverlayMask);
                     records++;
                 }
                 if (state.HasFanAnchor)
@@ -413,6 +437,18 @@ internal static class PresenceSerializer
                     AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.x);
                     AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.y);
                     AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.z);
+                    records++;
+                }
+                if (state.HasCardHighlight)
+                {
+                    // CARD HIGHLIGHT: [hand-fan index][board-fan index], 255 = none. Unlike the
+                    // board-UI record this one is written ONLY while something is highlighted —
+                    // "absent" and "none" render identically, so an idle packet stays as small
+                    // (and as byte-identical to the previous build) as it always was.
+                    buffer[i++] = NetProtocol.ExtIdCardHighlight;
+                    buffer[i++] = 2;
+                    buffer[i++] = state.HandHighlightIndex;
+                    buffer[i++] = state.FanHighlightIndex;
                     records++;
                 }
                 buffer[countAt] = records;
@@ -613,7 +649,11 @@ internal static class PresenceSerializer
                     {
                         state.HasBoardUi = true;
                         state.BoardButtonsMask = buffer[i];
-                        state.BoardOverlayMask = (byte)(buffer[i + 1] & NetProtocol.BoardUiWantedMask);
+                        // Mask to the bits THIS build defines (wanted glow + FOLLOW/PIN). A future
+                        // sender's extra overlay bits are dropped here rather than mis-rendered,
+                        // which is the same contract that let this build add the pinned bit
+                        // without the peers that predate it noticing.
+                        state.BoardOverlayMask = (byte)(buffer[i + 1] & NetProtocol.BoardUiOverlayMask);
                     }
                     else if (id == NetProtocol.ExtIdFanAnchor && len >= 12)
                     {
@@ -630,6 +670,16 @@ internal static class PresenceSerializer
                             state.HasFanAnchor = true;
                             state.FanAnchorLocal = new Vector3(fx, fy, fz);
                         }
+                    }
+                    else if (id == NetProtocol.ExtIdCardHighlight && len >= 2)
+                    {
+                        // CARD HIGHLIGHT: two fan-local indices, never a card identity. No
+                        // validation beyond the length — the RENDERERS clamp against their own
+                        // live card count, which is the only place the bound is actually known
+                        // (a packet can legitimately arrive one frame before/after a fan resize).
+                        state.HasCardHighlight = true;
+                        state.HandHighlightIndex = buffer[i];
+                        state.FanHighlightIndex = buffer[i + 1];
                     }
                     i += len; // known or not, the record's own length is how we move past it
                 }

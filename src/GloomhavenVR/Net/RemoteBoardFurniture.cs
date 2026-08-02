@@ -70,8 +70,10 @@ namespace GloomhavenVR.Net;
 /// <remarks>CLASSIFICATION: MIXED (DELIBERATELY-NOT + PER-ACTOR MODEL + VR-ONLY-derived) — and it
 /// adds NO wire field of its own. The "NEUTRAL LOOKS" and "LOCAL-ONLY STATE" blocks called out on
 /// individual members ARE the DELIBERATELY-NOT class: the peer's own button interactability, their
-/// Confirm label, their follow/pin toggle, their drawer state and their personal tuning offsets
-/// are knowable-but-not-worth-a-field, so peers are drawn at the AUTHORED defaults. Slot occupancy
+/// Confirm label, their drawer state and their personal tuning offsets are
+/// knowable-but-not-worth-a-field, so peers are drawn at the AUTHORED defaults. The FOLLOW/PIN
+/// toggle LEFT that class this round — its two-state label/accent is synced through the board-UI
+/// record's byte 1 bit 2, at zero extra bytes. Slot occupancy
 /// and the pile stacks are PER-ACTOR MODEL; the wanted-slot pulse, snap glow and half divider are
 /// DERIVED from state the board already draws. The wire inputs are the already-synced
 /// <see cref="RemoteAvatar"/> passed to <c>Refresh</c> and the board STYLE the ctor keys the
@@ -147,7 +149,15 @@ internal sealed class RemoteBoardFurniture
     // ---- palette (verbatim from the local widgets so the boards match) -------------------------
     private static readonly Color ConfirmColor = new(0.35f, 0.46f, 0.28f); // muted sage "go"
     private static readonly Color UndoColor = new(0.44f, 0.31f, 0.20f);    // worn leather
-    private static readonly Color PinColor = new(0.58f, 0.46f, 0.26f);     // aged brass
+    /// <summary>PINNED (accented) FOLLOW/PIN cap — the <c>_accentColor</c> the local
+    /// <c>PlayTray.BuildDashboardControls</c> hands its pin button (aged brass).</summary>
+    private static readonly Color PinAccentColor = new(0.58f, 0.46f, 0.26f);
+
+    /// <summary>FOLLOW (idle) FOLLOW/PIN cap — verbatim <c>PlayTray.BoardButton.IdleColor</c>, the
+    /// warm parchment every ENABLED, un-accented keycap rests at. The remote cap used to be built
+    /// in the ACCENT colour and left there, so a peer's board showed the PINNED look with the
+    /// FOLLOW label permanently — half of defect (a).</summary>
+    private static readonly Color PinIdleColor = new(0.60f, 0.51f, 0.35f);
     private static readonly Color SkipColor = new(0.37f, 0.44f, 0.56f);    // slate
     private static readonly Color HandleColor = new(0.62f, 0.50f, 0.28f);  // brass bar
     private static readonly Color ShortRestColor = new(0.62f, 0.52f, 0.30f); // parchment-gold
@@ -221,6 +231,40 @@ internal sealed class RemoteBoardFurniture
         Cards.ControlBoard.Bronze => Defaults.DecisionOffset_Bronze,
         _ => Defaults.DecisionOffset_Oak,
     };
+
+    /// <summary>
+    /// THE SLOT-OVERLAY SEAT — defect (d) of this round ("die Kartenoverlays haben einen Versatz
+    /// auf der X-Achse, sie werden zu weit links dargestellt").
+    ///
+    /// The LOCAL glows are built as CHILDREN of the slot transform at slot-local
+    /// <c>(SlotOverlayOffset.x ± SlotOverlaySpacing/2, SlotOverlayOffset.y, base + …z)</c>
+    /// (<c>PlayTray.BuildSlotHighlights</c> / <c>BuildWantedHighlights</c>, and a card parked in
+    /// the recess takes the SAME offset through <c>SlotHomeOffsetFor</c> — that is the whole point
+    /// of the debug menu's "Overlays" element: glow and resting card move together). The remote
+    /// copies were seated on the bare recess ANCHOR and dropped that term entirely — the exact
+    /// same class of omission <see cref="RemoteBoardLayout"/> was created to end for the docks.
+    ///
+    /// On Oak the shipped values are <c>(0.002, −0.002, 0.004)</c> with a −0.008 pair spacing, so
+    /// slot 0's overlay belongs 6 mm to the RIGHT of the anchor and slot 1's 2 mm to the LEFT —
+    /// before the slot's own 1.3× <c>SlotScale</c>, which multiplies both because the local quads
+    /// hang under the scaled slot. That is the reported leftward shift, and it is asymmetric,
+    /// which is why it reads as "off" rather than as a uniform nudge.
+    ///
+    /// Returned in BOARD-local metres (the frame the remote overlays live in): the authored
+    /// slot-local values × <c>PlayTray.SlotScale</c>. The Z term is deliberately EXCLUDED — the
+    /// remote glows already carry their own proud offsets relative to the card plane, and the
+    /// authored z is the local build's equivalent of exactly that.
+    ///
+    /// As everywhere on this board, these are the SHIPPED per-board defaults keyed by the peer's
+    /// SYNCED style, never that peer's private re-tuning (DELIBERATELY-NOT).
+    /// </summary>
+    private static Vector3 SlotOverlayLocal(Cards.ControlBoard s, int slot)
+    {
+        int i = (int)Cards.ControlBoards.Clamp((int)s);
+        Vector3 ov = Cards.CardsConfig.BoardDefaults.SlotOverlayOffset[i];
+        float spread = (slot == 0 ? -0.5f : 0.5f) * Cards.CardsConfig.BoardDefaults.SlotOverlaySpacing[i];
+        return new Vector3(ov.x + spread, ov.y, 0f) * Cards.PlayTray.SlotScale;
+    }
 
     // ---------------------------------------------------------------- built pieces --
 
@@ -336,8 +380,10 @@ internal sealed class RemoteBoardFurniture
                 restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, RestCapD, LongRestColor);
         }
 
+        // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced
+        // state every refresh (SetPinned) — label AND cap colour, exactly like their own cap.
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + PinOffsetFor(style),
-            new Vector2(PinCapW, DashCapH), DashCapD, PinColor);
+            new Vector2(PinCapW, DashCapH), DashCapD, PinIdleColor);
 
         // ---- grab-handle bar -------------------------------------------------------------------
         // The local handle is a brass Cube PLUS a 62 %-wide trigger BoxCollider and a
@@ -367,13 +413,14 @@ internal sealed class RemoteBoardFurniture
 
         // ---- slot overlays: wanted pulse, snap glow, half-poke divider ------------------------
         // Centred on the CARD positions handed in by the board (the real recess anchors when the
-        // 3D asset is up), so the glow ring frames the rendered card on every board style.
+        // 3D asset is up) PLUS the authored per-board SLOT-OVERLAY seat — see SlotOverlayLocal for
+        // why dropping that term is what pushed every overlay off-centre inside the recess.
         for (int i = 0; i < 2; i++)
         {
-            Vector3 card = i == 0 ? slot0CardLocal : slot1CardLocal;
-            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", card, 1.30f, -0.003f,
+            Vector3 card = (i == 0 ? slot0CardLocal : slot1CardLocal) + SlotOverlayLocal(style, i);
+            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", card, 1.36f, -0.003f,
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
-            _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, 1.18f, -0.005f,
+            _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, 1.24f, -0.005f,
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
             _halves[i] = BuildHalfDivider($"HalfDivider{i}", card);
         }
@@ -440,6 +487,15 @@ internal sealed class RemoteBoardFurniture
                 SetShown(_decision, true);
             }
         }
+
+        // ---- FOLLOW / PIN toggle (defect (a)) -------------------------------------------------
+        // The owner's tray anchor mode now rides the board-UI record (byte 1 bit 2), so this cap
+        // shows their ACTUAL state instead of one fixed look: "FIXIERT"/"PINNED" on the accented
+        // brass cap while their board is world-anchored, "FOLGEN"/"FOLLOW" on the parchment idle
+        // cap while it follows their rig — the same label/colour pair their own BoardButton wears
+        // (PlayTray: SetLabel(follow/pinned) + SetState(accent: !TrayFollow)). A sender that
+        // predates the bit reads as FOLLOW, which is the look every previous build already drew.
+        SetPinned(owner.TrayPinned);
 
         // ---- item-use USE cap + recess ARMED look ---------------------------------------------
         // SYNCED: the USE cap is its own wire bit (it exists on the owner's board only while a
@@ -531,8 +587,26 @@ internal sealed class RemoteBoardFurniture
         StateLine = $"use={(armed ? "armed" : "idle")}, " +
                     $"buttons={(synced ? "0x" + owner.BoardButtonsMask.ToString("X2") : "legacy")}, " +
                     $"wanted={wantedMask}{(synced ? "(synced)" : string.Empty)}, snap={snapMask}, " +
-                    $"halves={halfMask}";
+                    $"halves={halfMask}, " +
+                    $"tray={(owner.TrayPinned ? "PINNED" : "FOLLOW")}{(synced ? "(synced)" : "(default)")}";
         _ = actor; // reserved: no per-actor furniture state is knowable beyond the slots (see notes)
+    }
+
+    /// <summary>Last applied FOLLOW/PIN state (null = nothing written yet, so the first refresh
+    /// always states it). Change-gated because both writes it drives — a TMP label and three
+    /// material colours — are exactly the per-tick churn the 4 Hz cadence exists to avoid.</summary>
+    private bool? _shownPinned;
+
+    /// <summary>Apply the owner's tray anchor mode to the inert FOLLOW/PIN cap: the local board's
+    /// own label pair (<c>Loc.Mod("follow")</c> / <c>Loc.Mod("pinned")</c>) and its own colour pair
+    /// (idle parchment / accent brass). See the call site in <see cref="Refresh"/>.</summary>
+    private void SetPinned(bool pinned)
+    {
+        if (_shownPinned == pinned)
+            return;
+        _shownPinned = pinned;
+        _pin.SetLabel(pinned ? Loc.Mod("pinned") : Loc.Mod("follow"));
+        _pin.SetTint(pinned ? PinAccentColor : PinIdleColor);
     }
 
     /// <summary>Change-safe activeSelf flip for a plain furniture root.</summary>
@@ -557,15 +631,22 @@ internal sealed class RemoteBoardFurniture
     ///   • CONFIRM's live label — the local cap re-reads the game widget's own text every tick
     ///     (16 <c>ReadyButton.EButtonState</c> values: "Continue", "Perform long rest", …). Drawn
     ///     with the neutral GUI_CONFIRM wording.
-    ///   • The FOLLOW/PIN toggle — the peer's <c>[Cards] TrayFollow</c> is a private VR preference
-    ///     of theirs. Drawn in the DEFAULT (FOLLOW, un-accented) look.
+    ///
+    /// The FOLLOW/PIN toggle is NO LONGER on that list: its label and accent are SYNCED (board-UI
+    /// record byte 1 bit 2) and applied in <see cref="SetPinned"/>, so this method only seeds the
+    /// wording. Calling <c>[Cards] TrayFollow</c> "a private VR preference" was the mistake — it is
+    /// a labelled two-state control on a board the user requires to read 1:1 like its owner's.
     /// </summary>
     private void ApplyLabels()
     {
         _confirm.SetLabel(Loc.Game("GUI_CONFIRM", "Confirm"));
         _undo.SetLabel(Loc.Game("GUI_UNDO", "Undo"));
         _use.SetLabel(Loc.Game("GUI_USE", "USE").ToUpperInvariant());
-        _pin.SetLabel(Loc.Mod("follow"));
+        // FOLLOW/PIN is SYNCED state now (see SetPinned), so a language switch must re-state the
+        // CURRENT mode's word, not the FOLLOW one — and must re-arm the change gate so the next
+        // refresh re-applies it in the new language.
+        _pin.SetLabel(_shownPinned == true ? Loc.Mod("pinned") : Loc.Mod("follow"));
+        _shownPinned = null;
         // GUI_SKIP_MOVEMENT is the key SkipButton.Start() seeds its own label from; the live button
         // swaps in GUI_SKIP_ABILITY / GUI_SKIP_ATTACK per situation, which is peer-local state.
         _skip.SetLabel(Loc.Game("GUI_SKIP_MOVEMENT", "Skip"));
@@ -759,6 +840,17 @@ internal sealed class RemoteBoardFurniture
         private readonly TextMeshPro _label;
         private string _shown = string.Empty;
 
+        /// <summary>The cap's three live material instances (top plateau / bright bevel / dark
+        /// warm wall) so a STATE colour change can be re-applied to all three at once — the local
+        /// <c>BoardButton.SetCapColor</c> drives exactly the same trio, which is what makes an
+        /// accented remote cap read identically to an accented local one. Null entries on the
+        /// round discs (one material) and whenever no cap shader resolved.</summary>
+        private Material? _topMat, _bevelMat, _wallMat;
+
+        /// <summary>Change gate for <see cref="SetTint"/> — a material write per 4 Hz refresh is
+        /// exactly the churn the cadence exists to avoid.</summary>
+        private Color _tint = new(-1f, -1f, -1f, -1f);
+
         /// <summary>World position of the cap centre (build-time layout math — the USE cap centres
         /// between Confirm and Undo across two different parent anchors).</summary>
         public Vector3 WorldPosition => _go.transform.position;
@@ -793,19 +885,24 @@ internal sealed class RemoteBoardFurniture
                 Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, CapBevel);
             var mr = capMesh.AddComponent<MeshRenderer>();
             Shader? shader = CapShader();
+            Material? top = null, bevel = null, wall = null;
             if (shader != null)
             {
-                mr.sharedMaterials = new[]
-                {
-                    Cards.PlayTray.NewKeycapMaterial(shader, color),              // [0] top plateau
-                    Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(color)),   // [1] bright bevel
-                    Cards.PlayTray.NewKeycapMaterial(shader, WallTint(color)),    // [2] dark warm wall
-                };
+                top = Cards.PlayTray.NewKeycapMaterial(shader, color);            // [0] top plateau
+                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(color)); // [1] bright bevel
+                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(color));   // [2] dark warm wall
+                mr.sharedMaterials = new[] { top, bevel, wall };
             }
 
             TextMeshPro label = BuildLabel(go.transform, size,
                 new Vector3(0f, 0f, CapRestZ - capThick - 0.001f));
-            return new InertCap(go, label);
+            return new InertCap(go, label)
+            {
+                _topMat = top,
+                _bevelMat = bevel,
+                _wallMat = wall,
+                _tint = color,
+            };
         }
 
         /// <summary>The round disc cap (rest discs, turn-flow Skip): recessed well ring + smooth
@@ -906,6 +1003,22 @@ internal sealed class RemoteBoardFurniture
         {
             if (_go.activeSelf != shown)
                 _go.SetActive(shown);
+        }
+
+        /// <summary>
+        /// Re-tint the cap to a STATE colour — the inert counterpart of the local
+        /// <c>BoardButton.SetCapColor</c>, driving the same three submesh materials with the same
+        /// two derived tints, so an accented cap on a peer's board is the same colour as the
+        /// accented cap on its owner's. Change-gated; a no-op on a cap whose shader never resolved.
+        /// </summary>
+        public void SetTint(Color color)
+        {
+            if (color == _tint)
+                return;
+            _tint = color;
+            if (_topMat != null) _topMat.color = color;
+            if (_bevelMat != null) _bevelMat.color = BevelTint(color);
+            if (_wallMat != null) _wallMat.color = WallTint(color);
         }
     }
 

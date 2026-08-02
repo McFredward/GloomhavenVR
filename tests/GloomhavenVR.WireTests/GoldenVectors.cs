@@ -441,15 +441,114 @@ internal static class GoldenVectors
         t.True(bu.FanAnchorLocal == new Vector3(0.5f, 0.25f, -0.125f),
                "with the exact board-local position");
 
-        // Overlay hygiene: only the wanted bits (0..1) are wire state — the writer masks the
-        // reserved bits so a future use of them cannot be pre-claimed by garbage, and the reader
-        // masks again (never trust the wire).
+        // Overlay hygiene: only the DEFINED overlay bits are wire state — bits 0..1 (wanted-slot
+        // glow) and bit 2 (FOLLOW/PIN). The writer masks the still-reserved bits so a future use of
+        // them cannot be pre-claimed by garbage, and the reader masks again (never trust the wire).
         m = PresenceSerializer.Write(new PresenceState
         {
             HasBoardUi = true, BoardButtonsMask = 0x01, BoardOverlayMask = 0xFE,
         }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ov), "overlay-mask packet parses");
-        t.Equal((byte)0x02, ov.BoardOverlayMask, "reserved overlay bits are masked off (0xFE -> 0x02)");
+        t.Equal((byte)0x06, ov.BoardOverlayMask,
+                "undefined overlay bits are masked off, the defined ones survive (0xFE -> 0x06)");
+
+        // -- 7f. FOLLOW/PIN (board-UI byte 1 bit 2) ----------------------------------------
+        // The cross-version contract in both directions, byte-exact.
+        //   * A PINNED sender emits bit 2, and only bit 2 — no length change, no new record.
+        //   * A pre-bit sender's byte 1 has it CLEAR, which must decode as FOLLOW (the
+        //     un-accented default look every earlier build already drew), never as garbage.
+        t.Case("7f. extras, FOLLOW/PIN state");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x00,
+            BoardOverlayMask = NetProtocol.BoardUiPinnedBit,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            04 02 00 04      // record: id 4 (board UI), len 2, buttons 0x00, overlays 0x04 = PINNED
+            "), ext, m, "the pinned bit rides byte 1 of the EXISTING board-UI record — zero new bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState pin), "and it parses");
+        t.Equal((byte)NetProtocol.BoardUiPinnedBit, pin.BoardOverlayMask, "PINNED survives the round trip");
+        t.Equal((byte)0x00, (byte)(pin.BoardOverlayMask & NetProtocol.BoardUiWantedMask),
+                "and it does not bleed into the wanted-slot glow mask");
+
+        // A pre-bit sender: byte 1 = only a wanted-glow bit. Bit 2 clear == FOLLOW.
+        byte[] preBit = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 04 02 B5 01");
+        t.True(PresenceSerializer.TryRead(preBit, preBit.Length, out PresenceState preState),
+               "a pre-pinned-bit board-UI record still parses");
+        t.Equal((byte)0x01, preState.BoardOverlayMask, "its overlay byte survives unchanged");
+        t.True((preState.BoardOverlayMask & NetProtocol.BoardUiPinnedBit) == 0,
+               "and reads as FOLLOW — the look those builds were already drawn in");
+
+        // -- 7g. CARD HIGHLIGHT (extension record 6) ---------------------------------------
+        // Two fan-local INDICES, never a card identity. Written only while something is
+        // highlighted, so an idle packet stays byte-identical to the previous build's.
+        t.Case("7g. extras, card-highlight record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCardHighlight = true, HandHighlightIndex = 3,
+            FanHighlightIndex = NetProtocol.CardHighlightNone,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            06 02 03 FF      // record: id 6, len 2, hand index 3, board fan index 255 (none)
+            "), ext, m, "the card-highlight record is [id][len][hand index][board-fan index]");
+        t.Equal(15, m, "header 7 + count 1 + block 2 + tail 1 + 4 = 15 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hl), "and it parses");
+        t.True(hl.HasCardHighlight, "the highlight record is delivered");
+        t.Equal((byte)3, hl.HandHighlightIndex, "with the hand-fan index intact");
+        t.Equal(NetProtocol.CardHighlightNone, hl.FanHighlightIndex, "and 'none' for the board fan");
+
+        // The record is ORDERED behind the fan anchor, so a packet carrying both is byte-exact
+        // in the documented id order (4, 5, 6) — a reorder in Write would show up right here.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x01, BoardOverlayMask = 0x00,
+            HasFanAnchor = true, FanAnchorLocal = new Vector3(0.5f, 0.25f, -0.125f),
+            HasCardHighlight = true, HandHighlightIndex = NetProtocol.CardHighlightNone,
+            FanHighlightIndex = 7,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            03               // tail: 3 records, in id order
+            04 02 01 00      // id 4 board UI
+            05 0C 0000003F 0000803E 000000BE   // id 5 fan anchor
+            06 02 FF 07      // id 6 card highlight
+            "), ext, m, "records ride the tail in id order: board UI, fan anchor, card highlight");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState all), "and all three parse");
+        t.Equal((byte)7, all.FanHighlightIndex, "the board-fan highlight index survives");
+
+        // An idle player emits NO record at all — the whole point of gating it on "something is
+        // really highlighted" (a peer that predates the record renders the same flat fans).
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "nothing highlighted -> no block, no tail, no record: byte-identical to build 20");
+
+        // Encoder clamp: a negative or out-of-range index can never single out the wrong card.
+        t.Equal(NetProtocol.CardHighlightNone, NetProtocol.EncodeHighlightIndex(-1),
+                "index -1 (nothing hovered) encodes as 'none'");
+        t.Equal(NetProtocol.CardHighlightNone, NetProtocol.EncodeHighlightIndex(255),
+                "an index at the sentinel encodes as 'none' rather than colliding with it");
+        t.Equal((byte)254, NetProtocol.EncodeHighlightIndex(254), "the last real index survives");
+
+        // A truncated highlight record abandons the tail without delivering half a value.
+        byte[] cutHl = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 06 02 03");
+        t.True(PresenceSerializer.TryRead(cutHl, cutHl.Length, out PresenceState cutHlState),
+               "a truncated highlight record still parses the packet");
+        t.True(!cutHlState.HasCardHighlight, "and the incomplete record is simply not delivered");
 
         // A NaN fan-anchor component from a hostile/corrupt sender must not place a fan at NaN:
         // the record is dropped (reads as absent = the authored default spot), the packet parses.

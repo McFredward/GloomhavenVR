@@ -118,4 +118,26 @@ internal static class RemoteBoardContent
         if (tmp != null && tmp.text != text)
             tmp.text = text;
     }
+
+    /// <summary>
+    /// A LIT material on the same shader ladder the LOCAL board's own furniture uses
+    /// (<c>PlayTray.BoardLitShader()</c> → Standard → Diffuse → Sprites/Default, i.e. verbatim
+    /// <c>PlayTray.Tint</c>'s non-overlay branch).
+    ///
+    /// WHY IT EXISTS NEXT TO <see cref="BoardVisual.Unlit"/>: unlit is the right default for the
+    /// mod's OWN cosmetics (they must read the same regardless of the scenario's lighting), but it
+    /// is the wrong default for a surface whose whole job is to look like a piece of the owner's
+    /// board. An unlit copy of a lit, dark plate renders it at full brightness — flat and matte
+    /// beside a shaded board — which is exactly how the round readout's backing became the "grey
+    /// box" the owner does not perceive (defect (c) of the 1:1-parity round). A part that mirrors a
+    /// LIT part of the local board must be lit too, or the copy is brighter than the original by
+    /// construction.
+    /// </summary>
+    internal static Material BoardLit(Color color)
+    {
+        Shader? shader = Cards.PlayTray.BoardLitShader()
+                         ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse")
+                         ?? Shader.Find("Sprites/Default");
+        return shader != null ? new Material(shader) { color = color } : BoardVisual.Unlit(color);
+    }
 }

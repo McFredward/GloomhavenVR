@@ -110,6 +110,12 @@ internal sealed class RemoteWidgetMirror
     /// the fit is skipped for this tick rather than applied to nonsense.</summary>
     private const float MinMeasuredPixels = 1f;
 
+    /// <summary>Effective-alpha floor a graphic must clear to size the fallback union — verbatim
+    /// <c>CanvasConversion.FitMinAlpha</c>, the value the LOCAL dock's own content fit uses. Kept
+    /// here as a literal for the same reason the density clamps above are: this file must not
+    /// widen WorldUI's internal surface to read three constants.</summary>
+    private const float FitMinAlpha = 0.05f;
+
     // ---------------------------------------------------------------- built state --
 
     private readonly string _name;
@@ -118,6 +124,12 @@ internal sealed class RemoteWidgetMirror
     private readonly float _mountMaxHeight; // tray-local metres
     private readonly Vector2 _grow;         // which way the panel extends from the mount origin
     private readonly bool _fitWidth;        // does the width budget take part in the uniform fit?
+
+    /// <summary>Per-panel multiplier on the shared tray density — verbatim
+    /// <c>TrayMountedPanelSurface.DensityScale</c>, which the objectives dock overrides to 0.6
+    /// (same content pixels onto ~1.67× more tray metres). A mirror that ignored it would draw a
+    /// peer's objectives at 60 % of the size their owner reads them at.</summary>
+    private readonly float _densityScale;
 
     private GameObject? _host;              // world-space canvas host (child of _mount)
     private RectTransform? _pivot;          // recentring frame (child of _host); see EnsureHost
@@ -145,6 +157,11 @@ internal sealed class RemoteWidgetMirror
     /// it is.</summary>
     public string Reason { get; private set; } = "not built";
 
+    /// <summary>Which measure produced the last applied fit ("converted host rect" = the OWNER's
+    /// own dock rect, "graphics union" = this class's fallback). Surfaced in the per-peer board
+    /// content line so a "the panel sits too high" report is answerable from the log alone.</summary>
+    public string MeasurePath => _measurePath;
+
     /// <summary>
     /// Create a mirror that will host its clone under <paramref name="mount"/> (a board-local
     /// anchor the CALLER owns and positions from the authored per-style layout), fitted into
@@ -159,8 +176,10 @@ internal sealed class RemoteWidgetMirror
     /// constant header overhang. That was a real, hardware-diagnosed defect on the LOCAL panel; a
     /// mirror that fitted differently would render the same content at a different size.
     /// </summary>
+    /// <param name="densityScale">Mirror of <c>TrayMountedPanelSurface.DensityScale</c> — 1 for
+    /// every dock except the objectives, which renders at 0.6 (bigger glyphs on more tray metres).</param>
     public RemoteWidgetMirror(string name, Transform mount, float mountWidth, float mountMaxHeight,
-        Vector2 grow, bool fitWidth = true)
+        Vector2 grow, bool fitWidth = true, float densityScale = 1f)
     {
         _name = name;
         _mount = mount;
@@ -168,6 +187,7 @@ internal sealed class RemoteWidgetMirror
         _mountMaxHeight = mountMaxHeight;
         _grow = grow;
         _fitWidth = fitWidth;
+        _densityScale = densityScale > 0f ? densityScale : 1f;
     }
 
     /// <summary>
@@ -517,11 +537,11 @@ internal sealed class RemoteWidgetMirror
             return;
 
         AdoptParentRect(_source);
-        if (!TryMeasure(out Bounds b))
+        if (!TryMeasureDock(out Vector2 sizePx, out Vector2 centerPx))
             return; // mid-layout / nothing visible: keep the previous fit rather than a degenerate one
-        float w = b.size.x, h = b.size.y;
+        float w = sizePx.x, h = sizePx.y;
 
-        float density = PlayTray.TrayPixelsPerMeter;
+        float density = PlayTray.TrayPixelsPerMeter * _densityScale;
         float heightFit = _mountMaxHeight * density / h;
         float fit = Mathf.Clamp(
             _fitWidth ? Mathf.Min(_mountWidth * density / w, heightFit) : heightFit,
@@ -536,7 +556,7 @@ internal sealed class RemoteWidgetMirror
 
         // Centre the measured content on the host origin — by moving the PIVOT, never the clone
         // (see EnsureHost for why touching the clone root's anchors would rewrite its layout).
-        _pivot.anchoredPosition = new Vector2(-b.center.x, -b.center.y);
+        _pivot.anchoredPosition = new Vector2(-centerPx.x, -centerPx.y);
 
         LogFit(w, h, fit, metersPerPx);
     }
@@ -561,12 +581,102 @@ internal sealed class RemoteWidgetMirror
         VRLog.Info("Net", $"Remote board '{_name}' mirror fitted: {size.x:F3}x{size.y:F3} m " +
                           $"({w:F0}x{h:F0} px), glyph scale {metersPerPx * 1000f:F4} mm/px " +
                           $"(fit {fit:F3}), budget {_mountWidth:F3}x{_mountMaxHeight:F3} m, " +
-                          $"mount-local {_host!.transform.localPosition:F3} under '{_mount.name}'.");
+                          $"measured via {_measurePath}, " +
+                          $"mount-local {_host!.transform.localPosition:F3} under '{_mount.name}' " +
+                          $"(mount board-local {_mount.localPosition:F3}, grow {_grow}). " +
+                          "'via converted host rect' means this panel is fitted to the EXACT rect " +
+                          "the OWNER's own dock uses (TrayMountedPanelSurface.Place reads the same " +
+                          "number), so its size and its lift above the mount are theirs by " +
+                          "construction; 'via graphics union' is the fallback measure for a source " +
+                          "that is not a converted panel — a panel sitting too high/low is a " +
+                          "measure question and this line says which measure produced it.");
     }
 
     /// <summary>Corner scratch for <see cref="TryMeasure"/> (<c>GetWorldCorners</c> fills a caller
     /// buffer, so the measure allocates nothing).</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
+
+    /// <summary>Which of the two measure paths produced the last applied fit — stated in the fit
+    /// log so a hardware run says whether the mirror matched the owner's dock exactly or fell back
+    /// to its own union. See <see cref="TryMeasureDock"/>.</summary>
+    private string _measurePath = "none";
+
+    /// <summary>
+    /// THE PANEL'S DOCK GEOMETRY — defect (b) of this round ("die gespiegelte Initiativleiste sitzt
+    /// VIEL zu hoch über dem Brett").
+    ///
+    /// ─── WHAT WENT WRONG ───────────────────────────────────────────────────────────────────────
+    /// A docked panel's world position is <c>mount + grow · size/2</c>: the SIZE is what lifts the
+    /// initiative track above the board's top edge. The owner's dock takes that size from
+    /// <c>Panel.HostRect.rect</c> — the rect <c>CanvasConversion.FitHostToContent</c> already
+    /// fitted to the panel's visible content, with the content re-centred inside it. This mirror
+    /// instead re-derived a size from its own union of clone graphics, using a much laxer
+    /// visibility test than the one the local fit uses (alpha &gt; 0.001 instead of an EFFECTIVE
+    /// alpha ≥ 0.05, no <c>CanvasRenderer.cull</c> test, no clipper clamp) and an oversize guard
+    /// that required a graphic to blow BOTH budgets — which a full-screen element cannot do
+    /// against the track's 0.64 m wide dock (3 × 0.64 m × 2400 px/m = 4608 px, wider than any
+    /// screen). So the track's own full-canvas blocker rode into the union, the height ballooned
+    /// past the budget, the fit clamped at <see cref="MinDensityScale"/>, and the panel was drawn
+    /// half-size and lifted by half of a screen-sized height. Exactly the symptom.
+    ///
+    /// ─── THE FIX: MEASURE WHAT THE OWNER'S DOCK MEASURES ───────────────────────────────────────
+    /// PRIMARY — when the source is a CONVERTED panel (which is what both mirrored widgets are in
+    /// VR: the game's own track/objectives canvas, moved onto a WorldUI world-space host), its
+    /// fitted HOST RECT is available directly, and it is the very number
+    /// <c>TrayMountedPanelSurface.Place</c> feeds into the same formula. Using it makes the
+    /// mirrored panel geometrically identical to the owner's dock BY CONSTRUCTION rather than by
+    /// two measurements agreeing — and the centre is zero, because that fit already re-centred the
+    /// content on the host origin (the pivot is sized to that same rect, see AdoptParentRect).
+    ///
+    /// FALLBACK — the graphics union, for a source that is not converted (flat mode, conversion
+    /// disabled, mid-conversion frames), now with the LOCAL fit's own visibility rules.
+    /// </summary>
+    private bool TryMeasureDock(out Vector2 sizePx, out Vector2 centerPx)
+    {
+        sizePx = default;
+        centerPx = Vector2.zero;
+
+        if (TryDockRect(out Vector2 dock))
+        {
+            _measurePath = "converted host rect";
+            sizePx = dock;
+            return true;
+        }
+
+        if (!TryMeasure(out Bounds b))
+            return false;
+        _measurePath = "graphics union";
+        sizePx = new Vector2(b.size.x, b.size.y);
+        centerPx = new Vector2(b.center.x, b.center.y);
+        return true;
+    }
+
+    /// <summary>
+    /// The fitted HOST RECT of the converted panel whose target is our mirror source, in uGUI
+    /// pixels. False when the source is not a converted panel or its host rect is still degenerate
+    /// (pre-fit / mid-teardown), so the caller falls back to its own union.
+    ///
+    /// A linear walk over <c>CanvasConversion.ActivePanels</c> — a handful of entries, on the 4 Hz
+    /// content cadence. Read-only: nothing here touches the panel, its host or its target.
+    /// </summary>
+    private bool TryDockRect(out Vector2 sizePx)
+    {
+        sizePx = default;
+        System.Collections.Generic.IReadOnlyList<WorldUI.ConvertedPanel> panels =
+            WorldUI.CanvasConversion.ActivePanels;
+        for (int i = 0; i < panels.Count; i++)
+        {
+            WorldUI.ConvertedPanel p = panels[i];
+            if (p == null || p.HostRect == null || !ReferenceEquals(p.Target, _source))
+                continue;
+            Rect r = p.HostRect.rect;
+            if (r.width < MinMeasuredPixels || r.height < MinMeasuredPixels)
+                return false; // converted but not fitted yet — keep the previous fit
+            sizePx = new Vector2(r.width, r.height);
+            return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// The panel's extent, in clone-root pixel space: the UNION OF VISIBLE GRAPHICS, not the root's
@@ -581,10 +691,20 @@ internal sealed class RemoteWidgetMirror
     /// so this does too — and it is nearly free here, because the graphics are already resolved in
     /// <see cref="Pair"/>.
     ///
-    /// A graphic larger than the dock budget on BOTH axes is skipped: that is a full-screen blocker
-    /// or backdrop (the initiative track owns one for its enemy-card reveal), which by definition
-    /// cannot be part of what fits into a 0.26–0.64 m dock, and letting it into the union would
-    /// collapse the whole panel to the minimum density for as long as it is up.
+    /// VISIBILITY IS THE LOCAL FIT'S TEST, VERBATIM (<c>CanvasConversion.TryGetVisibleHostRect</c>):
+    /// enabled, a live <c>CanvasRenderer</c> that is not culled, an EFFECTIVE alpha (own colour ×
+    /// the inherited CanvasGroup alpha) at or above <see cref="FitMinAlpha"/>, and a non-degenerate
+    /// draw rect. The laxer test this used to run — <c>color.a &gt; 0.001</c>, no cull test, no
+    /// inherited alpha — is half of why a faded-out full-canvas element could inflate the union
+    /// (defect (b)); an invisible click-catcher stays clickable but must not size a panel.
+    ///
+    /// A graphic larger than the dock budget on EITHER axis is skipped: that is a full-screen
+    /// blocker or backdrop (the initiative track owns one for its enemy-card reveal — an always-
+    /// active <c>Graphic</c> that only toggles <c>raycastTarget</c>), which by definition cannot be
+    /// part of what fits into a 0.26–0.64 m dock, and letting it into the union would collapse the
+    /// whole panel to the minimum density for as long as it is up. It used to require BOTH axes,
+    /// which no screen-sized element can satisfy against a 0.64 m budget (3 × 0.64 × 2400 = 4608 px
+    /// — wider than any screen), so the guard never once fired: the other half of defect (b).
     /// </summary>
     private bool TryMeasure(out Bounds bounds)
     {
@@ -592,7 +712,7 @@ internal sealed class RemoteWidgetMirror
         if (_pivot == null)
             return false;
 
-        float density = PlayTray.TrayPixelsPerMeter;
+        float density = PlayTray.TrayPixelsPerMeter * _densityScale;
         float maxW = _mountWidth * density * OversizeFactor;
         float maxH = _mountMaxHeight * density * OversizeFactor;
 
@@ -602,11 +722,17 @@ internal sealed class RemoteWidgetMirror
         {
             RectTransform? rect = pairs[i].DstRect;
             Graphic? g = pairs[i].DstGraphic;
-            if (rect == null || g == null || !g.enabled || g.color.a <= 0.001f
-                || !rect.gameObject.activeInHierarchy)
+            if (rect == null || g == null || !g.enabled || !rect.gameObject.activeInHierarchy)
+                continue;
+            CanvasRenderer cr = g.canvasRenderer;
+            if (cr == null || cr.cull)
+                continue;
+            if (g.color.a * cr.GetInheritedAlpha() < FitMinAlpha)
                 continue;
             Rect r = rect.rect;
-            if (r.width >= maxW && r.height >= maxH)
+            if (r.width < 0.5f || r.height < 0.5f)
+                continue; // collapsed layout cell / empty stretch container
+            if (r.width >= maxW || r.height >= maxH)
                 continue; // full-screen blocker / backdrop — see the note above
 
             rect.GetWorldCorners(CornerScratch);

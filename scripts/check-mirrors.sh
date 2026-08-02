@@ -61,6 +61,23 @@ MIRRORS=(
   "keycap wall tint factor : Cards/PlayTray.7.Nested.cs:WallTintFactor Net/RemoteBoardFurniture.cs:WallTintFactor"
   "keycap wall warm lerp : Cards/PlayTray.7.Nested.cs:WallWarmLerp Net/RemoteBoardFurniture.cs:WallWarmLerp"
   "keycap bevel highlight lerp : Cards/PlayTray.7.Nested.cs:BevelLerp Net/RemoteBoardFurniture.cs:BevelLerp"
+  # Same story for the FOLLOW/PIN toggle's two STATE colours: the idle parchment
+  # (PlayTray.BoardButton.IdleColor) and the accent brass (the _accentColor BuildDashboardControls
+  # hands its pin button) are Color statics, which this float/string extractor cannot read — they
+  # are mirrored as Net/RemoteBoardFurniture.PinIdleColor / PinAccentColor and called out in both
+  # doc comments. The remote cap switches between them from the synced pinned bit, so retuning the
+  # local pair and not the remote pair makes a peer's toggle read the wrong state colour.
+
+  # The DOCK FIT, mirrored by the remote board's widget mirror. A peer's initiative track and
+  # objectives panel are fitted by Net/RemoteWidgetMirror with the same three numbers
+  # WorldUI's TrayMountedPanelSurface fits the local docks with — that is what makes a mirrored
+  # panel the same SIZE, and (because the panel's lift above its mount is half its own height)
+  # the same POSITION. They are private to their own layers by design; the price is these
+  # mirrors. A drift here reproduces exactly the defect the mirror was rewritten to fix
+  # (a peer's track floating far above their board).
+  "dock fit floor : WorldUI/Surfaces/TablePanelSurfaces.cs:MinDensityScale Net/RemoteWidgetMirror.cs:MinDensityScale"
+  "dock fit ceiling : WorldUI/Surfaces/TablePanelSurfaces.cs:MaxDensityScale Net/RemoteWidgetMirror.cs:MaxDensityScale"
+  "content-fit alpha floor : WorldUI/CanvasConversion.3.Fit.cs:FitMinAlpha Net/RemoteWidgetMirror.cs:FitMinAlpha"
 
   # The graphics-jobs handshake: the PRELOADER publishes what the engine actually booted
   # with (read before it edits boot.config) and the PLUGIN reports it. They are separate

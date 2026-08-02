@@ -100,7 +100,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     /// at 0.25 m it already spans both slots and the glow is the primary accept
     /// rule anyway.
     /// </summary>
-    private const float SlotScale = 1.3f;
+    /// <remarks>INTERNAL, not private: a peer's remote board reproduces the slot overlays in
+    /// BOARD-local space and therefore has to multiply the authored SLOT-local overlay offsets by
+    /// this factor (<c>Net.RemoteBoardFurniture.SlotOverlayLocal</c>). Copying the literal over
+    /// there is what the remote board's whole layout class exists to stop.</remarks>
+    internal const float SlotScale = 1.3f;
 
     /// <summary>
     /// The live tray instance (test #15 dashboard mount seam): WorldUI surfaces read

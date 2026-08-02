@@ -92,6 +92,11 @@ internal sealed class RemoteInitiativeTrack
     /// <summary>Why the real widget is not being mirrored, for the diagnostic line (empty when it is).</summary>
     public string Reason => _mirror.Reason;
 
+    /// <summary>The RESOLVED seat of this dock for the per-peer board log: the board-local mount
+    /// position the authored layout put it at, and which measure sized the mirrored panel that
+    /// grows up from it (the two numbers a "sits far too high" report is decided by).</summary>
+    public string SeatLine => $"mount={_root.localPosition:F3} via {_mirror.MeasurePath}";
+
     public RemoteInitiativeTrack(Transform boardRoot, in RemoteBoardLayout layout)
     {
         _root = new GameObject("InitiativeTrack").transform;

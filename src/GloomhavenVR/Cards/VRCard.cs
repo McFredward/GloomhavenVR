@@ -690,6 +690,22 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private bool _laserPopped;
 
     /// <summary>
+    /// True while this card is visually SINGLED OUT — lifted toward the viewer, enlarged, and (in a
+    /// hand fan) pushing its neighbours apart. This is the EXACT predicate the pop animation runs
+    /// on (see the <c>popTarget</c> line in the home-pose update, which reads it), promoted to a
+    /// property for one reason: the multiplayer layer has to broadcast WHICH card a player is
+    /// singling out, and a second, separately-derived "is it highlighted" test would be free to
+    /// drift from the one the local pop actually obeys.
+    ///
+    /// It deliberately covers EVERY hover source — laser ray, grabber/poke select, and the light
+    /// fingertip touch — and inherits both of the local gates: a card the hand-contact arbitration
+    /// suppressed does not count (only one card lifts per sweeping hand), and neither does a
+    /// ROOTED card (one that cannot be grabbed this phase makes no grab promise and never pops).
+    /// </summary>
+    internal bool IsHighlighted =>
+        !IsRooted && (_laserPopped || (!_handPopSuppressed && (_popped || _pokeHover)));
+
+    /// <summary>
     /// BURN ANIM: the card's SEATED (home) pose in world space — where the layout put it, which is
     /// where it will be sitting once any fly-in/settle finishes. Needed because a card can be asked
     /// for its "true position" during the very frame a <see cref="FlyFromPile"/> is seeding the
@@ -1847,7 +1863,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
                                                   : "hover pop/haptics back ON."));
             }
         }
-        float popTarget = !rooted && (_laserPopped || (!_handPopSuppressed && (_popped || _pokeHover))) ? 1f : 0f;
+        // ONE predicate, read here and broadcast by the Net layer (see IsHighlighted) so a peer's
+        // copy of this fan lifts the same card this one does.
+        float popTarget = IsHighlighted ? 1f : 0f;
         _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
 
         // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up. The
