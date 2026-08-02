@@ -71,6 +71,8 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
             }
             VRLog.Info("Tutorial", sb.ToString());
             TutorialVR.InvalidateWaitCache();
+            // Scenario boundary — the mod-owned extra VR step is a once-per-scenario bonus.
+            TutorialGrabStep.Reset();
         }
         catch (Exception ex)
         {
@@ -117,6 +119,10 @@ internal static class LevelEventsController_MessageWasDismissed_Patch
             TutorialVR.InvalidateWaitCache();
             VRLog.Info("Tutorial", $"hint DISMISSED '{messageDismissed.MessageName}' — "
                 + "the next pending display trigger is now the active wait.");
+            // ARM the mod-owned follow-up step (no separate Harmony patch needed: this postfix
+            // already sees every dismissal). It only records the moment — TutorialGrabStep.Tick
+            // does the showing once the handover has settled and the strip is provably free.
+            TutorialGrabStep.NoteDismissed(messageDismissed);
         }
         catch (Exception)
         {

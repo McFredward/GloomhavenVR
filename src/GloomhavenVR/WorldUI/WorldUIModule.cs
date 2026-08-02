@@ -206,6 +206,15 @@ internal sealed class WorldUIModule : IVRModule
                 // IsShown hide→show clobber (tutorial deadlock #2). BEFORE ModalFallback so the
                 // level-message poll reads the healed state in the same tick.
                 ("Compat.LevelMessageHeal", Compat.LevelMessageHeal.Tick),
+                // Held mini ⇒ its initiative-track avatar is highlighted, which runs the game's
+                // OWN portrait-hover display path (monster round-action preview). BEFORE the
+                // tutorial step below, which reads FigureIntentPeek.Active as its "the player
+                // performed the taught action" signal in the same tick.
+                ("FigureIntentPeek", FigureIntentPeek.Tick),
+                // The mod-owned extra VR tutorial step (show + every dismissal path). After the
+                // peek, before ModalFallback so its show/dismiss is reflected by the level-message
+                // poll in the same tick, exactly like a scripted message would be.
+                ("Compat.TutorialGrabStep", Compat.TutorialGrabStep.Tick),
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
                 ("VROptionsTab", VROptionsTab.Tick),        // after OptionsToggle: the pause menu it opens is where the tab is reached
