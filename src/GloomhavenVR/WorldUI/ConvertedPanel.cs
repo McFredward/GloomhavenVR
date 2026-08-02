@@ -114,6 +114,25 @@ internal sealed class ConvertedPanel
     public int FitVerifyNextCheckFrame;
 
     /// <summary>
+    /// Round 4 (show-animation blind spot): hard end of the EXTENDED verify watch. While the
+    /// measure reports the game's show animation still in flight, <see cref="FitVerifyUntil"/> is
+    /// pushed forward — the rect stands at the AUTHORED geometry and deserves confirmation from the
+    /// rendered content — but never past this cap, so a permanently animating window cannot hold a
+    /// fit open forever. The REVEAL is not affected by either: it is bounded by
+    /// <see cref="RevealDeadline"/> alone.
+    /// </summary>
+    public float FitVerifyHardUntil;
+
+    /// <summary>True once this open's measure has seen the game's show animation in flight (the
+    /// rendered content materially smaller/larger than the layout authored it). Reported by the fit
+    /// summary line — it is the difference between a cold and a warm open of the ESC menu.</summary>
+    public bool FitSawShowAnimation;
+
+    /// <summary>Which open of this window (by host name) this conversion is, 1-based — the "open #N"
+    /// of the fit summary line, so a hardware log reads as "open 1 said X, open 2 said Y".</summary>
+    public int FitOpenIndex;
+
+    /// <summary>
     /// While &gt; 0 and not yet reached, the reveal gate keeps this window render-hidden even though
     /// its fit is committed: an UNPROVEN one-shot rect (no earlier open of this window in the
     /// session to compare against) uses the remaining, already-budgeted pre-reveal time to

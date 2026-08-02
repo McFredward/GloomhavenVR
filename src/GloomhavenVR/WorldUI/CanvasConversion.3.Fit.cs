@@ -191,6 +191,21 @@ internal static partial class CanvasConversion
     /// </summary>
     private static readonly Dictionary<string, Vector4> LastOneShotFits = new();
 
+    /// <summary>How often each one-shot window has been fitted in this session — the "open #N" of
+    /// the fit summary line, so a hardware log can be read as "open 1 said X, open 2 said Y"
+    /// without counting lines by hand.</summary>
+    private static readonly Dictionary<string, int> OneShotOpens = new();
+
+    /// <summary>
+    /// Hard cap (seconds from the fit commit) on the extended verify watch of a window whose show
+    /// animation is still in flight. The fit already stands at the AUTHORED geometry, so this is
+    /// pure insurance: it keeps re-checking until the animation lands and the rendered content can
+    /// confirm the rect (or correct it once). Generous because the check is invisible and cheap —
+    /// a hidden panel measures for free, a visible one only ~12x per second — and bounded because a
+    /// permanently animating window must not keep a fit "open" forever.
+    /// </summary>
+    private const float FitVerifyAnimatedWatchSeconds = 4f;
+
     /// <summary>Why <see cref="TryGetVisibleHostRect"/> rejected the graphic it was last asked
     /// about — aggregated per measure pass into the fit log (see <see cref="DescribeLastMeasure"/>)
     /// so a hardware run states WHAT the cold open was and was not looking at.</summary>
@@ -215,6 +230,56 @@ internal static partial class CanvasConversion
     /// <summary>Reject reason of the LAST <see cref="TryGetVisibleHostRect"/> call (scratch).</summary>
     private static MeasureReject s_lastReject;
 
+    // ---- ROUND 4: the SHOW-ANIMATION blind spot -------------------------------------------------
+    //
+    // What the ModBuild 20 hardware log (peer machine, .planning/debug/remote/LogOutput.log) proves
+    // about the cold ESC-menu open, quoted verbatim in the commit message:
+    //
+    //   * at convert time (age 0.0 s) the depth-mask diag measured 'Scroll View/Viewport' at
+    //     388x1003 px — the SAME rect the warm open fits;
+    //   * ~0.3 s later the fit measured the whole window at 76x307 px ('UI Menu Panel' 77x287
+    //     where warm reads 368x1080, 'Scroll View/Viewport' 79x277 where warm reads 388x1003);
+    //   * the VERIFY ran, REJECTED the commit once and re-fitted — to the SAME 76x307 px — and
+    //     then locked it as "self-consistent for 13 check(s) (content offset 0,0 px)".
+    //
+    // Every contributor had shrunk by the same per-axis factor (~0.21 in x, ~0.27 in y) while its
+    // AUTHORED RectTransform rect stayed exactly what the warm open measures. That is not a
+    // half-built layout: it is the game's own LeanTween show animation
+    // (ESCMenu._leanTweenGUIAnimator → LeanTweenGuiAnimationSettingScale, decompiled/GH.Runtime)
+    // caught mid-flight, and on a cold open it is still in flight after the whole reveal budget.
+    //
+    // WHY NO SELF-CONSISTENCY CHECK CAN CATCH THAT: the content genuinely IS that small right now,
+    // it is perfectly still (six ABSOLUTELY still checks), a forced layout rebuild changes nothing,
+    // and after the fit it sits perfectly centered in the host it was fitted to. The verify asked
+    // "does the content fit its host?" — and the honest answer was yes. The question it could not
+    // ask is "is this the geometry the window will RENDER AT when the animation ends?".
+    //
+    // THE FIX MEASURES THE ANSWER INSTEAD OF GUESSING IT: alongside the live (rendered) union the
+    // measure now builds the AUTHORED union — every graphic's own RectTransform.rect, positioned by
+    // the accumulated localPosition chain with all intermediate localScales treated as 1. An
+    // animation that scales a container changes the live union and leaves the authored one alone,
+    // so the ratio between them IS the animation state, and the authored union IS the final
+    // geometry. When the two disagree materially the fit commits the AUTHORED one — the rect the
+    // window ends up at — instead of a freeze-frame of the animation.
+
+    /// <summary>
+    /// Deviation of the area-weighted live/authored size ratio from 1 above which the measure
+    /// treats the window as MID SHOW-ANIMATION and fits the authored geometry instead. Deliberately
+    /// coarse (30 %): the failure case is a factor of ~4.8, while legitimately scaled decorations (a
+    /// pulsing initiative selection ring, an icon authored at 0.5) move an area-weighted whole-panel
+    /// ratio by a few percent at most — so no settled window ever crosses it and every other window
+    /// family measures byte-for-byte as before.
+    /// </summary>
+    private const float ShowAnimationScaleTol = 0.30f;
+
+    /// <summary>
+    /// A graphic scaled below this fraction of its authored size contributes nothing to the
+    /// AUTHORED union either. WHY: scaling an element to (near) zero is the standard uGUI way to
+    /// hide a collapsed dropdown/row, and the authored union must not resurrect it at full size.
+    /// Far below the ~0.21 the frozen ESC-menu animation sat at, so the real case is unaffected.
+    /// </summary>
+    private const float AuthoredCollapsedRatio = 0.05f;
+
     /// <summary>
     /// Task #4/#5 shared per-graphic measure: the visibility test both unions use (enabled,
     /// not culled, effective alpha ≥ <paramref name="minAlpha"/>, non-degenerate draw rect)
@@ -227,10 +292,27 @@ internal static partial class CanvasConversion
     /// <see cref="MaskMinAlpha"/> for depth-mask emission.
     /// </summary>
     private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
-        out Vector2 gMin, out Vector2 gMax, float minAlpha = FitMinAlpha)
+        out Vector2 gMin, out Vector2 gMax, float minAlpha = FitMinAlpha) =>
+        TryGetVisibleHostRect(panel, g, out gMin, out gMax, out _, out _, minAlpha);
+
+    /// <summary>
+    /// <see cref="TryGetVisibleHostRect(ConvertedPanel,Graphic,out Vector2,out Vector2,float)"/>
+    /// plus the graphic's AUTHORED (scale-neutral) host-local rect in
+    /// <paramref name="aMin"/>/<paramref name="aMax"/> — see the round-4 note above
+    /// <see cref="ShowAnimationScaleTol"/>. The authored rect is the graphic's own
+    /// <see cref="RectTransform.rect"/> placed by the accumulated <c>localPosition</c> chain up to
+    /// the host with every intermediate <c>localScale</c> treated as 1, clamped to its clipper's
+    /// authored rect the same way. It is empty (max &lt;= min) when the authored geometry is
+    /// unusable; the caller then leaves that graphic out of the authored union.
+    /// </summary>
+    private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
+        out Vector2 gMin, out Vector2 gMax, out Vector2 aMin, out Vector2 aMax,
+        float minAlpha = FitMinAlpha)
     {
         gMin = default;
         gMax = default;
+        aMin = default;
+        aMax = default;
         s_lastReject = MeasureReject.None;
         if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
         {
@@ -295,7 +377,57 @@ internal static partial class CanvasConversion
 
         gMin = min;
         gMax = max;
+
+        // Round 4: the same rect as the LAYOUT authored it — no show-animation scale anywhere in
+        // the chain. Clipped by the clipper's authored rect for the same reason the live one is.
+        AuthoredHostRect(panel, rect, out aMin, out aMax);
+        if (clipper != null)
+        {
+            AuthoredHostRect(panel, clipper, out Vector2 acMin, out Vector2 acMax);
+            aMin = Vector2.Max(aMin, acMin);
+            aMax = Vector2.Min(aMax, acMax);
+        }
         return true;
+    }
+
+    /// <summary>
+    /// Per-pass memo of <see cref="AuthoredOffset"/> — the host-local position of a transform's
+    /// local origin with every <c>localScale</c> in the chain treated as 1. Siblings share their
+    /// whole ancestor chain, so the walk runs once per transform per measure pass. Cleared with
+    /// <see cref="ClipperMemo"/> at the start of every pass (transforms move between passes).
+    /// </summary>
+    private static readonly Dictionary<Transform, Vector2> AuthoredOffsetMemo = new(64);
+
+    /// <summary>
+    /// Host-local position of <paramref name="t"/>'s local origin as the LAYOUT placed it: the sum
+    /// of the <c>localPosition</c> of <paramref name="t"/> and all its ancestors up to (excluding)
+    /// the host, with every intermediate scale treated as 1. WHY that is the right formula: with an
+    /// identity rotation (uGUI, and the conversion forces the target's) a point maps into its
+    /// parent as <c>localPosition + scale × point</c>, and a RectTransform's <c>localPosition</c>
+    /// is computed from anchors/pivot — which no ancestor's SCALE influences. Dropping the scale
+    /// factor therefore reconstructs exactly the geometry the layout produced, i.e. the geometry
+    /// the window renders at once a scale-animating ancestor reaches 1.
+    /// </summary>
+    private static Vector2 AuthoredOffset(ConvertedPanel panel, Transform? t)
+    {
+        if (t == null || ReferenceEquals(t, panel.HostRect))
+            return Vector2.zero;
+        if (AuthoredOffsetMemo.TryGetValue(t, out Vector2 memo))
+            return memo;
+        Vector2 sum = (Vector2)t.localPosition + AuthoredOffset(panel, t.parent);
+        AuthoredOffsetMemo[t] = sum;
+        return sum;
+    }
+
+    /// <summary>Authored (scale-neutral) host-local rect of <paramref name="rt"/> — its own
+    /// <see cref="RectTransform.rect"/> placed at <see cref="AuthoredOffset"/>.</summary>
+    private static void AuthoredHostRect(ConvertedPanel panel, RectTransform rt,
+        out Vector2 min, out Vector2 max)
+    {
+        Rect r = rt.rect;
+        Vector2 offset = AuthoredOffset(panel, rt);
+        min = new Vector2(r.xMin, r.yMin) + offset;
+        max = new Vector2(r.xMax, r.yMax) + offset;
     }
 
     /// <summary>
@@ -328,6 +460,19 @@ internal static partial class CanvasConversion
     private static Vector2 s_lastUnionMin, s_lastUnionMax;
     private static bool s_lastFrameClamped;
 
+    // Round 4 measure diagnostics: the LIVE (rendered) union, the AUTHORED (scale-neutral) union,
+    // the area-weighted live/authored ratio, and whether the ratio declared a show animation in
+    // flight — i.e. which of the two unions the fit actually used. These three numbers are what a
+    // hardware log needs to answer "cold open vs warm open" outright.
+    private static Vector2 s_lastLiveUnionMin, s_lastLiveUnionMax;
+    private static Vector2 s_lastAuthoredUnionMin, s_lastAuthoredUnionMax;
+    private static Vector2 s_lastMeasureRatio = Vector2.one;
+    private static bool s_lastMeasureAnimating;
+
+    /// <summary>Size/center the LAST successful <see cref="TryMeasureContent"/> returned (padded,
+    /// frame-clamped) — reported verbatim by the fit summary line.</summary>
+    private static Vector2 s_lastMeasureSize, s_lastMeasureCenter;
+
     /// <summary>
     /// Human-readable detail of the LAST <see cref="TryMeasureContent"/> pass for the fit log:
     /// the raw (pre-frame-clamp) union, whether the target frame clamped it, the three largest
@@ -342,7 +487,7 @@ internal static partial class CanvasConversion
           .Append(s_lastUnionMax.x.ToString("F0")).Append(',')
           .Append(s_lastUnionMax.y.ToString("F0")).Append(") px")
           .Append(s_lastFrameClamped ? " [frame-clamped]" : " [unclamped]")
-          .Append("; top: ");
+          .Append("; top (rendered rects): ");
         bool any = false;
         for (int i = 0; i < MeasureTopCount; i++)
         {
@@ -362,6 +507,21 @@ internal static partial class CanvasConversion
         sb.Append("; rejected ").Append(s_lastRejectCulled).Append(" culled/disabled, ")
           .Append(s_lastRejectFaint).Append(" faint, ").Append(s_lastRejectEmpty)
           .Append(" zero-size, ").Append(s_lastRejectClipped).Append(" clipped out");
+        // Round 4: live vs authored. On a settled window these two are the same box and the ratio
+        // is 1.00 — anything else names a show animation and says which union the fit used.
+        sb.Append("; live ")
+          .Append((s_lastLiveUnionMax.x - s_lastLiveUnionMin.x).ToString("F0")).Append('x')
+          .Append((s_lastLiveUnionMax.y - s_lastLiveUnionMin.y).ToString("F0"))
+          .Append("px vs authored ")
+          .Append((s_lastAuthoredUnionMax.x - s_lastAuthoredUnionMin.x).ToString("F0")).Append('x')
+          .Append((s_lastAuthoredUnionMax.y - s_lastAuthoredUnionMin.y).ToString("F0"))
+          .Append("px at (").Append(s_lastAuthoredUnionMin.x.ToString("F0")).Append(',')
+          .Append(s_lastAuthoredUnionMin.y.ToString("F0")).Append("), rendered/authored ratio ")
+          .Append(s_lastMeasureRatio.x.ToString("F2")).Append('/')
+          .Append(s_lastMeasureRatio.y.ToString("F2"))
+          .Append(s_lastMeasureAnimating
+              ? " → SHOW ANIMATION IN FLIGHT, fit uses the AUTHORED union (the geometry the window ends at)"
+              : " → settled, fit uses the LIVE union");
         return sb.ToString();
     }
 
@@ -425,6 +585,11 @@ internal static partial class CanvasConversion
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
         int contributing = 0;
+        // Round 4 (show-animation blind spot): the authored union runs alongside the live one.
+        Vector2 aMinAll = new(float.MaxValue, float.MaxValue);
+        Vector2 aMaxAll = new(float.MinValue, float.MinValue);
+        int authoredContributors = 0;
+        float ratioWeight = 0f, ratioSumX = 0f, ratioSumY = 0f;
 
         s_lastRejectCulled = s_lastRejectFaint = s_lastRejectEmpty = s_lastRejectClipped = 0;
         for (int i = 0; i < MeasureTopCount; i++)
@@ -435,12 +600,14 @@ internal static partial class CanvasConversion
         s_lastFrameClamped = false;
 
         ClipperMemo.Clear();
+        AuthoredOffsetMemo.Clear();
         GraphicScratch.Clear();
         root.GetComponentsInChildren(includeInactive: false, GraphicScratch);
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
             Graphic g = GraphicScratch[i];
-            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax))
+            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax,
+                    out Vector2 aMin, out Vector2 aMax))
             {
                 switch (s_lastReject)
                 {
@@ -455,9 +622,54 @@ internal static partial class CanvasConversion
             max = Vector2.Max(max, gMax);
             contributing++;
             RecordTopContributor(g, gMin, gMax);
+
+            // Authored union + the per-graphic live/authored size ratio (area-weighted, so the
+            // panel-wide answer is dominated by the containers that actually span the window and
+            // not by a dozen tiny icons). Graphics whose authored rect is unusable, or which are
+            // scaled to nothing on purpose, sit this out — see AuthoredCollapsedRatio.
+            float aW = aMax.x - aMin.x, aH = aMax.y - aMin.y;
+            if (aW < 0.5f || aH < 0.5f)
+                continue;
+            float rx = (gMax.x - gMin.x) / aW, ry = (gMax.y - gMin.y) / aH;
+            if (rx < AuthoredCollapsedRatio || ry < AuthoredCollapsedRatio)
+                continue;
+            float weight = aW * aH;
+            ratioWeight += weight;
+            ratioSumX += rx * weight;
+            ratioSumY += ry * weight;
+            aMinAll = Vector2.Min(aMinAll, aMin);
+            aMaxAll = Vector2.Max(aMaxAll, aMax);
+            authoredContributors++;
         }
         GraphicScratch.Clear();
         s_lastMeasureGraphics = contributing;
+        s_lastLiveUnionMin = min;
+        s_lastLiveUnionMax = max;
+
+        // Is a show animation in flight? The area-weighted ratio between what is RENDERED and what
+        // the layout AUTHORED is the answer, and it is the whole round-4 fix: a cold ESC menu reads
+        // ~0.21 x / ~0.27 y here for a full second, with a perfectly steady live measurement.
+        s_lastMeasureRatio = Vector2.one;
+        s_lastMeasureAnimating = false;
+        // Log-safe: an empty authored union would otherwise print float sentinels.
+        bool authoredUsable = authoredContributors > 0 && aMaxAll.x > aMinAll.x && aMaxAll.y > aMinAll.y;
+        s_lastAuthoredUnionMin = authoredUsable ? aMinAll : Vector2.zero;
+        s_lastAuthoredUnionMax = authoredUsable ? aMaxAll : Vector2.zero;
+        if (authoredUsable && ratioWeight > 0f
+            && aMaxAll.x - aMinAll.x >= 32f && aMaxAll.y - aMinAll.y >= 32f)
+        {
+            s_lastMeasureRatio = new Vector2(ratioSumX / ratioWeight, ratioSumY / ratioWeight);
+            s_lastMeasureAnimating = Mathf.Abs(s_lastMeasureRatio.x - 1f) > ShowAnimationScaleTol
+                                     || Mathf.Abs(s_lastMeasureRatio.y - 1f) > ShowAnimationScaleTol;
+        }
+        if (s_lastMeasureAnimating)
+        {
+            // Fit the geometry the window ENDS AT, not the frame of the animation we happened to
+            // catch. Everything downstream — settle gate, verify, cross-open memory — then compares
+            // like with like on a cold and a warm open.
+            min = aMinAll;
+            max = aMaxAll;
+        }
         s_lastUnionMin = min;
         s_lastUnionMax = max;
 
@@ -478,13 +690,25 @@ internal static partial class CanvasConversion
         Vector2 frameMax = new(float.MaxValue, float.MaxValue);
         if (!panel.FitFrameDegenerate)
         {
-            panel.Target.GetWorldCorners(CornerScratch);
-            Vector3 frameA = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
-            Vector3 frameB = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
-            // Min/max-normalized: a mid-animation rotation/negative scale must not
-            // invert the frame and turn the clamp into garbage.
-            frameMin = Vector2.Min(frameA, frameB);
-            frameMax = Vector2.Max(frameA, frameB);
+            if (s_lastMeasureAnimating)
+            {
+                // Round 4: an animation that scales the window also scales its FRAME through the
+                // world corners — clamping the authored union to a shrunken frame would hand back
+                // the very freeze-frame rect the authored union exists to replace. The authored
+                // frame is the target's own rect at its layout position (Convert pins the target's
+                // scale to 1, so on a settled window this is identical to the corner path).
+                AuthoredHostRect(panel, panel.Target, out frameMin, out frameMax);
+            }
+            else
+            {
+                panel.Target.GetWorldCorners(CornerScratch);
+                Vector3 frameA = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
+                Vector3 frameB = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
+                // Min/max-normalized: a mid-animation rotation/negative scale must not
+                // invert the frame and turn the clamp into garbage.
+                frameMin = Vector2.Min(frameA, frameB);
+                frameMax = Vector2.Max(frameA, frameB);
+            }
             // Round 3 diagnostics: a union the FRAME cropped is a different animal from one the
             // content itself bounded — the fit log now says which of the two it committed.
             s_lastFrameClamped = min.x < frameMin.x || min.y < frameMin.y
@@ -504,6 +728,8 @@ internal static partial class CanvasConversion
 
         size = sz;
         center = (min + max) * 0.5f;
+        s_lastMeasureSize = size;
+        s_lastMeasureCenter = center;
         return true;
     }
 
@@ -1037,9 +1263,16 @@ internal static partial class CanvasConversion
                             && Mathf.Abs(host.height - remembered.y) <= tolY;
         }
 
+        panel.FitOpenIndex = OneShotOpens.TryGetValue(key, out int opens) ? opens + 1 : 1;
+        OneShotOpens[key] = panel.FitOpenIndex;
+
         panel.FitVerifyPending = true;
         panel.FitVerifyProven = matchesMemory;
         panel.FitVerifyUntil = now + FitVerifyWatchSeconds;
+        // Round 4: a window whose show animation is still running has not shown its final geometry
+        // yet, so its rect must not lock on the normal watch — the watch is extended (invisibly,
+        // cheaply) up to this hard cap while the measure keeps reporting an animation in flight.
+        panel.FitVerifyHardUntil = now + FitVerifyAnimatedWatchSeconds;
         panel.FitVerifyNextCheckFrame = 0;
         panel.FitVerifyStableCount = 0;
         panel.FitVerifyErrorCount = 0;
@@ -1140,6 +1373,26 @@ internal static partial class CanvasConversion
             return;
         }
 
+        // Round 4: the animation is not over — the rect stands at the AUTHORED geometry and must
+        // keep its verify open until the rendered content can confirm it. Extending here (not at
+        // arm time) means the extension lasts exactly as long as the animation does, and the hard
+        // cap keeps a permanently animating window from holding a fit open forever. The REVEAL is
+        // untouched: it is released by FitVerifyHoldRevealUntil / RevealDeadline, never by this.
+        if (s_lastMeasureAnimating && !panel.FitSawShowAnimation)
+        {
+            panel.FitSawShowAnimation = true;
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' verify sees the game's SHOW ANIMATION " +
+                                  $"still in flight (rendered/authored {s_lastMeasureRatio.x:F2}/" +
+                                  $"{s_lastMeasureRatio.y:F2}) — the committed rect is the AUTHORED geometry, " +
+                                  "and the watch stays open until the animation lands so the rendered content " +
+                                  "can confirm (or correct) it once.");
+        }
+        if (s_lastMeasureAnimating && now < panel.FitVerifyHardUntil)
+        {
+            panel.FitVerifyUntil = Mathf.Min(now + FitVerifyWatchSeconds, panel.FitVerifyHardUntil);
+            expired = false;
+        }
+
         Rect host = panel.HostRect.rect;
         float tolX = Mathf.Max(host.width * FitVerifyTolFraction, FitVerifyMinTolPx);
         float tolY = Mathf.Max(host.height * FitVerifyTolFraction, FitVerifyMinTolPx);
@@ -1159,8 +1412,11 @@ internal static partial class CanvasConversion
             // failure is a discrete late jump, and a rect nothing has corroborated has not earned
             // the right to stop looking. The REVEAL is released independently, at
             // FitVerifyHoldRevealUntil, so the watch never delays the window becoming visible.
+            // Round 4: even a PROVEN rect does not lock while the show animation is still running —
+            // the rendered content has not corroborated anything yet. `expired` is the bound (the
+            // hard cap above forces it eventually), so this can never wedge.
             if (panel.FitVerifyStableCount >= FitVerifyStableChecks
-                && (panel.FitVerifyProven || expired))
+                && ((panel.FitVerifyProven && !s_lastMeasureAnimating) || expired))
             {
                 LockOneShotFit(panel,
                     $"self-consistent for {panel.FitVerifyStableCount} check(s) " +
@@ -1218,15 +1474,45 @@ internal static partial class CanvasConversion
         if (panel.HostRect == null || panel.HostGo == null)
             return;
         Rect host = panel.HostRect.rect;
-        LastOneShotFits[panel.HostGo.name] = new Vector4(host.width, host.height,
+        string key = panel.HostGo.name;
+        bool hadMemory = LastOneShotFits.TryGetValue(key, out Vector4 previous);
+        LastOneShotFits[key] = new Vector4(host.width, host.height,
             panel.Target != null ? panel.Target.anchoredPosition.x : 0f,
             panel.Target != null ? panel.Target.anchoredPosition.y : 0f);
-        string line = $"MODAL WINDOW: '{panel.HostGo.name}' one-shot host rect LOCKED at " +
+        string line = $"MODAL WINDOW: '{key}' one-shot host rect LOCKED at " +
                       $"{host.width:F0}x{host.height:F0} px — {outcome}.";
         if (warn)
             VRLog.Warn("WorldUI", line);
         else
             VRLog.Info("WorldUI", line);
+        LogFitSummary(panel, outcome, hadMemory ? previous : (Vector4?)null);
+    }
+
+    /// <summary>
+    /// THE ONE LINE THE NEXT HARDWARE LOG IS READ FROM (user requirement, round 4). Everything the
+    /// cold-open question needs, per open, in one place and in one order: which open of this window
+    /// this is, the final host rect and content offset, the measured LIVE and AUTHORED unions with
+    /// the rendered/authored ratio that decides between them, the contributor count and the three
+    /// largest contributors by name and rect, what the verify decided and why, and what the
+    /// PREVIOUS open of the same window committed. Comparing open 1 against open 2 is then a diff
+    /// of two lines instead of a reconstruction from a dozen.
+    /// </summary>
+    private static void LogFitSummary(ConvertedPanel panel, string verdict, Vector4? previous)
+    {
+        if (panel.HostRect == null || panel.HostGo == null)
+            return;
+        Rect host = panel.HostRect.rect;
+        string prev = previous.HasValue
+            ? $"previous open committed {previous.Value.x:F0}x{previous.Value.y:F0} px " +
+              $"(target at {previous.Value.z:F0},{previous.Value.w:F0})"
+            : "no previous open in this session (this IS the cold one)";
+        VRLog.Info("WorldUI", $"MODAL FIT SUMMARY '{panel.HostGo.name}' open #{panel.FitOpenIndex}: " +
+                              $"final host {host.width:F0}x{host.height:F0} px, last measured content " +
+                              $"{s_lastMeasureSize.x:F0}x{s_lastMeasureSize.y:F0} px at offset " +
+                              $"{s_lastMeasureCenter.x:F0},{s_lastMeasureCenter.y:F0}; " +
+                              $"{s_lastMeasureGraphics} contributor(s); {DescribeLastMeasure()}; " +
+                              $"show animation seen during this open: {(panel.FitSawShowAnimation ? "YES" : "no")}; " +
+                              $"verify: {verdict}; {prev}.");
     }
 
     /// <summary>

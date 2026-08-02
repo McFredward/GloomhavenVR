@@ -24,6 +24,12 @@ namespace GloomhavenVR.Net;
 /// holder-relative rise survives only as the fallback for the frame(s) before any mask renderer
 /// exists.
 ///
+/// CENTRED ON MEASURED INK, NOT ON A FIXED BOX: the row's width is avatar + pad + the name's
+/// RENDERED glyph width (measured once per identity change in <see cref="Rebuild"/>), so the group
+/// straddles the anchor evenly at any name length, with or without an avatar, at any world scale.
+/// Centring the avatar plus the fixed <see cref="NameWidth"/> container instead — the old layout —
+/// pushed every short name's visible ink left of the mask by half the container's unused tail.
+///
 /// SCALE FOLLOWS THE SENDER'S ZOOM: the tag's visual size uses
 /// <see cref="RemoteAvatar.AppliedScale"/> — the sender's rig <c>WorldScale</c> from the rig
 /// packet, the EXACT factor <c>RemoteAvatar.SetTarget</c> writes onto the head/hand holders — so
@@ -99,6 +105,13 @@ internal sealed class RemoteNameTag
     private bool _built;
     private bool _loggedNameOnly;          // one line per player when we degrade to name-only
 
+    // Centring diagnostics of the LAST Rebuild, logged on the first tick that places the rebuilt
+    // row (the anchor is only known there) — see the CENTRING note in Rebuild.
+    private bool _logPlacement;            // a rebuild is waiting for its placement log line
+    private float _measuredTextWidth;      // rendered ink width of the name (local units, scale 1)
+    private float _groupWidth;             // avatar + pad + measured name ink (local units, scale 1)
+    private float _centringOffset;         // x shift vs. the old fixed-box row (local units, scale 1)
+
     // Mask-bounds anchor: the renderers under the head holder, cached until one of them dies
     // (mask style swap destroys the old HeadVisual → Unity-null entries → refetch next tick).
     private Renderer[] _maskRenderers = System.Array.Empty<Renderer>();
@@ -165,7 +178,8 @@ internal sealed class RemoteNameTag
         // the tick right after a mask swap destroyed the old visual): the legacy holder-relative
         // rise, whose max(1, MaskSize) keeps it clear of an enlarged mask without bounds.
         float scale = Mathf.Max(_owner.AppliedScale, MinScale);
-        if (TryGetMaskBounds(out Bounds mask))
+        bool fromBounds = TryGetMaskBounds(out Bounds mask);
+        if (fromBounds)
         {
             float lift = ClearanceAboveMask * _owner.AppliedScale + Height * 0.5f * scale;
             _billboard.position = new Vector3(mask.center.x, mask.max.y + lift, mask.center.z);
@@ -176,6 +190,25 @@ internal sealed class RemoteNameTag
             _billboard.position = _owner.HeadHolder!.position + Vector3.up * rise;
         }
         _billboard.localScale = Vector3.one * scale;
+
+        // CENTRING PROOF (user report: "the tag sits noticeably left of the mask"). Logged here and
+        // not in Rebuild because the ANCHOR only exists once the mask bounds have been read — one
+        // line per rebuild (identity changes), never per frame. It states everything the next
+        // screenshot complaint needs: where the row was anchored, how wide the row measured, and
+        // how far the measured centring moved it against the old fixed-name-box layout.
+        if (_logPlacement)
+        {
+            _logPlacement = false;
+            VRLog.Info("Net", $"Name tag player {_owner.PlayerId} CENTRED over the mask: anchor "
+                + $"({_billboard.position.x:F3},{_billboard.position.y:F3},{_billboard.position.z:F3}) "
+                + $"[{(fromBounds ? $"mask bounds centre ({mask.center.x:F3},{mask.center.z:F3}), top y {mask.max.y:F3}" : "head-holder fallback (no mask renderer yet)")}]; "
+                + $"group {_groupWidth * scale:F3} m wide at scale {scale:F2} "
+                + $"(avatar {(_shownAvatar != null ? AvatarSize + Pad : 0f):F3} incl. pad + measured name "
+                + $"{_measuredTextWidth:F3} of a {NameWidth:F3} box, unscaled {_groupWidth:F3}); centring offset "
+                + $"{_centringOffset * scale:F3} m (+x = moved RIGHT vs. the old fixed-box row). The row's "
+                + "geometric centre is now the anchor x/z — avatar and name are one centred unit at any "
+                + "name length, avatar size or world scale.");
+        }
 
         // Billboard: quad/TMP read from their −Z side, so aim +Z AWAY from the local head (the
         // OwnerTag/PingNameTag convention).
@@ -247,9 +280,36 @@ internal sealed class RemoteNameTag
         Texture? t = avatar != null ? avatar.texture : null;
         bool hasAvatar = t != null;
         float avatarSpan = hasAvatar ? AvatarSize + Pad : 0f;
-        // Centre the whole row on the anchor.
-        float totalWidth = avatarSpan + NameWidth;
-        float left = -totalWidth * 0.5f;
+
+        // ---- name box: BUILT FIRST, then MEASURED -----------------------------------------
+        // CENTRING (user report 2026-08-02: "the tag sits noticeably left of the mask"). The old
+        // layout centred avatar + the NAME BOX — a fixed NameWidth (0.32 m) container. The visible
+        // ink is avatar + the ACTUAL glyph run, which is left-aligned inside that box, so every
+        // name shorter than the box left an invisible tail of empty box on the right and pushed the
+        // whole visible group LEFT of the anchor by half of it (a 0.12 m name: 0.10 m left, exactly
+        // the screenshot). The row is therefore laid out from the RENDERED text width now: build the
+        // label, force its mesh so auto-sizing resolves, read the ink width, PIN the resolved font
+        // size (so shrinking the box cannot re-trigger auto-sizing), shrink the box onto the ink,
+        // and only then place avatar + name from the group's own half-width. Result: the group's
+        // geometric centre IS the anchor at any name length, avatar size and world scale.
+        var labelGo = new GameObject("Name");
+        labelGo.transform.SetParent(_billboard, worldPositionStays: false);
+        var label = labelGo.AddComponent<TextMeshPro>();
+        label.text = name;
+        label.alignment = TextAlignmentOptions.Center; // the box is the ink now — centred either way
+        label.color = new Color(1f, 0.95f, 0.85f);     // OwnerTag's warm off-white
+        label.fontStyle = FontStyles.Bold;
+        TmpFit.Fit(label, NameWidth, Height, maxFontSize: 0.065f, wrap: false);
+        float textWidth = MeasureInkWidth(label);
+
+        float groupWidth = avatarSpan + textWidth;
+        float left = -groupWidth * 0.5f;
+        _measuredTextWidth = textWidth;
+        _groupWidth = groupWidth;
+        // How far this moved the visible row against the old fixed-box layout: the old ink centre
+        // sat at (textWidth − NameWidth) / 2, i.e. always left of the anchor.
+        _centringOffset = (NameWidth - textWidth) * 0.5f;
+        _logPlacement = true;
 
         if (t != null)
         {
@@ -271,20 +331,44 @@ internal sealed class RemoteNameTag
                 + "lands.");
         }
 
-        var labelGo = new GameObject("Name");
-        labelGo.transform.SetParent(_billboard, worldPositionStays: false);
         labelGo.transform.localPosition =
-            new Vector3(left + avatarSpan + NameWidth * 0.5f, 0f, -0.001f);
-        var label = labelGo.AddComponent<TextMeshPro>();
-        label.text = name;
-        label.alignment = hasAvatar ? TextAlignmentOptions.Left : TextAlignmentOptions.Center;
-        label.color = new Color(1f, 0.95f, 0.85f); // OwnerTag's warm off-white
-        label.fontStyle = FontStyles.Bold;
-        TmpFit.Fit(label, NameWidth, Height, maxFontSize: 0.065f, wrap: false);
-        WorldUI.MrBacking.Label(label); // free-floating over the room in MR
+            new Vector3(left + avatarSpan + textWidth * 0.5f, 0f, -0.001f);
+        WorldUI.MrBacking.Label(label); // free-floating over the room in MR — sized from the box above
 
         VRLayers.Apply(_root); // mod layer, so the owned head camera renders it
     }
+
+    /// <summary>
+    /// Rendered ink width of a freshly built auto-sized label (local units), and the box shrunk
+    /// onto it. WHY the font size is pinned first: <see cref="TmpFit"/> leaves auto-sizing ON, so
+    /// assigning a narrower rect would make TMP re-fit the text to the new box and the measurement
+    /// would chase its own tail. After <c>ForceMeshUpdate</c> the resolved size is in
+    /// <c>fontSize</c>; pinning it makes the box a pure container. Falls back to the full
+    /// <see cref="NameWidth"/> box when TMP reports nothing usable (empty string, generation
+    /// deferred) — that is exactly the old behaviour, so a degenerate case can never make the tag
+    /// worse than before.
+    /// </summary>
+    private static float MeasureInkWidth(TextMeshPro label)
+    {
+        label.ForceMeshUpdate();
+        float resolved = label.fontSize;
+        if (resolved > 0f)
+        {
+            label.enableAutoSizing = false;
+            label.fontSize = resolved;
+        }
+        float ink = label.textBounds.size.x;
+        if (float.IsNaN(ink) || float.IsInfinity(ink) || ink <= 0.001f || ink > NameWidth)
+            ink = NameWidth;
+        // A hair of air on both sides so the pinned font can never clip against its own box.
+        float box = Mathf.Min(ink + 2f * InkPad, NameWidth);
+        label.rectTransform.sizeDelta = new Vector2(box, Height);
+        return box;
+    }
+
+    /// <summary>Air left and right of the measured glyph run inside the shrunk name box (metres at
+    /// scale 1) — protects the pinned font size against sub-pixel measurement rounding.</summary>
+    private const float InkPad = 0.004f;
 
     public void Destroy()
     {
