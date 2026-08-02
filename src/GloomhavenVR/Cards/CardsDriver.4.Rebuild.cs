@@ -549,8 +549,12 @@ internal sealed partial class CardsDriver
             // Active cards (feature 6) are grabbable for the same read-only reason:
             // pluck one to read it, release returns it to the column, never a game seam.
             card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse || inActive;
-            if (!inFan)
-                card.ResetColliderRegion(); // fan strips only apply while fanned
+            // Fan strips only apply while the card is in a fan that TILES its colliders. That is
+            // now the browse arc as well as the hand fan (PileBrowser.Relayout strips exactly like
+            // CardFan.Relayout — the sweep-skips-cards fix), so a browse card must keep its strip
+            // through a rebuild; every other pool still gets the full collider back here.
+            if (!inFan && !inBrowse)
+                card.ResetColliderRegion();
             if (!inActive)
                 ClearActiveHighlight(card); // clear any stale active-region highlight on reused cards
 

@@ -37,7 +37,13 @@ S="$ROOT/src/GloomhavenVR"
 # meaning, deliberately NOT in this group. An earlier draft of this header said "FIVE-way";
 # the table below has always listed four sites and four is correct.
 MIRRORS=(
-  "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters"
+  # THIRD site added 2026-08 with the fan-sweep unification: Cards/FanSweep.PalmReachMeters is the
+  # PALM candidacy gate of every card fan's hand sweep, and its whole contract is "a card the sweep
+  # considers is exactly a card the ProximityGrabber could take" — pop and grab must not disagree.
+  # That contract IS this number being equal to the grabber's reach, so a retune of one and not the
+  # other silently re-opens "what lights up is not what I grab". (It replaced THREE unlinted copies:
+  # CardsDriver.ContactPalmReach, PileBrowser.ContactPalmReach, ItemsPile.ContactPalmReach.)
+  "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters Cards/FanSweep.cs:PalmReachMeters"
   "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth WorldUI/ButtonCluster.cs:FingertipRadius Cards/PlayTray.7.Nested.cs:FingertipRadius"
   "poke release range (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:ReleaseRange Board/BoardClickDriver.cs:ReleaseDepth"
   # Thumbstick scrolling exists at THREE sites, one per UI presentation: converted

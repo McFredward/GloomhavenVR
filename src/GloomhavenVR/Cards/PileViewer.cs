@@ -73,8 +73,14 @@ internal sealed class PileViewer
     /// <see cref="ItemsPile.TryLaserRaycast"/>). Forwarded so CardsDriver's laser chain never
     /// reaches into the privately-owned fan instance. False while the fan is closed.</summary>
     internal bool TryRaycastItemChips(Vector3 origin, Vector3 direction, ItemsPile.ItemChip? sticky,
-        out ItemsPile.ItemChip? chip, out Vector3 point, out float distance) =>
-        _itemsBrowse.TryLaserRaycast(origin, direction, sticky, out chip, out point, out distance);
+        out ItemsPile.ItemChip? chip, out Vector3 point, out float distance,
+        bool allowNearMiss = false) =>
+        _itemsBrowse.TryLaserRaycast(origin, direction, sticky, out chip, out point, out distance,
+            allowNearMiss);
+
+    /// <summary>What the last item-fan laser pick decided (hit/miss, which chip, exact or rescued
+    /// by the angular pad) — forwarded for CardsDriver's throttled laser diagnostic.</summary>
+    internal FanSweep.FanLaserPick LastItemLaserPick => _itemsBrowse.LastLaserPick;
 
     /// <summary>The item chip <paramref name="hand"/> is physically in contact with (hand-sweep
     /// winner elected by that hand, else its proximity-grab candidate), or null. Forwarded so the

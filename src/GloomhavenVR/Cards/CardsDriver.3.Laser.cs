@@ -365,16 +365,12 @@ internal sealed partial class CardsDriver
 
     // ------------------------------------------- hand-contact single winner (issue A/B) --
 
-    /// <summary>Fingertip contact reach (m, scale 1) — mirrors CardFan.FingertipHoverReach.</summary>
-    private const float ContactTipReach = 0.035f;
-
-    /// <summary>Palm contact reach (m, scale 1) — mirrors ProximityGrabber.ReachMeters.</summary>
-    private const float ContactPalmReach = 0.13f;
-
-    /// <summary>Incumbent hysteresis (m, scale 1): a rival card must be this much CLOSER to the
-    /// hand than the currently lifted card to steal the lift — the winner cannot flutter at
-    /// strip boundaries while the hand sweeps through the fan.</summary>
-    private const float ContactStickyMargin = 0.02f;
+    // The reach constants that used to live here (3.5 cm tip / 13 cm palm / 2 cm hysteresis,
+    // scale-1 metres) moved to FanSweep — they were duplicated verbatim in FOUR places
+    // (here, CardFan, PileBrowser, ItemsPile) and had already drifted apart in how they were
+    // RANKED. FanSweep.ResolveReach now derives them from each target's own live world size, so
+    // this fan (whose root hangs off the palm, i.e. relative size exactly 1) gets the identical
+    // numbers back while the board-anchored fans finally scale with the board. See FanSweep.
 
     /// <summary>The single card the free hand is currently "in contact with" (null = none).</summary>
     private VRCard? _handContactWinner;
@@ -385,18 +381,6 @@ internal sealed partial class CardsDriver
 
     /// <summary>Throttle clock (unscaled seconds) for the arbitration winner-change log.</summary>
     private float _nextContactLogAt;
-
-    /// <summary>Running arbitration tally: the elected winner + runner-up plus their ranking
-    /// scores and raw index-tip distances (for the throttled log). Reset each tick.</summary>
-    private struct ContactPick
-    {
-        public VRCard? Winner;
-        public float Best;      // winner's ranking score (incumbent hysteresis already applied)
-        public float WinnerTip; // winner's RAW index-tip distance (m), for the log
-        public VRCard? RunnerUp;
-        public float Second;    // runner-up's ranking score
-        public float RunnerTip; // runner-up's RAW index-tip distance (m), for the log
-    }
 
     /// <summary>
     /// USER ISSUE A (fan sweep lifts several cards) + B (dock highlight fights): per-tick
@@ -417,16 +401,14 @@ internal sealed partial class CardsDriver
         VRHand? dom = VRHands.Primary;
         VRCard.HandArbitrationHand = dom;
 
-        var pick = new ContactPick { Best = float.MaxValue, Second = float.MaxValue };
+        FanSweepPick<VRCard> pick = FanSweepPick<VRCard>.Empty;
+        float worldScale = 1f;
         if (dom != null && !ReferenceEquals(dom, _gateHand) && dom.HasPose
             && dom.Grabber.Held == null && !_modalInputBlocked)
         {
             Vector3 tip = dom.Rig.IndexTip.position;
             Vector3 palm = dom.Rig.PalmCenter.position;
-            float scale = dom.WorldScale;
-            float tipReach = ContactTipReach * scale;
-            float palmReach = ContactPalmReach * scale;
-            float sticky = ContactStickyMargin * scale;
+            worldScale = dom.WorldScale;
 
             if (_fan.IsOpen)
             {
@@ -436,19 +418,19 @@ internal sealed partial class CardsDriver
                 // card as a candidate, but mixing the wide, noisy palm metric into the
                 // WINNER choice let two adjacent cards' near-equal palm distances flip the
                 // lift back and forth — tip-first ranking resolves the midpoint case
-                // deterministically.
+                // deterministically. This is now literally the same code the pile fans run.
                 IReadOnlyList<VRCard> fanCards = _fan.Cards;
                 for (int i = 0; i < fanCards.Count; i++)
-                    ScoreContact(fanCards[i], tip, palm, tipReach, palmReach, sticky, tipFirst: true, ref pick);
+                    ScoreContact(fanCards[i], tip, palm, worldScale, tipFirst: true, ref pick);
             }
             if (_tray.IsVisible)
             {
                 // Dock / pick-field cards keep the min(tip,palm) reach metric — the complaint
                 // is the fan sweep, and these sit far enough apart not to oscillate.
-                ScoreContact(_tray.Occupant(0), tip, palm, tipReach, palmReach, sticky, tipFirst: false, ref pick);
-                ScoreContact(_tray.Occupant(1), tip, palm, tipReach, palmReach, sticky, tipFirst: false, ref pick);
+                ScoreContact(_tray.Occupant(0), tip, palm, worldScale, tipFirst: false, ref pick);
+                ScoreContact(_tray.Occupant(1), tip, palm, worldScale, tipFirst: false, ref pick);
                 for (int i = 0; i < _fieldCards.Count; i++)
-                    ScoreContact(_fieldCards[i], tip, palm, tipReach, palmReach, sticky, tipFirst: false, ref pick);
+                    ScoreContact(_fieldCards[i], tip, palm, worldScale, tipFirst: false, ref pick);
             }
         }
 
@@ -463,13 +445,8 @@ internal sealed partial class CardsDriver
             if (winner != null && now >= _nextContactLogAt)
             {
                 _nextContactLogAt = now + 0.5f;
-                string runner = pick.RunnerUp != null
-                    ? $"'{pick.RunnerUp.name}' (index-tip {pick.RunnerTip * 100f:F1} cm)"
-                    : "none";
-                VRLog.Info("Cards", $"Hand-contact winner (tip-first fan ranking): '{winner.name}' " +
-                                    $"— index-tip {pick.WinnerTip * 100f:F1} cm; runner-up {runner}. " +
-                                    "The card nearest the index finger wins; sweeping between two fan " +
-                                    "cards no longer flip-flops the lift.");
+                FanSweep.LogWinner("Ability-fan", dom != null ? dom.Side.ToString() : "—", pick,
+                    FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)winner).SweepFaceWidthWorld));
             }
         }
 
@@ -509,50 +486,24 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
-    /// Fold <paramref name="card"/> into the running <paramref name="pick"/>. Candidacy is the
-    /// same for every pool: index tip within <see cref="ContactTipReach"/> OR palm within
-    /// <see cref="ContactPalmReach"/> of the grab collider. The RANKING metric differs:
-    /// <paramref name="tipFirst"/> (the fan sweep) ranks by the index-fingertip distance ALONE —
-    /// the palm only qualified candidacy — so the card nearest the pointing finger always wins
-    /// and the between-two-cards midpoint resolves deterministically; otherwise (dock/pick field)
-    /// the legacy min(tip,palm) reach metric is kept. The incumbent hysteresis bonus applies to
-    /// whichever metric is used, so the winner stays stable as the finger crosses the midpoint.
+    /// Fold <paramref name="card"/> into the running <paramref name="pick"/> through the SHARED
+    /// election (<see cref="FanSweep.Score{T}"/>) — the one the pile browse fan and the item fan
+    /// now run too, so "make the pile fans behave like the hand cards" is a fact of the code
+    /// rather than a promise. Candidacy and ranking are documented on <see cref="FanSweep"/>;
+    /// <paramref name="tipFirst"/> selects fan (tip-only ranking) versus dock/pick-field
+    /// (legacy min(tip,palm), those cards sit far enough apart not to oscillate).
+    ///
+    /// The reach is resolved PER CARD from that card's own live world width, so a hand-fan card
+    /// (whose fan hangs off the palm) resolves to exactly the old constants while a card in a
+    /// board-anchored arc scales with the board. Two divides per card per frame.
     /// </summary>
-    private void ScoreContact(VRCard? card, Vector3 tip, Vector3 palm, float tipReach,
-        float palmReach, float sticky, bool tipFirst, ref ContactPick pick)
+    private void ScoreContact(VRCard? card, Vector3 tip, Vector3 palm, float worldScale,
+        bool tipFirst, ref FanSweepPick<VRCard> pick)
     {
-        if (card == null || card.IsHeld)
+        if (card == null)
             return;
-        // Rooted cards (user bug B) can neither pop nor be grabbed — they must not win
-        // the contact arbitration either, or a dead card would suppress the pop/grab of
-        // a real candidate right next to it.
-        if (!card.CanGrab)
-            return;
-        if (!card.TryFingertipDistance(tip, out float tipDist)
-            || !card.TryFingertipDistance(palm, out float palmDist))
-            return;
-        if (tipDist > tipReach && palmDist > palmReach)
-            return; // out of BOTH reaches — not a candidate (palm reach still qualifies)
-        // Fan sweep: rank by the index tip alone (palm noise stays out of the winner choice);
-        // dock/field: legacy min(tip,palm).
-        float score = tipFirst ? tipDist : Mathf.Min(tipDist, palmDist);
-        if (ReferenceEquals(card, _handContactWinner))
-            score -= sticky; // hysteresis: the current lift holds until a rival is decisively closer
-        if (score < pick.Best)
-        {
-            pick.RunnerUp = pick.Winner; // the old leader becomes the runner-up
-            pick.Second = pick.Best;
-            pick.RunnerTip = pick.WinnerTip;
-            pick.Winner = card;
-            pick.Best = score;
-            pick.WinnerTip = tipDist;
-        }
-        else if (score < pick.Second)
-        {
-            pick.RunnerUp = card;
-            pick.Second = score;
-            pick.RunnerTip = tipDist;
-        }
+        FanReach reach = FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)card).SweepFaceWidthWorld);
+        FanSweep.Score(card, tip, palm, reach, _handContactWinner, tipFirst, ref pick);
     }
 
     /// <summary>Suppress a pool card that lost the contact arbitration. The laser-hovered
@@ -958,10 +909,17 @@ internal sealed partial class CardsDriver
         }
 
         PickPose pick = dom.Ray.Current;
-        if (!_browser.TryRaycast(pick.Origin, pick.Direction, _browseHover, out VRCard? card, out Vector3 point, out float dist)
-            || card == null
-            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        // allowNearMiss: the interaction path gets the angular near-miss rescue (a browse card on
+        // a shrunken board subtends less than the controller's aim jitter); the fan occluder does
+        // not — see FanSweep.LaserMinHalfAngleDegrees.
+        bool browseHit = _browser.TryRaycast(pick.Origin, pick.Direction, _browseHover,
+            out VRCard? card, out Vector3 point, out float dist, allowNearMiss: true);
+        bool browseUiInFront = browseHit && dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist;
+        if (!browseHit || card == null || browseUiInFront)
         {
+            LogBrowseLaser(dom, browseUiInFront
+                ? "not delivered — nearer game UI is in front of the arc"
+                : "not delivered — the ray is not on any browse card");
             ClearBrowseHover();
             // ISSUE #7 click-away dismiss: a TRIGGER press that is NOT on a browse card —
             // empty space, the game board/UI, or anything the ray misses here — closes the
@@ -990,9 +948,35 @@ internal sealed partial class CardsDriver
         if (dom.TriggerDown && card.CanGrab)
         {
             VRCard grab = card;
+            LogBrowseLaser(dom, $"DELIVERED — trigger plucked '{grab.name}' out of the arc");
             ClearBrowseHover();
             dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
         }
+        else
+        {
+            LogBrowseLaser(dom, dom.TriggerDown
+                ? "not delivered — the hovered card refuses grabs (CanGrab=false)"
+                : "no press this frame — hover only");
+        }
+    }
+
+    /// <summary>Throttle clock + last verdict for the browse-fan laser diagnostic.</summary>
+    private float _nextBrowseLaserLogAt;
+    private string _lastBrowseLaserVerdict = string.Empty;
+
+    /// <summary>The browse-arc twin of <see cref="LogItemFanLaser"/>: hit/miss, what, dead-on or
+    /// angular-rescued, the card's real size, the world scale, and the press verdict.</summary>
+    private void LogBrowseLaser(VRHand hand, string pressVerdict)
+    {
+        if (string.Equals(pressVerdict, _lastBrowseLaserVerdict, System.StringComparison.Ordinal)
+            && Time.unscaledTime < _nextBrowseLaserLogAt)
+            return;
+        FanSweep.FanLaserPick pick = _browser.LastLaserPick;
+        if (!pick.Hit && pick.Distance <= 0f)
+            return; // the beam is nowhere near the arc — not news
+        _lastBrowseLaserVerdict = pressVerdict;
+        _nextBrowseLaserLogAt = Time.unscaledTime + 1f;
+        FanSweep.LogLaser("Pile-browse", hand.Side.ToString(), pick, hand.WorldScale, pressVerdict);
     }
 
     private void ClearBrowseHover()
@@ -1053,11 +1037,17 @@ internal sealed partial class CardsDriver
         }
 
         PickPose pick = dom.Ray.Current;
-        if (!_piles.TryRaycastItemChips(pick.Origin, pick.Direction, _itemChipHover,
-                out ItemsPile.ItemChip? chip, out Vector3 point, out float dist)
-            || chip == null
-            || (dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist))
+        // allowNearMiss: the interaction path gets the angular near-miss rescue (a chip on a
+        // shrunken board subtends less than the controller's own aim jitter — see
+        // FanSweep.LaserMinHalfAngleDegrees). The fan OCCLUDER keeps the exact rect.
+        bool rayHit = _piles.TryRaycastItemChips(pick.Origin, pick.Direction, _itemChipHover,
+            out ItemsPile.ItemChip? chip, out Vector3 point, out float dist, allowNearMiss: true);
+        bool uiInFront = rayHit && dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist;
+        if (!rayHit || chip == null || uiInFront)
         {
+            LogItemFanLaser(dom, uiInFront
+                ? "not delivered — nearer game UI is in front of the fan"
+                : "not delivered — the ray is not on any chip");
             ClearItemFanHover();
             // T2 pull-jerk grace, item-fan edition (user round 2): the trigger pull jerks the
             // aim ray off the narrow chip strip on the very press frame, so this miss branch is
@@ -1109,6 +1099,8 @@ internal sealed partial class CardsDriver
         ItemsPile.ItemChip? handOwned = _piles.HandOwnedItemChip(dom);
         if (handOwned != null && !ReferenceEquals(handOwned, chip))
         {
+            LogItemFanLaser(dom, $"not delivered — the HAND owns the fan ('{handOwned.name}' is " +
+                                 "physically in contact); the beam yields so what pops is what is taken");
             ClearItemFanHover();
             _itemChipGraceChip = null; // no laser promise while the hand owns the fan
             return;
@@ -1144,14 +1136,48 @@ internal sealed partial class CardsDriver
                     VRLog.Info("Cards", $"Item fan: laser pluck of '{chip.name}' SUPPRESSED — blocking modal open " +
                                         "(commit gate; the hover pop you see is live, the pluck is not). " +
                                         $"Blocking window(s): {WorldUI.ModalFallback.DescribeBlockingWindows()}.");
+                    LogItemFanLaser(dom, "trigger DOWN but SUPPRESSED by the blocking-modal commit gate");
                 }
                 return;
             }
             ItemsPile.ItemChip pluck = chip;
+            LogItemFanLaser(dom, $"DELIVERED — trigger plucked '{pluck.name}' into the hand");
             ClearItemFanHover();
             _itemChipGraceChip = null; // the promise is honoured — no stale grace after the pluck
             pluck.OnPoke(dom); // pluck into the hand (ForceGrab, released on trigger-up)
         }
+        else
+        {
+            LogItemFanLaser(dom, "no press this frame — hover only");
+        }
+    }
+
+    /// <summary>Throttle clock (unscaled) for the item-fan laser diagnostic below.</summary>
+    private float _nextItemLaserLogAt;
+
+    /// <summary>Last verdict logged, so a CHANGE of outcome is reported immediately.</summary>
+    private string _lastItemLaserVerdict = string.Empty;
+
+    /// <summary>
+    /// The item-fan laser line the user asked for: whether the ray hit, WHAT it hit, whether the
+    /// angular rescue was needed and by how much, the chip's real size and the world scale — plus
+    /// why a press was or was not delivered. Together with the hand-sweep line this is the whole
+    /// decision chain in two log lines, which is the point: "the log alone tells us which of the
+    /// candidate causes it was". Rate-limited to one line per second, but a CHANGED verdict prints
+    /// immediately (a state flip is exactly the moment worth having).
+    /// </summary>
+    private void LogItemFanLaser(VRHand hand, string pressVerdict)
+    {
+        if (string.Equals(pressVerdict, _lastItemLaserVerdict, System.StringComparison.Ordinal)
+            && Time.unscaledTime < _nextItemLaserLogAt)
+            return;
+        FanSweep.FanLaserPick pick = _piles.LastItemLaserPick;
+        // Nothing anywhere near the fan is not news — it is the resting state of the beam.
+        if (!pick.Hit && pick.Distance <= 0f)
+            return;
+        _lastItemLaserVerdict = pressVerdict;
+        _nextItemLaserLogAt = Time.unscaledTime + 1f;
+        FanSweep.LogLaser("Item-fan", hand.Side.ToString(), pick, hand.WorldScale, pressVerdict);
     }
 
     /// <summary>Drop the item-fan laser hover (un-pop via OnPokeExit). Same shape as
