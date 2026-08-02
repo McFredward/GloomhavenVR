@@ -395,7 +395,10 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 17;
+    public const ushort ModBuild = 18;
+    // Build 18: tutorial grab step is sequential (scripted chain held until a figure was
+    // picked up), floated windows re-placed at their final fitted geometry, cold-open menu
+    // fit fixed (layout flush order). Local-only UI — no wire changes.
     // Build 17: complete pre-reveal window hide (grab bar/depth masks/MR plate), grip-gated
     // fingertip tile touch, figure-grab intent peek + extra tutorial step. Local-only
     // rendering/input — no wire changes, same-build enforcement.
