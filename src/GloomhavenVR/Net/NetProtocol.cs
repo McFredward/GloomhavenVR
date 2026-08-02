@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 25;
+    public const ushort ModBuild = 26;
+    // Build 26: wall-mounted dressing (torch/candle flames left floating when a wall faded) now
+    // rides its wall's fade — airborne renderers hugging the wall slab are hidden via
+    // renderer.enabled ONLY; Lights are never touched, so the lighting is unchanged.
+    // Local-only rendering — no wire changes.
     // Build 25: the left-edge flash on opening a modal — the game's own 2D window was rendered
     // by the head camera for one frame before conversion; its canvases are now blacked out from
     // inside the game's Show() until Convert takes over. Local-only UI — no wire changes.

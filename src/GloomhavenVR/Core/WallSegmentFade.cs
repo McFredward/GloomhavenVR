@@ -214,7 +214,7 @@ internal static class WallFadeTuning
 /// Gated LIVE by [Compat] WallFade — OFF clears every block
 /// immediately (exactly today's solid walls, zero per-frame cost beyond the enabled check).
 /// </summary>
-internal static class WallSegmentFade
+internal static partial class WallSegmentFade
 {
     private const string Name = "WallSegmentFade";
     private const string DriverName = "GloomhavenVR.WallSegmentFade";
@@ -270,7 +270,7 @@ internal static class WallSegmentFade
     internal static bool IsFoliageShaderName(string shaderName) => shaderName.Contains("Foliage");
 
     /// <summary>Per-wall-segment fade state.</summary>
-    private sealed class Segment
+    private sealed partial class Segment
     {
         /// <summary>Tracking anchor and dictionary key: the <see cref="ProceduralWall"/> for
         /// cache-listed walls; for shader-ADOPTED groups (advanced tilesets put fade-capable wall
@@ -356,7 +356,7 @@ internal static class WallSegmentFade
         public int LastRoomTotal;
     }
 
-    private sealed class FadeDriver : MonoBehaviour
+    private sealed partial class FadeDriver : MonoBehaviour
     {
         // --- decision constants (see class header) ------------------------------------------
         // SCALE SEMANTICS (round-5 audit): every linear constant below is WORLD units (wu)
@@ -526,6 +526,8 @@ internal static class WallSegmentFade
             _splitAnchors.Clear();
             _lastRoomCensusCount = -1; // fresh scene = fresh room registry (reveal diagnostics)
             _lastRoomCensusAnchored = -1;
+            _lastLoggedMountedCount = -1;    // re-print the dressing census for the new scene
+            _lastLoggedMountedRejected = -1;
         }
 
         /// <summary>
@@ -728,8 +730,9 @@ internal static class WallSegmentFade
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _segments.Count;
                 LogFloorColumnCensus();
+                LogMountedCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
-                int siblings = 0, failSafeSegs = 0, doorways = 0;
+                int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
@@ -738,6 +741,7 @@ internal static class WallSegmentFade
                     if (s.Engulfing) engulfSegs++;
                     foliage += s.Foliage.Count;
                     siblings += s.Siblings.Count;
+                    mounted += s.Mounted.Count;
                     if (!RoomDecisionValid(s.RoomIndex)) failSafeSegs++;
                     if (s.DoorRoot != null)
                         doorways++;
@@ -753,7 +757,9 @@ internal static class WallSegmentFade
                     + $"fade-capable renderers {_censusFadeRenderers} = {_censusClaimed} claimed "
                     + $"+ {_censusAdopted} adopted; {_splitAnchors.Count} room-engulfing wall(s) "
                     + $"split per renderer, {engulfSegs} unsplittable held solid; {foliage} foliage "
-                    + $"attachment(s) + {siblings} asset-sibling(s) ride their wall's fade; "
+                    + $"attachment(s) + {siblings} asset-sibling(s) + {mounted} wall-mounted "
+                    + $"prop(s) (torches/candles — renderer.enabled only, Lights never touched) "
+                    + $"ride their wall's fade; "
                     + $"{doorways} DOORWAY segment(s) held permanently solid (doorway fade "
                     + $"disabled — user ruling 2026-08-02); "
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
@@ -998,7 +1004,8 @@ internal static class WallSegmentFade
                 VRLog.Info(Name,
                     $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
                     $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage, " +
-                    $"+{seg.Siblings.Count} asset-sibling(s)) — held state: " +
+                    $"+{seg.Siblings.Count} asset-sibling(s), +{seg.Mounted.Count} mounted " +
+                    $"prop(s) [{MountedNames(seg)}]) — held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
                         ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
@@ -1213,6 +1220,7 @@ internal static class WallSegmentFade
             // MPB/foliage/sibling state clears through the normal branches below.
             ApplyFoliage(seg);
             ApplySiblings(seg);
+            ApplyMounted(seg);
             if (seg.Fade <= 0f)
             {
                 if (seg.HasBlock)
@@ -1385,6 +1393,7 @@ internal static class WallSegmentFade
                 {
                     RestoreSegmentFoliage(kv.Value);
                     RestoreSegmentSiblings(kv.Value);
+                    RestoreSegmentMounted(kv.Value);
                     _deadKeys.Add(kv.Key!); // destroyed Unity object — reference still hashes
                 }
             }
@@ -1435,7 +1444,12 @@ internal static class WallSegmentFade
             // never listed them — yet their materials run the same WallFade shader family,
             // because that is how the FLAT game fades them. The shader is the game's own
             // definition of "this is a fadeable wall", so it is our discovery key too.
-            AdoptShaderMatchedWalls();
+            // ONE scene renderer sweep per rescan, shared by the wall adoption pass (which only
+            // looks at MeshRenderers) and the wall-mounted dressing pass (which also needs
+            // particle/sprite renderers — flames). Splitting it into two FindObjectsOfType calls
+            // would double the most expensive part of the rescan for nothing.
+            Renderer[] sceneRenderers = UnityEngine.Object.FindObjectsOfType<Renderer>();
+            AdoptShaderMatchedWalls(sceneRenderers);
 
             RebuildSamples();
             AssociateRooms();
@@ -1448,6 +1462,10 @@ internal static class WallSegmentFade
             // the table is ~tens of segments, so running it twice is noise.
             StripGroundRenderers();
             CollectAdoptedSiblings();
+            // LAST on purpose: the mounted-dressing rule is geometric (airborne over the room
+            // plane + hugging the wall slab), so it needs the FINAL segment table, their room
+            // association and their ground-stripped AABBs.
+            CollectWallMountedProps(sceneRenderers);
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
@@ -1503,9 +1521,10 @@ internal static class WallSegmentFade
                     continue;
                 if (seg.Renderers.Count == 0)
                 {
-                    // Segment leaves the table — free ALL its attachments (bushes AND doors).
+                    // Segment leaves the table — free ALL its attachments (bushes, doors, dressing).
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
+                    RestoreSegmentMounted(seg);
                     _deadKeys.Add(kv.Key);
                     continue;
                 }
@@ -1587,6 +1606,7 @@ internal static class WallSegmentFade
                 _segments.Remove(engulfing.Key);
                 RestoreSegmentFoliage(group); // pieces re-adopt the bushes on the next rescan
                 RestoreSegmentSiblings(group); // ditto for asset siblings (doors/trim)
+                RestoreSegmentMounted(group);  // …and for the wall-mounted dressing (torches)
                 if (group.HasBlock)
                 {
                     foreach (MeshRenderer r in group.Renderers)
@@ -1653,7 +1673,7 @@ internal static class WallSegmentFade
         /// renderer's parent. Runs inside the 2s rescan; the shader verdict is cached per Shader
         /// so the steady-state cost is one dictionary probe per renderer.
         /// </summary>
-        private void AdoptShaderMatchedWalls()
+        private void AdoptShaderMatchedWalls(Renderer[] sceneRenderers)
         {
             // Reset adopted segments for re-fill; keep their smoothing/fade state (keyed by
             // anchor, so a stable group keeps its EMA and dwell across rescans).
@@ -1665,10 +1685,9 @@ internal static class WallSegmentFade
 
             _censusFadeRenderers = 0;
             _censusAdopted = 0;
-            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
-            foreach (MeshRenderer r in all)
+            foreach (Renderer any in sceneRenderers)
             {
-                if (r == null || !RendererUsesWallFade(r))
+                if (any is not MeshRenderer r || r == null || !RendererUsesWallFade(r))
                     continue;
                 _censusFadeRenderers++;
                 if (_claimedRenderers.Contains(r))
@@ -1738,6 +1757,7 @@ internal static class WallSegmentFade
                     // attachments must not outlive it (restore-everywhere discipline).
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
+                    RestoreSegmentMounted(seg);
                     _deadKeys.Add(kv.Key);
                 }
             }
@@ -2651,6 +2671,7 @@ internal static class WallSegmentFade
                 seg.SmoothInit = false;
                 RestoreSegmentFoliage(seg);
                 RestoreSegmentSiblings(seg);
+                RestoreSegmentMounted(seg);
                 if (!seg.HasBlock)
                     continue;
                 seg.HasBlock = false;
@@ -2663,6 +2684,10 @@ internal static class WallSegmentFade
                     }
                 }
             }
+            // Toggle-off / no-scenario stops the rescan entirely, so the orphan guard would never
+            // run again: empty the hidden ledger right here. "WallFade off" must mean vanilla,
+            // with nothing of ours left switched off anywhere.
+            RestoreAllMountedProps();
             if (cleared > 0)
                 VRLog.Info(Name, $"cleared property blocks on {cleared} renderers ({reason}).");
         }
@@ -2671,6 +2696,10 @@ internal static class WallSegmentFade
         internal void Teardown()
         {
             try { ClearAllBlocks("teardown"); }
+            catch { /* renderers already dying with the scene */ }
+            // Nothing we ever hid may survive a teardown — including a prop whose owner segment
+            // died on some path before it could restore it (the orphan ledger's last stop).
+            try { RestoreAllMountedProps(); }
             catch { /* renderers already dying with the scene */ }
             _segments.Clear();
             _roomBounds.Clear();
