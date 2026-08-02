@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 19;
+    public const ushort ModBuild = 20;
+    // Build 20: MP round — remote board mirrors the REAL initiative track + objectives and
+    // seats every dock at the owner's own mount offsets, Steam picture on both roles, join
+    // seat on a ring at the widest gap to peers, item fan usable under MP roster windows
+    // (whole-fan grab removed). No wire changes (Version stays 3, zero new records).
     // Build 19: fingertip tile touch actually reachable (ForceFarMode retired — tuned cfgs
     // shipped it dead), pile fan no longer sweeps the board's played cards, self-verifying
     // one-shot menu fit (cold-open tiny/misplaced menu), VR burnt-card + named-card tutorial
