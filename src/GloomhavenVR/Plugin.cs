@@ -337,15 +337,18 @@ public class Plugin : BaseUnityPlugin
             "menu renders from a static viewpoint.");
         SpawnInCircle = Config.Bind(
             "Rig", "SpawnInCircle", Defaults.SpawnInCircle,
-            "Multiplayer: when you join a session or enter a scenario, seat you on a ring around " +
-            "the game board at the spot FURTHEST AWAY from every player already there (the widest " +
-            "free gap, so nobody ever spawns inside or behind another player's mask), facing the " +
-            "board. The ring sits just outside the board's own footprint at arm's reach, so you " +
-            "stay close to the table at any board size or zoom level. Placement happens ONCE on " +
-            "arrival — plus at most one correction in the first few seconds if a player shows up " +
-            "right after you; from then on only your own movement moves you. Purely local: " +
-            "nothing extra is sent over the network. No effect in single-player / offline (the " +
-            "solo seat is unchanged). Off = every player keeps the same shared seat as before.");
+            "Multiplayer: when you join a session or enter a scenario, seat you ACROSS the board " +
+            "from the players already there — with one other player that is exactly opposite them, " +
+            "looking straight at their mask; with several, in the widest free gap — instead of " +
+            "inside or behind somebody else's head. You are placed AT THE TABLE EDGE on that side " +
+            "(the board's real edge in that direction plus a standing clearance), so neither over " +
+            "the board nor parked far in front of it, at any board size or zoom level. Placement " +
+            "happens ONCE on arrival — plus at most one correction in the first seconds if a " +
+            "player shows up right after you — and it stops for good the moment you move yourself. " +
+            "Purely local: nothing extra is sent over the network. No effect in single-player / " +
+            "offline (the solo seat is unchanged). Off = every player keeps the same shared seat " +
+            "as before. Every outcome is written to the log (seated / waiting for a peer / no " +
+            "board yet / off).");
         Experimental3DMap = Config.Bind(
             "Rig", "Experimental3DMap", Defaults.Experimental3DMap,
             "RESERVED — CURRENTLY UNIMPLEMENTED placeholder for a future feature: explore the " +

@@ -120,16 +120,29 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     private const int CircleReseatIntervalFrames = 30;
 
     /// <summary>
-    /// How long after a scenario rig is built the spawn ring may still act, seconds (unscaled).
+    /// How long after the FIRST TRACKED POSE the spawn ring may still act, seconds (unscaled).
     ///
-    /// <para>THIS BOUND IS THE WHOLE SAFETY ARGUMENT. Placement is a JOIN comfort, not a leash:
-    /// once the player has had a few seconds at the table, their own locomotion (world grab, snap
-    /// turn, physical steps) is authoritative and nothing may ever move them again. Inside the
-    /// window we (a) retry the placement while the board or the session registry is still coming
-    /// up, and (b) allow exactly ONE correction if a peer appears after we were seated. After it,
-    /// the ring is inert for the rest of the scenario.</para>
+    /// <para>THIS BOUND IS HALF THE SAFETY ARGUMENT — the other half is
+    /// <see cref="NotifyPlayerLocomotion"/>, which closes the window the instant the player moves
+    /// themselves. Placement is a JOIN comfort, not a leash: inside the window we (a) retry while
+    /// the board or the peers are still coming up, and (b) allow exactly ONE correction if a peer's
+    /// first pose lands after we were seated. After it, the ring is inert for the rest of the
+    /// scenario.</para>
+    ///
+    /// <para>ROUND 2 — 12 s WAS MEASURED FROM THE WRONG EVENT AND WAS TOO SHORT. It ran from the
+    /// RIG BUILD, and the 2026-08-02 hardware log shows the scenario load eating a large part of it
+    /// before the first tracked pose even arrived (rig build, then hundreds of asset/board lines,
+    /// then the recenter). On a joining client the FFSNet handshake and the peers' first rig
+    /// packets land in that same load. The window now starts when the player is actually tracked
+    /// and is long enough to cover a slow join; since the player's own movement closes it early,
+    /// the extra seconds cost nothing.</para>
     /// </summary>
-    private const float SpawnRingSettleSeconds = 12f;
+    private const float SpawnRingSettleSeconds = 30f;
+
+    /// <summary>Minimum spacing between spawn-ring "still waiting" lines, seconds. A changed
+    /// outcome always logs immediately; this only throttles the repeats, and every line carries the
+    /// attempt counter so the throttling never hides how often it really ran.</summary>
+    private const float RingLogIntervalSeconds = 3f;
 
     /// <summary>What the current rig is built around (P5: menu rig added, MISSION A.7).</summary>
     private enum RigKind
@@ -141,6 +154,15 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
     private GameObject? _rigRoot;
     private RigKind _kind;
+
+    /// <summary>
+    /// The kind of the rig that was torn down last — i.e. what we are coming FROM. Written by
+    /// <see cref="TearDownRig"/>, read by <see cref="BuildRig"/> to tell "the player just arrived
+    /// at the table" (menu/none → scenario) from "the scenario rig was rebuilt under a player who
+    /// is already standing somewhere" (scenario → scenario). Only the spawn ring cares, and it
+    /// cares a great deal: see the arming block in BuildRig.
+    /// </summary>
+    private RigKind _priorKind;
 
     /// <summary>The GAME camera the rig is anchored to — reference only, never modified.</summary>
     private Camera? _anchor;
@@ -181,13 +203,19 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
     // Settle-window state, all reset per rig build. _ringPlaced: the join placement has landed;
     // _ringPeersAtPlacement: how many peer poses it saw (the trigger for the ONE correction);
-    // _ringSettled: the ring is done and will never act again this rig; _ringWindowEnd: unscaled time the window
-    // closes; _ringOutcome: why the last attempt did or did not place (log + poll bookkeeping).
+    // _ringSettled: the ring is done and will never act again this rig; _ringWindowEnd: unscaled
+    // time the window closes (armed at the FIRST TRACKED POSE, not at rig build); _ringOutcome +
+    // _ringProbe: what the last attempt decided and on what evidence — both exist so the terminal
+    // log line can name the reason the ring never placed; _ringAttempts: how often it was tried;
+    // _ringNextLogTime: throttle for the repeated "still waiting" lines.
     private bool _ringPlaced;
     private bool _ringSettled;
     private int _ringPeersAtPlacement = -1;
     private float _ringWindowEnd;
-    private SpawnRing.Outcome _ringOutcome = SpawnRing.Outcome.SinglePlayer;
+    private SpawnRing.Outcome _ringOutcome = SpawnRing.Outcome.Offline;
+    private SpawnRing.Probe _ringProbe;
+    private int _ringAttempts;
+    private float _ringNextLogTime;
     private int _circleReseatCountdown;
 
     /// <summary>Cached settle-poll delegate ([Optimize] CacheTickDelegates).</summary>
@@ -523,18 +551,41 @@ internal sealed partial class VRRigDriver : MonoBehaviour
                 BuildMenuRig();
         }
 
-        // Recenter once tracking delivers the first real pose (localPosition leaves zero). THIS is
-        // the join placement: the only automatic caller that asks for the spawn ring.
+        // Recenter once tracking delivers the first real pose (localPosition leaves zero).
         if (_pendingRecenter && _camera != null && _camera.transform.localPosition.sqrMagnitude > 1e-6f)
         {
-            Recenter(useSpawnRing: _kind == RigKind.Scenario);
             _pendingRecenter = false;
+
+            // ARM THE SPAWN-RING WINDOW HERE, not at rig build: this is the first moment the
+            // player exists as a tracked body, and on a joining client the whole scenario load
+            // (during which the FFSNet handshake and the peers' first rig packets land) happens
+            // BEFORE it. Round 1 started the clock at rig build and spent most of it on loading.
+            if (_kind == RigKind.Scenario)
+            {
+                _ringWindowEnd = Time.unscaledTime + SpawnRingSettleSeconds;
+                _ringNextLogTime = 0f;
+                _circleReseatCountdown = CircleReseatIntervalFrames;
+                // FIRST ATTEMPT IN THIS VERY FRAME, and BEFORE the ordinary seat is written: when
+                // a peer pose is already known (the normal joining-client case — their rig packets
+                // arrive during the scenario load) the player's first rendered frame is already the
+                // ring seat, with no table-edge flash in between. When it cannot place, the
+                // ordinary seat below happens exactly as it always has and the poll keeps trying.
+                TickGuard.Run("Rig.SpawnRingSettle",
+                    PerfConfig.CacheDelegates ? _tickSpawnRingSettle ??= TickSpawnRingSettle : TickSpawnRingSettle);
+            }
+
+            if (!_ringPlaced)
+                Recenter();
         }
 
-        // Spawn-ring settle window (bounded — see SpawnRingSettleSeconds). Once _ringSettled
-        // latches, the whole step is gone from the frame, not merely an early return.
+        // Spawn-ring settle window (bounded — see SpawnRingSettleSeconds). TickSpawnRingSettle is
+        // the ring's ONLY implementation — this poll and the first-pose attempt above are the same
+        // method, so every outcome is decided and logged in one place. The [Rig] SpawnInCircle gate
+        // lives inside it too, so that "off" is a logged, latched decision rather than an invisible
+        // one. Once _ringSettled latches, the whole step is gone from the frame, not merely an
+        // early return.
         if (_kind == RigKind.Scenario && !_pendingRecenter && !_ringSettled && _camera != null
-            && Plugin.SpawnInCircle.Value && --_circleReseatCountdown <= 0)
+            && --_circleReseatCountdown <= 0)
         {
             _circleReseatCountdown = CircleReseatIntervalFrames;
             // ISOLATED + ATTRIBUTED: the settle poll reads GAME singletons (the scenario tile
@@ -615,13 +666,25 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         _rigRoot.transform.rotation = _scenarioBaseYaw;
         _rigRoot.transform.localScale = Vector3.one * scale;
 
-        // Force the first-pose recenter to (re)evaluate the spawn ring from scratch, and open the
-        // bounded settle window in which it may still retry / correct itself.
+        // SPAWN RING: ARMED ONLY ON A REAL ARRIVAL. A rig REBUILD inside a running scenario (the
+        // health check re-anchors on a destroyed/disabled camera, the MSAA diagnostic asks for
+        // one) must never re-seat a player who has been at this table for ten minutes — that is
+        // the "do not fight the player" rule, and it is exactly the kind of thing that only shows
+        // up on hardware. Only a kind change INTO Scenario (from the menu rig or from no rig at
+        // all) counts as arriving at the table.
+        //
+        // The WINDOW itself is armed later still, by the first tracked pose (see UpdateBody) — a
+        // window opened here would be spent on the scenario load. Until then the sentinel end time
+        // keeps the poll from acting at all.
+        bool arrival = _priorKind != RigKind.Scenario;
         _ringPlaced = false;
-        _ringSettled = false;
+        _ringSettled = !arrival;
         _ringPeersAtPlacement = -1;
-        _ringOutcome = SpawnRing.Outcome.SinglePlayer;
-        _ringWindowEnd = Time.unscaledTime + SpawnRingSettleSeconds;
+        _ringOutcome = SpawnRing.Outcome.Offline;
+        _ringProbe = default;
+        _ringAttempts = 0;
+        _ringNextLogTime = 0f;
+        _ringWindowEnd = 0f;
         _circleReseatCountdown = CircleReseatIntervalFrames;
 
         // Clip planes seeded for this scale (~5 real cm near plane) and kept
@@ -642,6 +705,14 @@ internal sealed partial class VRRigDriver : MonoBehaviour
                           $"'GloomhavenVR.HeadCamera' (anchor '{anchor.name}' mask 0x{anchor.cullingMask:X8} → " +
                           $"head 0x{_camera!.cullingMask:X8}, renderingPath={_camera.renderingPath}/actual={_camera.actualRenderingPath}) " +
                           $"— trigger: {_rebuildTrigger}.");
+        // The spawn ring's own state at birth is part of the rig's story: an in-scenario rebuild
+        // must show WHY no seat line follows, instead of leaving a future log reader guessing.
+        VRLog.Info("Rig", arrival
+            ? "Spawn ring: armed for this scenario — the multiplayer join seat is solved as soon as " +
+              "the first tracked pose arrives ([Rig] SpawnInCircle gates it)."
+            : $"Spawn ring: NOT armed — this is a rig REBUILD inside a running scenario " +
+              $"(trigger: {_rebuildTrigger}), not an arrival at the table, so the player stays " +
+              "exactly where they were.");
         VRCameraPolicy.Sweep("scenario rig built");
         // MSAA truth check: read the XR eye-target desc back once the build settled — proves
         // whether the [RenderQuality] MSAA level actually reached the swapchain (class doc).
@@ -720,6 +791,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     {
         bool hadRig = _kind != RigKind.None;
         bool wasMenu = _kind == RigKind.Menu;
+        // What the NEXT build is coming from (spawn-ring arming — see BuildRig). Only a real rig
+        // updates it: a teardown with nothing to tear down says nothing about where we were.
+        if (hadRig)
+            _priorKind = _kind;
         _kind = RigKind.None;
         // TILT STATE MACHINE RESET — the tilt CODE lives in VRRigDriver.WorldTilt.cs, but every
         // field it owns is declared in THIS file so that this block stays their single reset
@@ -737,6 +812,12 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         _prevHeadYawValid = false;
         _burstActive = false;
         _burstGrabDegrees = 0f; // grab-masked share dies with its burst (also zeroed at burst start)
+        // SPAWN-RING STATE DIES WITH THE RIG, for the same reason as the tilt state above: a
+        // scenario rig re-arms it in BuildRig, and a MENU rig must never inherit "already seated"
+        // from the scenario before it (that flag decides whether the menu's own first-pose
+        // recenter runs at all — see UpdateBody).
+        _ringSettled = true;  // no rig ⇒ inert; a scenario BuildRig re-opens it
+        _ringPlaced = false;
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;

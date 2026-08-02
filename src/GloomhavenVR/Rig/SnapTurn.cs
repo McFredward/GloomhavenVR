@@ -105,6 +105,9 @@ internal sealed class SnapTurn : MonoBehaviour
         // degrees, both arrive here) is camera familiarization for the tutorial bridge
         // (Compat.TutorialVR; cold path = two static reads outside tutorials).
         Compat.TutorialVR.NotifyLocomotion(0f, Mathf.Abs(degrees), 0f);
+        // Spawn ring: a stick turn is the player choosing their own facing — the multiplayer
+        // join placement must never override that afterwards (VRRigDriver.NotifyPlayerLocomotion).
+        VRRigDriver.NotifyPlayerLocomotion("stick turn");
     }
 
     private static VRHand? ResolveTurnHand() =>
