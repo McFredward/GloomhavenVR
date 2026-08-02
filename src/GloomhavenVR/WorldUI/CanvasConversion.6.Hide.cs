@@ -68,6 +68,55 @@ internal static partial class CanvasConversion
     private static bool s_renderPhaseViolationLogged;
 
     /// <summary>
+    /// Nesting depth of the mod's own frame-phase ticks (Update / LateUpdate). Set by
+    /// <see cref="BeginFramePhase"/>/<see cref="EndFramePhase"/> around every WorldUI tick step.
+    ///
+    /// WHY IT EXISTS — the ModBuild 23 log is a FALSE POSITIVE and this is the fix for the DETECTOR,
+    /// not for the code it watches: <c>Camera.current</c> is documented as "the camera we are
+    /// currently rendering with", but Unity does NOT clear it when the render loop ends — it keeps
+    /// returning the last camera that rendered, and <c>stereoActiveEye</c> on an idle stereo camera
+    /// reads Left. The round-6 detector therefore reported "INSIDE the render of
+    /// 'GloomhavenVR.HeadCamera' (stereo eye Left)" for a call that provably came from
+    /// <c>WorldUIModule.LateUpdate → CanvasConversion.LateTick → CompleteReveal</c> — a MonoBehaviour
+    /// LateUpdate, which Unity never runs inside a camera render.
+    ///
+    /// Knowing we are inside our OWN Update/LateUpdate tick is positive proof that we are not inside
+    /// a render, so the check becomes: a stale-or-live <c>Camera.current</c> only counts as a
+    /// violation when the call did NOT come from a frame-phase tick. That is exactly the class the
+    /// detector was built for — visibility flipped from a camera callback, which on MultiPass lands
+    /// between the two eye passes and shows in one eye.
+    /// </summary>
+    private static int s_framePhaseDepth;
+
+    /// <summary>Name of the frame phase currently running (log only).</summary>
+    private static string s_framePhase = "none";
+
+    /// <summary>Mark the start of a main-thread frame phase (Update/LateUpdate) — see
+    /// <see cref="s_framePhaseDepth"/>. Paired with <see cref="EndFramePhase"/> in a finally.</summary>
+    internal static void BeginFramePhase(string phase)
+    {
+        s_framePhaseDepth++;
+        s_framePhase = phase;
+    }
+
+    /// <summary>End of a frame phase (see <see cref="BeginFramePhase"/>).</summary>
+    internal static void EndFramePhase()
+    {
+        s_framePhaseDepth = Mathf.Max(0, s_framePhaseDepth - 1);
+        if (s_framePhaseDepth == 0)
+            s_framePhase = "none";
+    }
+
+    /// <summary>The frame phase a visibility flip happened in, for the reveal log — proof, per
+    /// reveal, that it landed where both eyes see the same thing.</summary>
+    internal static string CurrentFramePhase =>
+        s_framePhaseDepth > 0
+            ? $"{s_framePhase} (main thread, before both eye passes — one consistent frame)"
+            : Camera.current != null
+                ? $"UNKNOWN phase with Camera.current = '{Camera.current.name}' — possible ONE-EYE HAZARD"
+                : "outside any mod tick (no camera rendering)";
+
+    /// <summary>
     /// ROUND 6 (LEFT-EYE FLICKER) — THE INVARIANT, AND ITS DETECTOR.
     ///
     /// This is a MultiPass stereo rig: the head camera is rendered ONCE PER EYE, left first. A
@@ -78,20 +127,23 @@ internal static partial class CanvasConversion
     /// renders and is therefore visible in ONE EYE for one frame — exactly the reported "brief
     /// flicker at the side of the LEFT eye".
     ///
-    /// <c>Camera.current</c> is non-null only while a camera is rendering, so it is a precise,
-    /// free-in-the-common-case detector for that class of violation. Nothing in the mod is supposed
-    /// to trip it (the reveal runs from LateUpdate, the hide from Update + LateUpdate); if the next
-    /// hardware log ever carries this line, it names the offending camera and the case is closed.
+    /// ROUND 7 — the round-6 version tested <c>Camera.current != null</c> alone and cried wolf on
+    /// hardware, because Unity leaves that property pointing at the last camera that rendered (see
+    /// <see cref="s_framePhaseDepth"/> for the full refutation). The sound test is "a camera is
+    /// current AND we did not get here from one of the mod's own frame-phase ticks" — being inside
+    /// our Update/LateUpdate is positive proof that no camera is rendering us.
     /// </summary>
     private static void AssertNotInRenderPhase(string what)
     {
-        if (s_renderPhaseViolationLogged || Camera.current == null)
+        if (s_renderPhaseViolationLogged || s_framePhaseDepth > 0 || Camera.current == null)
             return;
         s_renderPhaseViolationLogged = true;
-        VRLog.Warn("WorldUI", $"MODAL RENDER PHASE VIOLATION: a panel {what} ran INSIDE the render of camera " +
-                              $"'{Camera.current.name}' (stereo eye {Camera.current.stereoActiveEye}). On this " +
-                              "MultiPass rig that lands between the two eye passes and shows in ONE EYE for a " +
-                              "frame. Visibility must only ever change in Update/LateUpdate. Reported once.");
+        VRLog.Warn("WorldUI", $"MODAL RENDER PHASE VIOLATION: a panel {what} ran OUTSIDE every mod frame " +
+                              $"phase while camera '{Camera.current.name}' is current (stereo eye " +
+                              $"{Camera.current.stereoActiveEye}). If that is a live render, it lands between " +
+                              "the two MultiPass eye passes and shows in ONE EYE for a frame. Visibility must " +
+                              "only ever change in Update/LateUpdate. Reported once, with the call site:\n" +
+                              System.Environment.StackTrace);
     }
 
     /// <summary>

@@ -352,23 +352,27 @@ internal sealed class ConvertedPanel
 
     // ---- ROUND 6: the show animation that never lands --------------------------------------
     /// <summary>
-    /// Consecutive settle checks whose measure reported the game's show animation IN FLIGHT
-    /// (rendered/authored ratio materially below 1) WITHOUT the ratio improving materially — i.e.
-    /// the animation is STALLED, not running. A healthy tween moves the ratio every single frame;
-    /// the cold ESC menu sat at 0.15/0.14 across the whole pre-reveal budget. Once this reaches
-    /// <c>CanvasConversion.ShowAnimationStalledChecks</c> the animation is landed deterministically
-    /// (see <c>CanvasConversion.TickShowAnimationLanding</c>).
+    /// Consecutive settle checks whose measure found the window away from its authored geometry
+    /// (rendered/authored ratio materially below 1) WITHOUT the ratio improving — i.e. DRIFTED, not
+    /// animating. A healthy show animation moves the ratio every single frame; the cold ESC menu sat
+    /// at a constant 0.21/0.15 across the whole pre-reveal budget. At
+    /// <c>CanvasConversion.GeometryDriftChecks</c> the chain is dumped and the conversion frame
+    /// re-asserted (see <c>CanvasConversion.TickGeometryDrift</c>).
     /// </summary>
     public int FitAnimStalledChecks;
 
-    /// <summary>Ratio (rendered/authored) of the previous settle check — the stall detector's
+    /// <summary>Ratio (rendered/authored) of the previous settle check — the drift detector's
     /// reference (see <see cref="FitAnimStalledChecks"/>).</summary>
     public Vector2 FitAnimLastRatio = Vector2.one;
 
-    /// <summary>True once <c>CanvasConversion.TryLandShowAnimation</c> has forced this open's show
-    /// animation to its finish state. One-shot per open: the game's animator is asked ONCE, never
-    /// fought frame after frame.</summary>
-    public bool FitShowAnimationLanded;
+    /// <summary>True once this panel has logged a conversion-frame drift correction (the loud line
+    /// is worth exactly once per panel; every applied fit still carries the short per-apply note).
+    /// See <c>CanvasConversion.ReassertConversionFrame</c>.</summary>
+    public bool FrameDriftLogged;
+
+    /// <summary>How many ancestor/depth chain dumps this panel has emitted — capped by
+    /// <c>CanvasConversion.FrameChainDumpCap</c> (it is a multi-line dump).</summary>
+    public int FrameChainDumps;
 
     // ---- task #4 (world-space scroll clipping) --------------------------------------------
     /// <summary>
