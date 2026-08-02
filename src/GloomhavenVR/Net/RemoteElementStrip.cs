@@ -14,7 +14,11 @@ namespace GloomhavenVR.Net;
 
 /// <summary>
 /// The element infusion board, drawn in the LEFT column below the objectives — the mirror of the
-/// local board's docked <c>ElementBoardSurface</c> (same <c>PlayTray.ElementMountBase</c> offset).
+/// local board's docked <c>ElementBoardSurface</c>, seated at
+/// <see cref="RemoteBoardLayout.ElementMount"/> (<c>PlayTray.ElementMountBase</c> plus the AUTHORED
+/// per-board <c>ElementsOffset</c>, keyed by the peer's synced style). The seat used to drop that
+/// per-board term, which on the Steel and Bronze boards buried the strip 40 mm behind where the
+/// owner has it — part of defect (c) of the 1:1-parity round.
 ///
 /// SOURCE (global, zero wire): <c>ElementInfusionBoardManager.ElementColumn(EElement)</c>, the exact
 /// static the game's own <c>InfusionBoardUI.UpdateBoard</c> reads to decide each chip's state. The
@@ -32,14 +36,12 @@ namespace GloomhavenVR.Net;
 /// "Net — content classification".</remarks>
 internal sealed class RemoteElementStrip
 {
-    private const float MountX = -RemoteControlBoard.BoardHalfW - 0.012f;
-    private const float Width = 0.26f;
+    /// <summary>Element dock width budget — <c>PlayTray.ElementMountWidth</c>. The mount origin is
+    /// RIGHT-centre growing LEFT (the objectives convention), so the strip centres half a width to
+    /// the left of it.</summary>
+    private const float Width = PlayTray.ElementMountWidth;
     private const float ChipSize = 0.030f;
     private const float ChipStep = 0.038f;
-
-    /// <summary>Column Y below the objectives dock — mirrors PlayTray.ElementMountBase
-    /// (ObjectivesMountMaxHeight/2 + 0.012 + ElementMountMaxHeight/2 = 0.16 + 0.012 + 0.06).</summary>
-    private const float MountY = -0.232f;
 
     private static readonly Color[] Fallback =
     {
@@ -59,11 +61,21 @@ internal sealed class RemoteElementStrip
     /// <summary>How many non-inert elements the strip currently draws (diagnostics).</summary>
     public int ActiveCount { get; private set; }
 
-    public RemoteElementStrip(Transform boardRoot)
+    public RemoteElementStrip(Transform boardRoot, in RemoteBoardLayout layout)
     {
+        // MOUNT (position + authored per-board scale, exactly like PlayTray.BuildMounts sets its
+        // own element mount) …
+        var mount = new GameObject("ElementMount").transform;
+        mount.SetParent(boardRoot, worldPositionStays: false);
+        mount.localPosition = layout.ElementMount;
+        mount.localScale = Vector3.one * layout.ElementScale;
+
+        // … and the strip itself, half a dock width to the LEFT of it — the mount's origin is
+        // RIGHT-centre growing left (the objectives convention), so the shift belongs INSIDE the
+        // mount, where the scale applies to it too.
         _root = new GameObject("Elements").transform;
-        _root.SetParent(boardRoot, worldPositionStays: false);
-        _root.localPosition = new Vector3(MountX - Width * 0.5f, MountY, RemoteControlBoard.ProudZLocal);
+        _root.SetParent(mount, worldPositionStays: false);
+        _root.localPosition = new Vector3(-Width * 0.5f, 0f, 0f);
 
         for (int i = 0; i < 6; i++)
         {

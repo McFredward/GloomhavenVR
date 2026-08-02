@@ -14,14 +14,26 @@ namespace GloomhavenVR.Net;
 /// sichtbar sein" requirement. All of it is rendered at the peer's board pose by
 /// <see cref="RemoteControlBoard"/>; NOTHING here rides the wire.
 ///
-/// WHY A REPRODUCTION AND NOT THE GAME'S OWN CANVAS: the game instantiates exactly ONE objectives
-/// container (<c>UIManager.MissionObjectiveContainer</c>), ONE infusion board
-/// (<c>InfusionBoardUI.Instance</c>) and ONE initiative track (<c>InitiativeTrack.Instance</c>) per
-/// client, and the local board already docks those single instances onto ITS mounts
-/// (WorldUI TrayMountedPanelSurface). A canvas cannot be in two places at once, and re-parenting or
-/// duplicating a live game canvas would violate the module's reversibility rule. So a peer's board
-/// draws its own picture from the SAME model data the local panels are fed from — a read-only
-/// mirror, exactly like <see cref="RemoteControlBoard"/>'s round-card panels.
+/// WHY A REPRODUCTION AND NOT THE GAME'S OWN CANVAS — AND WHERE THAT ARGUMENT WAS WRONG.
+/// The game instantiates exactly ONE objectives container (<c>UIManager.MissionObjectiveContainer</c>),
+/// ONE infusion board (<c>InfusionBoardUI.Instance</c>) and ONE initiative track
+/// (<c>InitiativeTrack.Instance</c>) per client, and the local board already docks those single
+/// instances onto ITS mounts (WorldUI TrayMountedPanelSurface). This file used to conclude from that:
+/// "a canvas cannot be in two places at once, and re-parenting or duplicating a live game canvas
+/// would violate the module's reversibility rule" — so every remote panel had to be mod-drawn.
+///
+/// The first half stands; the conclusion did not, and the user's round-3 rejection of the green/red
+/// initiative chips and the stand-in objectives box is what forced it out. RE-PARENTING a live game
+/// canvas is indeed forbidden (a tray teardown must never cascade into destroying game-owned UI);
+/// DUPLICATING it is not — <c>Object.Instantiate</c> reads the source and writes a new object tree,
+/// leaving the original untouched, which is the guarantee <see cref="RemoteCardArt"/> has shipped
+/// for round-card faces all along. <see cref="RemoteWidgetMirror"/> now does exactly that for the
+/// two panels whose hand-drawn versions the user rejected: the INITIATIVE TRACK
+/// (<see cref="RemoteInitiativeTrack"/>) and the OBJECTIVES panel
+/// (<see cref="RemoteObjectivesPanel"/>) are live CLONES of the game's own widgets, driven per frame
+/// from the original, with the mod-drawn versions demoted to fallbacks for the frames where the
+/// widget does not exist. Everything else below is still a mod-drawn reproduction fed from the SAME
+/// model data the local panels read.
 ///
 /// FOUR DATA CLASSES. Two of them are zero-wire and are what THIS file draws; the other two exist
 /// on a remote board too, and are named here because the first question about any new remote-board

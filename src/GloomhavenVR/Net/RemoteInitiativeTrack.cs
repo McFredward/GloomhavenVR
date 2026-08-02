@@ -9,72 +9,71 @@ using UnityEngine;
 namespace GloomhavenVR.Net;
 
 // =================================================================================================
-//  Initiative TRACK — GLOBAL actor list + PER-ACTOR initiative (vanilla's own gate)
+//  Initiative TRACK — GLOBAL, mirrored from the game's own widget
 // =================================================================================================
 
 /// <summary>
 /// The scenario's INITIATIVE TRACK, drawn above a peer's board — the mirror of the local board's
-/// docked <c>InitiativeTrack</c> canvas (<c>PlayTray.InitiativeMount</c>).
+/// docked <c>InitiativeTrack</c> canvas (<c>PlayTray.InitiativeMount</c> /
+/// <c>InitiativeTrackSurface</c>).
 ///
-/// WHY IT IS HERE NOW. The previous parity pass rendered only the peer's own initiative NUMBER and
-/// left the track out, arguing that its portraits are CLICKABLE (they switch the local player's
-/// selected character / open the card overview). As a purely NON-INTERACTIVE picture that objection
-/// disappears — nothing drawn here has a collider, so there is nothing to click — and the user's
-/// standing requirement is that every element of the control board is represented on a peer's board.
+/// ─── DEFECT (a) OF THE 1:1-PARITY ROUND, AND WHAT IT ACTUALLY WAS ──────────────────────────────
+/// The hardware screenshot showed this track as a row of plain GREEN and RED rectangles. That was
+/// not a failure to find the data — the log said <c>track=8 entr(y/ies)</c>, so the entries were
+/// resolved correctly all along — it was the RENDERING: this class drew its own tinted plate + name
+/// + number per actor, and explicitly declared the portrait out of scope ("NOT REPRODUCED — the
+/// PORTRAIT … reaching that per-actor texture from the mod is neither cheap nor cheat-relevant").
 ///
-/// SOURCE (global list + per-actor numbers, zero wire) — THE GAME'S OWN TRACK, VERBATIM
-/// (defect 1 of the 1:1 parity round, "Initiativreihenfolge wild falsch"): the primary read is
-/// <c>InitiativeTrack.Instance.actorsUI</c> — the very entry list the shared 2D track renders —
-/// taken in its LIVE on-screen order (ascending sibling index under the track holder; vanilla's
-/// <c>UpdateSortingOrder</c> writes the display order into the sibling order via
-/// <c>SetAsFirstSibling</c>). That reproduces every rule of
-/// <c>InitiativeTrackActorBehaviour.CompareTo</c> — order priorities, SubInitiative tie-breaks,
-/// the online selection-phase grouping, dead/exhausted player placement — without re-deriving a
-/// single one of them, and it is bit-identical on every client because the 2D track itself is.
-/// The owner's board docks that same canvas, so this IS the order the owner sees. The previous
-/// derivation (re-sorting <c>ScenarioManager.Scenario.AllAliveActors</c> by displayed label)
-/// survives only as the FALLBACK for when the game track does not exist (menu, mid-load): it
-/// got ties, sub-initiatives, long rests and the mid-round reorder wrong — "wildly", per the
-/// hardware session.
+/// That premise was wrong, and in the same way <see cref="RemoteAbilityCardSource"/> proved the
+/// "full card art only exists for the local hand" premise wrong. The portrait does not have to be
+/// reached at all: <c>CharacterPortraitsProvider</c> has ALREADY assigned it to the live track's
+/// <c>RawImage</c> on this client, and <c>Object.Instantiate</c> copies live component state. So
+/// cloning the game's own track brings the portraits, the class colours, the initiative discs, the
+/// selection frame, the hover state and the reorder animation across for free.
 ///
-/// ANTI-CHEAT — vanilla's rule, verbatim. A foreign player's initiative reads "?" while
+/// ─── WHAT IT DRAWS NOW ─────────────────────────────────────────────────────────────────────────
+/// PRIMARY — <see cref="RemoteWidgetMirror"/> over <c>InitiativeTrack.Instance.transform</c>: the
+/// REAL widget, cloned once and puppeteered per frame from the original (see that class for why the
+/// clone runs none of the game's code and can never be interacted with). This is the same single
+/// track instance the local board docks, so it is by construction the same ordering, the same
+/// numbers and the same "?"s the owner sees — including vanilla's own online gate
+/// (<c>InitiativeTrackPlayerAvatar.CalculateInitiative</c> returns "?" while
 /// <c>FFSNetwork.IsOnline &amp;&amp; phase == SelectAbilityCardsOrLongRest &amp;&amp;
-/// !actor.IsUnderMyControl</c> (<c>InitiativeTrackPlayerAvatar.CalculateInitiative</c> /
-/// <c>InitiativeTrackActorAvatar</c>) — which is precisely <see cref="RevealGate.ShowRoundCardFronts"/>.
-/// Monsters follow vanilla's own numeric rule (&lt;0 blank, 0 → "?", else the number), i.e. their
-/// initiative appears only once their ability card has been revealed to everyone. So this shows a
-/// number in exactly the frames the shared 2D track already shows it, and "?" in exactly the frames
-/// it shows "?". No new information exists anywhere in this panel.
+/// !actor.IsUnderMyControl</c>). No mod-side gate is needed or wanted: the pixels being copied are
+/// pixels this client is already displaying.
 ///
-/// NOT REPRODUCED — the PORTRAIT. Vanilla's entry paints a character portrait fetched through
-/// <c>CharacterPortraitsProvider</c> from the <c>misc_characterportraits</c> asset bundle; reaching
-/// that per-actor texture from the mod is neither cheap nor cheat-relevant, and vanilla itself only
-/// reveals the actor's NAME on hover. Each chip therefore carries the localized actor name
-/// (<c>CActor.ActorLocKey()</c>, the identical string vanilla's own <c>nameText</c> uses) over a
-/// class-tinted plate, which is the readable equivalent at VR distance.
+/// FALLBACK — the previous mod-drawn chip strip, kept verbatim for the frames where
+/// <c>InitiativeTrack.Instance</c> does not exist (menu, mid-load, a scenario tearing down). It
+/// reads the same entry list in the same on-screen order (ascending sibling index under the track
+/// holder, which is where vanilla's <c>UpdateSortingOrder</c> writes the display order) and falls
+/// back again to <c>ScenarioManager.Scenario.AllAliveActors</c> + a label sort when even that is
+/// gone. Which of the two is live is stated in the <c>Remote board content</c> log line, so a
+/// hardware log PROVES which one the user is looking at.
+///
+/// SEAT — <see cref="RemoteBoardLayout.InitiativeMount"/>, i.e. the authored per-board
+/// <c>InitiativeOffset</c> the owner's own <c>PlayTray.BuildMounts</c> assigns to its initiative
+/// mount, keyed by that peer's synced style. The old remote-only constant (y 0.165, the flat-board
+/// estimate) is gone: on the Steel board the owner's track sits at (0, 0.200, −0.070), which is
+/// 9 mm up and 16 mm proud of where this used to draw it — part of defect (c).
 /// </summary>
-/// <remarks>CLASSIFICATION: MIXED (GLOBAL + PER-ACTOR MODEL) — ZERO wire either way. The actor LIST
-/// and its order are GLOBAL (<c>ScenarioManager.Scenario.AllAliveActors</c>, deduped by
-/// <c>CActor.Class</c>); the per-actor initiative NUMBERS are PER-ACTOR MODEL, gated by
-/// <see cref="RevealGate"/> with monsters following vanilla's own numeric rule. Portraits are
-/// DELIBERATELY-NOT reproduced (see NOT REPRODUCED above). One of the three genuinely MIXED types.
-/// See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// <remarks>CLASSIFICATION: GLOBAL — ZERO wire. The mirrored widget is a scenario-wide singleton the
+/// local client already renders; the fallback's actor LIST is
+/// <c>ScenarioManager.Scenario.AllAliveActors</c> and its per-actor NUMBERS are PER-ACTOR MODEL
+/// gated by <see cref="RevealGate"/> exactly as vanilla gates its own. See INVARIANTS-Net-Rig.md
+/// "Net — content classification".</remarks>
 internal sealed class RemoteInitiativeTrack
 {
-    /// <summary>Bottom-centre origin above the board's top edge. The local dock sits at
-    /// <c>PlayTray.InitiativeMountY</c> (0.10) and grows up; this one is pushed to 0.165 so it
-    /// clears the mod's own INI badge (<see cref="RemoteStatusReadouts"/>, y 0.132 ± 0.021) which
-    /// already occupies the lower half of that mount on a remote board.</summary>
-    private const float MountY = 0.165f;
-
-    /// <summary>Track width — <c>PlayTray.InitiativeMountWidth</c> (= the board width).</summary>
-    private const float Width = 0.64f;
+    /// <summary>Track width budget — <c>PlayTray.InitiativeMountWidth</c> (= the board width), the
+    /// same budget the owner's own docked track is fitted into.</summary>
+    private const float Width = PlayTray.InitiativeMountWidth;
 
     private const float ChipH = 0.052f;
     private const float MaxChipW = 0.082f;
     private const int MaxChips = 8;
 
     private readonly Transform _root;
+    private readonly Transform _fallbackRoot;
+    private readonly RemoteWidgetMirror _mirror;
     private readonly Chip[] _chips = new Chip[MaxChips];
     private readonly List<CActor> _entries = new(MaxChips);
     private readonly List<CClass> _seen = new(MaxChips);
@@ -82,32 +81,103 @@ internal sealed class RemoteInitiativeTrack
 
     private string _signature = string.Empty;
 
-    /// <summary>How many chips the track currently draws (diagnostics).</summary>
+    /// <summary>How many entries the track currently represents (diagnostics). With the mirror live
+    /// this is the game track's own entry count; on the fallback it is the chip count.</summary>
     public int Count { get; private set; }
 
-    public RemoteInitiativeTrack(Transform boardRoot)
+    /// <summary>Which mechanism is drawing the track right now (diagnostics — see
+    /// <see cref="RemoteWidgetMirror.Fidelity"/>).</summary>
+    public RemoteWidgetMirror.Fidelity Source { get; private set; } = RemoteWidgetMirror.Fidelity.None;
+
+    /// <summary>Why the real widget is not being mirrored, for the diagnostic line (empty when it is).</summary>
+    public string Reason => _mirror.Reason;
+
+    public RemoteInitiativeTrack(Transform boardRoot, in RemoteBoardLayout layout)
     {
         _root = new GameObject("InitiativeTrack").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
-        _root.localPosition = new Vector3(0f, MountY + ChipH * 0.5f, RemoteControlBoard.ProudZLocal);
+        // The mount convention (PlayTray: bottom-centre of the initiative panel, grows UP above the
+        // board's top edge) is reproduced verbatim — the mirror grows up from here, and so do the
+        // fallback chips.
+        _root.localPosition = layout.InitiativeMount;
 
+        _mirror = new RemoteWidgetMirror("InitiativeTrack", _root,
+            PlayTray.InitiativeMountWidth, PlayTray.InitiativeMountMaxHeight, Vector2.up);
+
+        _fallbackRoot = new GameObject("Fallback").transform;
+        _fallbackRoot.SetParent(_root, worldPositionStays: false);
+        _fallbackRoot.localPosition = new Vector3(0f, ChipH * 0.5f, 0f);
         for (int i = 0; i < MaxChips; i++)
-            _chips[i] = new Chip(_root);
+            _chips[i] = new Chip(_fallbackRoot);
+        _fallbackRoot.gameObject.SetActive(false);
 
         _root.gameObject.SetActive(false);
     }
 
-    /// <summary>Re-read the game track's entries + initiatives and repaint on an actual change.
-    /// Wrapped whole: a half-initialised scenario must degrade to an empty track, never throw.</summary>
+    /// <summary>Per-FRAME: keep the mirrored widget in step with the original, so the track's
+    /// reorder slide and selection pop play out on a peer's board instead of stepping at the 4 Hz
+    /// content cadence. No-op while the fallback is live.</summary>
+    public void TickLive() => _mirror.TickLive();
+
+    /// <summary>Content-cadence refresh: mirror the real widget when it exists, else repaint the
+    /// fallback chips on an actual change. Wrapped whole — a half-initialised scenario must degrade
+    /// to an empty track, never throw.</summary>
     public void Refresh()
+    {
+        InitiativeTrack? track = null;
+        try { track = InitiativeTrack.Instance; }
+        catch { track = null; }
+
+        if (_mirror.Refresh(track != null ? track.transform : null))
+        {
+            Source = RemoteWidgetMirror.Fidelity.MirroredWidget;
+            _mirror.SetShown(true);
+            if (_fallbackRoot.gameObject.activeSelf)
+                _fallbackRoot.gameObject.SetActive(false);
+            if (!_root.gameObject.activeSelf)
+                _root.gameObject.SetActive(true);
+            Count = CountGameEntries(track);
+            _signature = string.Empty; // a later fallback must repaint from scratch
+            return;
+        }
+
+        Source = RemoteWidgetMirror.Fidelity.ModDrawn;
+        _mirror.SetShown(false);
+        RefreshFallback();
+    }
+
+    public void Destroy() => _mirror.Destroy();
+
+    /// <summary>Entry count of the LIVE game track (the number the mirrored picture is showing) —
+    /// diagnostics only, and null-safe for the frames where the track is mid-rebuild.</summary>
+    private static int CountGameEntries(InitiativeTrack? track)
+    {
+        try
+        {
+            List<InitiativeTrackActorBehaviour>? ui = track != null ? track.actorsUI : null;
+            if (ui == null)
+                return 0;
+            int n = 0;
+            for (int i = 0; i < ui.Count; i++)
+                if (ui[i] != null && ui[i].gameObject.activeSelf)
+                    n++;
+            return n;
+        }
+        catch { return 0; }
+    }
+
+    // ------------------------------------------------------------------ fallback --
+
+    /// <summary>The pre-mirror chip strip, kept for the frames where the game track does not exist.
+    /// Re-reads the entries + initiatives and repaints on an actual change.</summary>
+    private void RefreshFallback()
     {
         _entries.Clear();
         _seen.Clear();
         try
         {
-            // Primary: the game's own track in its LIVE display order (see the class note).
-            // Fallback: the old AllAliveActors derivation + label sort, for when the game track
-            // does not exist yet.
+            // The game track's own entries in their LIVE display order when it exists but could not
+            // be mirrored; the model derivation when it does not.
             if (!CollectFromGameTrack())
             {
                 Collect();
@@ -128,6 +198,8 @@ internal sealed class RemoteInitiativeTrack
         bool any = Count > 0;
         if (_root.gameObject.activeSelf != any)
             _root.gameObject.SetActive(any);
+        if (_fallbackRoot.gameObject.activeSelf != any)
+            _fallbackRoot.gameObject.SetActive(any);
 
         float chipW = Mathf.Min(MaxChipW, Count > 0 ? Width / Count : MaxChipW);
         float left = -(Count - 1) * 0.5f * chipW;
@@ -211,7 +283,10 @@ internal sealed class RemoteInitiativeTrack
         return int.TryParse(label, out int v) ? v : int.MaxValue;
     }
 
-    /// <summary>Vanilla's own display rule for the number (see the class note).</summary>
+    /// <summary>Vanilla's own display rule for the number: a foreign player reads "?" for exactly
+    /// the frames <c>InitiativeTrackPlayerAvatar.CalculateInitiative</c> does (which is precisely
+    /// <see cref="RevealGate.ShowRoundCardFronts"/>), and a monster follows vanilla's numeric rule
+    /// (&lt;0 blank, 0 → "?", else the number).</summary>
     private static string InitiativeLabel(CActor a)
     {
         try
@@ -238,8 +313,9 @@ internal sealed class RemoteInitiativeTrack
         catch { return "?"; }
     }
 
-    /// <summary>One track entry: a tinted plate, the actor name and the initiative number. Inert —
-    /// vanilla's entry is a button (character switch / card overview); this one is three quads.</summary>
+    /// <summary>One FALLBACK track entry: a tinted plate, the actor name and the initiative number.
+    /// Inert — vanilla's entry is a button (character switch / card overview); this one is three
+    /// quads. Only ever visible while the real widget cannot be mirrored.</summary>
     private sealed class Chip
     {
         private readonly Transform _root;

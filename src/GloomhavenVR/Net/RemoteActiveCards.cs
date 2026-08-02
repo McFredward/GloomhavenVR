@@ -32,7 +32,6 @@ namespace GloomhavenVR.Net;
 /// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteActiveCards
 {
-    private const float MountX = RemoteControlBoard.BoardHalfW + 0.012f + 0.17f;
     private const float CardW = 0.075f;
     private const float CardH = CardW * (88f / 63.5f);
     private const int Columns = 2;
@@ -46,11 +45,16 @@ internal sealed class RemoteActiveCards
     /// <summary>How many active cards the column currently draws (diagnostics).</summary>
     public int Count { get; private set; }
 
-    public RemoteActiveCards(Transform boardRoot)
+    public RemoteActiveCards(Transform boardRoot, in RemoteBoardLayout layout)
     {
         _root = new GameObject("ActiveCards").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
-        _root.localPosition = new Vector3(MountX, 0f, RemoteControlBoard.ProudZLocal);
+        // The OWNER's own seat: PlayTray.ActiveMountBase plus the AUTHORED per-board ActiveOffset
+        // and card scale, keyed by the peer's synced style (RemoteBoardLayout). The old hardcoded
+        // base dropped both, so on Steel/Bronze this column sat 20–40 mm behind the owner's and at
+        // the wrong card size — part of defect (c) of the 1:1-parity round.
+        _root.localPosition = layout.ActiveMount;
+        _root.localScale = Vector3.one * layout.ActiveCardScale;
 
         _title = RemoteBoardContent.Label(_root, "Title", new Vector3(0f, 0.075f, 0f),
             new Vector2(0.09f, 0.024f), 0.045f,

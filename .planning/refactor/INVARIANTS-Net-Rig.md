@@ -970,10 +970,11 @@ to RENDER it at their pose."*
 
 | Content | Renderer | Source |
 |---|---|---|
-| Objectives + progress bars | `RemoteObjectivesPanel` (`Refresh`, `Row.Set`) | `ScenarioManager.CurrentScenarioState.WinObjectives/LoseObjectives`, filtered by `MissionObjectiveContainer.InitialiseObjective`'s rule; text via the game's own `LocalizationObjectiveConveter.LocalizeText`; progress via `CObjective.GetObjectiveProgress` |
+| Objectives + quest header + progress bars | `RemoteObjectivesPanel` → `RemoteWidgetMirror` over `UIManager.MissionObjectiveContainer` | a live **CLONE** of the game's own container, driven per frame from the original. Fallback (container absent): the mod-drawn rows, from `ScenarioManager.CurrentScenarioState.WinObjectives/LoseObjectives` filtered by `MissionObjectiveContainer.InitialiseObjective`'s rule; text via `LocalizationObjectiveConveter.LocalizeText`; progress via `CObjective.GetObjectiveProgress` |
 | Element infusion strip | `RemoteElementStrip` (`Refresh`, `ColorFor`) | `ElementInfusionBoardManager.ElementColumn` |
 | Round number | `RemoteStatusReadouts` (`RoundText`) | `CardsGameApi.RoundNumber()` |
-| Initiative track — the actor LIST and its order | `RemoteInitiativeTrack` (`Collect`, `SortKey`) | `ScenarioManager.Scenario.AllAliveActors`, deduped by `CActor.Class`, summons and prop actors filtered, sorted by initiative with unknowns last |
+| Initiative track — the whole widget (portraits, order, numbers, selection, reorder animation) | `RemoteInitiativeTrack` → `RemoteWidgetMirror` over `InitiativeTrack.Instance` | a live **CLONE** of the game's own track, driven per frame from the original. Fallback (track absent): the mod-drawn chip strip over `InitiativeTrack.actorsUI` in sibling order, then `ScenarioManager.Scenario.AllAliveActors` deduped by `CActor.Class` and sorted by initiative with unknowns last |
+| Panel SEATS (where every dock sits on a peer's board) | `RemoteBoardLayout` | `PlayTray.{Objectives,Element,Pile,Active}MountBase` / `ReadoutBase` + the authored per-board offset/scale from `CardsConfig.BoardDefaults`, keyed by the peer's **synced** board style |
 
 **PER-ACTOR MODEL — read off the host-replicated `CPlayerActor` / `CharacterClass`, ZERO wire.**
 Reached via `NetPlayerActors.ActorFor(playerId)`.
@@ -983,7 +984,7 @@ Reached via `NetPlayerActors.ActorFor(playerId)`.
 | The two round-card slots (identity + order) | `RemoteControlBoard.OrderRoundCards`, `RemoteBoardCard.Set` | `RevealGate` |
 | Round-card FACE ART (the real painted card) | `RemoteAbilityCardSource.ShowFullFace` → `TryLiveWidget` / `TryPooledClone` → `RemoteCardArt.ShowFront` | `RevealGate` (caller-side, once) |
 | Name+initiative fallback panel | `RemoteBoardCard.Set` (`FacePath.None` branch) | `RevealGate` |
-| Initiative NUMBER badge | `RemoteStatusReadouts.InitiativeText` | `RevealGate` — mirrors `InitiativeTrackPlayerAvatar.CalculateInitiative` exactly |
+| Initiative NUMBER badge (**fallback only**) | `RemoteStatusReadouts.InitiativeText`, shown/hidden by `RemoteControlBoard.SyncInitiativeBadge` | `RevealGate` — mirrors `InitiativeTrackPlayerAvatar.CalculateInitiative` exactly. Hidden while the real track is mirrored: the owner's own board has no such badge, so drawing it there would be an ADDITION, not parity |
 | Per-actor numbers inside the track | `RemoteInitiativeTrack.InitiativeLabel` | `RevealGate`; monsters follow vanilla's own numeric rule (`<0` blank, `0` → "?") |
 | Rest state | `RemoteStatusReadouts.RestText` | **SPLIT gate** — `HasShortRested` / `HasLongRested` are past-tense public facts, shown unconditionally; the pending `LongRest` *selection* is secret and goes through `RevealGate` |
 | Discard / burnt / item pile COUNTS | `RemoteControlBoard.RefreshContent` → `PileCounter.Set` | **deliberately UNGATED** — vanilla lets anyone open any player's full card overview from the initiative track (`InitiativeTrackPlayerAvatar.OnClick`) |
@@ -1008,7 +1009,7 @@ head-mask id + size; hand style. (See the wire tables in Part I.)
 | Item identity / per-item face size | backs only; the item's real effect syncs authoritatively through `UseItemService` |
 | Figure transforms | the game re-derives them from authoritative board state every frame |
 | Fan geometry (curvature, toe-in, bow, gaze apex, fan-out timing) | all derived from the synced hand + head; *"frame-for-frame the shape the owner sees, with no new wire field and no version bump"* |
-| Character portraits on track chips | class-tinted plate + `CActor.ActorLocKey()` name — vanilla only reveals the name on hover anyway |
+| ~~Character portraits on track chips~~ **(retired)** | no longer needed: the track is now a live clone of the game's own widget (`RemoteWidgetMirror`), and `Object.Instantiate` copies the `RawImage.texture` `CharacterPortraitsProvider` already assigned on this client. The old entry claimed reaching the portrait was "neither cheap nor cheat-relevant"; it turned out not to need reaching at all. The mod-drawn chip strip keeps the plate+name look as its **fallback** |
 | Confirm/Undo/Skip enabled state, Confirm's live label, follow/pin toggle state, decision-drawer open state, modal pick-field state | drawn in a documented **NEUTRAL** look; none crosses the wire and none is worth a field |
 | The local player's own tuning offsets (`ConfirmUndoOffset`, `VRSettingsOffset`, `PinOffset`, `ClusterOffset`, `ItemUseSlotOffset`, `DecisionOffset`, `BrowseFanOffset`, `GenericButtonSpacing`, tuned `Fan*` config) | peers are drawn at the **authored defaults**, so every remote board looks the same regardless of local tuning |
 | Hover split / insertion gap | needs the hovered index — one byte plus a reserved bit; not spent |
@@ -1021,6 +1022,25 @@ head-mask id + size; hand style. (See the wire tables in Part I.)
 - **Why:** Adding a wire field for something already replicated wastes a scarce flag bit (there is exactly one left) and creates a second source of truth that can disagree with the game — which looks exactly like a desync. Conversely, rendering a VR-only fact "locally" shows the *local* player's value on the *peer's* board.
 - **Established by:** `1899421` feat(net): a peer's control board now shows what their own board shows; `cf38066` feat(net): the peer's board shows ALL its furniture — as inert visuals; `c5df48e` feat(net): peers' played cards render at full detail once the phase reveals them
 - **Breaks if:** a new feature reaches for a wire field by reflex. **The default answer is GLOBAL or PER-ACTOR MODEL; VR-ONLY must be justified.**
+- **Confidence:** high
+
+### A remote board may CLONE a game canvas — it may never re-parent one
+- **Where:** `RemoteWidgetMirror`, used by `RemoteInitiativeTrack` and `RemoteObjectivesPanel`; the same discipline as `RemoteCardArt` / `RemoteAbilityCardSource`
+- **Rule:** GLOBAL panels on a peer's board are **live clones** of the game's own widget, hosted on our own world-space canvas, with every non-presentation component destroyed **before the clone is ever active** and the remaining rects/graphics/texts driven per frame from the original. The source is never moved, re-flagged or mutated.
+- **Why:** The pre-2026-08 rule said a remote board must hand-draw every panel, because "a canvas cannot be in two places at once, and re-parenting or duplicating a live game canvas would violate the reversibility rule". Re-parenting would; **duplicating does not** — `Object.Instantiate` reads the source and writes a new tree. The hand-drawn versions were exactly what the user rejected three rounds running: the initiative track rendered as green/red rectangles instead of the real portraits, the objectives as a stand-in box. Cloning also copies **runtime** component state, which is why the portraits (assigned by `CharacterPortraitsProvider` at runtime) come across for free.
+- **The two hazards, and how they are closed:**
+  1. *The clone's game scripts must never run* — they register with singletons and mutate the state the original is driven from. So the clone is built under an **inactive** host (no `Awake` yet) and everything outside the presentation whitelist (`Graphic`, `CanvasRenderer`, `Mask`/`RectMask2D`, `BaseMeshEffect`, `CanvasGroup`) is `DestroyImmediate`d, including layout groups, `Canvas`, `CanvasScaler` and every `GraphicRaycaster`. A rebuild re-parks the host inactive first, for the same reason.
+  2. *A structure change desyncs the pairing* — the source⇄clone node pairing is a flat index-aligned array built once; it is re-validated node-for-node on the content cadence and the clone is rebuilt whole on any mismatch.
+- **Anti-cheat:** only for panels that are GLOBAL **and already on the local player's screen**. Cloning what this client already displays reveals nothing, which is why the mirror carries no gate of its own. A per-actor secret must never be mirrored this way.
+- **Breaks if:** someone "optimises" the mirror by adopting the live widget instead of cloning it, keeps a game MonoBehaviour "because it drives an animation", or drives the clone from the model instead of from the source (which is what made the old hand-drawn panels wrong in the first place).
+- **Confidence:** high — mechanism proven by `RemoteCardArt`, which has shipped the identical clone-not-adopt discipline for round-card faces since `c5df48e`
+
+### A remote panel's SEAT is derived from the owner's own mount, never hand-tuned
+- **Where:** `RemoteBoardLayout`; `PlayTray.{Objectives,Element,Pile,Active}MountBase` / `ReadoutBase` (widened to `internal` for this); `CardsConfig.BoardDefaults` (likewise)
+- **Rule:** Every dock on a remote board sits at `<the owner's mount base> + <the AUTHORED per-board offset for their SYNCED style>` — the same two terms `PlayTray.BuildMounts` composes. Remote-only position constants are forbidden.
+- **Why:** The remote board used to reproduce only the base and drop the per-board term, then compensate with a hand-estimated per-style "content proud lift" whose own comment admitted it was "an approximation of the meshes, not a measurement". On Oak (offsets ≈ 0) that was invisible; on Steel it mis-placed the objectives, the elements, the piles, the active column, the round readout and the initiative track simultaneously — the user's defect (c), "die Buttons sind nicht dort, wo der Besitzer sie hat".
+- **Note:** the peer's own debug-menu RE-tuning stays DELIBERATELY-NOT (it never rides the wire), so every client renders a given style at its **shipped** layout — identical for the overwhelmingly common case of nobody having tuned anything.
+- **Breaks if:** a new remote panel is given a literal board-local position instead of a `RemoteBoardLayout` member, or the promoted `PlayTray` mount bases are narrowed back to `private` and copied into `Net/` (that copy is exactly what `scripts/check-mirrors.sh` exists to police).
 - **Confidence:** high
 
 ### Cosmetic choices the user picks are always VR-ONLY and always transmitted

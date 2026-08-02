@@ -58,19 +58,32 @@ namespace GloomhavenVR.Net;
 /// bit-for-bit the one <see cref="RevealGate"/> already governed.
 ///
 /// FULL BOARD PARITY (standing user requirement: "ALLE Widgets … sollen auch beim fremden
-/// Controllboard sichtbar und synchronisiert sein"). Beyond the two round cards this board now also
-/// reproduces, MOD-DRAWN and at the same board-local offsets the LOCAL board docks its panels at:
-///   • the objectives with their progress  (<see cref="RemoteObjectivesPanel"/> — GLOBAL),
+/// Controllboard sichtbar und synchronisiert sein", round 3: "1:1 genau so, wie der Spieler sein
+/// eigenes Board sieht — alle Positionen, Animationen, Effekte"). Beyond the two round cards:
+///
+/// WHERE things sit is no longer guessed. Every dock on this board is seated from
+/// <see cref="RemoteBoardLayout"/> — the OWNER's own mount base (read straight out of
+/// <c>PlayTray</c>) plus the AUTHORED per-board offset/scale for the board style that peer SYNCED.
+/// The board used to reproduce only the base and drop the per-board term, which on a Steel board
+/// mis-placed the objectives, the elements, the piles, the active column, the round readout and the
+/// initiative track all at once (defect (c) of the parity round).
+///
+/// WHAT they show: the two panels whose mod-drawn versions the user rejected are now live CLONES of
+/// the game's OWN widgets (<see cref="RemoteWidgetMirror"/>) — real portraits, real rows, real
+/// progress, driven per frame so the animations play:
+///   • the scenario INITIATIVE TRACK      (<see cref="RemoteInitiativeTrack"/> — defect (a)),
+///   • the objectives + quest header      (<see cref="RemoteObjectivesPanel"/> — defect (b)).
+/// The rest stay MOD-DRAWN, at the same board-local offsets the LOCAL board docks its panels at:
 ///   • the element infusions               (<see cref="RemoteElementStrip"/>    — GLOBAL),
 ///   • the round number                    (<see cref="RemoteStatusReadouts"/>  — GLOBAL),
-///   • the peer's initiative position      (<see cref="RemoteStatusReadouts"/>  — per-actor, gated),
 ///   • their short/long rest state         (<see cref="RemoteStatusReadouts"/>  — per-actor, split gate),
 ///   • their discard/burnt/item pile COUNTS on the three stacks (per-actor, public),
 ///   • their active/persistent cards       (<see cref="RemoteActiveCards"/>     — per-actor, gated),
-///   • the scenario INITIATIVE TRACK       (<see cref="RemoteInitiativeTrack"/> — global list,
-///                                          per-actor numbers under vanilla's own gate),
 ///   • and every piece of INTERACTIVE FURNITURE the local board wears
 ///                                         (<see cref="RemoteBoardFurniture"/> — see below).
+/// The mod's own "INI" badge is the one thing that is NOT always drawn: it exists only as the
+/// stand-in for the peer's initiative while the real track cannot be mirrored, because the owner's
+/// board carries no such badge (see <see cref="SyncInitiativeBadge"/>) — parity cuts both ways.
 /// NONE of that rides the wire: the global items are bit-identical on every client already, and the
 /// per-actor items are read off the host-replicated <c>CPlayerActor</c> exactly like the round cards.
 /// See <see cref="RemoteBoardContent"/> for the per-section anti-cheat derivation.
@@ -106,9 +119,11 @@ internal sealed class RemoteControlBoard
     private const float BoardW = 0.64f;
     private const float BoardH = 0.32f;
 
-    /// <summary>Board half-width in board-local metres — the anchor the off-edge docks (objectives
-    /// left, piles/active cards right) offset from, mirroring <c>PlayTray.BoardHalfWidthLocal</c>.</summary>
-    internal const float BoardHalfW = BoardW * 0.5f;
+    // BoardHalfW is GONE. It was the anchor every off-edge dock offset from — the remote-only
+    // half of "PlayTray.BoardHalfWidthLocal + 0.012 + <a literal>". Those docks now read the
+    // OWNER's own mount bases through RemoteBoardLayout, which composes that same half-width with
+    // the AUTHORED per-board offset the remote copies used to drop (defect (c)). Reintroducing a
+    // remote-side board-geometry constant is how that defect comes back.
 
     // Two round-card slots at the REAL board layout: the authored card width × the local board's
     // 1.3 SlotScale — the exact size a card parked in the owner's recess renders at. (They were
@@ -137,8 +152,6 @@ internal sealed class RemoteControlBoard
     // board had slots but no piles at all, so any pile-bound flight would have ended in empty air.
     // Kept deliberately small and back-textured (never a card identity — same anti-cheat stance as
     // everything else here).
-    private const float PileX = Cards.PlayTray.BoardHalfWidthLocal + 0.012f + Cards.PlayTray.PileStackOffsetX;
-    private const float PileSpacing = Cards.PlayTray.PileStackSpacing;
 
     /// <summary>DEFAULT board-local position of a play SLOT (0 = left, 1 = right) — the authored
     /// layout (<c>PlayTray.SlotSpacing</c>), used while no real tray visual is built (procedural
@@ -148,30 +161,52 @@ internal sealed class RemoteControlBoard
     internal static Vector3 SlotLocal(int slot) =>
         new((slot == 0 ? -0.5f : 0.5f) * SlotSpacing, SlotY, ProudZ);
 
-    /// <summary>DEFAULT board-local position of a pile stack / the board centre for a card-FX
-    /// anchor. Mirrors the LOCAL board's stack layout (<c>PlayTray.PileMountBase</c> +
-    /// <c>PileViewer</c>'s ±spacing/2 and −1.5·spacing rows) so a peer's piles sit where that
-    /// player's own piles sit. Prefer <see cref="AnchorLocalLive"/> when an instance is at hand —
-    /// it substitutes the REAL prefab recess positions for the two slots.</summary>
-    internal static Vector3 AnchorLocal(CardFxAnchor anchor) => anchor switch
-    {
-        CardFxAnchor.Slot0 => SlotLocal(0),
-        CardFxAnchor.Slot1 => SlotLocal(1),
-        CardFxAnchor.Discard => new Vector3(PileX, PileSpacing * 0.5f, ProudZ),
-        CardFxAnchor.Burnt => new Vector3(PileX, -PileSpacing * 0.5f, ProudZ),
-        CardFxAnchor.Items => new Vector3(PileX, -PileSpacing * 1.5f, ProudZ),
-        _ => new Vector3(0f, 0f, ProudZ), // Board (and any unknown future id)
-    };
+    /// <summary>DEFAULT (Oak-layout) board-local position of a pile stack / the board centre for a
+    /// card-FX anchor — kept for callers that have no board style at hand. Prefer the
+    /// style-keyed overload, and <see cref="AnchorLocalLive"/> when an instance is available:
+    /// that one also substitutes the REAL prefab recess positions for the two slots.</summary>
+    internal static Vector3 AnchorLocal(CardFxAnchor anchor) =>
+        AnchorLocal(anchor, new RemoteBoardLayout(Cards.ControlBoard.Oak));
 
     /// <summary>
-    /// LIVE board-local anchor layout: like <see cref="AnchorLocal"/>, but the two round-card
-    /// slots come from the REAL tray prefab's measured recess anchors once the 3D visual is
-    /// built — so a card flight (<see cref="RemoteCardFx"/>) and a pile-browse arc land exactly
-    /// in/on the rendered recess of whatever board style the peer runs, instead of on the old
-    /// hardcoded flat-board offsets — and every other board anchor rides the same per-style
-    /// content lift the rendered panels/piles sit at (<see cref="ContentProudLift"/>), so flight
-    /// destination and rendered destination stay one point. Falls back to the defaults while the
-    /// board has not built.
+    /// Board-local position of a pile stack / the board centre, for the board STYLE this peer
+    /// synced. It reproduces the LOCAL board's stack layout exactly — <c>PlayTray.PileMountBase</c>
+    /// plus the AUTHORED per-board <c>PileOffset</c> (both via <see cref="RemoteBoardLayout"/>),
+    /// plus <c>PileViewer</c>'s own per-stack offsets (<c>PileStackOffsetX</c>, and the ±spacing/2 /
+    /// −1.5·spacing rows) — so a peer's piles sit where that player's own piles sit, on every board.
+    /// Dropping the per-board term is what put the Steel board's stacks 40 mm behind the owner's
+    /// (defect (c) of the 1:1-parity round).
+    /// </summary>
+    internal static Vector3 AnchorLocal(CardFxAnchor anchor, in RemoteBoardLayout layout)
+    {
+        Vector3 pile = layout.PileMount + new Vector3(Cards.PlayTray.PileStackOffsetX, 0f, 0f);
+        float step = layout.PileSpacing;
+        return anchor switch
+        {
+            CardFxAnchor.Slot0 => SlotLocal(0),
+            CardFxAnchor.Slot1 => SlotLocal(1),
+            CardFxAnchor.Discard => pile + new Vector3(0f, step * 0.5f, 0f),
+            CardFxAnchor.Burnt => pile + new Vector3(0f, -step * 0.5f, 0f),
+            CardFxAnchor.Items => pile + new Vector3(0f, -step * 1.5f, 0f),
+            _ => new Vector3(0f, 0f, ProudZ), // Board (and any unknown future id)
+        };
+    }
+
+    /// <summary>
+    /// LIVE board-local anchor layout: like <see cref="AnchorLocal(CardFxAnchor, in RemoteBoardLayout)"/>,
+    /// but the two round-card slots come from the REAL tray prefab's measured recess anchors once
+    /// the 3D visual is built — so a card flight (<see cref="RemoteCardFx"/>) and a pile-browse arc
+    /// land exactly in/on the rendered recess of whatever board style the peer runs, instead of on
+    /// the hardcoded flat-board offsets. Every other anchor comes from the peer's own authored
+    /// per-board layout, which is also what the rendered panels/piles are seated at, so flight
+    /// destination and rendered destination stay ONE point by construction.
+    ///
+    /// THE HAND-TUNED LIFT IS GONE. This used to add a per-style "content proud lift" (Steel
+    /// −0.05, Bronze −0.015) whose own comment admitted it was "an approximation of the meshes,
+    /// not a measurement" — a remote-only fudge invented because the panels dropped the authored
+    /// per-board offsets that carry exactly that depth (Steel objectives z −0.042, piles/elements
+    /// −0.040, readout −0.044). Now that <see cref="RemoteBoardLayout"/> applies the real offsets,
+    /// the fudge would double-count them.
     /// </summary>
     internal Vector3 AnchorLocalLive(CardFxAnchor anchor)
     {
@@ -181,29 +216,16 @@ internal sealed class RemoteControlBoard
                 return _tray.SlotLocal(0) + new Vector3(0f, 0f, CardOnAnchorProudZ);
             if (anchor == CardFxAnchor.Slot1)
                 return _tray.SlotLocal(1) + new Vector3(0f, 0f, CardOnAnchorProudZ);
-            return AnchorLocal(anchor) + new Vector3(0f, 0f, ContentProudLift(_tray.Style));
         }
-        return AnchorLocal(anchor);
+        return AnchorLocal(anchor, _layout);
     }
 
-    /// <summary>
-    /// Per-style proud LIFT (board-local −Z, toward the viewer) for the flat mod-drawn content —
-    /// panels, readouts, pile counters — when it sits over the REAL board mesh. The Oak plate is
-    /// (near) the authored z=0 plane the flat layout was tuned on; the Steel and Bronze meshes
-    /// are visibly PROUDER of that plane — every authored per-style offset in Defaults says so
-    /// (Steel: rest z −0.047, confirm z −0.047, initiative z −0.07, readout z −0.044; Bronze:
-    /// −0.005..−0.02) — so unlifted content would be buried inside those boards. Values are the
-    /// median of the shipped per-style z offsets; the next MP test must eyeball them per board
-    /// (this is an approximation of the meshes, not a measurement).
-    /// </summary>
-    private static float ContentProudLift(Cards.ControlBoard style) => style switch
-    {
-        Cards.ControlBoard.Steel => -0.05f,
-        Cards.ControlBoard.Bronze => -0.015f,
-        _ => 0f,
-    };
-
     private readonly RemoteAvatar _owner;
+
+    /// <summary>The peer's authored board layout — every dock seat on this board is derived from it
+    /// (see <see cref="RemoteBoardLayout"/>). Re-derived whenever the board is (re)built, which is
+    /// also the only moment their synced style can have changed.</summary>
+    private RemoteBoardLayout _layout = new(Cards.ControlBoard.Oak);
 
     private GameObject? _root;
     /// <summary>False until the synced pose was applied once — the first apply SNAPS (a fresh
@@ -385,6 +407,15 @@ internal sealed class RemoteControlBoard
             else
                 RefreshGlobalContent();
         }
+
+        // THE MIRRORED WIDGETS RUN PER FRAME, not on the content cadence. They are clones of live
+        // game panels driven from the original (RemoteWidgetMirror), and the user's requirement is
+        // explicitly "alle Positionen, ANIMATIONEN, Effekte" — the initiative track's inter-round
+        // reorder slide and the objectives' progress fill would step visibly at 4 Hz. The drive is a
+        // flat walk over pre-resolved component references with change-gated writes, so this costs
+        // a few hundred field compares per board per frame and allocates nothing.
+        _track?.TickLive();
+        _objectives?.TickLive();
     }
 
     /// <summary>The actorless subset of <see cref="RefreshContent"/> (join-time, before the host
@@ -397,6 +428,7 @@ internal sealed class RemoteControlBoard
             _objectives?.Refresh();
             _elements?.Refresh();
             _track?.Refresh();
+            SyncInitiativeBadge();
             // The furniture's SYNCED half (board-UI record: buttons + wanted glow) is wire-fed
             // and must follow the owner's board with or without an actor — only the
             // slot-occupancy-derived overlays need one, and they read the neutral flags here.
@@ -422,6 +454,7 @@ internal sealed class RemoteControlBoard
             _status?.Refresh(actor, showFronts);
             _active?.Refresh(actor, showFronts);
             _track?.Refresh();
+            SyncInitiativeBadge();
 
             // The inert furniture layer. It is fed the SAME reveal answer and the SAME round-card
             // occupancy the board is already rendering — see RemoteBoardFurniture for why nothing
@@ -452,6 +485,20 @@ internal sealed class RemoteControlBoard
     }
 
     /// <summary>
+    /// PARITY, NOT ADDITION: the mod's own "INI" badge is a remote-only stand-in — the owner's board
+    /// has no such widget, their initiative lives on the docked initiative TRACK. So it is shown
+    /// only while the track has fallen back to the mod-drawn chip strip, and hidden the moment the
+    /// REAL track is being mirrored (which shows the same number, in the same place, under the same
+    /// vanilla gate). Anything else would put a widget on a peer's board that its owner cannot see.
+    /// </summary>
+    private void SyncInitiativeBadge()
+    {
+        bool trackMirrored = _track != null
+                             && _track.Source == RemoteWidgetMirror.Fidelity.MirroredWidget;
+        _status?.SetShownWhileTrackFallback(!trackMirrored);
+    }
+
+    /// <summary>
     /// Change-gated diagnostic so the next hardware log states EXACTLY what a peer's board is
     /// rendering (grep: "Remote board content"). One line per actual change — the cadence tick
     /// itself is silent.
@@ -470,10 +517,13 @@ internal sealed class RemoteControlBoard
                       $"round-card faces={slots}, " +
                       $"active={(_active != null ? _active.Count : 0)} card(s) " +
                       $"({(_active != null ? _active.RealFaceCount : 0)} real face(s)), " +
-                      $"objectives={(_objectives != null ? _objectives.RowCount : 0)} row(s), " +
+                      $"objectives={(_objectives != null ? _objectives.RowCount : 0)} row(s) " +
+                      $"via {SectionTag(_objectives?.Source, _objectives?.Reason)}, " +
                       $"elements={(_elements != null ? _elements.ActiveCount : 0)} infused, " +
-                      $"track={(_track != null ? _track.Count : 0)} entr(y/ies), " +
+                      $"track={(_track != null ? _track.Count : 0)} entr(y/ies) " +
+                      $"via {SectionTag(_track?.Source, _track?.Reason)}, " +
                       $"furniture[{(_furniture != null ? _furniture.StateLine : "-")}], " +
+                      $"layout[{_layout}], " +
                       $"fronts={showFronts}";
         if (line == _loggedContent)
             return;
@@ -483,7 +533,28 @@ internal sealed class RemoteControlBoard
                           "is exactly the game's secret SelectAbilityCardsOrLongRest phase for a " +
                           "remote actor). A round-card face of LiveWidget/PooledBorrow is the REAL " +
                           "game card at full detail; 'panel' is the mod-drawn name+initiative " +
-                          "fallback; 'back' means the gate is shut or the slot is empty.");
+                          "fallback; 'back' means the gate is shut or the slot is empty. " +
+                          "A section 'via MirroredWidget' is a live CLONE of the game's OWN panel " +
+                          "(real portraits, real rows, real progress, driven per frame from the " +
+                          "original); 'via ModDrawn(reason)' means the widget could not be resolved " +
+                          "and the mod's stand-in is up — the reason says which. 'layout[...]' is " +
+                          "the peer's AUTHORED per-board dock layout every panel above is seated at " +
+                          "(PlayTray mount bases + the shipped per-board offsets for their synced " +
+                          "board style), so a mis-placed panel is diagnosable without a screenshot.");
+    }
+
+    /// <summary>Per-section fidelity tag for <see cref="LogContent"/>: which mechanism is drawing it,
+    /// and — when it is not the real widget — WHY. That "why" is the whole point: a log that only
+    /// says "2 rows" cannot distinguish "the owner's panel, mirrored" from "the mod's stand-in with
+    /// the same row count", which is exactly the ambiguity the last hardware round ran into.</summary>
+    private static string SectionTag(RemoteWidgetMirror.Fidelity? source, string? reason)
+    {
+        if (source == null)
+            return "-";
+        if (source == RemoteWidgetMirror.Fidelity.MirroredWidget)
+            return "MirroredWidget";
+        string why = string.IsNullOrEmpty(reason) ? "no source" : reason!;
+        return $"ModDrawn({why})";
     }
 
     /// <summary>Per-slot fidelity tag for <see cref="LogContent"/>: the face path when a real face is
@@ -534,6 +605,11 @@ internal sealed class RemoteControlBoard
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
 
+        // The peer's AUTHORED board layout, keyed by the style they synced. Every dock seat below
+        // is read out of it, so the remote board can no longer drift from the owner's own mount
+        // positions the way it had (defect (c) — see RemoteBoardLayout for the full derivation).
+        _layout = new RemoteBoardLayout(_owner.BoardStyle);
+
         // THE BOARD SURFACE — the REAL bundled 3D asset for the style this peer synced
         // (RemoteTrayVisual: same prefab, same materials, same recesses as their own board),
         // replacing the old flat frame quad. The quad survives ONLY as the fallback for when the
@@ -565,19 +641,11 @@ internal sealed class RemoteControlBoard
             _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), CardW, CardH);
         }
 
-        // The flat mod-drawn CONTENT (panels, readouts, pile counters) hangs under one shared
-        // parent that carries the per-style proud lift (ContentProudLift): the Steel/Bronze
-        // meshes stand proud of the authored z=0 plane the flat layout was tuned on, and content
-        // left at −0.004 would be buried inside them. Oak lift is 0 → parent is the root itself
-        // and nothing moves. The card-FX anchors ride the same lift (AnchorLocalLive).
+        // CONTENT hangs straight off the board root now. The old "ContentProud" spacer carried a
+        // hand-estimated per-style lift because the panels below dropped the AUTHORED per-board
+        // offsets that already encode that depth; they read those offsets again (RemoteBoardLayout),
+        // so the spacer would double-count. See AnchorLocalLive for the full note.
         Transform contentParent = _root.transform;
-        float lift = _tray != null ? ContentProudLift(_tray.Style) : 0f;
-        if (lift != 0f)
-        {
-            contentParent = new GameObject("ContentProud").transform;
-            contentParent.SetParent(_root.transform, worldPositionStays: false);
-            contentParent.localPosition = new Vector3(0f, 0f, lift);
-        }
 
         // The three stacks (report 6 + 1:1 parity defect 3 "die Stapel sehen nicht aus wie auf dem
         // Original-Board"): the destinations a remote card flight lands on, built with the SAME
@@ -586,19 +654,21 @@ internal sealed class RemoteControlBoard
         // slab, localized caption beneath, top slab greying out at zero) instead of the old single
         // flat card-back quad. Colors are the local stacks' verbatim; sizes come from the authored
         // Defaults so every client renders a given board identically regardless of local tuning.
-        _piles[0] = new PileCounter(contentParent, "DiscardStack", AnchorLocal(CardFxAnchor.Discard),
-            new Color(0.55f, 0.48f, 0.34f), PileViewer.Caption(PileKind.Discard));
-        _piles[1] = new PileCounter(contentParent, "BurntStack", AnchorLocal(CardFxAnchor.Burnt),
-            new Color(0.45f, 0.22f, 0.16f), PileViewer.Caption(PileKind.Burnt));
-        _piles[2] = new PileCounter(contentParent, "ItemStack", AnchorLocal(CardFxAnchor.Items),
-            new Color(0.30f, 0.42f, 0.26f), PileViewer.Caption(PileKind.Items));
+        _piles[0] = new PileCounter(contentParent, "DiscardStack", AnchorLocal(CardFxAnchor.Discard, _layout),
+            new Color(0.55f, 0.48f, 0.34f), PileViewer.Caption(PileKind.Discard), _layout.PileScale);
+        _piles[1] = new PileCounter(contentParent, "BurntStack", AnchorLocal(CardFxAnchor.Burnt, _layout),
+            new Color(0.45f, 0.22f, 0.16f), PileViewer.Caption(PileKind.Burnt), _layout.PileScale);
+        _piles[2] = new PileCounter(contentParent, "ItemStack", AnchorLocal(CardFxAnchor.Items, _layout),
+            new Color(0.30f, 0.42f, 0.26f), PileViewer.Caption(PileKind.Items), _layout.PileScale);
 
-        // Full-parity panels (all mod-drawn, all fed from the LOCAL model — see the class note).
-        _objectives = new RemoteObjectivesPanel(contentParent);
-        _elements = new RemoteElementStrip(contentParent);
-        _status = new RemoteStatusReadouts(contentParent);
-        _active = new RemoteActiveCards(contentParent);
-        _track = new RemoteInitiativeTrack(contentParent);
+        // Full-parity panels. The initiative TRACK and the OBJECTIVES panel now mirror the game's
+        // OWN widgets (RemoteWidgetMirror) and keep their mod-drawn versions only as fallbacks;
+        // the rest stay mod-drawn and fed from the LOCAL model — see the class note.
+        _objectives = new RemoteObjectivesPanel(contentParent, _layout);
+        _elements = new RemoteElementStrip(contentParent, _layout);
+        _status = new RemoteStatusReadouts(contentParent, _layout);
+        _active = new RemoteActiveCards(contentParent, _layout);
+        _track = new RemoteInitiativeTrack(contentParent, _layout);
         _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardStyle, _tray,
             AnchorLocalLive(CardFxAnchor.Slot0), AnchorLocalLive(CardFxAnchor.Slot1));
         _nextRefreshAt = 0f; // repaint on the very next tick
@@ -622,9 +692,11 @@ internal sealed class RemoteControlBoard
                           (_tray != null
                               ? $"on the REAL 3D '{_tray.Style}' board asset (the prefab that peer's own PlayTray renders) "
                               : "on the FLAT fallback frame (asset bundle not resident — will upgrade when it loads) ") +
+                          $"at the peer's AUTHORED layout [{_layout}] " +
                           "with FULL parity surfaces: " +
-                          "2 round-card slots, 3 pile stacks with counts, objectives, elements, " +
-                          "round + initiative + rest readouts, active-card column, initiative TRACK, " +
+                          "2 round-card slots, 3 pile stacks with counts, the game's OWN objectives " +
+                          "panel and initiative TRACK mirrored as live clones, elements, " +
+                          "round + rest readouts, active-card column, " +
                           "and the complete interactive furniture (Confirm/Undo keycaps on their " +
                           "native dock mounts, turn-flow Skip cap, settings gear, FOLLOW/PIN toggle, " +
                           "grab-handle bar, item-USE recess + USE cap, decision drawer, pick field, " +
@@ -697,6 +769,11 @@ internal sealed class RemoteControlBoard
         for (int i = 0; i < _cards.Length; i++)
             _cards[i]?.Destroy();
         _active?.Destroy();
+        // Same contract for the MIRRORED game panels: we own the clone, we destroy the clone. They
+        // are children of the board root and would die with it, but the ownership must not depend
+        // on Unity's destruction order (see RemoteWidgetMirror / RemoteAbilityCardSource).
+        _track?.Destroy();
+        _objectives?.Destroy();
         _poseInit = false; // a rebuilt board (style switch / bundle upgrade) snaps again
         if (_root != null)
         {
@@ -755,11 +832,14 @@ internal sealed class RemoteControlBoard
         private int _shown = int.MinValue;
 
         public PileCounter(Transform parent, string name, Vector3 localPos, Color color,
-            string caption)
+            string caption, float scale)
         {
             var root = new GameObject(name).transform;
             root.SetParent(parent, worldPositionStays: false);
             root.localPosition = localPos;
+            // The AUTHORED per-board pile scale, keyed by the peer's synced style — the same factor
+            // the owner's own PileViewer stack carries.
+            root.localScale = Vector3.one * (scale > 0f ? scale : 1f);
             _baseColor = color;
 
             // Stack body — the local recipe verbatim (PileViewer.PileStack.Create): 4 thin slabs,
