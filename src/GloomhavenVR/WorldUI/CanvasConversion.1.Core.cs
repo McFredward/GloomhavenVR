@@ -312,6 +312,12 @@ internal static partial class CanvasConversion
             hostCanvas.enabled = false;
             panel.RevealPending = true;
             panel.RevealNotBefore = Time.unscaledTime + RevealDelaySeconds;
+            // User ruling 2026-08-02: the reveal additionally waits for the FINAL pose/scale —
+            // first content fit committed + host transform still (TickRevealGate) — bounded by
+            // a hard deadline so a window can never stay invisible. Armed here so the reveal
+            // log can report the true Convert→reveal settle duration.
+            panel.RevealRequestedAt = Time.unscaledTime;
+            panel.RevealDeadline = Time.unscaledTime + RevealMaxWaitSeconds;
         }
 
         Active.Add(panel);

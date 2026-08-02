@@ -548,7 +548,18 @@ internal static partial class CanvasConversion
     /// </summary>
     private static void TickFit(ConvertedPanel panel)
     {
-        if (!panel.FitEnabled || Time.unscaledTime < panel.FitNotBefore)
+        if (!panel.FitEnabled)
+            return;
+        // User ruling 2026-08-02 (post-reveal jump): while the host is still render-hidden
+        // behind the reveal gate, the first fit must NOT sit out the FitDelaySeconds grace.
+        // That delay is what made every non-one-shot window reveal at its full pre-fit rect
+        // (reveal at ~0.15 s, first fit not before 0.4 s — hardware log ModBuild 15: MODAL
+        // REVEAL consistently BEFORE 'Host rect fit 1920x1080 → …'): the fit then visibly
+        // shrank the frame and re-centered the content ~0.25–0.85 s AFTER the window was
+        // already on screen — the reported "larger and lower, then snaps". The reveal gate
+        // waits for this fit now, so it must run immediately; VISIBLE hosts (HUD conversions,
+        // post-reveal re-checks) keep the historic delay untouched.
+        if (Time.unscaledTime < panel.FitNotBefore && !panel.RevealPending)
             return;
 
         // Item 5 (pause-menu size consistency): a one-shot full-screen menu must land the SAME
@@ -558,6 +569,17 @@ internal static partial class CanvasConversion
         if (panel.FitOneShot && !panel.FitOneShotApplied)
         {
             SettleOneShotFit(panel);
+            return;
+        }
+
+        // User ruling 2026-08-02: a render-hidden host's FIRST fit runs through the same
+        // layout-settle machinery as the one-shot menus (forced synchronous rebuild + N stable
+        // measures) instead of committing on the first measurable frame — a fit taken mid
+        // show-animation would land a wrong rect that the periodic growth re-check then
+        // visibly corrects AFTER reveal, re-creating the jump the reveal gate now prevents.
+        if (panel.RevealPending && !panel.FitMeasuredOnce)
+        {
+            SettlePreRevealFirstFit(panel);
             return;
         }
 
@@ -657,6 +679,66 @@ internal static partial class CanvasConversion
         VRLog.Info("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' full-screen menu fitted ONCE after its " +
                               $"layout settled ({panel.FitOneShotStableCount} stable check(s)) — host rect locked " +
                               "(same compact size every open, no re-fit flicker).");
+    }
+
+    /// <summary>
+    /// User ruling 2026-08-02 ("the window must appear directly at the right spot"): settled
+    /// FIRST fit for a render-hidden (reveal-pending) NON-one-shot host — story box, level
+    /// messages (both chain rules), results, catch-all floats. WHY: these hosts convert at the
+    /// full captured window rect (typically 1920x1080) with the visible content OFF-CENTER
+    /// inside it; the reveal gate now waits for the first fit, and that fit must (a) run
+    /// immediately instead of after <see cref="FitDelaySeconds"/>, and (b) commit a rect the
+    /// periodic re-check will not immediately correct — so it uses the exact machinery item 5
+    /// proved out for the one-shot menus: flush pending layout synchronously (the TMP/uGUI
+    /// reflow that used to complete frames after reveal is forced NOW, making the fit inputs
+    /// final), measure, and commit only once the measured size held steady for
+    /// <see cref="OneShotSettleChecks"/> consecutive frames. Unlike the one-shot path the fit
+    /// is NOT locked afterwards: story/message content genuinely grows later (multi-page text,
+    /// log lines) and must keep re-fitting through the normal periodic growth check. Unmeasurable
+    /// content (still fading in) simply retries next frame — the reveal DEADLINE caps the total
+    /// hidden time, after which <see cref="TickFit"/> falls back to the historic first-fit path.
+    /// </summary>
+    private static void SettlePreRevealFirstFit(ConvertedPanel panel)
+    {
+        RectTransform? contentRoot = panel.FitContentRoot;
+        RectTransform root = contentRoot != null && contentRoot.gameObject.activeInHierarchy
+                             && contentRoot.IsChildOf(panel.Target)
+            ? contentRoot
+            : panel.Target;
+
+        // Deterministic layout NOW: without this, a text/layout rebuild scheduled by the game
+        // this frame would be measured one frame LATE — past the reveal in the worst case.
+        Canvas.ForceUpdateCanvases();
+        if (panel.Target != null)
+            LayoutRebuilder.ForceRebuildLayoutImmediate(panel.Target);
+
+        if (!TryMeasureContent(panel, root, out Vector2 size, out _))
+            return; // nothing visible yet (fade-in) — retry next frame, bounded by the reveal deadline
+
+        // Same stability gate as SettleOneShotFit (shared scratch fields — the two paths are
+        // mutually exclusive per panel): a mid-animation measure never commits.
+        float tolX = Mathf.Max(panel.FitOneShotStableSize.x, size.x) * FitChangeFraction;
+        float tolY = Mathf.Max(panel.FitOneShotStableSize.y, size.y) * FitChangeFraction;
+        if (panel.FitOneShotStableCount > 0
+            && Mathf.Abs(size.x - panel.FitOneShotStableSize.x) <= tolX
+            && Mathf.Abs(size.y - panel.FitOneShotStableSize.y) <= tolY)
+        {
+            panel.FitOneShotStableCount++;
+        }
+        else
+        {
+            panel.FitOneShotStableSize = size;
+            panel.FitOneShotStableCount = 1;
+        }
+        if (panel.FitOneShotStableCount < OneShotSettleChecks)
+            return; // still settling — keep measuring (render-hidden, so nothing visibly moves)
+
+        // Stable: commit the FIRST fit (undamped — FitMeasuredOnce is still false) and hand the
+        // host to the normal periodic growth re-check. The reveal gate sees FitMeasuredOnce and
+        // — once the host pose also held still — pops the window in already at this final rect.
+        FitHostToContent(panel, contentRoot);
+        panel.FitMeasuredOnce = true;
+        panel.FitNextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
     }
 
 }

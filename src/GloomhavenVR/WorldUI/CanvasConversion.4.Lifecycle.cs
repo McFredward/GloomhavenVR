@@ -247,24 +247,19 @@ internal static partial class CanvasConversion
             if (panel.HideBackground && (earlySettle || Time.frameCount >= panel.BackgroundSweepNextFrame))
                 HideFullScreenBackground(panel, initial: false);
 
-            // Item 3a: reveal the render-hidden modal host once its settle delay has passed. The
-            // treatments for THIS frame already ran above (canvas still disabled → harmless), and
-            // LateTick re-treats once more (canvas now enabled) before the frame renders — so the
-            // first visible frame is fully treated: a clean pop-in with zero flicker.
-            // Item 1: a one-shot full-screen menu waits to pop in until its single content
-            // fit has actually applied (so it appears already compact, never flashing at the
-            // full 1920x2040 rect first), with the fit deadline as a safety floor so an
-            // unmeasurable menu still reveals (never an invisible, un-dismissable menu).
-            bool oneShotReady = !panel.FitOneShot || panel.FitOneShotApplied
-                                || Time.unscaledTime >= panel.FitFirstDeadline;
-            if (panel.RevealPending && panel.HostCanvas != null
-                && Time.unscaledTime >= panel.RevealNotBefore && oneShotReady)
-            {
-                panel.HostCanvas.enabled = true;
-                panel.RevealPending = false;
-                VRLog.Info("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' shown after settle " +
-                                      "(mod layer + background hidden, stable frame) — zero-flicker pop-in.");
-            }
+            // Item 3a + user ruling 2026-08-02 ("das Fenster soll direkt an der richtigen Stelle
+            // erscheinen"): reveal the render-hidden modal host only at its FINAL pose and
+            // scale. The old gate waited for the treatment window (mod layer + background) and
+            // — one-shot menus only — the single content fit; every OTHER floated window then
+            // revealed at its full pre-fit rect and was visibly re-fitted/re-centered ~0.25 to
+            // 0.85 s later (ModBuild 15 hardware log: MODAL REVEAL consistently before 'Host
+            // rect fit 1920x1080 → …' — the reported "larger and lower, then snaps"). The
+            // settle criteria, the deadline and the reveal log live in TickRevealGate below.
+            // The treatments for THIS frame already ran above (canvas still disabled →
+            // harmless), and LateTick re-treats once more (canvas now enabled) before the frame
+            // renders — so the first visible frame is fully treated: zero flicker, unchanged.
+            if (panel.RevealPending && panel.HostCanvas != null)
+                TickRevealGate(panel);
 
             // FLICKER FIX (modal hosts only): the 30-frame adoption sweep re-asserts
             // overrideSorting=false, but a WORLD-space modal that shares its canvas order
@@ -302,6 +297,94 @@ internal static partial class CanvasConversion
                 if (Active[i].HostRaycaster != null)
                     Active[i].HostRaycaster.enabled = enabled;
             }
+        }
+    }
+
+    /// <summary>
+    /// User ruling 2026-08-02: the reveal gate for a render-hidden floated modal host. The window
+    /// becomes visible ONLY once it stands at its final pose and scale, so the player never sees
+    /// the pre-fit / pre-scale intermediate state snap into place. Settle criteria (all three):
+    ///
+    ///  1. TREATMENT — the historic <see cref="ConvertedPanel.RevealNotBefore"/> window passed
+    ///     (mod-layer move + background hide applied over several frames; unchanged).
+    ///  2. FIT — the FIRST content fit committed (<see cref="ConvertedPanel.FitMeasuredOnce"/>),
+    ///     or the host has no fit at all (<c>fitContent:false</c>, e.g. the Options family).
+    ///     Pre-reveal the fit runs the settled synchronous-layout path
+    ///     (<see cref="SettlePreRevealFirstFit"/> / <see cref="SettleOneShotFit"/>), so "fit
+    ///     committed" means the layout reflow is flushed and the rect is final.
+    ///  3. POSE — the host's world position, rotation, lossy scale AND host-rect size held still
+    ///     for <see cref="RevealStableFrames"/> consecutive checks. WHY value-based stillness:
+    ///     the pose finalizers span modules and frames (fit commit → ModalFallback 5b re-derives
+    ///     the board scale → GrabbableModal.Tick writes it to the host transform NEXT tick);
+    ///     watching the values catches every such hand-off without cross-module coupling.
+    ///
+    /// BOUNDED: at <see cref="ConvertedPanel.RevealDeadline"/> the host is revealed regardless
+    /// (Warn names what was still pending) — a window must never stay invisible. The final pose
+    /// itself is untouched: spawn clamps, chain-pose rule 1/2 and the fits run exactly as before;
+    /// only the visible intermediate state is gone. One Info line per reveal reports the settle
+    /// duration and what the gate waited for last, so the next hardware log proves the fix.
+    /// </summary>
+    private static void TickRevealGate(ConvertedPanel panel)
+    {
+        float now = Time.unscaledTime;
+
+        // Pose-stability tracking (criterion 3): any real change resets the stillness counter.
+        Transform t = panel.HostGo.transform;
+        Vector3 pos = t.position;
+        Quaternion rot = t.rotation;
+        Vector3 scl = t.lossyScale;
+        Vector2 rect = panel.HostRect != null ? panel.HostRect.rect.size : Vector2.zero;
+        bool held = panel.RevealHasSnapshot
+                    && (pos - panel.RevealLastPos).sqrMagnitude <= RevealPosEpsilon * RevealPosEpsilon
+                    && Quaternion.Angle(rot, panel.RevealLastRot) <= RevealRotEpsilonDeg
+                    && (scl - panel.RevealLastScale).magnitude
+                       <= panel.RevealLastScale.magnitude * RevealScaleEpsilonRel + 1e-6f
+                    && Mathf.Abs(rect.x - panel.RevealLastRectSize.x) <= RevealRectEpsilonPx
+                    && Mathf.Abs(rect.y - panel.RevealLastRectSize.y) <= RevealRectEpsilonPx;
+        panel.RevealPoseStableFrames = held ? panel.RevealPoseStableFrames + 1 : 0;
+        panel.RevealHasSnapshot = true;
+        panel.RevealLastPos = pos;
+        panel.RevealLastRot = rot;
+        panel.RevealLastScale = scl;
+        panel.RevealLastRectSize = rect;
+
+        bool treated = now >= panel.RevealNotBefore;
+        bool fitDone = !panel.FitEnabled || panel.FitMeasuredOnce;
+        bool poseStable = panel.RevealPoseStableFrames >= RevealStableFrames;
+        bool settled = treated && fitDone && poseStable;
+        bool deadline = now >= panel.RevealDeadline;
+        if (!settled && !deadline)
+        {
+            // Remember the FIRST unmet criterion in gate order — when the gate opens next
+            // frame(s), this is "what it waited for last" in the reveal log.
+            panel.RevealLastBlocker = !treated ? "treatment (mod layer/backing)"
+                : !fitDone ? "first content fit (layout settle)"
+                : "host pose/scale stillness";
+            return;
+        }
+
+        panel.HostCanvas.enabled = true;
+        panel.RevealPending = false;
+        float waitedMs = (now - panel.RevealRequestedAt) * 1000f;
+        string fitState = panel.FitMeasuredOnce ? "applied" : panel.FitEnabled ? "pending" : "n/a";
+        if (settled)
+        {
+            string lastWait = panel.RevealLastBlocker.Length > 0
+                ? panel.RevealLastBlocker
+                : "nothing (settled immediately)";
+            VRLog.Info("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' shown after settle " +
+                                  $"({waitedMs:F0} ms; last waited on {lastWait}; fit={fitState}, " +
+                                  $"pose still for {panel.RevealPoseStableFrames} frame(s)) — revealed at " +
+                                  "its FINAL pose/scale (mod layer + background hidden) — zero-flicker pop-in.");
+        }
+        else
+        {
+            // Deadline reveal: visibility beats perfection — the window may show one visible
+            // correction, but it can never stay an invisible blocker.
+            VRLog.Warn("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' FORCED after {waitedMs:F0} ms " +
+                                  $"(deadline {RevealMaxWaitSeconds * 1000f:F0} ms; still waiting on " +
+                                  $"{(!treated ? "treatment" : !fitDone ? "first content fit" : "pose stillness")}; " +
+                                  $"fit={fitState}) — revealing anyway, a window must never stay invisible.");
         }
     }
 

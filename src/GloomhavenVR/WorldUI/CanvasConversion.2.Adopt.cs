@@ -29,6 +29,43 @@ internal static partial class CanvasConversion
     /// </summary>
     private const float RevealDelaySeconds = 0.15f;
 
+    /// <summary>
+    /// User ruling 2026-08-02 (post-reveal jump): hard ceiling on how long a floated modal may
+    /// stay render-hidden while the reveal gate waits for its FINAL pose (first content fit
+    /// committed + host pose/scale/rect still for <see cref="RevealStableFrames"/> checks). Past
+    /// this the host is revealed anyway with a Warn — a window must never stay invisible. WHY
+    /// 0.6 s: the worst HONEST settle is the ESC menu — its show/scale animation (~0.3 s) must
+    /// finish before the measured content holds the 6 stable fit checks (~0.08 s at 72 Hz), then
+    /// the ModalFallback 5b scale re-derivation lands one frame later and the pose-stability
+    /// counter needs <see cref="RevealStableFrames"/> more frames (~0.45 s total). 0.5 s would
+    /// leave only ~50 ms margin and risk deadline-revealing the ESC menu mid-settle — exactly
+    /// the visible correction this gate exists to prevent.
+    /// </summary>
+    private const float RevealMaxWaitSeconds = 0.6f;
+
+    /// <summary>
+    /// Consecutive reveal-gate checks the host world pose, lossy scale AND host-rect size must
+    /// hold still before reveal. WHY frames and not a flag: the writers that finalize the pose
+    /// live in different modules and land one frame apart (CanvasConversion fit commit →
+    /// ModalFallback 5b re-derives the board scale → GrabbableModal.Tick applies it to the host
+    /// transform the NEXT tick) — a value-based stillness window covers every such hand-off
+    /// without cross-module coupling, including writers added later.
+    /// </summary>
+    private const int RevealStableFrames = 3;
+
+    /// <summary>Reveal pose-stability epsilon: world-position change below this is jitter, not a
+    /// re-place (0.01 world units ≈ 0.3 mm real at the typical diorama scale ~33).</summary>
+    private const float RevealPosEpsilon = 0.01f;
+
+    /// <summary>Reveal pose-stability epsilon: rotation change below this (degrees) is jitter.</summary>
+    private const float RevealRotEpsilonDeg = 0.25f;
+
+    /// <summary>Reveal pose-stability epsilon: relative lossy-scale change below this is jitter.</summary>
+    private const float RevealScaleEpsilonRel = 0.005f;
+
+    /// <summary>Reveal pose-stability epsilon: host-rect size change below this (px) is jitter.</summary>
+    private const float RevealRectEpsilonPx = 0.5f;
+
     // Scratch buffer (sweep time only; reused, no per-call allocations).
     private static readonly List<Canvas> CanvasScratch = new(8);
 
