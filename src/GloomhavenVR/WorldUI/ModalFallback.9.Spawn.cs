@@ -132,11 +132,10 @@ internal static partial class ModalFallback
     ///    half-height is what keeps a tall window from hanging its bottom down into the board.
     /// Returns the human-readable clamp reason, or null when the pose passed through unchanged.
     /// </summary>
-    private static string? ClampSpawnPose(Transform head, ref Vector3 pos, float scale, Vector2 half,
-        float maxPitchDeg)
+    private static string? ClampSpawnPose(Vector3 headPos, Vector3 headForward, ref Vector3 pos,
+        float scale, Vector2 half, float maxPitchDeg)
     {
         string? reason = null;
-        Vector3 headPos = head.position;
 
         // 1. Steep-gaze pitch clamp (placement direction, not the panel's own rotation).
         //    The limit is per-family now: level-message windows follow the gaze deeper
@@ -152,7 +151,7 @@ internal static partial class ModalFallback
                 flatDir.y = 0f;
                 if (flatDir.sqrMagnitude < 1e-6f)
                 {
-                    flatDir = head.forward;
+                    flatDir = headForward;
                     flatDir.y = 0f;
                     if (flatDir.sqrMagnitude < 1e-6f)
                         flatDir = Vector3.forward;
@@ -345,7 +344,7 @@ internal static partial class ModalFallback
     /// Falls back to the least-overlapping candidate. Returns the human-readable resolution
     /// note for the MODAL SPAWN CLAMP log line, or null when the pose was already clear.
     /// </summary>
-    private static string? ResolveSpawnOverlap(Transform head, ref Vector3 pos, float scale,
+    private static string? ResolveSpawnOverlap(Vector3 headPos, ref Vector3 pos, float scale,
         Vector2 half, ConvertedPanel? self, bool includeModals)
     {
         if (half.x <= 1e-5f || half.y <= 1e-5f)
@@ -354,7 +353,6 @@ internal static partial class ModalFallback
         if (ObstacleBoundsList.Count == 0)
             return null;
 
-        Vector3 headPos = head.position;
         Bounds cand = CandidateBounds(pos, headPos, half, scale);
         float startPen = OverlapAmount(cand, out int worstIdx);
         if (startPen <= 0f)
@@ -444,6 +442,58 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
+    /// The EXACT placement inputs one <see cref="ComputeHmdPose"/> call consumed, so the very same
+    /// placement can be REPLAYED later against different panel geometry.
+    ///
+    /// <para>WHY IT EXISTS (first-open pose bug, 2026-08-02): a floated window is placed BEFORE its
+    /// content fit and its board-relative scale re-derivation have run — <see cref="PlaceAtHmd"/>
+    /// measures <see cref="PanelWorldHalfSize"/> from the PRE-fit host rect (typically the whole
+    /// 1920x1080 window) at the PRE-fit extraScale. Every clamp in <see cref="ComputeHmdPose"/>
+    /// (board-top clearance, eye cap, overlap resolve, view cone) is a function of that half-size,
+    /// so the window is clamped as if it were metres tall and lands somewhere the FINAL, fitted
+    /// window never needed to be. The fix re-runs the placement once the geometry is final
+    /// (<see cref="TickPoseRePlace"/>) — but re-reading the LIVE head would also fold in ~150 ms of
+    /// head motion, which would move windows whose pose was already right. Replaying from the
+    /// stored anchor keeps the placement a pure function of (spawn gaze, final geometry): a window
+    /// whose clamps do not change lands on the byte-identical pose and is never written at all.</para>
+    ///
+    /// <para><see cref="Valid"/> is false for any window NOT placed through
+    /// <see cref="ComputeHmdPose"/> — above all the level-message rule-2 branch, which restores a
+    /// verbatim stored chain pose and must never be re-placed.</para>
+    /// </summary>
+    private struct SpawnAnchor
+    {
+        public bool Valid;
+
+        /// <summary>Head position at spawn (world) — the origin every clamp measures from.</summary>
+        public Vector3 HeadPos;
+
+        /// <summary>Head forward at spawn — the gaze the view-cone clamp rotates back toward.</summary>
+        public Vector3 HeadForward;
+
+        /// <summary>The RAW gaze pose (reading distance + stagger) BEFORE any clamp ran.</summary>
+        public Vector3 RawPos;
+
+        /// <summary>Diorama scale at spawn — <see cref="GrabbableModal"/> also snapshots it, so
+        /// replaying with it keeps the clamp math matching what the panel actually renders at.</summary>
+        public float Scale;
+
+        /// <summary>Stacking index the raw pose already carries (replay must not stagger twice).</summary>
+        public int StaggerIndex;
+
+        /// <summary>Level-message family (closer distance, deeper pitch, hard view cone).</summary>
+        public bool LevelMessage;
+    }
+
+    /// <summary>
+    /// The anchor the LAST <see cref="ComputeHmdPose"/> call used (spawn-time scratch — this path
+    /// never runs per frame). Read by <see cref="TryConvertWindow"/> straight after
+    /// <see cref="PlaceAtHmd"/> to park it on the window record; invalidated when the pose could
+    /// not be computed, so a stale anchor can never be inherited by the next window.
+    /// </summary>
+    private static SpawnAnchor s_lastSpawnAnchor;
+
+    /// <summary>
     /// HMD-anchored pose at reading distance (DialogSurface pattern); false if no head camera.
     /// <paramref name="staggerIndex"/> nudges the window right+down so stacked secondary windows
     /// overlap rather than coincide (item 2).
@@ -461,49 +511,84 @@ internal static partial class ModalFallback
     /// this method runs at spawn, presence-regain refloat and lost-menu recall — never per
     /// frame — so grabbed placements persist (the placement-healing regression rule). One
     /// diagnostic line per call states the clamp decision for hardware-log verification.
+    ///
+    /// <para>REPLAY (<paramref name="replay"/>, first-open pose fix 2026-08-02): with an anchor the
+    /// method skips the live head read and re-runs the ENTIRE clamp chain from that spawn's stored
+    /// gaze inputs — same raw pose, same head, same diorama scale — against the caller's (now
+    /// final) <paramref name="halfSize"/>. See <see cref="SpawnAnchor"/> for why the head is
+    /// replayed rather than re-read. Without an anchor the behavior is exactly as before.</para>
     /// </summary>
     private static bool ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale,
         int staggerIndex = 0, Vector2 halfSize = default, ConvertedPanel? self = null,
-        bool levelMessage = false)
+        bool levelMessage = false, SpawnAnchor? replay = null)
     {
-        Camera? head = CanvasConversion.WorldCamera;
-        if (head == null)
+        Vector3 headPos, fwd;
+        if (replay.HasValue)
         {
-            pos = default;
-            rot = Quaternion.identity;
-            scale = 1f;
-            return false;
+            // Replay: the placement inputs are frozen, only the geometry changed.
+            SpawnAnchor a = replay.Value;
+            headPos = a.HeadPos;
+            fwd = a.HeadForward;
+            scale = a.Scale;
+            staggerIndex = a.StaggerIndex;
+            levelMessage = a.LevelMessage;
+            pos = a.RawPos;
         }
-        scale = PanelLayout.WorldScale;
-        Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        // Placement follows the full gaze (so it lands where the player is looking, overlapping
-        // the primary), with a small right+down stagger per stacked window. Level-message
-        // windows (tutorial boxes/strips) float CLOSER for readability (user report 2026-08-02);
-        // every other family keeps the shared reading distance.
+        else
+        {
+            Camera? head = CanvasConversion.WorldCamera;
+            if (head == null)
+            {
+                s_lastSpawnAnchor = default; // never let the next window inherit a stale anchor
+                pos = default;
+                rot = Quaternion.identity;
+                scale = 1f;
+                return false;
+            }
+            scale = PanelLayout.WorldScale;
+            Transform h = head.transform;
+            headPos = h.position;
+            fwd = h.forward;
+            // Placement follows the full gaze (so it lands where the player is looking, overlapping
+            // the primary), with a small right+down stagger per stacked window. Level-message
+            // windows (tutorial boxes/strips) float CLOSER for readability (user report 2026-08-02);
+            // every other family keeps the shared reading distance.
+            pos = headPos + fwd * ((levelMessage ? LevelMessageDistanceMeters : WindowDistanceMeters)
+                                   * scale);
+            if (staggerIndex > 0)
+            {
+                float step = SecondaryStaggerMeters * scale;
+                pos += h.right * (step * staggerIndex) - Vector3.up * (step * staggerIndex);
+                // Item 3b: pull each stacked secondary window CLOSER to the head so it sits clearly
+                // in the foreground of its parent (nearer → also draws in front among equal-order hosts).
+                pos -= fwd * (SecondaryForegroundMeters * scale * staggerIndex);
+            }
+        }
         float distanceMeters = levelMessage ? LevelMessageDistanceMeters : WindowDistanceMeters;
-        pos = h.position + fwd * (distanceMeters * scale);
-        if (staggerIndex > 0)
-        {
-            float step = SecondaryStaggerMeters * scale;
-            pos += h.right * (step * staggerIndex) - Vector3.up * (step * staggerIndex);
-            // Item 3b: pull each stacked secondary window CLOSER to the head so it sits clearly
-            // in the foreground of its parent (nearer → also draws in front among equal-order hosts).
-            pos -= fwd * (SecondaryForegroundMeters * scale * staggerIndex);
-        }
 
         // Request B: never below/inside the board plane, never down a steep gaze (see
         // ClampSpawnPose — spawn/refloat/recall only, never per frame). Level-message
         // windows may follow the gaze deeper before the flatten engages.
         Vector3 rawPos = pos;
+        // Publish the anchor BEFORE the clamps mutate `pos` — it stores the RAW pose by contract.
+        s_lastSpawnAnchor = new SpawnAnchor
+        {
+            Valid = true,
+            HeadPos = headPos,
+            HeadForward = fwd,
+            RawPos = rawPos,
+            Scale = scale,
+            StaggerIndex = staggerIndex,
+            LevelMessage = levelMessage,
+        };
         float maxPitchDeg = levelMessage ? LevelMsgMaxSpawnPitchDeg : MaxSpawnPitchDeg;
-        string? clampReason = ClampSpawnPose(h, ref pos, scale, halfSize, maxPitchDeg);
+        string? clampReason = ClampSpawnPose(headPos, fwd, ref pos, scale, halfSize, maxPitchDeg);
 
         // User request A: never spawn INSIDE the control board or another open modal —
         // raise / swing laterally toward free space (spawn/refloat/recall only, never per
         // frame). Staggered secondaries deliberately overlap their parent window (item 2/3b),
         // so they only avoid the board.
-        string? overlapNote = ResolveSpawnOverlap(h, ref pos, scale, halfSize, self,
+        string? overlapNote = ResolveSpawnOverlap(headPos, ref pos, scale, halfSize, self,
             includeModals: staggerIndex == 0);
 
         // LEVEL-MESSAGE VIEW-CONE (user requirement, torbogen report): the tutorial window must
@@ -517,7 +602,7 @@ internal static partial class ModalFallback
         string? viewConeNote = null;
         if (levelMessage)
         {
-            Vector3 off = pos - h.position;
+            Vector3 off = pos - headPos;
             float offDist = off.magnitude;
             if (offDist > 1e-4f)
             {
@@ -526,7 +611,7 @@ internal static partial class ModalFallback
                 {
                     Vector3 dir = Vector3.RotateTowards(off / offDist, fwd,
                         (offAngle - LevelMsgMaxOffGazeDeg) * Mathf.Deg2Rad, 0f);
-                    pos = h.position + dir * offDist;
+                    pos = headPos + dir * offDist;
                     viewConeNote = $"was {offAngle:F0}° off the gaze after the soft clamps — rotated " +
                                    $"back to {LevelMsgMaxOffGazeDeg:F0}° so it spawns inside the current view";
                 }
@@ -541,7 +626,7 @@ internal static partial class ModalFallback
         // panel-to-head direction turns it to actually face them. Canvas front faces -forward,
         // so pointing +Z away from the head makes the panel face them. Applied ONCE at placement
         // (spawn / presence-regain refloat) — never per frame, so a later grab-rotation persists.
-        Vector3 flat = pos - h.position;
+        Vector3 flat = pos - headPos;
         flat.y = 0f;
         if (flat.sqrMagnitude < 1e-4f)
         {
@@ -560,7 +645,7 @@ internal static partial class ModalFallback
         float tiltDeg = 0f;
         if (clampReason != null || overlapNote != null || viewConeNote != null)
         {
-            Vector3 toHead = h.position - pos;
+            Vector3 toHead = headPos - pos;
             float flatDist = Mathf.Sqrt(toHead.x * toHead.x + toHead.z * toHead.z);
             float elevDeg = Mathf.Atan2(toHead.y, Mathf.Max(flatDist, 1e-3f)) * Mathf.Rad2Deg;
             tiltDeg = Mathf.Clamp(elevDeg, 0f, MaxSpawnTiltDeg);
@@ -576,7 +661,8 @@ internal static partial class ModalFallback
         // Board-top clearance actually applied: the CENTER floor that keeps the window BOTTOM above
         // the board top (boardY + top-clear×scale + half-height), capped near eye level.
         float boardTopFloorY = haveBoard ? by + BoardTopClearanceMeters * scale + halfSize.y : float.NaN;
-        VRLog.Info("WorldUI", "MODAL SPAWN CLAMP: pose " +
+        VRLog.Info("WorldUI", "MODAL SPAWN CLAMP" +
+                              (replay.HasValue ? " (RE-PLACE at the FINAL fitted geometry)" : "") + ": pose " +
                               $"({rawPos.x:F2},{rawPos.y:F2},{rawPos.z:F2}) → " +
                               $"({pos.x:F2},{pos.y:F2},{pos.z:F2})" +
                               (clampReason == null && overlapNote == null && viewConeNote == null
@@ -619,8 +705,9 @@ internal static partial class ModalFallback
 
     /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).
     /// <paramref name="levelMessage"/> selects the closer, view-cone-guaranteed
-    /// level-message placement (tutorial boxes/strips).</summary>
-    private static void PlaceAtHmd(ConvertedPanel panel, float extraScale, int staggerIndex = 0,
+    /// level-message placement (tutorial boxes/strips). Returns false when no head pose was
+    /// available (nothing was written, and <see cref="s_lastSpawnAnchor"/> is invalid).</summary>
+    private static bool PlaceAtHmd(ConvertedPanel panel, float extraScale, int staggerIndex = 0,
         bool levelMessage = false)
     {
         // User request A: hand the panel's projected world size to the pose computation so
@@ -629,8 +716,201 @@ internal static partial class ModalFallback
         Vector2 half = PanelWorldHalfSize(panel, PanelLayout.WorldScale * extraScale);
         if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out float scale, staggerIndex,
                 half, panel, levelMessage))
-            return;
+            return false;
         CanvasConversion.PlaceHost(panel, pos, rot, scale * extraScale);
+        return true;
+    }
+
+    // ---- ONE-SHOT POSE RE-PLACE AT FINAL GEOMETRY (first-open pose bug, 2026-08-02) ----------
+    //
+    // THE BUG. A floated window is placed the instant it converts, i.e. BEFORE the two things that
+    // decide how big it actually is have happened:
+    //   * the content fit (CanvasConversion.SettleOneShotFit / SettlePreRevealFirstFit) shrinks the
+    //     host rect from the captured window rect to the visible content — 1920x1080 → 259x294 px
+    //     for the scenario ESC menu (hardware log ModBuild 17);
+    //   * the board-relative scale re-derivation (ModalFallback.Tick step 5b) re-derives extraScale
+    //     from that fitted width and pushes it to the grab (0.404 → 0.700 in the same log).
+    // PlaceAtHmd feeds ComputeHmdPose the PRE-fit half-size, and EVERY placement clamp is a
+    // function of it: the board-top floor is `boardY + 0.30 m × scale + half.y`, the eye-level cap,
+    // the overlap box test, the level-message view cone. Measured on that log: half.y 8.36 world
+    // units at placement vs 3.83 for the finished window, i.e. the board-top floor sits 4.5 wu
+    // (~0.12 m) higher than the real window ever needed — and the overlap resolve box-tests a slab
+    // roughly 4x too large against the control board, which can raise/swing it for nothing. How
+    // much of that reaches the final pose depends on the raw gaze pose and the eye-level cap (in
+    // that ESC-menu open the cap absorbed most of it and the residual was ~0.06 m); a taller raw
+    // pose, a shorter window or a board overlap turns the same defect into a large one.
+    //
+    // WHY IT SURFACED WITH THE REVEAL GATE. Before the pre-reveal hide the window was visible early
+    // and visibly corrected itself, so a wrong spawn pose was hidden inside the jump the user asked
+    // us to remove. With the gate the first VISIBLE frame is the settled one — and it shows a pose
+    // computed from geometry that no longer exists. (The gate did not CREATE the wrong pose: the
+    // ModBuild-17 log shows the identical pre-fit clamp inputs on the second open too. What differs
+    // between a cold first open and a warm re-open in that log is the FIT RESULT itself —
+    // 259x294 px vs 396x1080 px — which is a separate, still-open question about the ESC menu's
+    // cold layout, not something this re-place can or should paper over.)
+    //
+    // THE FIX. While the window is still render-hidden behind the reveal gate, re-run the SAME
+    // placement ONCE with the final rect + final extraScale (ComputeHmdPose replay, see
+    // SpawnAnchor: same stored gaze inputs, so a window whose clamps do not change is not written
+    // at all and keeps a byte-identical pose). Costs nothing visually — nothing of the window is
+    // drawable at that moment.
+
+    /// <summary>Re-place threshold, world units: a recomputed pose closer than this to the current
+    /// one is NOT written. Mirrors <c>CanvasConversion.RevealPosEpsilon</c> (0.01 wu ≈ 0.3 mm real),
+    /// i.e. exactly the movement the reveal gate itself would dismiss as jitter — so "no change"
+    /// means the already-correct cases keep their spawn pose untouched AND their stillness
+    /// counter unreset.</summary>
+    private const float RePlacePosEpsilon = 0.01f;
+
+    /// <summary>Re-place threshold, degrees (mirrors <c>CanvasConversion.RevealRotEpsilonDeg</c>).</summary>
+    private const float RePlaceRotEpsilonDeg = 0.25f;
+
+    /// <summary>
+    /// ONE re-place per floated window per open, evaluated from <see cref="Tick"/> (step 5b-pose,
+    /// straight after the scale re-derivation). See the block comment above for the bug.
+    ///
+    /// <para>ORDERING — the re-place must happen BEFORE the reveal, never after. Two guarantees:
+    /// (1) <c>ModalFallback.Tick</c> runs EARLIER in the WorldUI module's Update than
+    /// <c>CanvasConversion.Tick</c>, which is where the reveal gate lives, so a re-place decided
+    /// this frame is applied before the gate is even evaluated this frame; (2) the panel must
+    /// still be <see cref="ConvertedPanel.RevealPending"/> — a window already popped in by the
+    /// 0.6 s deadline path is left alone forever, because moving a VISIBLE window is precisely the
+    /// jump this whole mechanism exists to remove. That trade is deliberate: the deadline path is
+    /// the "never stay invisible" escape hatch and keeps its historic pose.</para>
+    ///
+    /// <para>EXCLUSIONS, each latching so the window is evaluated exactly once (no loop, and the
+    /// reveal gate's stillness counter can be reset at most one single time):
+    /// <list type="bullet">
+    /// <item>NO SPAWN ANCHOR — above all the level-message rule-2 branch of
+    /// <see cref="TryConvertWindow"/>, which restores the verbatim stored chain pose. That pose is
+    /// authoritative by user ruling (the player approved that exact spot); it is not a gaze
+    /// placement and must never be recomputed.</item>
+    /// <item>GRABBED — the player's grab always wins over any mod placement. (While render-hidden a
+    /// grab is impossible by construction — <c>GrabbableModal.GrabVisible</c> is false — so this is
+    /// belt-and-braces against future ordering changes.)</item>
+    /// <item>REVEAL ALREADY OPEN — see the ordering paragraph.</item>
+    /// </list></para>
+    ///
+    /// <para>GEOMETRY-FINAL criterion (mirrors the reveal gate's own): the content fit is committed
+    /// (or the host has no fit at all — the Options family floats at its captured rect) AND, for a
+    /// one-shot-fitted window, the 5b scale re-derivation has run. Until then the window is simply
+    /// left pending; the reveal deadline bounds the wait.</para>
+    /// </summary>
+    private static void TickPoseRePlace()
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            TickPoseRePlaceOne(wp.Panel, wp.Grab, wp.Window, wp.ExtraScale,
+                wp.OneShotFitted && !wp.ScaleReDerived, ref wp.SpawnAnchor, ref wp.PoseRePlaceDone);
+        }
+        // Part 10: the GlobalErrorMessage float is NOT a UIWindow and therefore has no WindowPanel
+        // record — it carries its own anchor/latch pair so the identical re-place applies to it.
+        if (_errorPanel != null)
+            TickPoseRePlaceOne(_errorPanel, _errorGrab, null, _errorExtraScale,
+                scalePending: false, ref _errorSpawnAnchor, ref _errorPoseRePlaceDone);
+    }
+
+    /// <summary>
+    /// One floated panel's single re-place evaluation — see <see cref="TickPoseRePlace"/> for the
+    /// bug, the ordering guarantee and the exclusions. <paramref name="anchor"/> and
+    /// <paramref name="done"/> are the caller's own state fields (WindowPanel for a floated window,
+    /// the dedicated statics for the error box), passed by reference so both callers share ONE
+    /// implementation. <paramref name="scalePending"/> is true while a one-shot-fitted window is
+    /// still waiting for the step-5b board-relative scale re-derivation.
+    /// </summary>
+    private static void TickPoseRePlaceOne(ConvertedPanel panel, GrabbableModal? grab,
+        UIWindow? window, float extraScale, bool scalePending, ref SpawnAnchor anchor, ref bool done)
+    {
+        if (done)
+            return;
+        if (panel == null || !panel.IsAlive || panel.HostGo == null)
+        {
+            done = true; // dead panel — nothing to place, never revisit
+            return;
+        }
+        if (!anchor.Valid)
+        {
+            LatchPoseRePlace(panel, ref done, "kept verbatim (stored chain pose / no gaze " +
+                                              "placement) — rule 2 is authoritative");
+            return;
+        }
+        if (!panel.RevealPending)
+        {
+            LatchPoseRePlace(panel, ref done, "skipped — the window was already revealed " +
+                                              "(deadline path); a re-place would be a VISIBLE jump");
+            return;
+        }
+        if (grab != null && grab.IsGrabbed)
+        {
+            LatchPoseRePlace(panel, ref done, "skipped — the player is holding the window " +
+                                              "(grab is authoritative)");
+            return;
+        }
+
+        // Geometry final? Same criterion the reveal gate applies, so the two can never disagree
+        // about what "final" means.
+        bool fitDone = !panel.FitEnabled || panel.FitMeasuredOnce;
+        if (!fitDone || scalePending)
+            return; // still settling — retry next tick, bounded by the reveal deadline
+
+        // Replay the spawn placement against the FINAL rect + FINAL extraScale. The grab carries
+        // the scale (SetExtraScale, step 5b), so only position/rotation are re-derived here.
+        Vector2 half = PanelWorldHalfSize(panel, anchor.Scale * extraScale);
+        if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, panel, false, anchor))
+        {
+            LatchPoseRePlace(panel, ref done, "skipped — no head pose available");
+            return;
+        }
+
+        Transform host = panel.HostGo.transform;
+        Vector3 from = host.position;
+        if ((pos - from).sqrMagnitude <= RePlacePosEpsilon * RePlacePosEpsilon
+            && Quaternion.Angle(rot, host.rotation) <= RePlaceRotEpsilonDeg)
+        {
+            LatchPoseRePlace(panel, ref done, "recomputed from the final rect/scale and found " +
+                                              "IDENTICAL to the spawn pose — nothing written");
+            return;
+        }
+
+        // Move the mod-owned grab FRAME, not the host: the host follows the frame every tick
+        // (GrabbableModal.Tick), so a direct host write would be snapped straight back — the
+        // RefloatOpenWindows lesson. PlaceFrameAt syncs the host in the same call.
+        if (grab != null)
+            grab.PlaceFrameAt(pos, rot);
+        else
+            CanvasConversion.PlaceHost(panel, pos, rot, anchor.Scale * extraScale);
+
+        // CHAIN CONTINUITY: a rule-1 level-message spawn seeded the shared chain store with its
+        // ORIGINAL pose at convert time — refresh it, or the next scripted window of the chain
+        // would inherit a spot this window no longer occupies. No-op for every other family.
+        StoreChainPose(window, panel);
+
+        panel.PoseRePlaced = true;
+        panel.PoseRePlacedFrom = from;
+        panel.PoseRePlacedTo = pos;
+        panel.PoseRePlaceReason = "re-placed from the final fitted geometry";
+        done = true;
+        Rect rect = panel.HostRect != null ? panel.HostRect.rect : default;
+        VRLog.Info("WorldUI", $"MODAL POSE RE-PLACE: '{panel.HostGo.name}' re-placed while still " +
+                              $"render-hidden — pose ({from.x:F2},{from.y:F2},{from.z:F2}) → " +
+                              $"({pos.x:F2},{pos.y:F2},{pos.z:F2}), moved " +
+                              $"{(pos - from).magnitude / Mathf.Max(anchor.Scale, 1e-4f):F3} m. The spawn " +
+                              "clamps had been computed from the PRE-fit rect; the final geometry is " +
+                              $"{rect.width:F0}x{rect.height:F0} px at extraScale {extraScale:F3} " +
+                              $"(half-height {half.y:F2} wu — compare the first MODAL SPAWN CLAMP line). " +
+                              "Invisible at this moment, so the first VISIBLE frame already shows the " +
+                              "pose derived from the window's real size.");
+    }
+
+    /// <summary>Close a panel's one-shot re-place evaluation without moving anything, recording
+    /// <paramref name="reason"/> for the MODAL REVEAL line. Deliberately silent — the reveal line
+    /// is the ONE place the decision is reported, so a window costs exactly one line either way.</summary>
+    private static void LatchPoseRePlace(ConvertedPanel panel, ref bool done, string reason)
+    {
+        done = true;
+        panel.PoseRePlaced = false;
+        panel.PoseRePlaceReason = reason;
     }
 
     private static void ReleaseAllWindows(string reason)

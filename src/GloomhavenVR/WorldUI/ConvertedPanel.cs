@@ -283,6 +283,26 @@ internal sealed class ConvertedPanel
     /// <summary>Last unmet settle criterion (treatment/fit/pose) — the reveal log names what the gate waited for last.</summary>
     public string RevealLastBlocker = "";
 
+    // ---- one-shot pose re-place at final geometry (first-open pose fix, 2026-08-02) ----------
+    /// <summary>
+    /// True when <c>ModalFallback.TickPoseRePlace</c> actually MOVED this host while it was still
+    /// render-hidden, because the spawn placement had been computed from the PRE-fit rect/scale.
+    /// Reported by the MODAL REVEAL line so a hardware log proves which pose the first visible
+    /// frame shows and where it came from.
+    /// </summary>
+    public bool PoseRePlaced;
+
+    /// <summary>Host world position before the re-place (only meaningful with <see cref="PoseRePlaced"/>).</summary>
+    public Vector3 PoseRePlacedFrom;
+
+    /// <summary>Host world position after the re-place (only meaningful with <see cref="PoseRePlaced"/>).</summary>
+    public Vector3 PoseRePlacedTo;
+
+    /// <summary>Human-readable outcome of the ONE re-place evaluation — either that it moved, or
+    /// WHY it did not (verbatim chain pose, grabbed, already revealed, pose unchanged). Written
+    /// once per open by ModalFallback and read only by the reveal log.</summary>
+    public string PoseRePlaceReason = "not evaluated (window not enrolled in the pose re-place)";
+
     // ---- COMPLETE render hide (user ruling 2026-08-02 round 2: nothing may pop in elsewhere) ----
     /// <summary>
     /// True while the panel is fully render-hidden by

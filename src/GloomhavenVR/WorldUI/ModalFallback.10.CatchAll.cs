@@ -477,6 +477,16 @@ internal static partial class ModalFallback
     private static bool _errorConvertFailedLogged;
 
     /// <summary>
+    /// The error box is NOT a UIWindow, so it has no <c>WindowPanel</c> record — these three
+    /// fields are its private copy of the state a floated window keeps there, purely so the ONE
+    /// pose re-place (<see cref="TickPoseRePlace"/>) covers this float too: it is content-fitted
+    /// like any other modal, so its spawn clamps are computed from the same PRE-fit rect.
+    /// </summary>
+    private static float _errorExtraScale = WindowScaleFactor;
+    private static SpawnAnchor _errorSpawnAnchor;
+    private static bool _errorPoseRePlaceDone;
+
+    /// <summary>
     /// Per-tick error-box service (called from Tick before the lock/screen policy):
     /// level-triggered like the other polls. Floats the ErrorMessage root directly via
     /// CanvasConversion (the window-float pattern minus UIWindow specifics); on
@@ -571,7 +581,13 @@ internal static partial class ModalFallback
                 return;
             }
             float extraScale = DeriveWindowScale(panel);
-            PlaceAtHmd(panel, extraScale, Converted.Count);
+            // Keep the placement inputs so the one-shot re-place can replay them once this float's
+            // content fit lands (see TickPoseRePlace) — invalid anchor if no head pose existed.
+            _errorSpawnAnchor = PlaceAtHmd(panel, extraScale, Converted.Count)
+                ? s_lastSpawnAnchor
+                : default;
+            _errorExtraScale = extraScale;
+            _errorPoseRePlaceDone = false;
             var grab = new GrabbableModal();
             grab.Build(panel, extraScale, "GlobalErrorMessage", depthMask: true);
             _errorPanel = panel;
@@ -602,6 +618,9 @@ internal static partial class ModalFallback
         _errorGrab = null;
         CanvasConversion.Release(_errorPanel);
         _errorPanel = null;
+        // Drop the re-place state with the float: the next open is a fresh spawn (its own anchor).
+        _errorSpawnAnchor = default;
+        _errorPoseRePlaceDone = false;
         VRLog.Info("WorldUI", $"MODAL WINDOW: GlobalErrorMessage float released ({reason}) — " +
                               "restored to its 2D home.");
     }

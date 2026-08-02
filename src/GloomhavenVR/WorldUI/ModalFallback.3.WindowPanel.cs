@@ -70,6 +70,20 @@ internal static partial class ModalFallback
         public bool ScaleReDerived;
 
         /// <summary>
+        /// First-open pose fix (2026-08-02): the placement inputs the rule-1 spawn consumed, so the
+        /// SAME placement can be replayed once against the FINAL (fitted, re-scaled) geometry while
+        /// the window is still render-hidden — see <see cref="TickPoseRePlace"/>. Invalid
+        /// (<c>Valid == false</c>) for a window that was NOT gaze-placed, above all the
+        /// level-message rule-2 chain pose, which is authoritative and never re-placed.
+        /// </summary>
+        public SpawnAnchor SpawnAnchor;
+
+        /// <summary>One-shot latch for the re-place above: set the moment the window has been
+        /// re-placed OR permanently excluded, so the evaluation runs exactly once per open and can
+        /// never oscillate with the reveal gate's pose-stability counter.</summary>
+        public bool PoseRePlaceDone;
+
+        /// <summary>
         /// Item 6 (parallel windows): a player-reachable menu (<see cref="NonBlockingMenus"/>) is
         /// STICKY — once floated it stays floated + visible in VR even when the GAME hides it. The
         /// ESC menu drives a single-toggle <c>ToggleGroup</c>: selecting Multiplayer turns the

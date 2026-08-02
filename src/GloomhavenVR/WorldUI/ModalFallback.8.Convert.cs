@@ -271,6 +271,12 @@ internal static partial class ModalFallback
             // pose exists: the chain's FIRST window after the scenario/teardown reset, or
             // after presence regain invalidated a stale pose. Same scale convention as
             // PlaceAtHmd (ComputeHmdPose: PanelLayout.WorldScale × board-relative shrink).
+            //
+            // First-open pose fix (2026-08-02): the placement inputs of a rule-1 gaze spawn, kept
+            // so the ONE pre-reveal re-place can replay them against the FINAL fitted geometry
+            // (see TickPoseRePlace). Left INVALID on the rule-2 branch below — a verbatim stored
+            // chain pose is authoritative and must never be recomputed.
+            SpawnAnchor spawnAnchor = default;
             if (isLevelMsg && TryGetChainPose(window, out Vector3 chainPos, out Quaternion chainRot,
                     out string chainSetBy))
             {
@@ -284,7 +290,8 @@ internal static partial class ModalFallback
             }
             else
             {
-                PlaceAtHmd(panel, extraScale, staggerIndex, isLevelMsg);
+                if (PlaceAtHmd(panel, extraScale, staggerIndex, isLevelMsg))
+                    spawnAnchor = s_lastSpawnAnchor;
                 // ONE-SHOT FACING (task #1): the host was just yawed to face the head (ComputeHmdPose,
                 // PanelPlacement convention) — a spawn-only orient, not a per-frame billboard, so once
                 // the grab frame is seeded from it below the user's grab-rotation is authoritative and
@@ -370,6 +377,9 @@ internal static partial class ModalFallback
                 OneShotFitted = oneShotFit,
                 Grab = grab,
                 ExtraScale = extraScale,
+                // First-open pose fix: rule-1 spawns carry their placement inputs (rule-2 chain
+                // poses stay invalid → never re-placed); the latch arms the ONE re-place.
+                SpawnAnchor = spawnAnchor,
                 // Item 6: reachable menus stay floated in parallel even when the game's single-window
                 // toggle hides a sibling; cache the CanvasGroup used to re-assert their visibility.
                 Sticky = NonBlockingMenus.Contains(window.ID),
@@ -450,8 +460,7 @@ internal static partial class ModalFallback
             }
             else
             {
-                PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
-                placed = true;
+                placed = PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
             }
             // Chain continuity: the refloat pose is the chain's new anchor (see the reset
             // above) — only after a SUCCESSFUL placement, so a no-head-pose tick can never
