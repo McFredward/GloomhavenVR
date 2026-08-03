@@ -65,6 +65,7 @@ internal static partial class Defaults
     internal const float RoundButtonThickness = 0.012f;                                               // => [Cards] RoundButtonThickness  (legacy: read once as the seed for its successor)
     internal const float RestButtonInsetX = 0.024f;                                                   // => [Cards] RestButtonInsetX  (legacy: read once as the seed for its successor)
     internal const float ConfirmUndoInsetX = 0.014f;                                                  // => [Cards] ConfirmUndoInsetX  (legacy: read once as the seed for its successor)
+    internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint
     internal const bool PileViewer = true;                                                            // => [Cards] PileViewer
     internal const bool ActivePile = true;                                                            // => [Cards] ActivePile

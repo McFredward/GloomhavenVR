@@ -112,6 +112,9 @@ internal static class CardsConfig
     /// <summary>Steady "wanted slot" hint glow on the slot(s) the game is waiting to be filled (test #28).</summary>
     internal static ConfigEntry<bool> WantedSlotHint = null!;
 
+    /// <summary>Dust/spark burst when a card appears or crumbles away. OFF since 2026-08-03.</summary>
+    internal static ConfigEntry<bool> CardDust = null!;
+
     /// <summary>Item 3: multiplier that scales a slotted card UP to (nearly) fill the physical slot recess.</summary>
     internal static ConfigEntry<float> SlotCardFill = null!;
 
@@ -613,6 +616,8 @@ internal static class CardsConfig
             "reads, seeded from this Oak value as X = −0.014. It was the inward nudge in local X (real " +
             "meters, toward board center) applied to Confirm/Undo so they center on the Oak metal pads. " +
             "Kept bound so existing cfg files load unchanged.");
+        CardDust = _file.Bind("Cards", "CardDust", Defaults.CardDust,
+            "Burst of dust/spark motes when a card appears or crumbles away. OFF by default: on hardware the burst that goes with a card flying to a discard pile read as a huge spark animation sweeping across the WHOLE board (the motes are emitted in world units and the board is a scaled-up diorama), which is what the player sees rather than the intended small puff at the card. The card still fades and settle-shrinks either way — the dust was only ever a secondary flourish. User ruling 2026-08-03.");
         WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", Defaults.WantedSlotHint,
             "Steady, softly pulsing accent glow on the slot(s) the game is currently waiting to be " +
             "filled (test #28) — distinct from the transient gold snap glow that previews where a " +

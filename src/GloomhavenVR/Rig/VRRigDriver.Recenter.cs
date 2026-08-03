@@ -216,7 +216,8 @@ internal sealed partial class VRRigDriver
         // THE HARDWARE-LOG PROOF LINE: everything needed to verify the placement from a log alone —
         // the chosen azimuth, the angular distance it achieved (180° = straight across from a lone
         // peer), where the radius came from, the footprint it was measured on, and the evidence.
-        VRLog.Info("Rig", $"Spawn ring: SEATED{(correction ? " (CORRECTION)" : "")} at azimuth " +
+        VRLog.Info("Rig", $"Spawn ring: SEATED{(correction ? " (CORRECTION)" : "")}" +
+                          $"{(seat.Solo ? " [SOLO — no peers, azimuth from the scenario base yaw; the ring supplies the RADIUS so the seat cannot land on the board]" : "")} at azimuth " +
                           $"{seat.AngleDegrees:F1}deg, nearest peer {seat.MinGapDegrees:F1}deg away " +
                           $"(180 = straight across the board), facing the board centre {seat.Center}. " +
                           $"Radius {seat.RadiusMeters:F2} m ({seat.RadiusWorld:F2} world units) = board " +
@@ -234,7 +235,7 @@ internal sealed partial class VRRigDriver
     private static string Explain(SpawnRing.Outcome outcome) => outcome switch
     {
         SpawnRing.Outcome.Offline =>
-            "no multiplayer session — single player keeps the ordinary seat unchanged",
+            "unreachable since 2026-08-03: single player takes the same ring (see SpawnRing.Outcome.Offline)",
         SpawnRing.Outcome.PeersUnknown =>
             "multiplayer, but no peer position is known yet: no peer rig packet has arrived and the " +
             "FFSNet participant list is still empty (it lags the join handshake by seconds)",

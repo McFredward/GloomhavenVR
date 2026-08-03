@@ -239,6 +239,22 @@ internal sealed class ItemsPile
 
     private void Open(CardsHandUI hand, VRHand? by = null)
     {
+        // AN EMPTY FAN MUST NOT OPEN (user ruling 2026-08-03: "Da 0 Gegenstände da waren soll es
+        // auch gar nicht möglich sein den Fächer zu öffnen!"). With no items the fan used to open
+        // anyway: no chips, no laser targets, and only its own "Gegenstände (0)" caption floating
+        // over the board — which is also why it could not be clicked away, since the toggle lives
+        // on the items STACK and the empty fan covers nothing to poke. Gated HERE rather than at
+        // the toggle so every entry point is covered, including the flow-driven opens (surrender
+        // pick, take-damage place), where an empty fan is equally useless.
+        int count = ItemsOf(hand)?.Count ?? 0;
+        if (count <= 0)
+        {
+            VRLog.Info("Cards", "Items pile browse REFUSED — the actor carries 0 items, so there is " +
+                                "nothing to fan out. An empty fan has no chips and no way to close " +
+                                "itself; the stack stays closed instead " +
+                                $"(requested by {(by != null ? by.Side.ToString() : "auto/flow")}).");
+            return;
+        }
         _hand = hand;
         EnsureRoot();
         // Requirement 2: the fan anchors under the board root at the shared board-top spot.

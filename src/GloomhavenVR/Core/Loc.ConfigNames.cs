@@ -206,6 +206,7 @@ internal static partial class Loc
             ["Cards/SlotCardInset"] = Pair("Slot card: lift out (m)", "Slot-Karte: anheben (m)"),
             ["Cards/SlotCardFill"] = Pair("Slot card: fill factor", "Slot-Karte: Füllgrad"),
             ["Cards/WantedSlotHint"] = Pair("Glow on expected slot", "Erwarteter Slot leuchtet"),
+            ["Cards/CardDust"] = Pair("Card dust burst", "Karten-Staubwolke"),
             ["Cards/PileViewer"] = Pair("Discard pile stacks", "Ablagestapel anzeigen"),
             ["Cards/ActivePile"] = Pair("Active-cards column", "Aktive-Karten-Spalte"),
             ["Cards/FaceMipBake"] = Pair("Smooth card textures", "Kartentexturen glätten"),
@@ -285,7 +286,7 @@ internal static partial class Loc
             ["Cards/ClusterScale_*"] = Pair("Button cluster: size", "Tastengruppe: Größe"),
             ["Cards/DecisionOffset_*"] = Pair("Decision dock: position", "Entscheidung: Position"),
             ["Cards/DecisionScale_*"] = Pair("Decision dock: size", "Entscheidungsdock: Größe"),
-            ["Cards/DecisionGap_*"] = Pair("Decision: text gap (m)", "Entscheidung: Textabstand"),
+            ["Cards/DecisionGap_*"] = Pair("Decision: text gap (m)", "Entscheidung: Textlücke"),
 
             // ---- [MixedReality] / [Stereo] / [RenderQuality] — picture ----------------------
             ["MixedReality/Enabled"] = Pair("Mixed Reality", "Mixed Reality an"),

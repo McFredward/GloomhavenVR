@@ -14,6 +14,15 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal static class CardDustFx
 {
+    /// <summary>
+    /// THE SINGLE GATE (user ruling 2026-08-03: "kam während dessen so eine sehr große
+    /// Funken/Partikel Animation über das gesamte Spielfeld (wahrscheinlich ausgehend von der
+    /// abgeworfenen Karte). Geh da rein, das soll deaktiviert werden!"). Gated here rather than at
+    /// the two call sites so no future emit path can miss it. Default OFF; the code stays so the
+    /// effect can be revived once the world-scale sizing is reworked.
+    /// </summary>
+    private static bool Enabled => CardsConfig.CardDust != null && CardsConfig.CardDust.Value;
+
     private const int VanishCount = 30; // crumble puff — a bit denser than a button (a card is bigger)
     private const int AppearCount = 18; // fewer, converging — a quick "assembling" shimmer
 
@@ -28,6 +37,8 @@ internal static class CardDustFx
     internal static void EmitVanish(Vector3 center, Vector3 right, Vector3 up, Vector3 outNormal,
         float halfW, float halfH, Color color)
     {
+        if (!Enabled)
+            return;
         if (_ps == null)
             BuildPool();
         if (_ps == null)
@@ -65,6 +76,8 @@ internal static class CardDustFx
     internal static void EmitAppear(Vector3 center, Vector3 right, Vector3 up, Vector3 outNormal,
         float halfW, float halfH, Color color)
     {
+        if (!Enabled)
+            return;
         if (_ps == null)
             BuildPool();
         if (_ps == null)

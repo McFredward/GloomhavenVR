@@ -434,12 +434,25 @@ internal sealed class DecisionDockSurface : WorldSurface
         }
         _hmdFloatPlaced = false;
 
-        if (!Panel.HostGo.activeSelf)
-            Panel.HostGo.SetActive(true);
-
+        // SHOW ONLY WHEN IT IS ALREADY RIGHT (user ruling 2026-08-03: "Wenn die
+        // Entscheidungsbutton & Text aufplopped sieht man ihn erst kleiner/an einer Stelle für
+        // eine Sekunde, dann lädt die richtige eingestellte Position nach. So soll das nicht sein
+        // — es soll DIREKT richtig angezeigt werden.").
+        //
+        // The host used to be activated HERE, before the rect check below — and the rect is not
+        // content-fitted for the first frames (CanvasConversion.TickFit needs a measure/settle
+        // pass), so the early return left the row VISIBLE at its pre-fit size and its pre-place
+        // pose. That is precisely the "smaller, in the wrong spot, for about a second". This is
+        // the same lesson the floated windows learned: never reveal before the final geometry is
+        // known. The activation now happens at the END of a placement that actually ran, so the
+        // first frame the player sees is already the fitted size at the configured spot.
         Rect rect = Panel.HostRect.rect; // content-fitted by CanvasConversion.TickFit
         if (rect.width < 1f || rect.height < 1f)
+        {
+            if (Panel.HostGo.activeSelf)
+                Panel.HostGo.SetActive(false); // not measured yet — stay INVISIBLE, never half-placed
             return;
+        }
 
         float trayScale = mount.lossyScale.x;
         float density = PlayTray.TrayPixelsPerMeter * DensityScale;
@@ -503,6 +516,10 @@ internal sealed class DecisionDockSurface : WorldSurface
         Vector3 pos = mount.position + up * d;
 
         host.position = pos;
+
+        // Fitted, placed, and only NOW visible (see the note above the rect check).
+        if (!Panel.HostGo.activeSelf)
+            Panel.HostGo.SetActive(true);
 
         // Publish the row's MEASURED bottom edge (mount-relative, along up) for the
         // UseBarsSurface stack — the bars hang a small clearance below the row the player

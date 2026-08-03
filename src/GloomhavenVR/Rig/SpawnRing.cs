@@ -89,8 +89,10 @@ internal static class SpawnRing
     /// own log line at the call site — there is no unlogged path.</summary>
     internal enum Outcome
     {
-        /// <summary>No multiplayer session (<c>FFSNetwork.IsOnline</c> false): strict no-op, the
-        /// caller keeps the ordinary solo seat. This is the single-player contract.</summary>
+        /// <summary>Retired. Single player used to be a strict no-op here — until a solo test
+        /// spawned the player INSIDE the board (user ruling 2026-08-03: "nutze auch im Singleplayer
+        /// den Spawnring"). Solo now takes the SAME radius solve, so this value is never returned;
+        /// it is kept so the enum's numbering and the log switch below stay stable.</summary>
         Offline,
 
         /// <summary>Multiplayer, but nobody else's position is known yet — no peer has sent a rig
@@ -141,6 +143,10 @@ internal static class SpawnRing
     /// (<c>Atan2(x, z)</c>, normalised to [0,360)), i.e. the same convention on every client.</summary>
     internal struct Seat
     {
+        /// <summary>True when this seat was solved WITHOUT peers (single player): the azimuth is
+        /// the ordinary scenario base yaw and only the radius came from the board footprint.</summary>
+        public bool Solo;
+
         /// <summary>Board centre, xz from the tile footprint, y on the orbit focus plane (the
         /// plane the eye height is measured from — unchanged from the ordinary seat).</summary>
         public Vector3 Center;
@@ -247,20 +253,24 @@ internal static class SpawnRing
         HeadScratch.Clear();
         probe.PeerPoses = NetAvatarDriver.CollectPeerHeads(HeadScratch);
 
-        // SINGLE PLAYER IS A STRICT NO-OP (requirement, and the reason nothing about the solo seat
-        // changes). The gate is the SESSION flag, not the participant list: the registry lags the
-        // join handshake by seconds and lying about it is exactly what killed round 1.
-        if (!probe.SessionOnline)
-        {
-            HeadScratch.Clear();
-            return Outcome.Offline;
-        }
+        // SINGLE PLAYER TAKES THE SAME RING (user ruling 2026-08-03: "Ich bin in meinem Test
+        // (Singleplayer) IN dem Spielfeld gespawned, das darf nicht sein — nutze auch im
+        // Singleplayer den Spawnring"). It used to return Offline here and keep the ordinary seat,
+        // whose distance came from the comfort eye-back constant and knows nothing about how big
+        // THIS scenario's board is — so on a large board that seat lands on the play field.
+        //
+        // What solo needs from the ring is only the RADIUS half: there is nobody to sit across
+        // from, so the azimuth stays the one the ordinary seat would have used (the scenario base
+        // yaw), and the player is simply pushed out to the board edge on that side plus the
+        // standing clearance. Same footprint measurement, same clamps, same log line — the only
+        // difference from multiplayer is where the angle comes from.
+        bool solo = !probe.SessionOnline;
 
         // NOBODY TO SIT ACROSS FROM YET. A seat needs either a peer's actual position (the good
         // case) or at least the knowledge that a second participant exists (the index guess).
         // Neither ⇒ keep the ordinary seat and let the caller retry; a placement made now would be
         // a coin flip that the one allowed correction then has to undo.
-        if (probe.PeerPoses == 0 && probe.Participants <= 1)
+        if (!solo && probe.PeerPoses == 0 && probe.Participants <= 1)
         {
             HeadScratch.Clear();
             return Outcome.PeersUnknown;
@@ -280,6 +290,8 @@ internal static class SpawnRing
         bool fallback;
 
         AngleScratch.Clear();
+        if (solo)
+            HeadScratch.Clear(); // no peers by definition — the azimuth comes from the base yaw
         for (int i = 0; i < HeadScratch.Count; i++)
         {
             Vector3 d = HeadScratch[i] - center;
@@ -290,7 +302,18 @@ internal static class SpawnRing
         }
         HeadScratch.Clear();
 
-        if (AngleScratch.Count > 0)
+        if (solo)
+        {
+            // SOLO: keep the direction the ordinary seat faces from; only the distance changes.
+            Vector3 fwd = baseYaw * Vector3.forward;
+            fwd.y = 0f;
+            angle = Azimuth(fwd.sqrMagnitude > 1e-6f ? fwd : Vector3.forward);
+            minGap = 360f;
+            fallback = false;
+            seat.PeerCount = 0;
+            seat.Solo = true;
+        }
+        else if (AngleScratch.Count > 0)
         {
             angle = LargestGapBisector(AngleScratch, out minGap);
             fallback = false;

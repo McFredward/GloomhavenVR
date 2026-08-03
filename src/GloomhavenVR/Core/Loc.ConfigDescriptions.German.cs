@@ -956,6 +956,13 @@ internal static partial class Loc
                 + "Metern. Das ist die EINZIGE Stellschraube für diesen Abstand: Sie ist bewusst "
                 + "unabhängig von Größe und Versatz des Entscheidungsdocks — Vergrößern oder "
                 + "Verschieben ändert also nie, wie weit die Knöpfe vom Text entfernt sitzen.",
+            ["Cards/CardDust"] =
+                "Staub-/Funkenwolke, wenn eine Karte erscheint oder zerfällt. Standardmäßig AUS: Auf "
+                + "der Hardware wirkte die Wolke beim Abwerfen einer Karte wie eine riesige "
+                + "Funken-Animation über das GANZE Spielfeld (die Partikel werden in Welteinheiten "
+                + "ausgestoßen, das Brett ist aber ein vergrößertes Diorama) statt wie ein kleines "
+                + "Wölkchen an der Karte. Die Karte blendet ohnehin aus und schrumpft leicht — der "
+                + "Staub war nur schmückendes Beiwerk.",
             ["Cards/InitiativeOffset_*"] =
                 "Lokale Position der Aufhängung der Initiativleiste (ersetzt die feste Mount-Position), "
                 + "board-lokale Meter. Von Oak übernommen (0, 0.10, −0.004).",
