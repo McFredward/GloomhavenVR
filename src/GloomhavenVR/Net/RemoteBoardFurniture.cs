@@ -438,12 +438,23 @@ internal sealed class RemoteBoardFurniture
     /// controls; only the slot-occupancy-derived pieces need the actor-fed slot flags).
     ///
     /// <paramref name="showFronts"/> is the shared <see cref="RevealGate"/> answer for this actor;
-    /// <paramref name="slot0"/>/<paramref name="slot1"/> say whether that peer's two round-card
-    /// slots currently hold a card (the SAME occupancy the board already renders as a card back or
-    /// a face — so nothing derived from it can leak anything the board does not already show).
+    /// <paramref name="slotMask"/> says which of that peer's card slots currently hold a card and
+    /// <paramref name="faceMask"/> which of those are drawn FACE-UP (a strict subset). Both are the
+    /// masks <c>RemoteControlBoard.SeatSlots</c> already resolved for the slots themselves —
+    /// handed down rather than re-derived, so the glows can never disagree with the cards, and
+    /// nothing derived from them can leak anything the board does not already show.
+    ///
+    /// WHY THE FACE MASK IS SEPARATE. Since the owner's recess occupancy rides the wire, a slot can
+    /// legitimately show a card whose IDENTITY this client does not have (an anonymous back — see
+    /// <see cref="RemoteBoardCard.SetAnonymousBack"/>). The half-card divider marks where a face-up
+    /// card's two action halves split, so it must follow the faces, not the occupancy; one flag for
+    /// both would draw a divider across a card back.
     /// </summary>
-    public void Refresh(CPlayerActor? actor, RemoteAvatar owner, bool showFronts, bool slot0, bool slot1)
+    public void Refresh(CPlayerActor? actor, RemoteAvatar owner, bool showFronts,
+        int slotMask, int faceMask)
     {
+        bool slot0 = (slotMask & 1) != 0;
+        bool slot1 = (slotMask & 2) != 0;
         // A language switch invalidates every cached label (the local board self-heals the same way).
         string lang = Loc.CurrentLanguage;
         if (lang != _langShown)
@@ -576,12 +587,11 @@ internal sealed class RemoteBoardFurniture
         // round card, marking where the two action halves split. Inert, one quad per slot, shown
         // exactly when the local zones are armed — i.e. while the cards are face-up in the action
         // phase, never during the secret selection phase.
-        int halfMask = 0;
-        if (showFronts)
-        {
-            if (slot0) halfMask |= 1;
-            if (slot1) halfMask |= 2;
-        }
+        // The face mask is already the intersection of "a card is drawn here" with "it is drawn
+        // face-up", so the reveal gate is applied once, upstream, instead of twice with two
+        // different occupancy notions. Re-ANDed with showFronts purely as a belt-and-braces read of
+        // the same gate this method is handed.
+        int halfMask = showFronts ? faceMask & 0x3 : 0;
         SetHalves(halfMask);
 
         StateLine = $"use={(armed ? "armed" : "idle")}, " +

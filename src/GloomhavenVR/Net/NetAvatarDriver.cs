@@ -527,6 +527,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             // bit writes 0 and 0 has to mean the look those senders were already drawn in.
             if (!CardsConfig.TrayFollow.Value)
                 overlays |= NetProtocol.BoardUiPinnedBit;
+            // CARD-SLOT OCCUPANCY (user report, hardware MP test: "Ich will auch sehen wenn eine
+            // Karte abgelegt wurde auf dem controllboard (mit der Rueckseite). Also wo aktuell eine
+            // Karte liegt und wo nicht ... soll vollstaendig synchronisiert werden"). The PHYSICAL
+            // truth of the two recesses, read off the slot anchors themselves (PlayTray
+            // .OccupiedSlotMask) — so every path that parks a card there is covered by one read and
+            // none of them can latch a stale bit. The VALIDITY bit rides with it on every packet:
+            // "both slots empty" is real state here and must be distinguishable from a sender that
+            // predates the nibble, which also writes zeroes.
+            overlays |= (trayNow.OccupiedSlotMask << NetProtocol.BoardUiSlotShift)
+                        & NetProtocol.BoardUiSlotMask;
+            overlays |= NetProtocol.BoardUiSlotsValidBit;
             boardUiNow = buttons | ((overlays & NetProtocol.BoardUiOverlayMask) << 8);
         }
         bool boardUiChanged = boardUiNow != _lastSentBoardUi;
@@ -719,9 +730,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                   $"skip={(boardUiNow & NetProtocol.BoardUiSkipBit) != 0}, " +
                                   $"decision={(boardUiNow & NetProtocol.BoardUiDecisionBit) != 0}), " +
                                   $"wanted-glow mask={(boardUiNow >> 8) & NetProtocol.BoardUiWantedMask}, " +
-                                  $"tray={(((boardUiNow >> 8) & NetProtocol.BoardUiPinnedBit) != 0 ? "PINNED" : "FOLLOW")} " +
+                                  $"tray={(((boardUiNow >> 8) & NetProtocol.BoardUiPinnedBit) != 0 ? "PINNED" : "FOLLOW")}, " +
+                                  $"slots={((boardUiNow >> (8 + NetProtocol.BoardUiSlotShift)) & 0x3)} " +
+                                  $"(slot1={(((boardUiNow >> 8) & NetProtocol.BoardUiSlot0Bit) != 0 ? "card" : "empty")}, " +
+                                  $"slot2={(((boardUiNow >> 8) & NetProtocol.BoardUiSlot1Bit) != 0 ? "card" : "empty")}) " +
                                   "— peers show EXACTLY these controls (extension record 4; the " +
-                                  "FOLLOW/PIN state is byte 1 bit 2, new this build).");
+                                  "FOLLOW/PIN state is byte 1 bit 2, the card-slot occupancy is " +
+                                  "byte 1 bits 3..4 with its validity bit 5, new this build). The " +
+                                  "occupancy is a POSITION only — peers draw a card BACK there; no " +
+                                  "card identity rides this wire.");
             }
             else
             {

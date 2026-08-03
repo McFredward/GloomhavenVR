@@ -65,6 +65,15 @@ internal sealed class RemoteBoardCard
     private bool _shownEmpty = true;
     private int _shownOwner = int.MinValue;
 
+    /// <summary>
+    /// Change-key identity for <see cref="SetAnonymousBack"/> — "a card is lying here, and this
+    /// client does not (yet) know which one". It must be distinct from
+    /// <c>int.MinValue</c> (which is this class's "no card at all" key, see <see cref="Set"/> and
+    /// <see cref="Blank"/>) or the panel would early-return between the empty state and the
+    /// anonymous back and never repaint.
+    /// </summary>
+    private const int AnonymousCardId = int.MinValue + 1;
+
     /// <summary>Which path produced the face currently shown — surfaced to the board's diagnostics so
     /// a hardware log can state the FIDELITY per slot, not just that a card is drawn.</summary>
     public RemoteAbilityCardSource.FacePath Path { get; private set; }
@@ -183,6 +192,36 @@ internal sealed class RemoteBoardCard
             _initLabel.gameObject.SetActive(false);
             _nameLabel.gameObject.SetActive(false);
         }
+    }
+
+    /// <summary>
+    /// Show a card BACK for a slot that is known to be OCCUPIED without knowing WHICH card occupies
+    /// it — the user's requirement "Ich will auch sehen wenn eine Karte abgelegt wurde auf dem
+    /// controllboard (mit der Rueckseite)". The occupancy comes off the wire
+    /// (<see cref="NetProtocol.BoardUiSlotMask"/>, a POSITION and nothing else); the identity does
+    /// not, and never will.
+    ///
+    /// WHY IT IS NOT JUST <c>Set(card, front: false)</c>. There IS no card to pass. The three cases
+    /// this panel now distinguishes are "no card here" (hidden), "a card whose identity we hold"
+    /// (<see cref="Set"/> — face or back per <see cref="RevealGate"/>) and "a card we can see but
+    /// cannot name" (here). Only the middle one can ever turn face-up, so this method is
+    /// structurally incapable of revealing anything: it does not take a card, it tears any hosted
+    /// face down, and it hard-sets the back material.
+    /// </summary>
+    public void SetAnonymousBack()
+    {
+        if (!_shownEmpty && _shownId == AnonymousCardId && !_shownFront)
+            return; // already showing the anonymous back — nothing to repaint
+        _shownEmpty = false;
+        _shownId = AnonymousCardId;
+        _shownFront = false;
+        _shownOwner = int.MinValue;
+
+        ClearFace();
+        if (!_root.activeSelf) _root.SetActive(true);
+        _bg.sharedMaterial = _backMat;
+        _initLabel.gameObject.SetActive(false);
+        _nameLabel.gameObject.SetActive(false);
     }
 
     /// <summary>

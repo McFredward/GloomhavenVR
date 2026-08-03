@@ -83,6 +83,7 @@ internal sealed class RemoteAvatar
     private float _loggedMaskSize = -1f; // one log line per received CHANGE, never per packet
     private int _loggedBoardStyle = -1;  // ditto for the received control-board style
     private bool _loggedPinned;          // ditto for the received FOLLOW/PIN state (first packet + changes)
+    private bool _loggedSlots;           // ditto for the received card-slot occupancy nibble
 
     // Held-card slab (additive FlagHeldCard wire field): one both-faces-back card slab eased
     // toward the sender's held-card pose — a card in a peer's HAND, distinct from their fan.
@@ -259,6 +260,22 @@ internal sealed class RemoteAvatar
     /// only when <see cref="HasBoardUi"/>. The blink itself is animated locally at the shared
     /// period — synced state, local clock.</summary>
     public int WantedGlowMask { get; private set; }
+
+    /// <summary>
+    /// True when the sender tells us which of its CARD SLOTS hold a card (board-UI record byte 1
+    /// bit 5). False for a sender that predates the nibble — <see cref="RemoteControlBoard"/> then
+    /// falls back to rendering the slots purely from the host-replicated model, exactly as every
+    /// build before this one did, which is why "no cards" and "old peer" can never be confused.
+    /// </summary>
+    public bool SlotOccupancyKnown { get; private set; }
+
+    /// <summary>
+    /// Which of the owner's two card slots PHYSICALLY hold a card right now (bit0 = left/Slot1,
+    /// bit1 = right/Slot2), meaningful only when <see cref="SlotOccupancyKnown"/>. A POSITION, never
+    /// an identity: the receiver draws a card BACK there and resolves the actual card, if it may be
+    /// shown at all, from the replicated model behind <see cref="RevealGate"/> exactly as before.
+    /// </summary>
+    public int BoardSlotMask { get; private set; }
 
     /// <summary>
     /// True when the sender's control board is PINNED (world-anchored) rather than FOLLOWing their
@@ -540,6 +557,30 @@ internal sealed class RemoteAvatar
         HasBoardUi = p.HasBoardUi;
         BoardButtonsMask = p.HasBoardUi ? p.BoardButtonsMask : (byte)0;
         WantedGlowMask = p.HasBoardUi ? p.BoardOverlayMask & NetProtocol.BoardUiWantedMask : 0;
+        // CARD-SLOT OCCUPANCY (board-UI record byte 1 bits 3..4, validity bit 5). Absent record or
+        // absent validity bit ⇒ "unknown", which is NOT "empty": the board then keeps rendering its
+        // slots from the replicated model alone, the way every build before this one did.
+        bool slotsKnown = p.HasBoardUi && (p.BoardOverlayMask & NetProtocol.BoardUiSlotsValidBit) != 0;
+        int slotMask = slotsKnown
+            ? (p.BoardOverlayMask & NetProtocol.BoardUiSlotMask) >> NetProtocol.BoardUiSlotShift
+            : 0;
+        if (slotsKnown != SlotOccupancyKnown || slotMask != BoardSlotMask || !_loggedSlots)
+        {
+            _loggedSlots = true;
+            SlotOccupancyKnown = slotsKnown;
+            BoardSlotMask = slotMask;
+            VRLog.Info("Net", $"Board slot occupancy RECEIVED from player {PlayerId}: " +
+                              (slotsKnown
+                                  ? $"slot1={((slotMask & 1) != 0 ? "card" : "empty")}, " +
+                                    $"slot2={((slotMask & 2) != 0 ? "card" : "empty")} " +
+                                    "(board-UI record byte 1 bits 3..4) — their remote board now " +
+                                    "shows a card BACK exactly where they have one and an empty " +
+                                    "recess where they do not"
+                                  : "unknown (no validity bit — sender predates the field); the " +
+                                    "slots keep rendering from the replicated model alone") +
+                              ". A POSITION only: no card identity rides this wire, and fronts " +
+                              "stay behind RevealGate.");
+        }
         // FOLLOW/PIN: absent record (or a sender that predates the bit) reads as FOLLOW — the
         // un-accented default look, which is exactly what those builds were already drawn in.
         bool pinned = p.HasBoardUi && (p.BoardOverlayMask & NetProtocol.BoardUiPinnedBit) != 0;

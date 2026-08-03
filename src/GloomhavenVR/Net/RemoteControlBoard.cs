@@ -243,7 +243,13 @@ internal sealed class RemoteControlBoard
     /// <summary>Unscaled time the next scale line may be emitted (a zoom is a continuous stream;
     /// the log states its start, its end and at most a couple of samples in between).</summary>
     private float _nextScaleLogAt;
-    private readonly RemoteBoardCard[] _cards = new RemoteBoardCard[2];
+    /// <summary>How many card slots a control board has. Bound to
+    /// <see cref="NetProtocol.BoardUiSlotCount"/> — the SAME two recesses the owner's
+    /// <c>PlayTray</c> builds and the wire's occupancy nibble describes — so a board that ever grew
+    /// a third recess widens here, on the wire and in PlayTray together, and cannot half-widen.</summary>
+    private const int SlotCount = NetProtocol.BoardUiSlotCount;
+
+    private readonly RemoteBoardCard[] _cards = new RemoteBoardCard[SlotCount];
     private OwnerTag? _tag;
 
     // ---- board STYLE (extras block byte A bits 5..6) --------------------------------------------
@@ -289,7 +295,22 @@ internal sealed class RemoteControlBoard
     /// <see cref="LogContent"/>) — one Info line per actual change, never per tick.</summary>
     private string _loggedContent = string.Empty;
 
-    private readonly CAbilityCard?[] _ordered = new CAbilityCard?[2];
+    private readonly CAbilityCard?[] _ordered = new CAbilityCard?[SlotCount];
+
+    /// <summary>Which slots this board is DRAWING a card on right now (bit per slot), as decided by
+    /// <see cref="SeatSlots"/>. The furniture layer's snap glow and the legacy wanted-glow
+    /// derivation read it, so they can never disagree with what the slots actually show.</summary>
+    private int _slotOccupiedMask;
+
+    /// <summary>Which slots are drawing a card FACE-UP (bit per slot) — a strict subset of
+    /// <see cref="_slotOccupiedMask"/>. Separate from it because an anonymous back (occupancy known
+    /// from the wire, identity not) must never get the face-up half-card divider drawn across it.</summary>
+    private int _slotFaceMask;
+
+    /// <summary>Which slots are drawing an ANONYMOUS back (bit per slot) — the wire says a card
+    /// lies there and this client holds no identity for it. Diagnostics only; a strict subset of
+    /// <see cref="_slotOccupiedMask"/> and disjoint from <see cref="_slotFaceMask"/>.</summary>
+    private int _slotAnonMask;
 
     public RemoteControlBoard(RemoteAvatar owner)
     {
@@ -418,8 +439,7 @@ internal sealed class RemoteControlBoard
         // our own actor / off-scenario). The slot only ever CREATES a face object inside its
         // front branch, so the fronts cannot exist a frame early. The actor is handed through purely
         // so the slot can find that player's own card widget to clone — it is never written to.
-        for (int i = 0; i < 2; i++)
-            _cards[i].Set(_ordered[i], showFronts, actor);
+        SeatSlots(actor, showFronts);
 
         _tag!.Tick();
 
@@ -458,10 +478,13 @@ internal sealed class RemoteControlBoard
             _track?.Refresh();
             _pickBanner?.Apply(_owner.PickBannerText);
             SyncInitiativeBadge();
-            // The furniture's SYNCED half (board-UI record: buttons + wanted glow) is wire-fed
-            // and must follow the owner's board with or without an actor — only the
-            // slot-occupancy-derived overlays need one, and they read the neutral flags here.
-            _furniture?.Refresh(null, _owner, showFronts: false, slot0: false, slot1: false);
+            // The furniture's SYNCED half (board-UI record: buttons + wanted glow) is wire-fed and
+            // must follow the owner's board with or without an actor. The slot flags used to be
+            // hard false here because occupancy was a per-ACTOR read; since it rides the wire, an
+            // actorless peer's recesses are knowable too, so the masks SeatSlots just resolved are
+            // passed through unchanged and the join-time board gets its snap glow like any other.
+            _furniture?.Refresh(null, _owner, showFronts: false,
+                _slotOccupiedMask, faceMask: 0);
         }
         catch (System.Exception e)
         {
@@ -486,10 +509,11 @@ internal sealed class RemoteControlBoard
             _track?.Refresh();
             SyncInitiativeBadge();
 
-            // The inert furniture layer. It is fed the SAME reveal answer and the SAME round-card
-            // occupancy the board is already rendering — see RemoteBoardFurniture for why nothing
-            // derived from those two can leak anything the board does not already show.
-            _furniture?.Refresh(actor, _owner, showFronts, _ordered[0] != null, _ordered[1] != null);
+            // The inert furniture layer. It is fed the SAME reveal answer and the SAME slot state
+            // the board is already rendering (the masks SeatSlots resolved, not a second derivation
+            // of its own) — see RemoteBoardFurniture for why nothing derived from those can leak
+            // anything the board does not already show.
+            _furniture?.Refresh(actor, _owner, showFronts, _slotOccupiedMask, _slotFaceMask);
 
             // Pile counts — the SAME reads CardsGameApi.DiscardedCount/BurntCount and
             // ItemsPile.Count make for the local board, against this actor instead of the local
@@ -572,6 +596,7 @@ internal sealed class RemoteControlBoard
                       $"rest='{(_status != null ? _status.RestText : string.Empty)}', " +
                       $"piles d/b/i={discard}/{burnt}/{items}, " +
                       $"round-card faces={slots}, " +
+                      $"slot-occupancy={(_owner.SlotOccupancyKnown ? "0x" + _owner.BoardSlotMask.ToString("X1") + "(synced)" : "model-only")}, " +
                       $"active={(_active != null ? _active.Count : 0)} card(s) " +
                       $"({(_active != null ? _active.RealFaceCount : 0)} real face(s)), " +
                       $"objectives={(_objectives != null ? _objectives.RowCount : 0)} row(s) " +
@@ -595,7 +620,13 @@ internal sealed class RemoteControlBoard
                           "is exactly the game's secret SelectAbilityCardsOrLongRest phase for a " +
                           "remote actor). A round-card face of LiveWidget/PooledBorrow is the REAL " +
                           "game card at full detail; 'panel' is the mod-drawn name+initiative " +
-                          "fallback; 'back' means the gate is shut or the slot is empty. " +
+                          "fallback; 'back' means the gate is shut; 'anon-back' means the OWNER's " +
+                          "own recess occupancy (board-UI record byte 1 bits 3..4, reported as " +
+                          "'slot-occupancy=0x..(synced)') says a card lies there while this client " +
+                          "holds no identity for it — a pick candidate, a drop whose SelectCard is " +
+                          "still queued, or a peer without an actor yet; 'empty' means the slot is " +
+                          "empty. 'slot-occupancy=model-only' is a sender that predates the nibble " +
+                          "and is rendered exactly as before. " +
                           "A section 'via MirroredWidget' is a live CLONE of the game's OWN panel " +
                           "(real portraits, real rows, real progress, driven per frame from the " +
                           "original); 'via ModDrawn(reason)' means the widget could not be resolved " +
@@ -652,7 +683,7 @@ internal sealed class RemoteControlBoard
     /// Pure read of already-computed state — it re-derives no gate of its own.</summary>
     private string FaceTag(int slot, bool showFronts)
     {
-        if (_ordered[slot] == null)
+        if ((_slotOccupiedMask & (1 << slot)) == 0)
             return "empty";
         RemoteBoardCard card = _cards[slot];
         RemoteAbilityCardSource.FacePath path = card != null
@@ -660,7 +691,98 @@ internal sealed class RemoteControlBoard
             : RemoteAbilityCardSource.FacePath.None;
         if (path != RemoteAbilityCardSource.FacePath.None)
             return path.ToString();
+        // Occupied but no face drawn: either the gate is shut / the panel fell back, or the WIRE
+        // says a card lies there and this client has no identity for it at all (a pick candidate,
+        // a queued SelectCard, an actorless peer). "anon-back" is that third case — it is the tag a
+        // "I see his card back but he sees nothing / vice versa" report is answered from.
+        if ((_slotAnonMask & (1 << slot)) != 0)
+            return "anon-back";
         return showFronts ? "panel" : "back";
+    }
+
+    /// <summary>
+    /// Seat this peer's card slots — the one place that decides, per slot, between "empty",
+    /// "a card BACK" and "the real card". Sets <see cref="_slotOccupiedMask"/> and
+    /// <see cref="_slotFaceMask"/> for the furniture layer and the diagnostics.
+    ///
+    /// ROOT CAUSE THIS SOLVES (user report, hardware MP test: "Ich will auch sehen wenn eine Karte
+    /// abgelegt wurde auf dem controllboard (mit der Rueckseite). Also wo aktuell eine Karte liegt
+    /// und wo nicht ... soll vollstaendig synchronisiert werden"). The slots used to be drawn from
+    /// the replicated model ALONE — <c>RoundAbilityCards</c>, ordered initiative-first. The game
+    /// does replicate that list live during the selection phase (<c>ProxySetStartRoundDeckState</c>),
+    /// so the presence of a played card was mostly right, but the PHYSICAL truth of a VR board was
+    /// not, in three ways this pass fixes:
+    ///   (a) WHICH recess. The owner's board keeps a card in the slot they physically dropped it
+    ///       into (<c>PlayTray.SyncFromGameState</c> deliberately preserves free placement); this
+    ///       board seated the model's list order instead, so a single card dropped into the RIGHT
+    ///       recess appeared in the LEFT one on every other screen.
+    ///   (b) Cards the model does not have. Burn / discard / recover candidates
+    ///       (<c>PlayTray.PlacePickCard</c>) and the short-rest sacrifice lie in the very same
+    ///       recesses and appear in NO game list — they existed on nobody else's board at all.
+    ///   (c) Latency. The VR drop parks the card instantly and queues the game's
+    ///       <c>SelectCard</c> through <c>CardActionQueue</c>, so the model (and therefore the
+    ///       replication) trails the visible placement.
+    /// The wire's occupancy nibble is the owner's own recess state, so when it is available it is
+    /// authoritative for HOW MANY cards are on the board and WHERE; the model is used only to
+    /// answer WHICH card, and only through <see cref="RevealGate"/> as before. Surplus occupied
+    /// slots get an anonymous BACK. No identity is added to the wire and no reveal path changes.
+    ///
+    /// CONVERGENCE: the mask is absolute state re-sent on every board-UI record (5 Hz floor, and an
+    /// occupancy change pre-empts the rate gate), never a delta, so a dropped packet self-heals on
+    /// the next one and there is no edge to miss. A sender without the field reads as "unknown" and
+    /// takes the legacy branch below verbatim.
+    /// </summary>
+    private void SeatSlots(CPlayerActor? actor, bool showFronts)
+    {
+        int wire = _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : -1;
+        _slotOccupiedMask = 0;
+        _slotFaceMask = 0;
+        _slotAnonMask = 0;
+
+        if (wire < 0)
+        {
+            // LEGACY sender (no occupancy nibble): the model IS the occupancy, per index, exactly
+            // as every build before this one rendered it.
+            for (int i = 0; i < SlotCount; i++)
+            {
+                _cards[i].Set(_ordered[i], showFronts, actor);
+                if (_ordered[i] == null)
+                    continue;
+                _slotOccupiedMask |= 1 << i;
+                if (showFronts)
+                    _slotFaceMask |= 1 << i;
+            }
+            return;
+        }
+
+        // The owner's recesses decide. Model cards fill the occupied ones in initiative order —
+        // which IS their physical order on the owner's board whenever both are occupied, because
+        // CardsDriver.ReconcileInitiative drives the game's initiative to follow whatever card the
+        // player put in slot 0. A slot the owner has filled but the model cannot name yet (a pick
+        // candidate, a drop whose SelectCard is still queued, a peer whose actor we do not have)
+        // shows an anonymous card BACK.
+        int next = 0;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if ((wire & (1 << i)) == 0)
+            {
+                _cards[i].Set(null, showFronts, actor); // empty recess — and it stays empty
+                continue;
+            }
+            _slotOccupiedMask |= 1 << i;
+            CAbilityCard? card = null;
+            while (next < SlotCount && card == null)
+                card = _ordered[next++];
+            if (card == null)
+            {
+                _slotAnonMask |= 1 << i;
+                _cards[i].SetAnonymousBack();
+                continue;
+            }
+            _cards[i].Set(card, showFronts, actor);
+            if (showFronts)
+                _slotFaceMask |= 1 << i;
+        }
     }
 
     /// <summary>Mirror the local board's ordering: <c>InitiativeAbilityCard</c> first, then the
@@ -839,6 +961,12 @@ internal sealed class RemoteControlBoard
         for (int i = 0; i < _cards.Length; i++)
             _cards[i]?.Blank();
         _active?.Blank();
+        // The resolved slot masks describe what the slots are DRAWING; the slots were just blanked,
+        // so the masks must go with them or the furniture would keep a snap glow / half divider up
+        // over nothing, and the diagnostic would claim a card that is no longer rendered.
+        _slotOccupiedMask = 0;
+        _slotFaceMask = 0;
+        _slotAnonMask = 0;
         _loggedContent = string.Empty; // the next visible refresh must re-state what is drawn
     }
 
