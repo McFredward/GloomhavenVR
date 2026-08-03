@@ -702,8 +702,21 @@ internal sealed class PileBrowser
         distance = float.PositiveInfinity;
         LastLaserPick = FanSweep.FanLaserPick.None;
 
+        // Geometric trace (see FanSweep.FanLaserTrace): filled for whichever card ends up in
+        // LastLaserPick, and only ever FORMATTED on a verdict change. Never allocates.
+        Camera? traceHead = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        var noCardTrace = new FanSweep.FanLaserTrace
+        {
+            Valid = true, RayOrigin = origin, RayDirection = direction,
+            HeadPosition = traceHead != null ? traceHead.transform.position : Vector3.zero,
+            CardName = "none", Reject = FanSweep.LaserReject.ArcEmpty,
+        };
+        LastLaserTrace = noCardTrace;
+
         if (!IsOpen || _root == null)
             return false;
+
+        FanSweep.FanLaserTrace hitTrace = default, rescueTrace = default, missTrace = default;
 
         // PASS 2 bookkeeping (the angular rescue): the least-overshooting card that missed the
         // exact rect, and by how much relative to the pad it was allowed at its own distance.
@@ -730,6 +743,11 @@ internal sealed class PileBrowser
             Vector3 overPoint = default;
             float overDist = 0f, overPad = 0f, overWidth = 0f, overDot = 0f;
 
+            var trace = noCardTrace;
+            trace.CardName = c.name;
+            trace.Reject = FanSweep.LaserReject.NoRect;
+            trace.RestU = trace.RestV = trace.LiveU = trace.LiveV = float.NaN;
+
             for (int pose = 0; pose < 2; pose++)
             {
                 Vector3 center, normal, right, up;
@@ -739,6 +757,22 @@ internal sealed class PileBrowser
                     : c.TryGetLiveLaserRect(out center, out normal, out right, out up, out halfW, out halfH);
                 if (!valid || halfW <= 1e-5f || halfH <= 1e-5f)
                     continue;
+                if (pose == 0)
+                {
+                    trace.RestValid = true;
+                    trace.RestCenter = center;
+                    trace.RestNormal = normal;
+                    trace.RestHalfW = halfW;
+                    trace.RestHalfH = halfH;
+                }
+                else
+                {
+                    trace.LiveValid = true;
+                    trace.LiveCenter = center;
+                    trace.LiveNormal = normal;
+                    trace.LiveHalfW = halfW;
+                    trace.LiveHalfH = halfH;
+                }
 
                 // Cards face the viewer with −Z, so the beam meets the face along +normal.
                 float denom = Vector3.Dot(direction, normal);
@@ -747,17 +781,41 @@ internal sealed class PileBrowser
                 // the visible card. The angular cone that used to sit here rejected legitimate hits
                 // because the card faces the HEAD while the beam leaves the HAND.
                 if (denom < FanSweep.LaserMinFaceDenominator)
+                {
+                    trace.Reject = Worse(trace.Reject, FanSweep.LaserReject.ParallelPlane);
                     continue;
+                }
                 float dist = Vector3.Dot(center - origin, normal) / denom;
                 if (dist <= 0f)
+                {
+                    trace.Reject = Worse(trace.Reject, FanSweep.LaserReject.BehindOrigin);
                     continue;
+                }
 
                 Vector3 world = origin + direction * dist;
                 Vector3 rel = world - center;
+                // Card-LOCAL crossing, normalised to the card's own half-extents: |u| <= 1 and
+                // |v| <= 1 is ON the visible face, u = +1.2 is 20 % of a half-width past the right
+                // edge. This is the coordinate a head-position-dependent defect is visible in.
+                float u = Vector3.Dot(rel, right) / halfW;
+                float v = Vector3.Dot(rel, up) / halfH;
+                if (pose == 0)
+                {
+                    trace.RestU = u;
+                    trace.RestV = v;
+                    trace.RestDistance = dist;
+                }
+                else
+                {
+                    trace.LiveU = u;
+                    trace.LiveV = v;
+                    trace.LiveDistance = dist;
+                }
                 float overX = Mathf.Abs(Vector3.Dot(rel, right)) - halfW * FanSweep.LaserAcceptMargin;
                 float overY = Mathf.Abs(Vector3.Dot(rel, up)) - halfH * FanSweep.LaserAcceptMargin;
                 if (overX <= 0f && overY <= 0f)
                 {
+                    trace.Reject = FanSweep.LaserReject.None;
                     if (!hit || dist < hitDist)
                     {
                         hit = true;
@@ -768,6 +826,7 @@ internal sealed class PileBrowser
                     }
                     continue;
                 }
+                trace.Reject = Worse(trace.Reject, FanSweep.LaserReject.OutsideRect);
                 if (!allowNearMiss)
                     continue;
                 float overshoot = Mathf.Max(overX, 0f) + Mathf.Max(overY, 0f);
@@ -776,7 +835,10 @@ internal sealed class PileBrowser
                 // FanSweep.LaserMaxMissOvershootFactor). Bounding it in card widths — instead of
                 // refusing oblique beams outright — is what lets a steeply-met card still be HIT.
                 if (overshoot > Mathf.Max(halfW, halfH) * FanSweep.LaserMaxMissOvershootFactor)
+                {
+                    trace.Reject = Worse(trace.Reject, FanSweep.LaserReject.BeyondMissCap);
                     continue;
+                }
                 if (overshoot >= bestOver)
                     continue;
                 bestOver = overshoot;
@@ -805,9 +867,15 @@ internal sealed class PileBrowser
                         Overshoot = bestOver, Pad = overPad, FaceWidthWorld = overWidth,
                         FaceDot = overDot,
                     };
+                    missTrace = trace;
                 }
                 if (overPad <= 0f || bestOver > overPad)
+                {
+                    trace.Reject = FanSweep.LaserReject.PadTooSmall;
+                    if (bestOver <= missOvershoot)
+                        missTrace = trace;
                     continue;
+                }
                 float ratio = bestOver / overPad;
                 if (ReferenceEquals(c, sticky))
                     ratio *= 0.5f; // the incumbent keeps the beam through a graze (same hysteresis as below)
@@ -820,6 +888,7 @@ internal sealed class PileBrowser
                 rescuePad = overPad;
                 rescueRatio = ratio;
                 rescueWidth = overWidth;
+                rescueTrace = trace;
                 continue;
             }
 
@@ -833,6 +902,7 @@ internal sealed class PileBrowser
                     Hit = true, Rescued = false, Name = c.name, Distance = hitDist,
                     Overshoot = 0f, Pad = 0f, FaceWidthWorld = hitWidth, FaceDot = hitDot,
                 };
+                LastLaserTrace = trace;
                 return true;
             }
 
@@ -846,9 +916,14 @@ internal sealed class PileBrowser
                 Hit = true, Rescued = false, Name = c.name, Distance = hitDist,
                 Overshoot = 0f, Pad = 0f, FaceWidthWorld = hitWidth, FaceDot = hitDot,
             };
+            hitTrace = trace;
         }
 
-        if (card == null && rescue != null)
+        if (card != null)
+        {
+            LastLaserTrace = hitTrace;
+        }
+        else if (rescue != null)
         {
             card = rescue;
             point = rescuePoint;
@@ -858,13 +933,22 @@ internal sealed class PileBrowser
                 Hit = true, Rescued = true, Name = rescue.name, Distance = rescueDist,
                 Overshoot = rescueOvershoot, Pad = rescuePad, FaceWidthWorld = rescueWidth,
             };
+            LastLaserTrace = rescueTrace;
         }
-        else if (card == null)
+        else
         {
             LastLaserPick = miss;
+            if (missTrace.Valid)
+                LastLaserTrace = missTrace;
         }
         return card != null;
     }
+
+    /// <summary>Keep the MOST INFORMATIVE reject reason across a card's two poses: a pose that got
+    /// as far as measuring an overshoot says more than one that never reached the plane.</summary>
+    private static FanSweep.LaserReject Worse(FanSweep.LaserReject current, FanSweep.LaserReject candidate)
+        => current == FanSweep.LaserReject.None ? current
+            : (int)candidate > (int)current ? candidate : current;
 
     /// <summary>
     /// What the last <see cref="TryRaycast"/> decided — hit or miss, which card, dead-on or
@@ -872,4 +956,9 @@ internal sealed class PileBrowser
     /// laser diagnostic; the pick itself runs per frame per hand and must stay silent.
     /// </summary>
     internal FanSweep.FanLaserPick LastLaserPick { get; private set; } = FanSweep.FanLaserPick.None;
+
+    /// <summary>The FULL geometry of the last <see cref="TryRaycast"/> - ray, head, both tested
+    /// rects, the crossing in card-local coordinates and the rejecting branch. See
+    /// <see cref="FanSweep.FanLaserTrace"/> for why a scalar overshoot was not enough.</summary>
+    internal FanSweep.FanLaserTrace LastLaserTrace { get; private set; }
 }

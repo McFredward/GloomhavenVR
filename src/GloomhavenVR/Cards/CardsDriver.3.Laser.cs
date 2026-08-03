@@ -523,6 +523,26 @@ internal sealed partial class CardsDriver
     private VRHand? _boardHoverHand;
     private VRCard? _trayCardHover;
 
+    /// <summary>Distance along the aim ray to whatever the board laser hovered this frame
+    /// (<see cref="_boardHover"/> or <see cref="_trayCardHover"/>), +inf while it hovers nothing.
+    /// The board hover used to be a BLUNT VETO over the two board-anchored fans - "the board
+    /// hovered something, therefore the browse arc gets no frame" - with no regard for which is in
+    /// FRONT. Recording the distance turns that into the same nearest-wins arbitration the fans
+    /// already run against game uGUI, so a card the beam is genuinely on can take the frame back
+    /// from the board slab behind it.</summary>
+    private float _boardHoverDist = float.PositiveInfinity;
+
+    /// <summary>Frame on which the board laser actually SPENT a trigger pull (element press /
+    /// slot-card pluck). A fan that takes the hover back afterwards must not spend the SAME pull a
+    /// second time, so the pluck (never the hover) yields for that one frame.</summary>
+    private int _boardConsumedTriggerFrame = -1;
+
+    /// <summary>Tolerance on the fan-occlusion test, real metres at rig scale 1 - the same value
+    /// and the same sense as <c>RayInteractor.FanOcclusionEpsilonMeters</c>, so the board laser
+    /// draws the "behind an open fan" line in exactly the place the physics pick, RayUguiDriver
+    /// and RayGrabDriver already draw it.</summary>
+    private const float FanOcclusionSlackMeters = 0.005f;
+
     /// <summary>
     /// Grazing-angle accept margin for the lift-priority hit test (mirrors CardFan.TryRaycast's
     /// own margin). A card met at a shallow angle subtends almost nothing, so a few mm of
@@ -622,6 +642,46 @@ internal sealed partial class CardsDriver
             return;
         }
 
+        // ---- THE OPEN FAN IS IN FRONT OF THE BOARD (root cause, hardware rounds 1-4) ----------
+        //
+        // ROOT CAUSE of "der Laser geht an manchen Kopfpositionen einfach durch die Karte" - and
+        // the reason four rounds of tolerance work could not move it, because the tolerance was
+        // never consulted on the failing frames AT ALL.
+        //
+        // The discard/burnt browse arc and the item fan float ABOVE the control board
+        // (PileBrowser.BoardAnchorBase = board top + 0.26 m, 0.05 m proud), and the WHOLE board
+        // mesh is a registered laser target (PlayTray.1.Core: every MeshCollider under the board
+        // visual gets a BoardSurfaceTarget - the object the hardware log calls
+        // "Board: laser click -> Board"), as are the pile stacks, CONFIRM/UNDO and the rest discs.
+        // So a beam that passes through a browse card and CARRIES ON lands on the board behind it.
+        // This method ran BEFORE UpdateBrowseLaser (CardsDriver.TickInteractionsAndStatus), had no
+        // occlusion test of any kind, and therefore:
+        //   1. hovered the board element BEHIND the card and
+        //   2. clamped the beam onto it (UiHitOverride = bestPoint) - the beam is drawn straight
+        //      THROUGH the card and ends on the board, which is literally the reported symptom, and
+        //   3. left _boardHover non-null, whereupon UpdateBrowseLaser's guard returned IMMEDIATELY
+        //      and SILENTLY: no pick, no hover, no log line. That silence is why the hardware log
+        //      contains only ~14 browse-laser lines and why every one of them looks like an
+        //      innocent near miss - the frames that actually failed never reached the diagnostic.
+        // The head-position dependence follows directly: the arc BILLBOARDS TO THE HEAD, so the
+        // head alone decides how the cards are tilted over the board and therefore whether the
+        // continuation of a beam that grazes a card still lands on board geometry. Looking down
+        // the beam continues onto the slab (arc dead); looking up from below it sails over the
+        // board and hits nothing (arc alive) - exactly the earlier "von unten super, von oben kaum"
+        // report, and exactly the "head position must have NO influence" requirement being violated.
+        //
+        // THE FIX is not a new rule: it is this method finally honouring the arbitration seam every
+        // OTHER consumer of the beam already honours. RayInteractor.ComputeFanOccluder measures the
+        // nearest hit across all three fans (hand fan, browse arc, item fan) every frame and
+        // publishes it as Ray.FanOccluderDistance; the physics pick, RayUguiDriver and RayGrabDriver
+        // all reject targets behind it. The board laser was the one hold-out. Anything farther than
+        // the nearest fan card is BEHIND a card the player can see, so it may neither hover nor
+        // clamp the beam. Deliberately the EXACT-rect occluder (allowNearMiss:false), so a card the
+        // beam only near-misses still lets the board through - that residue is arbitrated by
+        // distance in UpdateBrowseLaser / UpdateItemFanLaser instead.
+        float fanOccluder = dom.Ray.FanOccluderDistance;
+        float occluderSlack = fanOccluder + FanOcclusionSlackMeters * dom.WorldScale;
+
         // Task #2 (tray-card grab radius) — LIFT-PRIORITY accept. The proximity highlight
         // (ProximityGrabber, 0.13 m palm reach off the card collider) is exactly what
         // hover-LIFTS a slotted card, so the accept volume for the trigger-grab is the
@@ -674,7 +734,8 @@ internal sealed partial class CardsDriver
             ? hl
             : null;
         if (lifted != null && TryHitLiftedCard(lifted, dom.Ray.Current.Origin,
-                dom.Ray.Current.Direction, out Vector3 liftedHit))
+                dom.Ray.Current.Direction, out Vector3 liftedHit)
+            && Vector3.Dot(liftedHit - dom.Ray.Current.Origin, dom.Ray.Current.Direction) <= occluderSlack)
         {
             ClearBoardHover();
             dom.Ray.UiHitOverride = liftedHit; // honest hit — beam lands ON the card
@@ -690,7 +751,9 @@ internal sealed partial class CardsDriver
 
         PickPose pick = dom.Ray.Current;
         var ray = new Ray(pick.Origin, pick.Direction);
-        float maxDist = 3f * dom.WorldScale;
+        // Clamped by the fan occluder (see the block above): board geometry behind an open fan's
+        // card is not reachable, so the scan simply never looks past it.
+        float maxDist = Mathf.Min(3f * dom.WorldScale, occluderSlack);
 
         IPokeable? best = null;
         Vector3 bestPoint = default;
@@ -709,9 +772,11 @@ internal sealed partial class CardsDriver
             }
         }
 
-        // Slotted cards: pluck them back with the laser, like fan cards.
+        // Slotted cards: pluck them back with the laser, like fan cards. Same fan occlusion as the
+        // element scan above - a slot card seen THROUGH an open browse/item fan is not pickable.
         bool cardWins = _tray.TryRaycastCards(pick.Origin, pick.Direction,
-            out VRCard? card, out Vector3 cardPoint, out float cardDist) && cardDist < bestDist;
+            out VRCard? card, out Vector3 cardPoint, out float cardDist)
+                        && cardDist < bestDist && cardDist <= occluderSlack;
 
         // The game's own UI (RayUgui) closer than everything → neither hovers.
         float nearest = cardWins ? cardDist : best != null ? bestDist : float.PositiveInfinity;
@@ -789,11 +854,13 @@ internal sealed partial class CardsDriver
                 dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on change
             }
             dom.Ray.UiHitOverride = cardPoint;
+            _boardHoverDist = cardDist; // nearest-wins arbitration with the board-anchored fans
             if (dom.TriggerDown && !HandFanOwnsTrigger(dom))
             {
                 VRCard grab = card;
                 ClearTrayCardHover();
                 VRLog.Info("Cards", "Board: slotted card laser-plucked.");
+                _boardConsumedTriggerFrame = Time.frameCount;
                 dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
             }
             return;
@@ -808,6 +875,7 @@ internal sealed partial class CardsDriver
             best!.OnPokeEnter(dom); // elements do their own hover haptic/tint
         }
         dom.Ray.UiHitOverride = bestPoint;
+        _boardHoverDist = bestDist; // nearest-wins arbitration with the board-anchored fans
         // HAND-FAN OWNERSHIP: a hand physically holding up a browse card / item chip already owns
         // this pull (see UpdateBoardFanHandTrigger — it ran first and normally grabbed, which this
         // path's Grabber.Held guard would have caught; this covers the frame where the grab itself
@@ -834,6 +902,9 @@ internal sealed partial class CardsDriver
                 }
                 return;
             }
+            // The pull is spent HERE - a fan that takes the hover back this frame (nearest-wins,
+            // see _boardConsumedTriggerFrame) must not spend it a second time.
+            _boardConsumedTriggerFrame = Time.frameCount;
             // Route through Press for buttons so the log carries source=laser and
             // rejected presses explain their gate (test #14); other pokeables (badge,
             // rest tokens) keep the plain OnPoke path.
@@ -874,6 +945,7 @@ internal sealed partial class CardsDriver
 
     private void ClearBoardPokeHover()
     {
+        _boardHoverDist = float.PositiveInfinity;
         if (_boardHover == null)
             return;
         if (_boardHoverHand != null)
@@ -884,11 +956,42 @@ internal sealed partial class CardsDriver
 
     private void ClearTrayCardHover()
     {
+        _boardHoverDist = float.PositiveInfinity;
         if (_trayCardHover == null)
             return;
         _trayCardHover.SetLaserHover(false);
         _trayCardHover = null;
     }
+
+    /// <summary>
+    /// Nearest-wins arbitration between a board-anchored FAN (browse arc / item fan) and whatever
+    /// the board laser hovered earlier in the same frame.
+    ///
+    /// <para>The two fan laser paths used to open with <c>_boardHover != null</c> in their guard -
+    /// a blunt veto that asked WHETHER the board hovered anything, never WHICH IS IN FRONT. Since
+    /// both fans float above the board and the entire board slab is a laser target, the beam that
+    /// lands on a fan card almost always continues onto board geometry, so the veto fired on
+    /// exactly the frames the fan should have won, silently. See the root-cause block in
+    /// <see cref="UpdateBoardLaser"/>.</para>
+    ///
+    /// Returns true when the fan hit at <paramref name="fanDistance"/> is genuinely nearer and the
+    /// board hover has been handed back (hover, tint and beam clamp released); false when the board
+    /// really is in front and owns the frame.
+    /// </summary>
+    private bool TryTakeFrameFromBoardHover(float fanDistance)
+    {
+        if (_boardHover == null && _trayCardHover == null)
+            return true;
+        if (_boardHoverDist <= fanDistance)
+            return false;
+        ClearBoardHover();
+        return true;
+    }
+
+    /// <summary>True while the board laser has already spent THIS frame's trigger pull (see
+    /// <see cref="_boardConsumedTriggerFrame"/>) - a fan that took the hover back may still hover,
+    /// but must not also pluck with the same pull.</summary>
+    private bool BoardAlreadySpentTrigger => Time.frameCount == _boardConsumedTriggerFrame;
 
     // -------------------------------------------- board-fan hand ownership (browse/items) --
 
@@ -1008,10 +1111,16 @@ internal sealed partial class CardsDriver
     private void UpdateBrowseLaser()
     {
         VRHand? dom = VRHands.Primary;
+        // _boardHover / _trayCardHover are DELIBERATELY NOT in this guard any more - they were the
+        // silent veto that killed the arc on every frame the beam also crossed the board slab
+        // behind it (root cause, see UpdateBoardLaser). The board is now arbitrated BY DISTANCE
+        // below, after the pick, so the log always says which one was in front.
         if (!_browser.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
             || !dom.Ray.Enabled || dom.Grabber.Held != null
-            || _laserHover != null || _trayCardHover != null || _boardHover != null)
+            || _laserHover != null)
         {
+            if (_browser.IsOpen && dom != null)
+                LogBrowseStarved(dom);
             ClearBrowseHover();
             return;
         }
@@ -1023,12 +1132,25 @@ internal sealed partial class CardsDriver
         bool browseHit = _browser.TryRaycast(pick.Origin, pick.Direction, _browseHover,
             out VRCard? card, out Vector3 point, out float dist, allowNearMiss: true);
         bool browseUiInFront = browseHit && dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist;
-        if (!browseHit || card == null || browseUiInFront)
+        // The board laser ran earlier this frame. It only keeps the frame if what it hovered is
+        // genuinely NEARER than this card; otherwise it hands the hover, tint and beam clamp back.
+        bool boardInFront = browseHit && !browseUiInFront
+                            && !TryTakeFrameFromBoardHover(dist);
+        // After the steal above, "does the board STILL hold a hover" is the whole question: it is
+        // false exactly when the arc won it back. A miss (or a nearer uGUI hit) never steals, so the
+        // board keeps the frame there - preserving the old guard's contract that a board-hovering
+        // trigger is a board press, never a click-away dismiss of the pile.
+        bool boardOwnsFrame = _boardHover != null || _trayCardHover != null;
+        if (!browseHit || card == null || browseUiInFront || boardInFront)
         {
             LogBrowseLaser(dom, browseUiInFront
                 ? "not delivered — nearer game UI is in front of the arc"
-                : "not delivered — the ray is not on any browse card");
+                : boardOwnsFrame
+                    ? "not delivered - a NEARER board element is in front of the arc"
+                    : "not delivered - the ray is not on any browse card");
             ClearBrowseHover();
+            if (boardOwnsFrame)
+                return; // the board owns hover AND trigger this frame - no click-away, no grace
             // T2 pull-jerk grace, browse edition: the trigger pull jerks the aim ray off the card
             // on the very press frame, so this miss branch is exactly where a "take that card" pull
             // used to land — and it then CLOSED the pile via the click-away below instead of taking
@@ -1093,7 +1215,7 @@ internal sealed partial class CardsDriver
         _browseGraceUntil = Time.unscaledTime + FanHoverGraceSeconds;
 
         dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
-        if (dom.TriggerDown && card.CanGrab)
+        if (dom.TriggerDown && card.CanGrab && !BoardAlreadySpentTrigger)
         {
             VRCard grab = card;
             LogBrowseLaser(dom, $"DELIVERED — trigger plucked '{grab.name}' out of the arc");
@@ -1103,9 +1225,11 @@ internal sealed partial class CardsDriver
         }
         else
         {
-            LogBrowseLaser(dom, dom.TriggerDown
-                ? "not delivered — the hovered card refuses grabs (CanGrab=false)"
-                : "no press this frame — hover only");
+            LogBrowseLaser(dom, !dom.TriggerDown
+                ? "no press this frame - hover only"
+                : BoardAlreadySpentTrigger
+                    ? "not delivered - the board laser already spent this pull (hover taken back, pluck yields one frame)"
+                    : "not delivered - the hovered card refuses grabs (CanGrab=false)");
         }
     }
 
@@ -1113,19 +1237,132 @@ internal sealed partial class CardsDriver
     private float _nextBrowseLaserLogAt;
     private string _lastBrowseLaserVerdict = string.Empty;
 
+    // ---- browse-laser STATE diagnostic (the evidence the fifth round is built on) -------------
+    //
+    // WHY THE OLD ONE WAS NOT ENOUGH. It keyed on the press verdict STRING and then throttled to
+    // one line per second, so a beam flickering on and off a card at 90 Hz produced ONE line per
+    // second out of ninety decisions - and the frames that failed hardest produced NO line at all,
+    // because the board-hover veto returned before the diagnostic (see UpdateBoardLaser's
+    // root-cause block). Fourteen lines in a whole session cannot separate "the aim was off" from
+    // "the pick never ran". This one keys on the whole DECISION STATE (verdict + card + hit/rescue
+    // + rejecting branch) and prints on every CHANGE, so an oscillation prints every flip; it adds
+    // a once-a-second heartbeat while the state holds, and a hard session cap so a long game can
+    // never turn the log into a flood.
+
+    private string _lastBrowseStateVerdict = string.Empty;
+    private string _lastBrowseStateCard = string.Empty;
+    private FanSweep.LaserReject _lastBrowseStateReject = FanSweep.LaserReject.None;
+    private bool _lastBrowseStateHit;
+    private bool _lastBrowseStateRescued;
+    private int _browseStateLines;
+    private string _lastBrowseStarveReason = string.Empty;
+
+    /// <summary>Hard cap on browse-laser state lines per session - generous enough for several
+    /// minutes of deliberate testing, small enough that a forgotten open pile cannot flood.</summary>
+    private const int BrowseStateLineCap = 600;
+
     /// <summary>The browse-arc twin of <see cref="LogItemFanLaser"/>: hit/miss, what, dead-on or
-    /// angular-rescued, the card's real size, the world scale, and the press verdict.</summary>
+    /// angular-rescued, the card's real size, the world scale, and the press verdict - plus, on
+    /// every state CHANGE, the full geometric trace (see <see cref="LogBrowseTrace"/>).</summary>
     private void LogBrowseLaser(VRHand hand, string pressVerdict)
     {
+        FanSweep.FanLaserPick pick = _browser.LastLaserPick;
+        FanSweep.FanLaserTrace trace = _browser.LastLaserTrace;
+        string cardName = pick.Name ?? "none";
+        bool stateChanged =
+            !string.Equals(pressVerdict, _lastBrowseStateVerdict, System.StringComparison.Ordinal)
+            || !string.Equals(cardName, _lastBrowseStateCard, System.StringComparison.Ordinal)
+            || pick.Hit != _lastBrowseStateHit
+            || pick.Rescued != _lastBrowseStateRescued
+            || trace.Reject != _lastBrowseStateReject;
+        if (stateChanged)
+        {
+            _lastBrowseStateVerdict = pressVerdict;
+            _lastBrowseStateCard = cardName;
+            _lastBrowseStateHit = pick.Hit;
+            _lastBrowseStateRescued = pick.Rescued;
+            _lastBrowseStateReject = trace.Reject;
+            _lastBrowseStarveReason = string.Empty; // a live verdict re-arms the starve line
+            LogBrowseTrace(hand, pick, trace, pressVerdict);
+        }
+
+        // The original one-line-per-second summary stays exactly as it was (it is what every
+        // previous hardware round is indexed against).
         if (string.Equals(pressVerdict, _lastBrowseLaserVerdict, System.StringComparison.Ordinal)
             && Time.unscaledTime < _nextBrowseLaserLogAt)
             return;
-        FanSweep.FanLaserPick pick = _browser.LastLaserPick;
         if (!pick.Hit && pick.Distance <= 0f)
             return; // the beam is nowhere near the arc — not news
         _lastBrowseLaserVerdict = pressVerdict;
         _nextBrowseLaserLogAt = Time.unscaledTime + 1f;
         FanSweep.LogLaser("Pile-browse", hand.Side.ToString(), pick, hand.WorldScale, pressVerdict);
+    }
+
+    /// <summary>
+    /// ONE line carrying the entire geometry of a browse-laser decision: the pick ray (which is the
+    /// ray the beam is DRAWN along - RayInteractor.UpdateVisuals uses the same origin/direction in
+    /// the same Tick, and Plugin.LaserFingerOrigin defaults OFF, so "the beam is not the ray" is
+    /// excluded by construction), the HEAD position, both tested rects, and the crossing point in
+    /// CARD-LOCAL coordinates normalised to the card's own half-extents.
+    ///
+    /// <para>HOW TO READ IT. <c>rest u/v</c> and <c>live u/v</c> are the crossing on the card face:
+    /// |u| &lt;= 1 and |v| &lt;= 1 means the beam is ON that pose of the card (1.10 is the accepted
+    /// margin), u = +1.3 means 30 % of a half-width past the right edge. If the misses cluster at a
+    /// SPECIFIC u/v that moves with the head while the ray barely changes, the target is moving
+    /// under the beam; if u/v scatters around the edge, it is aim. If <c>live</c> is on the face
+    /// while <c>rest</c> is not (or vice versa) the two-pose union is doing its job and the refusal
+    /// came from somewhere else - which the <c>reject</c> field then names.</para>
+    /// </summary>
+    private void LogBrowseTrace(VRHand hand, in FanSweep.FanLaserPick pick,
+        in FanSweep.FanLaserTrace trace, string pressVerdict)
+    {
+        if (_browseStateLines >= BrowseStateLineCap)
+            return;
+        _browseStateLines++;
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        Vector3 o = trace.RayOrigin, d = trace.RayDirection, h = trace.HeadPosition;
+        string rest = trace.RestValid
+            ? $"rest c=({trace.RestCenter.x:F2},{trace.RestCenter.y:F2},{trace.RestCenter.z:F2}) " +
+              $"n=({trace.RestNormal.x:F2},{trace.RestNormal.y:F2},{trace.RestNormal.z:F2}) " +
+              $"half=({trace.RestHalfW:F3},{trace.RestHalfH:F3}) u/v=({trace.RestU:F2},{trace.RestV:F2}) " +
+              $"at {trace.RestDistance / scale * 100f:F1} cm"
+            : "rest = <none>";
+        string live = trace.LiveValid
+            ? $"live c=({trace.LiveCenter.x:F2},{trace.LiveCenter.y:F2},{trace.LiveCenter.z:F2}) " +
+              $"n=({trace.LiveNormal.x:F2},{trace.LiveNormal.y:F2},{trace.LiveNormal.z:F2}) " +
+              $"half=({trace.LiveHalfW:F3},{trace.LiveHalfH:F3}) u/v=({trace.LiveU:F2},{trace.LiveV:F2}) " +
+              $"at {trace.LiveDistance / scale * 100f:F1} cm"
+            : "live = <none>";
+        VRLog.Info("Cards",
+            $"Pile-browse laser STATE ({hand.Side}) #{_browseStateLines}: " +
+            $"{(pick.Hit ? (pick.Rescued ? "RESCUED" : "HIT") : "MISS")} '{trace.CardName}' " +
+            $"reject={trace.Reject}. ray o=({o.x:F2},{o.y:F2},{o.z:F2}) d=({d.x:F3},{d.y:F3},{d.z:F3}); " +
+            $"head=({h.x:F2},{h.y:F2},{h.z:F2}); {rest}; {live}; " +
+            $"overshoot {pick.Overshoot / scale * 100f:F2} cm vs pad {pick.Pad / scale * 100f:F2} cm. " +
+            $"Press: {pressVerdict}.");
+    }
+
+    /// <summary>
+    /// The line the browse laser NEVER had: why it did not run at all this frame. Every guard exit
+    /// used to be a bare <c>return</c>, so a starved arc looked exactly like an idle one in the log
+    /// - which is how a board element hovering THROUGH the arc stayed invisible across four
+    /// hardware rounds. Change-keyed on the reason (never per-frame).
+    /// </summary>
+    private void LogBrowseStarved(VRHand dom)
+    {
+        string reason =
+            dom == _gateHand ? "the dominant hand is the palm-gate hand"
+            : !dom.HasPose ? "the dominant hand has no pose"
+            : !dom.Ray.Enabled ? "the dominant hand's ray is disabled by the mode mask"
+            : dom.Grabber.Held != null ? "the dominant hand is holding something"
+            : _laserHover != null ? "the ability hand fan owns the beam (_laserHover)"
+            : "unknown";
+        if (string.Equals(reason, _lastBrowseStarveReason, System.StringComparison.Ordinal))
+            return;
+        _lastBrowseStarveReason = reason;
+        _lastBrowseStateVerdict = string.Empty; // the next live verdict is a state change again
+        VRLog.Info("Cards", $"Pile-browse laser ({dom.Side}): NOT EVALUATED - {reason}. " +
+                            "The arc is open; the beam simply never reached the pick this frame.");
     }
 
     private void ClearBrowseHover()
@@ -1176,9 +1413,12 @@ internal sealed partial class CardsDriver
     private void UpdateItemFanLaser()
     {
         VRHand? dom = VRHands.Primary;
+        // _boardHover / _trayCardHover left the guard for the same reason they left
+        // UpdateBrowseLaser's: the item fan also floats ABOVE the board, so "the board hovered
+        // something" was never evidence that the board is in FRONT. Arbitrated by distance below.
         if (!_piles.ItemsBrowseOpen || dom == null || dom == _gateHand || !dom.HasPose
             || !dom.Ray.Enabled || dom.Grabber.Held != null
-            || _laserHover != null || _trayCardHover != null || _boardHover != null
+            || _laserHover != null
             || _browseHover != null)
         {
             ClearItemFanHover();
@@ -1192,12 +1432,19 @@ internal sealed partial class CardsDriver
         bool rayHit = _piles.TryRaycastItemChips(pick.Origin, pick.Direction, _itemChipHover,
             out ItemsPile.ItemChip? chip, out Vector3 point, out float dist, allowNearMiss: true);
         bool uiInFront = rayHit && dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist;
-        if (!rayHit || chip == null || uiInFront)
+        bool boardInFront = rayHit && !uiInFront && !TryTakeFrameFromBoardHover(dist);
+        // See UpdateBrowseLaser: after the steal, a board hover that is STILL set owns the frame.
+        bool boardOwnsFrame = _boardHover != null || _trayCardHover != null;
+        if (!rayHit || chip == null || uiInFront || boardInFront)
         {
             LogItemFanLaser(dom, uiInFront
                 ? "not delivered — nearer game UI is in front of the fan"
-                : "not delivered — the ray is not on any chip");
+                : boardOwnsFrame
+                    ? "not delivered - a NEARER board element is in front of the fan"
+                    : "not delivered - the ray is not on any chip");
             ClearItemFanHover();
+            if (boardOwnsFrame)
+                return; // the board owns hover AND trigger this frame - no click-away, no grace
             // T2 pull-jerk grace, item-fan edition (user round 2): the trigger pull jerks the
             // aim ray off the narrow chip strip on the very press frame, so this miss branch is
             // exactly where a "take the card" pull used to land — and it then CLOSED the fan
@@ -1271,7 +1518,9 @@ internal sealed partial class CardsDriver
         dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
         // COMMIT gate (laser ruling 2026-08): hover pop + beam clamp above stay live under a
         // blocking modal; the pluck itself is a commit (chip → use slot spends the item).
-        if (dom.TriggerDown)
+        // BoardAlreadySpentTrigger: the hover was taken back from the board this frame, but the
+        // pull it already spent is not available twice.
+        if (dom.TriggerDown && !BoardAlreadySpentTrigger)
         {
             if (_modalInputBlocked)
             {
