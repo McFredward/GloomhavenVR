@@ -635,6 +635,13 @@ internal sealed partial class FlatScreen
         UnityEngine.EventSystems.ExecuteEvents.ExecuteHierarchy(
             top.gameObject, data, UnityEngine.EventSystems.ExecuteEvents.scrollHandler);
         data.scrollDelta = Vector2.zero; // never leak a stale wheel into a later event
+        // SCROLL BEATS FLIGHT (Hands.Interact.UiScrollFocus). Mostly belt-and-braces here:
+        // Flight already stands down in VRMode.Menu2D outright, so the only rig this line
+        // protects is the flat-screen DEV PROXY, which does fly in Menu2D. Reported from the
+        // delivery point only — this path resolves its scroll target AFTER the deadzone test
+        // (the RaycastAll is deliberately not run on idle frames), so there is no honest hover
+        // signal to publish before a push, and the grace window covers the rest.
+        UiScrollFocus.NoteScrollDelivered(hand);
 
         if (!ReferenceEquals(target, _lastStickScrollTarget)
             || Time.unscaledTime - _lastStickScrollLog >= StickScrollLogSeconds)

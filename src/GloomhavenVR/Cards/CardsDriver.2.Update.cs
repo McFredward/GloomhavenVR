@@ -676,8 +676,13 @@ internal sealed partial class CardsDriver
         UpdateOverlayGate(); // B/C: game-state gate (results window / narrator dialog / scenario end) before both overlay paths
         UpdateSlotHighlight();
         UpdateFanInsertion(); // after the slot highlight so its precedence check reads a fresh slot
-        if (_modalInputBlocked)
-            _emptyFanHint.Hide(); // task #9: never linger under a modal
+        // Task #9: never linger under a modal — and never linger next to an OPEN fan either.
+        // The placard says "you have no hand cards"; the moment cards arrive and the fan opens
+        // (a draw landing mid-fade, or the gate re-opening onto a now-populated hand) that
+        // statement is false and the fan itself is the better answer. Otherwise Tick both
+        // re-poses it on its hand and advances the fade.
+        if (_modalInputBlocked || _fan.IsOpen)
+            _emptyFanHint.Hide();
         else
             _emptyFanHint.Tick();
         _fan.Tick();

@@ -246,23 +246,44 @@ internal sealed class RayUguiDriver
     /// scrollable; SnapTurn/AoE read the X axis (SnapTurn engages at |x| ≥ 0.7), so
     /// neither consumes the other's input — a deliberate straight-up push scrolls, a
     /// deliberate sideways flick turns. Unscaled time: menus pause the game clock.
+    ///
+    /// <para>STICK FLIGHT reads the SAME y axis, and it is the one control that genuinely
+    /// collides here (user 2026-08-03: scrolling a menu also flew the player forward). The
+    /// scrollable resolution below is therefore hoisted ABOVE the deadzone test and published
+    /// through <see cref="UiScrollFocus"/>: this driver already has to decide "is the thing
+    /// under this hand's beam scrollable" in order to deliver the wheel, so that decision is
+    /// the authoritative answer to the same question flight needs, and taking it from anywhere
+    /// else would be a second opinion that could disagree. Hoisting it costs one hierarchy walk
+    /// per hovering frame on the dominant hand and buys the correct behaviour in the band
+    /// between the flight deadzone (0.2) and the scroll deadzone (0.3), where a naive
+    /// "suppress only while scrolling" rule would still fly.</para>
     /// </summary>
     private void TickStickScroll()
     {
         GameObject? hovered = _pointer.Hovered;
         if (hovered == null)
             return;
-        float y = _hand.Thumbstick.y;
-        if (Mathf.Abs(y) < ScrollDeadzone)
-            return;
         ScrollRect? scrollable = hovered.GetComponentInParent<ScrollRect>();
         if (scrollable == null || !scrollable.isActiveAndEnabled)
+            return;
+        // The beam is on a list that WOULD move — this hand's stick belongs to scrolling now,
+        // whether or not the player has already pushed it (see UiScrollFocus). Note that
+        // CanScroll gates only the ARBITRATION, never the delivery below: the wheel keeps being
+        // sent exactly as before, so a ScrollRect this predicate misjudges loses nothing.
+        bool live = UiScrollFocus.CanScroll(scrollable);
+        if (live)
+            UiScrollFocus.NoteScrollHover(_hand);
+
+        float y = _hand.Thumbstick.y;
+        if (Mathf.Abs(y) < ScrollDeadzone)
             return;
         // Deadzone-normalized response, so speed ramps smoothly from 0 at the deadzone
         // edge to ScrollNotchesPerSecond at full deflection.
         float response = (Mathf.Abs(y) - ScrollDeadzone) / (1f - ScrollDeadzone);
         float notches = Mathf.Sign(y) * response * ScrollNotchesPerSecond * Time.unscaledDeltaTime;
         _pointer.Scroll(new Vector2(0f, notches));
+        if (live)
+            UiScrollFocus.NoteScrollDelivered(_hand);
     }
 
     /// <summary>

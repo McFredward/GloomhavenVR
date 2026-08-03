@@ -1,6 +1,7 @@
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 
 namespace GloomhavenVR.Rig;
@@ -16,7 +17,14 @@ namespace GloomhavenVR.Rig;
 /// <c>[Comfort] FlightEnabled</c>, <c>FlightDirection</c> (head vs. dominant hand),
 /// <c>FlightMaxSpeed</c> and <c>FlightHand</c>.</para>
 ///
-/// <para>THE SIDEWAYS AXIS IS SHARED WITH TURNING, and that is the one arbitration this class has
+/// <para>THE STICK IS SHARED, so this class arbitrates twice. Sideways with TURNING (below), and
+/// FORWARD with MENU SCROLLING — see <see cref="ScrollAllowed"/>: while the flight hand's own
+/// pointer rests on a list that can actually scroll, that hand does not fly at all, because both
+/// features read the same forward axis and the player pushing it there means "scroll". Note what
+/// that rule is NOT keyed on: an open menu. A floating dialog must never cost the player their
+/// movement — the same call the mode gate below makes, and the same one turning makes.</para>
+///
+/// <para>THE SIDEWAYS AXIS IS SHARED WITH TURNING, and that is the other arbitration this class has
 /// to make. <see cref="SnapTurn"/> reads the stick's sideways axis (<c>Thumbstick.x</c>); strafe
 /// wants the same axis. With the shipped defaults there is no contest — <c>[Comfort] TurnHand</c>
 /// is Right and <c>FlightHand</c> is Left, so turning and flying sit on different controllers and
@@ -117,6 +125,10 @@ internal sealed class Flight : MonoBehaviour
         // A hand that is dragging the world is already moving the player with that drag; letting the
         // same hand fly at the same time would apply two locomotion sources to one gesture.
         if (WorldGrab.Instance != null && WorldGrab.Instance.IsHandGrabbing(hand))
+            return;
+        // MENU SCROLLING OWNS THIS STICK while the same hand is pointing at a live list — see
+        // ScrollAllowed for why scrolling wins and why "a menu is open" is deliberately not the test.
+        if (!ScrollAllowed(hand))
             return;
 
         // BOTH AXES (user, 2026-08-03: "Man soll auch mit dem joystick links und rechts seitwaerts
@@ -285,6 +297,58 @@ internal sealed class Flight : MonoBehaviour
         }
         return allowed;
     }
+
+    /// <summary>
+    /// May this hand's stick be read as FLIGHT this tick, or has menu scrolling taken it?
+    ///
+    /// <para>User 2026-08-03: "Wenn man die rechte Hand eingestellt hat zum Fliegen und dann aber im
+    /// Menue scrollen will, passiert beides. Scrollen soll mehr dominant sein und das Fliegen
+    /// ueberschreiben." Both features read the stick's FORWARD axis — scrolling as list travel,
+    /// flight as forward/back — so a player walking a settings list down also flew across the room
+    /// while reading it. Unlike the strafe/turn contest above, this one does NOT go to the older
+    /// control: SCROLLING WINS. A scroll is an aimed, deliberate act on a surface the player is
+    /// pointing at and the stick is the only way to perform it; flight is ambient locomotion that is
+    /// available again the moment the beam leaves the list. Losing the scroll costs the player the
+    /// thing they came for, losing a fraction of a second of flight costs nothing.</para>
+    ///
+    /// <para>THE TEST IS NOT "IS A MENU OPEN". That would contradict the standing ruling this class
+    /// already honours in its mode gate — <c>VRMode.ModalUI</c> keeps flight (and turning) alive
+    /// precisely so a floating dialog never takes the player's movement away. The signal used here
+    /// is <c>Hands.Interact.UiScrollFocus</c>: this hand's own pointer resting on a scrollable whose
+    /// content really overflows its viewport, published by the very code that delivers the wheel, so
+    /// there is no second opinion to drift out of sync.</para>
+    ///
+    /// <para>PER HAND: the query is scoped to the FLIGHT hand only, so a player scrolling with the
+    /// off hand keeps flying with the other, and turning is untouched in every case (it reads the
+    /// sideways axis, which no scroll path claims).</para>
+    ///
+    /// <para>NON-LATCHING: the underlying hover stamp expires by itself, so the frame the beam
+    /// leaves the list, flight is back. The only hold is the short grace UiScrollFocus arms from an
+    /// ACTUALLY delivered scroll, which exists so a one-frame hover dropout mid-push cannot fire a
+    /// single flight step (felt as a lurch); merely hovering never arms it.</para>
+    ///
+    /// <para>Logged on every change of the verdict, not per frame — same contract as
+    /// <see cref="StrafeAllowed"/>: a player whose stick stopped flying deserves the reason in the
+    /// log, and a per-frame line during a long scroll would bury it.</para>
+    /// </summary>
+    private bool ScrollAllowed(VRHand hand)
+    {
+        bool scrolling = UiScrollFocus.IsScrolling(hand);
+        if (_scrollBlocked != scrolling)
+        {
+            _scrollBlocked = scrolling;
+            VRLog.Info("Comfort", scrolling
+                ? $"stick flight: SUSPENDED on the {hand.Side} hand — its pointer is on a scrollable " +
+                  "menu list, and scrolling owns the stick's forward axis while it is. Flight returns " +
+                  "by itself the moment the beam leaves the list; the other hand is unaffected, and " +
+                  "turning never was."
+                : $"stick flight: RESUMED on the {hand.Side} hand — its pointer is no longer on a " +
+                  "scrollable menu list.");
+        }
+        return !scrolling;
+    }
+
+    private bool _scrollBlocked;
 
     /// <summary>Do two hand choices resolve to the same physical controller?</summary>
     private static bool SameHand(TurnHandChoice a, TurnHandChoice b)
