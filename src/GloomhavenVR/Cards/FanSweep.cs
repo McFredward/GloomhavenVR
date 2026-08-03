@@ -380,9 +380,39 @@ internal static class FanSweep
     /// extent (see that constant for the grazing-ray runaway this bounds).
     /// </summary>
     internal static float LaserPad(float rayDistance, float halfExtentWorld)
-        => Mathf.Clamp(rayDistance * Mathf.Tan(LaserMinHalfAngleDegrees * Mathf.Deg2Rad)
-                       - halfExtentWorld,
+        => Mathf.Clamp(
+            Mathf.Max(
+                rayDistance * Mathf.Tan(LaserMinHalfAngleDegrees * Mathf.Deg2Rad) - halfExtentWorld,
+                halfExtentWorld * LaserPadMinHalfExtentFraction),
             0f, halfExtentWorld * LaserPadMaxHalfExtentFraction);
+
+    /// <summary>
+    /// FLOOR under the pad, as a fraction of the card's own half-extent — the aim slack that exists
+    /// no matter how large the card subtends.
+    ///
+    /// <para>ROOT CAUSE (hardware log 2026-08-03, the measurement that killed the angular theory).
+    /// With the incidence angle finally printed, every miss reads:</para>
+    /// <code>
+    /// MISS - nearest '...ProvokingRoar' was 0.1 cm outside its face with only 0.0 cm of angular
+    ///        pad. Card 4.9 cm wide ... met the face at 17 deg off its normal (dot 0.96)
+    /// </code>
+    /// <para>17-25 degrees off the normal is essentially head-on, so the beam was NOT being refused
+    /// for its angle — the user's own follow-up said as much ("besonders schlecht wenn man von
+    /// vorne draufguckt"). What the same line shows is that the tolerance was <c>0.0 cm</c> and the
+    /// beam was <c>0.1 cm</c> — one millimetre — outside the face. The formula above answers "is
+    /// this card too small to aim at?": it grants slack only while the card subtends less than
+    /// <see cref="LaserMinHalfAngleDegrees"/>, and a browse card at reading distance subtends about
+    /// twice that, so the answer was a hard zero. But that is the wrong question. The question the
+    /// pick actually needs is "how far may the beam be off and still mean this card?", and that
+    /// never has a zero answer: a controller held at arm's length has tremor, the card pops under
+    /// the beam, and the player cannot see a millimetre of overshoot at all. So the two questions
+    /// are separated: the subtend term stays for genuinely tiny cards, and this floor supplies the
+    /// slack every card needs. Expressed as a fraction of the card's own half-extent, it is
+    /// automatically correct at every board size and diorama scale — about 3.7 mm on the 4.9 cm
+    /// card in the log, which covers the measured 0.1-0.4 cm misses and leaves the 1.4 cm and
+    /// 10.1 cm ones in the same log correctly refused as "the player was pointing elsewhere".</para>
+    /// </summary>
+    private const float LaserPadMinHalfExtentFraction = 0.15f;
 
     /// <summary>
     /// Minimum dot(ray direction, card face normal) a fan card must present before its plane is
