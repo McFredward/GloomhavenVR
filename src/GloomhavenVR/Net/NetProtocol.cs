@@ -395,7 +395,10 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 34;
+    public const ushort ModBuild = 35;
+    // Build 35: origin-guard REGRESSION fix — it fired on the menu→scenario rig rebuild and
+    // dragged the fresh rig 21 m to put the head at the menu's world origin; plus configurable
+    // min/max APPARENT board size, enforced every frame. Local-only — no wire changes.
     // Build 34: shipped defaults re-based onto the user's tuned cfg (17 values — board layout,
     // Steel pitch window/scale, decision dock offset/size/gap, pick-banner offset, table scale,
     // default mask). Values only — no behaviour and no wire change.

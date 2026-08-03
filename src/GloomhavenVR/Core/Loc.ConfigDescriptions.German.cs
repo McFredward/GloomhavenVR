@@ -956,6 +956,19 @@ internal static partial class Loc
                 + "Metern. Das ist die EINZIGE Stellschraube für diesen Abstand: Sie ist bewusst "
                 + "unabhängig von Größe und Versatz des Entscheidungsdocks — Vergrößern oder "
                 + "Verschieben ändert also nie, wie weit die Knöpfe vom Text entfernt sitzen.",
+            ["Cards/BoardMinWidthMeters"] =
+                "Wie klein das Controllboard höchstens werden darf, gemessen an seiner TATSÄCHLICH "
+                + "SICHTBAREN BREITE in echten Metern — also daran, wie breit es für dich aussieht, "
+                + "nicht an einem internen Faktor. Genau das verhindert das Schrumpfen auf "
+                + "Streichholzgröße: Im Folgen-Modus hängt das Brett am Rig, also verkleinert es "
+                + "sich mit, wenn du DICH SELBST per Weltgriff kleiner machst — und abwechselnd "
+                + "fixieren, vergrößern, folgen, verkleinern multipliziert beide Verkleinerungen "
+                + "miteinander. Die Grenze wirkt jeden Frame auf die Endgröße, keine Abfolge von "
+                + "Gesten kommt daran vorbei.",
+            ["Cards/BoardMaxWidthMeters"] =
+                "Wie groß das Controllboard höchstens werden darf, ebenfalls als sichtbare BREITE "
+                + "in echten Metern (siehe Mindestbreite). Wird immer etwas über der Mindestbreite "
+                + "gehalten, was auch immer die beiden Werte sagen.",
             ["Cards/SpawnLeftOfHead"] =
                 "Das Controllboard beim ERSTEN Platzieren in einem Szenario immer LINKS NEBEN DEM "
                 + "KOPF absetzen, statt dort, wo du es zuletzt hingezogen hattest. Deine gespeicherte "

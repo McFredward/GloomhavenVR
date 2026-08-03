@@ -118,6 +118,10 @@ internal static class CardsConfig
     /// <summary>Let the GAME's own card particles play (CardSmoke). OFF since 2026-08-03.</summary>
     internal static ConfigEntry<bool> GameCardParticles = null!;
 
+    /// <summary>Hard floor/ceiling on the board's APPARENT width in real metres (see the binds).</summary>
+    internal static ConfigEntry<float> BoardMinWidthMeters = null!;
+    internal static ConfigEntry<float> BoardMaxWidthMeters = null!;
+
     /// <summary>First placement of a scenario seats the board beside the head on the LEFT.</summary>
     internal static ConfigEntry<bool> SpawnLeftOfHead = null!;
     internal static ConfigEntry<float> SpawnSideMeters = null!;
@@ -625,6 +629,22 @@ internal static class CardsConfig
             "reads, seeded from this Oak value as X = −0.014. It was the inward nudge in local X (real " +
             "meters, toward board center) applied to Confirm/Undo so they center on the Oak metal pads. " +
             "Kept bound so existing cfg files load unchanged.");
+        BoardMinWidthMeters = _file.Bind("Cards", "BoardMinWidthMeters", Defaults.BoardMinWidthMeters,
+            new ConfigDescription(
+                "Smallest the control board may ever get, measured as its APPARENT WIDTH in real " +
+                "meters — i.e. how wide it actually looks to you, not an internal factor. This is " +
+                "what stops the board from collapsing to a speck: in FOLLOW mode the board hangs " +
+                "off the rig, so shrinking YOURSELF with the world grab shrinks it too, and " +
+                "alternating pin/grow/follow/shrink multiplies those two shrinks together. The " +
+                "limit is enforced every frame on the final size, so no combination of gestures " +
+                "can get past it.",
+                new AcceptableValueRange<float>(0.05f, 1f)));
+        BoardMaxWidthMeters = _file.Bind("Cards", "BoardMaxWidthMeters", Defaults.BoardMaxWidthMeters,
+            new ConfigDescription(
+                "Largest the control board may ever get, as its APPARENT WIDTH in real meters " +
+                "(see BoardMinWidthMeters). Kept at least a little above the minimum whatever the " +
+                "two values say.",
+                new AcceptableValueRange<float>(0.2f, 4f)));
         SpawnLeftOfHead = _file.Bind("Cards", "SpawnLeftOfHead", Defaults.SpawnLeftOfHead,
             "Seat the control board BESIDE YOUR HEAD ON THE LEFT the first time it is placed in a " +
             "scenario, instead of wherever you last dragged it. The saved layout is what you get " +

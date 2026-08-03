@@ -50,6 +50,13 @@ internal sealed partial class VRRigDriver
     /// <summary>How close to the pre-jump tracking pose counts as "it came back" (metres).</summary>
     private const float OriginReturnMeters = 0.15f;
 
+    /// <summary>The camera/rig-root the remembered sample belongs to, and the RigPoseVersion it was
+    /// taken under. ANY of the three changing invalidates the sample — see the note in
+    /// <see cref="TickOriginGuard"/>.</summary>
+    private Camera? _originCamera;
+    private GameObject? _originRig;
+    private int _originPoseVersion = -1;
+
     private bool _originKnown;
     private Vector3 _lastHeadLocal;
     private Quaternion _lastHeadLocalRot = Quaternion.identity;
@@ -77,6 +84,29 @@ internal sealed partial class VRRigDriver
             _originKnown = false;
             _originJumpArmed = false;
             return;
+        }
+
+        // INVALIDATE ON A REBUILD/RECENTRE (hardware log 2026-08-03, line 483 — my own regression
+        // from build 30). The remembered sample is a HEAD-LOCAL pose plus the world pose it
+        // produced. Both belong to ONE camera under ONE rig root at ONE tracking origin. When the
+        // rig is rebuilt — menu rig → scenario rig at every scenario start — the camera is a
+        // different object with a different local pose, and the remembered WORLD pose is the menu
+        // rig's. The guard read that as a 1.02 m one-frame jump and "put the player back", which
+        // meant dragging the fresh scenario rig 21 m to place the head at the MENU's world origin.
+        //
+        // RigPoseVersion is the game-side signal for exactly the events that legitimately move the
+        // player without the head moving in tracking space (rig (re)build, deliberate recentre),
+        // and the object identities cover a rebuild that reuses the version. Any of the three
+        // changing means: forget the old sample, take a fresh one, decide nothing this frame.
+        int poseVersion = RigPoseVersion;
+        if (!ReferenceEquals(_camera, _originCamera) || !ReferenceEquals(_rigRoot, _originRig)
+            || poseVersion != _originPoseVersion)
+        {
+            _originCamera = _camera;
+            _originRig = _rigRoot;
+            _originPoseVersion = poseVersion;
+            _originKnown = false;
+            _originJumpArmed = false;
         }
 
         Transform head = _camera.transform;

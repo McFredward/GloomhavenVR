@@ -122,6 +122,17 @@ internal sealed partial class PlayTray
         if (_handle != null && _handle.IsGrabbed)
             return false;
 
+        // APPARENT-SIZE LIMITS (user ruling 2026-08-03: "Wir brauchen ein Limit für eine
+        // Maximalgröße des Boards und eine Minimalgröße"). Enforced on the FINAL, world-visible
+        // size rather than on the tray's own localScale, because localScale is not what got out of
+        // hand: the two-hand pinch already clamps it to [0.15, 2], but in FOLLOW mode the board
+        // hangs off the RIG, so shrinking yourself with the world grab shrinks the board with you.
+        // Alternating pin → grow → follow → shrink multiplies one shrink onto the other, which is
+        // exactly the "extrem winzig" the report describes, and no clamp on a factor can see it.
+        // The board's apparent width IS visible here (BoardW × the root's lossy scale), so that is
+        // what is clamped — every frame, so no gesture combination can slip past it.
+        ClampApparentSize();
+
         // NON-FINITE: the ONLY verdict left. A NaN/Inf transform is not a position — everything
         // parented to it (cards, docked game canvases) renders undefined and it can never heal by
         // itself, so leaving it alone is not "keeping it where the user put it", it is keeping it
@@ -255,6 +266,58 @@ internal sealed partial class PlayTray
     // top of this file): the board's visibility to the player is not a reason to move it, so
     // nothing may test it. Left as a comment so re-adding the helper reads as re-adding the
     // recall, which is what it would be.
+
+    /// <summary>Widest the board is allowed to look, real metres (config, sanity-ordered).</summary>
+    private static float MaxWidthMeters => Mathf.Max(
+        CardsConfig.BoardMaxWidthMeters != null ? CardsConfig.BoardMaxWidthMeters.Value : 1.4f,
+        MinWidthMeters + 0.02f);
+
+    /// <summary>Narrowest the board is allowed to look, real metres (config).</summary>
+    private static float MinWidthMeters =>
+        CardsConfig.BoardMinWidthMeters != null ? CardsConfig.BoardMinWidthMeters.Value : 0.18f;
+
+    /// <summary>Log throttle for the clamp (one line per direction per second at most).</summary>
+    private float _nextSizeClampLog;
+
+    /// <summary>
+    /// Hold the board's APPARENT width inside [<see cref="MinWidthMeters"/>,
+    /// <see cref="MaxWidthMeters"/>]. Apparent width = the board plate's local width times the
+    /// root's LOSSY scale, i.e. what the player actually sees, whatever mix of tray scale, rig
+    /// scale and pin-holder scale produced it. Only the tray's OWN localScale is written, so the
+    /// rig/world scale the player chose for the DIORAMA is never touched — the board simply stops
+    /// following it past the limit.
+    /// </summary>
+    private void ClampApparentSize()
+    {
+        if (_root == null || _handle == null)
+            return;
+        Vector3 local = _root.localScale;
+        if (!IsFinite(local) || local.x <= 1e-5f)
+            return;
+        float parent = _root.lossyScale.x / local.x; // scale contributed by everything ABOVE us
+        if (!(parent > 1e-6f) || float.IsInfinity(parent))
+            return;
+
+        float width = BoardHalfWidthLocal * 2f * local.x * parent;
+        float min = MinWidthMeters, max = MaxWidthMeters;
+        if (width >= min && width <= max)
+            return;
+
+        float wanted = Mathf.Clamp(width, min, max);
+        float factor = wanted / width;
+        _root.localScale = local * factor;
+
+        float now = Time.unscaledTime;
+        if (now >= _nextSizeClampLog)
+        {
+            _nextSizeClampLog = now + 1f;
+            VRLog.Info("Cards", $"Board size CLAMPED: apparent width {width * 100f:F1} cm → " +
+                                $"{wanted * 100f:F1} cm (limits {min * 100f:F0}–{max * 100f:F0} cm, " +
+                                $"[Cards] BoardMinWidthMeters/BoardMaxWidthMeters). Own scale " +
+                                $"{local.x:F3} → {_root.localScale.x:F3}; everything above the board " +
+                                $"contributes ×{parent:F2} (rig/world scale — untouched).");
+        }
+    }
 
     private static bool IsFinite(Vector3 v) =>
         !(float.IsNaN(v.x) || float.IsInfinity(v.x)

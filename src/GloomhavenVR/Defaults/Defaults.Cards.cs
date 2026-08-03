@@ -65,6 +65,8 @@ internal static partial class Defaults
     internal const float RoundButtonThickness = 0.012f;                                               // => [Cards] RoundButtonThickness  (legacy: read once as the seed for its successor)
     internal const float RestButtonInsetX = 0.024f;                                                   // => [Cards] RestButtonInsetX  (legacy: read once as the seed for its successor)
     internal const float ConfirmUndoInsetX = 0.014f;                                                  // => [Cards] ConfirmUndoInsetX  (legacy: read once as the seed for its successor)
+    internal const float BoardMinWidthMeters = 0.18f;                                                 // => [Cards] BoardMinWidthMeters
+    internal const float BoardMaxWidthMeters = 1.4f;                                                  // => [Cards] BoardMaxWidthMeters
     internal const bool SpawnLeftOfHead = true;                                                       // => [Cards] SpawnLeftOfHead
     internal const float SpawnSideMeters = 0.45f;                                                     // => [Cards] SpawnSideMeters
     internal const float SpawnForwardMeters = 0.28f;                                                  // => [Cards] SpawnForwardMeters

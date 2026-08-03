@@ -208,6 +208,8 @@ internal static partial class Loc
             ["Cards/WantedSlotHint"] = Pair("Glow on expected slot", "Erwarteter Slot leuchtet"),
             ["Cards/CardDust"] = Pair("Card dust burst", "Karten-Staubwolke"),
             ["Cards/GameCardParticles"] = Pair("Game card particles", "Karten-Partikel (Spiel)"),
+            ["Cards/BoardMinWidthMeters"] = Pair("Board: min width (m)", "Brett: min. Breite (m)"),
+            ["Cards/BoardMaxWidthMeters"] = Pair("Board: max width (m)", "Brett: max. Breite (m)"),
             ["Cards/SpawnLeftOfHead"] = Pair("Board starts on the left", "Brett startet links"),
             ["Cards/SpawnSideMeters"] = Pair("Board start: left (m)", "Brett-Start: links (m)"),
             ["Cards/SpawnForwardMeters"] = Pair("Board start: forward (m)", "Brett-Start: vor (m)"),
