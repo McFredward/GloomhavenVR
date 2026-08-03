@@ -522,6 +522,99 @@ internal static class FanSweep
         internal static FanLaserPick None => new() { Name = "none", Distance = 0f };
     }
 
+    /// <summary>
+    /// Which branch of a fan laser pick refused the card the beam came NEAREST to. Recorded so a
+    /// hardware log names the rejecting test instead of leaving it to be inferred from a distance.
+    /// </summary>
+    internal enum LaserReject
+    {
+        /// <summary>Nothing refused it - the card was hit (dead-on or angular-rescued).</summary>
+        None,
+
+        /// <summary>The arc holds no testable card at all (closed, all held/inactive).</summary>
+        ArcEmpty,
+
+        /// <summary>Both poses were degenerate or the card is parentless (no rect to test).</summary>
+        NoRect,
+
+        /// <summary>The beam is numerically parallel to the face (see <see cref="LaserMinFaceDenominator"/>).</summary>
+        ParallelPlane,
+
+        /// <summary>The plane crossing lies BEHIND the ray origin.</summary>
+        BehindOrigin,
+
+        /// <summary>Crossed the plane outside the accepted rect, and outside the angular pad.</summary>
+        OutsideRect,
+
+        /// <summary>Crossed so far outside the face it was not plausibly aimed at this card
+        /// (see <see cref="LaserMaxMissOvershootFactor"/>).</summary>
+        BeyondMissCap,
+
+        /// <summary>A near miss the angular pad was too small to rescue.</summary>
+        PadTooSmall,
+    }
+
+    /// <summary>
+    /// FULL geometric record of ONE browse-laser evaluation - everything needed to decide a
+    /// head-position-dependent defect from a hardware log without re-deriving anything.
+    ///
+    /// <para>WHY THIS EXISTS. Four rounds of fixes were argued from a diagnostic that printed only
+    /// a scalar overshoot and a scalar pad, throttled to one line per second - about fourteen lines
+    /// in a whole session. That is enough to say "the beam was 0.7 cm off" and nothing at all about
+    /// WHERE on the card, along WHICH axis, from WHICH ray, against WHICH of the card's two tested
+    /// poses, or WHY the frame was refused. The user's report is specifically that HEAD POSITION
+    /// changes the outcome while the beam leaves the HAND, and the only way that shows up is in
+    /// CARD-LOCAL coordinates: a head-driven defect walks the crossing point systematically across
+    /// the face, while controller jitter scatters it. So the crossing is recorded normalised to the
+    /// card's own half-extents (<c>|u| &lt;= 1 &amp;&amp; |v| &lt;= 1</c> is ON the face, u = +1 is
+    /// exactly the right edge) for BOTH tested poses, next to the ray, the head and both rects.</para>
+    ///
+    /// Plain struct, filled by <see cref="PileBrowser.TryRaycast"/> on every evaluation; nothing is
+    /// formatted unless the verdict actually CHANGES (see <c>CardsDriver.LogBrowseLaser</c>).
+    /// </summary>
+    internal struct FanLaserTrace
+    {
+        /// <summary>False until a pick has filled this in (nothing to print).</summary>
+        internal bool Valid;
+
+        /// <summary>The ray the pick was handed - the SAME ray the beam is drawn along.</summary>
+        internal Vector3 RayOrigin;
+        internal Vector3 RayDirection;
+
+        /// <summary>HMD position this frame - the quantity the user says must not matter.</summary>
+        internal Vector3 HeadPosition;
+
+        /// <summary>The card this trace describes (the hit, the rescue, or the nearest miss).</summary>
+        internal string CardName;
+
+        /// <summary>Which branch refused it (<see cref="LaserReject.None"/> = it was picked).</summary>
+        internal LaserReject Reject;
+
+        /// <summary>RESTING pose (home pos/rot, pop excluded) - rect and crossing.</summary>
+        internal bool RestValid;
+        internal Vector3 RestCenter;
+        internal Vector3 RestNormal;
+        internal float RestHalfW;
+        internal float RestHalfH;
+        internal float RestDistance;
+
+        /// <summary>Crossing on the RESTING face in half-extent units: |u| &lt;= 1 is on the face.</summary>
+        internal float RestU;
+        internal float RestV;
+
+        /// <summary>LIVE pose (the card WHERE IT VISIBLY IS, pop included) - rect and crossing.</summary>
+        internal bool LiveValid;
+        internal Vector3 LiveCenter;
+        internal Vector3 LiveNormal;
+        internal float LiveHalfW;
+        internal float LiveHalfH;
+        internal float LiveDistance;
+
+        /// <summary>Crossing on the LIVE face in half-extent units: |u| &lt;= 1 is on the face.</summary>
+        internal float LiveU;
+        internal float LiveV;
+    }
+
     // ---- diagnostics -------------------------------------------------------------------
 
     /// <summary>
