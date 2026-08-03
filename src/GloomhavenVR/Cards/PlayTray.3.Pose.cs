@@ -491,9 +491,30 @@ internal sealed partial class PlayTray
             CardsConfig.TrayPitch.Value = pitchOffset;
         }
 
-        // Divide out the per-board multiplier so TrayScale keeps its raw 0.5–2 grab semantics.
+        // SIZE MUST ROUND-TRIP EXACTLY, or the board silently resizes on the next re-place.
+        // The live size is ComputeBoardScale = ClampedTrayScale × BoardScale, and the two-handed
+        // gesture writes localScale directly over PanelGrabHandle's much wider [0.15, 2] range —
+        // so with BoardScale 0.4 the config could only ever express [0.2, 0.8]. A board the player
+        // had pinched to 1.94 persisted as TrayScale 2 (clamped) and snapped to 0.80 the next time
+        // anything re-derived the pose. That was the "es hat seine Größe geändert" half of the
+        // 2026-08-03 report; the recall was only what triggered the re-derivation.
+        // So: keep TrayScale's documented 0.5–2 grab semantics, and absorb whatever does not fit
+        // into the per-board multiplier (a free float, hand-edit/debug-menu territory) so the
+        // PRODUCT is bit-exact what the player is looking at.
         float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(board).Value);
-        CardsConfig.TrayScale.Value = Mathf.Clamp(_root.localScale.x / boardScale, 0.5f, 2f);
+        float live = Mathf.Max(1e-4f, _root.localScale.x);
+        float trayScale = Mathf.Clamp(live / boardScale, 0.5f, 2f);
+        CardsConfig.TrayScale.Value = trayScale;
+        float reproduced = trayScale * boardScale;
+        if (Mathf.Abs(reproduced - live) > 1e-4f * Mathf.Max(1f, live))
+        {
+            float adjusted = live / trayScale;
+            CardsConfig.BoardScale(board).Value = adjusted;
+            VRLog.Info("Cards", $"Board size {live:F2}× is outside what TrayScale alone can express " +
+                                $"(0.5–2 × BoardScale {boardScale:F2} = {0.5f * boardScale:F2}–" +
+                                $"{2f * boardScale:F2}): BoardScale_{board} re-seated to {adjusted:F2} " +
+                                "so the size the player set survives every future re-place.");
+        }
         VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, pitch {CardsConfig.TrayPitch.Value:F0}° " +

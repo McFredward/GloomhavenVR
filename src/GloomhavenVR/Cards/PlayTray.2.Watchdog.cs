@@ -45,28 +45,32 @@ internal sealed partial class PlayTray
     // proven LOST-MENU RECALL in WorldUI.ModalFallback.TickMenuRecall: dwell timer, generous
     // envelope, never yank a board the user is holding, one loud log line stating WHY.
 
-    /// <summary>Watchdog reach envelope, REAL metres (× diorama scale): within this the board is
-    /// AT HAND — never recalled, no matter where the head is looking (a lectern below the chin
-    /// legitimately leaves the frustum whenever the player looks up at the dungeon).</summary>
-    private const float WatchReachMeters = 1.8f;
-
-    /// <summary>Watchdog "findable" distance, REAL metres (× diorama scale): farther than this the
-    /// board is unusable even if it is technically on screen.</summary>
-    private const float WatchFindableMeters = 4f;
-
-    /// <summary>Frustum slack for the watchdog visibility test (fraction of the viewport) — a board
-    /// half off the view edge is findable by turning the head and must not be yanked back.</summary>
-    private const float WatchViewMargin = 0.35f;
-
-    /// <summary>How long the board must be continuously BOTH out of reach AND out of view before it
-    /// is recovered. Long enough that leaning away / turning around never moves it; short enough
-    /// that a doff/don or a stranding glitch is fixed before the player can call it "gone".</summary>
-    private const float WatchLostDwellSeconds = 3f;
-
-    /// <summary>Unscaled time the board first read LOST, 0 while it is fine. Reset on recovery,
-    /// on a grab (the user is deliberately carrying it) and whenever it reads reachable/visible.</summary>
-    private float _lostSince;
-
+    // ---------------------------------------------------- THE AUTOMATIC RECALL IS GONE (RULING)
+    //
+    // DO NOT RE-ADD A DISTANCE- OR VISIBILITY-BASED RECALL. DO NOT DELETE THIS BLOCK BECAUSE IT
+    // HAS NO CODE UNDER IT — the absence of the code IS the invariant (INVARIANTS-Cards §6).
+    //
+    // What used to be here: a per-frame envelope (reach 1.8 m, findable 4 m, 0.35 viewport slack)
+    // with a 3 s dwell that re-homed the board in front of the player once it read BOTH out of
+    // reach AND out of view. It did exactly what it was written to do — and that turned out to be
+    // the bug. USER RULING (2026-08-03, after it fired while the options menu was open in a
+    // tutorial): "das darf niemals passieren, das Controllboard muss immer wie angewurzelt an der
+    // Position sein — es darf niemals (egal was passiert) eine Position plötzlich wechseln
+    // (Respektiere natürlich nach wie vor fixed/Folgen)."
+    //
+    // The hardware log of that run shows the mechanism precisely: reading a menu parks the head
+    // away from a PINNED board for longer than the dwell, so
+    //   [Cards] CONTROL BOARD RECOVERED — out of reach AND out of view for 3.0s (2.64 m out,
+    //           -1.12 m vertical, 69° off the view axis, mode PINNED, rig scale 8.1)
+    // fired four times in one session, each time teleporting the board in front of the player.
+    // No envelope tuning can fix that: "the player is not looking at it and it is more than an
+    // arm away" is the NORMAL state of a pinned board, not evidence of a glitch.
+    //
+    // What remains (below): the NON-FINITE verdict — a NaN/Inf transform is not a position at all,
+    // nothing parented to it renders, and it can never heal by itself — plus the pose-PRESERVING
+    // pin housekeeping. The user-facing recovery is the explicit one: VR settings → Komfort →
+    // "Board zurückholen" (CardsDriver's _recallBoard), which is a deliberate action and therefore
+    // always allowed.
     /// <summary><see cref="VRRigDriver.RigPoseVersion"/> the PINNED world pose was authored under.
     /// The version bumps ONLY on a rig (re)build or a deliberate recentre — i.e. exactly the
     /// tracking-origin changes that move the player without moving the world — so a mismatch means
@@ -101,14 +105,12 @@ internal sealed partial class PlayTray
         // here would be about a pose that does not exist yet; TickPlacement is already retrying
         // every frame and logs its own "placement deferred" line.
         if (_root == null || !_wantVisible || !_placed)
-        {
-            _lostSince = 0f;
             return false;
-        }
 
-        // Housekeeping first: keep the PINNED holder honest (scale drift + tracking-origin
-        // changes). Both are pose-preserving in the user's frame of reference, so they run
-        // before the lost test and can stop the board from ever reading lost.
+        // Housekeeping: keep the PINNED holder honest across tracking-origin changes. It is
+        // pose-preserving in the user's frame of reference — the board keeps the same place
+        // RELATIVE TO THE PLAYER across a recentre, which is what "it stayed where I put it"
+        // means — so it is not a move under the ruling above.
         SyncPinHolder();
         // NO world-tilt compensation (user decision 2026-08, supersedes item 11): a PINNED
         // board is deliberately WORLD-static — a tilt change leaves it untouched (it then
@@ -116,76 +118,21 @@ internal sealed partial class PlayTray
         // The old SyncWorldTiltComp counter-rotation visibly dragged the board through the
         // tilt tween ("nachziehen") and was removed outright.
 
-        // A gripped board is being deliberately placed — never recall mid-carry (the
-        // ModalFallback recall rule; yanking a panel out of the user's hand is worse than
-        // whatever it was doing).
+        // A gripped board is being deliberately placed — never touch it mid-carry.
         if (_handle != null && _handle.IsGrabbed)
-        {
-            _lostSince = 0f;
             return false;
-        }
 
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-        {
-            _lostSince = 0f; // no head this tick — no verdict is possible, and no timer may run
-            return false;
-        }
-
+        // NON-FINITE: the ONLY verdict left. A NaN/Inf transform is not a position — everything
+        // parented to it (cards, docked game canvases) renders undefined and it can never heal by
+        // itself, so leaving it alone is not "keeping it where the user put it", it is keeping it
+        // nowhere. Distance and visibility are explicitly NOT verdicts (see the ruling above).
         Vector3 pos = _root.position;
-        // NON-FINITE: no dwell timer, no debate. A NaN/Inf transform is corrupt, everything
-        // parented to it (cards, docked game canvases) renders undefined, and it can never heal
-        // by itself.
         if (!IsFinite(pos) || !IsFinite(_root.localScale))
         {
-            _lostSince = 0f;
             why = $"NON-FINITE transform (pos {pos}, localScale {_root.localScale})";
             return true;
         }
-
-        float scale = Mathf.Max(_root.parent != null ? _root.parent.lossyScale.x : 1f, 1e-4f);
-        Vector3 headPos = head.transform.position;
-        Vector3 delta = pos - headPos;
-        var horizontal = new Vector3(delta.x, 0f, delta.z);
-        float reachM = horizontal.magnitude / scale;
-        float dropM = delta.y / scale;
-
-        // AT HAND: inside the reach envelope the board is usable whatever the head is doing.
-        bool reachable = reachM <= WatchReachMeters && Mathf.Abs(dropM) <= WatchReachMeters;
-        // FINDABLE: outside reach it must at least be ON SCREEN and close enough to walk to,
-        // otherwise the player has no way of knowing where it went. Roaming away from a PINNED
-        // board while still SEEING it stays legitimate — that is the whole point of pinning.
-        bool findable = !reachable
-                        && delta.magnitude / scale <= WatchFindableMeters
-                        && IsInHeadView(head, pos);
-
-        if (reachable || findable)
-        {
-            _lostSince = 0f;
-            return false;
-        }
-
-        float now = Time.unscaledTime; // the pause menu may freeze timeScale
-        if (_lostSince <= 0f)
-        {
-            _lostSince = now;
-            return false;
-        }
-        float lostFor = now - _lostSince;
-        if (lostFor < WatchLostDwellSeconds)
-            return false;
-
-        // Angle off the view axis is the number that tells the next reader whether the board was
-        // BEHIND the player (walked away / recentre stranding) or merely too far ahead.
-        Vector3 flat = new Vector3(delta.x, 0f, delta.z);
-        Vector3 headFlat = new Vector3(head.transform.forward.x, 0f, head.transform.forward.z);
-        float angle = flat.sqrMagnitude > 1e-6f && headFlat.sqrMagnitude > 1e-6f
-            ? Vector3.Angle(headFlat, flat)
-            : 0f;
-        why = $"out of reach AND out of view for {lostFor:F1}s " +
-              $"({reachM:F2} m out, {dropM:+0.00;-0.00} m vertical, {angle:F0}° off the view axis, " +
-              $"mode {(CardsConfig.TrayFollow.Value ? "FOLLOW" : "PINNED")}, rig scale {scale:F1})";
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -199,9 +146,16 @@ internal sealed partial class PlayTray
         if (_root == null)
             return;
         Vector3 before = _root.position;
-        _lostSince = 0f;
+        // SIZE IS NOT PART OF A RECALL (user, 2026-08-03: "Es hat in dem Test auch seine Größe
+        // geändert. Das darf nicht sein!"). "Bring it back" means bring it back — the size the
+        // player dialled in with the two-handed gesture is theirs, so it is captured here and
+        // written back over whatever PlaceAtHead re-derived from config.
+        Vector3 keepScale = _root.localScale;
+        bool keepScaleValid = IsFinite(keepScale) && keepScale.x > 1e-4f;
         _placed = false;   // force a fresh, clamped head-relative seat in BOTH modes
         PlaceAtHead();     // defers safely when the head has no pose yet (TickPlacement retries)
+        if (keepScaleValid)
+            _root.localScale = keepScale;
         if (_wantVisible)
             SetVisible(true); // a recovery must never leave the board hidden
         // Re-author the pinned world pose against the CURRENT tracking origin so the next
@@ -297,14 +251,10 @@ internal sealed partial class PlayTray
     private Quaternion _rigLocalPinRot = Quaternion.identity;
     private bool _rigLocalPinValid;
 
-    /// <summary>Board centre inside the head frustum with <see cref="WatchViewMargin"/> slack.</summary>
-    private static bool IsInHeadView(Camera head, Vector3 worldPos)
-    {
-        Vector3 vp = head.WorldToViewportPoint(worldPos);
-        return vp.z > 0f
-               && vp.x >= -WatchViewMargin && vp.x <= 1f + WatchViewMargin
-               && vp.y >= -WatchViewMargin && vp.y <= 1f + WatchViewMargin;
-    }
+    // IsInHeadView lived here and is GONE with the automatic recall (see the ruling block at the
+    // top of this file): the board's visibility to the player is not a reason to move it, so
+    // nothing may test it. Left as a comment so re-adding the helper reads as re-adding the
+    // recall, which is what it would be.
 
     private static bool IsFinite(Vector3 v) =>
         !(float.IsNaN(v.x) || float.IsInfinity(v.x)

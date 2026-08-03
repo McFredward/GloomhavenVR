@@ -1013,10 +1013,9 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _placementDeferLogged = false;
         _lastSlotActivity = float.NegativeInfinity;
         _boardColliderRegistered = false;
-        // Lost-board watchdog state: the PlayTray INSTANCE outlives its root (board switch /
-        // rebuild), so a stale dwell timer or pin bookkeeping would otherwise be applied to the
-        // next root and could recover a board that was never lost.
-        _lostSince = 0f;
+        // Pin bookkeeping: the PlayTray INSTANCE outlives its root (board switch / rebuild), so
+        // stale pin state would otherwise be applied to the next root. (The lost-board dwell
+        // timer that used to be reset here is gone with the automatic recall.)
         _pinPoseVersion = -1;
         _rigLocalPinValid = false;
         _pinHousekeepingMove = null;
@@ -1177,12 +1176,10 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         return result;
     }
 
-    /// <summary>
-    /// Horizontal distance (× scale) beyond which a PINNED (world-anchored) board is treated as
-    /// LOST — a genuine glitch, not a legitimate walk-away — and snapped back near the head on a
-    /// presence regain. Generous so ordinary world-anchored roaming is never disturbed.
-    /// </summary>
-    private const float LostReach = 6f;
+    // The LostReach distance threshold (6 m) that used to live here is GONE with the automatic
+    // recall (user ruling 2026-08-03 — see the block at the top of PlayTray.2.Watchdog.cs). DO NOT
+    // RE-ADD A DISTANCE THRESHOLD: how far a PINNED board is from the head is a consequence of
+    // pinning it and walking off, never evidence that it needs moving.
 
     /// <summary>
     /// Item 3: re-assert the board's placement after the head regained tracking (HMD re-donned /
@@ -1209,25 +1206,19 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
             return;
         }
 
-        // PINNED: keep the world pose unless it is clearly lost.
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head != null)
+        // PINNED: keep the world pose. DISTANCE IS NOT A REASON TO MOVE IT (user ruling
+        // 2026-08-03 — see the block at the top of PlayTray.2.Watchdog.cs): a pinned board being
+        // far away or below the head is the normal consequence of pinning it and then walking
+        // off, not a glitch. Only a NON-FINITE pose is recovered, because that is not a position
+        // at all and nothing parented to it renders.
+        Vector3 pos = _root.position;
+        bool finite = !(float.IsNaN(pos.x) || float.IsInfinity(pos.x)
+                        || float.IsNaN(pos.y) || float.IsInfinity(pos.y)
+                        || float.IsNaN(pos.z) || float.IsInfinity(pos.z));
+        if (!finite)
         {
-            float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
-            Vector3 pos = _root.position;
-            Vector3 delta = pos - head.transform.position;
-            var horizontal = new Vector3(delta.x, 0f, delta.z);
-            bool finite = !(float.IsNaN(pos.x) || float.IsInfinity(pos.x)
-                            || float.IsNaN(pos.y) || float.IsInfinity(pos.y)
-                            || float.IsNaN(pos.z) || float.IsInfinity(pos.z));
-            bool lost = !finite
-                        || horizontal.magnitude > LostReach * scale
-                        || delta.y < -2.0f * scale;
-            if (lost)
-            {
-                PlaceAtHead(); // snaps back to the configured head-relative pose and re-pins (clamped)
-                VRLog.Info("Cards", $"Control board was lost/far ({reason}, PINNED) — snapped back near the head.");
-            }
+            PlaceAtHead(); // snaps back to the configured head-relative pose and re-pins (clamped)
+            VRLog.Info("Cards", $"Control board pose was NON-FINITE ({reason}, PINNED) — re-seated near the head.");
         }
         if (_wantVisible)
             SetVisible(true); // re-show a pinned board that a presence blip hid

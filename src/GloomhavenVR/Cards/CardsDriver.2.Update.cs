@@ -196,7 +196,12 @@ internal sealed partial class CardsDriver
             bool finite = !(float.IsNaN(pos.x) || float.IsInfinity(pos.x)
                             || float.IsNaN(pos.y) || float.IsInfinity(pos.y)
                             || float.IsNaN(pos.z) || float.IsInfinity(pos.z));
-            lost = !finite || horizontal.magnitude > 6f * s || delta.y < -2f * s;
+            // NON-FINITE ONLY (user ruling 2026-08-03): the distance/below-the-floor criteria
+            // that used to sit here were a second automatic mover — a pinned board across the
+            // room is exactly what pinning it produces. See PlayTray.2.Watchdog.cs.
+            lost = !finite;
+            _ = horizontal; // kept for the diagnostic below, no longer a verdict
+            _ = s;
         }
 
         if (lost)
