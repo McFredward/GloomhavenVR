@@ -61,6 +61,29 @@ internal static partial class CanvasConversion
     /// without re-closing the honest gaps between rows (same value class as the modal mask).</summary>
     private const float HostMaskQuadPaddingPx = 3f;
 
+    /// <summary>
+    /// TRANSPARENCY ROUND: hard ceiling on the bridge padding, as a fraction of the quad's SHORTER
+    /// side. Root cause for the cap: the padding exists to close the one- to two-pixel seam an
+    /// antialiased edge leaves between two adjacent quads — but a flat 3 px around a quad that is
+    /// only a few pixels tall (a glyph box, a bar segment, an ink-tightened icon) is itself a
+    /// halo, and a halo is exactly what the user reported. Now that
+    /// <see cref="CollectVisibleMaskRects"/> emits the measured INK footprint instead of the layout
+    /// rect, small quads are the common case and the flat pad would give back a good part of what
+    /// the measure just removed. 10 % keeps the full 3 px on everything from ~30 px up (rows,
+    /// panels, portraits — where the seam actually exists) and scales it down below that.
+    /// </summary>
+    private const float HostMaskPaddingMaxFraction = 0.1f;
+
+    /// <summary>Bridge padding for one quad: the flat pad, capped against the quad's short side
+    /// (see <see cref="HostMaskPaddingMaxFraction"/>). Shared by both mask owners so the host and
+    /// modal masks can never drift apart on this.</summary>
+    internal static float MaskQuadPadding(float width, float height, float flatPad) =>
+        Mathf.Min(flatPad, HostMaskPaddingMaxFraction * Mathf.Max(0f, Mathf.Min(width, height)));
+
+    /// <summary>Minimum seconds between INK diagnostic lines per host (log hygiene — a scrolling
+    /// or animating host rebuilds its mask mesh constantly).</summary>
+    private const float HostMaskInkDiagMinIntervalSeconds = 5f;
+
     // Scratch (single-threaded ticks; shared across all hosts, cleared per use).
     private static readonly List<Vector4> HostMaskRectScratch = new(HostMaskMaxQuads);
     private static readonly List<Vector3> HostMaskVertScratch = new(HostMaskMaxQuads * 4);
@@ -122,6 +145,7 @@ internal static partial class CanvasConversion
         {
             panel.HostDepthMaskHash = hash;
             RebuildHostDepthMaskMesh(panel.HostDepthMaskMesh, count);
+            LogHostMaskInk(panel, count);
         }
 
         if (!panel.HostDepthMask.gameObject.activeSelf)
@@ -204,10 +228,11 @@ internal static partial class CanvasConversion
         for (int i = 0; i < count; i++)
         {
             Vector4 r = HostMaskRectScratch[i];
-            float x0 = r.x - HostMaskQuadPaddingPx;
-            float y0 = r.y - HostMaskQuadPaddingPx;
-            float x1 = r.z + HostMaskQuadPaddingPx;
-            float y1 = r.w + HostMaskQuadPaddingPx;
+            float pad = MaskQuadPadding(r.z - r.x, r.w - r.y, HostMaskQuadPaddingPx);
+            float x0 = r.x - pad;
+            float y0 = r.y - pad;
+            float x1 = r.z + pad;
+            float y1 = r.w + pad;
             int b = HostMaskVertScratch.Count;
             HostMaskVertScratch.Add(new Vector3(x0, y0, 0f));
             HostMaskVertScratch.Add(new Vector3(x1, y0, 0f));
@@ -223,6 +248,34 @@ internal static partial class CanvasConversion
         mesh.Clear();
         mesh.SetVertices(HostMaskVertScratch);
         mesh.SetTriangles(HostMaskTriScratch, 0);
+    }
+
+    /// <summary>
+    /// TRANSPARENCY ROUND diagnostic — the line the next hardware test is read against. After every
+    /// host-mask mesh REBUILD, state how much the measured ink footprint shrank this host's depth
+    /// stamp against the layout rects the old code stamped: emitted vs raw area, the percentage
+    /// removed, how many graphics were tightened, how many were dropped for painting nothing, and
+    /// the single biggest contributor by name and rule. That is what says whether the grey block
+    /// around the initiative portraits and the band across the enemy info panel are gone BECAUSE of
+    /// this measure, and which graphic class to chase if any is left. Also names the invisible
+    /// emitters excluded by <c>IsNonRenderingMaskEmitter</c> (task #6b) so both drop reasons appear
+    /// in one place. Throttled per host to <see cref="HostMaskInkDiagMinIntervalSeconds"/>; the
+    /// first rebuild after a host is built always logs (the throttle starts at 0).
+    /// </summary>
+    private static void LogHostMaskInk(ConvertedPanel panel, int count)
+    {
+        float now = Time.unscaledTime;
+        if (now < panel.HostMaskInkDiagNextAllowed)
+            return;
+        panel.HostMaskInkDiagNextAllowed = now + HostMaskInkDiagMinIntervalSeconds;
+
+        string name = panel.HostGo != null ? panel.HostGo.name : "<dead>";
+        string excluded = LastMaskExclusions.Count > 0
+            ? $" Dropped/excluded: {string.Join("; ", LastMaskExclusions)}."
+            : string.Empty;
+        VRLog.Info("WorldUI", $"HOST DEPTH-MASK {DescribeLastMaskInk()} ('{name}', {count} quad(s)) " +
+                              $"— the stamp now follows the drawn pixels, so the transparent margin " +
+                              $"around them no longer occludes anything behind.{excluded}");
     }
 
     /// <summary>Free the mask's MESH asset when a host dies (the GameObject cascades with

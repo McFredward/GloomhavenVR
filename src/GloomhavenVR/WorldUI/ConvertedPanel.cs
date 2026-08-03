@@ -550,6 +550,11 @@ internal sealed class ConvertedPanel
     /// <summary>Quantized hash of the last emitted mask rect set (rebuild gate — sub-pixel
     /// jitter never rebuilds, any real content change does).</summary>
     public int HostDepthMaskHash;
+
+    /// <summary>Unscaled time before which this host's INK diagnostic stays silent (see
+    /// <c>CanvasConversion.LogHostMaskInk</c>) — a scrolling/animating host rebuilds its mask
+    /// mesh constantly and would otherwise flood the hardware log.</summary>
+    public float HostMaskInkDiagNextAllowed;
 }
 
 /// <summary>

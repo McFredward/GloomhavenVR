@@ -2231,15 +2231,9 @@ internal static partial class Loc
                 + "Leisten bleiben aktiv und zur Kamera ausgerichtet, sie werden lediglich Pixel für Pixel dort "
                 + "ausgeblendet, wo eine Wand davor steht. Ausschalten für die originalen, stets obenauf "
                 + "gezeichneten Leisten.",
-            ["WorldUI/BarsDepthStamp"] =
-                "DEBUG. Lässt eine LP-/Effektleiste am Tiefen-Compositing der Tafeln teilnehmen, also ihre "
-                + "eigene Ebene in den Tiefenpuffer stempeln. AUS ist richtig und ausgeliefert: der Stempel "
-                + "einer Leiste bedeckt ihr komplettes Rechteck — samt des unsichtbaren Rands um die "
-                + "sichtbaren Segmente — und dieses unsichtbare Band SCHNITT LÖCHER in alles, was danach "
-                + "gezeichnet wird, am deutlichsten in die Infotafel des Gegners dahinter. Leisten sind "
-                + "einfache, zur Kamera gedrehte Ebenen und müssen nie eine Tafel verdecken; sie werden "
-                + "weiterhin korrekt von jeder anderen Tafel und von Wänden verdeckt (siehe "
-                + "\"Balken hinter Wänden\"). Nur einschalten, um den alten Fehler nachzustellen.",
+            // [WorldUI] BarsDepthStamp is gone with its binding (see ActorBars.BindConfig): the
+            // bars take part in the depth compose again, unconditionally, per the user ruling that
+            // perspective must be respected everywhere.
             ["WorldUI/StereoScreen"] =
                 "Stellt die schwebende 2D-Leinwand MIT Stereo-Tiefe dar (3D-Film-/Fenstereffekt): der "
                 + "erfasste 3D-Menüinhalt (Kampagnenkarte, Stadt, Slideshow-Szene) wird über modeigene "
