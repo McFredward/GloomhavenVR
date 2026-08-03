@@ -223,6 +223,9 @@ internal static partial class Defaults
     internal static readonly Vector3 PickBannerOffset_Oak = new Vector3(0f, 0f, 0f);                  // => [Cards] PickBannerOffset_Oak
     internal static readonly Vector3 PickBannerOffset_Steel = new Vector3(0f, 0.095f, 0f);        // => [Cards] PickBannerOffset_Steel
     internal static readonly Vector3 PickBannerOffset_Bronze = new Vector3(0f, 0f, 0f);               // => [Cards] PickBannerOffset_Bronze
+    internal static readonly Vector3 HoverHintOffset_Oak = new Vector3(0f, 0f, 0f);                   // => [Cards] HoverHintOffset_Oak
+    internal static readonly Vector3 HoverHintOffset_Steel = new Vector3(0f, 0f, 0f);                 // => [Cards] HoverHintOffset_Steel
+    internal static readonly Vector3 HoverHintOffset_Bronze = new Vector3(0f, 0f, 0f);                // => [Cards] HoverHintOffset_Bronze
     internal static readonly Vector3 AssetOffset_Oak = new Vector3(0f, 0f, 0f);                       // => [Cards] AssetOffset_Oak
     internal static readonly Vector3 AssetOffset_Steel = new Vector3(0f, 0f, 0f);                     // => [Cards] AssetOffset_Steel
     internal static readonly Vector3 AssetOffset_Bronze = new Vector3(0f, -0.11f, 0.08f);             // => [Cards] AssetOffset_Bronze
