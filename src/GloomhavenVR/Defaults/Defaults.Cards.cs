@@ -65,6 +65,11 @@ internal static partial class Defaults
     internal const float RoundButtonThickness = 0.012f;                                               // => [Cards] RoundButtonThickness  (legacy: read once as the seed for its successor)
     internal const float RestButtonInsetX = 0.024f;                                                   // => [Cards] RestButtonInsetX  (legacy: read once as the seed for its successor)
     internal const float ConfirmUndoInsetX = 0.014f;                                                  // => [Cards] ConfirmUndoInsetX  (legacy: read once as the seed for its successor)
+    internal const bool SpawnLeftOfHead = true;                                                       // => [Cards] SpawnLeftOfHead
+    internal const float SpawnSideMeters = 0.45f;                                                     // => [Cards] SpawnSideMeters
+    internal const float SpawnForwardMeters = 0.28f;                                                  // => [Cards] SpawnForwardMeters
+    internal const float SpawnDownMeters = 0.32f;                                                     // => [Cards] SpawnDownMeters
+    internal const bool GameCardParticles = false;                                                    // => [Cards] GameCardParticles
     internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint
     internal const bool PileViewer = true;                                                            // => [Cards] PileViewer

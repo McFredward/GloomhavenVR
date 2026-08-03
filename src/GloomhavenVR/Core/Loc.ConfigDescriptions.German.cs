@@ -956,6 +956,28 @@ internal static partial class Loc
                 + "Metern. Das ist die EINZIGE Stellschraube für diesen Abstand: Sie ist bewusst "
                 + "unabhängig von Größe und Versatz des Entscheidungsdocks — Vergrößern oder "
                 + "Verschieben ändert also nie, wie weit die Knöpfe vom Text entfernt sitzen.",
+            ["Cards/SpawnLeftOfHead"] =
+                "Das Controllboard beim ERSTEN Platzieren in einem Szenario immer LINKS NEBEN DEM "
+                + "KOPF absetzen, statt dort, wo du es zuletzt hingezogen hattest. Deine gespeicherte "
+                + "Anordnung gilt weiterhin für den Rest der Sitzung (Verschieben wird wie bisher "
+                + "gemerkt) — nur der STARTPLATZ ist dadurch jedes Mal derselbe, du weißt also immer, "
+                + "wohin du greifen musst. Die drei Werte darunter legen diesen Platz fest.",
+            ["Cards/SpawnSideMeters"] =
+                "Startplatz: wie weit LINKS von dir das Brett steht, in echten Metern.",
+            ["Cards/SpawnForwardMeters"] =
+                "Startplatz: wie weit VOR dir das Brett steht, in echten Metern. Bewusst klein — "
+                + "\"neben dir\", nicht \"vor dir\".",
+            ["Cards/SpawnDownMeters"] =
+                "Startplatz: wie weit UNTER Augenhöhe das Brett steht, in echten Metern.",
+            ["Cards/GameCardParticles"] =
+                "Den EIGENEN Partikeleffekt des Spiels für Karten (die Funken-/Rauchwolke "
+                + "\"CardSmoke\") zulassen. Standardmäßig AUS: Er ist für die bildschirmgroße 2D-Karte "
+                + "gemacht und sprüht auf dem tischgroßen Brett Funken über das GANZE Spielfeld — am "
+                + "auffälligsten, wenn am Zugende die gespielten Karten in ihre Stapel geräumt werden. "
+                + "Unterdrückt wird er über den spieleigenen Sparschalter für schwache Hardware, es "
+                + "entsteht also gar kein Partikel, das falsch skaliert werden könnte; beim "
+                + "Wiedereinschalten wird der Originalwert sofort zurückgesetzt. Das Abbrand-/"
+                + "Auflösebild der Karte selbst bleibt unberührt.",
             ["Cards/CardDust"] =
                 "Staub-/Funkenwolke, wenn eine Karte erscheint oder zerfällt. Standardmäßig AUS: Auf "
                 + "der Hardware wirkte die Wolke beim Abwerfen einer Karte wie eine riesige "

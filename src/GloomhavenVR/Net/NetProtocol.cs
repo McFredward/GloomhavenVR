@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 31;
+    public const ushort ModBuild = 32;
+    // Build 32: the control board's FIRST placement of a scenario is a fixed spot beside the head
+    // on the left (not the last drag's saved layout), and the GAME's own card particles are pinned
+    // off through its low-spec switch — the end-of-turn card sweep was spraying sparks across the
+    // whole play field. Local-only — no wire changes.
     // Build 31: single player uses the spawn ring too (no more spawning ON the board); only the
     // ACTIVE hand carries a laser; the decision dock is revealed at its final size and place
     // instead of popping; an item fan with 0 items refuses to open; the card dust/spark burst is

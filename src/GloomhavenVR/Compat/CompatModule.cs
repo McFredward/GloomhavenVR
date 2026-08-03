@@ -72,6 +72,10 @@ internal sealed class CompatModule : IVRModule
         //    precedence MPB > material > global). OFF = every wall bit-for-bit solid.
         // Both are VR-gated, reversible, live-togglable from the VR settings panel.
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
+        // The GAME's own card particles are authored for its full-size 2D card and spray across
+        // the diorama when a card is swept to a pile — pinned off through the game's own low-spec
+        // switch (see CardParticlesOff; live-gated by [Cards] GameCardParticles).
+        CardParticlesOff.Install();
         WallSegmentFade.Install();
 
         // Revealed-room geometry (fehlender_boden2.png root cause): Apparance synthesizes
@@ -177,6 +181,7 @@ internal sealed class CompatModule : IVRModule
         WallSegmentFade.Uninstall();
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert
+        CardParticlesOff.Uninstall();     // restores the game's own NoCardsParticles value verbatim
         if (_hooked)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;

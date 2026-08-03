@@ -115,6 +115,15 @@ internal static class CardsConfig
     /// <summary>Dust/spark burst when a card appears or crumbles away. OFF since 2026-08-03.</summary>
     internal static ConfigEntry<bool> CardDust = null!;
 
+    /// <summary>Let the GAME's own card particles play (CardSmoke). OFF since 2026-08-03.</summary>
+    internal static ConfigEntry<bool> GameCardParticles = null!;
+
+    /// <summary>First placement of a scenario seats the board beside the head on the LEFT.</summary>
+    internal static ConfigEntry<bool> SpawnLeftOfHead = null!;
+    internal static ConfigEntry<float> SpawnSideMeters = null!;
+    internal static ConfigEntry<float> SpawnForwardMeters = null!;
+    internal static ConfigEntry<float> SpawnDownMeters = null!;
+
     /// <summary>Item 3: multiplier that scales a slotted card UP to (nearly) fill the physical slot recess.</summary>
     internal static ConfigEntry<float> SlotCardFill = null!;
 
@@ -616,6 +625,33 @@ internal static class CardsConfig
             "reads, seeded from this Oak value as X = −0.014. It was the inward nudge in local X (real " +
             "meters, toward board center) applied to Confirm/Undo so they center on the Oak metal pads. " +
             "Kept bound so existing cfg files load unchanged.");
+        SpawnLeftOfHead = _file.Bind("Cards", "SpawnLeftOfHead", Defaults.SpawnLeftOfHead,
+            "Seat the control board BESIDE YOUR HEAD ON THE LEFT the first time it is placed in a " +
+            "scenario, instead of wherever you last dragged it. The saved layout is what you get " +
+            "for the rest of the session (moving the board still persists as before) — this only " +
+            "makes the STARTING spot the same every time, so you always know where to reach for " +
+            "it. The three Spawn… distances below define that spot.");
+        SpawnSideMeters = _file.Bind("Cards", "SpawnSideMeters", Defaults.SpawnSideMeters,
+            new ConfigDescription(
+                "First-placement seat: how far to your LEFT the board sits, real meters.",
+                new AcceptableValueRange<float>(0f, 1.2f)));
+        SpawnForwardMeters = _file.Bind("Cards", "SpawnForwardMeters", Defaults.SpawnForwardMeters,
+            new ConfigDescription(
+                "First-placement seat: how far IN FRONT of you the board sits, real meters. Small " +
+                "on purpose — 'beside you', not 'in front of you'.",
+                new AcceptableValueRange<float>(-0.5f, 1.5f)));
+        SpawnDownMeters = _file.Bind("Cards", "SpawnDownMeters", Defaults.SpawnDownMeters,
+            new ConfigDescription(
+                "First-placement seat: how far BELOW eye level the board sits, real meters.",
+                new AcceptableValueRange<float>(-0.5f, 1.5f)));
+        GameCardParticles = _file.Bind("Cards", "GameCardParticles", Defaults.GameCardParticles,
+            "Let the GAME's own card particle effect (the CardSmoke spark/smoke plume) play. OFF by " +
+            "default: it is authored for the full-size 2D card, so on the table-sized board it " +
+            "sprays sparks across the WHOLE play field — most visibly when the played cards are " +
+            "swept into their piles at the end of a turn. Suppressed through the game's own " +
+            "low-spec switch (LowParticlesUse.NoCardsParticles), so no particle is spawned at all " +
+            "and nothing can be mis-scaled; the vanilla value is restored the moment this is " +
+            "turned back on. The card's own burn/dissolve artwork is unaffected.");
         CardDust = _file.Bind("Cards", "CardDust", Defaults.CardDust,
             "Burst of dust/spark motes when a card appears or crumbles away. OFF by default: on hardware the burst that goes with a card flying to a discard pile read as a huge spark animation sweeping across the WHOLE board (the motes are emitted in world units and the board is a scaled-up diorama), which is what the player sees rather than the intended small puff at the card. The card still fades and settle-shrinks either way — the dust was only ever a secondary flourish. User ruling 2026-08-03.");
         WantedSlotHint = _file.Bind("Cards", "WantedSlotHint", Defaults.WantedSlotHint,
@@ -1162,6 +1198,17 @@ internal static class CardsConfig
         string.Equals(RevealMode.Value, "always", System.StringComparison.OrdinalIgnoreCase);
 
     internal static Vector3 TrayOffset => new(TrayRight.Value, -TrayDown.Value, TrayForward.Value);
+
+    /// <summary>
+    /// The FIRST-PLACEMENT seat (user ruling 2026-08-03: "Beim ersten Spawnen sollte das
+    /// Controllboard immer links neben dem Kopf spawnen"): head-relative, LEFT of the head
+    /// (negative x), slightly forward and below eye level. Deliberately NOT the persisted
+    /// <see cref="TrayOffset"/> — that one is whatever the last drag happened to leave behind, so
+    /// a scenario used to start with the board wherever the previous session ended, which is
+    /// exactly the unpredictability the ruling removes.
+    /// </summary>
+    internal static Vector3 SpawnSeatOffset => new(
+        -Mathf.Abs(SpawnSideMeters.Value), -SpawnDownMeters.Value, SpawnForwardMeters.Value);
 
     // ---- Per-board resolver accessors (Part A) ----
     // Return the ConfigEntry so callers can both READ (.Value) and WRITE (.Value = …, which

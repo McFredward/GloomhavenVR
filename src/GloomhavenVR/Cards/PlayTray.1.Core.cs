@@ -178,6 +178,12 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
     private bool _placed;
     private bool _wantVisible;
     private bool _placementDeferLogged;
+    /// <summary>True once this tray instance has completed a head-relative placement. The
+    /// FIRST one uses the fixed left-of-head spawn seat (user ruling 2026-08-03); every later
+    /// one uses the saved layout. Instance state on purpose: a board SWITCH rebuilds the tray
+    /// but keeps the instance and restores the captured pose, so it must not re-seat.</summary>
+    private bool _everPlaced;
+
 
     internal bool IsVisible => _root != null && _root.gameObject.activeSelf;
 
@@ -1010,6 +1016,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _activeMount = null; // child of _root, destroyed with it (incl. the active-card column)
         _placed = false;
         _wantVisible = false;
+        // A full Destroy is leaving the scenario (a board SWITCH does not come through here — it
+        // captures and restores the pose around EnsureBuilt and never calls PlaceAtHead), so the
+        // next scenario gets the fixed left-of-head first seat again, which is what "beim ersten
+        // Spawnen" means.
+        _everPlaced = false;
         _placementDeferLogged = false;
         _lastSlotActivity = float.NegativeInfinity;
         _boardColliderRegistered = false;
@@ -1099,7 +1110,18 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
 
         ControlBoard board = CardsConfig.CurrentBoard;
         float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
-        Vector3 offset = CardsConfig.TrayOffset; // (right, -down, forward), real meters
+        // FIRST PLACEMENT OF A SCENARIO GETS A FIXED SEAT (user ruling 2026-08-03: "Beim ersten
+        // Spawnen sollte das Controllboard immer links neben dem Kopf spawnen"). The persisted
+        // TrayOffset is wherever the last drag left the board, so the board used to start each
+        // scenario somewhere different — and with a big forward component it starts IN FRONT of
+        // the player rather than beside them. Only the very first placement is overridden; every
+        // later path through here (board switch, explicit recall, follow-mode re-seat) keeps using
+        // the saved layout, so nothing the player arranges during the session is thrown away.
+        bool firstSeat = !_everPlaced && CardsConfig.SpawnLeftOfHead != null
+                         && CardsConfig.SpawnLeftOfHead.Value;
+        Vector3 offset = firstSeat
+            ? CardsConfig.SpawnSeatOffset  // (left, -down, forward), real meters
+            : CardsConfig.TrayOffset;      // (right, -down, forward), real meters
         // PART B: per-board BoardPosOffset is ADDED (in the head frame) on top of the tray offset.
         Vector3 boardPos = CardsConfig.BoardPosOffset(board).Value;
         Vector3 levelDelta = flatForward * ((offset.z + boardPos.z) * scale)
@@ -1124,9 +1146,16 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         _root.rotation = ComputeBoardRotation(flatForward, board);
         _root.localScale = Vector3.one * ComputeBoardScale(board);
         _placed = true;
+        _everPlaced = true;
         VRLog.Info("Cards", $"Control board placed ({board}: tilt {CardsConfig.BoardTilt(board).Value}°, " +
                             $"yaw {CardsConfig.TrayYaw.Value + CardsConfig.BoardYaw(board).Value:F0}°, " +
-                            $"scale {ComputeBoardScale(board):F2}×).");
+                            $"scale {ComputeBoardScale(board):F2}×)" +
+                            (firstSeat
+                                ? $" — FIRST SEAT: fixed spot beside the head on the LEFT ({offset.x:F2} m " +
+                                  $"side, {offset.z:F2} m forward, {-offset.y:F2} m down), not the saved " +
+                                  "layout, so every scenario starts with the board in the same place " +
+                                  "([Cards] SpawnLeftOfHead)."
+                                : $" — saved layout ({offset.x:F2}, {offset.y:F2}, {offset.z:F2} m)."));
         // A persisted PINNED mode re-engages only NOW, at the just-placed
         // head-relative pose (test #17): the tray always spawns in front of the
         // player, pinned or not.
