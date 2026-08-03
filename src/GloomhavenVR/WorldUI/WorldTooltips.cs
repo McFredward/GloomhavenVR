@@ -153,6 +153,17 @@ internal sealed class WorldTooltips
     private UITooltip.Transition _originalTransition;
     private float _originalTransitionDuration;
 
+    // ---- host ownership (user report 2026-08-03; see ResolveHostOwner) ------------------
+    /// <summary>The floated window that owns the CURRENT hint, or null when the CONTROL BOARD does.</summary>
+    private ConvertedPanel? _hostWindow;
+
+    /// <summary>The host decision last LOGGED (reference-compared, so the change-gated diagnostic
+    /// allocates its line only when the answer actually changes — never per frame).</summary>
+    private ConvertedPanel? _hostLoggedWindow;
+
+    /// <summary>False until the first host decision was logged (null == board is a real answer).</summary>
+    private bool _hostLoggedOnce;
+
     // ---- diagnostics (dedupe so a per-frame path logs once) ---------------------------
     private bool _parkedLogged;
     private Vector3 _parkedLogPos;
@@ -189,22 +200,29 @@ internal sealed class WorldTooltips
     /// <summary>
     /// THERE IS ONLY ONE TOOLTIP IN THE GAME. <c>CanvasManager.tooltipCanvas</c> is a single shared
     /// canvas, so wherever the player hovers — a figure, a card, a row of the mod's VR Options tab —
-    /// the same canvas has to answer, and the right answer depends on WHERE the thing being hovered
-    /// currently lives. Three cases, and the previous two attempts each got one of them right:
+    /// the same canvas has to answer, and the right answer depends on WHO OWNS the thing being
+    /// hovered (<see cref="ResolveHostOwner"/>, the ownership rule). Three cases, and the previous
+    /// attempts each got one of them right:
     ///
     /// <list type="bullet">
-    /// <item><description>No menu: the hover came from the board, so the canvas is world-space and
-    /// parked above the control board. Unchanged.</description></item>
-    /// <item><description>Menu floated as a WORLD PANEL — what a scenario does: the canvas is
-    /// world-space and laid ONTO that panel (<see cref="TryResolveMenuPose"/>). The first attempt
-    /// parked it above the board instead, so the hint left the menu and hung in the room facing the
-    /// player; the second sent it to screen space, and in a scenario the screen is not being shown
-    /// at all, so it vanished outright.</description></item>
+    /// <item><description>The hover belongs to the BOARD — a card lying in a slot, a decision button
+    /// docked under it, a world/hex tooltip: the canvas is world-space and parked above the control
+    /// board, at the board's own angle, plus the user's per-board
+    /// <c>[Cards] HoverHintOffset_&lt;board&gt;</c>.</description></item>
+    /// <item><description>The hover belongs to a floated WINDOW or MENU — what a scenario does: the
+    /// canvas is world-space and laid ONTO that panel (<see cref="TryResolveMenuPose"/>). Earlier
+    /// attempts parked it above the board instead, so the hint left the menu and hung in the room
+    /// facing the player; another sent it to screen space, and in a scenario the screen is not being
+    /// shown at all, so it vanished outright.</description></item>
     /// <item><description>Menu on the FLAT SCREEN (ModalStyle=screen, or a conversion that failed):
     /// screen space is correct — that screen is what the player is looking at, exactly as in the
     /// main menu. Menu2D never converts in the first place, so the main menu was always this
     /// case.</description></item>
     /// </list>
+    ///
+    /// <para>The board/window split used to be "is ANY window floating" — the regression this class
+    /// now avoids, because a tutorial box floating for minutes stole every card hint. See
+    /// <see cref="ResolveHostOwner"/> and <see cref="ModalFallback.FindOwningWindow"/>.</para>
     /// </summary>
     private static bool MenuOnFlatScreen()
     {
@@ -229,16 +247,15 @@ internal sealed class WorldTooltips
     ///
     /// <para>A hair toward the viewer so the box renders in front of the menu rather than z-fighting
     /// with it.</para>
+    ///
+    /// <para>The panel is the one that OWNS the hover (<see cref="ModalFallback.FindOwningWindow"/>),
+    /// never merely the topmost float — see that method for the regression this distinction fixes.</para>
     /// </summary>
-    private static bool TryResolveMenuPose(out Vector3 position, out Quaternion rotation,
+    private static bool TryResolveMenuPose(ConvertedPanel? panel, out Vector3 position,
+                                           out Quaternion rotation,
                                            out Vector3 scale, out int sortingOrder)
     {
-        // ANY floated window, not just a full-screen menu (user report 2026-08-03 — the
-        // item-unlock window at the end of tutorial 2): its tooltips used to fall through to the
-        // BOARD anchor and were therefore laid at the board's angle, cutting through the window.
-        // See ModalFallback.TooltipHostPanel for the reasoning behind picking the LAST floated one.
-        ConvertedPanel? panel = ModalFallback.TooltipHostPanel;
-        RectTransform? host = panel?.HostRect;
+        RectTransform? host = panel != null && panel.IsAlive ? panel.HostRect : null;
         if (panel == null || host == null)
         {
             position = Vector3.zero;
@@ -269,6 +286,92 @@ internal sealed class WorldTooltips
 
     /// <summary>Metres in front of the floated menu panel the tooltip is laid, so it never z-fights.</summary>
     private const float MenuPanelProudZ = 0.004f;
+
+    /// <summary>
+    /// Decide WHO OWNS the hint that is on screen right now — a floated window/menu, or the
+    /// CONTROL BOARD — and hold that answer for as long as the box is visible.
+    ///
+    /// <para>THE RULE (user report 2026-08-03, verbatim): "Sind die overlay-hints von einer Karte
+    /// die auf dem Controllboard liegen, sollen sie auch am Controllboard angezeigt werden … Sind
+    /// sie Teil eines Windows oder Menus, dann sollen sie auch innerhalb des Window/Menus angezeigt
+    /// werden … Auch Hints die explizit mit Buttons (z.B. Decision-Buttons) zu tun haben die am
+    /// Controllboard fixiert sind, sollen am Controllboard angezeigt werden." Ownership, not
+    /// topmost-ness, and not a name match.</para>
+    ///
+    /// <para>THE SIGNAL IS STRUCTURAL AND ALREADY IN THE GAME'S DATA. <c>UITooltipTarget</c> anchors
+    /// the shared box to the RectTransform the pointer entered
+    /// (<c>UITooltip.AnchorToRect(base.transform, corner)</c>, decompiled UITooltipTarget.cs:139),
+    /// and keeps it until its fade has fully finished (<c>InternalOnHide</c> nulls
+    /// <c>m_AnchorToTarget</c>, UITooltip.cs:611). Converted windows OWN their content by
+    /// re-parenting: <c>CanvasConversion.Convert</c> puts the game rect under the mod host
+    /// (CanvasConversion.1.Core.cs:221). So the owner is whatever floated host is an ANCESTOR of
+    /// that anchor rect — <see cref="ModalFallback.FindOwningWindow"/> — with three consequences
+    /// that are exactly the three cases the user listed:</para>
+    ///
+    /// <list type="bullet">
+    /// <item><description>An ability card lying in a board slot is game UI that was never
+    /// converted (the VR card is a mesh; <c>Cards.CardFaceRaycaster</c> synthesizes the pointer
+    /// events onto the game's own 2D card, which stays on its own canvas) → no floated ancestor →
+    /// the BOARD anchor.</description></item>
+    /// <item><description>A row of a floated window or menu — the item-unlock window, the pause /
+    /// Options family, the mod's own VR options tab inside it — sits under that window's host →
+    /// laid flat ON that window.</description></item>
+    /// <item><description>A DECISION BUTTON docked under the board is converted too, but by
+    /// <c>Surfaces.DecisionDockSurface</c>, which is NOT a floated modal (ModalFallback skips every
+    /// window the dock claims, see <c>DecisionDock.ClaimsWindow</c>) → no floated ancestor → the
+    /// BOARD anchor, next to the buttons the player is reading.</description></item>
+    /// </list>
+    ///
+    /// <para>A NULL ANCHOR IS A REAL ANSWER, not a failure: the map's hex tooltips deliberately
+    /// anchor to null so the box follows the cursor (<c>TileBehaviour.cs:66</c>
+    /// <c>UITooltip.AnchorToRect(null, …)</c>). Those belong to the world, not to a window, and
+    /// null resolves to the board anchor — the pre-regression behaviour.</para>
+    ///
+    /// <para>WHY THE ANSWER IS LATCHED THROUGH THE GRACE WINDOW. The placement latch
+    /// (<see cref="HoverGraceSeconds"/>) deliberately keeps the box parked for a moment after the
+    /// content stops showing, and the game clears <c>m_AnchorToTarget</c> inside exactly that
+    /// window (at the end of its fade). Re-deriving there would read null and yank a fading WINDOW
+    /// hint back onto the board for its last frames — a visible jump at the worst moment. So the
+    /// decision is only re-taken while content is genuinely shown, and it is dropped when the
+    /// grace expires.</para>
+    /// </summary>
+    private void ResolveHostOwner(bool contentShown, bool withinGrace)
+    {
+        if (!contentShown)
+        {
+            if (!withinGrace)
+                _hostWindow = null; // hint gone for good — next hover decides afresh
+            return;
+        }
+
+        Transform? hovered = _tooltip != null ? _tooltip.m_AnchorToTarget : null;
+        ConvertedPanel? owner = ModalFallback.FindOwningWindow(hovered);
+        _hostWindow = owner;
+
+        // Change-gated (reference compare, so the steady state allocates nothing): one line per
+        // genuine change of host, naming the hovered object — that is the whole evidence chain a
+        // hardware log needs to settle "why did this hint go there".
+        if (_hostLoggedOnce && ReferenceEquals(_hostLoggedWindow, owner))
+            return;
+        _hostLoggedOnce = true;
+        _hostLoggedWindow = owner;
+        string hoveredName = hovered != null ? hovered.name : "<mouse-follow (no anchor rect)>";
+        if (owner != null)
+        {
+            VRLog.Info("WorldUI",
+                $"Hover hint OWNER = floated window '{(owner.HostGo != null ? owner.HostGo.name : "?")}' " +
+                $"(hovered '{hoveredName}' sits inside its converted host) — the hint is laid FLAT ON " +
+                "that window, in its plane and at its scale.");
+        }
+        else
+        {
+            VRLog.Info("WorldUI",
+                $"Hover hint OWNER = the CONTROL BOARD (hovered '{hoveredName}' is under no floated " +
+                "window host — a card in a slot, a board-docked button, or a cursor-anchored world " +
+                "tooltip) — the hint parks above the board's top edge at the board's own angle, " +
+                $"plus [Cards] HoverHintOffset_{{board}} (live).");
+        }
+    }
 
     public void LateTick()
     {
@@ -356,10 +459,28 @@ internal sealed class WorldTooltips
         if (_canvas.worldCamera != head)
             _canvas.worldCamera = head;
 
+        // Resolve the persistent tooltip content (singleton under the canvas) for the
+        // flatten pass, frame clip, the visibility gate AND the ownership test below.
+        if (_tooltip == null)
+            _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
+
+        // FIXED PLACEMENT (user #7a): while a tooltip is shown — OR within the placement
+        // grace window just after it stopped (user #7b) — park the canvas at the anchor its
+        // OWNER dictates. Otherwise leave it out of view — never at the fingertip.
+        bool contentShown = _tooltip != null && _tooltip.IsActive() && _tooltip.alpha > ShownAlphaEpsilon;
+        if (contentShown)
+            _lastShownTime = Time.unscaledTime;
+        bool withinGrace = _tooltip != null && Time.unscaledTime - _lastShownTime <= HoverGraceSeconds;
+        bool visible = contentShown || withinGrace;
+
+        // WHO OWNS THIS HINT decides where it goes — resolved BEFORE the pose/scale, because the
+        // answer picks between two different pixels-to-metres factors (see ResolveHostOwner).
+        ResolveHostOwner(contentShown, withinGrace);
+
         // ON THE MENU PANEL the scale is the PANEL's, not the board's: the two canvases only
         // coincide — and the game's own placement only lands where it means to — if they share a
         // pixels-to-metres factor. Off the menu, the board-derived scale above stands.
-        bool onMenuPanel = TryResolveMenuPose(out Vector3 menuPos, out Quaternion menuRot,
+        bool onMenuPanel = TryResolveMenuPose(_hostWindow, out Vector3 menuPos, out Quaternion menuRot,
                                               out Vector3 menuScale, out int menuSorting);
         if (onMenuPanel)
         {
@@ -381,21 +502,6 @@ internal sealed class WorldTooltips
         if (_canvas.transform.localScale != worldScale)
             _canvas.transform.localScale = worldScale;
 
-        // Resolve the persistent tooltip content (singleton under the canvas) for the
-        // flatten pass, frame clip and visibility gate.
-        if (_tooltip == null)
-            _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
-
-        // FIXED PLACEMENT (user #7a): while a tooltip is shown — OR within the placement
-        // grace window just after it stopped (user #7b) — park the canvas at the control
-        // board's top-left corner, facing the player. Otherwise leave it out of view —
-        // never at the fingertip.
-        bool contentShown = _tooltip != null && _tooltip.IsActive() && _tooltip.alpha > ShownAlphaEpsilon;
-        if (contentShown)
-            _lastShownTime = Time.unscaledTime;
-        bool withinGrace = _tooltip != null && Time.unscaledTime - _lastShownTime <= HoverGraceSeconds;
-        bool visible = contentShown || withinGrace;
-
         // FLATTEN + CLIP (part A): kill the baked local-z / rotation that renders as 3D
         // depth on a world-space host, and clip 2D overflow inside the frame. Both are
         // undone on Restore().
@@ -414,8 +520,9 @@ internal sealed class WorldTooltips
         // tiny target is bridged by its native tween. Undone on Restore().
         EnsureFadeGrace();
 
-        // The menu panel wins the placement while it is floating: it is modal, so a hover can only
-        // have come from it, and its own plane is where the hint belongs.
+        // The window wins the placement only when it OWNS the hover (ResolveHostOwner); otherwise
+        // the board anchor answers, which is what a card lying in a slot and a docked decision
+        // button need even while some unrelated window floats.
         bool placed = onMenuPanel;
         Vector3 pos = menuPos;
         Quaternion rot = menuRot;
@@ -442,9 +549,11 @@ internal sealed class WorldTooltips
             _parkedLogPos = pos;
             if (onMenuPanel)
             {
+                // Names the OWNING window (_hostWindow), not the topmost float — naming
+                // MenuPanel here used to print a window the hint was never laid on.
                 VRLog.Info("WorldUI",
-                    $"Tooltip laid FLAT ON the floated menu panel "
-                    + $"'{(ModalFallback.MenuPanel?.HostGo != null ? ModalFallback.MenuPanel!.HostGo.name : "?")}' "
+                    $"Tooltip laid FLAT ON its OWNING floated window "
+                    + $"'{(_hostWindow?.HostGo != null ? _hostWindow!.HostGo.name : "?")}' "
                     + $"at {pos:F3} (panel scale {menuScale.x:F5} m/px, sortingOrder {menuSorting} — "
                     + "in front of the host). The two canvases share the window's screen rect, so "
                     + "the game's own placement puts the box beside the hovered row, on the panel.");
@@ -460,7 +569,14 @@ internal sealed class WorldTooltips
                 $"Tooltip parked {(onBoard ? "fixed ABOVE control-board top edge" : "at fallback slot")} " +
                 $"anchor {pos:F3} (board scale {scale:F3}, board top-edge world Y {_lastBoardTopEdgeWorldY:F3} m, " +
                 $"tooltip half {_lastTooltipHalfWorld.x:F3}×{_lastTooltipHalfWorld.y:F3} m → " +
-                $"clearance above edge {(pos.y - _lastBoardTopEdgeWorldY):F3} m).");
+                $"clearance above edge {(pos.y - _lastBoardTopEdgeWorldY):F3} m" +
+                // The user dial only takes part in the BOARD anchor; the no-board fallback slot is
+                // a fixed table pose, so naming an offset there would be a lie in the log.
+                (onBoard
+                    ? $", user offset [Cards] HoverHintOffset_" +
+                      $"{(CardsConfig.Board != null ? CardsConfig.CurrentBoard.ToString() : "?")} " +
+                      $"{BoardHintOffset()} board-local m"
+                    : "") + ").");
         }
     }
 
@@ -510,7 +626,20 @@ internal sealed class WorldTooltips
 
             // Fixed ABOVE the top edge: pivot = topEdge + up·(tooltipHalfHeight + margin), so the
             // panel's bottom edge sits (margin) above the board's top edge. Proud toward viewer.
-            position = topEdgeWorld + up * (ttHalfH + margin) - forward * proud;
+            //
+            // Plus the USER'S OWN per-board offset ([Cards] HoverHintOffset_<board>, user request
+            // 2026-08-03 "Position einstellbar im Debug-Menue"), read LIVE here — the whole pose is
+            // recomputed every LateUpdate, so turning the dial moves a hint that is already open.
+            // Same convention as every other per-board offset: X/Y in the board plane, Z proud
+            // toward the player (negative = prouder), expressed in board-local metres and scaled by
+            // the board's live lossy scale so a grab-resize does not change how far it sits.
+            Vector3 tune = BoardHintOffset();
+            Vector3 tuneWorld = boardRot * new Vector3(
+                tune.x * Mathf.Max(Mathf.Abs(lossy.x), 0.0001f),
+                tune.y * scaleY,
+                tune.z * scaleZ);
+
+            position = topEdgeWorld + up * (ttHalfH + margin) - forward * proud + tuneWorld;
             rotation = boardRot; // docked-panel facing (faces the player)
 
             _lastBoardTopEdgeWorldY = topEdgeWorld.y;
@@ -522,6 +651,23 @@ internal sealed class WorldTooltips
         _lastBoardTopEdgeWorldY = 0f;
         _lastTooltipHalfWorld = Vector2.zero;
         return PanelLayout.TryGetPose(PanelSlot.Tooltip, out position, out rotation);
+    }
+
+    /// <summary>
+    /// The user's per-board hover-hint offset in BOARD-LOCAL metres
+    /// (<c>[Cards] HoverHintOffset_&lt;board&gt;</c>), or zero while the Cards config is not bound
+    /// (the board anchor is only reachable with a live tray, but this must never throw on a
+    /// half-initialised session — an NRE in a LateUpdate step costs the whole step, see the
+    /// WorldUI TickGuard). Read on every resolve, never cached: that is what makes the debug-menu
+    /// dial move an OPEN hint.
+    /// </summary>
+    private static Vector3 BoardHintOffset()
+    {
+        if (CardsConfig.Board == null)
+            return Vector3.zero; // Cards config never bound (module off) — no per-board dial exists
+        BepInEx.Configuration.ConfigEntry<Vector3>? entry =
+            CardsConfig.HoverHintOffset(CardsConfig.CurrentBoard);
+        return entry != null ? entry.Value : Vector3.zero;
     }
 
     /// <summary>
@@ -715,6 +861,12 @@ internal sealed class WorldTooltips
         _tooltip = null;
         _lastShownTime = float.NegativeInfinity;
         _parkedLogged = false;
+        // Host ownership is per-hint state — a torn-down presentation must never hand the next
+        // session a stale window reference (its panel is released by then), and the change-gated
+        // diagnostic re-arms so the first decision after a restore is logged again.
+        _hostWindow = null;
+        _hostLoggedWindow = null;
+        _hostLoggedOnce = false;
 
         if (_canvas != null)
         {

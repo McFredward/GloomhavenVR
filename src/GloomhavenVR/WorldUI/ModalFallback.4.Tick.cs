@@ -55,34 +55,55 @@ internal static partial class ModalFallback
     internal static RectTransform? MenuPanelHost => MenuPanel?.HostRect;
 
     /// <summary>
-    /// The floated window a hover TOOLTIP should be laid onto: the most recently converted window
-    /// of ANY kind, not just a full-screen menu.
+    /// The floated window that OWNS <paramref name="hovered"/> — the converted panel whose world
+    /// host is an ANCESTOR of that transform — or null when the hovered thing lives outside every
+    /// floated window.
     ///
-    /// <para>WHY THIS EXISTS SEPARATELY FROM <see cref="MenuPanel"/> (user report 2026-08-03: the
-    /// item-unlock window at the end of tutorial 2 is a movable floated window, and its hover
-    /// tooltips "sind 3D mit einem Winkel durch das Fenster"). <see cref="MenuPanel"/> only ever
-    /// returns FULL-SCREEN menus, so for an ordinary floated window it is null — and the tooltip
-    /// then fell back to the CONTROL BOARD's plane. The board and a hand-placed window almost
-    /// never share an orientation, so the box was laid at the board's angle and cut through the
-    /// window it belongs to.</para>
+    /// <para>WHAT IT ANSWERS. There is exactly ONE tooltip box in the game
+    /// (<c>CanvasManager.tooltipCanvas</c>), so <see cref="WorldTooltips"/> has to decide per hover
+    /// WHERE to park it. The deciding question is ownership: the game's <c>UITooltipTarget</c>
+    /// anchors the box to the RectTransform it was entered on
+    /// (<c>UITooltipTarget.PrepareTooltip</c> → <c>UITooltip.AnchorToRect(base.transform, …)</c>,
+    /// decompiled UITooltipTarget.cs:139), and a converted window OWNS its content by construction:
+    /// <c>CanvasConversion.Convert</c> re-parents the game rect under the mod-owned host
+    /// (<c>target.SetParent(hostRect, …)</c>, CanvasConversion.1.Core.cs:221). So "does this hover
+    /// belong to a floated window" is a walk up the parent chain, not a guess — and it is the same
+    /// answer for the whole subtree, however deeply pooled.</para>
     ///
-    /// <para>The backward scan is the same argument <see cref="MenuPanel"/> already makes: the
-    /// hover can only have come from the window the player is looking at, which is the LAST one
-    /// floated. Null while nothing floats, so the board anchor stays the answer for board
-    /// hovers.</para>
+    /// <para>ROOT CAUSE THIS REPLACES (user report 2026-08-03: "Nach dem letzten Fix ist ersteres
+    /// (Hints der Karten) nicht mehr der Fall"). The previous round fixed the item-unlock window's
+    /// tooltips ("sind 3D mit einem Winkel durch das Fenster") with a TOPMOST rule: a
+    /// <c>TooltipHostPanel</c> property that scanned <see cref="Converted"/> BACKWARD and returned
+    /// the last floated panel of any kind. Topmost is not ownership. A scripted level message, a
+    /// tutorial box or the item-unlock window floats for minutes while the player keeps hovering
+    /// CARDS lying on the control board and the decision buttons docked under it — and every one of
+    /// those hints was then laid onto the unrelated window, at the window's angle, wherever the
+    /// window happened to have been carried. The ownership test keeps the item-unlock fix (a hover
+    /// INSIDE that window still resolves to it) and gives the board its hints back (a hover outside
+    /// every floated host resolves to null, i.e. the board anchor).</para>
+    ///
+    /// <para>Cost: one parent walk per shown tooltip per frame, over a hierarchy depth, times the
+    /// floated-window count (0–3 in practice; the loop is skipped entirely while nothing floats).
+    /// Allocation-free.</para>
     /// </summary>
-    internal static ConvertedPanel? TooltipHostPanel
+    internal static ConvertedPanel? FindOwningWindow(Transform? hovered)
     {
-        get
+        if (hovered == null || Converted.Count == 0)
+            return null;
+        for (Transform? node = hovered; node != null; node = node.parent)
         {
+            // Backward, so a window floated ON TOP of another (Options over the ESC root) wins the
+            // tie when one host is nested inside the other's subtree — the same argument
+            // MenuPanel makes, now applied only among the windows that actually CONTAIN the hover.
             for (int i = Converted.Count - 1; i >= 0; i--)
             {
-                WindowPanel w = Converted[i];
-                if (w.Panel != null && w.Panel.IsAlive && w.Panel.HostRect != null)
-                    return w.Panel;
+                ConvertedPanel panel = Converted[i].Panel;
+                if (panel != null && panel.IsAlive && panel.HostRect != null
+                    && ReferenceEquals(panel.HostRect, node))
+                    return panel;
             }
-            return null;
         }
+        return null;
     }
 
     /// <summary>Open windows whose conversion failed → the screen covers them (retry on re-open).</summary>

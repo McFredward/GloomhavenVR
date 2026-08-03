@@ -204,6 +204,11 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _slotOverlaySpacing = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _initiativeOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _pickBannerOffset = new ConfigEntry<Vector3>[3];
+    // Hover-hint (game tooltip) anchor above the board, user report 2026-08-03: a hint that BELONGS
+    // to the board -- an ability card lying in a slot, a docked decision button -- is parked above
+    // the board's top edge, and the exact spot has to be dial-able like every other board element.
+    // Read LIVE by WorldUI.WorldTooltips every LateUpdate, so a nudge moves an OPEN hint.
+    private static readonly ConfigEntry<Vector3>[] _hoverHintOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _decisionGap = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardTilt = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardPitchMin = new ConfigEntry<float>[3];
@@ -417,6 +422,7 @@ internal static class CardsConfig
         internal static readonly Vector3[] InitiativeOffset = { Defaults.InitiativeOffset_Oak, Defaults.InitiativeOffset_Steel, Defaults.InitiativeOffset_Bronze };
         internal static readonly float[] DecisionGap = { Defaults.DecisionGap_Oak, Defaults.DecisionGap_Steel, Defaults.DecisionGap_Bronze };
         internal static readonly Vector3[] PickBannerOffset = { Defaults.PickBannerOffset_Oak, Defaults.PickBannerOffset_Steel, Defaults.PickBannerOffset_Bronze };
+        internal static readonly Vector3[] HoverHintOffset = { Defaults.HoverHintOffset_Oak, Defaults.HoverHintOffset_Steel, Defaults.HoverHintOffset_Bronze };
         internal static readonly float[] RestButtonSpacing = { Defaults.RestButtonSpacing_Oak, Defaults.RestButtonSpacing_Steel, Defaults.RestButtonSpacing_Bronze };
         internal static readonly float[] GenericButtonSpacing = { Defaults.GenericButtonSpacing_Oak, Defaults.GenericButtonSpacing_Steel, Defaults.GenericButtonSpacing_Bronze };
         internal static readonly Vector3[] ActiveOffset = { Defaults.ActiveOffset_Oak, Defaults.ActiveOffset_Steel, Defaults.ActiveOffset_Bronze };
@@ -803,6 +809,14 @@ internal static class CardsConfig
                 "Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 = today's spot just " +
                 "above the board's top edge, right under the initiative track. The MULTIPLAYER mirror " +
                 "places a peer's placard at the same offset on their remote board.");
+            _hoverHintOffset[i] = _file.Bind("Cards", $"HoverHintOffset_{board}",
+                BoardDefaults.HoverHintOffset[i],
+                $"[{board}] offset ADDED to the HOVER HINT (the game's tooltip box) while it is shown " +
+                "AT THE CONTROL BOARD, board-local meters. X/Y lie in the board plane, Z = proud depth " +
+                "toward the player (NEGATIVE = prouder). Seeded 0 = today's spot, centred straight " +
+                "above the board's measured top edge. A hint that belongs to a floated WINDOW or MENU " +
+                "is laid on that window instead and this offset does not apply to it. Read live every " +
+                "LateUpdate, so a nudge moves a hint that is already open.");
             _boardTilt[i] = _file.Bind("Cards", $"BoardTilt_{board}", Defaults.BoardTilt_ByBoard[i],
                 $"[{board}] board tilt from horizontal toward the player, degrees (0 = flat desk, " +
                 "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");
@@ -1280,6 +1294,16 @@ internal static class CardsConfig
     /// 2026-08-03 ("Ich möchte auch in der Lage sein die Position von Text wie 'Barbar: Wähle 1
     /// Karte(n) zum Verlieren' zu ändern"). Mirrored onto a peer's remote board.</summary>
     internal static ConfigEntry<Vector3> PickBannerOffset(ControlBoard b) => _pickBannerOffset[(int)b];
+
+    /// <summary>
+    /// Per-board offset of the HOVER HINT (the game's shared tooltip box) while it is parked AT THE
+    /// CONTROL BOARD -- board-local metres, user report 2026-08-03 ("Sind die overlay-hints von
+    /// einer Karte die auf dem Controllboard liegen, sollen sie auch am Controllboard angezeigt
+    /// werden (Position einstellbar im Debug-Menue)"). Read live by
+    /// <c>WorldUI.WorldTooltips.LateTick</c>; a hint that belongs to a floated window is laid on
+    /// that window and never consults this entry.
+    /// </summary>
+    internal static ConfigEntry<Vector3> HoverHintOffset(ControlBoard b) => _hoverHintOffset[(int)b];
 
     /// <summary>Degrees between neighbouring cards of a board fan (per pile — see the binds).</summary>
     internal static ConfigEntry<float> FanStepDegrees(PileKind k) => _fanStepDegrees[PileIndex(k)];
