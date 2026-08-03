@@ -27,6 +27,21 @@ internal enum TurnHandChoice
 }
 
 /// <summary>
+/// What the flight stick steers by (<c>[Comfort] FlightDirection</c>). Both options are
+/// "where you are looking/pointing", the difference is which of the two the player wants to
+/// aim with: the head cannot point away from what you are watching (steadier, and the usual
+/// VR default), the hand can (you fly sideways while keeping your eyes on the board).
+/// </summary>
+internal enum FlightDirectionSource
+{
+    /// <summary>Fly along the HMD's forward, pitch included (default).</summary>
+    Head,
+
+    /// <summary>Fly along the DOMINANT hand's aim ray — the same ray the laser draws.</summary>
+    Hand
+}
+
+/// <summary>
 /// Typed accessor over one comfort config entry: read/write value + a typed change
 /// event. The in-VR settings panel (<see cref="WorldUI.SettingsPanel"/>) binds its widgets to
 /// these — one wrapper per row — instead of touching BepInEx types directly. It shipped; this
@@ -160,6 +175,18 @@ internal static class ComfortSettings
     /// <summary>Which hand's stick turns (Dominant follows <c>[Hands] PrimaryHand</c>).</summary>
     public static ComfortSetting<TurnHandChoice> TurnHand { get; private set; } = null!;
 
+    /// <summary>Stick flight: push the flight hand's stick forward to fly. See <see cref="Flight"/>.</summary>
+    public static ComfortSetting<bool> FlightEnabled { get; private set; } = null!;
+
+    /// <summary>What flight steers by: the head's forward, or the dominant hand's aim ray.</summary>
+    public static ComfortSetting<FlightDirectionSource> FlightDirection { get; private set; } = null!;
+
+    /// <summary>Speed at full stick deflection, in APPARENT meters/second (see <see cref="Flight"/>).</summary>
+    public static ComfortSetting<float> FlightMaxSpeed { get; private set; } = null!;
+
+    /// <summary>Which hand's stick flies (Dominant follows <c>[Hands] PrimaryHand</c>).</summary>
+    public static ComfortSetting<TurnHandChoice> FlightHand { get; private set; } = null!;
+
     /// <summary>Extra eye height above the table on recenter, real meters (+ = table lower).</summary>
     public static ComfortSetting<float> TableHeightOffset { get; private set; } = null!;
 
@@ -274,6 +301,23 @@ internal static class ComfortSettings
             new AcceptableValueRange<float>(30f, 270f));
         TurnHand = Bind("TurnHand", Defaults.TurnHand,
             "Which thumbstick turns. Dominant follows [Hands] PrimaryHand.");
+        FlightEnabled = Bind("FlightEnabled", Defaults.FlightEnabled,
+            "Stick flight: push the flight hand's thumbstick forward to fly through the scene " +
+            "(pull it back to fly backwards). Off = the stick's forward axis does nothing, exactly " +
+            "as before this feature existed. Turning is unaffected either way: it reads the stick's " +
+            "SIDEWAYS axis, so the two never fight even on one and the same stick.");
+        FlightDirection = Bind("FlightDirection", Defaults.FlightDirection,
+            "What flight steers by. Head = the HMD's forward, pitch included, so you fly where you " +
+            "look. Hand = the dominant hand's aim ray - the same ray the laser draws - so you can " +
+            "fly one way while looking another.");
+        FlightMaxSpeed = Bind("FlightMaxSpeed", Defaults.FlightMaxSpeed,
+            "Flight speed at FULL stick deflection, in apparent meters per second - i.e. meters as " +
+            "the diorama looks to you, not world units. Zooming the table therefore never changes " +
+            "how fast flying feels. Partial deflection is squared, so small pushes creep and the " +
+            "full push is exactly this value.",
+            new AcceptableValueRange<float>(0.2f, 20f));
+        FlightHand = Bind("FlightHand", Defaults.FlightHand,
+            "Which thumbstick flies. Dominant follows [Hands] PrimaryHand.");
         TableHeightOffset = Bind("TableHeightOffset", Defaults.TableHeightOffset,
             "Extra eye height above the table on recenter, in real meters (positive = table " +
             "sits lower). Changing this re-runs recenter immediately.",
@@ -349,6 +393,10 @@ internal static class ComfortSettings
         SnapTurnDegrees.Detach();
         SmoothTurnSpeed.Detach();
         TurnHand.Detach();
+        FlightEnabled.Detach();
+        FlightDirection.Detach();
+        FlightMaxSpeed.Detach();
+        FlightHand.Detach();
         TableHeightOffset.Detach();
         RecenterHoldSeconds.Detach();
         SavedScaleMultiplier.Detach();

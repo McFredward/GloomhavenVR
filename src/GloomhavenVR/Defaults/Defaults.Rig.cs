@@ -44,6 +44,10 @@ internal static partial class Defaults
     internal const float SnapTurnDegrees = 45f;                     // => [Comfort] SnapTurnDegrees
     internal const float SmoothTurnSpeed = 90f;                     // => [Comfort] SmoothTurnSpeed
     internal const TurnHandChoice TurnHand = TurnHandChoice.Right;  // => [Comfort] TurnHand
+    internal const bool FlightEnabled = true;                       // => [Comfort] FlightEnabled
+    internal const FlightDirectionSource FlightDirection = FlightDirectionSource.Head;  // => [Comfort] FlightDirection
+    internal const float FlightMaxSpeed = 3f;                       // => [Comfort] FlightMaxSpeed
+    internal const TurnHandChoice FlightHand = TurnHandChoice.Left; // => [Comfort] FlightHand
     internal const float TableHeightOffset = -0.4f;                 // => [Comfort] TableHeightOffset
     internal const float RecenterHoldSeconds = 1.0f;                // => [Comfort] RecenterHoldSeconds
     internal const float SavedScaleMultiplier = 2.40867f;           // => [Comfort] SavedScaleMultiplier

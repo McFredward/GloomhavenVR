@@ -428,6 +428,12 @@ internal static partial class Loc
         ["vr_o_snapdeg"] = Pair("Snap angle", "Sprungwinkel"),
         ["vr_o_smoothspeed"] = Pair("Turn speed", "Drehgeschwindigkeit"),
         ["vr_o_turnhand"] = Pair("Turning hand", "Dreh-Hand"),
+        // Option names stay SHORT on purpose (user ruling: a name is never ellipsised with "..." —
+        // it is shortened until it fits). All four are well inside the row's caption budget.
+        ["vr_o_flight"] = Pair("Stick flight", "Stick-Flug"),
+        ["vr_o_flightdir"] = Pair("Flight direction", "Flugrichtung"),
+        ["vr_o_flightspeed"] = Pair("Flight speed", "Fluggeschwindigkeit"),
+        ["vr_o_flighthand"] = Pair("Flight hand", "Flug-Hand"),
         ["vr_o_vdrag"] = Pair("Drag vertically", "Senkrecht ziehen"),
         ["vr_o_rotate"] = Pair("Rotate the world", "Welt drehen"),
         ["vr_o_scale"] = Pair("Resize the world", "Welt skalieren"),
@@ -499,6 +505,10 @@ internal static partial class Loc
         ["h_vr_o_snapdeg"] = Pair("How far one snap turn rotates you.", "Wie weit eine Sprungdrehung dich dreht."),
         ["h_vr_o_smoothspeed"] = Pair("How fast smooth turning rotates you.", "Wie schnell weiches Drehen dich dreht."),
         ["h_vr_o_turnhand"] = Pair("Which controller's stick turns you.", "Mit welchem Controller-Stick du dich drehst."),
+        ["h_vr_o_flight"] = Pair("Push the stick forward to fly through the scene.", "Stick nach vorne druecken, um durch die Szene zu fliegen."),
+        ["h_vr_o_flightdir"] = Pair("Fly where you look, or where the laser points.", "Fliegt dorthin, wohin du schaust oder wohin der Laser zeigt."),
+        ["h_vr_o_flightspeed"] = Pair("Speed with the stick pushed all the way.", "Geschwindigkeit bei voll durchgedruecktem Stick."),
+        ["h_vr_o_flighthand"] = Pair("Which controller's stick flies.", "Mit welchem Controller-Stick du fliegst."),
         ["h_world_grab"] = Pair("Grip empty air to pull the whole table towards you.", "Ins Leere greifen, um den Tisch zu dir zu ziehen."),
         ["h_vr_o_vdrag"] = Pair("Let a world grab also move the table up and down.", "Erlaubt, den Tisch beim Greifen auch zu heben und zu senken."),
         ["h_vr_o_rotate"] = Pair("Let a two-handed grab turn the table.", "Erlaubt, den Tisch mit beiden Händen zu drehen."),
