@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 29;
+    public const ushort ModBuild = 30;
+    // Build 30: a runtime re-origin (HMD doff/don) no longer moves the player — the rig is shifted
+    // back so the head lands where it was; option names never end in "…" any more (overflow +
+    // shrink instead of clip, and all 362 names shortened to fit); the decision text↔button gap is
+    // its own per-board setting in METRES, so resizing or moving the dock cannot change it.
     // Build 29: control board never moves or resizes on its own (the lost-board watchdog and the
     // two distance-based re-seats are gone; a two-handed resize now round-trips exactly), the
     // pick-status placard and the hover hints are position-tunable, and the placard rides the wire

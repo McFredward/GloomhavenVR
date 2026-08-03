@@ -56,15 +56,6 @@ internal static class WorldUIConfig
     /// <summary>Initiative track 3D depth effect: max total front-to-back z spread (px), live-tunable.</summary>
     internal static ConfigEntry<float> InitiativeDepthMaxSpreadPx = null!;
 
-    /// <summary>
-    /// User #11b/#14: the docked decision row's vertical gap. It now drives the docked
-    /// widget block's PLACEMENT (a quantity the mod owns): the interactive-widget block top
-    /// is docked this many uGUI px (in the row's own scale) BELOW the board's lower edge /
-    /// prompt line. Smaller = the buttons ride UP toward the prompt; larger = they drop.
-    /// Live-applied by <see cref="Surfaces.DecisionDockSurface"/> (re-runs placement on
-    /// change). Range 0–120 (widened from 60 so the stepper closes the observed gap).
-    /// </summary>
-    internal static ConfigEntry<float> DecisionRowGapPx = null!;
 
     /// <summary>
     /// User ("Ich will die Größe der Infotafeln, die beim Mouseover erscheinen, einstellen
@@ -415,18 +406,6 @@ internal static class WorldUIConfig
             "depth is compressed proportionally to land at this cap (never amplified). Higher = " +
             "stronger recession; 0 = flat. Live-tunable in the debug menu (Panels -> Initiative). " +
             "Range 0..40.");
-        DecisionRowGapPx = _file.Bind("WorldUI", "DecisionRowGapPx", Defaults.DecisionRowGapPx, new ConfigDescription(
-            "Vertical gap (uGUI pixels, in the docked row's own scale) between the control " +
-            "board's lower edge — where the game draws the decision prompt line, e.g. " +
-            "'Schadensphase: Erleide entweder Schaden …' — and the TOP of the docked " +
-            "interactive widget block (the 'Schaden erhalten' / burn buttons, the burn-confirm " +
-            "options, the short-rest Ja/Nein). The mod owns where this block docks, so this " +
-            "value drives the block's PLACEMENT directly: LOWER it to pull the buttons UP toward " +
-            "the prompt (closing the gap), RAISE it to drop them. Applied to every docked " +
-            "decision row and re-applied live to an open dock the instant it changes. The grab " +
-            "bar is never overlapped (the block always sits at least its clearance below it). " +
-            "Range 0-120.",
-            new AcceptableValueRange<float>(0f, 120f)));
         HoverInfoScale = _file.Bind("WorldUI", "HoverInfoScale", Defaults.HoverInfoScale,
             new ConfigDescription(
                 "SIZE factor of the hover INFO panels — the little cards the game raises while the " +

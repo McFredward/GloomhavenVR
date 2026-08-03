@@ -474,6 +474,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     {
         using (Core.PerfMonitor.Scope("Rig.Update"))
             UpdateBody();
+        // AFTER the body on purpose: the rig may have been (re)built, recentered or torn down
+        // this frame, and the guard's whole job is to compare THIS frame's final head pose
+        // against the last one — see VRRigDriver.OriginGuard.cs.
+        Core.TickGuard.Run("Rig.OriginGuard", TickOriginGuard);
     }
 
     private void UpdateBody()

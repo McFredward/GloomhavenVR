@@ -254,8 +254,66 @@ internal static partial class VROptionsTab
         title.alignment = s.align;
     }
 
-    /// <summary>Every setting caption, whatever control it belongs to, reads the same.</summary>
-    private static void ApplyOptionCaption(TMP_Text? title) => ApplyStyle(title, _titleStyle);
+    /// <summary>
+    /// Every setting caption, whatever control it belongs to, reads the same — and NEVER ends in
+    /// an ellipsis.
+    ///
+    /// <para>USER RULING 2026-08-03: "Manche Optionsnamen sind immer noch mit '...' abgekürzt —
+    /// das soll gar nicht sein - mach die Namen kürzer wenn sie nicht hinpassen aber niemals
+    /// '...'". The ellipsis was not ours: the caption inherits the GAME row template's TMP
+    /// settings, and that template ellipsizes. A truncated name is strictly worse than a small
+    /// one — "Fächer: Winkel je…" identifies nothing — so the caption now behaves like the action
+    /// rows already do (see the BuildActionRow branch, which learned this first): no wrapping,
+    /// overflow instead of ellipsis, and auto-sizing that shrinks the text a little rather than
+    /// cutting it. The floor is 78% of the sampled size, which is still comfortably readable at
+    /// arm's length; anything that does not fit even then is LOGGED by name (see
+    /// <see cref="ProbeCaptionFit"/>) so the name itself can be shortened instead of guessing
+    /// which ones are too long.</para>
+    /// </summary>
+    private static void ApplyOptionCaption(TMP_Text? title)
+    {
+        ApplyStyle(title, _titleStyle);
+        if (title == null)
+            return;
+        float authored = _titleStyle != null ? _titleStyle.Value.size : title.fontSize;
+        title.enableWordWrapping = false;
+        title.overflowMode = TextOverflowModes.Overflow; // NEVER Ellipsis — see the ruling above
+        title.enableAutoSizing = true;
+        title.fontSizeMax = authored;
+        title.fontSizeMin = Mathf.Max(9f, authored * CaptionMinScale);
+    }
+
+    /// <summary>How far a caption may shrink before it is reported as too long (fraction of the
+    /// sampled style size).</summary>
+    private const float CaptionMinScale = 0.78f;
+
+    /// <summary>Config keys already reported as not fitting — one line per name, not per frame.</summary>
+    private static readonly System.Collections.Generic.HashSet<string> ReportedLongCaptions = new();
+
+    /// <summary>
+    /// Report a caption that does not fit its label column even at the smallest allowed size. This
+    /// is the DATA behind the "shorten the name" half of the ruling: instead of guessing which of
+    /// the 362 localized names are too long, the log names them, with the measured overflow and
+    /// the language they overflowed in, so each one can be shortened deliberately.
+    /// </summary>
+    private static void ProbeCaptionFit(TMP_Text? title, string key)
+    {
+        if (title == null || string.IsNullOrEmpty(title.text))
+            return;
+        var rect = (RectTransform)title.transform;
+        float budget = rect.rect.width;
+        if (budget <= 1f)
+            return; // layout has not run yet — the next rebuild probes again
+        float needed = title.GetPreferredValues(title.text, 0f, 0f).x * CaptionMinScale;
+        if (needed <= budget + 0.5f || !ReportedLongCaptions.Add(key))
+            return;
+        VRLog.Warn("WorldUI",
+            $"OPTION NAME TOO LONG: '{title.text}' ({key}, {Loc.CurrentLanguage}) needs " +
+            $"{needed:F0} px at the smallest allowed size but its label column is {budget:F0} px " +
+            "— it will OVERFLOW rather than be cut (ellipsis is banned, user ruling 2026-08-03). " +
+            "Shorten the name in Loc.ConfigNames for this language.");
+    }
+
 
     /// <summary>
     /// A section header: the plain caption style, DERIVED upward — larger, brighter, bold small
@@ -623,6 +681,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            ProbeCaptionFit(title, item.Key);
         }
 
         var options = new List<TMP_Dropdown.OptionData>(names.Length);
@@ -681,6 +740,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            ProbeCaptionFit(title, item.Key);
         }
 
         // THE SWITCH HAS TO SAY WHICH WAY IT IS. Its caption is static text the game's own binder
@@ -721,6 +781,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            ProbeCaptionFit(title, item.Key);
         }
 
         object[] choices = item.Choices!;
@@ -767,6 +828,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            ProbeCaptionFit(title, item.Key);
         }
 
         slider.onValueChanged.RemoveAllListeners();
@@ -802,6 +864,7 @@ internal static partial class VROptionsTab
                 ? $"{Caption(item, caption)} · {ConfigCatalog.ComponentLabel(item, component)}"
                 : Caption(item, caption);
             ApplyOptionCaption(title);
+            ProbeCaptionFit(title, item.Key);
         }
 
         if (option == null)

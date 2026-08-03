@@ -319,6 +319,16 @@ internal static partial class Loc
                 + "beim Neuaufbau des Rigs wieder angewandt. Standard 2.5 — die automatische Grundskalierung "
                 + "wirkt wie ein riesiges Diorama; 2.5x schrumpft sie beim ersten Erscheinen auf eine angenehme "
                 + "Tischgröße (Nutzerwunsch: Standard-Tischgröße ~2.5).",
+            ["Comfort/KeepPlaceOnReorigin"] =
+                "Bleib dort, wo du warst, wenn die VR-Laufzeit ihren Tracking-Ursprung unter dem "
+                + "Spiel verschiebt — genau das passiert meist, wenn du die Brille absetzt und wieder "
+                + "aufsetzt, und deshalb stehst du danach woanders. Der Mod erkennt die Verschiebung "
+                + "(der Kopf springt in EINEM Frame weiter, als ein Hals sich bewegen kann), wartet "
+                + "ein paar Frames zur Sicherheit ab, ob es nur ein Tracking-Aussetzer war, und "
+                + "verschiebt das Rig um denselben Betrag zurück — dein Kopf steht danach wieder "
+                + "exakt an der Stelle und in der Blickrichtung von vorher. Weltverankerte Dinge "
+                + "werden dabei NICHT mitbewegt: du warst ja nie woanders. Aus = der Ursprung der "
+                + "Laufzeit gewinnt (bisheriges Verhalten).",
             ["Comfort/DebugGizmos"] =
                 "Zeigt das Komfort-Debug-Overlay (Zustand von Welt greifen, Skalierungsfaktor, Status der "
                 + "Begrenzungen).",
@@ -940,6 +950,12 @@ internal static partial class Loc
                 + "langen (Slot-zu-Slot-)Achse des Boards ADDIERT wird — Slot 0 (links) wandert −½, Slot 1 "
                 + "(rechts) +½. Startwert 0 (die Slots verteilen die Overlays bereits; positiv zieht sie "
                 + "auseinander). Item 1.",
+            ["Cards/DecisionGap_*"] =
+                "Senkrechter Abstand zwischen dem ENTSCHEIDUNGSTEXT (den das Spiel an der Unterkante "
+                + "des Bretts zeichnet) und der OBERKANTE der Entscheidungsknöpfe, in board-lokalen "
+                + "Metern. Das ist die EINZIGE Stellschraube für diesen Abstand: Sie ist bewusst "
+                + "unabhängig von Größe und Versatz des Entscheidungsdocks — Vergrößern oder "
+                + "Verschieben ändert also nie, wie weit die Knöpfe vom Text entfernt sitzen.",
             ["Cards/InitiativeOffset_*"] =
                 "Lokale Position der Aufhängung der Initiativleiste (ersetzt die feste Mount-Position), "
                 + "board-lokale Meter. Von Oak übernommen (0, 0.10, −0.004).",
@@ -1320,16 +1336,6 @@ internal static partial class Loc
                 + "Zeilentiefe wird proportional gestaucht, bis sie diese Obergrenze einhält (nie verstärkt). "
                 + "Höher = stärkere Staffelung; 0 = flach. Live änderbar im Debug-Menü (Tafeln -> Initiative). "
                 + "Bereich 0..40.",
-            ["WorldUI/DecisionRowGapPx"] =
-                "Senkrechter Abstand (uGUI-Pixel, im Maßstab der angedockten Zeile) zwischen der Unterkante "
-                + "des Kontrollbretts — dort zeichnet das Spiel die Entscheidungszeile, z. B. \"Schadensphase: "
-                + "Erleide entweder Schaden …\" — und der OBERKANTE des angedockten interaktiven Widget-Blocks "
-                + "(die Knöpfe \"Schaden erhalten\" / Verbrennen, die Verbrennen-Bestätigungsoptionen, das "
-                + "Ja/Nein der kurzen Rast). Der Mod bestimmt, wo dieser Block andockt, deshalb steuert der "
-                + "Wert direkt seine PLATZIERUNG: KLEINER zieht die Knöpfe nach OBEN zur Abfrage (schließt die "
-                + "Lücke), GRÖSSER lässt sie absinken. Gilt für jede angedockte Entscheidungszeile und wird bei "
-                + "einer Änderung sofort auf ein offenes Dock angewendet. Die Greifleiste wird nie überlappt "
-                + "(der Block sitzt immer mindestens seinen Sicherheitsabstand darunter). Bereich 0-120.",
             ["WorldUI/HoverInfoScale"] =
                 "GRÖSSEN-Faktor der Infotafeln beim Mouseover — der kleinen Karten, die das Spiel einblendet, "
                 + "während Zeiger/Fingerspitze über einem Brettfeld schweben (\"2 Gold\", \"Geschlossene Tür\", "

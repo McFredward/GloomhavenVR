@@ -172,6 +172,10 @@ internal static class ComfortSettings
     /// <summary>Comfort debug overlay (world-grab state, scale, clamps).</summary>
     public static ComfortSetting<bool> DebugGizmos { get; private set; } = null!;
 
+    /// <summary>Compensate a runtime re-origin (typical after an HMD doff/don) so the player stays
+    /// where they were — see <c>VRRigDriver.TickOriginGuard</c>.</summary>
+    public static ComfortSetting<bool> KeepPlaceOnReorigin { get; private set; } = null!;
+
     // ---- derived helpers -----------------------------------------------------------------
 
     /// <summary>Guaranteed scale floor/ceiling while <see cref="FreeMovement"/> is on (test #10).</summary>
@@ -286,6 +290,15 @@ internal static class ComfortSettings
             "first spawn (user request: default table scale ~2.5).");
         DebugGizmos = Bind("DebugGizmos", Defaults.DebugGizmos,
             "Show the comfort debug overlay (world-grab state, scale multiplier, clamp status).");
+        KeepPlaceOnReorigin = Bind("KeepPlaceOnReorigin", Defaults.KeepPlaceOnReorigin,
+            "Stay where you were when the VR runtime moves its tracking origin under the game — " +
+            "which is what usually happens when you take the headset off and put it back on, and " +
+            "why you can end up standing somewhere else. The mod spots the origin change (the " +
+            "head jumps further in ONE frame than a neck can move), waits a few frames to be sure " +
+            "it was not a tracking blip, and shifts the rig by the same amount in reverse, so your " +
+            "head ends up back at the exact spot and facing you had. Nothing world-anchored is " +
+            "moved: you did not actually go anywhere. Off = the runtime's origin wins (old " +
+            "behaviour).");
 
         // ONE-TIME defaults migration (user request: default table scale 2.5): BepInEx keeps
         // the values saved in an existing config file, so changing the declared default above

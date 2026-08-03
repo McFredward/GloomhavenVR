@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BepInEx.Configuration;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using Script.GUI.Popups;
@@ -209,8 +210,14 @@ internal sealed class DecisionDockSurface : WorldSurface
         // User #11b: the gap target is live-tunable — re-apply the row adjustments in
         // place when it changes while a row is docked (AdjustDockedRow restores first,
         // so re-running is idempotent). Unsubscribed in Shutdown.
-        if (WorldUIConfig.DecisionRowGapPx != null)
-            WorldUIConfig.DecisionRowGapPx.SettingChanged += OnRowGapSettingChanged;
+        // Null-guarded: this surface is constructed during module init, which may run before
+        // CardsConfig has bound its entries (the same reason the old WorldUI bind was guarded).
+        for (int b = 0; b < 3; b++)
+        {
+            ConfigEntry<float> gap = CardsConfig.DecisionGap((ControlBoard)b);
+            if (!ReferenceEquals(gap, null))
+                gap.SettingChanged += OnRowGapSettingChanged;
+        }
     }
 
     /// <summary>
@@ -392,15 +399,15 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <summary>
     /// Dock on the tray's <see cref="PlayTray.DecisionMount"/> (pose-follow, shared tray
     /// density — the <see cref="TrayMountedPanelSurface"/> math), horizontally CENTERED on
-    /// the mount, VERTICALLY driven by <see cref="WorldUIConfig.DecisionRowGapPx"/>. While
+    /// the mount, VERTICALLY driven by <see cref="CardsConfig.DecisionGap"/>. While
     /// no usable mount exists (Cards module off, tray hidden/destroyed) the row floats
     /// HMD-anchored at reading distance instead (placed once, ModalFallback pattern) — a
     /// decision must never be invisible.
     ///
     /// USER #14 — PLACEMENT-DRIVEN GAP (the fix that cannot silently no-op). The mod owns
     /// where this block docks outright, so the gap stepper drives a MOD-OWNED quantity:
-    /// the interactive-widget block's TOP is placed <see cref="WorldUIConfig.DecisionRowGapPx"/>
-    /// pixels (in the row's own scale) BELOW the prompt reference — the tray grab-bar
+    /// the interactive-widget block's TOP is placed <see cref="CardsConfig.DecisionGap"/>
+    /// board-local metres BELOW the prompt reference — the tray grab-bar
     /// bottom along the board's lower edge, where the game draws the decision prompt text.
     /// Shrink the gap → the whole docked block rises toward the prompt; grow it → the block
     /// drops. Because the block top is measured from the VISIBLE widget graphics (glyph/plate
@@ -472,10 +479,25 @@ internal sealed class DecisionDockSurface : WorldSurface
         WidgetBlockEdgesAbovePivot(host, up, rect.yMax * scale, rect.yMin * scale,
             out float blockTopAbovePivot, out float blockBottomAbovePivot);
 
-        // Gap px → world m in the row's own scale; place the block top this far below the
-        // prompt reference. gap ≥ 0 keeps the block clear of the grab bar by construction.
-        float gapPx = Mathf.Max(0f, WorldUIConfig.DecisionRowGapPx.Value);
-        float gapMeters = gapPx * scale;
+        // TEXT→BUTTON DISTANCE, AND NOTHING ELSE TOUCHES IT (user ruling 2026-08-03: "Der Abstand
+        // von Text zu buttons bei den Decision buttons soll sich NICHT verändern wenn ich die
+        // Größe oder offsets anpasse").
+        //
+        // It used to be [WorldUI] DecisionRowGapPx — pixels IN THE ROW'S OWN SCALE, i.e.
+        // gapPx * scale, where `scale` is the fitted density above. That made the gap a FUNCTION
+        // of the dock size: the fit clamps between MinDensityScale and MaxDensityScale, so a
+        // resize moved the buttons up to 2x closer to or further from the prompt text without
+        // anyone touching a gap setting. That is exactly the reported "ich hab die Größe angepasst
+        // und dann war der Text direkt über den Buttons".
+        //
+        // The gap is now [Cards] DecisionGap_<board> in BOARD-LOCAL METRES, scaled only by the
+        // tray's own scale. It is therefore invariant under the row's fit scale (the size) by
+        // construction. It is equally invariant under DecisionOffset: the placement below is
+        // anchored to the PROMPT REFERENCE (the grab-bar bottom), and the mount position cancels
+        // out of the up-axis solve — so the offset's X/Z still slide the dock sideways and proud
+        // while its Y cannot pull the buttons away from the text. One setting, one distance.
+        float gapBoardMeters = Mathf.Max(0f, CardsConfig.DecisionGap(CardsConfig.CurrentBoard).Value);
+        float gapMeters = gapBoardMeters * trayScale;
         float targetBlockTopUp = promptRefUp - gapMeters;
         float d = targetBlockTopUp - blockTopAbovePivot; // shift along up from mount.position
         Vector3 pos = mount.position + up * d;
@@ -487,16 +509,19 @@ internal sealed class DecisionDockSurface : WorldSurface
         // actually SEES instead of the mount's worst-case extent (see RowBottomUpMeters doc).
         RowBottomUpMeters = d + blockBottomAbovePivot;
 
-        if (!_placementLogged || float.IsNaN(_lastLoggedGapPx) || Mathf.Abs(gapPx - _lastLoggedGapPx) >= 0.5f)
+        if (!_placementLogged || float.IsNaN(_lastLoggedGapPx)
+            || Mathf.Abs(gapBoardMeters - _lastLoggedGapPx) >= 0.0005f)
         {
             _placementLogged = true;
-            _lastLoggedGapPx = gapPx;
-            VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' gap placement — [WorldUI] " +
-                                  $"DecisionRowGapPx={gapPx:F0}px → widget block top {gapMeters * 1000f:F0} mm " +
-                                  $"below the prompt reference ({refNote}, {promptRefUp * 1000f:F0} mm above " +
-                                  $"the mount); block top set {(promptRefUp - gapMeters) * 1000f:F0} mm above " +
-                                  $"the mount, host shifted {d * 1000f:F0} mm along the dock up-axis. The " +
-                                  "stepper moves this mod-owned position, so it always changes the gap.");
+            _lastLoggedGapPx = gapBoardMeters;
+            VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' gap placement — [Cards] " +
+                                  $"DecisionGap_{CardsConfig.CurrentBoard}={gapBoardMeters * 1000f:F1} mm " +
+                                  $"→ widget block top {gapMeters * 1000f:F0} mm (world) below the prompt " +
+                                  $"reference ({refNote}, {promptRefUp * 1000f:F0} mm above the mount); block " +
+                                  $"top set {(promptRefUp - gapMeters) * 1000f:F0} mm above the mount, host " +
+                                  $"shifted {d * 1000f:F0} mm along the dock up-axis at row scale " +
+                                  $"{scale:F5} (tray {trayScale:F3}). The gap is board-local metres, so this " +
+                                  "distance does NOT move with the dock size or its offset.");
         }
     }
 
@@ -567,7 +592,7 @@ internal sealed class DecisionDockSurface : WorldSurface
 
         VRLog.Info("WorldUI", $"DECISION DOCK: row adjusted — {styled} widget background(s) antique-tinted " +
                               "(dark-wood/brass + parchment labels, the VR-settings-button style); the " +
-                              "text↔widget gap is now driven by DecisionRowGapPx placement (see Place).");
+                              "text↔widget gap is now driven by the DecisionGap placement (see Place).");
     }
 
     /// <summary>
@@ -932,8 +957,12 @@ internal sealed class DecisionDockSurface : WorldSurface
 
     public override void Shutdown()
     {
-        if (WorldUIConfig.DecisionRowGapPx != null)
-            WorldUIConfig.DecisionRowGapPx.SettingChanged -= OnRowGapSettingChanged; // user #11b live-apply
+        for (int b = 0; b < 3; b++)
+            {
+                ConfigEntry<float> gap = CardsConfig.DecisionGap((ControlBoard)b);
+                if (!ReferenceEquals(gap, null))
+                    gap.SettingChanged -= OnRowGapSettingChanged; // user #11b live-apply
+            }
         bool hadPanel = Panel != null;
         UnregisterDeliberateCanvas();
         base.Shutdown(); // releases the conversion → row back in its 2D home

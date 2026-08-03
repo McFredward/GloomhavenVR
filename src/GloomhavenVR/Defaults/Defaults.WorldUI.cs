@@ -143,7 +143,6 @@ internal static partial class Defaults
     internal const bool ForceMouseMode = true;               // => [WorldUI] ForceMouseMode
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
-    internal const float DecisionRowGapPx = 24f;             // => [WorldUI] DecisionRowGapPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale
     internal const float EnemyRevealBoardClearance = 0.10f;  // => [WorldUI] EnemyRevealBoardClearance
     internal const bool FlatScreenAutoShow = true;           // => [WorldUI] FlatScreenAutoShow
