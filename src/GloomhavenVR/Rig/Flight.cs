@@ -111,12 +111,22 @@ internal sealed class Flight : MonoBehaviour
         if (!ComfortSettings.FlightEnabled.Value)
             return;
 
-        // MODE GATING, mirroring SnapTurn's documented stick-contention rule: BoardTargeting owns
-        // the thumbstick outright (Phase-3a rotates AoE patterns with it), and Menu2D has no scene
-        // to fly through. ModalUI is deliberately NOT excluded — the player must keep full movement
-        // while a dialog floats, which is the same call turning already makes.
+        // MODE GATING. Menu2D has no scene to fly through. ModalUI is deliberately NOT excluded —
+        // the player must keep full movement while a dialog floats, the same call turning makes.
+        //
+        // BOARDTARGETING IS NO LONGER A BLANKET BLOCK (user, hardware test 2026-08-03: "Obwohl
+        // kontinuierliche Bewegung aktiviert ist, funktioniert sie nicht direkt nach dem
+        // Szenariostart"). It was copied from SnapTurn's rule as "targeting owns the thumbstick",
+        // but that is not what targeting does: AoeControl reads Thumbstick.X ALONE (AoeControl.cs:75,
+        // one 60-degree step per horizontal flick) and never touches the forward axis. Meanwhile
+        // WaitingForTileSelected is a targeting state — which is exactly what the player sits in
+        // right after a scenario starts, while placing their figure — so the blanket block made
+        // flight look broken during the first minutes of every scenario, precisely when a player
+        // most wants to fly around and look at the map. Forward/back flight runs here; only STRAFE
+        // stands down, because that is the axis AoE really owns (see StrafeAllowed, same rule as
+        // the turning contest).
         VRMode mode = VRModeStateMachine.CurrentMode;
-        if (mode == VRMode.BoardTargeting || (mode == VRMode.Menu2D && !RigTarget.IsDevProxy))
+        if (mode == VRMode.Menu2D && !RigTarget.IsDevProxy)
             return;
 
         VRHand? hand = ResolveFlightHand();
@@ -284,14 +294,21 @@ internal sealed class Flight : MonoBehaviour
         bool turningOnThisStick = ComfortSettings.Turn.Value != TurnMode.Off
                                   && SameHand(ComfortSettings.FlightHand.Value,
                                               ComfortSettings.TurnHand.Value);
-        bool allowed = !turningOnThisStick;
+        // AoE targeting owns the sideways axis outright while it is up (AoeControl.cs:75 — a
+        // horizontal flick rotates the pattern one 60-degree step). It does NOT own the forward
+        // axis, which is why the mode gate above no longer refuses flight outright: the player
+        // keeps flying while aiming, they just cannot strafe with the same flick that turns the
+        // pattern. Same shape of ruling as the turning contest, same reason — the older, aimed
+        // control keeps the axis it was built on.
+        bool aoeOwnsSideways = VRModeStateMachine.CurrentMode == VRMode.BoardTargeting;
+        bool allowed = !turningOnThisStick && !aoeOwnsSideways;
         if (_strafeAllowed != allowed)
         {
             _strafeAllowed = allowed;
             VRLog.Info("Comfort", allowed
                 ? "stick flight: sideways strafe ON — the flight stick's sideways axis is free."
-                : "stick flight: sideways strafe OFF — flight and turning are on the SAME stick, " +
-                  "and turning owns the sideways axis. Put them on different hands ([Comfort] " +
+                : "stick flight: sideways strafe OFF — the sideways axis is claimed (AoE targeting, " +
+                  "or turning on this same stick). Put flight and turning on different hands ([Comfort] " +
                   "FlightHand / TurnHand) or set turning to Off to get strafe back. Forward and " +
                   "backward flight are unaffected.");
         }

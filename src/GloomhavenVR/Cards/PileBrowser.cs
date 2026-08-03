@@ -725,10 +725,10 @@ internal sealed class PileBrowser
             // Best of this card's TWO poses (resting first, then live — see the doc above).
             bool hit = false;
             Vector3 hitPoint = default;
-            float hitDist = 0f, hitWidth = 0f;
+            float hitDist = 0f, hitWidth = 0f, hitDot = 0f;
             float bestOver = float.MaxValue;
             Vector3 overPoint = default;
-            float overDist = 0f, overPad = 0f, overWidth = 0f;
+            float overDist = 0f, overPad = 0f, overWidth = 0f, overDot = 0f;
 
             for (int pose = 0; pose < 2; pose++)
             {
@@ -764,6 +764,7 @@ internal sealed class PileBrowser
                         hitPoint = world;
                         hitDist = dist;
                         hitWidth = halfW * 2f;
+                        hitDot = denom;
                     }
                     continue;
                 }
@@ -783,6 +784,7 @@ internal sealed class PileBrowser
                 overDist = dist;
                 overPad = FanSweep.LaserPad(dist, Mathf.Max(halfW, halfH));
                 overWidth = halfW * 2f;
+                overDot = denom;
             }
 
             if (!hit)
@@ -801,6 +803,7 @@ internal sealed class PileBrowser
                     {
                         Hit = false, Rescued = false, Name = c.name, Distance = overDist,
                         Overshoot = bestOver, Pad = overPad, FaceWidthWorld = overWidth,
+                        FaceDot = overDot,
                     };
                 }
                 if (overPad <= 0f || bestOver > overPad)
@@ -828,7 +831,7 @@ internal sealed class PileBrowser
                 LastLaserPick = new FanSweep.FanLaserPick
                 {
                     Hit = true, Rescued = false, Name = c.name, Distance = hitDist,
-                    Overshoot = 0f, Pad = 0f, FaceWidthWorld = hitWidth,
+                    Overshoot = 0f, Pad = 0f, FaceWidthWorld = hitWidth, FaceDot = hitDot,
                 };
                 return true;
             }
@@ -841,7 +844,7 @@ internal sealed class PileBrowser
             LastLaserPick = new FanSweep.FanLaserPick
             {
                 Hit = true, Rescued = false, Name = c.name, Distance = hitDist,
-                Overshoot = 0f, Pad = 0f, FaceWidthWorld = hitWidth,
+                Overshoot = 0f, Pad = 0f, FaceWidthWorld = hitWidth, FaceDot = hitDot,
             };
         }
 

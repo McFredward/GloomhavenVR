@@ -476,6 +476,19 @@ internal static class FanSweep
         /// <summary>The card's face width in world units — its REAL size once divided by the rig scale.</summary>
         internal float FaceWidthWorld;
 
+        /// <summary>
+        /// Incidence: <c>dot(rayDirection, faceNormal)</c> at the pick / nearest miss, i.e. how
+        /// squarely the beam met the face (1 = head-on, 0 = edge-on).
+        ///
+        /// <para>Logged because the user's report is specifically ANGULAR and specifically
+        /// ASYMMETRIC — "Von unten hat der Collider super funktioniert, von oben kaum bis gar
+        /// nicht" — while the card billboards to the HEAD and the beam leaves the HAND. Printing
+        /// the incidence turns that from a hypothesis into a measurement: if the misses cluster at
+        /// a low dot from above and a high one from below, the remaining cause is still angular; if
+        /// the dot is healthy in both and the beam still misses, it is not.</para>
+        /// </summary>
+        internal float FaceDot;
+
         internal static FanLaserPick None => new() { Name = "none", Distance = 0f };
     }
 
@@ -547,8 +560,14 @@ internal static class FanSweep
                   : " (dead on the face)")
             : $"MISS — nearest '{pick.Name}' was {pick.Overshoot / scale * 100f:F1} cm outside its face " +
               $"with only {pick.Pad / scale * 100f:F1} cm of angular pad";
+        // Incidence, in degrees off the face normal — the measurement that decides whether an
+        // "it misses from above" report is still an angular problem (see FanLaserPick.FaceDot).
+        string incidence = pick.FaceDot > 0f
+            ? $", met the face at {Mathf.Acos(Mathf.Clamp01(pick.FaceDot)) * Mathf.Rad2Deg:F0}° " +
+              $"off its normal (dot {pick.FaceDot:F2})"
+            : string.Empty;
         VRLog.Info("Cards",
             $"{fan} laser ({hand}): {what}. Card {pick.FaceWidthWorld / scale * 100f:F1} cm wide, " +
-            $"world scale {scale:F1}×. Press: {pressVerdict}.");
+            $"world scale {scale:F1}×{incidence}. Press: {pressVerdict}.");
     }
 }
