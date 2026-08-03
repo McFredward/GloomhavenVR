@@ -225,6 +225,14 @@ internal static partial class CanvasConversion
 
         /// <summary>Fully outside its enclosing clipper (scrolled out of a viewport).</summary>
         ClippedOut,
+
+        /// <summary>
+        /// Depth-mask emission only (<c>tightenToInk</c>): the graphic draws NO ink inside its rect
+        /// — an empty/blank label. It must not stamp depth, exactly like the non-rendering emitters
+        /// of task #6b. The FIT never asks for the ink measure, so it can never see this value and
+        /// its per-reason tally is deliberately not extended.
+        /// </summary>
+        NoInk,
     }
 
     /// <summary>Reject reason of the LAST <see cref="TryGetVisibleHostRect"/> call (scratch).</summary>
@@ -292,8 +300,9 @@ internal static partial class CanvasConversion
     /// <see cref="MaskMinAlpha"/> for depth-mask emission.
     /// </summary>
     private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
-        out Vector2 gMin, out Vector2 gMax, float minAlpha = FitMinAlpha) =>
-        TryGetVisibleHostRect(panel, g, out gMin, out gMax, out _, out _, minAlpha);
+        out Vector2 gMin, out Vector2 gMax, float minAlpha = FitMinAlpha,
+        bool tightenToInk = false) =>
+        TryGetVisibleHostRect(panel, g, out gMin, out gMax, out _, out _, minAlpha, tightenToInk);
 
     /// <summary>
     /// <see cref="TryGetVisibleHostRect(ConvertedPanel,Graphic,out Vector2,out Vector2,float)"/>
@@ -304,10 +313,17 @@ internal static partial class CanvasConversion
     /// the host with every intermediate <c>localScale</c> treated as 1, clamped to its clipper's
     /// authored rect the same way. It is empty (max &lt;= min) when the authored geometry is
     /// unusable; the caller then leaves that graphic out of the authored union.
+    ///
+    /// <para><paramref name="tightenToInk"/> (the health-bar/initiative-track transparency round):
+    /// measure the graphic's OPAQUE footprint (<see cref="MeasureInkRect"/>) and report THAT
+    /// sub-rect instead of the whole layout rect — a sprite's transparent border, a TMP label's
+    /// unused rect. Only the depth-mask collection asks for it; the content FIT never does, so fit
+    /// geometry stays byte-for-byte what the shipped builds measured. False with
+    /// <see cref="MeasureReject.NoInk"/> when the graphic draws nothing at all.</para>
     /// </summary>
     private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
         out Vector2 gMin, out Vector2 gMax, out Vector2 aMin, out Vector2 aMax,
-        float minAlpha = FitMinAlpha)
+        float minAlpha = FitMinAlpha, bool tightenToInk = false)
     {
         gMin = default;
         gMax = default;
@@ -337,7 +353,41 @@ internal static partial class CanvasConversion
             return false;
         }
 
-        rect.GetWorldCorners(CornerScratch);
+        // Ink tightening (depth-mask emission only): shrink the emitted box to the sub-rect the
+        // graphic actually PAINTS in. The corners are then transformed through the exact same
+        // localToWorld path GetWorldCorners uses (it transforms the rect's own local corners), so
+        // an obliquely viewed or rotated graphic maps correctly instead of being lerped inside an
+        // axis-aligned bound that is not its rect.
+        s_lastInkFraction = 1f;
+        s_lastInkRule = string.Empty;
+        Rect emitRect = drawRect;
+        if (tightenToInk)
+        {
+            InkMeasure measured = MeasureInkRect(g, drawRect, out Rect inkRect, out string inkRule);
+            if (measured == InkMeasure.Empty)
+            {
+                s_lastInkRule = inkRule;
+                s_lastReject = MeasureReject.NoInk;
+                return false;
+            }
+            if (measured == InkMeasure.Tightened)
+            {
+                emitRect = inkRect;
+                s_lastInkRule = inkRule;
+                s_lastInkFraction = Mathf.Clamp01((inkRect.width * inkRect.height)
+                    / Mathf.Max(0.0001f, drawRect.width * drawRect.height));
+            }
+
+            Matrix4x4 l2w = rect.localToWorldMatrix;
+            CornerScratch[0] = l2w.MultiplyPoint(new Vector3(emitRect.xMin, emitRect.yMin, 0f));
+            CornerScratch[1] = l2w.MultiplyPoint(new Vector3(emitRect.xMin, emitRect.yMax, 0f));
+            CornerScratch[2] = l2w.MultiplyPoint(new Vector3(emitRect.xMax, emitRect.yMax, 0f));
+            CornerScratch[3] = l2w.MultiplyPoint(new Vector3(emitRect.xMax, emitRect.yMin, 0f));
+        }
+        else
+        {
+            rect.GetWorldCorners(CornerScratch);
+        }
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
         float maxZ = float.MinValue;
@@ -857,6 +907,17 @@ internal static partial class CanvasConversion
     /// menu floating behind along one clean edge. <see cref="IsNonRenderingMaskEmitter"/>
     /// excludes that whole class from EMISSION ONLY (the content fit is untouched); excluded
     /// names + the matched rule land in <see cref="LastMaskExclusions"/> for the rebuild diag.
+    ///
+    /// TRANSPARENCY ROUND (health bars cut a hole into the enemy info panel; the initiative
+    /// portraits sit in a grey block that erases the pause-menu row behind them): the emitted box
+    /// is no longer the graphic's layout RECT but its measured INK sub-rect
+    /// (<c>tightenToInk</c> → <see cref="MeasureInkRect"/>, CanvasConversion.7.Ink.cs) — the
+    /// trimmed/letterboxed sprite area, the generated glyph run — and a graphic that paints
+    /// nothing at all emits no quad. That is the whole of the user's ruling: depth participation
+    /// stays on for EVERY host, only the invisible margin around the visible pixels stops
+    /// occluding. Unmeasurable graphics (RawImage, sprite-less Image, Sliced/Tiled) keep the full
+    /// rect on purpose — a too-small stamp loses occlusion the panel should win. The shrink is
+    /// counted per pass and reported by <see cref="DescribeLastMaskInk"/>.
     /// </summary>
     internal static int CollectVisibleMaskRects(ConvertedPanel panel, List<Vector4> rects, int maxCount,
         List<Graphic?>? sources = null)
@@ -864,6 +925,7 @@ internal static partial class CanvasConversion
         rects.Clear();
         sources?.Clear();
         LastMaskExclusions.Clear();
+        ResetMaskInkStats();
         LastMaskMaxZ = 0f;
         if (panel == null || panel.Target == null || panel.HostRect == null)
             return 0;
@@ -874,8 +936,16 @@ internal static partial class CanvasConversion
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
             Graphic g = GraphicScratch[i];
-            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax, MaskMinAlpha))
+            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax, MaskMinAlpha,
+                    tightenToInk: true))
+            {
+                // Transparency round: a graphic that draws no ink at all (empty label) is dropped
+                // here for the same reason task #6b drops the invisible clippers — it reads as
+                // "nothing there", so it must not cut what is behind it.
+                if (s_lastReject == MeasureReject.NoInk)
+                    RecordMaskNoInk(g, s_lastInkRule);
                 continue;
+            }
             // Task #6b: a graphic that renders no pixels (invisible clipper / viewport /
             // raycast catcher) must not stamp depth. Checked only AFTER the (cheap) visibility
             // test passed, so the component lookups run for the ~dozens of emitting graphics,
@@ -892,6 +962,7 @@ internal static partial class CanvasConversion
             }
             if (s_lastVisibleRectMaxZ > LastMaskMaxZ)
                 LastMaskMaxZ = s_lastVisibleRectMaxZ; // deepest EMITTED graphic (see the field doc)
+            RecordMaskInk(g, gMin, gMax, s_lastInkFraction, s_lastInkRule);
             if (rects.Count < maxCount)
             {
                 rects.Add(new Vector4(gMin.x, gMin.y, gMax.x, gMax.y));
@@ -919,6 +990,13 @@ internal static partial class CanvasConversion
     /// <summary>Scratch: host-local max +Z (px) of the corners measured by the LAST
     /// <see cref="TryGetVisibleHostRect"/> call (set on success only).</summary>
     private static float s_lastVisibleRectMaxZ;
+
+    /// <summary>Scratch: what fraction of its own rect AREA the last ink-tightened
+    /// <see cref="TryGetVisibleHostRect"/> call kept (1 = no tightening applied).</summary>
+    private static float s_lastInkFraction = 1f;
+
+    /// <summary>Scratch: which ink measure the last call used / why it dropped the graphic.</summary>
+    private static string s_lastInkRule = string.Empty;
 
     /// <summary>
     /// Host-local +Z (px, ≥0) of the DEEPEST graphic emitted by the last

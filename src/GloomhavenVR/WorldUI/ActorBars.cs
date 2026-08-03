@@ -67,18 +67,24 @@ internal static class ActorBars
     private const float BarZoom = 1f;
 
     /// <summary>
-    /// Host-canvas sortingOrder for adopted actor bars — deliberately the BASE tier (0), i.e. one
-    /// full tier BELOW the world-space info panels
-    /// (<c>StatPanelSurface.StatPanelSortingOrder == ModalFallback.ModalHostSortingOrder</c> = 1000).
+    /// Host-canvas sortingOrder for adopted actor bars — the BASE tier (0), the same tier every
+    /// other converted host uses, and NOT a statement about who occludes whom.
     ///
-    /// <para>Unity sorts transparent UI by sortingLayer → SORTINGORDER first and only then by
-    /// renderQueue/distance, so at 0-vs-1000 the "Infotafel" ALWAYS paints after (over) a bar,
-    /// whatever the head pose — which is the user ruling from the hardware test
-    /// (healthbar_problem.jpg: "die Healthbar ... überlagert Infotafeln"). This was already the
-    /// effective behaviour by the default parameter; naming it makes the rule explicit and stops a
-    /// future 'give the bars a dominant order to kill flicker' edit from silently re-breaking it.
-    /// The bar being spatially NEARER than the panel does not (and must not) change this: an info
-    /// panel the player pulled up is the thing they are reading.</para>
+    /// <para>Unity sorts transparent UI by sortingLayer → sortingOrder first, so a bar at 0 is
+    /// PAINTED before a world-space info panel at 1000
+    /// (<c>StatPanelSurface.StatPanelSortingOrder == ModalFallback.ModalHostSortingOrder</c>).
+    /// Occlusion is decided AFTER that, per pixel, by the depth compose: every converted host —
+    /// bars included — stamps its own plane at queue 2999 before ANY canvas content draws
+    /// (CanvasConversion.5.Depth.cs), and each panel's content then ZTest-LEquals against every
+    /// stamp. So a bar in FRONT of the Infotafel survives (the panel's pixels fail the bar's
+    /// stamp) and a bar behind it does not — which is the user ruling that perspective must be
+    /// respected everywhere. An earlier round read this constant as "the panel always wins";
+    /// it does not, and must not.</para>
+    ///
+    /// <para>Naming the value still earns its keep: it stops a future 'give the bars a dominant
+    /// order to kill flicker' edit from lifting bars above the modal tier, which would put them in
+    /// front of a menu they are spatially behind on the ORDER axis for the frames before the
+    /// stamps settle.</para>
     /// </summary>
     private const int BarHostSortingOrder = 0;
 
@@ -144,9 +150,6 @@ internal static class ActorBars
 
         /// <summary>Instance IDs of graphics whose raycastTarget was already cleared.</summary>
         public readonly HashSet<int> RaycastOffIds = new();
-
-        /// <summary>Last suppression state pushed to the host panel (change-gated write).</summary>
-        public bool? DepthStampSuppressed;
     }
 
     /// <summary>Rescan cadence for late-spawned bar graphics (HealthBar mark pooling).</summary>
@@ -159,7 +162,6 @@ internal static class ActorBars
     // applies on every rig. Not in WorldUIConfig because that file predates the trap lesson.
     private static ConfigFile? s_barsConfigFile;
     private static ConfigEntry<bool>? s_barsOccluded;
-    private static ConfigEntry<bool>? s_barsDepthStamp;
 
     /// <summary>
     /// Bind-once for the [WorldUI] BarsOccluded entry. Extracted from the property getter so the
@@ -177,15 +179,13 @@ internal static class ActorBars
             + "any world object instead of the bar shining through. Look-preserving — "
             + "bars stay enabled and billboarding, they are simply hidden pixel-by-pixel "
             + "where a wall is in front. Disable to get the vanilla draw-on-top bars.");
-        s_barsDepthStamp = s_barsConfigFile.Bind("WorldUI", "BarsDepthStamp", Defaults.BarsDepthStamp,
-            "DEBUG. Let an actor HP/effect bar take part in the per-panel depth compose, i.e. "
-            + "stamp its own plane into the depth buffer so nearer panels win per pixel. OFF is "
-            + "correct and shipped: a bar's stamp covers its whole rect - including the invisible "
-            + "margin around the visible segments - and that invisible band CUT HOLES into "
-            + "everything drawn after it, most visibly into the world-space enemy info panel "
-            + "behind it. Bars are single-plane billboards that never need to occlude another "
-            + "panel; they are still occluded correctly by every other panel's stamp and by walls "
-            + "(see BarsOccluded). Only switch this on to reproduce the old artefact.");
+        // NOTE: the short-lived [WorldUI] BarsDepthStamp key of the previous round is GONE, not
+        // re-defaulted. It gated the bars OUT of the depth compose, which the user overruled
+        // ("Perspektive soll im gesamten Mod respektiert werden"), and the BepInEx persisted-config
+        // trap makes a re-defaulted key worthless anyway: every rig that already ran that build has
+        // `BarsDepthStamp = false` saved, so flipping the shipped default would have changed
+        // nothing where it mattered. Dropping the binding leaves the stale line in the cfg as an
+        // inert orphan and puts every rig on the fixed behaviour.
     }
 
     /// <summary>Config gate for the bar depth-test (lazily bound, read live every scan).</summary>
@@ -195,20 +195,6 @@ internal static class ActorBars
         {
             BindConfig();
             return s_barsOccluded!.Value;
-        }
-    }
-
-    /// <summary>
-    /// Config gate for the bar's per-host depth STAMP (lazily bound, read live every frame so a
-    /// flip in the in-VR config browser applies to bars that are already adopted). Default false —
-    /// see the bind description and <see cref="LateTick"/> for the root cause.
-    /// </summary>
-    private static bool BarsDepthStamp
-    {
-        get
-        {
-            BindConfig();
-            return s_barsDepthStamp!.Value;
         }
     }
 
@@ -303,38 +289,27 @@ internal static class ActorBars
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
             Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
 
-            // ---- the bar must never PUNCH A HOLE into what is behind it ([WorldUI] BarsDepthStamp)
+            // ---- bars TAKE PART in the depth compose like every other panel ---------------------
             //
-            // ROOT CAUSE of the hardware report "die Healthbar hat eine Transparenz drumrum die
-            // manche Figuren und Infotafeln überlagert" (healthbar_problem.jpg — a clean rectangle
-            // of the enemy info panel MISSING around the bar, the board showing through it):
-            // every converted host, this bar included, gets the per-panel depth-compose stamp
-            // (CanvasConversion.5.Depth.cs — a colour-invisible ZWrite quad mesh at queue 2999 that
-            // stamps the host plane so converted panels occlude each other PER PIXEL). For a menu
-            // that is right; for an actor bar it is not. The stamp covers one padded quad per
-            // visible Graphic, so it lands on the bar's whole rect — the invisible margin around
-            // the segments included — and it lands NEARER to the head than a floating info panel.
-            // The panel's content (sortingOrder 1000, drawn after) then ZTest-LEquals against that
-            // stamp and is DISCARDED there, leaving the already-drawn opaque world visible: the
-            // "transparency around the bar" the user sees is a depth hole, not a blend. Everything
-            // else drawn after queue 2999 is cut the same way — held minis (renderQueue 4100,
-            // FigureGrabbable.HeldRenderQueue), hand ghosts (3100), board widgets — which is the
-            // "manche Figuren" half of the report.
+            // The previous round suppressed this bar's per-panel depth stamp outright (and shipped
+            // a [WorldUI] BarsDepthStamp toggle for it) because the stamp covered the bar's whole
+            // RECT — the invisible margin around the visible segments included — and cut a clean
+            // rectangle out of the enemy info panel behind it (healthbar_problem.jpg). That was an
+            // OVER-CORRECTION and the user reported the consequence immediately: "Die Health bars
+            // werden jetzt komplett verdeckt auch wenn die Infotafel DAHINTER ist." A bar in FRONT
+            // of a panel must be visible, and the ruling is general — "Perspektive soll im gesamten
+            // Mod respektiert werden (mit Ausnahme der Skybox) ... Verbesser nur die Transparenz,
+            // dass nicht dieser Rahmen drumrum auftaucht."
             //
-            // FIX: suppress the stamp for bars. A bar is a single-plane billboard; it never needs
-            // to occlude another panel. It is still occluded correctly in both directions —
-            // by walls via BarsOccluded (per-material ZTest LEqual, below) and by every OTHER
-            // panel's stamp, which this change leaves fully intact. Re-asserted every frame from
-            // the live config value (change-gated write) so a flip in the in-VR browser reaches
-            // bars that are already adopted, and so a bar pooled/re-adopted mid-session can never
-            // come back stamping.
-            bool suppressStamp = !BarsDepthStamp;
-            if (adopted.DepthStampSuppressed != suppressStamp)
-            {
-                adopted.DepthStampSuppressed = suppressStamp;
-                panel.HostDepthMaskSuppressed = suppressStamp;
-            }
-
+            // So the suppression is GONE (this method no longer writes HostDepthMaskSuppressed at
+            // all — only GrabbableModal still sets it, for hosts that own a coplanar mask already),
+            // and the halo is solved where it was actually made: CollectVisibleMaskRects now emits
+            // each graphic's MEASURED INK footprint instead of its layout rect
+            // (CanvasConversion.7.Ink.cs), so the bar stamps its segments and its glyphs and
+            // nothing else. Depth then decides per pixel and in both directions: a bar in front of
+            // the Infotafel occludes it, a bar behind it is occluded by it — independent of
+            // sortingOrder, draw order and head pose.
+            //
             // Wall occlusion ([WorldUI] BarsOccluded gate): the bar's graphics run per-instance
             // materials with unity_GUIZTestMode=LEqual so wall depth occludes them naturally —
             // the bar itself stays enabled and billboarding (no toggling; the old linecast+hide
@@ -477,12 +452,6 @@ internal static class ActorBars
             sortingOrder: BarHostSortingOrder);
         if (panel == null)
             return;
-
-        // Suppress the per-panel depth stamp BEFORE the first CanvasConversion tick can build it
-        // (see the ROOT CAUSE block in LateTick): a bar that stamps even one frame punches a
-        // visible rectangle out of the info panel behind it. LateTick re-asserts this from the
-        // live config value for the rest of the bar's life.
-        panel.HostDepthMaskSuppressed = !BarsDepthStamp;
 
         Adoptions[controller] = new Adopted
         {

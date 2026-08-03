@@ -360,7 +360,6 @@ internal static partial class Loc
             ["WorldUI/ActorBars"] = Pair("Health bars", "Lebensbalken"),
             ["WorldUI/BarFixedSize"] = Pair("Health bars: fixed size", "Balken: feste Größe"),
             ["WorldUI/BarsOccluded"] = Pair("Health bars behind walls", "Balken hinter Wänden"),
-            ["WorldUI/BarsDepthStamp"] = Pair("Health bars: depth stamp", "Balken: Tiefenstempel"),
             ["WorldUI/FlatScreen"] = Pair("Floating 2D screen", "Schwebender 2D-Schirm"),
             ["WorldUI/Tooltips"] = Pair("Tooltips at fingertip", "Tooltips am Finger"),
             ["WorldUI/ActionElementHints"] = Pair("Element hints", "Element-Hinweise"),

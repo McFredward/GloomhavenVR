@@ -115,6 +115,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// enough to bridge antialiased edges without re-closing the gaps between settings rows
     /// (the old single-union mask used 12 px around the whole union; per-graphic quads must
     /// stay tight or adjacent-row pads merge and the gap is masked again).
+    ///
+    /// <para>TRANSPARENCY ROUND: capped per quad against its own short side by
+    /// <see cref="CanvasConversion.MaskQuadPadding"/> — see that method for why a flat 3 px around
+    /// an ink-tightened glyph/icon quad is itself the halo the user reported.</para>
     /// </summary>
     private const float DepthMaskQuadPaddingPx = 3f;
 
@@ -411,8 +415,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// but OTHER TRANSPARENT MENUS behind did not (drawn after, depth-tested against the stamp).
     /// With per-graphic quads, depth is stamped only where content approximately renders and
     /// every gap — between rows, beside the rail, around the dialog — stays open for menus
-    /// behind too. Rect-level approximation: a graphic's transparent padding INSIDE its own
-    /// rect still masks (per-pixel would need alpha-aware shaders — out of scope).
+    /// behind too. TRANSPARENCY ROUND: the old rect-level approximation ("a graphic's transparent
+    /// padding INSIDE its own rect still masks") is what the health-bar and initiative-track
+    /// reports were made of, and it is gone — the collection now emits each graphic's MEASURED INK
+    /// sub-rect (CanvasConversion.7.Ink.cs). Only genuinely unmeasurable graphics keep their rect.
     ///
     /// Mesh economy: the (cheap, depth-only, hugely overdraw-tolerant) quads live in HOST-LOCAL
     /// px in the mesh; the transform's localScale carries px→frame-metres (<paramref name="unit"/>)
@@ -473,10 +479,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         for (int i = 0; i < count; i++)
         {
             Vector4 r = MaskRectScratch[i];
-            float x0 = r.x - DepthMaskQuadPaddingPx;
-            float y0 = r.y - DepthMaskQuadPaddingPx;
-            float x1 = r.z + DepthMaskQuadPaddingPx;
-            float y1 = r.w + DepthMaskQuadPaddingPx;
+            float pad = CanvasConversion.MaskQuadPadding(r.z - r.x, r.w - r.y, DepthMaskQuadPaddingPx);
+            float x0 = r.x - pad;
+            float y0 = r.y - pad;
+            float x1 = r.z + pad;
+            float y1 = r.w + pad;
             int b = MaskVertScratch.Count;
             MaskVertScratch.Add(new Vector3(x0, y0, 0f));
             MaskVertScratch.Add(new Vector3(x1, y0, 0f));
@@ -535,6 +542,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         string excluded = CanvasConversion.LastMaskExclusions.Count > 0
             ? $" EXCLUDED non-rendering emitter(s): {string.Join("; ", CanvasConversion.LastMaskExclusions)}."
             : "";
+        // Transparency round: the same ink summary the per-host mask logs, from the same pass —
+        // the modal mask shares CollectVisibleMaskRects, so it is tightened by the same measure.
+        string ink = $" {CanvasConversion.DescribeLastMaskInk()}";
         VRLog.Info("WorldUI", $"MODAL DEPTH-MASK DIAG: '{_logName}' rebuilt {count} quad(s), host " +
                               $"{host.width:F0}x{host.height:F0} px, mask alpha floor " +
                               $"{CanvasConversion.MaskMinAlpha:F2}. WIDE quads (≥{MaskDiagWideFraction * 100f:F0}% " +
@@ -543,7 +553,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                                   ? $" —{sb}"
                                   : " — none (a remaining straight cut through another menu would NOT be a mask " +
                                     "quad of this panel: check the grab bar / plane order instead).") +
-                              excluded);
+                              excluded + ink);
     }
 
     /// <summary>Task #6 diag: one wide-quad source — 'parent/name' (Type, sprite, ownAlpha×inheritedAlpha).</summary>
