@@ -273,15 +273,21 @@ internal sealed class WorldTooltips
         position = host.position - host.forward * MenuPanelProudZ;
         // GEOMETRY IS NOT ENOUGH (hover-hint bug, second half): both canvases are drawn by the
         // SAME head camera in the transparent queue, where Unity sorts by sortingLayer →
-        // sortingOrder → distance. The floated menu host runs at sortingOrder 1000 (Convert),
-        // and the game's shared tooltip canvas keeps its authored (much lower) order, so the
-        // hint drew BEHIND the menu no matter how proud of the plane it sat. Ride just above
-        // the host — restored verbatim in Restore().
+        // sortingOrder → distance, and the game's shared tooltip canvas keeps its authored (much
+        // lower) order, so the hint drew BEHIND the menu no matter how proud of the plane it sat.
+        // Ride just above the host — restored verbatim in Restore().
+        //
+        // TRANSPARENCY ROUND: the host's order is no longer a constant. It is rewritten every
+        // LateUpdate from the panel's eye distance (CanvasConversion.8.Order.cs), so this must keep
+        // reading it LIVE (it does) and the lift must stay BELOW CanvasConversion.PanelOrderStep —
+        // otherwise a hint laid on a far panel would climb into the next panel's slot and cover a
+        // panel that is genuinely nearer than the menu it belongs to.
         sortingOrder = panel.HostCanvas != null ? panel.HostCanvas.sortingOrder + MenuPanelSortingLift : 0;
         return true;
     }
 
-    /// <summary>Sorting steps the tooltip rides above the floated menu host it is laid on.</summary>
+    /// <summary>Sorting steps the tooltip rides above the floated menu host it is laid on. Must
+    /// stay under <c>CanvasConversion.PanelOrderStep</c> (16) — see the note at the read site.</summary>
     private const int MenuPanelSortingLift = 10;
 
     /// <summary>Metres in front of the floated menu panel the tooltip is laid, so it never z-fights.</summary>

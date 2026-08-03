@@ -87,13 +87,16 @@ internal static partial class CanvasConversion
     /// ever registering as a poke surface.
     /// <paramref name="flatten2D"/> (test #21, opt-in per surface): neutralize the
     /// game's real 3D styling inside the subtree — see <see cref="FlattenSubtree"/>.
-    /// <paramref name="sortingOrder"/> sets the host <see cref="Canvas.sortingOrder"/>
-    /// (default 0). ALL host canvases share sortingOrder 0 by default, and Unity depth-sorts
-    /// equal-order WORLD-space canvases by camera distance — which jitters with head
-    /// micro-motion, so two overlapping equal-order hosts swap render order frame-to-frame
-    /// (the floated-modal FLICKER, see ModalFallback). A dominant order lifts a host out of
-    /// that ambiguity; adopted nested canvases keep <c>overrideSorting</c> cleared, so they
-    /// inherit this order and stay ordered with the host.
+    /// <paramref name="sortingOrder"/> is the host's conversion TIER, kept as
+    /// <see cref="ConvertedPanel.BaseSortingOrder"/> (default 0; the modal/at-hand family passes
+    /// <c>ModalFallback.ModalHostSortingOrder</c>). It is NOT the draw order: since the
+    /// transparency round, <see cref="TickPanelOrder"/> rewrites every host's live
+    /// <see cref="Canvas.sortingOrder"/> each LateUpdate from its eye distance, so panels occlude
+    /// each other by perspective and no panel writes depth (see CanvasConversion.8.Order.cs). The
+    /// tier survives for the two decisions that must NOT follow the ladder: UguiPointer's
+    /// cross-raycaster tie-break, and the ladder's own tie-break between two panels whose distances
+    /// are indistinguishable. Adopted nested canvases keep <c>overrideSorting</c> cleared, so they
+    /// inherit the live order and stay ordered with the host for free.
     /// <paramref name="capHeightToCanvas"/> (bug #7, ESC/Options full-screen-menu family ONLY):
     /// cap the captured height to the root canvas REFERENCE height (~1080 — the compact
     /// first-open height) so the panel height stops depending on the game's post-layout root
@@ -203,9 +206,15 @@ internal static partial class CanvasConversion
         var hostCanvas = hostGo.AddComponent<Canvas>();
         hostCanvas.renderMode = RenderMode.WorldSpace;
         hostCanvas.worldCamera = WorldCamera;
-        // Equal-order world-space canvases depth-sort by camera distance (jitters with head
-        // motion → overlapping hosts flicker); a dominant order lifts a host clear of the tie.
+        // This is the SEED order only. From the first LateUpdate on, CanvasConversion.8.Order.cs
+        // rewrites it every frame from the panel's measured eye distance (far = low), which is what
+        // makes panels occlude each other by PERSPECTIVE while staying fully transparent where they
+        // paint nothing. The value passed in survives as ConvertedPanel.BaseSortingOrder: the
+        // raycast tie-break and the ladder's own equal-distance tie-break both read THAT, never the
+        // live order.
         hostCanvas.sortingOrder = sortingOrder;
+        panel.BaseSortingOrder = sortingOrder;
+        panel.DrawSortingOrder = sortingOrder;
         var raycaster = hostGo.AddComponent<GraphicRaycaster>();
         raycaster.enabled = !EffectiveLock;
 
@@ -319,9 +328,8 @@ internal static partial class CanvasConversion
             // User ruling 2026-08-02 round 2 ("Aufploppen der Greifbar und des Fensters woanders"):
             // hide the host COMPLETELY, not just its own canvas — every nested Canvas and every
             // Renderer in the subtree, plus the mod-drawn trees registered as extra render roots.
-            // A bare `hostCanvas.enabled = false` left the grab bar, the depth masks, the X's depth
-            // stamp and the MR backing plate drawing at the PRE-FIT pose for the whole settle
-            // window. See CanvasConversion.6.Hide.cs for the full inventory and the restore proof.
+            // A bare `hostCanvas.enabled = false` left the grab bar, the X and the MR backing
+            // plate drawing at the PRE-FIT pose for the whole settle window. See CanvasConversion.6.Hide.cs for the full inventory and the restore proof.
             SetPanelRenderVisible(panel, visible: false);
             panel.RevealPending = true;
             panel.RevealNotBefore = Time.unscaledTime + RevealDelaySeconds;

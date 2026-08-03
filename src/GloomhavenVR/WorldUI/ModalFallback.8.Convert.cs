@@ -334,18 +334,17 @@ internal static partial class ModalFallback
             // COMPONENT (provable from code) rather than by the unprovable ID.
             bool isRewardShowcase = window.GetComponent<UICampaignRewardWindow>() != null;
             var grab = new GrabbableModal();
-            // Problem #4 (HUD bleed-through): the pause/options/confirmation menu family gets a
-            // coplanar DEPTH MASK behind its content so the game's transparent HUD (initiative
-            // track, button-cluster labels) that sits BEHIND the floated menu is depth-occluded by
-            // it — the menu writes no depth of its own (ZWrite OFF, deliberate, so hands/board still
-            // occlude it), so without the mask that HUD bled through. Gated to EXACTLY the floated
-            // full-screen menu (ESC/Options family, fullScreenMenu) + the pause/options confirmation
-            // dialogs (isConfirmDialog) + the Sieg/Niederlage results windows (their full-window
-            // backing is stripped like the menu family's — WantsTransparentBackground — so the same
-            // HUD bleed applies); normal small modals/tooltips/story and content windows
-            // (Compendium, friend list) get no mask.
-            bool wantDepthMask = fullScreenMenu || isConfirmDialog || isResultsPanel;
-            grab.Build(panel, extraScale, name, depthMask: wantDepthMask);
+            // TRANSPARENCY ROUND: the per-menu coplanar DEPTH MASK that used to be requested here
+            // (gated to the ESC/Options family + confirmations + results) is gone. Its job was
+            // "transparent HUD sitting BEHIND the floated menu must be occluded by it", and it did
+            // that by stamping the menu plane's depth per visible graphic RECT - which is why the
+            // panels behind a menu came away with hard-edged rectangular holes wherever the menu
+            // itself was transparent (.planning/debug/initiativereihenfolge_transparenz.png). The
+            // menu is now simply PAINTED in its distance order among all converted panels
+            // (CanvasConversion.8.Order.cs): HUD it is in front of is painted first and covered,
+            // HUD it is behind is painted after it and covers it, and nothing writes depth, so a
+            // transparent menu pixel shows whatever is genuinely behind it.
+            grab.Build(panel, extraScale, name);
             // Item 3c + MP test ("Kontrolle übergeben" had no X): a small mod-drawn X (top-right
             // of the host, mod layer 27, poke+laser clickable) closes THIS window through the
             // game's own Escape/Hide path. RULE (user): EVERY floated window must be closable
@@ -484,7 +483,7 @@ internal static partial class ModalFallback
     /// (UIResultsManager, header GUI_RESULTS_WIN / GUI_RESULTS_LOSE — "Sieg"/"Niederlage")
     /// and the adventure-completion variant (UINewAdventureResultsManager). User request A:
     /// they float as GRABBABLE modals exactly like every other window (grab bar, two-hand
-    /// resize, depth mask), but carry NO X close button — the only way out must remain their
+    /// resize), but carry NO X close button — the only way out must remain their
     /// native continue/retry/exit buttons — and they participate in the lost-menu recall
     /// (<see cref="TickMenuRecall"/>) so a carried-away results window can never be lost
     /// off-view while it blocks the scenario-end flow.

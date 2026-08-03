@@ -72,16 +72,18 @@ internal sealed class StatPanelSurface
     /// <para>Unity sorts transparent UI sortingLayer → SORTINGORDER first and only then by
     /// distance, and neither side writes depth. At the old order 10 the options menu (1000)
     /// therefore drew straight THROUGH an info panel held between it and the player: order said
-    /// "menu last" and depth never got a vote. At an EQUAL order the tie falls through to camera
-    /// distance, so whichever surface is nearer wins and perspective holds in both directions —
-    /// panel in front of the menu occludes the menu, menu in front of the panel occludes the
-    /// panel.</para>
+    /// "menu last" and depth never got a vote. Matching the tier removed that.</para>
     ///
-    /// <para>The original reason this was non-zero still stands and still works: the mod's 3D
-    /// board-button labels/keycap faces sit at tiny orders (≤3, needed so a button's text beats
-    /// its own sprite face), so anything above that keeps the panel from being pierced by keycap
-    /// text. Real depth-writing geometry keeps occluding the panel regardless — this constant
-    /// only orders transparent UI among itself.</para>
+    /// <para>TRANSPARENCY ROUND: this is no longer what decides the draw. Every converted panel's
+    /// live order is rewritten each LateUpdate from its eye distance
+    /// (CanvasConversion.8.Order.cs), so an info panel held between the player and the menu
+    /// occludes the menu because it IS nearer, not because of a tier and not because either side
+    /// stamped depth into the gaps of the other. The constant is kept, and kept EQUAL to the modal
+    /// tier, for what it still decides: the raycast tie-break, and the ladder's own tie-break
+    /// between two panels the player cannot tell apart in depth — where an info panel and the menu
+    /// it belongs to must not be separated by an arbitrary rule. Being above the board-button
+    /// labels/keycap faces (≤3) is now a property of the whole ladder (base 100), not of this
+    /// value. Real depth-writing geometry keeps occluding the panel regardless.</para>
     /// </summary>
     private const int StatPanelSortingOrder = ModalFallback.ModalHostSortingOrder;
 

@@ -2232,8 +2232,8 @@ internal static partial class Loc
                 + "ausgeblendet, wo eine Wand davor steht. Ausschalten für die originalen, stets obenauf "
                 + "gezeichneten Leisten.",
             // [WorldUI] BarsDepthStamp is gone with its binding (see ActorBars.BindConfig): the
-            // bars take part in the depth compose again, unconditionally, per the user ruling that
-            // perspective must be respected everywhere.
+            // bars take part in the panel-vs-panel compose again, unconditionally, per the user
+            // ruling that perspective must be respected everywhere.
             ["WorldUI/StereoScreen"] =
                 "Stellt die schwebende 2D-Leinwand MIT Stereo-Tiefe dar (3D-Film-/Fenstereffekt): der "
                 + "erfasste 3D-Menüinhalt (Kampagnenkarte, Stadt, Slideshow-Szene) wird über modeigene "

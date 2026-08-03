@@ -77,24 +77,6 @@ internal static partial class CanvasConversion
     private const float FitMinAlpha = 0.05f;
 
     /// <summary>
-    /// Task #6 (pause window hard-cut behind the options menu): effective-alpha floor for
-    /// DEPTH-MASK quad emission — deliberately HIGHER than <see cref="FitMinAlpha"/>. The
-    /// hardware screenshot showed the parent pause window cut along one clean straight edge
-    /// behind the options menu although the options window has NO visible content in that
-    /// region: a barely-visible full-width element (a faint layout-container Image / the
-    /// gradient title-banner strip, effective alpha just over 0.05) passed the shared 0.05
-    /// test and emitted a WIDE depth quad, whose stamp made every later-drawn transparent —
-    /// including the pause window's own canvas, which lies BEHIND the options plane below
-    /// their intersection line — fail ZTest across the whole "empty" region (the WORLD still
-    /// showed there because it draws before the mask, colour already in the buffer — exactly
-    /// the observed sky-through-the-cut). A ≤15 %-opaque graphic reads as "nothing there",
-    /// so it must not stamp depth either; genuinely visible content (rows, buttons, dialogs)
-    /// is far above this floor and masks exactly as before, keeping the original purpose
-    /// (HUD/initiative must not bleed through actual content) intact.
-    /// </summary>
-    internal const float MaskMinAlpha = 0.15f;
-
-    /// <summary>
     /// FIRST-OPEN SIZE BUG round 3 (hardware ModBuild 18): absolute per-axis epsilon (px) a
     /// measurement must hold to inside for the STRICT settle tier. WHY on top of the relative
     /// <see cref="FitChangeFraction"/> test in <see cref="MeasureMatches"/>: that tolerance is 2 %
@@ -225,14 +207,6 @@ internal static partial class CanvasConversion
 
         /// <summary>Fully outside its enclosing clipper (scrolled out of a viewport).</summary>
         ClippedOut,
-
-        /// <summary>
-        /// Depth-mask emission only (<c>tightenToInk</c>): the graphic draws NO ink inside its rect
-        /// — an empty/blank label. It must not stamp depth, exactly like the non-rendering emitters
-        /// of task #6b. The FIT never asks for the ink measure, so it can never see this value and
-        /// its per-reason tally is deliberately not extended.
-        /// </summary>
-        NoInk,
     }
 
     /// <summary>Reject reason of the LAST <see cref="TryGetVisibleHostRect"/> call (scratch).</summary>
@@ -289,20 +263,21 @@ internal static partial class CanvasConversion
     private const float AuthoredCollapsedRatio = 0.05f;
 
     /// <summary>
-    /// Task #4/#5 shared per-graphic measure: the visibility test both unions use (enabled,
-    /// not culled, effective alpha ≥ <paramref name="minAlpha"/>, non-degenerate draw rect)
-    /// plus the graphic's host-local bounds, CLAMPED to its enclosing clipper's rect
-    /// (<see cref="RectMask2D"/> / stencil <see cref="Mask"/> — i.e. a ScrollRect viewport):
-    /// a settings row scrolled out of its viewport is CLIPPED at render time, so it must
-    /// neither grow the content FIT nor stamp depth-mask coverage. False = the graphic
-    /// contributes nothing (invisible, empty, or fully scrolled out). The alpha floor is
-    /// caller-specific (task #6): <see cref="FitMinAlpha"/> for the content fit,
-    /// <see cref="MaskMinAlpha"/> for depth-mask emission.
+    /// Task #4 per-graphic measure: the visibility test both fit unions use (enabled, not culled,
+    /// effective alpha ≥ <paramref name="minAlpha"/>, non-degenerate draw rect) plus the graphic's
+    /// host-local bounds, CLAMPED to its enclosing clipper's rect (<see cref="RectMask2D"/> /
+    /// stencil <see cref="Mask"/> — i.e. a ScrollRect viewport): a settings row scrolled out of its
+    /// viewport is CLIPPED at render time, so it must not grow the content FIT. False = the graphic
+    /// contributes nothing (invisible, empty, or fully scrolled out).
+    ///
+    /// <para>The second caller this method used to serve — depth-mask quad emission, with its own
+    /// stricter alpha floor and its "ink" tightening — is gone with the depth stamps themselves
+    /// (see CanvasConversion.8.Order.cs). What remains is the content fit alone, at exactly the
+    /// geometry the shipped builds measured.</para>
     /// </summary>
     private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
-        out Vector2 gMin, out Vector2 gMax, float minAlpha = FitMinAlpha,
-        bool tightenToInk = false) =>
-        TryGetVisibleHostRect(panel, g, out gMin, out gMax, out _, out _, minAlpha, tightenToInk);
+        out Vector2 gMin, out Vector2 gMax, float minAlpha = FitMinAlpha) =>
+        TryGetVisibleHostRect(panel, g, out gMin, out gMax, out _, out _, minAlpha);
 
     /// <summary>
     /// <see cref="TryGetVisibleHostRect(ConvertedPanel,Graphic,out Vector2,out Vector2,float)"/>
@@ -313,17 +288,10 @@ internal static partial class CanvasConversion
     /// the host with every intermediate <c>localScale</c> treated as 1, clamped to its clipper's
     /// authored rect the same way. It is empty (max &lt;= min) when the authored geometry is
     /// unusable; the caller then leaves that graphic out of the authored union.
-    ///
-    /// <para><paramref name="tightenToInk"/> (the health-bar/initiative-track transparency round):
-    /// measure the graphic's OPAQUE footprint (<see cref="MeasureInkRect"/>) and report THAT
-    /// sub-rect instead of the whole layout rect — a sprite's transparent border, a TMP label's
-    /// unused rect. Only the depth-mask collection asks for it; the content FIT never does, so fit
-    /// geometry stays byte-for-byte what the shipped builds measured. False with
-    /// <see cref="MeasureReject.NoInk"/> when the graphic draws nothing at all.</para>
     /// </summary>
     private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g,
         out Vector2 gMin, out Vector2 gMax, out Vector2 aMin, out Vector2 aMax,
-        float minAlpha = FitMinAlpha, bool tightenToInk = false)
+        float minAlpha = FitMinAlpha)
     {
         gMin = default;
         gMax = default;
@@ -353,44 +321,9 @@ internal static partial class CanvasConversion
             return false;
         }
 
-        // Ink tightening (depth-mask emission only): shrink the emitted box to the sub-rect the
-        // graphic actually PAINTS in. The corners are then transformed through the exact same
-        // localToWorld path GetWorldCorners uses (it transforms the rect's own local corners), so
-        // an obliquely viewed or rotated graphic maps correctly instead of being lerped inside an
-        // axis-aligned bound that is not its rect.
-        s_lastInkFraction = 1f;
-        s_lastInkRule = string.Empty;
-        Rect emitRect = drawRect;
-        if (tightenToInk)
-        {
-            InkMeasure measured = MeasureInkRect(g, drawRect, out Rect inkRect, out string inkRule);
-            if (measured == InkMeasure.Empty)
-            {
-                s_lastInkRule = inkRule;
-                s_lastReject = MeasureReject.NoInk;
-                return false;
-            }
-            if (measured == InkMeasure.Tightened)
-            {
-                emitRect = inkRect;
-                s_lastInkRule = inkRule;
-                s_lastInkFraction = Mathf.Clamp01((inkRect.width * inkRect.height)
-                    / Mathf.Max(0.0001f, drawRect.width * drawRect.height));
-            }
-
-            Matrix4x4 l2w = rect.localToWorldMatrix;
-            CornerScratch[0] = l2w.MultiplyPoint(new Vector3(emitRect.xMin, emitRect.yMin, 0f));
-            CornerScratch[1] = l2w.MultiplyPoint(new Vector3(emitRect.xMin, emitRect.yMax, 0f));
-            CornerScratch[2] = l2w.MultiplyPoint(new Vector3(emitRect.xMax, emitRect.yMax, 0f));
-            CornerScratch[3] = l2w.MultiplyPoint(new Vector3(emitRect.xMax, emitRect.yMin, 0f));
-        }
-        else
-        {
-            rect.GetWorldCorners(CornerScratch);
-        }
+        rect.GetWorldCorners(CornerScratch);
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
-        float maxZ = float.MinValue;
         for (int c = 0; c < 4; c++)
         {
             Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
@@ -398,13 +331,7 @@ internal static partial class CanvasConversion
             if (local.y < min.y) min.y = local.y;
             if (local.x > max.x) max.x = local.x;
             if (local.y > max.y) max.y = local.y;
-            if (local.z > maxZ) maxZ = local.z;
         }
-        // Host-local +Z of the deepest corner (px; +Z = away from the viewer). Consumed by
-        // CollectVisibleMaskRects → LastMaskMaxZ so the per-host depth mask can seat itself
-        // BEHIND genuinely z-displaced content (the initiative row's authored recession) —
-        // a mask in front of any content pixel would make that content fail its own ZTest.
-        s_lastVisibleRectMaxZ = maxZ;
 
         // Task #4: clamp to the enclosing clipper (scroll viewport) — content the mask clips
         // away at render time must not count as visible.
@@ -869,221 +796,6 @@ internal static partial class CanvasConversion
         // where and how big the window renders.
         if (slot == 0)
             s_lastTopGraphic = g;
-    }
-
-    /// <summary>
-    /// Task #5 (transparent gaps must stay transparent for OTHER MENUS too): collect ONE
-    /// host-local rect PER visible graphic — <c>Vector4(minX, minY, maxX, maxY)</c> in
-    /// host-local pixels — with the exact same visibility test the content fit uses
-    /// (<see cref="TryGetVisibleHostRect"/>: enabled, not culled, effective alpha ≥ 0.05,
-    /// non-degenerate draw rect, viewport-clamped per task #4). Replaces the old single
-    /// union rect (<c>TryMeasureVisibleUnion</c>): the union stamped menu-plane depth
-    /// across the GAPS between settings rows, which the world showed through (drawn
-    /// earlier, colour already in the buffer) but other transparent menus did NOT (drawn
-    /// later, depth-tested against the stamp). <see cref="GrabbableModal.SyncDepthMask"/>
-    /// builds a per-graphic quad mesh from these rects, so depth is stamped only where
-    /// content (approximately — its rect) actually renders and the gaps stay open for
-    /// everything behind, menus included. Unclamped to the target frame on purpose: an
-    /// open dropdown list may extend past it and the mask should back it wherever it draws.
-    /// Rects beyond <paramref name="maxCount"/> are merged into the last slot (coverage is
-    /// never lost, only gap fidelity in the overflow). Returns the rect count (0 = nothing
-    /// visible; caller disables the mask). Reuses the fit scratch buffers (single-threaded,
-    /// never re-entered).
-    ///
-    /// Task #6 (pause window hard-cut): emission uses the STRICTER <see cref="MaskMinAlpha"/>
-    /// floor (0.15) instead of the fit's 0.05 — a barely-visible full-width container must not
-    /// stamp a depth quad that hard-cuts other floated menus behind the plane (see the const's
-    /// doc). <paramref name="sources"/> (optional) receives the emitting <see cref="Graphic"/>
-    /// per rect, 1:1 with <paramref name="rects"/> (null entry = the overflow union slot) — the
-    /// depth-mask rebuild diagnostic uses it to NAME wide/suspect quads in the hardware log.
-    ///
-    /// Task #6b (options window hard-cuts the pause menu — CULPRIT: 'Main Area/Viewport'):
-    /// graphics that RENDER NO PIXELS must not stamp depth either. The hardware diag showed the
-    /// options window's ScrollRect VIEWPORT image ('Main Area/Viewport', Image, sprite=null,
-    /// a=1.00) emitting an 867x833 px quad covering the whole right pane — the viewport is an
-    /// invisible clipper/raycast target (its Image drives a stencil <see cref="Mask"/> with
-    /// <c>showMaskGraphic=false</c>, i.e. it draws ONLY to the stencil buffer, ColorMask 0 —
-    /// zero visible pixels), yet it passed the alpha test and its depth stamp hard-cut the pause
-    /// menu floating behind along one clean edge. <see cref="IsNonRenderingMaskEmitter"/>
-    /// excludes that whole class from EMISSION ONLY (the content fit is untouched); excluded
-    /// names + the matched rule land in <see cref="LastMaskExclusions"/> for the rebuild diag.
-    ///
-    /// TRANSPARENCY ROUND (health bars cut a hole into the enemy info panel; the initiative
-    /// portraits sit in a grey block that erases the pause-menu row behind them): the emitted box
-    /// is no longer the graphic's layout RECT but its measured INK sub-rect
-    /// (<c>tightenToInk</c> → <see cref="MeasureInkRect"/>, CanvasConversion.7.Ink.cs) — the
-    /// trimmed/letterboxed sprite area, the generated glyph run — and a graphic that paints
-    /// nothing at all emits no quad. That is the whole of the user's ruling: depth participation
-    /// stays on for EVERY host, only the invisible margin around the visible pixels stops
-    /// occluding. Unmeasurable graphics (RawImage, sprite-less Image, Sliced/Tiled) keep the full
-    /// rect on purpose — a too-small stamp loses occlusion the panel should win. The shrink is
-    /// counted per pass and reported by <see cref="DescribeLastMaskInk"/>.
-    /// </summary>
-    internal static int CollectVisibleMaskRects(ConvertedPanel panel, List<Vector4> rects, int maxCount,
-        List<Graphic?>? sources = null)
-    {
-        rects.Clear();
-        sources?.Clear();
-        LastMaskExclusions.Clear();
-        ResetMaskInkStats();
-        LastMaskMaxZ = 0f;
-        if (panel == null || panel.Target == null || panel.HostRect == null)
-            return 0;
-
-        ClipperMemo.Clear();
-        GraphicScratch.Clear();
-        panel.Target.GetComponentsInChildren(includeInactive: false, GraphicScratch);
-        for (int i = 0; i < GraphicScratch.Count; i++)
-        {
-            Graphic g = GraphicScratch[i];
-            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax, MaskMinAlpha,
-                    tightenToInk: true))
-            {
-                // Transparency round: a graphic that draws no ink at all (empty label) is dropped
-                // here for the same reason task #6b drops the invisible clippers — it reads as
-                // "nothing there", so it must not cut what is behind it.
-                if (s_lastReject == MeasureReject.NoInk)
-                    RecordMaskNoInk(g, s_lastInkRule);
-                continue;
-            }
-            // Task #6b: a graphic that renders no pixels (invisible clipper / viewport /
-            // raycast catcher) must not stamp depth. Checked only AFTER the (cheap) visibility
-            // test passed, so the component lookups run for the ~dozens of emitting graphics,
-            // not the whole subtree.
-            if (IsNonRenderingMaskEmitter(g, out string rule))
-            {
-                if (LastMaskExclusions.Count < MaskExclusionLogCap)
-                {
-                    string parent = g.transform.parent != null ? g.transform.parent.name : "<root>";
-                    LastMaskExclusions.Add(
-                        $"'{parent}/{g.name}' {gMax.x - gMin.x:F0}x{gMax.y - gMin.y:F0}px [{rule}]");
-                }
-                continue;
-            }
-            if (s_lastVisibleRectMaxZ > LastMaskMaxZ)
-                LastMaskMaxZ = s_lastVisibleRectMaxZ; // deepest EMITTED graphic (see the field doc)
-            RecordMaskInk(g, gMin, gMax, s_lastInkFraction, s_lastInkRule);
-            if (rects.Count < maxCount)
-            {
-                rects.Add(new Vector4(gMin.x, gMin.y, gMax.x, gMax.y));
-                sources?.Add(g);
-            }
-            else
-            {
-                // Cap reached: widen the last slot to the union of the overflow — coverage
-                // stays correct, only the per-rect gap fidelity degrades past the cap.
-                Vector4 last = rects[rects.Count - 1];
-                rects[rects.Count - 1] = new Vector4(
-                    Mathf.Min(last.x, gMin.x), Mathf.Min(last.y, gMin.y),
-                    Mathf.Max(last.z, gMax.x), Mathf.Max(last.w, gMax.y));
-                if (sources != null)
-                    sources[sources.Count - 1] = null; // slot is now an anonymous overflow union
-            }
-        }
-        GraphicScratch.Clear();
-        return rects.Count;
-    }
-
-    /// <summary>Task #6b diag: cap on excluded-emitter entries kept per collection pass (log hygiene).</summary>
-    private const int MaskExclusionLogCap = 8;
-
-    /// <summary>Scratch: host-local max +Z (px) of the corners measured by the LAST
-    /// <see cref="TryGetVisibleHostRect"/> call (set on success only).</summary>
-    private static float s_lastVisibleRectMaxZ;
-
-    /// <summary>Scratch: what fraction of its own rect AREA the last ink-tightened
-    /// <see cref="TryGetVisibleHostRect"/> call kept (1 = no tightening applied).</summary>
-    private static float s_lastInkFraction = 1f;
-
-    /// <summary>Scratch: which ink measure the last call used / why it dropped the graphic.</summary>
-    private static string s_lastInkRule = string.Empty;
-
-    /// <summary>
-    /// Host-local +Z (px, ≥0) of the DEEPEST graphic emitted by the last
-    /// <see cref="CollectVisibleMaskRects"/> pass. The per-host depth-compose mask
-    /// (<see cref="TickHostDepthMask"/>) seats itself this far behind the host plane plus a
-    /// fixed pad, so content the game (or the initiative depth normalization) genuinely
-    /// z-displaces — portraits recede up to <c>[WorldUI] InitiativeDepthMaxSpreadPx</c> px —
-    /// can never end up BEHIND its own panel's mask and fail its own ZTest. Flat panels
-    /// measure ~0 and get the tight minimum offset.
-    /// </summary>
-    internal static float LastMaskMaxZ;
-
-    /// <summary>
-    /// Task #6b diag: graphics EXCLUDED from depth-mask emission by
-    /// <see cref="IsNonRenderingMaskEmitter"/> during the LAST
-    /// <see cref="CollectVisibleMaskRects"/> pass — "'parent/name' WxHpx [rule]" per entry,
-    /// capped at <see cref="MaskExclusionLogCap"/>. Read by the depth-mask rebuild diagnostic
-    /// (<c>GrabbableModal.LogDepthMaskRebuild</c>, same tick, same collection) so the hardware
-    /// log states WHICH rule caught each invisible emitter ('Main Area/Viewport' &amp; friends).
-    /// </summary>
-    internal static readonly List<string> LastMaskExclusions = new(MaskExclusionLogCap);
-
-    /// <summary>
-    /// Task #6b: true when <paramref name="g"/> renders NO pixels despite passing the
-    /// alpha/enabled visibility test — such a graphic must never stamp a depth-mask quad
-    /// (it visually reads as "nothing there", so cutting another floated menu behind the
-    /// plane along its rect is exactly the observed hard-cut bug). Three classes, checked
-    /// in order; <paramref name="rule"/> names the one that matched:
-    ///
-    /// (a) STENCIL-CLIPPER IMAGE: the graphic drives an enabled stencil <see cref="Mask"/>
-    ///     with <c>showMaskGraphic == false</c> — uGUI then renders it with ColorMask 0
-    ///     (stencil write only), i.e. literally zero visible pixels. This is what the
-    ///     options window's 'Main Area/Viewport' (867x833 px, sprite=null, a=1.00) and the
-    ///     ESC menu's 'Scroll View/Viewport' (388x1003) are: ScrollRect viewport clippers.
-    ///     A Mask WITH <c>showMaskGraphic == true</c> draws its graphic normally and is
-    ///     deliberately NOT excluded.
-    /// (b) SCROLLRECT VIEWPORT: the rect IS some ScrollRect's viewport (the serialized
-    ///     <c>.viewport</c>, or the content's parent when that reference is empty) — the
-    ///     clipping window itself, an invisible frame/raycast surface, never visible
-    ///     content. Belt-and-braces for viewports clipped via <see cref="RectMask2D"/>
-    ///     (including the ones task #4 adds ours to), whose Image is a raycast catcher.
-    /// (c) INVISIBLE RAYCAST CATCHER: sprite-less Image in the default (~white) colour —
-    ///     the classic full-area click-catcher pattern. Real visible backings in this UI
-    ///     all carry sprites ('Panel', 'Panel_Divider', 'Mod_Frame', …) and tinted colours,
-    ///     so a sprite-null near-white Image is a hit surface, not content.
-    ///
-    /// TMP text / RawImage / sprited Images fall through — they are real content and keep
-    /// masking exactly as before ('UI Menu Panel' sprite='Panel', the row 'Background'
-    /// Panel_Divider strips, buttons, dialogs).
-    /// </summary>
-    private static bool IsNonRenderingMaskEmitter(Graphic g, out string rule)
-    {
-        rule = string.Empty;
-        if (g is not Image img)
-            return false;
-
-        // (a) stencil clipper: Mask with the graphic hidden → stencil-only draw (ColorMask 0).
-        Mask stencil = img.GetComponent<Mask>();
-        if (stencil != null && stencil.enabled && !stencil.showMaskGraphic)
-        {
-            rule = "Mask, showMaskGraphic=false: stencil-only, draws no pixels";
-            return true;
-        }
-
-        // (b) ScrollRect viewport: the clipping window rect itself.
-        var rect = (RectTransform)img.transform;
-        ScrollRect? owner = img.GetComponentInParent<ScrollRect>();
-        if (owner != null)
-        {
-            RectTransform? viewport = owner.viewport != null
-                ? owner.viewport
-                : owner.content != null ? owner.content.parent as RectTransform : null;
-            if (ReferenceEquals(viewport, rect))
-            {
-                rule = "ScrollRect viewport: invisible clipper/raycast frame";
-                return true;
-            }
-        }
-
-        // (c) classic invisible raycast catcher: sprite-less, default-white Image.
-        if (img.sprite == null && img.overrideSprite == null
-            && img.color.r >= 0.95f && img.color.g >= 0.95f && img.color.b >= 0.95f)
-        {
-            rule = "sprite=null near-white: raycast catcher";
-            return true;
-        }
-        return false;
     }
 
     /// <summary>

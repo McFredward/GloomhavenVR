@@ -25,7 +25,13 @@ internal static partial class CanvasConversion
         if (panel.HostCanvas != null)
             UguiPokeSurfaces.Unregister(panel.HostCanvas); // drops nested registrations too
 
-        DestroyHostDepthMask(panel); // frees the mask MESH asset (the GO cascades with HostGo below)
+        // Drop out of the far-to-near draw ladder (CanvasConversion.8.Order.cs). The order pass
+        // prunes on this flag rather than searching Active, so it must be cleared here and in the
+        // dead-panel prune below — the two places a panel ever leaves Active.
+        panel.OrderListed = false;
+        panel.OrderSwapPeer = null;
+        panel.OrderSwapStreak = 0;
+        panel.OrderFollowers.Clear();
 
         // Restore the game's own nested canvases (tests #19/#20): overrideSorting and
         // worldCamera back to their captured values; raycasters WE added are removed
@@ -189,6 +195,11 @@ internal static partial class CanvasConversion
         for (int i = Active.Count - 1; i >= 0; i--)
             Release(Active[i]);
         SoftLocks.Clear();
+        // The draw ladder is a STATIC list (CanvasConversion.8.Order.cs); Release only clears each
+        // panel's OrderListed flag, and the pruning pass that acts on it does not run again after a
+        // shutdown. Drop the whole sequence here so a VR-off / hot reload leaves no references to
+        // dead panels behind.
+        OrderedPanels.Clear();
         RestoreCameraMask();
     }
 
@@ -214,7 +225,11 @@ internal static partial class CanvasConversion
                 SetPanelRenderVisible(panel, visible: true);
                 if (panel.HostCanvas != null)
                     UguiPokeSurfaces.Unregister(panel.HostCanvas);
-                DestroyHostDepthMask(panel); // mesh asset — never leaked on a scene unload either
+                // Second (and last) exit from Active — leave the draw ladder here too.
+                panel.OrderListed = false;
+                panel.OrderSwapPeer = null;
+                panel.OrderSwapStreak = 0;
+                panel.OrderFollowers.Clear();
                 if (panel.HostGo != null)
                     Object.Destroy(panel.HostGo);
                 continue;
@@ -292,12 +307,11 @@ internal static partial class CanvasConversion
 
             TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
 
-            // Per-host depth compose (part 5): keep the color-invisible depth stamp matching
-            // this host's visible content so converted panels occlude EACH OTHER per pixel —
-            // runs after the fit so a just-resized host stamps its settled content, and every
-            // frame (not throttled) because a stale stamp during the initiative reorder slide
-            // would punch visible holes into a menu behind the moving portraits.
-            TickHostDepthMask(panel);
+            // (The per-host depth-compose stamp that used to run here is gone. Converted panels
+            // occlude each other by DRAW ORDER now — TickPanelOrder, run last in the WorldUI
+            // LateUpdate chain, once the frame's pose writers have all finished. See
+            // CanvasConversion.8.Order.cs for why a per-quad depth stamp could never deliver the
+            // per-pixel transparency the user asked for.)
 
             if (panel.Diagnostic)
                 DiagnoseModal(panel, force: false); // change-gated per-frame flicker snapshot
@@ -484,7 +498,7 @@ internal static partial class CanvasConversion
                                   $"pose still for {panel.RevealPoseStableFrames} frame(s)) — revealed at " +
                                   "its FINAL pose/scale (mod layer + background hidden) — zero-flicker " +
                                   $"pop-in; {poseState}, final scale {finalScale}; unhid {shownCanvases} " +
-                                  $"canvas(es) + {shownRenderers} renderer(s) (grab bar, X, depth masks, " +
+                                  $"canvas(es) + {shownRenderers} renderer(s) (grab bar, X, " +
                                   $"MR plate) in this ONE frame at frame phase {phase}, frame " +
                                   $"{Time.frameCount}.");
         }

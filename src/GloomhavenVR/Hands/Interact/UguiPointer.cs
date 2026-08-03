@@ -201,7 +201,30 @@ internal sealed class UguiPointer
         int incumbentLayer = SortingLayer.GetLayerValueFromID(incumbent.sortingLayer);
         if (challengerLayer != incumbentLayer)
             return challengerLayer > incumbentLayer;
-        return challenger.sortingOrder >= incumbent.sortingOrder;
+        return StableOrder(challenger) >= StableOrder(incumbent);
+    }
+
+    /// <summary>
+    /// The sortingOrder this comparison must use, which since the transparency round is NOT always
+    /// the live one. ROOT CAUSE: converted panel HOSTS no longer hold a fixed order - WorldUI's
+    /// CanvasConversion.8.Order.cs rewrites every host canvas's sortingOrder each frame from its eye
+    /// distance, so that panels occlude each other by perspective without any of them writing depth.
+    /// Every threshold <see cref="Beats"/> encodes was calibrated against the CONVERSION-TIME order
+    /// instead (the initiative track's inner canvas at 40 beating an order-0 host; the element
+    /// board's -1 underlay staying behind host content; the modal X's hit plane at 1100 beating the
+    /// adopted window content at 1000), and a live ladder value in the hundreds would silently
+    /// invert all three. Asking WorldUI for the host's conversion tier keeps every raycast decision
+    /// bit-identical to the shipped builds while the draw order moves freely. Nested and non-panel
+    /// canvases are not converted hosts, so they keep reporting their own order - which is exactly
+    /// what the comparison expects of them.
+    /// </summary>
+    private static int StableOrder(in RaycastResult hit)
+    {
+        BaseRaycaster? module = hit.module;
+        if (module != null
+            && WorldUI.CanvasConversion.BaseSortingOrderOf(module.gameObject, out int baseOrder))
+            return baseOrder;
+        return hit.sortingOrder;
     }
 
     /// <summary>

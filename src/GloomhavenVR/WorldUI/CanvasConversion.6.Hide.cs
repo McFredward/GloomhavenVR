@@ -148,7 +148,7 @@ internal static partial class CanvasConversion
 
     /// <summary>
     /// Register a mod-drawn tree that belongs to <paramref name="panel"/> but lives OUTSIDE the
-    /// host subtree (the <see cref="GrabbableModal"/> holder: grab bar + modal depth mask). It is
+    /// host subtree (the <see cref="GrabbableModal"/> holder: the grab bar). It is
     /// hidden and revealed with the window from then on. If the panel is ALREADY render-hidden the
     /// new root is hidden immediately, in the same frame it was built — a late-built child must
     /// never get one visible frame of its own.
@@ -165,8 +165,8 @@ internal static partial class CanvasConversion
     /// <summary>
     /// Make everything that belongs to <paramref name="panel"/> invisible (false) or visible
     /// (true): the host canvas, every nested Canvas in the host subtree, every Renderer in it
-    /// (X depth stamp, host depth mask, MR backing plate) AND every registered extra render root
-    /// (grab bar, modal depth mask). See the file header for what each of those is and why the
+    /// (the MR backing plate) AND every registered extra render root (the grab bar). See the file
+    /// header for what each of those is and why the
     /// host canvas alone was not enough.
     ///
     /// HIDE is idempotent and meant to be re-applied while the reveal gate is pending — components

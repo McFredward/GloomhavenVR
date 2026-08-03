@@ -499,10 +499,10 @@ internal sealed class ConvertedPanel
     /// <see cref="CanvasConversion.SetPanelRenderVisible"/>. WHY a panel-level flag and not just
     /// <c>HostCanvas.enabled</c>: a floated window is drawn by far more than its host canvas —
     /// nested <see cref="Canvas"/> components (adopted game canvases, the mod X's own draw/hit
-    /// canvases) are independent render roots, and the grab bar, the depth masks, the X's depth
-    /// stamp and the MR backing plate are <see cref="Renderer"/>s that the uGUI canvas path never
-    /// touches at all. Two of those (the grab bar and the modal depth mask) do not even live under
-    /// the host — they hang off the mod-owned <see cref="GrabbableModal"/> holder, see
+    /// canvases) are independent render roots, and the grab bar and the MR backing plate are
+    /// <see cref="Renderer"/>s that the uGUI canvas path never touches at all. One of those (the
+    /// grab bar) does not even live under the host — it hangs off the mod-owned
+    /// <see cref="GrabbableModal"/> holder, see
     /// <see cref="ExtraRenderRoots"/>. Consumers that must not act on an invisible window
     /// (grab affordances, MR plates) read THIS instead of guessing from the canvas.
     /// </summary>
@@ -510,7 +510,7 @@ internal sealed class ConvertedPanel
 
     /// <summary>
     /// Mod-drawn trees that belong to this window but are NOT children of the host: today the
-    /// <see cref="GrabbableModal"/> holder (grab bar + modal depth mask), which is a scene-root
+    /// <see cref="GrabbableModal"/> holder (the grab bar), which is a scene-root
     /// GameObject the host merely follows. The render hide walks these exactly like the host
     /// subtree, so "everything belonging to the window" really means everything.
     /// </summary>
@@ -525,36 +525,55 @@ internal sealed class ConvertedPanel
     public readonly List<Canvas> HiddenCanvases = new(8);
 
     /// <summary>Renderers this panel's render hide turned off — same exact-restore contract as
-    /// <see cref="HiddenCanvases"/> (grab bar, depth masks, X depth stamp, MR backing plate).</summary>
+    /// <see cref="HiddenCanvases"/> (grab bar, MR backing plate).</summary>
     public readonly List<Renderer> HiddenRenderers = new(8);
 
-    // ---- per-host depth compose (initiative portraits blended with a floated menu) --------
+    // ---- per-frame distance draw order (CanvasConversion.8.Order.cs) -----------------------
+    //
+    // Replaces the per-host depth-compose mask this class used to carry
+    // (HostDepthMaskSuppressed / HostDepthMask / HostDepthMaskMesh / HostDepthMaskHash /
+    // HostMaskInkDiagNextAllowed). A depth stamp is a per-QUAD statement and a panel's
+    // transparency is per PIXEL, so the stamp could only ever trade a hole for a smaller hole
+    // (hardware: the ink measure removed 2 % of the initiative track's stamp and 10 % of an actor
+    // bar's). Panels now write NO depth at all and are painted far to near instead - see the file
+    // header of CanvasConversion.8.Order.cs for the full derivation.
+
     /// <summary>
-    /// Set by <see cref="GrabbableModal.Build"/> when the modal already owns a coplanar depth
-    /// mask of its own (the pause/options/confirmation/results family): the central per-host
-    /// mask (<see cref="CanvasConversion.TickHostDepthMask"/>) then stays off — two coplanar
-    /// depth writers on one plane would only double the per-frame graphic walk for zero visual
-    /// difference. Every other host (converted HUD panels, un-masked floated windows) gets the
-    /// central mask.
+    /// The <see cref="Canvas.sortingOrder"/> this panel was CONVERTED with (0 for HUD hosts, 1000
+    /// for the modal/at-hand tier). Two consumers, neither of which may see the live ladder value:
+    /// UguiPointer's cross-raycaster tie-break (<see cref="CanvasConversion.BaseSortingOrderOf"/>),
+    /// and the ladder's own insertion tie-break for two panels the player cannot tell apart in
+    /// depth - which is the last thing <c>ModalFallback.ModalHostSortingOrder</c> still decides.
     /// </summary>
-    public bool HostDepthMaskSuppressed;
+    public int BaseSortingOrder;
 
-    /// <summary>Depth-compose mask root under <see cref="HostRect"/> (see
-    /// <see cref="CanvasConversion.TickHostDepthMask"/>); null until first built.</summary>
-    public Transform? HostDepthMask;
+    /// <summary>The ladder order currently written onto <see cref="HostCanvas"/> (and, offset, onto
+    /// every <see cref="OrderFollowers"/> entry). Reported by the PANEL DRAW ORDER diagnostic.</summary>
+    public int DrawSortingOrder;
 
-    /// <summary>The mask's dynamic per-graphic quad mesh — an ASSET, freed explicitly when the
-    /// host dies (Unity never garbage-collects Mesh objects with the GameObject).</summary>
-    public Mesh? HostDepthMaskMesh;
+    /// <summary>Metres from the eye to the CLOSEST POINT of this panel's rect at the last order
+    /// pass (see <c>CanvasConversion.PanelEyeDistance</c> for why not the centre).</summary>
+    public float OrderDistance;
 
-    /// <summary>Quantized hash of the last emitted mask rect set (rebuild gate — sub-pixel
-    /// jitter never rebuilds, any real content change does).</summary>
-    public int HostDepthMaskHash;
+    /// <summary>True while this panel sits in the persistent far-to-near sequence
+    /// (<c>CanvasConversion.OrderedPanels</c>). Cleared by Release and the dead-panel prune, which
+    /// is how the order pass drops it without a set lookup.</summary>
+    public bool OrderListed;
 
-    /// <summary>Unscaled time before which this host's INK diagnostic stays silent (see
-    /// <c>CanvasConversion.LogHostMaskInk</c>) — a scrolling/animating host rebuilds its mask
-    /// mesh constantly and would otherwise flood the hardware log.</summary>
-    public float HostMaskInkDiagNextAllowed;
+    /// <summary>The successor this panel currently wants to swap places with, and for how many
+    /// consecutive frames it has wanted that. BOTH gates of the anti-flicker hysteresis: a swap
+    /// needs a distance disagreement beyond the margin AND that same peer for a whole streak, so
+    /// head micro-motion (sub-millimetre, sub-frame) can never reorder anything.</summary>
+    public ConvertedPanel? OrderSwapPeer;
+
+    /// <summary>See <see cref="OrderSwapPeer"/>.</summary>
+    public int OrderSwapStreak;
+
+    /// <summary>Mod-owned canvases/renderers that must ride this panel's ladder order at a fixed
+    /// offset — the close X, the grab bar. Registered via
+    /// <see cref="CanvasConversion.RegisterOrderFollower(ConvertedPanel, Canvas, int)"/>; entries
+    /// are pruned when their object dies, so they need no teardown of their own.</summary>
+    public readonly List<OrderFollower> OrderFollowers = new(4);
 }
 
 /// <summary>

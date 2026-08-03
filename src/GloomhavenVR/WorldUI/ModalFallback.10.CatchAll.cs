@@ -589,7 +589,7 @@ internal static partial class ModalFallback
             _errorExtraScale = extraScale;
             _errorPoseRePlaceDone = false;
             var grab = new GrabbableModal();
-            grab.Build(panel, extraScale, "GlobalErrorMessage", depthMask: true);
+            grab.Build(panel, extraScale, "GlobalErrorMessage");
             _errorPanel = panel;
             _errorGrab = grab;
             VRLog.Info("WorldUI", "MODAL WINDOW: GlobalErrorMessage floated in front of the HMD " +

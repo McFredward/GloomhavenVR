@@ -190,17 +190,28 @@ internal static partial class ModalFallback
     /// full-screen modals visibly hit it (ESC menu AND the content-fit Results panel alike —
     /// different conversion paths, same order-0 tie).
     ///
-    /// Fix: float every modal host at a dominant order so it composites unambiguously ON TOP,
-    /// removing the tie. Adopted nested canvases keep <c>overrideSorting</c> cleared, so they
-    /// inherit this order and stay ordered with the host. World-space UI still ZTests against
-    /// opaque depth, so a hand held in front still occludes the modal (sortingOrder only
-    /// orders transparent UI among itself). Poke/laser clicks (geometric + per-graphic
-    /// raycast) and the content fit are unaffected. 1000 clears the game's own canvas orders
-    /// (seen: −1, 0, 1, 40).
+    /// The old fix floated every modal host at this DOMINANT order so it composited unambiguously
+    /// on top, removing the tie. That cured the flicker and created the bug the transparency round
+    /// is about: order beats distance in Unity's transparent sort, so a menu the player had left
+    /// BEHIND the initiative track still painted over its portraits.
+    ///
+    /// <para>WHAT THIS CONSTANT IS NOW. Since the transparency round the DRAW order of every
+    /// converted panel is rewritten each LateUpdate from its measured eye distance
+    /// (CanvasConversion.8.Order.cs), which removes the tie WITHOUT removing perspective - two
+    /// panels are never left at the same order, and the sequence is hysteresis-gated so head
+    /// micro-motion cannot swap it. This value survives as the conversion TIER
+    /// (<see cref="ConvertedPanel.BaseSortingOrder"/>) and still decides exactly two things:
+    /// UguiPointer's cross-raycaster tie-break, which is calibrated against it and must never see
+    /// the live ladder value; and the ladder's own INSERTION tie-break, i.e. what happens between
+    /// two panels whose distances are indistinguishable (inside the swap margin) - there, and only
+    /// there, the modal still wins, which is the "a dialog stays on top of what it is a dialog for"
+    /// guarantee. Adopted nested canvases keep <c>overrideSorting</c> cleared, so they inherit the
+    /// live order and stay with the host either way. World-space UI still ZTests against opaque
+    /// depth, so a hand held in front still occludes the modal.</para>
     /// </summary>
-    // Internal, not private: StatPanelSurface pins the at-hand info panels to this SAME tier, so
-    // the order tie falls through to camera distance and a panel held nearer than the menu
-    // occludes it (and vice versa). Referencing the constant keeps the tie from silently un-tying.
+    // Internal, not private: StatPanelSurface pins the at-hand info panels to this SAME tier, so an
+    // indistinguishable-distance tie between an info panel and a menu is not silently decided by one
+    // of them being a modal. Referencing the constant keeps that from drifting apart.
     internal const int ModalHostSortingOrder = 1000;
 
     /// <summary>
