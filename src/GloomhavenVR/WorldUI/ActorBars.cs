@@ -66,6 +66,22 @@ internal static class ActorBars
     /// </summary>
     private const float BarZoom = 1f;
 
+    /// <summary>
+    /// Host-canvas sortingOrder for adopted actor bars — deliberately the BASE tier (0), i.e. one
+    /// full tier BELOW the world-space info panels
+    /// (<c>StatPanelSurface.StatPanelSortingOrder == ModalFallback.ModalHostSortingOrder</c> = 1000).
+    ///
+    /// <para>Unity sorts transparent UI by sortingLayer → SORTINGORDER first and only then by
+    /// renderQueue/distance, so at 0-vs-1000 the "Infotafel" ALWAYS paints after (over) a bar,
+    /// whatever the head pose — which is the user ruling from the hardware test
+    /// (healthbar_problem.jpg: "die Healthbar ... überlagert Infotafeln"). This was already the
+    /// effective behaviour by the default parameter; naming it makes the rule explicit and stops a
+    /// future 'give the bars a dominant order to kill flicker' edit from silently re-breaking it.
+    /// The bar being spatially NEARER than the panel does not (and must not) change this: an info
+    /// panel the player pulled up is the thing they are reading.</para>
+    /// </summary>
+    private const int BarHostSortingOrder = 0;
+
     private sealed class Adopted
     {
         public WorldspacePanelUIController Controller = null!;
@@ -110,6 +126,27 @@ internal static class ActorBars
 
         /// <summary>True once the one-shot per-bar log line fired.</summary>
         public bool DepthLogged;
+
+        // ---- raycast state -------------------------------------------------------------------
+        // A bar is DISPLAY ONLY: it is converted with pokeable:false, so it is never registered in
+        // UguiPokeSurfaces and the VR laser/poke path cannot address it. But CanvasConversion.Convert
+        // adds a GraphicRaycaster to EVERY host (CanvasConversion.1.Core.cs:209) and the game's bar
+        // Images ship with raycastTarget=true, so the bar's rect — which extends well past the
+        // visible segments, exactly the band the user reported — is still a live hit target for any
+        // EventSystem.RaycastAll consumer (IsPointerOverUI, the virtual-mouse bridge). An INVISIBLE
+        // band that eats picks on the figure/panel behind it is the same defect as the depth stamp,
+        // one input layer up. Cleared per graphic on the shared scan below, restored like everything
+        // else this class mutates. The game's own damage preview is NOT affected: it is driven by
+        // Choreographer targeting messages off the board cursor (see Adopt), never by a UI raycast.
+
+        /// <summary>Per-graphic (graphic, original raycastTarget) for restore.</summary>
+        public readonly List<(Graphic g, bool raycast)> RaycastOff = new();
+
+        /// <summary>Instance IDs of graphics whose raycastTarget was already cleared.</summary>
+        public readonly HashSet<int> RaycastOffIds = new();
+
+        /// <summary>Last suppression state pushed to the host panel (change-gated write).</summary>
+        public bool? DepthStampSuppressed;
     }
 
     /// <summary>Rescan cadence for late-spawned bar graphics (HealthBar mark pooling).</summary>
@@ -122,6 +159,7 @@ internal static class ActorBars
     // applies on every rig. Not in WorldUIConfig because that file predates the trap lesson.
     private static ConfigFile? s_barsConfigFile;
     private static ConfigEntry<bool>? s_barsOccluded;
+    private static ConfigEntry<bool>? s_barsDepthStamp;
 
     /// <summary>
     /// Bind-once for the [WorldUI] BarsOccluded entry. Extracted from the property getter so the
@@ -139,6 +177,15 @@ internal static class ActorBars
             + "any world object instead of the bar shining through. Look-preserving — "
             + "bars stay enabled and billboarding, they are simply hidden pixel-by-pixel "
             + "where a wall is in front. Disable to get the vanilla draw-on-top bars.");
+        s_barsDepthStamp = s_barsConfigFile.Bind("WorldUI", "BarsDepthStamp", Defaults.BarsDepthStamp,
+            "DEBUG. Let an actor HP/effect bar take part in the per-panel depth compose, i.e. "
+            + "stamp its own plane into the depth buffer so nearer panels win per pixel. OFF is "
+            + "correct and shipped: a bar's stamp covers its whole rect - including the invisible "
+            + "margin around the visible segments - and that invisible band CUT HOLES into "
+            + "everything drawn after it, most visibly into the world-space enemy info panel "
+            + "behind it. Bars are single-plane billboards that never need to occlude another "
+            + "panel; they are still occluded correctly by every other panel's stamp and by walls "
+            + "(see BarsOccluded). Only switch this on to reproduce the old artefact.");
     }
 
     /// <summary>Config gate for the bar depth-test (lazily bound, read live every scan).</summary>
@@ -148,6 +195,20 @@ internal static class ActorBars
         {
             BindConfig();
             return s_barsOccluded!.Value;
+        }
+    }
+
+    /// <summary>
+    /// Config gate for the bar's per-host depth STAMP (lazily bound, read live every frame so a
+    /// flip in the in-VR config browser applies to bars that are already adopted). Default false —
+    /// see the bind description and <see cref="LateTick"/> for the root cause.
+    /// </summary>
+    private static bool BarsDepthStamp
+    {
+        get
+        {
+            BindConfig();
+            return s_barsDepthStamp!.Value;
         }
     }
 
@@ -242,20 +303,52 @@ internal static class ActorBars
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
             Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
 
+            // ---- the bar must never PUNCH A HOLE into what is behind it ([WorldUI] BarsDepthStamp)
+            //
+            // ROOT CAUSE of the hardware report "die Healthbar hat eine Transparenz drumrum die
+            // manche Figuren und Infotafeln überlagert" (healthbar_problem.jpg — a clean rectangle
+            // of the enemy info panel MISSING around the bar, the board showing through it):
+            // every converted host, this bar included, gets the per-panel depth-compose stamp
+            // (CanvasConversion.5.Depth.cs — a colour-invisible ZWrite quad mesh at queue 2999 that
+            // stamps the host plane so converted panels occlude each other PER PIXEL). For a menu
+            // that is right; for an actor bar it is not. The stamp covers one padded quad per
+            // visible Graphic, so it lands on the bar's whole rect — the invisible margin around
+            // the segments included — and it lands NEARER to the head than a floating info panel.
+            // The panel's content (sortingOrder 1000, drawn after) then ZTest-LEquals against that
+            // stamp and is DISCARDED there, leaving the already-drawn opaque world visible: the
+            // "transparency around the bar" the user sees is a depth hole, not a blend. Everything
+            // else drawn after queue 2999 is cut the same way — held minis (renderQueue 4100,
+            // FigureGrabbable.HeldRenderQueue), hand ghosts (3100), board widgets — which is the
+            // "manche Figuren" half of the report.
+            //
+            // FIX: suppress the stamp for bars. A bar is a single-plane billboard; it never needs
+            // to occlude another panel. It is still occluded correctly in both directions —
+            // by walls via BarsOccluded (per-material ZTest LEqual, below) and by every OTHER
+            // panel's stamp, which this change leaves fully intact. Re-asserted every frame from
+            // the live config value (change-gated write) so a flip in the in-VR browser reaches
+            // bars that are already adopted, and so a bar pooled/re-adopted mid-session can never
+            // come back stamping.
+            bool suppressStamp = !BarsDepthStamp;
+            if (adopted.DepthStampSuppressed != suppressStamp)
+            {
+                adopted.DepthStampSuppressed = suppressStamp;
+                panel.HostDepthMaskSuppressed = suppressStamp;
+            }
+
             // Wall occlusion ([WorldUI] BarsOccluded gate): the bar's graphics run per-instance
             // materials with unity_GUIZTestMode=LEqual so wall depth occludes them naturally —
             // the bar itself stays enabled and billboarding (no toggling; the old linecast+hide
             // probe is retired). Slow rescan catches graphics pooled after adopt (health marks).
-            if (BarsOccluded)
+            // The SAME scan clears raycastTarget on every bar graphic (see Adopted.RaycastOff) —
+            // that part is ungated: the bar's invisible band must not eat picks whatever the
+            // occlusion setting is.
+            float now = Time.unscaledTime;
+            if (now >= adopted.NextDepthScan)
             {
-                float now = Time.unscaledTime;
-                if (now >= adopted.NextDepthScan)
-                {
-                    adopted.NextDepthScan = now + DepthScanIntervalSeconds;
-                    ApplyBarDepthTest(adopted, controller.name);
-                }
+                adopted.NextDepthScan = now + DepthScanIntervalSeconds;
+                ScanBarGraphics(adopted, controller.name, depthTest: BarsOccluded);
             }
-            else if (adopted.DepthMats.Count > 0)
+            if (!BarsOccluded && adopted.DepthMats.Count > 0)
             {
                 // Live config-off: give every graphic its original material back.
                 RestoreBarDepthTest(adopted);
@@ -380,9 +473,16 @@ internal static class ActorBars
     private static void Adopt(WorldspacePanelUIController controller)
     {
         ConvertedPanel? panel = CanvasConversion.Convert(
-            controller.transform as RectTransform, "ActorBar", pokeable: false);
+            controller.transform as RectTransform, "ActorBar", pokeable: false,
+            sortingOrder: BarHostSortingOrder);
         if (panel == null)
             return;
+
+        // Suppress the per-panel depth stamp BEFORE the first CanvasConversion tick can build it
+        // (see the ROOT CAUSE block in LateTick): a bar that stamps even one frame punches a
+        // visible rectangle out of the info panel behind it. LateTick re-asserts this from the
+        // live config value for the rest of the bar's life.
+        panel.HostDepthMaskSuppressed = !BarsDepthStamp;
 
         Adoptions[controller] = new Adopted
         {
@@ -441,18 +541,27 @@ internal static class ActorBars
     private static readonly List<Graphic> GraphicScratch = new(64);
 
     /// <summary>
-    /// Force every Graphic under the adopted bar host to DEPTH-TEST against walls: assign a
-    /// per-instance copy of its material with <c>unity_GUIZTestMode</c> = LEqual(4). Unity's
-    /// UI/Default shader declares <c>ZTest [unity_GUIZTestMode]</c> and the per-material value
-    /// beats the global, so world-space bar pixels are occluded by wall depth while the bar stays
-    /// enabled and billboarding — no toggling. TMP distance-field text: its SDF shaders use the
-    /// same <c>unity_GUIZTestMode</c> bracket in UI mode; some variants expose <c>_ZTestMode</c>
-    /// instead — both are set (unconditionally for the former, since it is a bracket lookup and
-    /// not a declared Property, HasProperty-guarded for the latter). Idempotent per graphic
-    /// (instance-ID set); originals snapshotted for restore. Only graphics under hosts ActorBars
-    /// owns/adopts are ever touched.
+    /// ONE walk over every Graphic under the adopted bar host, doing the two per-graphic
+    /// treatments this class owns. Slow cadence (<see cref="DepthScanIntervalSeconds"/>) because
+    /// <c>HealthBar</c> pools new division-mark Graphics long after adopt; idempotent per graphic
+    /// via the instance-ID sets, originals snapshotted for restore, and only graphics under hosts
+    /// ActorBars owns/adopts are ever touched.
+    ///
+    /// <para>1. DEPTH TEST (<paramref name="depthTest"/> = the [WorldUI] BarsOccluded gate): assign
+    /// a per-instance copy of the graphic's material with <c>unity_GUIZTestMode</c> = LEqual(4).
+    /// Unity's UI/Default shader declares <c>ZTest [unity_GUIZTestMode]</c> and the per-material
+    /// value beats the global, so world-space bar pixels are occluded by wall depth while the bar
+    /// stays enabled and billboarding — no toggling. TMP distance-field text: its SDF shaders use
+    /// the same <c>unity_GUIZTestMode</c> bracket in UI mode; some variants expose
+    /// <c>_ZTestMode</c> instead — both are set (unconditionally for the former, since it is a
+    /// bracket lookup and not a declared Property, HasProperty-guarded for the latter).</para>
+    ///
+    /// <para>2. RAYCAST (always): clear <c>raycastTarget</c>. See <see cref="Adopted.RaycastOff"/> —
+    /// the bar is display-only, but its host still carries the GraphicRaycaster every conversion
+    /// adds, so its wide invisible rect would otherwise register hits for any
+    /// <c>EventSystem.RaycastAll</c> consumer in front of the figure/panel behind it.</para>
     /// </summary>
-    private static void ApplyBarDepthTest(Adopted adopted, string barName)
+    private static void ScanBarGraphics(Adopted adopted, string barName, bool depthTest)
     {
         GameObject host = adopted.Panel.HostGo;
         if (host == null)
@@ -461,13 +570,34 @@ internal static class ActorBars
         GraphicScratch.Clear();
         host.GetComponentsInChildren(includeInactive: true, GraphicScratch);
         int added = 0;
+        int unraycast = 0;
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
             Graphic g = GraphicScratch[i];
             if (g == null)
                 continue;
             int id = g.GetInstanceID();
-            if (adopted.DepthMatIds.Contains(id))
+
+            if (!adopted.RaycastOffIds.Contains(id))
+            {
+                try
+                {
+                    adopted.RaycastOffIds.Add(id);
+                    if (g.raycastTarget)
+                    {
+                        adopted.RaycastOff.Add((g, true));
+                        g.raycastTarget = false;
+                        unraycast++;
+                    }
+                }
+                catch
+                {
+                    // Leave this graphic vanilla; the ID stays recorded (a graphic that throws
+                    // here throws every scan) — the depth pass below is independent of it.
+                }
+            }
+
+            if (!depthTest || adopted.DepthMatIds.Contains(id))
                 continue;
             try
             {
@@ -491,6 +621,13 @@ internal static class ActorBars
             }
         }
         GraphicScratch.Clear();
+
+        if (unraycast > 0)
+        {
+            VRLog.Debug("WorldUI",
+                $"bar raycast: cleared raycastTarget on {unraycast} graphics ('{barName}') — the " +
+                "bar's invisible rect no longer catches pointer hits meant for what is behind it.");
+        }
 
         if (added > 0)
         {
@@ -535,6 +672,25 @@ internal static class ActorBars
         adopted.NextDepthScan = 0f;
     }
 
+    /// <summary>
+    /// Mirror of the raycast treatment: give every touched Graphic its original
+    /// <c>raycastTarget</c> back. Called on release and shutdown (ReleaseAll) — the game keeps
+    /// these panels in a pool, so a bar handed back must be exactly as it was handed over.
+    /// </summary>
+    private static void RestoreBarRaycast(Adopted adopted)
+    {
+        for (int i = 0; i < adopted.RaycastOff.Count; i++)
+        {
+            (Graphic g, bool raycast) = adopted.RaycastOff[i];
+            if (g == null)
+                continue;
+            try { g.raycastTarget = raycast; }
+            catch { /* graphic destroyed under us */ }
+        }
+        adopted.RaycastOff.Clear();
+        adopted.RaycastOffIds.Clear();
+    }
+
     private static void Release(WorldspacePanelUIController controller)
     {
         // NOTE: the key may be Unity-dead ("== null" true) but the CLR reference is
@@ -542,6 +698,7 @@ internal static class ActorBars
         if (Adoptions.TryGetValue(controller, out Adopted adopted))
         {
             RestoreBarDepthTest(adopted);
+            RestoreBarRaycast(adopted);
             CanvasConversion.Release(adopted.Panel);
         }
         Adoptions.Remove(controller);
@@ -553,6 +710,7 @@ internal static class ActorBars
         foreach (KeyValuePair<WorldspacePanelUIController, Adopted> pair in Adoptions)
         {
             RestoreBarDepthTest(pair.Value);
+            RestoreBarRaycast(pair.Value);
             CanvasConversion.Release(pair.Value.Panel);
         }
         Adoptions.Clear();
