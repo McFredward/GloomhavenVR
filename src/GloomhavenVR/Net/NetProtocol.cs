@@ -638,6 +638,72 @@ internal static class NetProtocol
     /// wire). Truncation is on a UTF8 CHARACTER boundary, never mid-sequence.</summary>
     public const int PickBannerTextMaxBytes = 96;
 
+    /// <summary>
+    /// Extension record id: the sender's SECOND held figure — the mini in their OTHER hand.
+    /// 25 bytes: <c>[hand flags][int32 actorId LE][pose 20]</c>.
+    ///
+    /// <para>THE DEFECT IT FIXES (hardware MP test: "Wenn ein Mitspieler zwei Figuren in der Hand
+    /// haelt soll auch dies vollstaendig synchronisiert werden — aktuell sieht man immer nur eine
+    /// einzige Figur maximal"). A VR player can grab a figure with EACH hand — the local grab
+    /// registry has always been a SET (<c>Board.FigureGrab.HeldFigures</c>) and both minis really
+    /// ride their hands on the grabber's own screen. The wire had exactly ONE held-figure slot
+    /// (rig flag <see cref="FlagHeldFigure"/>), so peers saw at most one of the two, and WHICH one
+    /// they saw flipped with the grab order.</para>
+    ///
+    /// <para>WHY THE EXTRAS TAIL AND NOT THE RIG PACKET, where the first figure rides: the rig flag
+    /// byte is FULL (bits 0..7, up to <see cref="FlagHeldCard"/> — see the note there), and a rig
+    /// packet field with no flag bit to announce it is not expressible. The rig reader's
+    /// forward-compat contract is literally "validate only what MY flags demand, ignore trailing
+    /// bytes"; a second held-figure block appended without a bit would be indistinguishable from
+    /// the junk that contract exists to tolerate, so a receiver could never tell "a second figure"
+    /// from "a future sender's unrelated tail". The TLV tail has no such scarcity: it is
+    /// self-describing, so this record costs no bit at all.</para>
+    ///
+    /// <para>POSE RATE — WHY THIS IS NOT THE 5 Hz COMPROMISE IT LOOKS LIKE. The extras cadence is
+    /// <see cref="ExtrasSendRateHz"/> only while nothing in it is MOVING: the sender already
+    /// promotes extras to the full rig rate (<see cref="SendRateHz"/>) while a live field changes,
+    /// which is exactly how a dragged control board was made to arrive as smoothly as a hand
+    /// (NetAvatarDriver's board-pose motion gate). The second figure joins that gate, so while it
+    /// is carried its pose goes out at 15 Hz — the SAME cadence as the first figure's rig block —
+    /// and both are eased by the same <see cref="InterpolationSharpness"/> in NetFigures.Tick.
+    /// Same sample density plus the same easing is identical motion by construction, which is the
+    /// standing requirement ("keine Kompromisse"); a still figure falls back to 5 Hz, where a
+    /// slower stream of an unchanging pose is not observable.</para>
+    ///
+    /// <para>WHY THE HAND BITS: the record names the hand of BOTH minis (the rig packet has no room
+    /// to say which hand its own figure is in). Without them a receiver has no way to tell a
+    /// legitimate two-hand hold from a contradictory pair of records — and a contradiction is
+    /// exactly what a stale/duplicated packet looks like — so it would happily drive two minis into
+    /// one palm. With them the reader can REJECT the record when both figures claim the same hand
+    /// (<see cref="SecondFigureLeftBit"/> == <see cref="SecondFigurePrimaryLeftBit"/>), which is
+    /// what stops the two figures swapping hands or doubling up on a peer's screen.</para>
+    ///
+    /// <para>Written only while a SECOND figure is really held, so a one-handed hold — and an
+    /// empty-handed player — emits the exact bytes previous builds emitted. Older peers step over
+    /// the record by its length and keep showing the one figure they always showed.</para>
+    /// </summary>
+    public const byte ExtIdSecondFigure = 8;
+
+    /// <summary>Second-figure record, hand byte bit 0: the SECOND figure rides the sender's LEFT
+    /// hand (clear = right).</summary>
+    public const byte SecondFigureLeftBit = 1 << 0;
+
+    /// <summary>Second-figure record, hand byte bit 1: the FIRST figure — the one in the rig
+    /// packet's <see cref="FlagHeldFigure"/> block — rides the sender's LEFT hand (clear = right).
+    /// It lives here rather than in the rig packet because the rig flag byte has no bit left; it is
+    /// meaningful only while this record is present, which is the only time the two hands have to be
+    /// told apart.</summary>
+    public const byte SecondFigurePrimaryLeftBit = 1 << 1;
+
+    /// <summary>Every DEFINED bit of the second-figure hand byte. Masked on write AND on read so an
+    /// undefined bit can never be pre-claimed by garbage — the same discipline as
+    /// <see cref="BoardUiOverlayMask"/>.</summary>
+    public const byte SecondFigureHandMask = 0x03;
+
+    /// <summary>Payload length of <see cref="ExtIdSecondFigure"/>: 1 hand byte + 4 actor id +
+    /// 20 pose. A reader requires at least this much before it trusts the record.</summary>
+    public const int SecondFigureRecordBytes = 25;
+
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>
     public const byte CardHighlightNone = 0xFF;

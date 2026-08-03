@@ -231,6 +231,35 @@ internal struct PresenceState
     /// <summary>The sender's pick-status line, in THEIR language (meaningful only when
     /// <see cref="HasPickBanner"/>). An actor name and a count — never a card identity.</summary>
     public string? PickBannerText;
+
+    /// <summary>
+    /// True when the sender is holding a SECOND board figure — one mini per hand — and this packet
+    /// carries it (extension record <see cref="NetProtocol.ExtIdSecondFigure"/>). The FIRST figure
+    /// keeps riding the rig packet's <see cref="NetProtocol.FlagHeldFigure"/> block at the full
+    /// 15 Hz; this record carries the other one, and the sender promotes the whole extras packet to
+    /// the rig rate while it is carried so both minis stream at the same cadence (see the record
+    /// doc for the full argument). Absent ⇒ at most one figure is held, which is exactly what peers
+    /// predating the record render.
+    /// </summary>
+    public bool HasSecondFigure;
+
+    /// <summary>Stable cross-client id (<c>CActor.ID</c>) of that second figure — the same id space
+    /// the rig packet's held figure uses. Meaningful only when <see cref="HasSecondFigure"/>.</summary>
+    public int SecondFigureActorId;
+
+    /// <summary>World-frame pose of the second held figure (meaningful only when
+    /// <see cref="HasSecondFigure"/>). Same encoding as every other pose on this wire.</summary>
+    public RigPose SecondFigurePose;
+
+    /// <summary>True when the SECOND figure rides the sender's LEFT hand
+    /// (<see cref="NetProtocol.SecondFigureLeftBit"/>).</summary>
+    public bool SecondFigureLeftHand;
+
+    /// <summary>True when the FIRST figure — the one in the rig packet — rides the sender's LEFT
+    /// hand (<see cref="NetProtocol.SecondFigurePrimaryLeftBit"/>). Carried here because the rig
+    /// flag byte has no bit left, and meaningful only while <see cref="HasSecondFigure"/> is set:
+    /// it is what lets a reader prove the two figures are in DIFFERENT hands.</summary>
+    public bool PrimaryFigureLeftHand;
 }
 
 /// <summary>
@@ -265,7 +294,11 @@ internal struct PresenceState
 ///                        5 FAN ANCHOR (3 × f32 LE board-local position of the open board-anchored
 ///                        fan; absent = the authored default spot, see NetProtocol.ExtIdFanAnchor),
 ///                        6 CARD HIGHLIGHT ([hand-fan index][board-fan index], 255 = none — only
-///                        written while something is highlighted, see NetProtocol.ExtIdCardHighlight)
+///                        written while something is highlighted, see NetProtocol.ExtIdCardHighlight),
+///                        7 PICK BANNER (UTF8 placard line, capped — see NetProtocol.ExtIdPickBanner),
+///                        8 SECOND HELD FIGURE ([hand flags][int32 actorId LE][pose 20] = 25 B — the
+///                        mini in the sender's OTHER hand; the first one rides the rig packet, see
+///                        NetProtocol.ExtIdSecondFigure)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -298,9 +331,13 @@ internal static class PresenceSerializer
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
     /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
-    /// = 92, rounded up to 112 for headroom. Local buffer bound only — nothing on the wire
-    /// depends on it.</summary>
-    public const int MaxSize = 112;
+    /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25) = 217, rounded up
+    /// to 240 for headroom. The pick banner was never in this sum before and the constant carried
+    /// the omission; it is counted now, because the second-figure record is the first one that could
+    /// ride the same packet as a full-length banner. Local buffer bound only — nothing on the wire
+    /// depends on it, and both variable-length records still bounds-check against the real buffer
+    /// before writing.</summary>
+    public const int MaxSize = 240;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -330,6 +367,7 @@ internal static class PresenceSerializer
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
         bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
+                          || state.HasSecondFigure
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText));
@@ -481,6 +519,25 @@ internal static class PresenceSerializer
                             buffer[i++] = text[b];
                         records++;
                     }
+                }
+                if (state.HasSecondFigure && i + 2 + NetProtocol.SecondFigureRecordBytes <= buffer.Length)
+                {
+                    // SECOND HELD FIGURE: [hand flags][int32 actorId LE][pose 20]. The mini in the
+                    // sender's OTHER hand — the first one rides the rig packet's held-figure block.
+                    // Written ONLY while a second figure is really held, so a one-handed hold (and
+                    // an idle player) emits the exact bytes previous builds emitted. Appended LAST,
+                    // behind every record that already existed, per the tail's id-order contract.
+                    byte hands = 0;
+                    if (state.SecondFigureLeftHand) hands |= NetProtocol.SecondFigureLeftBit;
+                    if (state.PrimaryFigureLeftHand) hands |= NetProtocol.SecondFigurePrimaryLeftBit;
+                    buffer[i++] = NetProtocol.ExtIdSecondFigure;
+                    buffer[i++] = (byte)NetProtocol.SecondFigureRecordBytes;
+                    // Masked to the DEFINED hand bits so a future bit cannot be pre-claimed by
+                    // garbage — same discipline as the board-UI overlay byte.
+                    buffer[i++] = (byte)(hands & NetProtocol.SecondFigureHandMask);
+                    AvatarSerializer.WriteI32(buffer, ref i, state.SecondFigureActorId);
+                    AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondFigurePose);
+                    records++;
                 }
                 buffer[countAt] = records;
             }
@@ -778,6 +835,42 @@ internal static class PresenceSerializer
                         {
                             state.HasPickBanner = true;
                             state.PickBannerText = line;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdSecondFigure
+                             && len >= NetProtocol.SecondFigureRecordBytes)
+                    {
+                        // SECOND HELD FIGURE: [hand flags][int32 actorId LE][pose 20].
+                        //
+                        // THREE THINGS ARE VALIDATED HERE, and each of them is a way two minis could
+                        // otherwise end up wrong on a peer's screen:
+                        //   * the two hand bits must DISAGREE. They name the hand of the second and
+                        //     of the first (rig-packet) figure; equal bits mean the packet claims
+                        //     both minis are in one palm, which no local grab can produce (a hand
+                        //     holds one object) and which a stale/corrupt record can. Dropped.
+                        //   * actor id 0 is "none" everywhere in this system, so it can never
+                        //     identify a figure.
+                        //   * a NaN/infinite position would fling a real board figure out of the
+                        //     world — the same guard the fan anchor carries, for the same reason.
+                        // A rejected record reads as "no second figure", i.e. exactly what a peer
+                        // predating this build renders. Never a half-applied hold.
+                        byte hands = (byte)(buffer[i] & NetProtocol.SecondFigureHandMask);
+                        bool secondLeft = (hands & NetProtocol.SecondFigureLeftBit) != 0;
+                        bool primaryLeft = (hands & NetProtocol.SecondFigurePrimaryLeftBit) != 0;
+                        int j = i + 1;
+                        int secondId = AvatarSerializer.ReadI32(buffer, ref j);
+                        AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose secondPose);
+                        Vector3 sp = secondPose.Position;
+                        if (secondLeft != primaryLeft && secondId != 0
+                            && !float.IsNaN(sp.x) && !float.IsInfinity(sp.x)
+                            && !float.IsNaN(sp.y) && !float.IsInfinity(sp.y)
+                            && !float.IsNaN(sp.z) && !float.IsInfinity(sp.z))
+                        {
+                            state.HasSecondFigure = true;
+                            state.SecondFigureActorId = secondId;
+                            state.SecondFigurePose = secondPose;
+                            state.SecondFigureLeftHand = secondLeft;
+                            state.PrimaryFigureLeftHand = primaryLeft;
                         }
                     }
                     i += len; // known or not, the record's own length is how we move past it

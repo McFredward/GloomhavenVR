@@ -265,8 +265,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         GameObject ghostSrc = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
         FigureGhosts.NotifyHeld(_actor, ghostSrc.transform.position, ghostSrc.transform.rotation);
 
-        // Suppress the game's per-frame transform writes for THIS actor only.
-        HeldFigures.Add(_actor);
+        // Suppress the game's per-frame transform writes for THIS actor only. The HAND is recorded
+        // with it: a player may hold one figure per hand, and the two-handed figure sync has to say
+        // which mini is in which hand (NetProtocol.ExtIdSecondFigure).
+        HeldFigures.Add(_actor, hand.Side);
 
         // Snapshot the authoritative cell so we can auto-release if the game moves the figure
         // on the board while it is held (R2 hardening).
