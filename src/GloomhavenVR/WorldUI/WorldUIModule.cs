@@ -281,6 +281,13 @@ internal sealed class WorldUIModule : IVRModule
             late.Add(("UseBarsSurface.Late", _useBars.LateTick)); // after the dock: reads its re-placed row edge
             late.Add(("DamageTooltipSurface.Late", _damageTooltip.LateTick));
             late.Add(("TrayControlDockSurface.Late", _trayControls.LateTick));
+            // TRANSPARENCY ROUND, and it must stay LAST. CanvasConversion.TickPanelOrder assigns
+            // every converted panel's draw order from its measured eye distance (far = painted
+            // first), which is what makes panels occlude each other by perspective now that none of
+            // them writes depth. It reads panel POSES, and every board-docked surface above re-places
+            // its host in its own LateTick — measuring before them would order the panels from last
+            // frame's geometry. Nothing after it may move a host.
+            late.Add(("CanvasConversion.Order", CanvasConversion.TickPanelOrder));
             _lateSteps = late.ToArray();
         }
 

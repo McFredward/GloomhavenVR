@@ -30,10 +30,12 @@ namespace GloomhavenVR.WorldUI;
 ///   behind a natively opaque panel the plate is simply invisible (drawn first, fully covered),
 ///   so over-coverage is harmless while under-coverage is the reported bug.
 ///
-/// PLATE RENDERING (same recipe as GrabbableModal.BuildDepthMask, but colored): the bundled
-/// Overlay shader forced to _ZWrite=1 / _ZTest=4 (LEqual) / _Cull=0 / Blend One Zero at
-/// renderQueue 2998 — after all opaque geometry, before the depth masks (2999) and the
-/// text/uGUI it backs (~3000). Writing depth means anything BEHIND the plate is occluded the
+/// PLATE RENDERING: the bundled Overlay shader forced to _ZWrite=1 / _ZTest=4 (LEqual) /
+/// _Cull=0 / Blend One Zero at renderQueue 2998 — after all opaque geometry and before the
+/// text/uGUI it backs (~3000). (It used to share this recipe with the panel depth masks at 2999;
+/// those are gone — see CanvasConversion.8.Order.cs — but the plate is a genuinely OPAQUE backing
+/// the user asked for, not an invisible stamp, so its depth write is the honest kind: it hides
+/// what is behind it because it is a solid surface, not because a rectangle said so.) Writing depth means anything BEHIND the plate is occluded the
 /// normal way (no transparent-sort gambling), while the content 2 mm in front still passes
 /// LEqual. Without the bundle the material falls back to Sprites/Default at the same queue:
 /// no depth write, but the plate still draws before its content — readable either way.
@@ -56,7 +58,10 @@ internal static class MrBacking
     private const float LabelPadFraction = 0.12f;
     private const float LabelPadFloorMeters = 0.004f;
 
-    /// <summary>After opaque geometry, before the modal depth masks (2999) and text/uGUI (3000).</summary>
+    /// <summary>After opaque geometry, before the text/uGUI it backs (3000). Below the panel draw
+    /// ladder (CanvasConversion.PanelOrderBase = 100) on the order axis too, which is the same
+    /// "the plate composites before the content it backs" contract the renderer's sortingOrder 0
+    /// has always expressed.</summary>
     private const int PlateQueue = 2998;
 
     /// <summary>The repo's dark panel neutral (RoundReadout/slot plates use the same family).</summary>
