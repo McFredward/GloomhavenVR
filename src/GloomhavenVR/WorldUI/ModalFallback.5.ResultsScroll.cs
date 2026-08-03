@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using Script.GUI.Popups;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -157,6 +158,21 @@ internal static partial class ModalFallback
             return;
         if (hovered.GetComponentInParent<ScrollRect>() != null)
             return; // generic RayUguiDriver stick-scroll owns this hover — never double-drive
+
+        // SCROLL BEATS FLIGHT (user 2026-08-03), reported from the same place the scroll is
+        // decided so the two can never disagree — see UiScrollFocus. This branch
+        // is a second, equally authoritative "the pointer is on a live scrollable": the hover is
+        // on THIS results window's host and the window has a resolved scroll target. The
+        // ScrollRect case still has to prove it can actually move (a results list short enough
+        // to fit must not ground the player); a bare Scrollbar proves it with size < 1, which is
+        // uGUI's own "the handle does not fill the track" i.e. there is travel to give.
+        bool live = wp.ResultsScroll != null && wp.ResultsScroll.isActiveAndEnabled
+            ? UiScrollFocus.CanScroll(wp.ResultsScroll)
+            : wp.ResultsScrollbar != null && wp.ResultsScrollbar.isActiveAndEnabled
+              && wp.ResultsScrollbar.size < 0.999f;
+        if (live)
+            UiScrollFocus.NoteScrollHover(hand);
+
         float y = hand.Thumbstick.y;
         if (Mathf.Abs(y) < ResultsScrollDeadzone)
             return;
@@ -170,6 +186,8 @@ internal static partial class ModalFallback
             _resultsScrollData.scrollDelta = new Vector2(0f, notches);
             ExecuteEvents.ExecuteHierarchy(scroll.gameObject, _resultsScrollData, ExecuteEvents.scrollHandler);
             _resultsScrollData.scrollDelta = Vector2.zero;
+            if (live)
+                UiScrollFocus.NoteScrollDelivered(hand);
             return;
         }
 
@@ -182,6 +200,8 @@ internal static partial class ModalFallback
                      || bar.direction == Scrollbar.Direction.LeftToRight ? 1f : -1f;
             bar.value = Mathf.Clamp01(bar.value
                 + dir * Mathf.Sign(y) * response * ResultsScrollbarUnitsPerSecond * Time.unscaledDeltaTime);
+            if (live)
+                UiScrollFocus.NoteScrollDelivered(hand);
         }
     }
 }
