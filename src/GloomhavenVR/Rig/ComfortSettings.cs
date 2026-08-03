@@ -128,7 +128,17 @@ internal static class ComfortSettings
     // stick flight plus the world grab move the player anywhere they like, so a config dial
     // for eye height was a second, worse way to do the same thing). Recenter is now purely a
     // deterministic way BACK to the table edge; how high you sit while playing is locomotion.
-    internal const float StandingEyeHeightMeters = 0.70f;
+    //
+    // THE HEIGHT IS 0.30, NOT 0.70, AND THAT IS THE REMOVAL BEING HONEST. Retiring the dial must
+    // not silently MOVE the player: the shipped default for TableHeightOffset was -0.40 — the very
+    // bottom of its -0.40..+0.60 range — and the tuned cfg carried -0.40 as well, so the seat every
+    // build so far actually produced was 0.70 + (-0.40) = 0.30 m. Deleting the addend and leaving
+    // 0.70 behind would have raised every recenter by 40 real centimetres (times the rig scale — very
+    // visible) as a side effect of a cleanup nobody asked to change the view. The tuned value is
+    // folded into the constant instead, so the setting disappears and the seat does not move.
+    // 0.30 m above the focus plane, 0.70 m back, is the leaning-in-over-the-board view the dial was
+    // pinned to; from there the stick and the grip take over, which is the whole point of the ruling.
+    internal const float StandingEyeHeightMeters = 0.30f;
     internal const float StandingEyeBackMeters = 0.70f;
 
     private static ConfigFile? _file;
