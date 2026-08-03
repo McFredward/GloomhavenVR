@@ -46,7 +46,7 @@ internal static partial class Defaults
     internal const TurnHandChoice TurnHand = TurnHandChoice.Right;  // => [Comfort] TurnHand
     internal const float TableHeightOffset = -0.4f;                 // => [Comfort] TableHeightOffset
     internal const float RecenterHoldSeconds = 1.0f;                // => [Comfort] RecenterHoldSeconds
-    internal const float SavedScaleMultiplier = 2.268242f;          // => [Comfort] SavedScaleMultiplier
+    internal const float SavedScaleMultiplier = 2.40867f;           // => [Comfort] SavedScaleMultiplier
     internal const bool DebugGizmos = false;                        // => [Comfort] DebugGizmos
     internal const bool KeepPlaceOnReorigin = true;                 // => [Comfort] KeepPlaceOnReorigin
     internal const bool TableScaleDefault25Applied = false;         // => [Comfort] TableScaleDefault25Applied  (pinned: one-shot migration marker — a fresh install must start false)
