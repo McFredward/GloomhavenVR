@@ -505,7 +505,7 @@ internal static partial class Loc
         ["h_vr_o_snapdeg"] = Pair("How far one snap turn rotates you.", "Wie weit eine Sprungdrehung dich dreht."),
         ["h_vr_o_smoothspeed"] = Pair("How fast smooth turning rotates you.", "Wie schnell weiches Drehen dich dreht."),
         ["h_vr_o_turnhand"] = Pair("Which controller's stick turns you.", "Mit welchem Controller-Stick du dich drehst."),
-        ["h_vr_o_flight"] = Pair("Push the stick forward to fly through the scene.", "Stick nach vorne druecken, um durch die Szene zu fliegen."),
+        ["h_vr_o_flight"] = Pair("Stick forward flies, sideways strafes.", "Stick nach vorne fliegt, seitwaerts fliegt seitwaerts."),
         ["h_vr_o_flightdir"] = Pair("Fly where you look, or where the laser points.", "Fliegt dorthin, wohin du schaust oder wohin der Laser zeigt."),
         ["h_vr_o_flightspeed"] = Pair("Speed with the stick pushed all the way.", "Geschwindigkeit bei voll durchgedruecktem Stick."),
         ["h_vr_o_flighthand"] = Pair("Which controller's stick flies.", "Mit welchem Controller-Stick du fliegst."),

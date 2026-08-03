@@ -10,18 +10,19 @@ namespace GloomhavenVR.Rig;
 /// nach vorne zu bewegen. Dabei soll die Direktion entweder dem Kopf (HMD) oder der dominanten Hand
 /// folgen (einstellbar). Die Maximalgeschwindigkeit soll auch einstellbar sein.").
 ///
-/// <para>Push the flight hand's thumbstick FORWARD and the rig flies along the chosen direction;
-/// pull it back and it flies backwards. Everything about it is live-configurable in the in-VR
-/// options menu under "Bewegung &amp; Drehen": <c>[Comfort] FlightEnabled</c>,
-/// <c>FlightDirection</c> (head vs. dominant hand), <c>FlightMaxSpeed</c> and <c>FlightHand</c>.</para>
+/// <para>Push the flight hand's thumbstick FORWARD and the rig flies along the chosen direction,
+/// pull it back to fly backwards, push it SIDEWAYS to strafe level left/right. Everything about it
+/// is live-configurable in the in-VR options menu under "Bewegung &amp; Drehen":
+/// <c>[Comfort] FlightEnabled</c>, <c>FlightDirection</c> (head vs. dominant hand),
+/// <c>FlightMaxSpeed</c> and <c>FlightHand</c>.</para>
 ///
-/// <para>WHY THIS DOES NOT COLLIDE WITH TURNING, which owns the same stick hardware:
-/// <see cref="SnapTurn"/> reads the stick's SIDEWAYS axis (<c>Thumbstick.x</c>) and nothing else;
-/// flight reads the FORWARD axis (<c>Thumbstick.y</c>) and nothing else. The two are orthogonal by
-/// construction, so even with both features pointed at one and the same stick a diagonal push turns
-/// AND flies rather than one starving the other. With the shipped defaults they are not even on the
-/// same stick: <c>[Comfort] TurnHand</c> is Right, <c>FlightHand</c> is Left — the layout the
-/// request describes and the one most VR titles use.</para>
+/// <para>THE SIDEWAYS AXIS IS SHARED WITH TURNING, and that is the one arbitration this class has
+/// to make. <see cref="SnapTurn"/> reads the stick's sideways axis (<c>Thumbstick.x</c>); strafe
+/// wants the same axis. With the shipped defaults there is no contest — <c>[Comfort] TurnHand</c>
+/// is Right and <c>FlightHand</c> is Left, so turning and flying sit on different controllers and
+/// both axes of the flight stick are free. When a player DOES put both on one stick, turning wins
+/// and strafe stands down (see <see cref="StrafeAllowed"/>); forward/backward flight is unaffected
+/// either way, because nothing else reads that axis.</para>
 ///
 /// <para>SPEED IS IN APPARENT METRES, NOT WORLD UNITS, and that is the one non-obvious decision
 /// here. The rig root is SCALED (the diorama runs at ~12x, and the player re-scales it by pinching),
@@ -78,7 +79,7 @@ internal sealed class Flight : MonoBehaviour
     /// <summary>True on any frame the stick actually moved the rig (comfort gizmos / diagnostics).</summary>
     internal bool IsFlying { get; private set; }
 
-    /// <summary>Apparent metres flown this frame, signed (+ forward). Zero when idle.</summary>
+    /// <summary>Apparent metres flown this frame (magnitude, any direction). Zero when idle.</summary>
     internal float LastStepMeters { get; private set; }
 
     private bool _loggedNoDirection;
@@ -118,25 +119,61 @@ internal sealed class Flight : MonoBehaviour
         if (WorldGrab.Instance != null && WorldGrab.Instance.IsHandGrabbing(hand))
             return;
 
-        float y = hand.Thumbstick.y;
-        float ay = Mathf.Abs(y);
-        if (ay <= Deadzone)
+        // BOTH AXES (user, 2026-08-03: "Man soll auch mit dem joystick links und rechts seitwaerts
+        // fliegen koennen"). Forward/back rides y, strafe rides x — but x is also TURNING's axis,
+        // so strafe is only taken when turning is not listening to this same stick. See
+        // StrafeAllowed for why that arbitration goes turning's way.
+        Vector2 stick = hand.Thumbstick;
+        float sideways = StrafeAllowed() ? stick.x : 0f;
+        var raw = new Vector2(sideways, stick.y);
+
+        // The deadzone is applied to the stick's MAGNITUDE, not per axis: a per-axis deadzone makes
+        // a diagonal push start moving on one axis before the other, which reads as the stick
+        // snapping to the cardinal directions.
+        float mag = raw.magnitude;
+        if (mag <= Deadzone)
             return;
 
         // Deadzone-compensated response, then SQUARED: fine control near the centre (nudging into
         // position over a hex) while a full push still reaches exactly FlightMaxSpeed — squaring
         // maps 1 to 1, so the configured maximum stays literally the maximum, which is how the
-        // setting is described to the player ("bei voll durchgedruecktem Stick").
-        float response = (ay - Deadzone) / (1f - Deadzone);
+        // setting is described to the player ("bei voll durchgedruecktem Stick"). Taken from the
+        // magnitude, so a diagonal is capped at the SAME top speed as a straight push instead of
+        // being sqrt(2) faster.
+        float response = (mag - Deadzone) / (1f - Deadzone);
+        response = Mathf.Min(response, 1f);
         response *= response;
 
         if (!TryDirection(out Vector3 dir))
             return;
 
+        // Strafe axis: horizontal-plane right of the flight direction. Perpendicular to WORLD UP by
+        // construction, so flying sideways stays LEVEL — looking up while strafing must not make
+        // the player climb sideways, which a fully 3D perpendicular would do.
+        Vector3 right = Vector3.Cross(Vector3.up, dir);
+        if (right.sqrMagnitude < 1e-6f)
+        {
+            // Looking (or pointing) straight up/down: the horizontal right is undefined there.
+            // Fall back to the head's own right, which is well defined at any pitch.
+            Camera? head = VRRigDriver.HeadCamera;
+            right = head != null ? Vector3.ProjectOnPlane(head.transform.right, Vector3.up) : Vector3.zero;
+            if (right.sqrMagnitude < 1e-6f)
+                right = Vector3.zero; // give up on strafe this tick; forward still flies
+        }
+        if (right.sqrMagnitude > 1e-6f)
+            right.Normalize();
+
+        Vector2 unit = raw / mag;
+        // dir and right are orthonormal (right is perpendicular to dir by the cross product), so
+        // this composite is itself unit length — the response above is the whole speed story.
+        Vector3 heading = dir * unit.y + right * unit.x;
+        if (heading.sqrMagnitude < 1e-8f)
+            return;
+        heading.Normalize();
+
         // UNSCALED time: the game pauses (timeScale 0) behind menus and dialogs, and a player who
         // cannot reposition while a dialog is up would read that as flight being broken.
-        float meters = Mathf.Sign(y) * response
-                       * ComfortSettings.FlightMaxSpeed.Value * Time.unscaledDeltaTime;
+        float meters = response * ComfortSettings.FlightMaxSpeed.Value * Time.unscaledDeltaTime;
 
         // Apparent metres -> world units through the LIVE rig scale (see the class doc). lossyScale
         // because the rig may sit under a scaled parent; guarded because a degenerate scale would
@@ -145,7 +182,7 @@ internal sealed class Flight : MonoBehaviour
         if (!(scale > 0f) || float.IsInfinity(scale))
             scale = 1f;
 
-        Vector3 step = dir * (meters * scale);
+        Vector3 step = heading * (meters * scale);
         if (step.sqrMagnitude < MinStepWorld * MinStepWorld)
             return;
         if (float.IsNaN(step.x) || float.IsNaN(step.y) || float.IsNaN(step.z))
@@ -215,6 +252,56 @@ internal sealed class Flight : MonoBehaviour
         dir.Normalize();
         return true;
     }
+
+    /// <summary>
+    /// May the stick's SIDEWAYS axis be read as strafe this tick?
+    ///
+    /// <para>Only when turning is not already listening to that same axis on that same stick. If a
+    /// player points <c>[Comfort] FlightHand</c> and <c>TurnHand</c> at one controller and leaves
+    /// turning on, the x axis has two claimants, and TURNING WINS: it is the older, load-bearing
+    /// control (a player who cannot turn is stuck facing one way, a player who cannot strafe simply
+    /// flies a curve), and silently stealing it would break a control the player already relies on.
+    /// Turning being set to Off frees the axis, and so does putting the two features on different
+    /// hands — which is the shipped default (turn right, fly left), so out of the box both work.</para>
+    ///
+    /// <para>Logged on every change of the verdict, not once ever: a player who moves the hands
+    /// together and finds strafe gone deserves to see why in the log rather than wonder.</para>
+    /// </summary>
+    private bool StrafeAllowed()
+    {
+        bool turningOnThisStick = ComfortSettings.Turn.Value != TurnMode.Off
+                                  && SameHand(ComfortSettings.FlightHand.Value,
+                                              ComfortSettings.TurnHand.Value);
+        bool allowed = !turningOnThisStick;
+        if (_strafeAllowed != allowed)
+        {
+            _strafeAllowed = allowed;
+            VRLog.Info("Comfort", allowed
+                ? "stick flight: sideways strafe ON — the flight stick's sideways axis is free."
+                : "stick flight: sideways strafe OFF — flight and turning are on the SAME stick, " +
+                  "and turning owns the sideways axis. Put them on different hands ([Comfort] " +
+                  "FlightHand / TurnHand) or set turning to Off to get strafe back. Forward and " +
+                  "backward flight are unaffected.");
+        }
+        return allowed;
+    }
+
+    /// <summary>Do two hand choices resolve to the same physical controller?</summary>
+    private static bool SameHand(TurnHandChoice a, TurnHandChoice b)
+    {
+        // Dominant is not a hand, it is a pointer to one — resolve both before comparing, or
+        // "Dominant vs Right" would read as different hands on a right-handed rig.
+        return Resolve(a) == Resolve(b);
+
+        static HandSide Resolve(TurnHandChoice choice) => choice switch
+        {
+            TurnHandChoice.Left => HandSide.Left,
+            TurnHandChoice.Right => HandSide.Right,
+            _ => VRHands.Primary != null ? VRHands.Primary.Side : HandSide.Right,
+        };
+    }
+
+    private bool _strafeAllowed = true;
 
     private static VRHand? ResolveFlightHand() =>
         ComfortSettings.FlightHand.Value switch

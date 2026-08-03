@@ -281,11 +281,44 @@ internal sealed partial class PlayTray
 
     /// <summary>
     /// Hold the board's APPARENT width inside [<see cref="MinWidthMeters"/>,
-    /// <see cref="MaxWidthMeters"/>]. Apparent width = the board plate's local width times the
-    /// root's LOSSY scale, i.e. what the player actually sees, whatever mix of tray scale, rig
-    /// scale and pin-holder scale produced it. Only the tray's OWN localScale is written, so the
-    /// rig/world scale the player chose for the DIORAMA is never touched — the board simply stops
-    /// following it past the limit.
+    /// <see cref="MaxWidthMeters"/>] — apparent meaning AS THE PLAYER SEES IT.
+    ///
+    /// <para>THE BUG THIS METHOD SHIPPED WITH, and it made the board unusable (user, hardware test
+    /// 2026-08-03: "es spawned VIEL ZU KLEIN neben mir ... Ich kann es nicht mehr groesser machen,
+    /// es wird sofort wieder kleiner"). The first version measured the board's WORLD width — local
+    /// width times the root's LOSSY scale — and called that "what the player actually sees". It is
+    /// not, and the log line the old version printed contains its own refutation:</para>
+    /// <code>
+    /// Board size CLAMPED: apparent width 698.3 cm -> 140.0 cm (limits 18-140 cm).
+    ///   Own scale 0.512 -> 0.103; everything above the board contributes x21.31 (rig/world scale)
+    /// </code>
+    /// <para>The player is not a world-sized observer: the RIG IS SCALED (~21x here — that is what
+    /// turns a scenario into a tabletop diorama), and the player's eyes, hands and interpupillary
+    /// distance are scaled with it. A board hanging under that rig at 698 cm of WORLD width is
+    /// perceived at 698/21.31 = 32.8 cm — a perfectly ordinary board. Feeding the world width into
+    /// limits that are written in perceived centimetres made a normal board read as a seven-metre
+    /// one, so the clamp fired on EVERY frame: it squashed the first placement to a fifth of its
+    /// size (0.512 -> 0.103, the "viel zu klein" spawn), and then instantly undid every enlargement
+    /// the player made (log: 0.598 -> 0.103 one frame after a two-handed resize). It also wrote the
+    /// scale outside any sanctioned trigger, which is what produced the "UNSANCTIONED recompute"
+    /// warnings in the same log.</para>
+    ///
+    /// <para>THE MEASURE, CORRECTED: divide the world width by the LIVE RIG SCALE. That expresses
+    /// the board in the player's own units, which is the only frame in which "18 to 140 cm" means
+    /// anything. It is the same distinction stick flight already makes for its speed dial, for the
+    /// same reason: a length is meaningless until you say whose metres it is in. With the board
+    /// hanging under the rig (FOLLOW) or under a pin holder that has the rig scale baked into it
+    /// (FIXIERT), the division cancels the parent chain and the measure reduces to the tray's own
+    /// scale — which is exactly the quantity the two-handed gesture and <c>BoardScale</c> speak in,
+    /// so the limits now bound the thing the player is actually adjusting. The division is done
+    /// explicitly rather than by assuming that cancellation, so an unexpected parent chain still
+    /// yields a player-relative answer instead of a silent wrong one.</para>
+    ///
+    /// <para>Only the tray's OWN localScale is written, so the rig/world scale the player chose for
+    /// the DIORAMA is never touched — the board simply stops following it past the limit. When the
+    /// clamp does fire it now ANNOUNCES the write to the board-pose watchdog, because a clamp is a
+    /// sanctioned re-pose: silently changing the scale is precisely what that watchdog exists to
+    /// catch, and it was right to complain.</para>
     /// </summary>
     private void ClampApparentSize()
     {
@@ -298,7 +331,14 @@ internal sealed partial class PlayTray
         if (!(parent > 1e-6f) || float.IsInfinity(parent))
             return;
 
-        float width = BoardHalfWidthLocal * 2f * local.x * parent;
+        // The player's own scale. Everything the player perceives is measured against this: at rig
+        // scale 21 they ARE twenty-one times larger, so a world metre is 1/21 of a perceived metre.
+        Transform? rig = Rig.VRRigDriver.RigRoot;
+        float rigScale = rig != null ? rig.lossyScale.x : 1f;
+        if (!(rigScale > 1e-6f) || float.IsInfinity(rigScale))
+            rigScale = 1f; // no rig yet (menu boot): world units ARE player units, clamp as-is
+
+        float width = BoardHalfWidthLocal * 2f * local.x * parent / rigScale;
         float min = MinWidthMeters, max = MaxWidthMeters;
         if (width >= min && width <= max)
             return;
@@ -307,6 +347,11 @@ internal sealed partial class PlayTray
         float factor = wanted / width;
         _root.localScale = local * factor;
 
+        // Sanctioned: the watchdog must be able to tell a clamp apart from a game event moving the
+        // board behind our back. Without this the clamp's own write reads as an UNSANCTIONED
+        // recompute — which is exactly how the shipped bug announced itself.
+        CardsDriver.NoteExpectedPoseChange("board size clamp (min/max apparent width)");
+
         float now = Time.unscaledTime;
         if (now >= _nextSizeClampLog)
         {
@@ -314,8 +359,9 @@ internal sealed partial class PlayTray
             VRLog.Info("Cards", $"Board size CLAMPED: apparent width {width * 100f:F1} cm → " +
                                 $"{wanted * 100f:F1} cm (limits {min * 100f:F0}–{max * 100f:F0} cm, " +
                                 $"[Cards] BoardMinWidthMeters/BoardMaxWidthMeters). Own scale " +
-                                $"{local.x:F3} → {_root.localScale.x:F3}; everything above the board " +
-                                $"contributes ×{parent:F2} (rig/world scale — untouched).");
+                                $"{local.x:F3} → {_root.localScale.x:F3}. Measured in PLAYER units: " +
+                                $"parent chain ×{parent:F2} ÷ rig scale ×{rigScale:F2} " +
+                                "(the diorama scale itself is never touched).");
         }
     }
 

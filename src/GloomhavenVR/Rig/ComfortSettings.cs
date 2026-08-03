@@ -302,10 +302,12 @@ internal static class ComfortSettings
         TurnHand = Bind("TurnHand", Defaults.TurnHand,
             "Which thumbstick turns. Dominant follows [Hands] PrimaryHand.");
         FlightEnabled = Bind("FlightEnabled", Defaults.FlightEnabled,
-            "Stick flight: push the flight hand's thumbstick forward to fly through the scene " +
-            "(pull it back to fly backwards). Off = the stick's forward axis does nothing, exactly " +
-            "as before this feature existed. Turning is unaffected either way: it reads the stick's " +
-            "SIDEWAYS axis, so the two never fight even on one and the same stick.");
+            "Stick flight: push the flight hand's thumbstick forward to fly through the scene, back " +
+            "to fly backwards, sideways to strafe level left/right. Off = that stick does nothing, " +
+            "exactly as before this feature existed. Turning also reads the SIDEWAYS axis, so when " +
+            "flight and turning are set to the same hand, turning keeps that axis and strafe stands " +
+            "down; forward/backward flight always works. With the shipped defaults they are on " +
+            "different hands (turn right, fly left) and both work at once.");
         FlightDirection = Bind("FlightDirection", Defaults.FlightDirection,
             "What flight steers by. Head = the HMD's forward, pitch included, so you fly where you " +
             "look. Hand = the dominant hand's aim ray - the same ray the laser draws - so you can " +

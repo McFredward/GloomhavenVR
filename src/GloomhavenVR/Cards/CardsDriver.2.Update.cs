@@ -41,6 +41,19 @@ internal sealed partial class CardsDriver
     /// no expected trigger pending logs a Warn — the "no silent recompute remains" proof.</summary>
     private string? _expectedPoseChange;
 
+    /// <summary>
+    /// Announce a sanctioned board re-pose from OUTSIDE this class — currently
+    /// <see cref="PlayTray"/>'s apparent-size clamp, which legitimately writes the tray's scale and
+    /// would otherwise be reported as an UNSANCTIONED recompute. Valid for exactly one frame, like
+    /// every other sanctioned trigger; a no-op when no driver is up.
+    /// </summary>
+    internal static void NoteExpectedPoseChange(string what)
+    {
+        CardsDriver? driver = Instance;
+        if (driver != null)
+            driver._expectedPoseChange = what;
+    }
+
     /// <summary>User escape hatch pending: the VR settings "Board zurückholen" button was pressed.
     /// Per the P2 threading rule the UI handler only sets the flag; <see cref="Update"/> performs
     /// the re-home on the main thread with a reliably valid head pose.</summary>
