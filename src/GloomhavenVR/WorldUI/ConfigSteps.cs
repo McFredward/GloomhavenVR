@@ -33,14 +33,14 @@ internal static class ConfigSteps
     /// <para>Each of these is a judgement about the SETTING, which is why it is written down rather
     /// than computed. Snap turning steps 15° because 15/30/45/60/90 are the angles anyone actually
     /// wants; the world tilt steps 5° because its own description warns to increase it in small
-    /// steps; the table height steps a centimetre because that is the unit a table height is
-    /// discussed in; scale factors step 5 % because that is a visible but not jarring change.</para>
+    /// steps; scale factors step 5 % because that is a visible but not jarring change.</para>
     /// </summary>
     private static readonly Dictionary<string, double> Explicit = new(StringComparer.Ordinal)
     {
-        // ---- Komfort ▸ Tisch & Welt -------------------------------------------------------
-        // Rig/WorldScale is GONE (2026-08: the "Tischgröße" setting was removed, legacy no-op).
-        ["Comfort/TableHeightOffset"] = 0.01d,   // metres — a table height moves in centimetres
+        // ---- The retired "Komfort ▸ Tisch & Welt" block -------------------------------------
+        // Rig/WorldScale is GONE (2026-08: the "Tischgröße" setting was removed, legacy no-op)
+        // and so is Comfort/TableHeightOffset (2026-08: "Tischhöhe" removed — free locomotion
+        // replaced it, see Rig/ComfortSettings.cs). Only the parked tilt keeps a step here.
         ["Rig/WorldTiltDegrees"] = 5d,           // PARKED feature — kept for its revival; row gone
 
         // ---- Komfort ▸ Bewegung & Drehen --------------------------------------------------

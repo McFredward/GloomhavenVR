@@ -73,13 +73,13 @@ ComfortSettings.AnyChanged                    // event Action<string /*key*/> �
 | `SmoothTurnSpeed` | float | 90 | Smooth turn °/s |
 | `TurnHand` | `TurnHandChoice` | Dominant | `Dominant / Left / Right` (Dominant = `[Hands] PrimaryHand`) |
 | `FreeMovement` | bool | **true** | Test #10: no positional clamps at all — drag the table anywhere, only the (widened) scale limits remain. Off restores the pre-test-#10 comfort clamps |
-| `TableHeightOffset` | float | 0 | Extra eye height above table on recenter, real m (−0.4…0.6) |
 | `RecenterHoldSeconds` | float | 1.0 | B+Y both-hands hold time; 0 disables the chord |
 | `SavedScaleMultiplier` | float | 1.0 | Auto-persisted pinch-scale (written after each two-grip gesture, re-applied on rig build) |
 | `DebugGizmos` | bool | false | `[Comfort] DebugGizmos` overlay |
 
-`TableHeightOffset` changes **re-run recenter immediately** — a panel slider gets live
-feedback for free.
+No comfort entry feeds the recenter POSE any more. The seat is the bare standing preset
+(`StandingEyeHeightMeters` / `StandingEyeBackMeters`, 0.70 / 0.70) and nothing adds to it, so
+`RecenterHoldSeconds` — how long the chord is held — is the only recenter-related setting left.
 
 #### SUPERSEDED — accessors this table used to list (none exist at HEAD)
 
@@ -87,7 +87,8 @@ Kept, marked, rather than deleted: these names still appear in older commits and
 
 | Named here before | Status at HEAD | Replaced by |
 |---|---|---|
-| `SeatedMode` | **gone.** `ComfortSettings.cs` says so in as many words: "the old seated preset is GONE (user: irrelevant — the world is freely draggable)". Only the standing preset constants remain (`StandingEyeHeightMeters`/`StandingEyeBackMeters`, 0.70/0.70) | `FreeMovement` + `TableHeightOffset` |
+| `SeatedMode` | **gone.** `ComfortSettings.cs` says so in as many words: "the old seated preset is GONE (user: irrelevant — the world is freely draggable)". Only the standing preset constants remain (`StandingEyeHeightMeters`/`StandingEyeBackMeters`, 0.70/0.70) | `FreeMovement` + free locomotion |
+| `TableHeightOffset` | **gone** (user ruling 2026-08: "durch das freie Bewegen braucht man das nicht mehr"). It was the last addend on the recenter eye height; that height is now the bare standing preset | `[Comfort] FlightEnabled` (stick flight, `Rig/Flight.cs`) + the world grab |
 | `VignetteEnabled`, `VignetteStrength` | **gone**, together with the whole `ComfortVignette` type (see §3) | nothing — no comfort vignette ships |
 
 ## 3. Runtime ops (panel actions / other modules)

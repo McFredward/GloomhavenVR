@@ -13,17 +13,21 @@ namespace GloomhavenVR.Rig;
 ///   runtime-reserved and not surfaced) on BOTH controllers for
 ///   <c>[Comfort] RecenterHoldSeconds</c> → recenter. Requiring the two-hand chord keeps
 ///   single B/Y presses free for future features and makes accidental fires unlikely.
-/// - Recenter re-aligns the rig so the HMD sits at the configured spot at the table
-///   edge: the standing preset (0.70 m above / 0.70 m back) plus
-///   <c>[Comfort] TableHeightOffset</c>. Changing the offset re-runs recenter live (the
-///   settings panel gets immediate feedback for free). The old seated-mode preset is GONE
-///   (user: irrelevant — the world is freely draggable).
+/// - Recenter re-aligns the rig so the HMD sits at the fixed standing spot at the table
+///   edge: 0.70 m above the table plane, 0.70 m back, at the azimuth the player is already
+///   at. That preset is the WHOLE seat now — the old seated-mode preset is GONE (user:
+///   irrelevant — the world is freely draggable) and so is the
+///   <c>[Comfort] TableHeightOffset</c> dial that used to be added to the height (user
+///   ruling 2026-08). Recenter therefore has NO configuration left except how long the
+///   chord is held: it is one fixed pose, the deterministic way back to the table from
+///   anywhere, and nothing else.
 /// - Dev harness: F11 recenters (desktop, [Dev] Enabled only).
 ///
 /// Persistence: pinch-scale multiplier persists via <c>[Comfort] SavedScaleMultiplier</c>
-/// (WorldGrab writes it, the rig build re-applies it); height persists as the
-/// TableHeightOffset config itself. Drag position is intentionally NOT
-/// persisted — it is scenario-world dependent; recenter is the deterministic way back.
+/// (WorldGrab writes it, the rig build re-applies it). Eye height is NOT persisted and no
+/// longer can be — it is whatever the player's own locomotion (stick flight, world grab)
+/// leaves them at, exactly like their horizontal position, which was never persisted either:
+/// it is scenario-world dependent, and recenter is the deterministic way back.
 /// </summary>
 internal sealed class Comfort : MonoBehaviour
 {
@@ -76,19 +80,10 @@ internal sealed class Comfort : MonoBehaviour
 
     private void Awake() => Instance = this;
 
-    private void OnEnable()
-    {
-        if (!ComfortSettings.IsBound)
-            return;
-        ComfortSettings.TableHeightOffset.Changed += OnHeightOffsetChanged;
-    }
-
-    private void OnDisable()
-    {
-        if (!ComfortSettings.IsBound)
-            return;
-        ComfortSettings.TableHeightOffset.Changed -= OnHeightOffsetChanged;
-    }
+    // OnEnable/OnDisable existed ONLY to subscribe [Comfort] TableHeightOffset.Changed to a
+    // live re-recenter. Both are gone with the setting (user ruling 2026-08): no comfort entry
+    // feeds the recenter pose any more, so there is nothing left to react to and an empty pair
+    // of Unity messages is per-frame cost for no behaviour.
 
     private void OnDestroy()
     {
@@ -143,8 +138,6 @@ internal sealed class Comfort : MonoBehaviour
         left!.SendHaptic(HapticPreset.GrabPulse);
         right!.SendHaptic(HapticPreset.GrabPulse);
     }
-
-    private void OnHeightOffsetChanged(float _) => RequestRecenter();
 }
 
 /// <summary>

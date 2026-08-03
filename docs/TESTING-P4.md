@@ -71,8 +71,9 @@
       on both hands. Holding longer does not re-fire.
 - [ ] `SeatedMode = true` (edit config or ConfigurationManager): recenter re-runs
       immediately; table now sits correctly for a chair (eyes 0.50 m above, 0.55 m back).
-- [ ] `TableHeightOffset = 0.2`: table sits 20 cm lower relative to your eyes after
-      the automatic re-recenter.
+- The `TableHeightOffset = 0.2` check is GONE with the setting (user ruling 2026-08:
+  "durch das freie Bewegen braucht man das nicht mehr"). No setting changes where a
+  recenter puts you any more — it is always the 0.7 m / 0.7 m standing seat.
 - [ ] Recenter after dragging/scaling the table across the room: one chord brings the
       table back to a sane spot at the current scale.
 - [ ] `RecenterHoldSeconds = 0`: chord disabled.

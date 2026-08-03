@@ -1655,11 +1655,11 @@ head-mask id + size; hand style. (See the wire tables in Part I.)
 - **Breaks if:** the proxy is deleted as dev-only code, or `RigTarget.IsDevProxy` checks are pruned from `WorldGrab` / `SnapTurn`.
 - **Confidence:** medium
 
-### `Comfort` subscribes and unsubscribes symmetrically
-- **Where:** `Comfort.OnEnable` / `Comfort.OnDisable` — `ComfortSettings.TableHeightOffset.Changed`, both `IsBound`-guarded
-- **Rule:** Symmetric subscribe/unsubscribe.
-- **Why:** Hot-reload cleanliness; the handler re-runs recenter, so a leaked one recenters a dead rig.
-- **Established by:** `df07bb7` / `dd1d637`
+### ~~`Comfort` subscribes and unsubscribes symmetrically~~ — MOOT since 2026-08
+- **Where:** it *was* `Comfort.OnEnable` / `Comfort.OnDisable` — `ComfortSettings.TableHeightOffset.Changed`, both `IsBound`-guarded. Both methods are GONE with that setting (user ruling: free locomotion replaced the "Tischhöhe" dial), so `Comfort` subscribes to nothing at all now.
+- **Rule:** Symmetric subscribe/unsubscribe — still the rule the moment `Comfort` grows another subscription; there is simply none to keep symmetric today.
+- **Why:** Hot-reload cleanliness; that handler re-ran recenter, so a leaked one recentered a dead rig.
+- **Established by:** `df07bb7` / `dd1d637`; retired with the setting 2026-08
 - **Confidence:** high
 
 ---

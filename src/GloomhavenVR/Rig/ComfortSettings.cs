@@ -121,8 +121,13 @@ internal static class ComfortSettings
 {
     private const string SectionName = "Comfort";
 
-    // Recenter preset (real meters). TableHeightOffset shifts on top of the preset.
-    // The old seated preset is GONE (user: irrelevant — the world is freely draggable).
+    // Recenter preset (real meters) — the WHOLE seat definition now that nothing shifts on
+    // top of it. The old seated preset is GONE (user: irrelevant — the world is freely
+    // draggable), and so is the [Comfort] TableHeightOffset dial that used to add to the
+    // height (user ruling 2026-08: "durch das freie Bewegen braucht man das nicht mehr" —
+    // stick flight plus the world grab move the player anywhere they like, so a config dial
+    // for eye height was a second, worse way to do the same thing). Recenter is now purely a
+    // deterministic way BACK to the table edge; how high you sit while playing is locomotion.
     internal const float StandingEyeHeightMeters = 0.70f;
     internal const float StandingEyeBackMeters = 0.70f;
 
@@ -187,8 +192,9 @@ internal static class ComfortSettings
     /// <summary>Which hand's stick flies (Dominant follows <c>[Hands] PrimaryHand</c>).</summary>
     public static ComfortSetting<TurnHandChoice> FlightHand { get; private set; } = null!;
 
-    /// <summary>Extra eye height above the table on recenter, real meters (+ = table lower).</summary>
-    public static ComfortSetting<float> TableHeightOffset { get; private set; } = null!;
+    // TableHeightOffset ("Tischhöhe") lived here. REMOVED — user ruling 2026-08, see the
+    // preset comment above: free locomotion replaced it. Do not re-add a height dial; the
+    // answer to "the table sits wrong for me" is the stick and the grip, not a slider.
 
     /// <summary>Hold B+Y on both hands this long to recenter (0 disables the chord).</summary>
     public static ComfortSetting<float> RecenterHoldSeconds { get; private set; } = null!;
@@ -230,11 +236,13 @@ internal static class ComfortSettings
     internal static float EffectiveScaleMax =>
         !IsBound ? 1f : FreeMovement.Value ? Mathf.Max(ScaleMax.Value, FreeScaleMaxMultiplier) : ScaleMax.Value;
 
-    /// <summary>Recenter eye height above the table plane, real meters (standing preset + offset).</summary>
-    internal static float EffectiveEyeHeightMeters =>
-        !IsBound
-            ? StandingEyeHeightMeters
-            : StandingEyeHeightMeters + TableHeightOffset.Value;
+    /// <summary>
+    /// Recenter eye height above the table plane, real meters — the standing preset, full stop.
+    /// It used to be "preset + [Comfort] TableHeightOffset"; with that dial removed there is
+    /// nothing left to add, and the pair with <see cref="EffectiveEyeBackMeters"/> is kept as a
+    /// pair so the two halves of the seat are still read from one place.
+    /// </summary>
+    internal static float EffectiveEyeHeightMeters => StandingEyeHeightMeters;
 
     /// <summary>Recenter eye distance back from the table focus, real meters (standing preset).</summary>
     internal static float EffectiveEyeBackMeters => StandingEyeBackMeters;
@@ -320,10 +328,10 @@ internal static class ComfortSettings
             new AcceptableValueRange<float>(0.2f, 20f));
         FlightHand = Bind("FlightHand", Defaults.FlightHand,
             "Which thumbstick flies. Dominant follows [Hands] PrimaryHand.");
-        TableHeightOffset = Bind("TableHeightOffset", Defaults.TableHeightOffset,
-            "Extra eye height above the table on recenter, in real meters (positive = table " +
-            "sits lower). Changing this re-runs recenter immediately.",
-            new AcceptableValueRange<float>(-0.4f, 0.6f));
+        // "TableHeightOffset" was bound here. REMOVED (user ruling 2026-08). BepInEx keeps the
+        // orphaned line in an existing comfort.cfg until the file is rewritten; it binds to
+        // nothing and does nothing, which is the intended outcome — no migration is needed for
+        // a setting whose whole effect was an addend that no longer exists.
         RecenterHoldSeconds = Bind("RecenterHoldSeconds", Defaults.RecenterHoldSeconds,
             "Hold the upper face button (B + Y) on BOTH controllers this many seconds to " +
             "recenter at the table. 0 disables the chord.",
@@ -399,7 +407,6 @@ internal static class ComfortSettings
         FlightDirection.Detach();
         FlightMaxSpeed.Detach();
         FlightHand.Detach();
-        TableHeightOffset.Detach();
         RecenterHoldSeconds.Detach();
         SavedScaleMultiplier.Detach();
         DebugGizmos.Detach();

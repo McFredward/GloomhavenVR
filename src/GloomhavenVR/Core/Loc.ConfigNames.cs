@@ -102,7 +102,8 @@ internal static partial class Loc
             ["Comfort/SnapTurnDegrees"] = Pair("Snap angle", "Sprungwinkel"),
             ["Comfort/SmoothTurnSpeed"] = Pair("Turn speed", "Drehgeschwindigkeit"),
             ["Comfort/TurnHand"] = Pair("Turning hand", "Dreh-Hand"),
-            ["Comfort/TableHeightOffset"] = Pair("Table height", "Tischhöhe"),
+            // Comfort/TableHeightOffset ("Tischhöhe") is GONE — the setting was removed by user
+            // ruling 2026-08 (free locomotion replaced it), so nothing binds this key any more.
             ["Comfort/RecenterHoldSeconds"] = Pair("Recenter hold (s)", "Zentrieren halten (s)"),
             ["Comfort/SavedScaleMultiplier"] = Pair("Saved table scale", "Gespeicherte Tischgröße"),
             ["Comfort/DebugGizmos"] = Pair("Comfort debug overlay", "Komfort-Debug-Overlay"),
