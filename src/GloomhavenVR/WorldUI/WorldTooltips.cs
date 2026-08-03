@@ -233,7 +233,11 @@ internal sealed class WorldTooltips
     private static bool TryResolveMenuPose(out Vector3 position, out Quaternion rotation,
                                            out Vector3 scale, out int sortingOrder)
     {
-        ConvertedPanel? panel = ModalFallback.MenuPanel;
+        // ANY floated window, not just a full-screen menu (user report 2026-08-03 — the
+        // item-unlock window at the end of tutorial 2): its tooltips used to fall through to the
+        // BOARD anchor and were therefore laid at the board's angle, cutting through the window.
+        // See ModalFallback.TooltipHostPanel for the reasoning behind picking the LAST floated one.
+        ConvertedPanel? panel = ModalFallback.TooltipHostPanel;
         RectTransform? host = panel?.HostRect;
         if (panel == null || host == null)
         {

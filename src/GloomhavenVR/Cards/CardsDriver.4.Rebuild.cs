@@ -953,6 +953,80 @@ internal sealed partial class CardsDriver
                 _knownBurntWidgets.Add(_burntWidgetBuffer[i]);
     }
 
+    /// <summary>Seconds the flight waits for the game's burn artwork to START before giving up on
+    /// it (the pile count commits several frames earlier — see TryAnimateBurn).</summary>
+    private const float BurnEffectStartGraceSeconds = 0.5f;
+
+    /// <summary>Hard ceiling on the whole wait: however long the artwork runs, a burned card is on
+    /// its way to the pile after this. A stranded card on the board is worse than a clipped
+    /// animation.</summary>
+    private const float BurnEffectMaxHoldSeconds = 3f;
+
+    /// <summary>Burned widgets whose flight is being held back, and when the hold started.</summary>
+    private readonly Dictionary<AbilityCardUI, float> _burnHoldSince = new();
+
+    /// <summary>Widgets whose hold has been logged once (one line per burn, not per frame).</summary>
+    private readonly HashSet<AbilityCardUI> _burnHoldLogged = new();
+
+    /// <summary>
+    /// May the burned <paramref name="widget"/> fly THIS tick? False = keep it lying on the board
+    /// and re-offer it next tick (the caller must not claim it). See the order-of-the-burn note in
+    /// <see cref="TryAnimateBurn"/>.
+    /// </summary>
+    private bool TryTakeBurnFlightSlot(AbilityCardUI widget, VRCard? card)
+    {
+        float now = Time.unscaledTime;
+        if (!_burnHoldSince.TryGetValue(widget, out float since))
+        {
+            since = now;
+            _burnHoldSince[widget] = since;
+        }
+        float held = now - since;
+
+        bool effectActive = BurnArtworkActive(card);
+        bool release = held >= BurnEffectMaxHoldSeconds                     // deadline: always go
+                       || (effectActive == false && held >= BurnEffectStartGraceSeconds); // never started / already done
+
+        if (effectActive && held < BurnEffectMaxHoldSeconds)
+            release = false; // still burning ON the card — that is the whole point of the wait
+
+        if (!release)
+        {
+            if (_burnHoldLogged.Add(widget))
+                VRLog.Info("Cards", $"BURN ANIM: holding '{CardsGameApi.CardName(widget)}' ON THE BOARD " +
+                                    $"while its burn artwork plays (effect {(effectActive ? "running" : "not started yet")}); " +
+                                    $"it flies to the Burnt pile afterwards, at the latest after " +
+                                    $"{BurnEffectMaxHoldSeconds:F1}s.");
+            return false;
+        }
+
+        _burnHoldSince.Remove(widget);
+        _burnHoldLogged.Remove(widget);
+        if (held > 0.01f)
+            VRLog.Info("Cards", $"BURN ANIM: '{CardsGameApi.CardName(widget)}' waited {held:F2}s on the board " +
+                                $"({(effectActive ? "artwork still running — DEADLINE reached" : "artwork finished")}) " +
+                                "— flying to the Burnt pile now.");
+        return true;
+    }
+
+    /// <summary>True while the game plays its own burn/lost timeline on this card's widget — the
+    /// same three tasks <see cref="BurnCardFx"/> keys its on-card diagnostic on.</summary>
+    private static bool BurnArtworkActive(VRCard? card)
+    {
+        CardEffects? fx = card?.FullCard != null ? card.FullCard.cardEffects : null;
+        if (fx == null)
+            return false;
+        try
+        {
+            return fx.HasEffect(CardEffects.FXTask.BurnCard)
+                   || fx.HasEffect(CardEffects.FXTask.LostMode);
+        }
+        catch
+        {
+            return false; // a game-side shape change must never strand the card on the board
+        }
+    }
+
     /// <summary>
     /// Fly one freshly-burned card into the burnt pile. Prefers the card's LIVE VR representation
     /// (the fan card selected in the LoseCard step) so the very card the player burned flies; if
@@ -968,6 +1042,27 @@ internal sealed partial class CardsDriver
         Vector3 arcUp = BoardUp();
         float minArc = BoardArcMin();
         VRCard? card = _factory.Find(widget);
+
+        // ORDER OF THE BURN (user ruling 2026-08-03: "Ich möchte, dass die Karte erst liegen
+        // bleibt, man auf der Karte selber die Verbrannt-Animation abwartet und DANN in das
+        // jeweilige Pile geht").
+        //
+        // This watch fires off the PILE COUNT, which the game commits the instant the burn is
+        // decided — several frames BEFORE it starts playing the card's own burn artwork. Flying
+        // immediately produced exactly the reported sequence: the card left for the pile, the
+        // game then ran its burn timeline on the card it still owns (which the dock re-claims, so
+        // it "pops back on the board"), and that leftover only went away when the next cards were
+        // dealt. The hardware log shows the two in the wrong order plainly — "BURN ANIM
+        // [pile-watch] … flies from …" at line 2283, "Burn/ghost effect playing ON the dock card"
+        // only at 2427.
+        //
+        // So the flight WAITS: first for the effect to start (short grace — the game needs a few
+        // frames), then for it to finish. Both waits are bounded, and the card is not claimed
+        // while waiting, so the watch simply re-offers it next tick. If the effect never appears
+        // the deadline lets the flight go anyway — a burned card must never be stranded on the
+        // board just because its artwork did not play.
+        if (!TryTakeBurnFlightSlot(widget, card))
+            return;
         bool ownedElsewhere = card != null
             && (card.IsHeld || card.IsFlying || _flyingToPile.Contains(card) || _lastHalfCards.Contains(card));
 

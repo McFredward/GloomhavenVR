@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 32;
+    public const ushort ModBuild = 33;
+    // Build 33: a burned card now stays on the board until its own burn artwork has played and
+    // only THEN flies to the pile (the pile-count watch used to fly it first, so the artwork
+    // replayed on the board afterwards); hover tooltips are laid on ANY floated window, not only
+    // full-screen menus, so they stop cutting through it at the board's angle. Local-only.
     // Build 32: the control board's FIRST placement of a scenario is a fixed spot beside the head
     // on the left (not the last drag's saved layout), and the GAME's own card particles are pinned
     // off through its low-spec switch — the end-of-turn card sweep was spraying sparks across the

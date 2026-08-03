@@ -54,6 +54,37 @@ internal static partial class ModalFallback
     /// <summary>World-space host rect of <see cref="MenuPanel"/> (null when no menu floats).</summary>
     internal static RectTransform? MenuPanelHost => MenuPanel?.HostRect;
 
+    /// <summary>
+    /// The floated window a hover TOOLTIP should be laid onto: the most recently converted window
+    /// of ANY kind, not just a full-screen menu.
+    ///
+    /// <para>WHY THIS EXISTS SEPARATELY FROM <see cref="MenuPanel"/> (user report 2026-08-03: the
+    /// item-unlock window at the end of tutorial 2 is a movable floated window, and its hover
+    /// tooltips "sind 3D mit einem Winkel durch das Fenster"). <see cref="MenuPanel"/> only ever
+    /// returns FULL-SCREEN menus, so for an ordinary floated window it is null — and the tooltip
+    /// then fell back to the CONTROL BOARD's plane. The board and a hand-placed window almost
+    /// never share an orientation, so the box was laid at the board's angle and cut through the
+    /// window it belongs to.</para>
+    ///
+    /// <para>The backward scan is the same argument <see cref="MenuPanel"/> already makes: the
+    /// hover can only have come from the window the player is looking at, which is the LAST one
+    /// floated. Null while nothing floats, so the board anchor stays the answer for board
+    /// hovers.</para>
+    /// </summary>
+    internal static ConvertedPanel? TooltipHostPanel
+    {
+        get
+        {
+            for (int i = Converted.Count - 1; i >= 0; i--)
+            {
+                WindowPanel w = Converted[i];
+                if (w.Panel != null && w.Panel.IsAlive && w.Panel.HostRect != null)
+                    return w.Panel;
+            }
+            return null;
+        }
+    }
+
     /// <summary>Open windows whose conversion failed → the screen covers them (retry on re-open).</summary>
     private static readonly List<UIWindow> Failed = new(2);
 
