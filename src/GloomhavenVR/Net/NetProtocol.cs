@@ -395,7 +395,11 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 28;
+    public const ushort ModBuild = 29;
+    // Build 29: control board never moves or resizes on its own (the lost-board watchdog and the
+    // two distance-based re-seats are gone; a two-handed resize now round-trips exactly), the
+    // pick-status placard and the hover hints are position-tunable, and the placard rides the wire
+    // as ADDITIVE extension record 7 so a peer's remote board shows it at the same seat.
     // Build 28: wall dressing round 3 — skinned meshes (hanging cloth and its hardware) can ride
     // a fade, the size cap needs TWO fat axes so long-thin dressing is not rejected, and every
     // structural skip (wrong renderer family / already owned / fade-capable) is now logged when
@@ -590,6 +594,24 @@ internal static class NetProtocol
     /// length and simply renders flat fans.
     /// </summary>
     public const byte ExtIdCardHighlight = 6;
+
+    /// <summary>
+    /// Extension record id: the sender's PICK-STATUS line — the placard above their control board
+    /// that reads e.g. "Barbar: Wähle 1 Karte(n) zum Verlieren" — as UTF8 bytes, capped at
+    /// <see cref="PickBannerTextMaxBytes"/>. Written ONLY while a placard is actually shown, so an
+    /// idle packet stays byte-identical to the previous build's; absence means "no placard", which
+    /// is exactly what peers predating this record render.
+    ///
+    /// NO CARD IDENTITY: the line names an ACTOR and a COUNT ("choose 1 card to lose"), never
+    /// which card — the same thing the game's own turn banner already tells every player. It is
+    /// composed in the SENDER's language and shown verbatim, because it is their board.
+    /// </summary>
+    public const byte ExtIdPickBanner = 7;
+
+    /// <summary>UTF8 byte cap for <see cref="ExtIdPickBanner"/>. The composed line is one short
+    /// sentence; the cap bounds a single extras record and is re-clamped on read (never trust the
+    /// wire). Truncation is on a UTF8 CHARACTER boundary, never mid-sequence.</summary>
+    public const int PickBannerTextMaxBytes = 96;
 
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>

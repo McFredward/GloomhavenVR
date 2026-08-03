@@ -89,6 +89,11 @@ internal readonly struct RemoteBoardLayout
     /// ReadoutOffset</c>).</summary>
     public Vector3 ReadoutMount { get; }
 
+    /// <summary>Pick-status placard seat — the hovering line above the board's top edge
+    /// (<c>PlayTray.PickBannerBase + PickBannerOffset</c>), the mirror of the owner's own
+    /// <c>PlayTray.PickBannerLocalPosition</c>.</summary>
+    public Vector3 PickBannerMount { get; }
+
     public RemoteBoardLayout(ControlBoard style)
     {
         Style = style;
@@ -111,6 +116,8 @@ internal readonly struct RemoteBoardLayout
         ActiveCardScale = CardsConfig.BoardDefaults.ActiveCardScale[i];
 
         ReadoutMount = PlayTray.ReadoutBase + CardsConfig.BoardDefaults.ReadoutOffset[i];
+
+        PickBannerMount = PlayTray.PickBannerBase + CardsConfig.BoardDefaults.PickBannerOffset[i];
     }
 
     /// <summary>One-line dump of the derived seats for the board-built log line: a wrong panel

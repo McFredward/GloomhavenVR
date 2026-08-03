@@ -247,6 +247,10 @@ internal sealed class RemoteAvatar
     /// </summary>
     public bool HasBoardUi { get; private set; }
 
+    /// <summary>The owner's PICK-STATUS line (extension record 7), or null while their placard is
+    /// down — including for a sender that predates the record, which renders identically.</summary>
+    public string? PickBannerText { get; private set; }
+
     /// <summary>Visible-controls bitmask (<see cref="NetProtocol.BoardUiConfirmBit"/> …),
     /// meaningful only when <see cref="HasBoardUi"/>.</summary>
     public byte BoardButtonsMask { get; private set; }
@@ -473,6 +477,19 @@ internal sealed class RemoteAvatar
         // Board UI (extension record 4): authoritative when present — the furniture then shows
         // EXACTLY the controls the owner sees. Absent = the sender predates the field; the
         // furniture falls back to the legacy always-drawn look (never to "all hidden").
+        // PICK BANNER (extension record 7): absent ⇒ null ⇒ the peer's placard is hidden. Never
+        // a stale line from a pick step that has since resolved — the sender writes the record on
+        // every packet while the placard is up and omits it the moment it comes down.
+        string? banner = p.HasPickBanner ? p.PickBannerText : null;
+        if (banner != PickBannerText)
+        {
+            PickBannerText = banner;
+            VRLog.Info("Net", string.IsNullOrEmpty(banner)
+                ? $"Pick banner RECEIVED from player {PlayerId}: none (placard down)."
+                : $"Pick banner RECEIVED from player {PlayerId}: \"{banner}\" — shown on their " +
+                  "remote board at the same board-local seat.");
+        }
+
         HasBoardUi = p.HasBoardUi;
         BoardButtonsMask = p.HasBoardUi ? p.BoardButtonsMask : (byte)0;
         WantedGlowMask = p.HasBoardUi ? p.BoardOverlayMask & NetProtocol.BoardUiWantedMask : 0;

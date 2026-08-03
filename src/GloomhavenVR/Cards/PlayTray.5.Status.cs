@@ -250,7 +250,7 @@ internal sealed partial class PlayTray
 
         _pickBannerRoot = new GameObject("PickStatusBanner");
         _pickBannerRoot.transform.SetParent(_root, worldPositionStays: false);
-        _pickBannerRoot.transform.localPosition = new Vector3(0f, BoardH * 0.5f + 0.10f, -0.02f);
+        _pickBannerRoot.transform.localPosition = PickBannerLocalPosition();
         _pickBannerRoot.transform.localRotation = _boardFaceFrame;
         Core.VRLayers.Apply(_pickBannerRoot);
 
@@ -278,5 +278,34 @@ internal sealed partial class PlayTray
         Core.TmpFit.Fit(_pickBannerLabel, 0.42f, 0.048f, maxFontSize: 0.30f, wrap: true);
 
         _pickBannerRoot.SetActive(false);
+    }
+
+    /// <summary>
+    /// Where the pick placard sits, board-local: the historical spot just above the board's top
+    /// edge PLUS the per-board <see cref="CardsConfig.PickBannerOffset"/> (user request
+    /// 2026-08-03 — the default lands right under the docked initiative track, which is exactly
+    /// the collision the user wants to be able to dial out). Static and public to the assembly so
+    /// the MULTIPLAYER mirror can place a peer's placard by the same rule
+    /// (<c>Net.RemotePickBanner</c>) instead of duplicating the arithmetic.
+    /// </summary>
+    internal static readonly Vector3 PickBannerBase = new(0f, BoardH * 0.5f + 0.10f, -0.02f);
+
+    internal static Vector3 PickBannerLocalPosition() =>
+        PickBannerBase + CardsConfig.PickBannerOffset(CardsConfig.CurrentBoard).Value;
+
+    /// <summary>The placard line currently shown, or null while it is hidden. Read by
+    /// <c>Net.NetAvatarDriver</c> to put it on the wire (extension record 7) so a peer's remote
+    /// board carries the same line at the same seat — user request 2026-08-03 ("Dieser Text soll
+    /// auch synchronisiert werden an der jeweiligen richtigen Position im MP").</summary>
+    internal string? PickBannerText => _pickBannerRoot != null && _pickBannerRoot.activeSelf
+        ? _pickBannerText
+        : null;
+
+    /// <summary>Live-apply for a debug-menu / hand edit of the placard offset (CardsDriver Part F).
+    /// No rebuild: the placard is a plain child transform, so moving it is a single write.</summary>
+    internal void SetPickBannerOffset()
+    {
+        if (_pickBannerRoot != null)
+            _pickBannerRoot.transform.localPosition = PickBannerLocalPosition();
     }
 }

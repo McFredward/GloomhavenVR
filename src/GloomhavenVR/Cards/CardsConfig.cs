@@ -181,6 +181,7 @@ internal static class CardsConfig
     // spreads them apart along the inter-slot (board long) axis — slot 0 by −½, slot 1 by +½.
     private static readonly ConfigEntry<float>[] _slotOverlaySpacing = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _initiativeOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<Vector3>[] _pickBannerOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _boardTilt = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardPitchMin = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<float>[] _boardPitchMax = new ConfigEntry<float>[3];
@@ -391,6 +392,7 @@ internal static class CardsConfig
         internal static readonly Vector3[] SlotOverlayOffset = { Defaults.SlotOverlayOffset_Oak, Defaults.SlotOverlayOffset_Steel, Defaults.SlotOverlayOffset_Bronze };
         internal static readonly float[] SlotOverlaySpacing = { Defaults.SlotOverlaySpacing_Oak, Defaults.SlotOverlaySpacing_Steel, Defaults.SlotOverlaySpacing_Bronze };
         internal static readonly Vector3[] InitiativeOffset = { Defaults.InitiativeOffset_Oak, Defaults.InitiativeOffset_Steel, Defaults.InitiativeOffset_Bronze };
+        internal static readonly Vector3[] PickBannerOffset = { Defaults.PickBannerOffset_Oak, Defaults.PickBannerOffset_Steel, Defaults.PickBannerOffset_Bronze };
         internal static readonly float[] RestButtonSpacing = { Defaults.RestButtonSpacing_Oak, Defaults.RestButtonSpacing_Steel, Defaults.RestButtonSpacing_Bronze };
         internal static readonly float[] GenericButtonSpacing = { Defaults.GenericButtonSpacing_Oak, Defaults.GenericButtonSpacing_Steel, Defaults.GenericButtonSpacing_Bronze };
         internal static readonly Vector3[] ActiveOffset = { Defaults.ActiveOffset_Oak, Defaults.ActiveOffset_Steel, Defaults.ActiveOffset_Bronze };
@@ -693,6 +695,13 @@ internal static class CardsConfig
                 BoardDefaults.InitiativeOffset[i],
                 $"[{board}] initiative-track mount local position (replaces the fixed mount pos), " +
                 "board-local meters. Ships this board's own measured offset.");
+            _pickBannerOffset[i] = _file.Bind("Cards", $"PickBannerOffset_{board}",
+                BoardDefaults.PickBannerOffset[i],
+                $"[{board}] offset ADDED to the PICK STATUS placard — the hovering line that reads " +
+                "e.g. \"Barbar: Wähle 1 Karte(n) zum Verlieren\" — board-local meters. X/Y in plane, " +
+                "Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 = today's spot just " +
+                "above the board's top edge, right under the initiative track. The MULTIPLAYER mirror " +
+                "places a peer's placard at the same offset on their remote board.");
             _boardTilt[i] = _file.Bind("Cards", $"BoardTilt_{board}", Defaults.BoardTilt_ByBoard[i],
                 $"[{board}] board tilt from horizontal toward the player, degrees (0 = flat desk, " +
                 "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");
@@ -1154,6 +1163,11 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
     internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];
+
+    /// <summary>Per-board offset of the pick-status placard (board-local metres) — user request
+    /// 2026-08-03 ("Ich möchte auch in der Lage sein die Position von Text wie 'Barbar: Wähle 1
+    /// Karte(n) zum Verlieren' zu ändern"). Mirrored onto a peer's remote board.</summary>
+    internal static ConfigEntry<Vector3> PickBannerOffset(ControlBoard b) => _pickBannerOffset[(int)b];
     internal static ConfigEntry<float> BoardTilt(ControlBoard b) => _boardTilt[(int)b];
     internal static ConfigEntry<float> BoardPitchMin(ControlBoard b) => _boardPitchMin[(int)b];
     internal static ConfigEntry<float> BoardPitchMax(ControlBoard b) => _boardPitchMax[(int)b];

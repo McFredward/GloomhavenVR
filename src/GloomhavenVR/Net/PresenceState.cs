@@ -219,6 +219,18 @@ internal struct PresenceState
     /// <summary>Index of the highlighted card in the sender's open BOARD fan (item fan or pile
     /// browser — at most one is ever open), or <see cref="NetProtocol.CardHighlightNone"/>.</summary>
     public byte FanHighlightIndex;
+
+    /// <summary>
+    /// True when this packet carries the sender's PICK-STATUS line (extension record
+    /// <see cref="NetProtocol.ExtIdPickBanner"/>) — the placard above their control board, e.g.
+    /// "Barbar: Wähle 1 Karte(n) zum Verlieren". Written only while a placard is really shown, so
+    /// an idle packet stays byte-identical to the previous build's; absence means "no placard".
+    /// </summary>
+    public bool HasPickBanner;
+
+    /// <summary>The sender's pick-status line, in THEIR language (meaningful only when
+    /// <see cref="HasPickBanner"/>). An actor name and a count — never a card identity.</summary>
+    public string? PickBannerText;
 }
 
 /// <summary>
@@ -317,7 +329,10 @@ internal static class PresenceSerializer
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
         bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
-                          || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight;
+                          || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
+                          // An EMPTY line writes no record, so it must not open the tail either —
+                          // that is what keeps an idle packet byte-identical to the last build's.
+                          || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText));
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -451,6 +466,22 @@ internal static class PresenceSerializer
                     buffer[i++] = state.FanHighlightIndex;
                     records++;
                 }
+                if (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
+                {
+                    // PICK BANNER: UTF8 bytes of the placard line, capped and truncated on a
+                    // character boundary. Written only while a placard is shown (see the record
+                    // doc); the encode cache keeps this hot path allocation-free for the common
+                    // case of the same line riding several packets in a row.
+                    byte[] text = EncodePickBannerText(state.PickBannerText!);
+                    if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdPickBanner;
+                        buffer[i++] = (byte)text.Length;
+                        for (int b = 0; b < text.Length; b++)
+                            buffer[i++] = text[b];
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
@@ -472,6 +503,61 @@ internal static class PresenceSerializer
     /// <summary>UTF8-encode a version display string, capped at
     /// <see cref="NetProtocol.ModVersionTextMaxBytes"/> bytes (cap applied on whole chars via
     /// truncation-retry so no split surrogate ships). Cached on the last input.</summary>
+    // ---- pick-banner text (en/de)coding caches ------------------------------------------
+    // Same one-entry cache discipline as the mod-version text above, and for the same reason:
+    // the placard line is CONSTANT for many packets in a row (it only changes when the pick step
+    // does), while the record rides every 5 Hz extras packet.
+
+    private static string? _bannerEncText;
+    private static byte[] _bannerEncBytes = System.Array.Empty<byte>();
+    private static byte[] _bannerDecBytes = System.Array.Empty<byte>();
+    private static string _bannerDecText = string.Empty;
+
+    /// <summary>UTF8-encode the pick-status line, capped at
+    /// <see cref="NetProtocol.PickBannerTextMaxBytes"/> on a CHARACTER boundary (shortening by
+    /// chars, never by bytes, so a multi-byte glyph can never be cut in half).</summary>
+    internal static byte[] EncodePickBannerText(string text)
+    {
+        if (ReferenceEquals(text, _bannerEncText) || text == _bannerEncText)
+            return _bannerEncBytes;
+        string source = text;
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
+        while (bytes.Length > NetProtocol.PickBannerTextMaxBytes && source.Length > 0)
+        {
+            source = source.Substring(0, source.Length - 1);
+            bytes = System.Text.Encoding.UTF8.GetBytes(source);
+        }
+        _bannerEncText = text;   // key on the ORIGINAL string: the caller hands us the same one
+        _bannerEncBytes = bytes;
+        return bytes;
+    }
+
+    /// <summary>Decode a pick-status line off the wire (one-entry cache; never throws).</summary>
+    internal static string DecodePickBannerText(byte[] buffer, int offset, int count)
+    {
+        if (count <= 0)
+            return string.Empty;
+        if (count == _bannerDecBytes.Length)
+        {
+            bool same = true;
+            for (int b = 0; b < count; b++)
+            {
+                if (buffer[offset + b] != _bannerDecBytes[b])
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same)
+                return _bannerDecText;
+        }
+        var copy = new byte[count];
+        System.Buffer.BlockCopy(buffer, offset, copy, 0, count);
+        _bannerDecBytes = copy;
+        _bannerDecText = System.Text.Encoding.UTF8.GetString(copy);
+        return _bannerDecText;
+    }
+
     internal static byte[] EncodeModVersionText(string text)
     {
         if (ReferenceEquals(text, _encCachedText) || text == _encCachedText)
@@ -680,6 +766,19 @@ internal static class PresenceSerializer
                         state.HasCardHighlight = true;
                         state.HandHighlightIndex = buffer[i];
                         state.FanHighlightIndex = buffer[i + 1];
+                    }
+                    else if (id == NetProtocol.ExtIdPickBanner && len >= 1)
+                    {
+                        // PICK BANNER: UTF8 text. The length is re-clamped on OUR side (never
+                        // trust the wire; the record was already bounds-checked above), and a
+                        // decode that yields nothing degrades to "record absent" = no placard.
+                        int textLen = System.Math.Min(len, NetProtocol.PickBannerTextMaxBytes);
+                        string? line = DecodePickBannerText(buffer, i, textLen);
+                        if (!string.IsNullOrEmpty(line))
+                        {
+                            state.HasPickBanner = true;
+                            state.PickBannerText = line;
+                        }
                     }
                     i += len; // known or not, the record's own length is how we move past it
                 }

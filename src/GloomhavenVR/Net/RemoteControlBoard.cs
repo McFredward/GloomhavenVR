@@ -269,6 +269,7 @@ internal sealed class RemoteControlBoard
     private RemoteObjectivesPanel? _objectives;   // GLOBAL
     private RemoteElementStrip? _elements;        // GLOBAL
     private RemoteStatusReadouts? _status;        // MIXED — GLOBAL round + PER-ACTOR initiative/rest
+    private RemotePickBanner? _pickBanner;        // WIRE (extension record 7) — the owner's pick line
     private RemoteActiveCards? _active;           // PER-ACTOR MODEL — active/persistent cards
     private RemoteInitiativeTrack? _track;        // MIXED — GLOBAL actor list + PER-ACTOR initiative (gated)
     private RemoteBoardFurniture? _furniture;     // MIXED — DELIBERATELY-NOT neutral looks + PER-ACTOR
@@ -455,6 +456,7 @@ internal sealed class RemoteControlBoard
             _objectives?.Refresh();
             _elements?.Refresh();
             _track?.Refresh();
+            _pickBanner?.Apply(_owner.PickBannerText);
             SyncInitiativeBadge();
             // The furniture's SYNCED half (board-UI record: buttons + wanted glow) is wire-fed
             // and must follow the owner's board with or without an actor — only the
@@ -478,6 +480,7 @@ internal sealed class RemoteControlBoard
         {
             _objectives?.Refresh();
             _elements?.Refresh();
+            _pickBanner?.Apply(_owner.PickBannerText);
             _status?.Refresh(actor, showFronts);
             _active?.Refresh(actor, showFronts);
             _track?.Refresh();
@@ -753,6 +756,7 @@ internal sealed class RemoteControlBoard
         _objectives = new RemoteObjectivesPanel(contentParent, _layout);
         _elements = new RemoteElementStrip(contentParent, _layout);
         _status = new RemoteStatusReadouts(contentParent, _layout);
+        _pickBanner = new RemotePickBanner(contentParent, _layout);
         _active = new RemoteActiveCards(contentParent, _layout);
         _track = new RemoteInitiativeTrack(contentParent, _layout);
         _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardStyle, _tray,

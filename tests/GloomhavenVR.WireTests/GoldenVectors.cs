@@ -531,6 +531,72 @@ internal static class GoldenVectors
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState all), "and all three parse");
         t.Equal((byte)7, all.FanHighlightIndex, "the board-fan highlight index survives");
 
+        // -- 7h. PICK BANNER (extension record 7) ------------------------------------------
+        // The owner's placard line, UTF8, capped and truncated on a CHARACTER boundary. Written
+        // only while a placard is up; an actor and a count, never a card identity.
+        t.Case("7h. extras, pick-banner record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPickBanner = true, PickBannerText = "AB",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            07 02 41 42      // record: id 7, len 2, UTF8 'A' 'B'
+            "), ext, m, "the pick-banner record is [id][len][UTF8 bytes]");
+        t.Equal(15, m, "header 7 + count 1 + block 2 + tail 1 + 4 = 15 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState pb), "and it parses");
+        t.True(pb.HasPickBanner, "the pick-banner record is delivered");
+        t.Equal("AB", pb.PickBannerText ?? string.Empty, "with the line intact");
+
+        // Ordered LAST, behind the card highlight — a reorder in Write shows up right here.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCardHighlight = true, HandHighlightIndex = 1,
+            FanHighlightIndex = NetProtocol.CardHighlightNone,
+            HasPickBanner = true, PickBannerText = "A",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            02               // tail: 2 records, in id order
+            06 02 01 FF      // id 6 card highlight
+            07 01 41         // id 7 pick banner, UTF8 'A'
+            "), ext, m, "the pick banner rides the tail after the card highlight (id order 6, 7)");
+
+        // A multi-byte glyph survives the round trip intact (the German placard is full of them).
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPickBanner = true, PickBannerText = "Wähle",
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState uml), "a UTF8 line parses");
+        t.Equal("Wähle", uml.PickBannerText ?? string.Empty, "and the umlaut survives byte-exact");
+
+        // An empty line emits NO record — "placard down" and "sender predates the record" must
+        // render identically, and an idle packet stays byte-identical to the previous build's.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPickBanner = true, PickBannerText = string.Empty, HandCardCount = 5,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "an empty pick banner writes no record at all");
+
+        // The cap truncates on a CHARACTER boundary: a run of 2-byte glyphs longer than the cap
+        // must never be cut mid-sequence (that would decode as a replacement char on the peer).
+        string longLine = new string('ä', NetProtocol.PickBannerTextMaxBytes);
+        byte[] cappedBanner = PresenceSerializer.EncodePickBannerText(longLine);
+        t.True(cappedBanner.Length <= NetProtocol.PickBannerTextMaxBytes,
+               "the encoded line honours the cap");
+        t.Equal(new string('ä', NetProtocol.PickBannerTextMaxBytes / 2),
+                System.Text.Encoding.UTF8.GetString(cappedBanner),
+                "and it truncated on a character boundary, not mid-glyph");
+
         // An idle player emits NO record at all — the whole point of gating it on "something is
         // really highlighted" (a peer that predates the record renders the same flat fans).
         m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);

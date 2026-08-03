@@ -43,11 +43,17 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed class HexHintFacing
 {
-    /// <summary>Comfortable reading distance in front of the head (real meters × diorama scale).</summary>
-    private const float FollowDistance = 0.6f;
-
-    /// <summary>The hint hovers this far below the gaze center (real meters × diorama scale).</summary>
-    private const float FollowDrop = 0.12f;
+    // READING SPOT — user-tunable since 2026-08-03 ("auch die Position von Hints beim
+    // drüberhovern möchte ich in der Lage sein anzupassen"). The three numbers below used to be
+    // the constants 0.6 / 0.12 / 0 and are now [WorldUI] HexHintDistance / HexHintDrop /
+    // HexHintSide, read LIVE every frame so a settings stepper moves the hint while it is on
+    // screen. The shipped defaults reproduce the old constants exactly.
+    private static float FollowDistance => WorldUIConfig.HexHintDistance != null
+        ? WorldUIConfig.HexHintDistance.Value : 0.6f;
+    private static float FollowDrop => WorldUIConfig.HexHintDrop != null
+        ? WorldUIConfig.HexHintDrop.Value : 0.12f;
+    private static float FollowSide => WorldUIConfig.HexHintSide != null
+        ? WorldUIConfig.HexHintSide.Value : 0f;
 
     /// <summary>SmoothDamp time constant for the lazy position drift (seconds) — bigger = lazier.</summary>
     private const float FollowSmoothTime = 0.28f;
@@ -129,9 +135,15 @@ internal sealed class HexHintFacing
             // of the head, slightly below the gaze center, at a fixed distance × diorama scale.
             Transform h = head.transform;
             float worldScale = PanelLayout.WorldScale;
+            // Sideways rides the head's RIGHT flattened into the horizontal plane, so a
+            // lateral offset does not drift up/down when the player looks up or down.
+            Vector3 flatRight = h.right;
+            flatRight.y = 0f;
+            flatRight = flatRight.sqrMagnitude > 1e-6f ? flatRight.normalized : Vector3.right;
             Vector3 targetPos = h.position
                                 + h.forward * (FollowDistance * worldScale)
-                                - Vector3.up * (FollowDrop * worldScale);
+                                - Vector3.up * (FollowDrop * worldScale)
+                                + flatRight * (FollowSide * worldScale);
             Quaternion targetRot = FaceHead(targetPos, h.position);
 
             if (!s.Engaged)

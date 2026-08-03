@@ -187,6 +187,15 @@ internal static class WorldUIConfig
     /// <summary>Hover hex-hint (prop-info) panels drift to the center of view with lazy damped motion while shown.</summary>
     internal static ConfigEntry<bool> HexHintFollowView = null!;
 
+    /// <summary>Reading distance of a hover hint in front of the head, real metres (× diorama scale).</summary>
+    internal static ConfigEntry<float> HexHintDistance = null!;
+
+    /// <summary>How far BELOW the gaze centre a hover hint sits, real metres (× diorama scale).</summary>
+    internal static ConfigEntry<float> HexHintDrop = null!;
+
+    /// <summary>Lateral offset of a hover hint from the gaze centre, real metres (positive = right).</summary>
+    internal static ConfigEntry<float> HexHintSide = null!;
+
     // ---- combat log panel layout (test #19: movable/scalable/pinnable like the tray) -----
     /// <summary>Combat log anchor mode: true = re-derive from the seat anchor, false = pinned in the world.</summary>
     internal static ConfigEntry<bool> CombatLogFollow = null!;
@@ -575,6 +584,24 @@ internal static class WorldUIConfig
             "follows the head and settles, instead of leaving it at PropInfoSurface's fixed " +
             "table dock. Either way it stays upright and billboards toward the head. Off = " +
             "keep the dock position and only re-face it to the head.");
+        HexHintDistance = _file.Bind("WorldUI", "HexHintDistance", Defaults.HexHintDistance,
+            new ConfigDescription(
+                "How far IN FRONT of your head a board-field hover hint parks while it is shown, " +
+                "real meters (scaled with the diorama). Bigger = further away and smaller-looking. " +
+                "Live; only meaningful with HexHintFollowView on.",
+                new AcceptableValueRange<float>(0.15f, 2f)));
+        HexHintDrop = _file.Bind("WorldUI", "HexHintDrop", Defaults.HexHintDrop,
+            new ConfigDescription(
+                "How far BELOW the center of your gaze a board-field hover hint parks, real meters " +
+                "(scaled with the diorama). Positive = lower, negative = above the gaze center. " +
+                "Live; only meaningful with HexHintFollowView on.",
+                new AcceptableValueRange<float>(-1f, 1f)));
+        HexHintSide = _file.Bind("WorldUI", "HexHintSide", Defaults.HexHintSide,
+            new ConfigDescription(
+                "Sideways offset of a board-field hover hint from the center of your gaze, real " +
+                "meters (scaled with the diorama). Positive = to the right, negative = to the left. " +
+                "0 = centered (today). Live; only meaningful with HexHintFollowView on.",
+                new AcceptableValueRange<float>(-1f, 1f)));
         ModalStyle = _file.Bind("WorldUI", "ModalStyle", Defaults.ModalStyle,
             "How in-scenario 2D fallback windows (story boxes, events, tutorials, ESC " +
             "menu, rewards, choice dialogs, ...) are made operable in VR (P8, test #12). " +

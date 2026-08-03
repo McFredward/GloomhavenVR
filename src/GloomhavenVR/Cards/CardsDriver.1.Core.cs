@@ -252,6 +252,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
     // Update (the P2 threading rule: handlers only set flags). Position changes apply in place;
     // size/diameter changes rebuild just the affected buttons.
     private bool _applyControlOffsets;   // rest + confirm/undo X/Y/Z offset + group spacing (instant)
+    private bool _applyPickBannerOffset; // pick-status placard offset (instant, plain transform write)
     private bool _applyControlRebuild;   // rest diameter / confirm-undo size / button SHAPE (rebuild the buttons)
     private int _restTuningVersion;      // last-seen ButtonTuning.Version — rest [RestButtons] W/H/D/Travel live-rebuild
     private bool _applyOverlayOffset;    // slot/wanted glow offset
@@ -287,6 +288,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.SlotOverlayOffset(b).SettingChanged += OnOverlayOffsetChanged;
                 CardsConfig.SlotOverlaySpacing(b).SettingChanged += OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged += OnInitiativeOffsetChanged;
+                CardsConfig.PickBannerOffset(b).SettingChanged += OnPickBannerOffsetChanged;
                 CardsConfig.AssetOffset(b).SettingChanged += OnAssetPoseChanged;
                 CardsConfig.AssetPitch(b).SettingChanged += OnAssetPoseChanged;
                 CardsConfig.AssetYaw(b).SettingChanged += OnAssetPoseChanged;
@@ -329,6 +331,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;
                 CardsConfig.SlotOverlaySpacing(b).SettingChanged -= OnOverlayOffsetChanged; // item 1: overlay pair spacing
                 CardsConfig.InitiativeOffset(b).SettingChanged -= OnInitiativeOffsetChanged;
+                CardsConfig.PickBannerOffset(b).SettingChanged -= OnPickBannerOffsetChanged;
                 CardsConfig.AssetOffset(b).SettingChanged -= OnAssetPoseChanged;
                 CardsConfig.AssetPitch(b).SettingChanged -= OnAssetPoseChanged;
                 CardsConfig.AssetYaw(b).SettingChanged -= OnAssetPoseChanged;
@@ -363,6 +366,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private void OnControlSizeChanged(object sender, System.EventArgs e) => _applyControlRebuild = true;
     private void OnOverlayOffsetChanged(object sender, System.EventArgs e) => _applyOverlayOffset = true;
     private void OnInitiativeOffsetChanged(object sender, System.EventArgs e) => _applyInitiativeOffset = true;
+    private void OnPickBannerOffsetChanged(object sender, System.EventArgs e) => _applyPickBannerOffset = true;
     private void OnAssetPoseChanged(object sender, System.EventArgs e) => _applyAssetPose = true;
     private void OnOrientationChanged(object sender, System.EventArgs e) => _applyOrientation = true;
 
@@ -475,6 +479,14 @@ internal sealed partial class CardsDriver : MonoBehaviour
             _applyInitiativeOffset = false;
             _tray.SetInitiativeOffset(CardsConfig.InitiativeOffset(b).Value);
             VRLog.Info("Cards", $"Debug live-apply [{b}]: initiative offset {CardsConfig.InitiativeOffset(b).Value}.");
+        }
+        if (_applyPickBannerOffset)
+        {
+            _applyPickBannerOffset = false;
+            _tray.SetPickBannerOffset();
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: pick-status placard offset " +
+                                $"{CardsConfig.PickBannerOffset(b).Value} (the \"Wähle N Karte(n)\" line; " +
+                                "a peer's remote board mirrors the same offset).");
         }
         if (_applyAssetPose)
         {

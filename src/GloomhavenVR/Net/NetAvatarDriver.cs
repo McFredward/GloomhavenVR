@@ -93,6 +93,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // are the exact edges the receiver renders, and a 200 ms-late glow reads as "not synced"
     // (user defect 4/5). -1 = never sent. Human-paced changes; cannot become a stream.
     private int _lastSentBoardUi = -1;
+    /// <summary>Last pick-banner line put on the wire (null = placard hidden) — change-gated log.</summary>
+    private string? _lastSentPickBanner;
 
     // CARD HIGHLIGHT (extension record 6): the last broadcast (handIndex | fanIndex << 16), so a
     // lift moving from card to card pre-empts the 5 Hz gate (capped at the rig interval — see the
@@ -620,6 +622,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.BoardButtonsMask = (byte)(boardUiNow & 0xFF);
             extras.BoardOverlayMask = (byte)((boardUiNow >> 8) & 0xFF);
         }
+        // PICK BANNER (extension record 7): the placard line above the owner's board, so a peer's
+        // remote board carries the same sentence at the same seat. Written only while a placard is
+        // really shown — an idle packet stays byte-identical to the previous build's.
+        string? bannerNow = trayNow != null ? trayNow.PickBannerText : null;
+        if (!string.IsNullOrEmpty(bannerNow))
+        {
+            extras.HasPickBanner = true;
+            extras.PickBannerText = bannerNow;
+        }
+        if (bannerNow != _lastSentPickBanner)
+        {
+            _lastSentPickBanner = bannerNow;
+            VRLog.Info("Net", string.IsNullOrEmpty(bannerNow)
+                ? "Pick banner SENT: placard hidden — record omitted (peers hide theirs too)."
+                : $"Pick banner SENT: \"{bannerNow}\" — extension record 7 (UTF8, capped " +
+                  $"{NetProtocol.PickBannerTextMaxBytes} B: an actor and a count, NO card identity); " +
+                  "peers show it on the remote board at the same board-local seat.");
+        }
+
         if (boardUiChanged)
         {
             if (boardUiNow >= 0)

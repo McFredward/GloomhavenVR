@@ -943,6 +943,13 @@ internal static partial class Loc
             ["Cards/InitiativeOffset_*"] =
                 "Lokale Position der Aufhängung der Initiativleiste (ersetzt die feste Mount-Position), "
                 + "board-lokale Meter. Von Oak übernommen (0, 0.10, −0.004).",
+            ["Cards/PickBannerOffset_*"] =
+                "Verschiebung der STATUS-TAFEL — der schwebenden Zeile über dem Board, die z. B. "
+                + "\"Barbar: Wähle 1 Karte(n) zum Verlieren\" anzeigt — in board-lokalen Metern. X/Y in "
+                + "der Ebene, Z = Tiefe zum Spieler hin (NEGATIV = weiter vorne). Startwert 0 = die "
+                + "bisherige Stelle direkt über der Oberkante des Boards, also unmittelbar unter der "
+                + "Initiativleiste. Im MEHRSPIELER-Modus setzt die Spiegelung die Tafel eines Mitspielers "
+                + "an dieselbe Stelle auf dessen Remote-Board.",
             ["Cards/BoardTilt_*"] =
                 "Neigung des Boards aus der Waagerechten zum Spieler hin, Grad (0 = flach wie ein Tisch, 90 = "
                 + "aufrecht). Ersetzt TrayTilt in der Posenberechnung für dieses Board. Von Oak übernommen "
@@ -1475,6 +1482,19 @@ internal static partial class Loc
                 + "Blickfelds, statt am festen Tisch-Andockplatz von PropInfoSurface zu bleiben. So oder so "
                 + "bleibt er aufrecht und richtet sich zum Kopf aus. Aus = Andockposition beibehalten und ihn "
                 + "nur zum Kopf ausrichten.",
+            ["WorldUI/HexHintDistance"] =
+                "Wie weit VOR dem Kopf ein Mouseover-Hinweis zu einem Brettfeld steht, solange er "
+                + "gezeigt wird, in echten Metern (skaliert mit dem Diorama). Größer = weiter weg und "
+                + "kleiner wirkend. Live wirksam; nur sinnvoll, wenn \"Feld-Hinweis folgt Blick\" an ist.",
+            ["WorldUI/HexHintDrop"] =
+                "Wie weit UNTERHALB der Blickmitte ein Mouseover-Hinweis zu einem Brettfeld steht, in "
+                + "echten Metern (skaliert mit dem Diorama). Positiv = tiefer, negativ = oberhalb der "
+                + "Blickmitte. Live wirksam; nur sinnvoll, wenn \"Feld-Hinweis folgt Blick\" an ist.",
+            ["WorldUI/HexHintSide"] =
+                "Seitliche Verschiebung eines Mouseover-Hinweises gegenüber der Blickmitte, in echten "
+                + "Metern (skaliert mit dem Diorama). Positiv = nach rechts, negativ = nach links. 0 = "
+                + "mittig (bisheriges Verhalten). Live wirksam; nur sinnvoll, wenn \"Feld-Hinweis folgt "
+                + "Blick\" an ist.",
             ["WorldUI/ModalStyle"] =
                 "Wie 2D-Rückfallfenster im Szenario (Story-Boxen, Ereignisse, Tutorials, ESC-Menü, "
                 + "Belohnungen, Auswahldialoge …) in VR nutzbar werden (P8, Test #12). \"window\" (Standard): "

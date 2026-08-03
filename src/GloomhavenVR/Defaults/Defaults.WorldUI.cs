@@ -174,6 +174,9 @@ internal static partial class Defaults
     internal const bool CombatLogUserClosed = true;          // => [WorldUI] CombatLogUserClosed
     internal const bool PanelsFollowView = false;            // => [WorldUI] PanelsFollowView  (legacy: read once as the seed for its successor)
     internal const bool HexHintFollowView = true;            // => [WorldUI] HexHintFollowView
+    internal const float HexHintDistance = 0.6f;             // => [WorldUI] HexHintDistance
+    internal const float HexHintDrop = 0.12f;                // => [WorldUI] HexHintDrop
+    internal const float HexHintSide = 0f;                   // => [WorldUI] HexHintSide
     internal const string ModalStyle = "window";             // => [WorldUI] ModalStyle
     internal const bool CatchAllModals = true;               // => [WorldUI] CatchAllModals
     internal const bool MenuPopupFloat = true;               // => [WorldUI] MenuPopupFloat
