@@ -982,10 +982,12 @@ internal sealed class ItemsPile
 
             Transform t = c.transform;
             float denom = Vector3.Dot(direction, t.forward); // chips face the viewer with −Z
-            // GRAZING GUARD (see FanSweep.LaserMinFaceDot): the old 1e-5 test only rejected an
-            // exactly parallel beam, so a ray aimed elsewhere still "crossed" every chip's infinite
-            // plane metres away and came back as a near miss with a metre-scale angular pad.
-            if (denom < FanSweep.LaserMinFaceDot)
+            // Numerical stability ONLY (see FanSweep.LaserMinFaceDenominator). The angular cone that
+            // used to sit here rejected legitimate hits: a chip billboards to the HEAD while the
+            // beam leaves the HAND, so an off-to-the-side controller meets the face steeply even
+            // with the reticle dead centre on it. A crossing inside the finite face is a hit at any
+            // incidence; the grazing-plane runaway is bounded below, in card widths, where it belongs.
+            if (denom < FanSweep.LaserMinFaceDenominator)
                 continue;
             float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
             if (dist <= 0f)
@@ -1006,6 +1008,10 @@ internal sealed class ItemsPile
                 if (!allowNearMiss)
                     continue;
                 float overshoot = (Mathf.Max(overX, 0f) + Mathf.Max(overY, 0f)) * lossy;
+                // A crossing this far outside the face was never aimed at this chip — that is the
+                // grazing-plane runaway, bounded where it actually is (FanSweep doc).
+                if (overshoot > Mathf.Max(halfW, halfH) * lossy * FanSweep.LaserMaxMissOvershootFactor)
+                    continue;
                 float pad = FanSweep.LaserPad(dist, Mathf.Max(halfW, halfH) * lossy);
                 if (overshoot < missOvershoot)
                 {

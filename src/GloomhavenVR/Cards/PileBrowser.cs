@@ -742,8 +742,12 @@ internal sealed class PileBrowser
 
                 // Cards face the viewer with −Z, so the beam meets the face along +normal.
                 float denom = Vector3.Dot(direction, normal);
-                if (denom < FanSweep.LaserMinFaceDot)
-                    continue; // edge-on: no face to hit (grazing-plane runaway, see the doc)
+                // Numerical stability ONLY — see FanSweep.LaserMinFaceDenominator. A crossing that
+                // lands inside the finite rect is a hit at ANY incidence: the beam is going through
+                // the visible card. The angular cone that used to sit here rejected legitimate hits
+                // because the card faces the HEAD while the beam leaves the HAND.
+                if (denom < FanSweep.LaserMinFaceDenominator)
+                    continue;
                 float dist = Vector3.Dot(center - origin, normal) / denom;
                 if (dist <= 0f)
                     continue;
@@ -766,6 +770,12 @@ internal sealed class PileBrowser
                 if (!allowNearMiss)
                     continue;
                 float overshoot = Mathf.Max(overX, 0f) + Mathf.Max(overY, 0f);
+                // The grazing-plane bound now lives HERE, where the defect actually was: a crossing
+                // this far outside the face was never aimed at this card (see
+                // FanSweep.LaserMaxMissOvershootFactor). Bounding it in card widths — instead of
+                // refusing oblique beams outright — is what lets a steeply-met card still be HIT.
+                if (overshoot > Mathf.Max(halfW, halfH) * FanSweep.LaserMaxMissOvershootFactor)
+                    continue;
                 if (overshoot >= bestOver)
                     continue;
                 bestOver = overshoot;

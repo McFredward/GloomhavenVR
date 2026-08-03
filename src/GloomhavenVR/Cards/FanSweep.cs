@@ -400,7 +400,40 @@ internal static class FanSweep
     /// A card seen edge-on presents no target: refusing the plane test outright is both cheaper and
     /// honest — the visible face is what the beam may hit.
     /// </summary>
-    internal const float LaserMinFaceDot = 0.2079f; // cos 78°
+    /// <para>ROUND 2 — THE CONE WAS THE WRONG SHAPE OF GUARD, and it cost real hits (user report
+    /// 2026-08-03: "Hier geht der Laser an verschiedenen Stellen in der Karte immer mal wieder
+    /// durch. Aus allen Laserwinkeln soll er überall auf der Karte colliden ... hat das eventuell
+    /// damit zu tun, dass die Karte automatisch nach meinem Kopf rotiert?"). It did, and the
+    /// mechanism is exactly the one the user guessed at. A browse card BILLBOARDS TO THE HEAD, but
+    /// the beam leaves the HAND. Those are different points: hold the controller out to the side,
+    /// or low, or close to your chest, and the beam meets a head-facing card well off its normal
+    /// while the reticle sits dead centre on the visible face. Past 78° the card was skipped
+    /// OUTRIGHT — the beam went through it. The angle grew with hand-to-eye offset, so the dead
+    /// zones moved around as the player moved: "an verschiedenen Stellen ... immer mal wieder".</para>
+    ///
+    /// <para>THE INSIGHT THE FIRST ROUND MISSED: an angular cone is not needed to decide a HIT at
+    /// all. If the ray/plane crossing lands inside the FINITE rect, the beam passes through the
+    /// visible card — that is a hit at any incidence, by definition, and a card is never invisible
+    /// enough to skip while its face is being crossed. The cone was only ever a proxy for the real
+    /// defect, which was in the NEAR-MISS bookkeeping: a nearly parallel ray crosses the infinite
+    /// plane arbitrarily far away and was recorded as a "miss by 5473 cm". So the two jobs are
+    /// separated now: this constant shrinks to pure numerical stability (a denominator that small
+    /// puts the crossing kilometres away, where float precision is gone anyway), and the absurd
+    /// records are bounded directly by <see cref="LaserMaxMissOvershootFactor"/> — measured in card
+    /// widths, which is what "near" means for a near miss.</para>
+    /// </summary>
+    internal const float LaserMinFaceDenominator = 1e-3f;
+
+    /// <summary>
+    /// How far outside its own face a crossing may land and still be recorded as a NEAR MISS, as a
+    /// multiple of the card's larger half-extent. Beyond this the beam is not aimed at the card at
+    /// all — it merely crossed the card's infinite plane on its way somewhere else, which is what
+    /// produced the 371 cm / 2418 cm / 5473 cm / 8415 cm records in the hardware log and let them
+    /// outrank the genuine sub-centimetre near miss on the card the player was actually pointing at.
+    /// Three half-extents is generous for an aim correction and still refuses anything that is not
+    /// plausibly the intended target.
+    /// </summary>
+    internal const float LaserMaxMissOvershootFactor = 3f;
 
     /// <summary>
     /// Accept margin on a fan card's half-extents for the LASER pick — the browse/item arcs' copy
