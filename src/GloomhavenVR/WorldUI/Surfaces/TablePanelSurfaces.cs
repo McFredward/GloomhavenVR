@@ -165,6 +165,51 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
     }
 
     /// <summary>
+    /// RE-PLACE at the end of the frame so a docked panel is as rigid on the board as the card
+    /// piles are (user, hardware MP test: "Die Initiativreihenfolge über dem board und der
+    /// Aufgabentext links ziehen immer ein wenig nach wenn man das board hin und her schleudert.
+    /// Rechts die piles sind zB wie angewurzelt - das soll auch so sein ... allgemein bei allen
+    /// Elementen die an dem Controllboard dran sind").
+    ///
+    /// ROOT CAUSE: pure FRAME ORDERING — see <see cref="WorldSurface.LateTick"/> for the full
+    /// derivation. <see cref="Place"/> copies <c>mount.position/rotation/lossyScale</c>, and the
+    /// board's carry writer (<c>PanelGrabHandle.Update</c>) is an ordinary MonoBehaviour
+    /// <c>Update</c> with no execution-order relation to <c>WorldUIModule.Update</c>. Whenever it
+    /// runs later in the frame than the surface tick, the panel renders at LAST frame's board
+    /// pose. The piles have no such problem because they are children of the tray root.
+    ///
+    /// WHY NOT PARENT THE HOST TO THE MOUNT (the other candidate fix, and the more rigid one by
+    /// construction): the host is not a mod-owned decoration — it CARRIES LIVE GAME UI. The
+    /// initiative track, the objectives container and the element board are the game's own
+    /// canvases, re-parented into the host by <see cref="CanvasConversion"/> and handed back
+    /// verbatim by <c>Release</c>. Making the host a child of the tray would make its lifetime a
+    /// child of the tray's: <c>PlayTray.Destroy</c> does <c>Object.DestroyImmediate(_root)</c>
+    /// (scenario exit, board switch, module teardown), and Unity destroys the whole subtree —
+    /// which would take the game's HUD canvases with it, permanently, with no way to restore
+    /// them. That is exactly the cascade the mount-seam contract was written to prevent (see this
+    /// class's summary: "it is never re-parented under the tray"). The peers' MIRRORS may and do
+    /// parent (<c>RemoteWidgetMirror</c> hosts are mod-drawn copies under the peer board root,
+    /// which is why a remote board is already rigid) — the local seam cannot, because the content
+    /// is not ours. Fixing the ORDERING keeps the ownership contract and buys the same rigidity.
+    ///
+    /// Idempotent by construction: <see cref="Place"/> derives the pose from the mount and the
+    /// (fitted) host rect only — it accumulates nothing, so running it a second time in the same
+    /// frame just overwrites the Update-phase result with the same-or-fresher one. The Update
+    /// pass is KEPT so that everything reading the host pose during Update (the objectives quest
+    /// label, MR backing plates, the ray/poke plane) still sees a placed panel on the very frame
+    /// a panel converts. Mount gone (floating fallback), tray hidden, board re-created on scenario
+    /// load and a board rescale all flow through the same <see cref="Place"/> — this pass adds no
+    /// state and therefore no new failure mode, and it NEVER writes the board itself: it only ever
+    /// reads <c>mount</c> and writes the panel host (the "das Board darf sich niemals von selbst
+    /// bewegen" invariant is untouched).
+    /// </summary>
+    public override void LateTick()
+    {
+        if (Panel != null)
+            Place();
+    }
+
+    /// <summary>
     /// Metres per uGUI pixel applied by the last <see cref="Place"/> — the panel's GLYPH SCALE
     /// before the mount's own scale (which is where a 'Größe' dial lives). Exposed because a
     /// width-vs-size complaint can only be settled by seeing this number NOT move while the
@@ -364,8 +409,55 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// </summary>
     private bool _reorderActive;
 
-    /// <summary><see cref="ConvertedPanel.FitEnabled"/> captured when the reorder began, restored when it settles.</summary>
-    private bool _fitEnabledBeforeReorder = true;
+    // ---- fit hold: the row must NOT move when a portrait is hovered ------------------------
+    /// <summary>
+    /// ROOT CAUSE of "Die Initiativreihenfolge 'Hüpft' ein klein wenig nach oben und nach unten
+    /// wenn man über die Bilder hovered - sie soll fix stehen bleiben" (user, hardware MP test).
+    ///
+    /// The portraits REACT to the pointer, and they do it by changing GEOMETRY. Each entry's
+    /// clickable <c>avatarButton</c> is an <c>ExtendedButton</c>, and its
+    /// <c>ToggleHighlight</c> (decompiled GH.Runtime/ExtendedButton.cs:445-470, reached from
+    /// <c>OnPointerEnter</c> → <c>OnHighlight</c>, ExtendedButton.cs:325-331)
+    /// <c>LeanTween.scale</c>s the button's target rect to <c>highlightScaleFactor</c> and back to
+    /// 1 on exit, plus an optional <c>hoverMovement</c> offset; <c>OnPointerDown/Up</c> write
+    /// further scales (ExtendedButton.cs:215/233). The VR laser drives exactly those pointer
+    /// events (UguiPointer → the host GraphicRaycaster), so hovering a portrait grows/moves it.
+    ///
+    /// That geometry is INSIDE the measured content: this surface scopes the content fit to the
+    /// game's own <c>initiativeTrackHolder</c> (see <see cref="OnConverted"/>), and
+    /// <see cref="CanvasConversion.FitHostToContent"/> measures the union of the VISIBLE GRAPHICS
+    /// under it. A hover therefore changes the measured union, the union change exceeds the fit's
+    /// 2 % dirty threshold, and GROWTH deliberately fast-paths past the churn damping — so the host
+    /// rect is re-sized and the content re-centred inside it mid-hover. <see cref="Place"/> then
+    /// derives the panel pose from that very rect (<c>offset = grow · rect · metersPerPx / 2</c>,
+    /// with <see cref="GrowDirection"/> = up for this panel), so the whole row steps up/down. On
+    /// hover-out it steps back — but only after the shrink damping's stability window, which is why
+    /// it reads as a little hop rather than a smooth follow. This is the SAME family as the docked
+    /// use-bar symbols that jumped on hover/press (see <see cref="UseBarsSurface"/>'s FIT STABILITY
+    /// doc), and it has the same answer.
+    ///
+    /// THE FIX — hold the fit frozen unless the LAYOUT TRUTH changed. Time-based hysteresis cannot
+    /// work (a hover lasts seconds and would simply "stabilise" into a re-fit), and suppressing the
+    /// hover feedback is not allowed (the highlight must stay visible — the user asked for a fixed
+    /// PANEL, not a dead one). So <see cref="ConvertedPanel.FitEnabled"/> is a surface-side policy
+    /// here: it is armed only for a short settle window after something that genuinely changes what
+    /// the row CONTAINS — a different set of entries, a different selected actor, a finished reorder
+    /// slide, or the first conversion — and is off the rest of the time. Between those windows the
+    /// host rect is LATCHED, so <see cref="Place"/> reproduces the identical pose every frame no
+    /// matter what the pointer does to a portrait. Hover scaling still plays; it just cannot move
+    /// the dock any more.
+    ///
+    /// The signature is deliberately built from LAYOUT TRUTH only (entry count, active row
+    /// children, selected actor) — three cheap reads of the game's own state that hover, press and
+    /// tween can never touch — mirroring the use-bar precedent (the bar's slot container).
+    /// </summary>
+    private const float FitSettleSeconds = 2f;
+
+    /// <summary>Layout-truth signature of the row at the last armed re-fit (-1 = nothing seen yet).</summary>
+    private int _fitSignature = -1;
+
+    /// <summary><see cref="Time.unscaledTime"/> until which the content fit stays armed.</summary>
+    private float _fitArmedUntil;
 
     public override void Tick()
     {
@@ -373,63 +465,127 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         base.Tick();
         if (Panel != null)
         {
-            // Let the game's reorder slide play out un-stomped (see _reorderActive docs): while it
-            // animates, freeze the content re-fit and skip depth normalization; resume when it settles.
-            UpdateReorderHold();
+            // Let the game's reorder slide play out un-stomped (see _reorderActive docs), and keep
+            // the fit frozen against hover-driven content wobble the rest of the time (see the
+            // FitSettleSeconds docs): both policies write the SAME switch, so they are decided in
+            // one place instead of fighting over ConvertedPanel.FitEnabled.
+            UpdateFitHold();
             if (!_reorderActive)
                 NormalizeDepth();
         }
         else if (wasConverted)
         {
             _reorderActive = false; // host gone — the next conversion starts a fresh hold
+            _fitSignature = -1;     // …and a fresh settle window for the new host
+            _fitArmedUntil = 0f;
             RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
             UnregisterDepthPick();
         }
     }
 
     /// <summary>
-    /// Track the game's reorder-animation state and, on its edges, freeze/thaw the interfering
-    /// per-tick passes so the slide is neither stomped (mid-animation re-fit invalidates the tween's
-    /// recorded world-x slots → flicker) nor snapped. The signal is the game's own
-    /// <c>InitiativeTrack.isAnimating</c> (true for the whole <c>AnimateInitiativeReorder</c> window)
-    /// OR'd with <c>animationDelayed</c> (a second reorder queued behind the current one) so a
-    /// back-to-back re-sort holds continuously instead of thawing for the one-frame gap between them.
+    /// Decide whether the central content fit may run this tick, and log every edge.
+    ///
+    /// Two reasons to hold it, both writing the one switch:
+    /// <list type="bullet">
+    /// <item>the game's REORDER ANIMATION is in flight — a mid-slide re-fit shifts
+    ///   <c>Target.anchoredPosition</c> and resizes the host, moving the world frame out from under
+    ///   the tween's recorded world-x slots (the flicker documented on <see cref="_reorderActive"/>).
+    ///   The signal is the game's own <c>isAnimating</c> OR'd with <c>animationDelayed</c> so a
+    ///   back-to-back re-sort holds continuously instead of thawing for the one-frame gap;</item>
+    /// <item>nothing about the row's LAYOUT TRUTH has changed recently — then a measured change can
+    ///   only be a pointer transient (hover/press scaling), and re-fitting on it moves the whole
+    ///   dock (the "Hüpft" report — see the <see cref="FitSettleSeconds"/> docs).</item>
+    /// </list>
+    /// A real change re-arms the fit for <see cref="FitSettleSeconds"/>, which is long enough for
+    /// the pooled-in entries to lay out and for the fit's own first-fit delay and damping to land.
     /// </summary>
-    private void UpdateReorderHold()
+    private void UpdateFitHold()
     {
-        InitiativeTrack track = InitiativeTrack.Instance;
-        bool animating = track != null && (track.isAnimating || track.animationDelayed);
-        if (animating == _reorderActive)
+        if (Panel == null)
             return;
-        _reorderActive = animating;
 
-        if (animating)
+        InitiativeTrack track = InitiativeTrack.Instance;
+        float now = Time.unscaledTime;
+
+        bool animating = track != null && (track.isAnimating || track.animationDelayed);
+        if (animating != _reorderActive)
         {
-            // Freeze the central content fit for the slide's duration: FitHostToContent shifts
-            // Target.anchoredPosition and resizes the host, which invalidates the tween's recorded
-            // WORLD-x slots mid-animation — the reported flicker. Capture the current state so a
-            // surface that was (or wasn't) fitting is restored exactly on settle.
-            if (Panel != null)
+            _reorderActive = animating;
+            if (animating)
             {
-                _fitEnabledBeforeReorder = Panel.FitEnabled;
-                Panel.FitEnabled = false;
+                VRLog.Info("WorldUI", "Initiative reorder animation detected — deferring content re-fit " +
+                                      "and depth normalization so the game's slide plays out un-stomped.");
             }
-            VRLog.Info("WorldUI", "Initiative reorder animation detected — deferring content re-fit " +
-                                  "and depth normalization so the game's slide plays out un-stomped.");
+            else
+            {
+                // The settled order IS a real content change (entries added/removed/re-sorted):
+                // arm the fit so the final row gets measured once.
+                _fitArmedUntil = now + FitSettleSeconds;
+                VRLog.Info("WorldUI", "Initiative reorder animation complete — resuming content re-fit " +
+                                      "and depth normalization on the final order.");
+            }
         }
-        else
+
+        int signature = RowLayoutSignature(track);
+        if (signature != 0 && signature != _fitSignature)
         {
-            // Settled on the final order: resume the normal fit + depth normalization.
-            if (Panel != null)
-                Panel.FitEnabled = _fitEnabledBeforeReorder;
-            VRLog.Info("WorldUI", "Initiative reorder animation complete — resuming content re-fit " +
-                                  "and depth normalization on the final order.");
+            bool first = _fitSignature == -1;
+            _fitSignature = signature;
+            _fitArmedUntil = now + FitSettleSeconds;
+            if (!first)
+            {
+                VRLog.Info("WorldUI", "Initiative row layout changed (entries/selection) — content fit " +
+                                      $"re-armed for {FitSettleSeconds:F1} s. Outside these windows the " +
+                                      "fitted rect is LATCHED so a hovered portrait's highlight scaling " +
+                                      "cannot move the docked track (user: 'sie soll fix stehen bleiben').");
+            }
         }
+
+        // Compared against the LIVE flag, never a shadow copy: the fit machinery owns this switch
+        // too (it freezes a committed one-shot rect), so a shadow would eventually disagree with
+        // reality and hand the panel a state nobody asked for.
+        bool arm = !_reorderActive && now < _fitArmedUntil;
+        if (Panel.FitEnabled != arm)
+            Panel.FitEnabled = arm;
+    }
+
+    /// <summary>
+    /// Cheap signature of everything about the row that legitimately changes its measured size:
+    /// how many entries the track holds (<c>actorsUI</c> — the game's own list, the row's layout
+    /// truth), how many of the holder's direct children are actually shown (covers the pooled-in
+    /// avatars and the gamepad hotkey tips toggling with the input device) and WHICH actor is
+    /// selected (the acting portrait's selection frame is switched on/off, which changes the union).
+    /// Nothing here can be moved by a pointer: hover/press only tween a portrait's localScale and
+    /// position, they never add, remove, show or hide an entry. Returns 0 while the track is not
+    /// built yet, which the caller treats as "no information", never as a change.
+    /// </summary>
+    private static int RowLayoutSignature(InitiativeTrack? track)
+    {
+        if (track == null)
+            return 0;
+        Transform? holder = track.initiativeTrackHolder;
+        if (holder == null)
+            return 0;
+        int active = 0;
+        for (int i = 0; i < holder.childCount; i++)
+        {
+            if (holder.GetChild(i).gameObject.activeSelf)
+                active++;
+        }
+        int entries = track.actorsUI != null ? track.actorsUI.Count : 0;
+        int selected = track.selectedActor != null ? track.selectedActor.GetInstanceID() : 0;
+        // 0 is the caller's "not built yet" sentinel, and an instance ID is an arbitrary (often
+        // negative) int, so the fold is forced away from it rather than assumed to miss it.
+        int sig = unchecked((entries + 1) * 31 + active * 7 + selected);
+        return sig == 0 ? 1 : sig;
     }
 
     public override void Shutdown()
     {
         _reorderActive = false; // the panel is about to be released — drop any active hold
+        _fitSignature = -1;     // …and let the next conversion measure the row from scratch
+        _fitArmedUntil = 0f;
         RestoreDepth(); // before base releases the panel (holder still alive here)
         UnregisterDepthPick();
         base.Shutdown();
@@ -569,6 +725,13 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     {
         if (Panel != null && InitiativeTrack.Instance != null)
             Panel.FitContentRoot = InitiativeTrack.Instance.initiativeTrackHolder as RectTransform;
+
+        // A brand-new host starts at the conversion rect and MUST get one real measurement before
+        // the hover-stability hold freezes it (see the FitSettleSeconds docs). Arming here rather
+        // than relying on the layout signature covers every conversion path — including a re-dock
+        // onto a track whose signature is unchanged, where the signature alone would arm nothing.
+        _fitSignature = -1;
+        _fitArmedUntil = Time.unscaledTime + FitSettleSeconds;
 
         // Register per-portrait depth-aware laser picking against the live host canvas
         // (user #3 follow-up). RayUguiDriver intersects (and hands UguiPointer) exactly
@@ -1332,6 +1495,18 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         TickQuestLabel();
     }
 
+    /// <summary>
+    /// The docked panel AND its hanging battle-goal label are re-placed at the end of the frame, so
+    /// both sit on the board's CURRENT pose while it is being flung around (user: "der Aufgabentext
+    /// links zieht immer ein wenig nach"). The label follows the host's world rect, so leaving it
+    /// on the Update pass would just move the one-frame lag from the panel onto the label.
+    /// </summary>
+    public override void LateTick()
+    {
+        base.LateTick();
+        PlaceQuestLabel();
+    }
+
     public override void Shutdown()
     {
         RestoreContentWidth(); // before base releases the panel (the rows are still alive here)
@@ -1369,13 +1544,27 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         bool show = _questShown.Length > 0 && _questGo != null;
         if (_questGo != null && _questGo.activeSelf != show)
             _questGo.SetActive(show);
-        if (!show)
+        if (show)
+            PlaceQuestLabel();
+    }
+
+    /// <summary>
+    /// Pose-follow the battle-goal label onto the objectives host's world rect. Split out of
+    /// <see cref="TickQuestLabel"/> so it can be re-run from <see cref="LateTick"/>: the label
+    /// hangs off the HOST's world corners, so it has to be written in the same frame phase as the
+    /// host itself or it inherits exactly the one-frame drag the late placement exists to remove
+    /// (see <see cref="TrayMountedPanelSurface.LateTick"/>). Cheap and stateless — reading four
+    /// corners and writing one transform.
+    /// </summary>
+    private void PlaceQuestLabel()
+    {
+        if (Panel == null || _questGo == null || !_questGo.activeSelf)
             return;
 
-        // Pose-follow: anchored below the host's world rect (the exact plane the converted
-        // objectives render on), sized proportional to the panel width so it rides tray
-        // grabs/resizes and diorama zoom for free.
-        Panel!.HostRect.GetWorldCorners(QuestCorners); // 0=BL, 1=TL, 2=TR, 3=BR
+        // Anchored below the host's world rect (the exact plane the converted objectives render
+        // on), sized proportional to the panel width so it rides tray grabs/resizes and diorama
+        // zoom for free.
+        Panel.HostRect.GetWorldCorners(QuestCorners); // 0=BL, 1=TL, 2=TR, 3=BR
         Vector3 bl = QuestCorners[0];
         float width = (QuestCorners[3] - bl).magnitude;
         if (width < 1e-4f)

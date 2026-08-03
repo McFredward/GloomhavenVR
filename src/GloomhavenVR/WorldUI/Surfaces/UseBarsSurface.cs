@@ -189,6 +189,18 @@ internal sealed class UseBarsSurface
         UpdateWaitingHint();
     }
 
+    /// <summary>
+    /// Re-stack at the END of the frame. The bar hosts pose-follow <c>PlayTray.DecisionMount</c>,
+    /// and the board's carry writer (<c>PanelGrabHandle.Update</c>) has no execution-order relation
+    /// to this Update tick — so an Update-only copy of the mount pose renders a frame behind a
+    /// board that is being carried (see <c>WorldSurface.LateTick</c> for the full derivation; the
+    /// user asked for the piles' rigidity "allgemein bei allen Elementen die an dem Controllboard
+    /// dran sind"). <see cref="StackDocked"/> derives every pose from the mount and the fitted
+    /// rects and latches nothing that a second call could double-apply, so re-running it is
+    /// idempotent; conversion/release and the waiting hint stay on the Update tick.
+    /// </summary>
+    internal void LateTick() => StackDocked();
+
     internal void Shutdown()
     {
         RestorePlainHidden(Singleton<UIUseItemsBar>.IsInitialized

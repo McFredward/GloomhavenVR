@@ -268,6 +268,28 @@ internal sealed class TrayControlDockSurface
         }
     }
 
+    /// <summary>
+    /// Re-place every docked native control at the END of the frame. These hosts pose-follow tray
+    /// mounts exactly like the converted panels do, and the board's carry writer
+    /// (<c>PanelGrabHandle.Update</c>) has no execution-order relation to the WorldUI Update tick —
+    /// so an Update-only copy renders a frame behind a board that is being moved (see
+    /// <see cref="WorldSurface.LateTick"/> for the full derivation; the user asked for this
+    /// rigidity "allgemein bei allen Elementen die an dem Controllboard dran sind"). Only the pose
+    /// is re-derived; conversion, release and the hysteresis clocks stay on the Update tick.
+    /// </summary>
+    public void LateTick()
+    {
+        for (int i = 0; i < _controls.Length; i++)
+        {
+            DockedControl ctl = _controls[i];
+            if (ctl.Panel == null || !ctl.Panel.IsAlive)
+                continue;
+            Transform? mount = ctl.FindMount();
+            if (mount != null && mount.gameObject.activeInHierarchy)
+                Place(ctl, mount);
+        }
+    }
+
     public void Shutdown()
     {
         for (int i = 0; i < _controls.Length; i++)
