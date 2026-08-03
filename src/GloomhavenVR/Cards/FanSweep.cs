@@ -359,13 +359,63 @@ internal static class FanSweep
     internal const float LaserMinHalfAngleDegrees = 1.75f;
 
     /// <summary>
+    /// HARD CAP on the angular pad, as a fraction of the card's own half-extent. The pad below
+    /// grows LINEARLY with the ray distance, and the distance it is handed is the distance to the
+    /// card's PLANE — which goes to infinity as the beam approaches parallel with the face. The
+    /// 2026-08-03 hardware log has the runaway verbatim: <c>Pile-browse laser (Right): MISS —
+    /// nearest 'VRCard_…_ProvokingRoar' was 8415.9 cm outside its face with only 203.7 cm of
+    /// angular pad</c> — a 2 m pad around a 4,9 cm card. Two metres of forgiveness is not aim
+    /// jitter, it is a different card (or no card at all), and had the overshoot come out just
+    /// under it the arc would have claimed a hover the player was nowhere near pointing at.
+    /// Jitter forgiveness is bounded by the TARGET, never by how far away its plane happens to
+    /// be crossed: half a half-extent is the most a card may ever grow against the beam.
+    /// </summary>
+    private const float LaserPadMaxHalfExtentFraction = 0.5f;
+
+    /// <summary>
     /// How far outside its exact rect a card may still be accepted, in WORLD metres, so that it
     /// presents <see cref="LaserMinHalfAngleDegrees"/> of half-angle at <paramref name="rayDistance"/>.
-    /// Zero once the card is already big enough on screen — a comfortable target is never widened.
+    /// Zero once the card is already big enough on screen — a comfortable target is never widened —
+    /// and never more than <see cref="LaserPadMaxHalfExtentFraction"/> of the card's own half
+    /// extent (see that constant for the grazing-ray runaway this bounds).
     /// </summary>
     internal static float LaserPad(float rayDistance, float halfExtentWorld)
-        => Mathf.Max(0f, rayDistance * Mathf.Tan(LaserMinHalfAngleDegrees * Mathf.Deg2Rad)
-                         - halfExtentWorld);
+        => Mathf.Clamp(rayDistance * Mathf.Tan(LaserMinHalfAngleDegrees * Mathf.Deg2Rad)
+                       - halfExtentWorld,
+            0f, halfExtentWorld * LaserPadMaxHalfExtentFraction);
+
+    /// <summary>
+    /// Minimum dot(ray direction, card face normal) a fan card must present before its plane is
+    /// intersected at all — cos 78°, i.e. the beam must meet the face within 78° of head-on.
+    ///
+    /// ROOT CAUSE (user report 2026-08-03, "der Laser geht einfach durch die Karten"): the fan
+    /// raycasts only rejected an EXACTLY parallel ray (<c>denom &lt; 1e-5</c>). A ray that merely
+    /// GRAZES the face still crosses its infinite plane — arbitrarily far away — and the pick then
+    /// measured that crossing as if it were a near miss on the card. The hardware log shows the
+    /// nonsense the arc reported while the player pointed elsewhere: misses of 371 cm, 2418 cm,
+    /// 5473 cm and 8415 cm "outside its face", each computed from a plane crossing metres behind
+    /// the arc. Those bogus records also OUTRANKED the genuine sub-centimetre near miss on the card
+    /// the player actually aimed at (the pick keeps the SMALLEST overshoot, and a grazing crossing
+    /// on a NEARER card can undercut it), and they came paired with the metre-scale pad above.
+    /// A card seen edge-on presents no target: refusing the plane test outright is both cheaper and
+    /// honest — the visible face is what the beam may hit.
+    /// </summary>
+    internal const float LaserMinFaceDot = 0.2079f; // cos 78°
+
+    /// <summary>
+    /// Accept margin on a fan card's half-extents for the LASER pick — the browse/item arcs' copy
+    /// of <c>CardFan.TryRaycast</c>'s long-proven 1.10 (and of
+    /// <c>CardsDriver.LiftHitMargin</c>). The browse arc deliberately ran EXACT half-extents; with
+    /// the angular pad measured against a 4,9 cm card at reading distance evaluating to exactly
+    /// 0,0 cm (log: <c>only 0.0 cm of angular pad</c> on every miss inside ~1 m), that left the
+    /// browse fan with literally zero tolerance, and the log's hit/miss alternation at 0,1 / 0,2 /
+    /// 0,4 cm outside the face is the result: the beam dropping off the card edge on controller
+    /// jitter and on the card's own hover pop. 10 % of a half-extent is ~2,5 mm on a browse card —
+    /// below the gap between neighbouring cards, so it can never pick a different card than the one
+    /// under the dot, and it scales with the card because the extents are the card's live world
+    /// half-extents.
+    /// </summary>
+    internal const float LaserAcceptMargin = 1.10f;
 
     /// <summary>What one fan raycast decided, kept for the diagnostic line (the pick itself runs
     /// per frame per hand and must stay silent).</summary>
