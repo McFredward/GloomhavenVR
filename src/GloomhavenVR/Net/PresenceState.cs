@@ -173,7 +173,8 @@ internal struct PresenceState
     /// <summary>
     /// True when this packet carries the sender's live BOARD-UI STATE (extension record
     /// <see cref="NetProtocol.ExtIdBoardUi"/>): which board controls their own PlayTray currently
-    /// shows plus the wanted-slot glow mask. Sent on EVERY packet that carries a board pose, so
+    /// shows, the wanted-slot glow mask and which of the two card slots physically hold a card.
+    /// Sent on EVERY packet that carries a board pose, so
     /// "record present, all bits clear" (owner's board shows no dynamic controls) is
     /// distinguishable from "sender predates the field" (receiver keeps the legacy always-drawn
     /// furniture).
@@ -186,9 +187,11 @@ internal struct PresenceState
 
     /// <summary>Overlay byte: bits 0..1 are the wanted-slot glow mask
     /// (<see cref="NetProtocol.BoardUiWantedMask"/>), bit 2 is the FOLLOW/PIN state
-    /// (<see cref="NetProtocol.BoardUiPinnedBit"/>); the rest is reserved (0). Masked with
-    /// <see cref="NetProtocol.BoardUiOverlayMask"/> on write AND on read. Meaningful only when
-    /// <see cref="HasBoardUi"/>.</summary>
+    /// (<see cref="NetProtocol.BoardUiPinnedBit"/>), bits 3..4 are the live CARD-SLOT OCCUPANCY
+    /// (<see cref="NetProtocol.BoardUiSlotMask"/>) and bit 5 says that nibble is state rather than
+    /// a pre-field sender's zeroes (<see cref="NetProtocol.BoardUiSlotsValidBit"/>); the rest is
+    /// reserved (0). Masked with <see cref="NetProtocol.BoardUiOverlayMask"/> on write AND on read.
+    /// Meaningful only when <see cref="HasBoardUi"/>.</summary>
     public byte BoardOverlayMask;
 
     /// <summary>
@@ -438,9 +441,10 @@ internal static class PresenceSerializer
                     buffer[i++] = NetProtocol.ExtIdBoardUi;
                     buffer[i++] = 2;
                     buffer[i++] = state.BoardButtonsMask;
-                    // Masked to the DEFINED overlay bits (wanted glow + FOLLOW/PIN): an undefined
-                    // bit must never be pre-claimed by garbage, or widening the mask later would
-                    // decode old packets as if they had opted into the new state.
+                    // Masked to the DEFINED overlay bits (wanted glow + FOLLOW/PIN + card-slot
+                    // occupancy + its validity bit): an undefined bit must never be pre-claimed by
+                    // garbage, or widening the mask later would decode old packets as if they had
+                    // opted into the new state.
                     buffer[i++] = (byte)(state.BoardOverlayMask & NetProtocol.BoardUiOverlayMask);
                     records++;
                 }
@@ -735,10 +739,11 @@ internal static class PresenceSerializer
                     {
                         state.HasBoardUi = true;
                         state.BoardButtonsMask = buffer[i];
-                        // Mask to the bits THIS build defines (wanted glow + FOLLOW/PIN). A future
-                        // sender's extra overlay bits are dropped here rather than mis-rendered,
-                        // which is the same contract that let this build add the pinned bit
-                        // without the peers that predate it noticing.
+                        // Mask to the bits THIS build defines (wanted glow + FOLLOW/PIN + card-slot
+                        // occupancy and its validity bit). A future sender's extra overlay bits are
+                        // dropped here rather than mis-rendered, which is the same contract that let
+                        // this build add the occupancy nibble without the peers that predate it
+                        // noticing — they mask it away with their own narrower 0x07.
                         state.BoardOverlayMask = (byte)(buffer[i + 1] & NetProtocol.BoardUiOverlayMask);
                     }
                     else if (id == NetProtocol.ExtIdFanAnchor && len >= 12)

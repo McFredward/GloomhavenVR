@@ -442,15 +442,20 @@ internal static class GoldenVectors
                "with the exact board-local position");
 
         // Overlay hygiene: only the DEFINED overlay bits are wire state — bits 0..1 (wanted-slot
-        // glow) and bit 2 (FOLLOW/PIN). The writer masks the still-reserved bits so a future use of
-        // them cannot be pre-claimed by garbage, and the reader masks again (never trust the wire).
+        // glow), bit 2 (FOLLOW/PIN), bits 3..4 (card-slot occupancy) and bit 5 (that nibble's
+        // validity). The writer masks the still-reserved bits 6..7 so a future use of them cannot be
+        // pre-claimed by garbage, and the reader masks again (never trust the wire). This expectation
+        // moved from 0x06 to 0x3E when the occupancy nibble widened BoardUiOverlayMask from 0x07 to
+        // 0x3F — which is exactly the assertion that would catch a widening done on only one side.
         m = PresenceSerializer.Write(new PresenceState
         {
             HasBoardUi = true, BoardButtonsMask = 0x01, BoardOverlayMask = 0xFE,
         }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ov), "overlay-mask packet parses");
-        t.Equal((byte)0x06, ov.BoardOverlayMask,
-                "undefined overlay bits are masked off, the defined ones survive (0xFE -> 0x06)");
+        t.Equal((byte)0x3E, ov.BoardOverlayMask,
+                "undefined overlay bits are masked off, the defined ones survive (0xFE -> 0x3E)");
+        t.Equal((byte)0xC0, (byte)(0xFE & ~NetProtocol.BoardUiOverlayMask),
+                "bits 6..7 are the only reserved overlay bits left");
 
         // -- 7f. FOLLOW/PIN (board-UI byte 1 bit 2) ----------------------------------------
         // The cross-version contract in both directions, byte-exact.
@@ -484,6 +489,127 @@ internal static class GoldenVectors
         t.Equal((byte)0x01, preState.BoardOverlayMask, "its overlay byte survives unchanged");
         t.True((preState.BoardOverlayMask & NetProtocol.BoardUiPinnedBit) == 0,
                "and reads as FOLLOW — the look those builds were already drawn in");
+
+        // -- 7f2. CARD-SLOT OCCUPANCY (board-UI byte 1 bits 3..4 + validity bit 5) ---------
+        // The user requirement: "wo aktuell eine Karte liegt und wo nicht auf dem controllboard
+        // soll vollstaendig synchronisiert werden" — a peer must see a card BACK lying in exactly
+        // the recesses the owner has filled, and an empty recess where they have none. Two bits of
+        // POSITION (never an identity) plus a validity bit, all inside the EXISTING two-byte
+        // record: no new record, no length change, wire version still 3.
+        t.Case("7f2. extras, card-slot occupancy");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x00,
+            BoardOverlayMask = (byte)(NetProtocol.BoardUiSlot0Bit | NetProtocol.BoardUiSlotsValidBit),
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            04 02 00 28      // record: id 4 (board UI), len 2, buttons 0x00,
+                             //   overlays 0x28 = slot0 occupied (0x08) | occupancy valid (0x20)
+            "), ext, m, "the occupancy nibble rides byte 1 of the EXISTING board-UI record");
+        t.Equal(15, m, "and costs ZERO extra bytes — same 15 as the FOLLOW/PIN vector above");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState sl), "and it parses");
+        t.Equal((byte)0x28, sl.BoardOverlayMask, "the occupancy + validity bits survive the round trip");
+        t.Equal(1, (sl.BoardOverlayMask & NetProtocol.BoardUiSlotMask) >> NetProtocol.BoardUiSlotShift,
+                "slot 0 occupied, slot 1 empty");
+        t.Equal((byte)0x00, (byte)(sl.BoardOverlayMask & NetProtocol.BoardUiWantedMask),
+                "and it does not bleed into the wanted-slot glow mask");
+        t.True((sl.BoardOverlayMask & NetProtocol.BoardUiPinnedBit) == 0,
+               "nor into the FOLLOW/PIN bit");
+
+        // BOTH recesses full, on top of a wanted glow and a PINNED board — every defined overlay
+        // bit at once, byte-exact, so a re-assignment of any of them shows up here.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0xB5,
+            BoardOverlayMask = (byte)(0x02 | NetProtocol.BoardUiPinnedBit
+                                      | NetProtocol.BoardUiSlot0Bit | NetProtocol.BoardUiSlot1Bit
+                                      | NetProtocol.BoardUiSlotsValidBit),
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            04 02 B5 3E      // id 4, len 2, buttons 0xB5, overlays 0x3E =
+                             //   wanted bit1 (0x02) | PINNED (0x04) | both slots (0x18) | valid (0x20)
+            "), ext, m, "wanted glow, FOLLOW/PIN and both occupancy bits coexist in one byte");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState both), "and it parses");
+        t.Equal(3, (both.BoardOverlayMask & NetProtocol.BoardUiSlotMask) >> NetProtocol.BoardUiSlotShift,
+                "both recesses read as occupied");
+        t.Equal((byte)0x02, (byte)(both.BoardOverlayMask & NetProtocol.BoardUiWantedMask),
+                "the wanted-glow mask is untouched by the nibble above it");
+        t.True((both.BoardOverlayMask & NetProtocol.BoardUiPinnedBit) != 0,
+               "and so is the PINNED bit");
+
+        // EMPTY-BUT-KNOWN. This is the half of the requirement a plain occupancy mask cannot
+        // express: "both recesses are empty" is real state and must NOT decode the same as "this
+        // sender has no idea". The validity bit is what separates them, and it is why the nibble
+        // could not copy the FOLLOW/PIN trick of letting 0 mean the old look.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x00,
+            BoardOverlayMask = NetProtocol.BoardUiSlotsValidBit,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState empty), "empty-but-known parses");
+        t.True((empty.BoardOverlayMask & NetProtocol.BoardUiSlotsValidBit) != 0,
+               "an owner with two EMPTY recesses still asserts the validity bit");
+        t.Equal(0, (empty.BoardOverlayMask & NetProtocol.BoardUiSlotMask) >> NetProtocol.BoardUiSlotShift,
+                "with an all-clear occupancy nibble");
+
+        // A PRE-OCCUPANCY sender (wanted glow only, as build 18 wrote it): the nibble AND the
+        // validity bit are clear, which must read as "unknown" and never as "both empty" — the
+        // receiver keeps rendering that peer's slots from the replicated model alone.
+        byte[] preSlots = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 04 02 B5 01");
+        t.True(PresenceSerializer.TryRead(preSlots, preSlots.Length, out PresenceState preSlotState),
+               "a pre-occupancy board-UI record still parses");
+        t.Equal((byte)0x01, preSlotState.BoardOverlayMask, "its overlay byte survives unchanged");
+        t.True((preSlotState.BoardOverlayMask & NetProtocol.BoardUiSlotsValidBit) == 0,
+               "and reads as UNKNOWN occupancy, not as 'both recesses empty'");
+
+        // ---- BACKWARD COMPATIBILITY, the explicit assertion ------------------------------
+        // An OLD reader (build <= 18) masks byte 1 with its OWN narrower overlay mask, 0x07. Feed
+        // it a packet from a build that fills every new bit and it must still (a) parse the packet,
+        // (b) step over the record by its own length byte and land on whatever follows, and (c) see
+        // EXACTLY its own three bits — the occupancy nibble and its validity bit are invisible to
+        // it, not corrupting.
+        const byte LegacyOverlayMask = 0x07; // BoardUiOverlayMask as builds <= 18 defined it
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x42,
+            BoardOverlayMask = (byte)(0x03 | NetProtocol.BoardUiPinnedBit
+                                      | NetProtocol.BoardUiSlot0Bit | NetProtocol.BoardUiSlot1Bit
+                                      | NetProtocol.BoardUiSlotsValidBit),
+            HasCardHighlight = true, HandHighlightIndex = 5,
+            FanHighlightIndex = NetProtocol.CardHighlightNone,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            02               // tail: 2 records
+            04 02 42 3F      // id 4, len 2, buttons 0x42, overlays 0x3F = every defined overlay bit
+            06 02 05 FF      // id 6 card highlight — the record an OLD reader must still reach
+            "), ext, m, "a fully-populated overlay byte still leaves the tail walk byte-identical");
+        t.Equal((byte)2, ext[12], "the board-UI record's LENGTH byte is still 2 — an old reader's " +
+                                  "'i += len' skips exactly as far as it always did");
+        t.Equal((byte)0x3F, ext[14], "and the new bits really are on the wire in byte 1");
+        t.Equal((byte)0x07, (byte)(ext[14] & LegacyOverlayMask),
+                "an OLD reader masking byte 1 with its own 0x07 sees exactly its own three bits " +
+                "(wanted 0..1 + PINNED) — the occupancy nibble and its validity bit are invisible " +
+                "to it, never mis-read as one of them");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState compat),
+               "and the packet carrying the new bits parses end to end");
+        t.Equal((byte)5, compat.HandHighlightIndex,
+                "including the record BEHIND the board-UI one — proof the tail walk is unshifted, " +
+                "which is what an old peer's parser depends on");
 
         // -- 7g. CARD HIGHLIGHT (extension record 6) ---------------------------------------
         // Two fan-local INDICES, never a card identity. Written only while something is

@@ -519,15 +519,20 @@ internal static class NetProtocol
     ///            mask the owner's PlayTray.SetWantedSlots currently shows);
     ///   bit2     <see cref="BoardUiPinnedBit"/> — the owner's board is PINNED (world-anchored)
     ///            rather than FOLLOWing their rig;
-    ///   bits3..7 reserved (written 0, ignored on read).
+    ///   bits3..4 <see cref="BoardUiSlotMask"/> — the owner's live CARD-SLOT OCCUPANCY
+    ///            (bit3 = left slot holds a card, bit4 = right slot holds a card);
+    ///   bit5     <see cref="BoardUiSlotsValidBit"/> — the sender KNOWS its slot occupancy, i.e.
+    ///            bits 3..4 are state and not "a sender that predates the field";
+    ///   bits6..7 reserved (written 0, ignored on read).
     ///
     /// Unlike the "only when non-default" records, this one is written on EVERY extras packet
     /// that also carries a board pose: the receiver must distinguish "the owner's board shows
     /// no dynamic controls" (record present, byte0 = 0) from "the sender predates the field"
     /// (record absent → the receiver keeps the legacy always-drawn furniture, so a build-1 peer
     /// looks exactly as before). ~4 bytes at 5 Hz. No card identity is derivable from any bit —
-    /// the wanted mask reveals only "slot still empty during selection", which the board's own
-    /// card backs (and vanilla's ready tracker) already show.
+    /// the wanted mask reveals only "slot still empty during selection" and the occupancy nibble
+    /// only its complement, which the board's own card backs (and vanilla's ready tracker) already
+    /// show.
     /// </summary>
     public const byte ExtIdBoardUi = 4;
 
@@ -564,12 +569,89 @@ internal static class NetProtocol
     /// </summary>
     public const byte BoardUiPinnedBit = 1 << 2;
 
-    /// <summary>Every DEFINED bit of the board-UI record's byte 1 (wanted glow + pinned). The
-    /// writer masks with this so undefined bits can never be pre-claimed by garbage, and the reader
-    /// masks again (never trust the wire). Widening it is how the next overlay bit ships — and it
-    /// is why old readers, which mask with the narrower <see cref="BoardUiWantedMask"/>, ignore the
-    /// new bits instead of mis-reading them.</summary>
-    public const byte BoardUiOverlayMask = 0x07;
+    /// <summary>
+    /// How many CARD SLOTS a control board has — TWO, and that is a structural fact of the board,
+    /// not a tunable: <c>PlayTray</c> allocates exactly two slot anchors and two occupant refs
+    /// (<c>PlayTray.1.Core.cs</c>: <c>_slots = new Transform?[2]</c> / <c>_occupants = new VRCard?[2]</c>,
+    /// bound to the prefab recesses named "Slot1" and "Slot2"), every slot loop in the Cards layer
+    /// is <c>for (i = 0; i &lt; 2; i++)</c>, and the remote mirror draws exactly two
+    /// (<c>RemoteControlBoard._cards</c>). The wire therefore spends exactly two bits. If the board
+    /// ever grew a third recess this constant, <see cref="BoardUiSlotMask"/> and
+    /// <see cref="BoardUiOverlayMask"/> all widen together, in that order — and an older peer would
+    /// keep seeing the first two slots, which is the whole point of masking on read.
+    /// </summary>
+    public const int BoardUiSlotCount = 2;
+
+    /// <summary>Bit position of slot 0 inside the board-UI record's byte 1. The occupancy nibble is
+    /// written as <c>(occupancy &amp; ((1 &lt;&lt; BoardUiSlotCount) - 1)) &lt;&lt; BoardUiSlotShift</c>,
+    /// so the slot COUNT — not a hand-written pair of bit names — is what fixes the layout.</summary>
+    public const int BoardUiSlotShift = 3;
+
+    /// <summary>
+    /// Board-UI record byte 1, bit 3 — the owner's LEFT card slot (Slot1) currently holds a card.
+    ///
+    /// WHY IT IS ON THE WIRE (user report, hardware MP test: "Ich will auch sehen wenn eine Karte
+    /// abgelegt wurde auf dem controllboard (mit der rueckseite)"). A peer's board slots used to be
+    /// drawn PURELY from the host-replicated model (<c>CCharacterClass.RoundAbilityCards</c>), so a
+    /// slot could only show something once the GAME had replicated the selection. Everything the
+    /// player does physically before that — laying a card into a recess, taking it back out again,
+    /// docking the round cards for their own turn, laying a burn/discard candidate into a recess —
+    /// is a VR-ONLY fact that exists nowhere in the game model, and therefore existed on nobody
+    /// else's screen. Two bits make the remote board's slots agree with the owner's at all times.
+    ///
+    /// WHY IT LEAKS NOTHING. It is a POSITION, not an identity: "a card lies here" and nothing
+    /// more, which is exactly what the receiver renders (a card BACK — fronts stay strictly behind
+    /// <see cref="RevealGate"/>, unchanged). Vanilla already broadcasts the same fact twice over
+    /// during the only phase where it could matter: the multiplayer ready tracker
+    /// (<c>UIScenarioMultiplayerController.ShowReadyTracker</c>) and the hand tabs' live
+    /// "selected/2" count (<c>CardsHandManager.OnSelectedCardsNumberChanged</c>) both show, with no
+    /// owner gate, how far each player has got. The complement of this mask is also the
+    /// wanted-slot glow that already rides bits 0..1.
+    ///
+    /// WHY THE NIBBLE NEEDS A VALIDITY BIT AND THE PINNED BIT DID NOT. "PINNED" could get away
+    /// with "0 = the look old builds already drew", because FOLLOW genuinely was that look. Slot
+    /// occupancy has no such lucky default: 0 has to mean BOTH SLOTS EMPTY (that is half the user's
+    /// requirement — "wo aktuell eine Karte liegt UND WO NICHT"), and a sender that predates the
+    /// field also writes 0 while its board may well have two cards on it. Rendering those two
+    /// cases the same would wipe an old peer's round cards off this client's screen — a hard
+    /// cross-version regression. <see cref="BoardUiSlotsValidBit"/> separates them: set = "these
+    /// two bits are state", clear = "this sender knows nothing about its slots", and the receiver
+    /// then falls back to the model-only rendering it has always done. Symmetrically, an old READER
+    /// masks byte 1 down to its own <see cref="BoardUiWantedMask"/> / its own narrower
+    /// <see cref="BoardUiOverlayMask"/> (0x07 before this build) and never sees any of these bits.
+    /// Additive in both directions, no length change, no new record, wire
+    /// <see cref="Version"/> untouched.
+    /// </summary>
+    public const byte BoardUiSlot0Bit = 1 << BoardUiSlotShift;
+
+    /// <summary>Board-UI record byte 1, bit 4 — the owner's RIGHT card slot (Slot2) currently holds
+    /// a card. Same contract as <see cref="BoardUiSlot0Bit"/>.</summary>
+    public const byte BoardUiSlot1Bit = 1 << (BoardUiSlotShift + 1);
+
+    /// <summary>The card-slot OCCUPANCY nibble of the board-UI record's byte 1 (bits 3..4 —
+    /// <see cref="BoardUiSlotCount"/> bits at <see cref="BoardUiSlotShift"/>). Shift it back down by
+    /// <see cref="BoardUiSlotShift"/> to get a plain slot-indexed mask. Meaningful ONLY together
+    /// with <see cref="BoardUiSlotsValidBit"/>.</summary>
+    public const byte BoardUiSlotMask =
+        (byte)(((1 << BoardUiSlotCount) - 1) << BoardUiSlotShift);
+
+    /// <summary>
+    /// Board-UI record byte 1, bit 5 — the sender KNOWS its own card-slot occupancy, i.e. bits 3..4
+    /// carry state rather than "this build had no such field". Set on every board-UI record a
+    /// build with slot occupancy writes, INCLUDING when both slots are empty; clear only for a
+    /// sender that predates the nibble. See <see cref="BoardUiSlot0Bit"/> for why the nibble cannot
+    /// use the "0 is the old look" trick the FOLLOW/PIN bit used.
+    /// </summary>
+    public const byte BoardUiSlotsValidBit = 1 << (BoardUiSlotShift + BoardUiSlotCount);
+
+    /// <summary>Every DEFINED bit of the board-UI record's byte 1 (wanted glow + pinned + slot
+    /// occupancy + its validity bit). The writer masks with this so undefined bits can never be
+    /// pre-claimed by garbage, and the reader masks again (never trust the wire). Widening it is how
+    /// the next overlay bit ships — and it is why old readers, which mask with the narrower
+    /// <see cref="BoardUiWantedMask"/> (or with this constant's previous 0x07 value), ignore the new
+    /// bits instead of mis-reading them.</summary>
+    public const byte BoardUiOverlayMask =
+        (byte)(BoardUiWantedMask | BoardUiPinnedBit | BoardUiSlotMask | BoardUiSlotsValidBit);
 
     /// <summary>
     /// Extension record id: the board-local ANCHOR POSITION of the sender's open BOARD-ANCHORED

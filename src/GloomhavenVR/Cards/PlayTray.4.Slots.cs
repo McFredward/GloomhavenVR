@@ -416,6 +416,72 @@ internal sealed partial class PlayTray
     /// right slot; 0 before the driver ever wrote one). Wire input of the board-UI record.</summary>
     internal int WantedSlotMask => _wantedMask > 0 ? _wantedMask & 0x3 : 0;
 
+    /// <summary>
+    /// Which of the two card recesses PHYSICALLY holds a card right now (bit0 = Slot1, bit1 =
+    /// Slot2). Wire input of the board-UI record's occupancy nibble
+    /// (<c>NetProtocol.BoardUiSlotMask</c>, applied by <c>Net.NetAvatarDriver</c> — the Cards layer
+    /// deliberately does not reference Net, so the shift and the clamp live on the Net side) — the
+    /// user's requirement that a peer sees a card BACK lying exactly where this board has one, and
+    /// an empty recess where it has none. One bit per entry of <see cref="_slots"/>, so the mask
+    /// widens with the board rather than with a second hard-coded count.
+    ///
+    /// ROOT CAUSE OF READING THE SCENE INSTEAD OF <see cref="_occupants"/>. <see cref="_occupants"/>
+    /// is NOT "what lies in the recesses" — it is the CardsSelection round-card bookkeeping, and it
+    /// is only one of FOUR paths that park a card on a slot anchor:
+    ///   • <see cref="PlaceCard"/>            — the round cards during CardsSelection (tracked here),
+    ///   • <see cref="PlacePickCard"/>        — burn / discard / recover candidates, which
+    ///                                          DELIBERATELY do not touch <see cref="_occupants"/>,
+    ///   • <c>HalfSelection</c>'s docked action cards — parented straight onto
+    ///     <see cref="SlotTransform"/> for the owner's own turn, while
+    ///     <c>CardsDriver.Rebuild</c> has just called <see cref="ClearSlots"/> because the mode is
+    ///     no longer CardsSelection,
+    ///   • the short-rest sacrifice display, which lays its card in the LEFT recess.
+    /// A mask built from <see cref="_occupants"/> would therefore report an EMPTY board through the
+    /// entire action turn, which is the opposite of what the owner is looking at.
+    ///
+    /// So this asks the only question that is true for all four paths and cannot go stale: does the
+    /// slot anchor currently PARENT a live, un-held card? Every path above goes through
+    /// <c>VRCard.SetHome(slot, ...)</c> (or <see cref="PlacePickCard"/>, which is the same call),
+    /// and <c>SetHome</c> re-parents. There is no flag to latch, so there is no flag to get stuck:
+    /// the card leaving the recess (grabbed, parked, destroyed, the whole board rebuilt) removes it
+    /// from the answer in the same frame, which is what the "no desyncs, both players see exactly
+    /// the same" requirement needs. A HELD card reads as EMPTY on purpose — the owner is holding it
+    /// in their hand, and their hand is separately synced.
+    ///
+    /// Cheap by construction: two transforms, a handful of children each, once per extras packet
+    /// (5–15 Hz), no allocation.
+    /// </summary>
+    internal int OccupiedSlotMask
+    {
+        get
+        {
+            int mask = 0;
+            for (int i = 0; i < _slots.Length; i++)
+                if (SlotHoldsCard(_slots[i]))
+                    mask |= 1 << i;
+            return mask;
+        }
+    }
+
+    /// <summary>Does <paramref name="slot"/> currently parent a live, un-held VR card? See
+    /// <see cref="OccupiedSlotMask"/> for why this is the physical truth rather than a flag. The
+    /// slot's own children are the two glow quads plus at most a card, so this loop is tiny.</summary>
+    private static bool SlotHoldsCard(Transform? slot)
+    {
+        if (slot == null)
+            return false;
+        for (int c = 0; c < slot.childCount; c++)
+        {
+            Transform child = slot.GetChild(c);
+            if (child == null || !child.gameObject.activeInHierarchy)
+                continue;
+            var card = child.GetComponent<VRCard>();
+            if (card != null && !card.IsHeld)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>True while a CONFIRM control is visible on this board — the mod keycap, or the
     /// docked native Continue widget that replaces it at the same spot (either way the owner
     /// SEES a confirm control there, which is what a peer must reproduce).</summary>
