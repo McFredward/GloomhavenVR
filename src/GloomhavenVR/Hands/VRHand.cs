@@ -138,6 +138,30 @@ internal sealed class VRHand : MonoBehaviour
 
     private float _lastHoverHapticTime;
 
+    /// <summary>
+    /// How long a hand keeps its last pose after the device stops reporting one, before it is
+    /// declared untracked.
+    ///
+    /// <para>WHY THERE IS A GRACE AT ALL (hardware evidence, multiplayer test 2026-08-02). The log
+    /// carries 163 <c>"Right ray OFF - no pose (tracking lost)"</c> events against 4 on the left: the
+    /// dominant controller drops its pose for a frame or two over and over, and every single drop
+    /// takes the laser away and — through <see cref="SetTracked"/> — CANCELS the poke, the UI ray,
+    /// the ray-grab and every active grab. That is what "the VR features suddenly disconnect" looks
+    /// like from the inside: not a session ending, but the working hand being reset a hundred and
+    /// sixty times.</para>
+    ///
+    /// <para>0.35 s is chosen to be longer than any plausible single-frame or re-enumeration gap
+    /// (4 frames at 90 Hz is 44 ms) and far shorter than a real disconnect. The controller dropouts
+    /// the same log shows at the DEVICE level last tens of seconds — those still end in
+    /// <c>IsTracked = false</c> a third of a second in, exactly as before. Nothing is extrapolated
+    /// while the grace runs: the hand simply keeps the pose it last had, which is where the player
+    /// last saw it.</para>
+    /// </summary>
+    private const float PoseGraceSeconds = 0.35f;
+
+    /// <summary>Unscaled time the device pose went away, or -1 while it is being delivered.</summary>
+    private float _poseLostAt = -1f;
+
     // Simulated input (dev harness).
     private bool _simulated;
     private float _simTrigger;
@@ -517,19 +541,35 @@ internal sealed class VRHand : MonoBehaviour
 
     private void ReadDevice()
     {
+        // RE-ACQUISITION IS UNCONDITIONAL AND IMMEDIATE. The handle is re-fetched from the XR node
+        // the very frame it goes invalid, so the mod never sits on a stale device across a runtime
+        // re-enumeration — the hardware log's device-level dropouts (devices=1, L/R invalid, for
+        // tens of seconds at a time while the input subsystem stays "running") are the runtime
+        // losing the controllers, not us failing to ask again.
         if (!_device.isValid)
         {
             _device = InputDevices.GetDeviceAtXRNode(Side == HandSide.Left ? XRNode.LeftHand : XRNode.RightHand);
             if (!_device.isValid)
             {
+                if (HoldPoseThroughGap("the device handle went invalid"))
+                    return;
                 SetTracked(false);
                 ClearInput();
                 return;
             }
         }
 
-        bool tracked = _device.TryGetFeatureValue(CommonUsages.isTracked, out bool isTracked) && isTracked;
-        SetTracked(tracked);
+        if (!HasUsablePose())
+        {
+            if (HoldPoseThroughGap("the device stopped reporting a pose"))
+                return; // keep the last pose and the last input for the rest of the grace
+            SetTracked(false);
+            ClearInput();
+            return;
+        }
+
+        _poseLostAt = -1f;
+        SetTracked(true);
 
         if (_device.TryGetFeatureValue(CommonUsages.devicePosition, out Vector3 position))
             transform.localPosition = position;
@@ -657,6 +697,7 @@ internal sealed class VRHand : MonoBehaviour
 
     private void ReadSimulated()
     {
+        _poseLostAt = -1f; // the dev harness always has a pose; never let a stale gap linger
         SetTracked(true);
         HasPointerPose = false; // sim rays use the hand frame
         ApplyAnalog(_simTrigger, _simGrip);
@@ -696,6 +737,52 @@ internal sealed class VRHand : MonoBehaviour
         ThumbstickClick = false;
         ThumbstickClickDown = ThumbstickClickUp = false;
         HasPointerPose = false;
+    }
+
+    /// <summary>
+    /// Does the device deliver a pose we can drive the hand from this frame?
+    ///
+    /// <para>NOT <c>isTracked</c> ALONE, and that is the point. <c>CommonUsages.isTracked</c> is the
+    /// runtime's summary judgement and OpenXR runtimes drop it eagerly — a Quest controller lowered
+    /// out of the headset's camera view reports it false while still delivering a perfectly good
+    /// pose. <c>trackingState</c> is the per-component truth, so when it says BOTH position and
+    /// rotation are valid the pose is usable no matter what the summary flag claims. The old
+    /// <c>isTracked</c> test stays as the fallback for a runtime that does not fill trackingState,
+    /// so this can only ever ADD frames in which the hand keeps working, never remove one.</para>
+    /// </summary>
+    private bool HasUsablePose()
+    {
+        const InputTrackingState posed = InputTrackingState.Position | InputTrackingState.Rotation;
+        if (_device.TryGetFeatureValue(CommonUsages.trackingState, out InputTrackingState state)
+            && (state & posed) == posed)
+            return true;
+        return _device.TryGetFeatureValue(CommonUsages.isTracked, out bool isTracked) && isTracked;
+    }
+
+    /// <summary>
+    /// Ride out a momentary pose gap: true while <see cref="PoseGraceSeconds"/> has not elapsed, in
+    /// which case the caller leaves the transform and the input values exactly where they are.
+    /// Returns false once the gap has lasted long enough to be a real loss.
+    /// </summary>
+    private bool HoldPoseThroughGap(string reason)
+    {
+        float now = Time.unscaledTime;
+        if (_poseLostAt < 0f)
+        {
+            _poseLostAt = now;
+            VRLog.Debug("Hands", $"{Side} pose gap ({reason}) — holding the last pose for up to " +
+                                 $"{PoseGraceSeconds:0.00}s before anything is cancelled.");
+        }
+        if (now - _poseLostAt < PoseGraceSeconds)
+            return true;
+
+        // Only announce the real loss, and only once per gap: IsTracked is about to go false, which
+        // is what cancels the grabs and takes the laser away.
+        if (IsTracked)
+            VRLog.Info("Hands", $"{Side} tracking lost for more than {PoseGraceSeconds:0.00}s " +
+                                $"({reason}) — the hand is released; it returns the frame the " +
+                                "device delivers a pose again.");
+        return false;
     }
 
     private void SetTracked(bool tracked)

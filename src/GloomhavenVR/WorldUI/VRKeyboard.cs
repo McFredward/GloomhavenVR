@@ -87,6 +87,12 @@ internal static class VRKeyboard
     /// searching for a keyboard nobody had asked for. It is only a fallback (a click selects the
     /// field, and an open keyboard re-checks its own field directly), so a fifth of a second between
     /// tries is imperceptible and 60x cheaper.
+    ///
+    /// <para>THROTTLING IT WAS NOT ENOUGH, and the hardware log says so plainly: measured INSIDE a
+    /// loaded scenario the same call is ~18 ms, not 2.3 ms, so five runs a second cost 86 ms/s and
+    /// dropped a frame every single time (90 Hz budget: 11.1 ms). <see cref="InputFieldFocusWatch"/>
+    /// now delivers activation as an event and this interval only governs the degraded path where
+    /// that patch could not be applied.</para>
     /// </summary>
     private const float SweepInterval = 0.2f;
 
@@ -118,6 +124,11 @@ internal static class VRKeyboard
 
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
+
+        // Registered here rather than next to the first attach: the watch has to be listening BEFORE
+        // the game focuses anything, or the very activation it exists to catch happens unobserved.
+        // Idempotent and cheap after the first call (one bool).
+        InputFieldFocusWatch.EnsureRegistered();
 
         // FOCUS IS NOT WHAT KEEPS THE KEYBOARD OPEN — that was the second bug in a row, and this is
         // the whole reason for the split below. Clicking a key moves the EventSystem's selection to
@@ -234,6 +245,20 @@ internal static class VRKeyboard
                 return onSelected;
         }
 
+        // PUSHED, NOT POLLED. While InputFieldFocusWatch is live it holds the field TMP last
+        // activated, which is exactly the set the sweep below could ever have returned (isFocused is
+        // TMP's m_AllowInput, written only on the ActivateInputField path). The same two acceptance
+        // tests still decide, so a field that has gone stale since is rejected as before — and the
+        // sweep, the mod's single most expensive step at 86 ms/s inside a scenario, never runs.
+        if (InputFieldFocusWatch.Installed)
+        {
+            TMP_InputField? activated = InputFieldFocusWatch.Focused;
+            return activated != null && activated.isFocused && activated.IsInteractable()
+                ? activated
+                : null;
+        }
+
+        // Fallback for a TMP the watch could not patch: the original throttled sweep, unchanged.
         float now = Time.unscaledTime;
         if (now - _lastSweep < SweepInterval)
             return null;
@@ -633,5 +658,6 @@ internal static class VRKeyboard
         _refused = null;
         _probed = false;
         _lastSweep = float.NegativeInfinity;
+        InputFieldFocusWatch.Clear();
     }
 }
