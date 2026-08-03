@@ -246,7 +246,7 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("MrBacking", MrBacking.Tick)); // after CanvasConversion: host plates read post-fit rects
             _updateSteps = update.ToArray();
 
-            _lateSteps = new (string, Action)[]
+            var late = new List<(string, Action)>
             {
                 ("ActorBars", ActorBars.Tick),
                 ("ActorBars.Late", ActorBars.LateTick),
@@ -257,6 +257,31 @@ internal sealed class WorldUIModule : IVRModule
                 // host afterward; PropInfoSurface's Update placement already ran (position kept).
                 ("HexHintFacing.Late", _hexHintFacing.LateTick),
             };
+            // BOARD-DOCKED PLACEMENT, LAST IN THE FRAME (user, hardware MP test: "Die
+            // Initiativreihenfolge über dem board und der Aufgabentext links ziehen immer ein wenig
+            // nach wenn man das board hin und her schleudert. Rechts die piles sind zB wie
+            // angewurzelt - das soll auch so sein ... allgemein bei allen Elementen die an dem
+            // Controllboard dran sind"). Every one of these hosts POSE-FOLLOWS a PlayTray mount
+            // instead of being parented under the tray (the mount-seam contract: they carry
+            // game-owned canvases, which must never be destroyed by a tray teardown), so their pose
+            // is a per-frame copy — and the board's own carry writer, PanelGrabHandle.Update, is an
+            // ordinary MonoBehaviour Update with NO execution-order relation to this driver's
+            // Update. Whenever it runs later in the frame, the copy is last frame's board pose and
+            // the panel visibly drags behind a flung board; the card piles never did because they
+            // are real children of the tray root. Unity runs every LateUpdate after every Update,
+            // so re-placing here is ordering-proof by rule. These run AFTER the passes above (the
+            // flatten/facing writers touch rotation inside the hosts, never the docked pose) and
+            // write ONLY panel hosts — the board itself is never moved or rescaled from here.
+            for (int i = 0; i < _slotSurfaces.Length; i++)
+            {
+                WorldSurface surface = _slotSurfaces[i];
+                late.Add(($"Surface:{surface.GetType().Name}.Late", surface.LateTick));
+            }
+            late.Add(("DecisionDockSurface.Late", _decisionDock.LateTick));
+            late.Add(("UseBarsSurface.Late", _useBars.LateTick)); // after the dock: reads its re-placed row edge
+            late.Add(("DamageTooltipSurface.Late", _damageTooltip.LateTick));
+            late.Add(("TrayControlDockSurface.Late", _trayControls.LateTick));
+            _lateSteps = late.ToArray();
         }
 
         private System.Collections.IEnumerator EndOfFrameLoop()

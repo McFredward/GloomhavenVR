@@ -133,6 +133,17 @@ internal sealed class DamageTooltipSurface : WorldSurface
         host.localScale = Vector3.one * (metersPerPx * trayScale);
     }
 
+    /// <summary>
+    /// Re-place at the end of the frame: this tip pose-follows a control-board mount, so like every
+    /// other board-docked element it must be written AFTER the board's own Update-phase carry writer
+    /// or it renders one frame behind a moving board — see <see cref="WorldSurface.LateTick"/>.
+    /// </summary>
+    public override void LateTick()
+    {
+        if (Panel != null)
+            Place();
+    }
+
     public override void Shutdown()
     {
         base.Shutdown(); // releases the conversion → HelpBox back in its 2D home

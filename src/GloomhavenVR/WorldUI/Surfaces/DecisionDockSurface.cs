@@ -972,6 +972,20 @@ internal sealed class DecisionDockSurface : WorldSurface
         }
     }
 
+    /// <summary>
+    /// Re-place at the end of the frame so the docked prompt row is as rigid on the board as the
+    /// card piles are — the row pose-follows <c>PlayTray.DecisionMount</c>, and an Update-phase copy
+    /// of that mount can be a frame stale while the board is being carried (see
+    /// <see cref="WorldSurface.LateTick"/> for the ordering root cause). <see cref="Place"/> is
+    /// derived purely from the mount and the fitted rect, so re-running it is idempotent; the HMD
+    /// fallback float stays place-once through its own <c>_hmdFloatPlaced</c> latch.
+    /// </summary>
+    public override void LateTick()
+    {
+        if (Panel != null)
+            Place();
+    }
+
     public override void Shutdown()
     {
         for (int b = 0; b < 3; b++)

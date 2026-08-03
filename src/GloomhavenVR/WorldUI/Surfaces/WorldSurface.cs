@@ -65,6 +65,35 @@ internal abstract class WorldSurface
             Place();
     }
 
+    /// <summary>
+    /// LATE placement pass, driven from <c>WorldUIModule.LateUpdate</c> — i.e. AFTER every
+    /// Update-phase transform writer in the process has run. Default: nothing. A surface whose
+    /// host sits at a fixed world pose (the floating slot layout, the HMD-anchored fallbacks)
+    /// has nothing to correct here, and re-placing a GRABBED window in LateUpdate would fight
+    /// its carry — so this is opt-in, and only the surfaces that POSE-FOLLOW a moving anchor
+    /// take it.
+    ///
+    /// ROOT CAUSE the seam exists for (user, hardware MP test: "Die Initiativreihenfolge über dem
+    /// board und der Aufgabentext links ziehen immer ein wenig nach wenn man das board hin und her
+    /// schleudert. Rechts die piles sind zB wie angewurzelt"): a host docked on a
+    /// <see cref="Cards.PlayTray"/> mount is deliberately NOT a child of the tray, so its pose is
+    /// a per-frame COPY of the mount's — and a copy is only as fresh as the frame ordering makes
+    /// it. The board is carried by <see cref="PanelGrabHandle"/>, a MonoBehaviour that writes the
+    /// tray root from <c>Update</c> at the default script execution order, i.e. in NO defined
+    /// order relative to <c>WorldUIModule.Update</c>. On every frame the handle's Update happens
+    /// to run AFTER the module's, the surfaces copied the board's PREVIOUS-frame pose and the
+    /// panel renders one frame behind the board it is bolted to — which, while the board is being
+    /// flung around, is precisely the visible drag that was reported. The card piles never showed
+    /// it because they are real CHILDREN of the tray root: they inherit the transform, no copy,
+    /// no ordering.
+    ///
+    /// Unity runs EVERY <c>LateUpdate</c> after EVERY <c>Update</c>, so a placement written here
+    /// reads the board pose this frame will actually render with — ordering-proof by rule instead
+    /// of by luck, and without touching the ownership contract that keeps game-owned canvases out
+    /// of the tray hierarchy (see <see cref="TrayMountedPanelSurface.LateTick"/>).
+    /// </summary>
+    public virtual void LateTick() { }
+
     protected virtual void OnConverted() { }
 
     /// <summary>
