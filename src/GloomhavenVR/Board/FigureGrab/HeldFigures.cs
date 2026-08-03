@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Hands;
 using UnityEngine;
 
 namespace GloomhavenVR.Board.FigureGrab;
@@ -17,10 +18,20 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// release the actor leaves the set, the game's own Update resumes and snaps it straight
 /// back to its board cell (<c>m_LocoIntermediateTarget</c>) — no manual return math.
 ///
+/// <para>IT IS AN ORDERED LIST, NOT A SET, and it remembers WHICH HAND holds each figure. Both
+/// properties are what the two-handed figure sync needs (MP wire record
+/// <c>NetProtocol.ExtIdSecondFigure</c>): the wire has a FIRST slot (the rig packet, 15 Hz) and a
+/// SECOND slot (the extras tail), and the assignment has to be STABLE or the two minis trade slots
+/// on every peer the moment a hand grabs or releases. Grab order gives that stability for free —
+/// the OLDEST still-held figure keeps the first slot for its whole hold, so grabbing a second mini
+/// never disturbs the first one's stream, and releasing the second one never disturbs it either.
+/// The hand rides the wire alongside it so a receiver can prove the two records describe DIFFERENT
+/// hands instead of driving both minis into one palm.</para>
+///
 /// <para>DO NOT MERGE WITH <see cref="NetHeldFigures"/>, its near-identically-shaped twin.
-/// This set's membership is owned by the LOCAL grab flow (<see cref="FigureGrabbable"/>'s
+/// This list's membership is owned by the LOCAL grab flow (<see cref="FigureGrabbable"/>'s
 /// grab/glide/release lifetime); the other is REPLACED WHOLESALE by <c>Net/NetFigures</c>
-/// whenever a remote grab/release/switch arrives. Sharing one set would couple local grab
+/// whenever a remote grab/release/switch arrives. Sharing one store would couple local grab
 /// lifetime to the wire — a dropped packet or a peer disconnect could then clear a figure
 /// the local hand is still physically holding. The patch gate deliberately ORs the two
 /// (<see cref="ActorBehaviour_HeldTransform_Patch"/>), which is the only place they need to
@@ -28,43 +39,88 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// </summary>
 internal static class HeldFigures
 {
-    private static readonly HashSet<ActorBehaviour> Held = new();
+    // Parallel lists in GRAB ORDER (index 0 = the oldest still-held figure). Two lists rather than
+    // a list of tuples so <see cref="All"/> can hand out the actor list itself, allocation-free,
+    // to the per-frame ring suppressor. Never more than one entry per hand in practice (a
+    // ProximityGrabber holds a single object), so every linear scan below is over <= 2 items.
+    private static readonly List<ActorBehaviour> Held = new();
+    private static readonly List<HandSide> Sides = new();
 
     // The most-recently-grabbed actor still in <see cref="Held"/> — the single figure the
-    // send side of figure-grab sync mirrors to peers (the wire format carries one held
-    // figure). Cleared / reassigned to another still-held actor on Remove/Clear so it never
-    // points at a released mini.
+    // flat-screen avatar mirror clones into its hand. DELIBERATELY still "last grabbed" while the
+    // wire uses "oldest grabbed" (see TryGetSlot): the mirror shows the figure you just picked up,
+    // the wire needs a slot assignment that does not move under a running stream.
     private static ActorBehaviour? _current;
 
     /// <summary>Patch gate: true when the game must NOT drive this actor's transform.</summary>
-    internal static bool Owns(ActorBehaviour actor) => actor != null && Held.Contains(actor);
+    internal static bool Owns(ActorBehaviour actor) => actor != null && IndexOf(actor) >= 0;
 
-    /// <summary>The figure the local player is currently holding (last grabbed), or null.
-    /// Consumed by <c>Net/NetFigures.TrySampleHeld</c> for cosmetic pickup sync.</summary>
-    internal static ActorBehaviour? Current => _current != null && Held.Contains(_current) ? _current : null;
+    /// <summary>The figure the local player grabbed most recently, or null. Consumed by the
+    /// flat-screen <c>WorldUI/AvatarMirror</c>. The NET send side does NOT use this — it walks
+    /// <see cref="TryGetSlot"/> in grab order, so its slots stay put while both hands are full.</summary>
+    internal static ActorBehaviour? Current => _current != null && Owns(_current) ? _current : null;
 
-    internal static void Add(ActorBehaviour actor)
+    /// <summary>
+    /// The <paramref name="slot"/>-th still-held figure in GRAB ORDER (0 = oldest), with the hand
+    /// holding it. False when fewer figures are held than that.
+    ///
+    /// <para>Grab order is the whole point: it is the only ordering that does not change while a
+    /// figure stays held, so the wire's first/second slots stay pinned to the same mini for the
+    /// whole hold. Ordering by hand instead would re-key a hold when a figure changes hands, and
+    /// ordering by "most recent" (<see cref="Current"/>) would move the first figure out of the
+    /// 15 Hz rig slot the instant the other hand grabbed anything.</para>
+    /// </summary>
+    internal static bool TryGetSlot(int slot, out ActorBehaviour actor, out HandSide side)
     {
-        if (actor != null)
+        actor = null!;
+        side = HandSide.Right;
+        if (slot < 0 || slot >= Held.Count)
+            return false;
+        ActorBehaviour candidate = Held[slot];
+        if (candidate == null)
+            return false;
+        actor = candidate;
+        side = Sides[slot];
+        return true;
+    }
+
+    /// <summary>Record a grab. <paramref name="side"/> is the hand that took it — carried so the
+    /// figure sync can say which mini is in which hand (see <see cref="TryGetSlot"/>). Re-adding an
+    /// actor already held keeps its ORIGINAL grab position in the order (a re-grab during the
+    /// release glide must not demote it out of the wire's first slot) and refreshes its hand.</summary>
+    internal static void Add(ActorBehaviour actor, HandSide side)
+    {
+        if (actor == null)
+            return;
+        int at = IndexOf(actor);
+        if (at >= 0)
+        {
+            Sides[at] = side;
+        }
+        else
         {
             Held.Add(actor);
-            _current = actor;
+            Sides.Add(side);
         }
+        _current = actor;
     }
 
     internal static void Remove(ActorBehaviour actor)
     {
-        if (actor != null)
-        {
-            Held.Remove(actor);
-            if (ReferenceEquals(_current, actor))
-                _current = FirstHeld();
-        }
+        if (actor == null)
+            return;
+        int at = IndexOf(actor);
+        if (at < 0)
+            return;
+        Held.RemoveAt(at);
+        Sides.RemoveAt(at);
+        if (ReferenceEquals(_current, actor))
+            _current = Held.Count > 0 ? Held[Held.Count - 1] : null;
     }
 
     internal static int Count => Held.Count;
 
-    /// <summary>Enumerate every locally-held actor (task #2 — selection-ring suppression). The set
+    /// <summary>Enumerate every locally-held actor (task #2 — selection-ring suppression). The list
     /// is only mutated from grab/release paths, never during this enumeration.</summary>
     internal static IEnumerable<ActorBehaviour> All => Held;
 
@@ -82,8 +138,9 @@ internal static class HeldFigures
     /// </summary>
     internal static void PinAnimatedRoots()
     {
-        foreach (ActorBehaviour a in Held)
+        for (int i = 0; i < Held.Count; i++)
         {
+            ActorBehaviour a = Held[i];
             if (a == null)
                 continue;
             GameObject animated = a.m_AnimatedGameObject;
@@ -95,13 +152,20 @@ internal static class HeldFigures
     internal static void Clear()
     {
         Held.Clear();
+        Sides.Clear();
         _current = null;
     }
 
-    private static ActorBehaviour? FirstHeld()
+    /// <summary>Reference identity, never <c>Equals</c>: <c>UnityEngine.Object</c> overrides
+    /// equality so two DESTROYED actors compare equal to each other, which would make
+    /// <c>List.Contains</c> match the wrong entry during a scenario teardown.</summary>
+    private static int IndexOf(ActorBehaviour actor)
     {
-        foreach (ActorBehaviour a in Held)
-            return a;
-        return null;
+        for (int i = 0; i < Held.Count; i++)
+        {
+            if (ReferenceEquals(Held[i], actor))
+                return i;
+        }
+        return -1;
     }
 }

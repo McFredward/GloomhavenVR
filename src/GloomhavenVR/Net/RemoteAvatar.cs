@@ -314,6 +314,36 @@ internal sealed class RemoteAvatar
     /// <summary>Held-figure world rotation (valid when <see cref="HasHeldFigure"/>).</summary>
     public Quaternion HeldFigureRotation { get; private set; } = Quaternion.identity;
 
+    /// <summary>
+    /// True when the sender is holding a SECOND board figure — one mini per hand (extras extension
+    /// record <see cref="NetProtocol.ExtIdSecondFigure"/>). The mini itself is driven by
+    /// <see cref="NetFigures"/> off the same record; this seam mirrors the first figure's one so
+    /// anything that wants to draw or reason about a peer's carried minis sees BOTH.
+    /// </summary>
+    public bool HasSecondHeldFigure { get; private set; }
+
+    /// <summary>Stable id of the second held figure (valid when
+    /// <see cref="HasSecondHeldFigure"/>).</summary>
+    public int SecondHeldFigureActorId { get; private set; }
+
+    /// <summary>Second held figure's world position (valid when
+    /// <see cref="HasSecondHeldFigure"/>).</summary>
+    public Vector3 SecondHeldFigurePosition { get; private set; }
+
+    /// <summary>Second held figure's world rotation (valid when
+    /// <see cref="HasSecondHeldFigure"/>).</summary>
+    public Quaternion SecondHeldFigureRotation { get; private set; } = Quaternion.identity;
+
+    /// <summary>True when that second mini rides the sender's LEFT hand. Meaningful only when
+    /// <see cref="HasSecondHeldFigure"/>.</summary>
+    public bool SecondHeldFigureLeftHand { get; private set; }
+
+    /// <summary>True when the FIRST held figure rides the sender's LEFT hand. Only the
+    /// second-figure record carries hands (the rig flag byte has no bit left), so this is
+    /// meaningful only while <see cref="HasSecondHeldFigure"/> — which is the only time the two
+    /// hands have to be told apart.</summary>
+    public bool HeldFigureLeftHand { get; private set; }
+
     public RemoteAvatar(int playerId)
     {
         PlayerId = playerId;
@@ -428,6 +458,23 @@ internal sealed class RemoteAvatar
         }
         HandCardCount = p.HandCardCount;
         DominantRight = p.DominantRight;
+
+        // SECOND HELD FIGURE (extension record 8): the mini in the sender's other hand. Absent ⇒
+        // at most one figure held, which is also exactly what a peer predating the record sends —
+        // so a plain reset is right in both cases and never strands a phantom second mini here.
+        HasSecondHeldFigure = p.HasSecondFigure;
+        if (p.HasSecondFigure)
+        {
+            SecondHeldFigureActorId = p.SecondFigureActorId;
+            SecondHeldFigurePosition = p.SecondFigurePose.Position;
+            SecondHeldFigureRotation = p.SecondFigurePose.Rotation;
+            SecondHeldFigureLeftHand = p.SecondFigureLeftHand;
+            HeldFigureLeftHand = p.PrimaryFigureLeftHand;
+        }
+        else
+        {
+            SecondHeldFigureActorId = 0;
+        }
 
         // Head-mask SIZE: the sender's own multiplier rides the wire (trailing-block byte A bit 4),
         // so their mask is the same size on every client — the project's standing MP rule that what

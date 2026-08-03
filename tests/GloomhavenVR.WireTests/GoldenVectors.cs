@@ -116,6 +116,15 @@ internal static class GoldenVectors
         HasHandScale = true, HandScaleCode = 62,
     };
 
+    /// <summary>A SECOND held figure (record 8) and nothing else: the mini in the sender's LEFT
+    /// hand while the rig packet's figure rides the RIGHT one. Reuses the rig packet's figure pose
+    /// literal so the two held-figure encodings are visibly the same 20 bytes.</summary>
+    private static PresenceState ExtrasSecondFigure() => new PresenceState
+    {
+        HasSecondFigure = true, SecondFigureActorId = 0x01020304, SecondFigurePose = Figure(),
+        SecondFigureLeftHand = true, PrimaryFigureLeftHand = false,
+    };
+
     /// <summary>Board-UI + fan-anchor records (the 1:1 parity round's two additions), with a board
     /// so the round-trip loop also exercises them next to the pose. Position components are exact
     /// float32 values so the golden hex is hand-verifiable.</summary>
@@ -654,6 +663,137 @@ internal static class GoldenVectors
                "a truncated fan-anchor record still parses the packet");
         t.True(!cutFa.HasFanAnchor, "and the incomplete record is simply not delivered");
 
+        // -- 7i. SECOND HELD FIGURE (extension record 8) -----------------------------------
+        // A VR player can hold one board figure PER HAND. The rig packet carries the first one and
+        // its flag byte is full, so the second rides the extras tail: [hand flags][int32 actorId
+        // LE][pose 20] = 25 bytes. Written only while a second mini is really held.
+        t.Case("7i. extras, second held figure record");
+        m = PresenceSerializer.Write(ExtrasSecondFigure(), ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            08 19            // record: id 8 (second held figure), len 25
+            01               // hands: bit0 second figure LEFT, bit1 clear -> first figure RIGHT
+            04 03 02 01      // actorId int32 LE = 0x01020304
+            " + PoseFigure + @"
+            "), ext, m, "the second-figure record is [id 8][len 25][hands][actorId][pose]");
+        t.Equal(38, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 25 = 38 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState sf), "and it parses");
+        t.True(sf.HasSecondFigure, "the second figure is delivered");
+        t.Equal(0x01020304, sf.SecondFigureActorId, "with the stable actor id intact");
+        t.True(sf.SecondFigurePose.Position == new Vector3(8f, 0f, 0.25f),
+               "and the exact world-frame position");
+        t.True(sf.SecondFigureLeftHand, "the second mini is in the LEFT hand");
+        t.True(!sf.PrimaryFigureLeftHand, "and the first one in the RIGHT — the pairing the rig packet cannot state");
+
+        // ABSENT WHEN NOT HELD. One figure (or none) must emit the exact bytes previous builds
+        // emitted: no record, no tail, no block. This is the whole backward-compatibility argument
+        // for the SENDER side — a player who is not holding two minis is byte-for-byte a
+        // pre-record-8 sender.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "no second figure -> no record, no tail, no block: byte-identical to build 36");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noSf), "and it parses");
+        t.True(!noSf.HasSecondFigure, "with HasSecondFigure false (peers release only that slot)");
+
+        // Ordered LAST, behind the pick banner — a reorder in Write shows up right here.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCardHighlight = true, HandHighlightIndex = 1,
+            FanHighlightIndex = NetProtocol.CardHighlightNone,
+            HasPickBanner = true, PickBannerText = "A",
+            HasSecondFigure = true, SecondFigureActorId = 0x01020304, SecondFigurePose = Figure(),
+            SecondFigureLeftHand = true,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            03               // tail: 3 records, in id order
+            06 02 01 FF      // id 6 card highlight
+            07 01 41         // id 7 pick banner, UTF8 'A'
+            08 19 01 04 03 02 01
+            " + PoseFigure + @"
+            "), ext, m, "the second figure rides the tail after the pick banner (id order 6, 7, 8)");
+
+        // BACKWARD COMPATIBILITY, the direction that actually ships: a peer built BEFORE record 8
+        // receives this packet. To that reader id 8 is exactly the unknown-id case, so it steps over
+        // the record by its own length and everything it DOES know is untouched. Asserted with a
+        // hand-built packet in which a 25-byte unknown record sits where record 8 sits, followed by
+        // a record every build since the handshake knows.
+        byte[] oldReader = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00            // byte A extension tail, byte B count 0
+            02               // 2 records
+            63 19            // id 99, len 25 -- record 8 as a PRE-RECORD-8 READER sees it
+            01 04 03 02 01
+            " + PoseFigure + @"
+            03 07 01 00 30 2E 31 2E 30   // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(oldReader, oldReader.Length, out PresenceState oldRd),
+               "a 25-byte record this build does not know is skipped, and the packet parses");
+        t.True(!oldRd.HasSecondFigure, "the unknown record delivers nothing (as on a pre-record-8 peer)");
+        t.True(oldRd.HasModVersion, "and the record behind it is read past it");
+        t.Equal((ushort)1, oldRd.ModBuild, "with its value intact");
+
+        // THE HAND BITS ARE LOAD-BEARING: a record claiming BOTH figures are in the same hand is a
+        // contradiction no local grab can produce (a hand holds one object) and a stale/corrupt
+        // packet can. It is rejected outright rather than stacking two minis in one palm.
+        byte[] sameHand = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            08 19
+            03               // hands: bit0 AND bit1 -> both figures claim the LEFT hand
+            04 03 02 01
+            " + PoseFigure);
+        t.True(PresenceSerializer.TryRead(sameHand, sameHand.Length, out PresenceState clash),
+               "a contradictory hand pair still parses the packet");
+        t.True(!clash.HasSecondFigure, "and the record is dropped — never two minis in one palm");
+
+        // Actor id 0 means "no figure" everywhere in this system, so it can never identify one.
+        byte[] zeroId = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            08 19 01 00 00 00 00
+            " + PoseFigure);
+        t.True(PresenceSerializer.TryRead(zeroId, zeroId.Length, out PresenceState zeroSf),
+               "an actor id of 0 still parses the packet");
+        t.True(!zeroSf.HasSecondFigure, "and the record is dropped");
+
+        // A NaN position from a hostile/corrupt sender must not fling a real board figure out of
+        // the world — the same guard the fan anchor carries, for the same reason.
+        byte[] nanFigure = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            08 19 01 04 03 02 01
+            0000C07F 00000000 0000803E   // pos x = NaN
+            0000 0000 FF7F 0000
+            ");
+        t.True(PresenceSerializer.TryRead(nanFigure, nanFigure.Length, out PresenceState nanSf),
+               "a NaN second-figure position still parses the packet");
+        t.True(!nanSf.HasSecondFigure, "and the poisoned record is simply not delivered");
+
+        // A TRUNCATED record (claims 25 payload bytes, delivers 5): the tail is abandoned
+        // mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutFigure = Hex.Bytes("31 52 56 47 03 01 80 00 90 00 C8 01 08 19 01 04 03 02 01");
+        t.True(PresenceSerializer.TryRead(cutFigure, cutFigure.Length, out PresenceState cutSf),
+               "a truncated second-figure record still parses the packet");
+        t.True(cutSf.HasMaskSize, "the mask size ahead of the tail survives");
+        t.True(!cutSf.HasSecondFigure, "and the incomplete record is simply not delivered");
+
+        // The RIG packet is untouched by all of this: the first held figure still rides its own
+        // 15 Hz block at the same offsets, which is why a pre-record-8 peer keeps seeing that one.
+        n = AvatarSerializer.Write(RigHeldFigureAndCard(), rig);
+        t.Equal(77, n, "the rig packet's held-figure block is byte-unchanged by the second slot");
+        t.True(AvatarSerializer.TryRead(rig, n, out AvatarState rigHeld), "and it parses");
+        t.True(rigHeld.HasHeldFigure, "with the FIRST held figure still delivered by the rig packet");
+        t.Equal(0x01020304, rigHeld.HeldFigureActorId, "and its actor id intact");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
@@ -694,7 +834,7 @@ internal static class GoldenVectors
             t.True(SameRig(plain, fut), "and yields identical state");
         }
         foreach (var s in new[] { ExtrasEverything(), ExtrasMaskSizeOnly(), withDefaults,
-                                  ExtrasBoardUiAndFanAnchor() })
+                                  ExtrasBoardUiAndFanAnchor(), ExtrasSecondFigure() })
         {
             int len = PresenceSerializer.Write(s, ext);
             t.True(PresenceSerializer.TryRead(ext, len, out PresenceState plain), "extras parses");
@@ -788,5 +928,10 @@ internal static class GoldenVectors
         && x.ModVersionText == y.ModVersionText
         && x.HasBoardUi == y.HasBoardUi && x.BoardButtonsMask == y.BoardButtonsMask
         && x.BoardOverlayMask == y.BoardOverlayMask
-        && x.HasFanAnchor == y.HasFanAnchor && x.FanAnchorLocal == y.FanAnchorLocal;
+        && x.HasFanAnchor == y.HasFanAnchor && x.FanAnchorLocal == y.FanAnchorLocal
+        && x.HasSecondFigure == y.HasSecondFigure
+        && x.SecondFigureActorId == y.SecondFigureActorId
+        && x.SecondFigurePose.Position == y.SecondFigurePose.Position
+        && x.SecondFigureLeftHand == y.SecondFigureLeftHand
+        && x.PrimaryFigureLeftHand == y.PrimaryFigureLeftHand;
 }

@@ -75,9 +75,13 @@ internal static class LocalRigSampler
         // Which hand is dominant (mirror flag so remotes place the card fan on the correct side).
         state.DominantRight = LocalDominantRight();
 
-        // Held figure (cosmetic): the figure the local player physically holds, in the shared
-        // frame. NetFigures is a no-op stub in the foundation, so this is false until worker C.
-        state.HasHeldFigure = NetFigures.TrySampleHeld(out state.HeldFigureActorId, out Vector3 fp, out Quaternion fr);
+        // Held figure (cosmetic): the FIRST figure the local player physically holds, in the shared
+        // frame. A player can hold one mini per hand; the SECOND one rides the extras packet's
+        // additive record (NetProtocol.ExtIdSecondFigure) because the rig flag byte has no bit left
+        // to announce a second block here. Slot order is grab order, so this slot keeps naming the
+        // same mini for its whole hold even when the other hand grabs or releases one.
+        state.HasHeldFigure = NetFigures.TrySampleHeldSlot(
+            NetFigures.SlotPrimary, out state.HeldFigureActorId, out Vector3 fp, out Quaternion fr, out _);
         if (state.HasHeldFigure)
         {
             anchor.ToAnchor(fp, fr, out Vector3 ap, out Quaternion ar);

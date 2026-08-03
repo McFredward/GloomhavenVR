@@ -114,6 +114,22 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private Quaternion _lastSentBoardRot = Quaternion.identity;
     private float _lastSentBoardScale = 1f;
 
+    // SECOND HELD FIGURE (user report: "Wenn ein Mitspieler zwei Figuren in der Hand haelt soll auch
+    // dies vollstaendig synchronisiert werden"). The mini in the player's OTHER hand rides extension
+    // record 8 on THIS packet, and it gets the SAME treatment the board pose above gets, for the
+    // same reason and through the same mechanism: while it is moving, extras go out at the RIG rate
+    // (SendRateHz), so the second figure is streamed at exactly the cadence the first one gets in
+    // the rig packet and the receiver's identical easing then produces identical motion. Picking it
+    // up / putting it down / swapping which mini it is are EDGES that pre-empt the gate outright, so
+    // the second figure appears and disappears on the frame it happens rather than up to an extras
+    // interval later. A perfectly still second figure falls back to the idle 5 Hz — nothing moves,
+    // so nothing is observable there. _sentSecondFigureValid false = nothing sent yet this session.
+    private bool _sentSecondFigureValid;
+    private int _lastSentSecondActorId;
+    private Vector3 _lastSentSecondPos;
+    private Quaternion _lastSentSecondRot = Quaternion.identity;
+    private bool _loggedSecondFigure;
+
     private readonly Dictionary<int, RemoteAvatar> _avatars = new();
     // Latest world-frame state per sender, awaiting apply on the next Update (dedup: only the
     // newest matters for an unreliable stream).
@@ -223,6 +239,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _hasFx = false;
         _lastSentBoardUi = -1;      // next session re-states the board UI from scratch
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
+        _sentSecondFigureValid = false; // nor a new session's second held figure
+        _lastSentSecondActorId = 0;
         // Version handshake is session state; badges are reversible game-UI decoration — both
         // must not survive a driver teardown (hot reload / module shutdown).
         VersionGuard.Reset();
@@ -531,9 +549,50 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool highlightChanged = highlightNow != _lastSentHighlight;
         bool highlightDue = highlightChanged && _extrasAccumulator >= fastInterval;
 
+        // SECOND HELD FIGURE (extension record 8): the mini in the player's OTHER hand. Sampled
+        // BEFORE the rate gate so it can pre-empt it, and converted to the shared anchor frame here
+        // (once) so the change test compares the very bytes that go on the wire.
+        //
+        // WHY THE PRIMARY'S HAND IS SAMPLED TOO: the record names the hand of BOTH minis. The rig
+        // packet cannot carry its own figure's hand — its flag byte is full — so the only place the
+        // two hands can be stated together is here, and stating them together is what lets a
+        // receiver reject a contradictory pair instead of stacking two minis in one palm.
+        bool secondFigure = NetFigures.TrySampleHeldSlot(
+            NetFigures.SlotSecondary, out int secondActorId, out Vector3 secondWorldPos,
+            out Quaternion secondWorldRot, out bool secondLeftHand);
+        bool primaryLeftHand = false;
+        Vector3 secondPos = default;
+        Quaternion secondRot = Quaternion.identity;
+        if (secondFigure)
+        {
+            // A second figure without a first is not a state the grab registry can produce, but the
+            // record's whole meaning is "the OTHER one" — so it is only ever emitted alongside a
+            // first figure, and never with two identical hands.
+            secondFigure = NetFigures.TrySampleHeldSlot(
+                                NetFigures.SlotPrimary, out int primaryActorId, out _, out _,
+                                out primaryLeftHand)
+                           && primaryActorId != secondActorId
+                           && primaryLeftHand != secondLeftHand;
+        }
+        if (secondFigure)
+            _anchor.ToAnchor(secondWorldPos, secondWorldRot, out secondPos, out secondRot);
+        // Grab / release / a different mini in that hand are EDGES: they pre-empt the gate outright
+        // so a peer sees the second figure appear and vanish with the gesture.
+        bool secondChanged = secondFigure != _sentSecondFigureValid
+                             || (secondFigure && secondActorId != _lastSentSecondActorId);
+        // Carrying it is a MOTION, handled exactly like the dragged control board above: while the
+        // pose keeps changing the whole extras packet rides at the rig rate, so this figure gets the
+        // same sample density as the one in the rig packet.
+        bool secondMoving = secondFigure && _sentSecondFigureValid
+            && secondActorId == _lastSentSecondActorId
+            && ((secondPos - _lastSentSecondPos).sqrMagnitude > 1e-8f
+                || Quaternion.Angle(secondRot, _lastSentSecondRot) > 0.05f);
+        bool secondDue = secondMoving && _extrasAccumulator >= fastInterval;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
-            && !poseDue && !boardUiChanged && !highlightDue)
+            && !poseDue && !boardUiChanged && !highlightDue
+            && !secondChanged && !secondDue)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -782,6 +841,44 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.FxEndpoints = _lastFxEndpoints;
         }
 
+        // SECOND HELD FIGURE (extension record 8): the mini in the player's OTHER hand, with the
+        // hand of BOTH minis. Written only while a second figure is really held, so a one-handed
+        // hold — and every empty-handed player — emits the exact bytes previous builds emitted.
+        if (secondFigure)
+        {
+            extras.HasSecondFigure = true;
+            extras.SecondFigureActorId = secondActorId;
+            extras.SecondFigurePose.Position = secondPos;
+            extras.SecondFigurePose.Rotation = secondRot;
+            extras.SecondFigureLeftHand = secondLeftHand;
+            extras.PrimaryFigureLeftHand = primaryLeftHand;
+        }
+        if (secondChanged)
+        {
+            if (secondFigure)
+            {
+                VRLog.Info("Net", $"Second held figure SENT: actor {secondActorId} in the " +
+                                  $"{(secondLeftHand ? "LEFT" : "RIGHT")} hand, first figure in the " +
+                                  $"{(primaryLeftHand ? "LEFT" : "RIGHT")} — extension record 8 " +
+                                  "(25 B: hands + stable actor id + pose). While it moves the extras " +
+                                  $"packet rides at {NetProtocol.SendRateHz:0} Hz, the SAME cadence " +
+                                  "the first figure gets in the rig packet, so peers see both minis " +
+                                  "move alike.");
+                _loggedSecondFigure = true;
+            }
+            else if (_loggedSecondFigure)
+            {
+                _loggedSecondFigure = false;
+                VRLog.Info("Net", $"Second held figure SENT: released (was actor {_lastSentSecondActorId}) " +
+                                  "— record omitted; peers hand that mini back to the game, and the " +
+                                  "figure still in the other hand is untouched.");
+            }
+        }
+        _sentSecondFigureValid = secondFigure;
+        _lastSentSecondActorId = secondFigure ? secondActorId : 0;
+        _lastSentSecondPos = secondPos;
+        _lastSentSecondRot = secondRot;
+
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
         // breaking the "only when non-default" rule the other records follow — its ABSENCE is
         // the signal (peers without it read as pre-handshake ModBuild 0 = mismatch), so there
@@ -886,11 +983,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     AvatarState s = kv.Value;
                     avatar.SetTarget(in s);
 
-                    // Cosmetic figure sync: mirror the sender's held figure (no-op stub in foundation).
+                    // Cosmetic figure sync: mirror the sender's FIRST held figure. Only the primary
+                    // slot is touched here — the mini in their other hand rides the extras packet
+                    // (record 8) and is applied below, so a peer holding two minis keeps both and
+                    // dropping one releases exactly that one.
                     if (s.HasHeldFigure)
-                        NetFigures.ApplyRemoteHeld(kv.Key, s.HeldFigureActorId, s.HeldFigurePose.Position, s.HeldFigurePose.Rotation);
+                        NetFigures.ApplyRemoteHeld(kv.Key, NetFigures.SlotPrimary, s.HeldFigureActorId,
+                                                   s.HeldFigurePose.Position, s.HeldFigurePose.Rotation);
                     else
-                        NetFigures.ReleaseRemote(kv.Key);
+                        NetFigures.ReleaseRemoteSlot(kv.Key, NetFigures.SlotPrimary);
                 }
                 catch (Exception e) { LogPhaseError($"Apply rig packet from player {kv.Key}", e); }
             }
@@ -908,6 +1009,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                         continue; // construction failed recently — packet dropped, retry later
                     PresenceState p = kv.Value;
                     avatar.SetExtras(in p);
+
+                    // Cosmetic figure sync, SECOND slot: the mini in the sender's other hand
+                    // (extension record 8). Absence of the record means "at most one figure held",
+                    // which is also what a peer predating the record transmits — both release only
+                    // the second slot, never the first, so an old peer's single held figure keeps
+                    // working exactly as it always did.
+                    if (p.HasSecondFigure)
+                    {
+                        NetFigures.ApplyRemoteHeld(kv.Key, NetFigures.SlotSecondary, p.SecondFigureActorId,
+                                                   p.SecondFigurePose.Position, p.SecondFigurePose.Rotation,
+                                                   handKnown: true, leftHand: p.SecondFigureLeftHand);
+                        // The record is also the only carrier of the FIRST figure's hand (the rig
+                        // flag byte has no bit left for one), so stamp it on the primary slot.
+                        NetFigures.NotePrimaryHand(kv.Key, p.PrimaryFigureLeftHand);
+                    }
+                    else
+                    {
+                        NetFigures.ReleaseRemoteSlot(kv.Key, NetFigures.SlotSecondary);
+                    }
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
@@ -1060,6 +1180,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             _anchor.ToWorld(p.Board.Position, p.Board.Rotation, out Vector3 wp, out Quaternion wr);
             p.Board.Position = wp;
             p.Board.Rotation = wr;
+        }
+        // The second held figure's pose is a SHARED-FRAME pose exactly like the rig packet's first
+        // figure, so it converts here for the same reason: NetFigures and RemoteAvatar are world-only.
+        if (p.HasSecondFigure)
+        {
+            _anchor.ToWorld(p.SecondFigurePose.Position, p.SecondFigurePose.Rotation,
+                            out Vector3 fp, out Quaternion fr);
+            p.SecondFigurePose.Position = fp;
+            p.SecondFigurePose.Rotation = fr;
         }
     }
 }
