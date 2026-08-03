@@ -384,8 +384,13 @@ internal sealed class PileBrowser
         if (n == 0)
             return;
 
-        float radius = CardsConfig.FanRadius.Value * RadiusFactor;
-        float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
+        // PER-PILE SPREAD, read LIVE so a debug stepper widens the OPEN fan (user request
+        // 2026-08-03). The shipped defaults are the old constants, so nothing moves until dialled.
+        PileKind kind = Kind ?? PileKind.Discard;
+        float radius = CardsConfig.FanRadius.Value * CardsConfig.FanRadiusFactor(kind).Value;
+        float step = n > 1
+            ? Mathf.Min(CardsConfig.FanStepDegrees(kind).Value, MaxArcDegrees / (n - 1))
+            : 0f;
         float start = -step * (n - 1) * 0.5f;
 
         // HAND-FAN PARITY, part 1 (the collider strip). Each card's grab collider shrinks to the

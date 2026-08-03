@@ -956,6 +956,16 @@ internal static partial class Loc
                 + "Metern. Das ist die EINZIGE Stellschraube für diesen Abstand: Sie ist bewusst "
                 + "unabhängig von Größe und Versatz des Entscheidungsdocks — Vergrößern oder "
                 + "Verschieben ändert also nie, wie weit die Knöpfe vom Text entfernt sitzen.",
+            ["Cards/FanStepDegrees_*"] =
+                "Winkel zwischen zwei benachbarten Karten dieses Stapel-Fächers, in Grad — die "
+                + "SPREIZUNG. Größer = die Karten liegen weiter auseinander, und genau das macht "
+                + "das physische Greifen einer einzelnen Karte leicht. Der Gesamtbogen des Fächers "
+                + "wird trotzdem nie überschritten: Bei einem sehr vollen Stapel wird die Spreizung "
+                + "gedeckelt, damit jede Karte erreichbar bleibt.",
+            ["Cards/FanRadiusFactor_*"] =
+                "Radius dieses Stapel-Fächers als Vielfaches des Handkarten-Radius ([Cards] "
+                + "Fächer: Radius). Größer = ein weiterer, flacherer Bogen, was die Karten "
+                + "ebenfalls auseinanderzieht.",
             ["Cards/BoardMinWidthMeters"] =
                 "Wie klein das Controllboard höchstens werden darf, gemessen an seiner TATSÄCHLICH "
                 + "SICHTBAREN BREITE in echten Metern — also daran, wie breit es für dich aussieht, "

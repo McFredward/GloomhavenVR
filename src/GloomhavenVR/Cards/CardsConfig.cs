@@ -118,6 +118,12 @@ internal static class CardsConfig
     /// <summary>Let the GAME's own card particles play (CardSmoke). OFF since 2026-08-03.</summary>
     internal static ConfigEntry<bool> GameCardParticles = null!;
 
+    /// <summary>Per-pile fan spread: degrees between two neighbouring cards of THAT pile's fan.</summary>
+    private static readonly ConfigEntry<float>[] _fanStepDegrees = new ConfigEntry<float>[3];
+
+    /// <summary>Per-pile fan radius multiplier on the shared hand-fan radius.</summary>
+    private static readonly ConfigEntry<float>[] _fanRadiusFactor = new ConfigEntry<float>[3];
+
     /// <summary>Hard floor/ceiling on the board's APPARENT width in real metres (see the binds).</summary>
     internal static ConfigEntry<float> BoardMinWidthMeters = null!;
     internal static ConfigEntry<float> BoardMaxWidthMeters = null!;
@@ -629,6 +635,29 @@ internal static class CardsConfig
             "reads, seeded from this Oak value as X = −0.014. It was the inward nudge in local X (real " +
             "meters, toward board center) applied to Confirm/Undo so they center on the Oak metal pads. " +
             "Kept bound so existing cfg files load unchanged.");
+        // PER-PILE FAN SPREAD (user request 2026-08-03: "Der Fächer der Items muss breiter sein,
+        // also mehr Abstand zwischen den Karten damit man es physisch gut greifen kann — ich möchte
+        // das wie den Handkarten pro pile in den Debug-Einstellungen verändern können"). The three
+        // board fans (items, discard, burnt) shared two hardcoded constants; each gets its own pair
+        // now, read LIVE so a stepper widens an OPEN fan immediately.
+        string[] pileNames = { "Items", "Discard", "Burnt" };
+        float[] stepSeeds = { Defaults.FanStepDegrees_Items, Defaults.FanStepDegrees_Discard, Defaults.FanStepDegrees_Burnt };
+        float[] radiusSeeds = { Defaults.FanRadiusFactor_Items, Defaults.FanRadiusFactor_Discard, Defaults.FanRadiusFactor_Burnt };
+        for (int p = 0; p < 3; p++)
+        {
+            _fanStepDegrees[p] = _file.Bind("Cards", $"FanStepDegrees_{pileNames[p]}", stepSeeds[p],
+                new ConfigDescription(
+                    $"[{pileNames[p]} fan] angle between two neighbouring cards, degrees — the SPREAD. " +
+                    "Bigger = the cards sit further apart, which is what makes a single card easy to " +
+                    "grab physically. The fan still never exceeds its total arc, so on a very full " +
+                    "pile the spread is capped to keep every card reachable.",
+                    new AcceptableValueRange<float>(2f, 30f)));
+            _fanRadiusFactor[p] = _file.Bind("Cards", $"FanRadiusFactor_{pileNames[p]}", radiusSeeds[p],
+                new ConfigDescription(
+                    $"[{pileNames[p]} fan] radius as a multiple of the hand fan's radius ([Cards] " +
+                    "FanRadius). Bigger = a wider, flatter arc, which also spaces the cards out.",
+                    new AcceptableValueRange<float>(0.5f, 4f)));
+        }
         BoardMinWidthMeters = _file.Bind("Cards", "BoardMinWidthMeters", Defaults.BoardMinWidthMeters,
             new ConfigDescription(
                 "Smallest the control board may ever get, measured as its APPARENT WIDTH in real " +
@@ -1251,6 +1280,20 @@ internal static class CardsConfig
     /// 2026-08-03 ("Ich möchte auch in der Lage sein die Position von Text wie 'Barbar: Wähle 1
     /// Karte(n) zum Verlieren' zu ändern"). Mirrored onto a peer's remote board.</summary>
     internal static ConfigEntry<Vector3> PickBannerOffset(ControlBoard b) => _pickBannerOffset[(int)b];
+
+    /// <summary>Degrees between neighbouring cards of a board fan (per pile — see the binds).</summary>
+    internal static ConfigEntry<float> FanStepDegrees(PileKind k) => _fanStepDegrees[PileIndex(k)];
+
+    /// <summary>Radius multiplier of a board fan (per pile).</summary>
+    internal static ConfigEntry<float> FanRadiusFactor(PileKind k) => _fanRadiusFactor[PileIndex(k)];
+
+    /// <summary>Config slot for a pile kind, clamped so an unknown kind reads as Items.</summary>
+    private static int PileIndex(PileKind k) => k switch
+    {
+        PileKind.Discard => 1,
+        PileKind.Burnt => 2,
+        _ => 0,
+    };
 
     /// <summary>Per-board gap between the decision prompt text and the decision buttons, board-local
     /// metres — see the bind description; scale- and offset-independent by construction.</summary>

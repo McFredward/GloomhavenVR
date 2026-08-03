@@ -65,6 +65,12 @@ internal static partial class Defaults
     internal const float RoundButtonThickness = 0.012f;                                               // => [Cards] RoundButtonThickness  (legacy: read once as the seed for its successor)
     internal const float RestButtonInsetX = 0.024f;                                                   // => [Cards] RestButtonInsetX  (legacy: read once as the seed for its successor)
     internal const float ConfirmUndoInsetX = 0.014f;                                                  // => [Cards] ConfirmUndoInsetX  (legacy: read once as the seed for its successor)
+    internal const float FanStepDegrees_Items = 10f;                                                  // => [Cards] FanStepDegrees_Items
+    internal const float FanStepDegrees_Discard = 10f;                                                // => [Cards] FanStepDegrees_Discard
+    internal const float FanStepDegrees_Burnt = 10f;                                                  // => [Cards] FanStepDegrees_Burnt
+    internal const float FanRadiusFactor_Items = 1.7f;                                                // => [Cards] FanRadiusFactor_Items
+    internal const float FanRadiusFactor_Discard = 1.7f;                                              // => [Cards] FanRadiusFactor_Discard
+    internal const float FanRadiusFactor_Burnt = 1.7f;                                                // => [Cards] FanRadiusFactor_Burnt
     internal const float BoardMinWidthMeters = 0.18f;                                                 // => [Cards] BoardMinWidthMeters
     internal const float BoardMaxWidthMeters = 1.4f;                                                  // => [Cards] BoardMaxWidthMeters
     internal const bool SpawnLeftOfHead = true;                                                       // => [Cards] SpawnLeftOfHead

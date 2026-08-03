@@ -518,7 +518,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // singling out. Read as a bare INDEX off the fans' own highlight predicate — never a card
         // identity, which is the standing rule for this wire. -1 = nothing highlighted there.
         int handHl = CardFan.Current?.HighlightedIndex ?? -1;
+        // BOARD FAN = the pile browser OR the item fan — at most one is open (Cards-layer mutual
+        // exclusion), so one wire field covers both. The item fan was missing here, which is why a
+        // peer never saw an item chip lift (user report 2026-08-03).
         int fanHl = PileBrowser.Current?.HighlightedIndex ?? -1;
+        if (fanHl < 0)
+            fanHl = ItemsPile.Current?.HighlightedIndex ?? -1;
         int highlightNow = (handHl & 0xFFFF) | (fanHl << 16);
         // A hover is a HUMAN-PACED gesture, but sweeping a hand along a fan can step the index
         // several times a second, so the pre-emption is capped at the rig interval exactly like

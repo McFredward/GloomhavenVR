@@ -643,8 +643,12 @@ internal sealed class ItemsPile
         if (n == 0)
             return;
 
-        float radius = CardsConfig.FanRadius.Value * RadiusFactor;
-        float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
+        // PER-PILE SPREAD, read LIVE (user request 2026-08-03: the item fan must be wider so a
+        // single chip can be grabbed physically). Shipped default = the old constant.
+        float radius = CardsConfig.FanRadius.Value * CardsConfig.FanRadiusFactor(PileKind.Items).Value;
+        float step = n > 1
+            ? Mathf.Min(CardsConfig.FanStepDegrees(PileKind.Items).Value, MaxArcDegrees / (n - 1))
+            : 0f;
         float start = -step * (n - 1) * 0.5f;
 
         // HAND-FAN PARITY (the collider strip — see FanSweep.StripWidth). Item chips overlap each
@@ -881,6 +885,20 @@ internal sealed class ItemsPile
     /// whenever this is non-null and disagrees with the ray chip — the same single-owner
     /// contract the ability fan enforces in <c>UpdateFanHoverSplit</c>.
     /// </summary>
+    /// <summary>
+    /// Index of the chip currently singled out in this fan, or -1 — the ITEM-fan counterpart of
+    /// <c>PileBrowser.HighlightedIndex</c> and <c>CardFan.HighlightedIndex</c>.
+    ///
+    /// <para>MULTIPLAYER (user report 2026-08-03: "Die Highlights der Karten vom Fächer werden
+    /// nicht synchronisiert bei den Piles z.B. Gegenstände/Item-Fächer"). The wire carries a bare
+    /// fan POSITION, never a card identity (extension record 6), and the sender used to read that
+    /// position from the pile BROWSER only — so a player sweeping their item fan lifted a chip
+    /// that no peer ever saw move. This is the missing source; at most one board fan is open at a
+    /// time, so it feeds the very same wire field.</para>
+    /// </summary>
+    internal int HighlightedIndex =>
+        IsOpen && _handWinnerIndex >= 0 && _handWinnerIndex < _chips.Count ? _handWinnerIndex : -1;
+
     internal ItemChip? HandOwnedChip(VRHand? hand)
     {
         if (hand == null || !IsOpen)

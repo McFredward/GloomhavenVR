@@ -187,10 +187,14 @@ internal sealed partial class CardsDriver
             // SelectCard is the spin-wait path — queued; outcome verified against
             // the authoritative round pile afterwards.
             _tray.PlaceCard(card, slot);
-            // MP parity (report 6): peers replay the dock as a card gliding fan → slot. Reported
-            // HERE (the real drop seam) and never from PlayTray.PlaceCard, which also runs on every
-            // game-state rebuild — that would broadcast a flight for cards that never moved.
-            Net.NetCardFx.Report(Net.CardFxAnchor.HandFan, SlotAnchor(slot));
+            // HAND<->SLOT FLIGHTS ARE NOT REPORTED (user ruling 2026-08-03: "Ich will immer die
+            // echte Position der Karten sehen … Wenn der Mitspieler eine Karte auf das Board legt
+            // kommt danach direkt eine Animation wie eine Karte von der Hand auf das Board fliegt.
+            // Das ist aber doppelt … entferne die wieder."). A peer already WATCHES the real thing:
+            // the remote hand carries the card and the slot occupancy is mirrored, so replaying a
+            // second, synthetic flight afterwards shows the same move twice, out of step with the
+            // first. Only flights a peer CANNOT otherwise see stay reported (card -> discard/burnt
+            // pile). DO NOT RE-ADD: the absence of the call is the fix.
             CardsHandUI handRef = gameHand;
             CardActionQueue.Enqueue(
                 () => CardsGameApi.SelectCard(handRef, ability),
@@ -223,10 +227,14 @@ internal sealed partial class CardsDriver
             _tray.RemoveCard(displaced);
             _fan.Add(displaced);
             _tray.PlaceCard(card, slot);
-            // MP parity (report 6): a swap is TWO visible flights — the displaced card glides back
-            // into the fan and the newcomer docks into the slot.
-            Net.NetCardFx.Report(SlotAnchor(slot), Net.CardFxAnchor.HandFan);
-            Net.NetCardFx.Report(Net.CardFxAnchor.HandFan, SlotAnchor(slot));
+            // HAND<->SLOT FLIGHTS ARE NOT REPORTED (user ruling 2026-08-03: "Ich will immer die
+            // echte Position der Karten sehen … Wenn der Mitspieler eine Karte auf das Board legt
+            // kommt danach direkt eine Animation wie eine Karte von der Hand auf das Board fliegt.
+            // Das ist aber doppelt … entferne die wieder."). A peer already WATCHES the real thing:
+            // the remote hand carries the card and the slot occupancy is mirrored, so replaying a
+            // second, synthetic flight afterwards shows the same move twice, out of step with the
+            // first. Only flights a peer CANNOT otherwise see stay reported (card -> discard/burnt
+            // pile). DO NOT RE-ADD: the absence of the call is the fix.
             CardsHandUI handRef = gameHand;
             if (displacedAbility != null)
                 CardActionQueue.Enqueue(
@@ -269,9 +277,14 @@ internal sealed partial class CardsDriver
         }
         else if (wasInTray)
         {
-            // MP parity (report 6): peers replay the take-back as a card gliding slot → fan. Read
-            // the origin slot BEFORE the unselect path removes the occupancy.
-            Net.NetCardFx.Report(SlotAnchor(_tray.SlotOf(card)), Net.CardFxAnchor.HandFan);
+            // HAND<->SLOT FLIGHTS ARE NOT REPORTED (user ruling 2026-08-03: "Ich will immer die
+            // echte Position der Karten sehen … Wenn der Mitspieler eine Karte auf das Board legt
+            // kommt danach direkt eine Animation wie eine Karte von der Hand auf das Board fliegt.
+            // Das ist aber doppelt … entferne die wieder."). A peer already WATCHES the real thing:
+            // the remote hand carries the card and the slot occupancy is mirrored, so replaying a
+            // second, synthetic flight afterwards shows the same move twice, out of step with the
+            // first. Only flights a peer CANNOT otherwise see stay reported (card -> discard/burnt
+            // pile). DO NOT RE-ADD: the absence of the call is the fix.
 
             // Tray → elsewhere: take the card back.
             // Task #5: no mod sound — the queued UnselectCard plays the card's serialized
