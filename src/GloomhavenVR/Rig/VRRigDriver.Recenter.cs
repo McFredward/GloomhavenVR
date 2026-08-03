@@ -13,8 +13,10 @@ internal sealed partial class VRRigDriver
     /// Recenter the live rig, if any (the comfort entry point — chord/panel/dev key).
     ///
     /// <para>DELIBERATELY WITHOUT THE SPAWN RING. This is the entry point a HUMAN pulls (B+Y hold,
-    /// the dev key) plus the [Comfort] TableHeightOffset change handler, and re-solving the
-    /// multiplayer ring here would teleport a player around the table on an unrelated slider edit.
+    /// the dev key), and re-solving the multiplayer ring here would teleport a player around the
+    /// table on an unrelated request. (It used to be reachable from a config change too — the
+    /// [Comfort] TableHeightOffset handler re-ran recenter live; that setting is gone, so today
+    /// EVERY caller is a deliberate human act, which only strengthens the rule.)
     /// The ring is a JOIN placement, not a recenter behaviour — it lives entirely in
     /// <see cref="TickSpawnRingSettle"/>. A manual recenter keeps the azimuth the player is
     /// currently at, exactly what it has always done, and it also CLOSES the ring's window: a
@@ -30,12 +32,19 @@ internal sealed partial class VRRigDriver
     }
 
     /// <summary>
-    /// Reposition the rig so the player's CURRENT head pose ends up at the configured
-    /// table-edge spot: eyes <see cref="ComfortSettings.EffectiveEyeHeightMeters"/> (real)
-    /// above the orbit focus plane and <see cref="ComfortSettings.EffectiveEyeBackMeters"/>
-    /// back (the STANDING preset + [Comfort] TableHeightOffset — there is no seated preset any
-    /// more, see <see cref="ComfortSettings.StandingEyeHeightMeters"/>). Called automatically
-    /// on the first tracked pose, and bound to the B+Y hold chord (see <see cref="Comfort"/>).
+    /// Reposition the rig so the player's CURRENT head pose ends up at the FIXED table-edge
+    /// spot: eyes <see cref="ComfortSettings.EffectiveEyeHeightMeters"/> (real) above the orbit
+    /// focus plane and <see cref="ComfortSettings.EffectiveEyeBackMeters"/> back — both the bare
+    /// STANDING preset (0.70 / 0.70), since there is no seated preset any more and, since the
+    /// 2026-08 ruling, no [Comfort] TableHeightOffset to add to the height either. Called
+    /// automatically on the first tracked pose, and bound to the B+Y hold chord (see
+    /// <see cref="Comfort"/>).
+    ///
+    /// <para>NOT CONFIGURABLE, ON PURPOSE. The seat is one constant pose so that "recenter" means
+    /// the same thing every time — the deterministic way back to the table from wherever free
+    /// locomotion left you. Eye height is the player's own business now: the stick (see
+    /// <see cref="Flight"/>) and the world grab move them up, down and through the scene at will,
+    /// which is precisely why the height dial was removed rather than kept alongside them.</para>
     ///
     /// <para>UNCONDITIONAL BEHAVIOUR (round 2 of the spawn ring): this method no longer knows the
     /// ring exists. The round-1 version took a <c>useSpawnRing</c> flag and branched inside, which

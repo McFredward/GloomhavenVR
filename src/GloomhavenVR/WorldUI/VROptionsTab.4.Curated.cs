@@ -98,19 +98,19 @@ internal static partial class VROptionsTab
             LocKey = "comfort",
             Sections = new CuratedSection[]
             {
-                new()
-                {
-                    // 2026-08 user rulings: the "Tischgröße" row ([Rig] WorldScale) is REMOVED —
-                    // it duplicated the real table-size control (the two-hand pinch gesture) and
-                    // read as having no effect; the entry is a documented legacy no-op now. The
-                    // "Weltneigung" row ([Rig] WorldTiltDegrees) is REMOVED with the parked world
-                    // tilt (VRRigDriver.WorldTilt.cs) — revival restores that clamp AND this row.
-                    LocKey = "sec_table_world",
-                    Entries = new CuratedEntry[]
-                    {
-                        new("Comfort", "TableHeightOffset", "table_height"),
-                    },
-                },
+                // THE "Tisch & Welt" SECTION IS GONE ENTIRELY, one 2026-08 user ruling at a time,
+                // and it is worth writing down that all three rows died of the SAME cause — the
+                // player already had a better, direct control for each:
+                //   * "Tischgröße" ([Rig] WorldScale) — duplicated the two-hand pinch gesture and
+                //     read as having no effect; the entry is a documented legacy no-op now.
+                //   * "Weltneigung" ([Rig] WorldTiltDegrees) — removed with the parked world tilt
+                //     (VRRigDriver.WorldTilt.cs); reviving that feature restores this row too.
+                //   * "Tischhöhe" ([Comfort] TableHeightOffset) — removed with the setting itself:
+                //     stick flight (Rig/Flight.cs) plus the world grab let the player put their
+                //     eyes anywhere, so a dial that nudged the RECENTER height was a second, worse
+                //     way to do it ("durch das freie Bewegen braucht man das nicht mehr").
+                // Do not re-create the section for a new table-pose slider: the gesture and the
+                // stick are the controls, and this heading is where that lesson was learned.
                 new()
                 {
                     LocKey = "sec_movement",

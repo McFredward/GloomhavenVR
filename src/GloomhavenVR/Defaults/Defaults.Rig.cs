@@ -48,7 +48,9 @@ internal static partial class Defaults
     internal const FlightDirectionSource FlightDirection = FlightDirectionSource.Head;  // => [Comfort] FlightDirection
     internal const float FlightMaxSpeed = 3f;                       // => [Comfort] FlightMaxSpeed
     internal const TurnHandChoice FlightHand = TurnHandChoice.Left; // => [Comfort] FlightHand
-    internal const float TableHeightOffset = -0.4f;                 // => [Comfort] TableHeightOffset
+    // [Comfort] TableHeightOffset is GONE (user ruling 2026-08: free locomotion replaced it).
+    // No line here on purpose — a tuned cfg that still carries the key is reported as UNMAPPED
+    // by scripts/rebase-defaults.py, which is exactly right for a retired key.
     internal const float RecenterHoldSeconds = 1.0f;                // => [Comfort] RecenterHoldSeconds
     internal const float SavedScaleMultiplier = 2.40867f;           // => [Comfort] SavedScaleMultiplier
     internal const bool DebugGizmos = false;                        // => [Comfort] DebugGizmos

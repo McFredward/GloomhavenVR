@@ -307,9 +307,9 @@ internal static partial class Loc
                 "Gierwinkel in Grad pro Schritt beim stufenweisen Drehen (typisch 30 oder 45).",
             ["Comfort/SmoothTurnSpeed"] = "Geschwindigkeit des stufenlosen Drehens in Grad pro Sekunde.",
             ["Comfort/TurnHand"] = "Welcher Thumbstick dreht. Dominant folgt [Hands] PrimaryHand.",
-            ["Comfort/TableHeightOffset"] =
-                "Zusätzliche Augenhöhe über dem Tisch beim Neuzentrieren, in echten Metern (positiv = Tisch "
-                + "sitzt tiefer). Eine Änderung führt das Neuzentrieren sofort erneut aus.",
+            // Comfort/TableHeightOffset ist ENTFALLEN (Nutzer-Entscheid 2026-08: durch das freie
+            // Bewegen — Stick-Flug und Welt-Greifen — wird die Tischhöhe nicht mehr gebraucht).
+            // Kein Eintrag mehr nötig: der Schlüssel wird nirgends mehr gebunden.
             ["Comfort/RecenterHoldSeconds"] =
                 "Die obere Taste (B + Y) an BEIDEN Controllern so viele Sekunden halten, um am Tisch neu zu "
                 + "zentrieren. 0 schaltet die Tastenkombination ab.",

@@ -381,10 +381,11 @@ internal static partial class Loc
 
         // ---- SettingsPanel: sections / labels / buttons ----
         // ["table_scale"] is GONE with its row (user ruling 2026-08: the "Tischgröße" setting
-        // was removed — [Rig] WorldScale is a documented legacy no-op now).
+        // was removed — [Rig] WorldScale is a documented legacy no-op now). ["table_height"] is
+        // GONE the same way (user ruling 2026-08: [Comfort] TableHeightOffset removed, free
+        // locomotion replaced it) — see VROptionsTab.4.Curated.cs for the whole story.
         ["comfort"] = Pair("Comfort", "Komfort"),
         ["turning"] = Pair("Turning", "Drehen"),
-        ["table_height"] = Pair("Table height", "Tischhöhe"),
         ["free_movement"] = Pair("Free movement", "Freie Bewegung"),
         ["world_grab"] = Pair("World grab", "Welt greifen"),
         // Escape hatch for a control board the player cannot find any more (walked away, pinned
@@ -513,10 +514,10 @@ internal static partial class Loc
         ["h_vr_o_vdrag"] = Pair("Let a world grab also move the table up and down.", "Erlaubt, den Tisch beim Greifen auch zu heben und zu senken."),
         ["h_vr_o_rotate"] = Pair("Let a two-handed grab turn the table.", "Erlaubt, den Tisch mit beiden Händen zu drehen."),
         ["h_vr_o_scale"] = Pair("Let a two-handed grab resize the table.", "Erlaubt, den Tisch mit beiden Händen zu skalieren."),
-        ["h_table_height"] = Pair("Raises or lowers the whole table.", "Hebt oder senkt den ganzen Tisch."),
         ["h_vr_o_recenterhold"] = Pair("How long to hold B+Y before the view recentres.", "Wie lange B+Y gehalten wird, bis die Ansicht neu zentriert."),
         // h_vr_o_worldtilt is PARKED with the world tilt row (see vr_o_worldtilt above);
-        // h_table_scale is gone with the removed "Tischgröße" row.
+        // h_table_scale is gone with the removed "Tischgröße" row, and h_table_height with the
+        // removed "Tischhöhe" row ([Comfort] TableHeightOffset, user ruling 2026-08).
         ["h_vr_o_worldtilt"] = Pair("Tips the table towards you so far edges are easier to see.", "Neigt den Tisch zu dir, damit ferne Ränder besser zu sehen sind."),
         ["h_vr_o_primaryhand"] = Pair("Which hand holds the laser and plays cards.", "Welche Hand den Laser führt und Karten spielt."),
         ["h_vr_o_rayalways"] = Pair("Keep the laser visible instead of only when aiming.", "Laser dauerhaft zeigen statt nur beim Zielen."),
@@ -573,7 +574,8 @@ internal static partial class Loc
         // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
         // group instead of a sidebar entry), which is why the restructure uses them for grouping
         // and keeps the tab count at five.
-        ["sec_table_world"] = Pair("Table & world", "Tisch & Welt"),
+        // ["sec_table_world"] ("Tisch & Welt") is GONE with the last of its three rows — see
+        // VROptionsTab.4.Curated.cs, where the section used to be declared, for why each went.
         ["sec_movement"] = Pair("Movement & turning", "Bewegung & Drehen"),
         ["sec_visibility"] = Pair("Visibility", "Sichtbarkeit"),
         ["sec_hands_aim"] = Pair("Hands & aiming", "Hände & Zielen"),
