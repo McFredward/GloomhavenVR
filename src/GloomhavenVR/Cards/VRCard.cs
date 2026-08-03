@@ -45,8 +45,47 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// </summary>
     private bool _handPopSuppressed;
 
-    /// <summary>Set by CardsDriver's hand-contact arbitration (see <see cref="_handPopSuppressed"/>).</summary>
-    internal void SetHandPopSuppressed(bool suppressed) => _handPopSuppressed = suppressed;
+    /// <summary>
+    /// WHICH hand the suppression above refuses in <see cref="AllowsHand"/> (null = the flag is
+    /// clear). Used to be the single global <see cref="HandArbitrationHand"/>, which only worked
+    /// while exactly one fan swept with exactly one hand. Both browse fans now sweep with BOTH
+    /// hands (user ruling 2026-08-03), so two fans can hold contact winners for two different
+    /// hands in the same frame and a global "the arbitration hand" cannot describe that: whichever
+    /// fan wrote the static last decided the OTHER fan's grab gate. Per card + per hand is the
+    /// same shape <see cref="ItemsPile.ItemChip"/> already uses.
+    /// </summary>
+    private VRHand? _handPopSuppressedFor;
+
+    /// <summary>Set by CardsDriver's hand-contact arbitration (see <see cref="_handPopSuppressed"/>);
+    /// the refused hand defaults to that arbitration's <see cref="HandArbitrationHand"/>.</summary>
+    internal void SetHandPopSuppressed(bool suppressed)
+        => SetHandPopSuppressed(suppressed, HandArbitrationHand);
+
+    /// <summary>Suppress this card's hand-driven pop and refuse <paramref name="forHand"/> in
+    /// <see cref="AllowsHand"/> (see <see cref="_handPopSuppressedFor"/>).</summary>
+    internal void SetHandPopSuppressed(bool suppressed, VRHand? forHand)
+    {
+        _handPopSuppressed = suppressed;
+        _handPopSuppressedFor = suppressed ? forHand : null;
+    }
+
+    /// <summary>
+    /// TRUE while BOTH hands may hover/grab this card — the exemption from the fan-owning-hand
+    /// block (<see cref="InteractionBlockedHand"/>). Set per rebuild by CardsDriver: true for the
+    /// discard/burnt BROWSE arc, false everywhere else.
+    ///
+    /// ROOT CAUSE this fixes (user report 2026-08-03: "Mit der linken Hand highlighted die Karte
+    /// nicht mal … ich will, dass die Karten des Verbrannt-/Abgeworfen-/Item-Fächers mit BEIDEN
+    /// Händen aufgenommen werden können"). The block exists for ONE reason, stated on
+    /// <see cref="InteractionBlockedHand"/>: the ability fan hangs off the gate hand's own palm, so
+    /// that hand's proximity hover sat permanently inside the fan and flip-flopped highlights with
+    /// no user input. The browse arc has nothing to do with that hand — it floats above the control
+    /// board — yet the block is a hand-wide veto on EVERY card, so the off hand was refused there
+    /// too. The 2026-08-03 hardware log carries the refusal verbatim: <c>Left grab refused —
+    /// nearest in-reach grabbable 'VRCard_ABILITY_CARD_ProvokingRoar' refuses this hand
+    /// (AllowsHand)</c>, three times, on the card in the open discard fan.
+    /// </summary>
+    internal bool AllowsGateHand { get; set; }
 
     /// <summary>
     /// Per-hand grab/hover gate (see <see cref="InteractionBlockedHand"/>). While the
@@ -59,10 +98,13 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// refuses the arbitration hand, so the proximity highlight/grab can only land on
     /// the single elected winner (the driver never suppresses the laser-hovered card,
     /// so laser plucks keep working unchanged).
+    /// The fan-owning-hand veto is skipped entirely for a card that
+    /// <see cref="AllowsGateHand"/> — the browse arc, which both hands must be able to
+    /// hover and take from (see that property for the root cause).
     /// </summary>
     public bool AllowsHand(VRHand hand) =>
-        !ReferenceEquals(hand, InteractionBlockedHand)
-        && !(_handPopSuppressed && ReferenceEquals(hand, HandArbitrationHand))
+        (AllowsGateHand || !ReferenceEquals(hand, InteractionBlockedHand))
+        && !(_handPopSuppressed && ReferenceEquals(hand, _handPopSuppressedFor))
         && !(_dockGrabPad && PalmClearlyAtTrayBar(hand));
 
     /// <summary>
@@ -1099,7 +1141,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _dockGrabPad = false;  // in-hand: exact-card collider again (the apron is a docked-only affordance)
         ResetColliderRegion(); // full card again (fan strips, see SetColliderRegion)
         _laserPopped = false;
-        _handPopSuppressed = false; // a held card is out of the contact arbitration pool
+        SetHandPopSuppressed(false); // a held card is out of the contact arbitration pool
         _releaseGlide = 0f; // re-grab mid-glide: the held pose takes over cleanly
         try
         {
@@ -1266,7 +1308,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _popped = false;
         _laserPopped = false;
         _pokeHover = false;
-        _handPopSuppressed = false;
+        SetHandPopSuppressed(false);
         _pop = 0f;
         _releaseGlide = 0f;
         _instantNext = false;
@@ -1318,7 +1360,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _popped = false;
         _laserPopped = false;
         _pokeHover = false;
-        _handPopSuppressed = false;
+        SetHandPopSuppressed(false);
         _pop = 0f;
         _releaseGlide = 0f;
         _instantNext = false;
@@ -1557,7 +1599,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _popped = false;
         _laserPopped = false;
         _pokeHover = false;
-        _handPopSuppressed = false;
+        SetHandPopSuppressed(false);
         _pop = 0f;
         _releaseGlide = 0f;
         _instantNext = false;
@@ -1928,7 +1970,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _popped = false;
         _laserPopped = false;
         _pokeHover = false;
-        _handPopSuppressed = false; // arbitration flags never outlive a pooled/parked card
+        SetHandPopSuppressed(false); // arbitration flags never outlive a pooled/parked card
+        AllowsGateHand = false;      // ditto the both-hands exemption: the next role re-asserts it
         _pop = 0f;
         _releaseGlide = 0f;
         CancelFly(); // a parked/pooled card is never mid-flight

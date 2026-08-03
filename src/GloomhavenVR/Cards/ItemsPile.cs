@@ -982,7 +982,10 @@ internal sealed class ItemsPile
 
             Transform t = c.transform;
             float denom = Vector3.Dot(direction, t.forward); // chips face the viewer with −Z
-            if (denom < 1e-5f)
+            // GRAZING GUARD (see FanSweep.LaserMinFaceDot): the old 1e-5 test only rejected an
+            // exactly parallel beam, so a ray aimed elsewhere still "crossed" every chip's infinite
+            // plane metres away and came back as a near miss with a metre-scale angular pad.
+            if (denom < FanSweep.LaserMinFaceDot)
                 continue;
             float dist = Vector3.Dot(t.position - origin, t.forward) / denom;
             if (dist <= 0f)
@@ -990,10 +993,13 @@ internal sealed class ItemsPile
 
             Vector3 hit = origin + direction * dist;
             Vector3 local = t.InverseTransformPoint(hit); // scale-aware (ChipScale + pop grow)
+            // Accept margin (FanSweep.LaserAcceptMargin), the same ~10 % the ability fan has always
+            // had: the exact rect plus a zero angular pad at reading distance left no tolerance at
+            // all for controller jitter or the chip's own hover pop.
             float halfW = c.FaceWidth * 0.5f;
             float halfH = c.FaceHeight * 0.5f;
-            float overX = Mathf.Abs(local.x) - halfW;
-            float overY = Mathf.Abs(local.y) - halfH;
+            float overX = Mathf.Abs(local.x) - halfW * FanSweep.LaserAcceptMargin;
+            float overY = Mathf.Abs(local.y) - halfH * FanSweep.LaserAcceptMargin;
             float lossy = Mathf.Max(t.lossyScale.x, 1e-5f);
             if (overX > 0f || overY > 0f)
             {

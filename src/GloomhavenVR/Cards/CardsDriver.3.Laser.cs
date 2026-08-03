@@ -789,7 +789,7 @@ internal sealed partial class CardsDriver
                 dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on change
             }
             dom.Ray.UiHitOverride = cardPoint;
-            if (dom.TriggerDown)
+            if (dom.TriggerDown && !HandFanOwnsTrigger(dom))
             {
                 VRCard grab = card;
                 ClearTrayCardHover();
@@ -808,7 +808,11 @@ internal sealed partial class CardsDriver
             best!.OnPokeEnter(dom); // elements do their own hover haptic/tint
         }
         dom.Ray.UiHitOverride = bestPoint;
-        if (dom.TriggerDown)
+        // HAND-FAN OWNERSHIP: a hand physically holding up a browse card / item chip already owns
+        // this pull (see UpdateBoardFanHandTrigger — it ran first and normally grabbed, which this
+        // path's Grabber.Held guard would have caught; this covers the frame where the grab itself
+        // was refused). Hover, tint and beam clamp above stay live; only the PRESS yields.
+        if (dom.TriggerDown && !HandFanOwnsTrigger(dom))
         {
             // COMMIT gate (laser ruling 2026-08): hover/tint/beam-clamp above stay live under
             // a blocking modal, but element presses COMMIT (tray buttons call game APIs
@@ -886,9 +890,113 @@ internal sealed partial class CardsDriver
         _trayCardHover = null;
     }
 
+    // -------------------------------------------- board-fan hand ownership (browse/items) --
+
+    /// <summary>The hand whose trigger the browse arc / item fan claimed this frame, and the frame
+    /// it was claimed on (see <see cref="UpdateBoardFanHandTrigger"/>).</summary>
+    private VRHand? _handFanTriggerHand;
+    private int _handFanTriggerFrame = -1;
+
+    /// <summary>True while a board-anchored fan owns <paramref name="hand"/>'s trigger this frame —
+    /// the board laser then hovers and clamps as usual but must not PRESS with that pull.</summary>
+    private bool HandFanOwnsTrigger(VRHand hand) =>
+        ReferenceEquals(hand, _handFanTriggerHand) && Time.frameCount == _handFanTriggerFrame;
+
+    /// <summary>
+    /// "What lights up is what you get", for the two BOARD-ANCHORED fans: while a hand is
+    /// physically in contact with a card in the discard/burnt browse arc or a chip in the item fan,
+    /// that hand's trigger belongs to THAT card — for BOTH hands.
+    ///
+    /// ROOT CAUSE (user report 2026-08-03: "physisch reagiert die Karte im Fächer zwar und wird
+    /// gehighlighted — ich kann sie aber nicht mit Trigger aufnehmen"). Highlight and press were
+    /// resolved by two different systems that could not agree:
+    ///  • the HIGHLIGHT comes from the fan's own hand sweep (<see cref="PileBrowser.HandOwnedCard"/> /
+    ///    <see cref="ItemsPile.HandOwnedChip"/>), which measures the fingertip against the card;
+    ///  • the PRESS comes from <see cref="ProximityGrabber"/>, which explicitly DEFERS the trigger
+    ///    whenever <c>Ray.HasFreshUiHit</c> is set — and both fans float ABOVE the control board, so
+    ///    the beam behind a hand reaching into them lands on the board, where
+    ///    <see cref="UpdateBoardLaser"/> clamps it and consumes the pull as a board click.
+    /// The 2026-08-03 hardware log shows exactly that: three <c>Board: laser click → Board</c> lines
+    /// interleaved with <c>Pile-browse hand sweep (Right): WINNER …</c>, and not one pluck. The
+    /// press was never refused — it was spent somewhere else, silently.
+    ///
+    /// Runs BEFORE <see cref="UpdateBoardLaser"/>, so the grab happens first and the board laser's
+    /// own <c>Grabber.Held != null</c> guard then skips the frame; <see cref="HandFanOwnsTrigger"/>
+    /// additionally gates the board PRESS for the rare frame where the grab itself was refused.
+    /// Yields to a live game-UI hit (RayUgui) exactly like the tray's lift-priority accept, so a UI
+    /// click can never double-fire with a grab. Allocation-free; no-op when neither fan is open.
+    /// </summary>
+    private void UpdateBoardFanHandTrigger()
+    {
+        bool browseOpen = _browser.IsOpen;
+        bool itemsOpen = _piles.ItemsBrowseOpen;
+        if (!browseOpen && !itemsOpen)
+            return;
+
+        for (int h = 0; h < 2; h++)
+        {
+            VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
+            if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+                continue;
+            if (hand.RayUgui.HasHit)
+                continue; // genuinely nearer game UI wins the trigger, as everywhere else
+
+            VRCard? card = browseOpen ? _browser.HandOwnedCard(hand) : null;
+            if (card != null)
+            {
+                ClaimHandFanTrigger(hand);
+                if (hand.TriggerDown && card.CanGrab)
+                {
+                    VRLog.Info("Cards", $"Pile-browse: HAND owns the trigger — '{card.name}' is " +
+                                        $"physically in contact with the {hand.Side} hand, so the pull " +
+                                        "takes it instead of falling through to the board laser " +
+                                        "(what is lifted is what gets grabbed).");
+                    hand.Grabber.ForceGrab(card, releaseOnTriggerUp: true);
+                }
+                continue;
+            }
+
+            ItemsPile.ItemChip? chip = itemsOpen ? _piles.HandOwnedItemChip(hand) : null;
+            if (chip == null)
+                continue;
+            ClaimHandFanTrigger(hand);
+            // COMMIT gate (laser ruling 2026-08): a chip pluck is a commit (chip → use slot spends
+            // the item), so it stays refused under a blocking modal — the browse arc's read-only
+            // pluck does not.
+            if (hand.TriggerDown && !_modalInputBlocked)
+            {
+                VRLog.Info("Cards", $"Item fan: HAND owns the trigger — '{chip.name}' is physically " +
+                                    $"in contact with the {hand.Side} hand, so the pull takes it " +
+                                    "instead of falling through to the board laser.");
+                chip.OnPoke(hand); // pluck into the hand (ForceGrab, released on trigger-up)
+            }
+        }
+    }
+
+    /// <summary>Claim <paramref name="hand"/>'s trigger for a board-anchored fan this frame. The
+    /// far-click suppression is only published for a hand that actually HAS a beam: raising
+    /// <c>HasFreshUiHit</c> on the non-dominant hand would make its own ProximityGrabber defer the
+    /// very trigger this method exists to deliver.</summary>
+    private void ClaimHandFanTrigger(VRHand hand)
+    {
+        _handFanTriggerHand = hand;
+        _handFanTriggerFrame = Time.frameCount;
+        if (hand.Ray.Enabled)
+            hand.Ray.SuppressFarClick();
+    }
+
     // ------------------------------------------------------------------ browse laser --
 
     private VRCard? _browseHover;
+
+    /// <summary>Pull-jerk grace for the BROWSE arc (the exact T2 mechanism the ability fan
+    /// (<see cref="_laserHoverGraceUntil"/>) and the item fan (<see cref="_itemChipGraceChip"/>)
+    /// already carry): the card the beam last hovered plus the unscaled deadline until which it
+    /// still owns a trigger whose ray slipped off the card on the press frame. Without it that pull
+    /// landed in the miss branch below and CLOSED the pile via the click-away instead of taking the
+    /// card the player was visibly promised.</summary>
+    private VRCard? _browseGraceCard;
+    private float _browseGraceUntil;
 
     /// <summary>
     /// Item 5 (laser-selectable pile browse): the dominant hand's ray highlights an
@@ -921,6 +1029,26 @@ internal sealed partial class CardsDriver
                 ? "not delivered — nearer game UI is in front of the arc"
                 : "not delivered — the ray is not on any browse card");
             ClearBrowseHover();
+            // T2 pull-jerk grace, browse edition: the trigger pull jerks the aim ray off the card
+            // on the very press frame, so this miss branch is exactly where a "take that card" pull
+            // used to land — and it then CLOSED the pile via the click-away below instead of taking
+            // the card the beam had been sitting on. For a short window after a genuine hover the
+            // last-hovered card still owns the trigger: claim the frame (SuppressFarClick — never a
+            // fabricated beam point, same reasoning as the ability fan's rescue) and pluck it.
+            if (!dom.RayUgui.HasHit && _browseGraceCard != null && !_browseGraceCard.IsHeld
+                && _browser.Contains(_browseGraceCard) && Time.unscaledTime <= _browseGraceUntil)
+            {
+                dom.Ray.SuppressFarClick();
+                if (dom.TriggerDown && _browseGraceCard.CanGrab)
+                {
+                    VRCard rescue = _browseGraceCard;
+                    _browseGraceCard = null;
+                    LogBrowseLaser(dom, $"DELIVERED (pull-jerk grace) — the trigger came down with the " +
+                                        $"beam just off '{rescue.name}'; taking it instead of dismissing the fan");
+                    dom.Grabber.ForceGrab(rescue, releaseOnTriggerUp: true);
+                }
+                return;
+            }
             // ISSUE #7 click-away dismiss: a TRIGGER press that is NOT on a browse card —
             // empty space, the game board/UI, or anything the ray misses here — closes the
             // pile, through the SAME ForeignInteraction path board/card/rest presses already
@@ -936,6 +1064,23 @@ internal sealed partial class CardsDriver
             return;
         }
 
+        // SINGLE-OWNER contract ("what pops is what you grab"): while this hand is physically IN
+        // the arc, the HAND owns both the pop and the trigger (UpdateBoardFanHandTrigger already
+        // claimed the pull). Its beam is somewhere else at that range — the arc floats above the
+        // board — so the card the beam finds and the card the hand lifted are routinely different
+        // ones, and honouring the beam here would re-open the very gap this round closes. Same
+        // card = no conflict: the beam clamp is the honest one, so the laser keeps it. This is the
+        // browse edition of the item fan's yield and of the ability fan's UpdateFanHoverSplit rule.
+        VRCard? handOwned = _browser.HandOwnedCard(dom);
+        if (handOwned != null && !ReferenceEquals(handOwned, card))
+        {
+            LogBrowseLaser(dom, $"not delivered — the HAND owns the arc ('{handOwned.name}' is " +
+                                "physically in contact); the beam yields so what pops is what is taken");
+            ClearBrowseHover();
+            _browseGraceCard = null; // no laser promise while the hand owns the arc
+            return;
+        }
+
         if (!ReferenceEquals(card, _browseHover))
         {
             ClearBrowseHover();
@@ -943,6 +1088,9 @@ internal sealed partial class CardsDriver
             card.SetLaserHover(true);
             dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
+        // Refresh the pull-jerk grace on every hovered frame (see _browseGraceCard).
+        _browseGraceCard = card;
+        _browseGraceUntil = Time.unscaledTime + FanHoverGraceSeconds;
 
         dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
         if (dom.TriggerDown && card.CanGrab)
@@ -950,6 +1098,7 @@ internal sealed partial class CardsDriver
             VRCard grab = card;
             LogBrowseLaser(dom, $"DELIVERED — trigger plucked '{grab.name}' out of the arc");
             ClearBrowseHover();
+            _browseGraceCard = null; // the promise is honoured — no stale grace after the pluck
             dom.Grabber.ForceGrab(grab, releaseOnTriggerUp: true);
         }
         else

@@ -549,6 +549,13 @@ internal sealed partial class CardsDriver
             // Active cards (feature 6) are grabbable for the same read-only reason:
             // pluck one to read it, release returns it to the column, never a game seam.
             card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse || inActive;
+            // BOTH HANDS in the browse arc (user ruling 2026-08-03). The fan-owning-hand veto
+            // (VRCard.InteractionBlockedHand) exists for the ability fan alone — it hangs off that
+            // hand's palm — but it vetoes EVERY card, so the off hand could not even highlight, let
+            // alone take, a card in the discard/burnt arc floating above the board. Exempt exactly
+            // that zone; every other card keeps the veto. Re-asserted every rebuild, so a recycled
+            // widget can never carry the exemption into a hand-fan role.
+            card.AllowsGateHand = inBrowse;
             // Fan strips only apply while the card is in a fan that TILES its colliders. That is
             // now the browse arc as well as the hand fan (PileBrowser.Relayout strips exactly like
             // CardFan.Relayout — the sweep-skips-cards fix), so a browse card must keep its strip

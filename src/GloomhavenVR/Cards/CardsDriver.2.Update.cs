@@ -663,6 +663,11 @@ internal sealed partial class CardsDriver
         if (modalBlock)
             BlockCardInteractions();
         UpdateFanLaser();
+        // BEFORE the board laser on purpose: a hand physically in contact with a card in the
+        // board-anchored browse arc / item fan owns that hand's trigger, for BOTH hands. Running
+        // it after would let the board laser spend the pull as a board click first — the exact
+        // "the card highlights but the trigger does nothing" the user reported.
+        UpdateBoardFanHandTrigger();
         UpdateBoardLaser();
         UpdateBrowseLaser();
         UpdateItemFanLaser(); // item fan: same geometric+sticky pick as the browse fan above
