@@ -34,6 +34,7 @@ internal static partial class Defaults
 {
     // ---- WorldUI/ActorBars.cs ------------------------------------------------------
     internal const bool BarsOccluded = true;  // => [WorldUI] BarsOccluded
+    internal const bool BarsDepthStamp = false;  // => [WorldUI] BarsDepthStamp
 
     // ---- WorldUI/ButtonTuning.cs ---------------------------------------------------
     internal const float RoundButtons_OffsetX = -0.045f;                                // => [RoundButtons] OffsetX
