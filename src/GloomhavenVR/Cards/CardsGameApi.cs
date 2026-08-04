@@ -346,6 +346,41 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// The pick confirm dialog's CANCEL option button ("Waehle eine andere Karte" /
+    /// GUI_CHOOSE_OTHER_CARD, DialogOption index == <c>cancelOption</c> — shown with
+    /// <c>cancelOption: 1</c> by the LoseCard/DiscardCard confirm,
+    /// CardsHandUI.cs:2100-2116), identified purely STRUCTURALLY: the live
+    /// <c>UIManager.dialogPopup</c>, open, while the hand the popup belongs to
+    /// (<c>CardsHandManager.CurrentHand</c> — the instance whose <c>OnCardSelected</c>
+    /// opened it) is in a modal pick mode. Null for every other DialogPopup use
+    /// (scenario choices, short-rest confirms via YesNoDialog, ...), so a consumer can
+    /// never hide a button of an unrelated dialog.
+    ///
+    /// Consumed by <c>WorldUI.Surfaces.DecisionDockSurface</c> (user ruling 2026-08-04):
+    /// the docked burn/lose confirm no longer shows this button at all — physically
+    /// grabbing a laid-down pick card IS "choose another card" (the
+    /// <c>MaybeReopenPickSelection</c> seam presses this very option via
+    /// <see cref="CancelPickConfirmDialog"/>), so the dock keeps only the commit
+    /// option, centered. Hiding the GameObject is safe: <c>DialogPopup.Cancel()</c>
+    /// invokes the option's <c>onClick</c> directly (active state irrelevant), and
+    /// <c>HelperTools.NormalizePool</c> re-activates pooled option buttons on every
+    /// <c>Show</c>, so no hidden state can leak into the next dialog.
+    /// </summary>
+    internal static Script.GUI.Popups.InputButton? PickConfirmCancelButton()
+    {
+        CardsHandUI? hand = ActiveHand();
+        if (hand == null || !IsPickConfirmDialogOpen(hand))
+            return null;
+        UIManager? ui = UIManager.Instance;
+        DialogPopup? popup = ui != null ? ui.dialogPopup : null;
+        if (popup == null)
+            return null;
+        List<Script.GUI.Popups.InputButton> buttons = popup.optionButtons;
+        int cancel = popup.cancelOption;
+        return buttons != null && cancel >= 0 && cancel < buttons.Count ? buttons[cancel] : null;
+    }
+
+    /// <summary>
     /// Live, game-localized label of the pick confirm dialog's commit option
     /// (<paramref name="cancel"/> false — e.g. "Karten abwerfen") or its cancel option
     /// (<paramref name="cancel"/> true — "Wähle eine andere Karte"), read straight off

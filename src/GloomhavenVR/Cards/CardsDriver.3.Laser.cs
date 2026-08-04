@@ -797,23 +797,29 @@ internal sealed partial class CardsDriver
                 LogLiftPriority(lifted, onCard: false);
                 if (dom.TriggerDown && lifted.CanGrab)
                 {
-                    // EVENT-DISCARD DEADLOCK FIX (MP hardware log, remote Player.log:11706ff):
-                    // while the pick CONFIRM dialog is open, a trigger pull whose ray hit
-                    // NOTHING must never phantom-grab the placed pick card — every such grab
-                    // fired the reopen seam (MaybeReopenPickSelection → DialogPopup.Cancel)
-                    // and closed the confirm dialog again, in an endless loop that deadlocked
-                    // the session before the scenario's first round. A DELIBERATE take-back
-                    // stays possible: the primary lift-priority branch (ray genuinely ON the
-                    // card) and the proximity grip-grab both still reopen the choice.
-                    CardsHandUI? pickGuardHand = CurrentHand();
-                    if (pickGuardHand != null && _fieldCards.Contains(lifted)
-                        && CardsGameApi.IsPickConfirmDialogOpen(pickGuardHand))
-                    {
-                        VRLog.Info("Cards", "Board: lift-priority FALLBACK grab SUPPRESSED for a placed pick " +
-                                            "card — the pick confirm dialog is open (a nothing-hit trigger pull " +
-                                            "must not cancel it; point at the card or grip it to swap).");
-                        return;
-                    }
+                    // TAKE-BACK RESTORED (user report 2026-08-04: "die hingelegte Karte zum
+                    // Verbrennen nicht mehr greifen"). The EVENT-DISCARD DEADLOCK FIX
+                    // (b7bfb38, MP remote Player.log:11706ff) used to SUPPRESS this grab for a
+                    // placed pick card while the pick confirm dialog was open, so a nothing-hit
+                    // trigger pull could not cancel-loop the dialog. That guard over-reached:
+                    // SuppressFarClick() above raises Ray.HasFreshUiHit, which ALSO makes
+                    // ProximityGrabber's trigger path defer (ProximityGrabber.Tick,
+                    // "!Ray.HasFreshUiHit"), and the promised "grip it to swap" alternative did
+                    // not exist with [Cards] GrabButton=Trigger — so while the dialog was open
+                    // there was NO working grab route at all unless the beam happened to lie
+                    // exactly on the card rect (hardware log 2026-08-04: five "FALLBACK grab
+                    // SUPPRESSED" lines, zero successful grabs). The deadlock the guard fixed
+                    // is now solved STRUCTURALLY instead:
+                    //   - the dock no longer shows the dialog's cancel option at all
+                    //     (DecisionDockSurface suppresses GUI_CHOOSE_OTHER_CARD); grabbing
+                    //     the card IS that action (MaybeReopenPickSelection), per user ruling
+                    //     2026-08-04 — so a reach toward the dock only ever aims at COMMIT,
+                    //   - the tray CONFIRM presses the dialog's commit option (b7bfb38's other
+                    //     half, unchanged), so a commit affordance always exists and an
+                    //     accidental grab is recoverable by simply re-placing the card.
+                    // A palm-highlighted card visibly LIFTS — the lift is the grab promise this
+                    // branch exists to honour; refusing the pull under a lifted card was the
+                    // exact task-#2 bug all over again.
                     VRLog.Info("Cards", "Board: hover-LIFTED slot card trigger-grabbed " +
                                         "(lift-priority FALLBACK — ray hit nothing at all).");
                     dom.Grabber.ForceGrab(lifted, releaseOnTriggerUp: true);
