@@ -641,7 +641,7 @@ internal sealed partial class FlatScreen
         // delivery point only — this path resolves its scroll target AFTER the deadzone test
         // (the RaycastAll is deliberately not run on idle frames), so there is no honest hover
         // signal to publish before a push, and the grace window covers the rest.
-        UiScrollFocus.NoteScrollDelivered(hand);
+        UiScrollFocus.NoteScrollDelivered(hand, target, nameof(FlatScreen));
 
         if (!ReferenceEquals(target, _lastStickScrollTarget)
             || Time.unscaledTime - _lastStickScrollLog >= StickScrollLogSeconds)

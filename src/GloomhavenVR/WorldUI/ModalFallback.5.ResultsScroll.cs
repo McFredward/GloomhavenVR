@@ -171,7 +171,9 @@ internal static partial class ModalFallback
             : wp.ResultsScrollbar != null && wp.ResultsScrollbar.isActiveAndEnabled
               && wp.ResultsScrollbar.size < 0.999f;
         if (live)
-            UiScrollFocus.NoteScrollHover(hand);
+            UiScrollFocus.NoteScrollHover(hand,
+                wp.ResultsScroll != null ? (UnityEngine.Object)wp.ResultsScroll : wp.ResultsScrollbar,
+                "ModalFallback.ResultsScroll");
 
         float y = hand.Thumbstick.y;
         if (Mathf.Abs(y) < ResultsScrollDeadzone)
@@ -187,7 +189,7 @@ internal static partial class ModalFallback
             ExecuteEvents.ExecuteHierarchy(scroll.gameObject, _resultsScrollData, ExecuteEvents.scrollHandler);
             _resultsScrollData.scrollDelta = Vector2.zero;
             if (live)
-                UiScrollFocus.NoteScrollDelivered(hand);
+                UiScrollFocus.NoteScrollDelivered(hand, scroll, "ModalFallback.ResultsScroll");
             return;
         }
 
@@ -201,7 +203,7 @@ internal static partial class ModalFallback
             bar.value = Mathf.Clamp01(bar.value
                 + dir * Mathf.Sign(y) * response * ResultsScrollbarUnitsPerSecond * Time.unscaledDeltaTime);
             if (live)
-                UiScrollFocus.NoteScrollDelivered(hand);
+                UiScrollFocus.NoteScrollDelivered(hand, bar, "ModalFallback.ResultsScroll");
         }
     }
 }

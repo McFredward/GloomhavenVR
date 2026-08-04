@@ -346,7 +346,10 @@ internal sealed class Flight : MonoBehaviour
     ///
     /// <para>Logged on every change of the verdict, not per frame — same contract as
     /// <see cref="StrafeAllowed"/>: a player whose stick stopped flying deserves the reason in the
-    /// log, and a per-frame line during a long scroll would bury it.</para>
+    /// log, and a per-frame line during a long scroll would bury it. Additionally, while the
+    /// verdict is "suppressed" AND the stick is actually pushed, a throttled attribution line
+    /// names the stamping surface/producer and the stamp age (<see cref="UiScrollFocus.Describe"/>)
+    /// — the diagnostic the 2026-08-04 sentinel-latch hunt lacked.</para>
     /// </summary>
     private bool ScrollAllowed(VRHand hand)
     {
@@ -358,14 +361,33 @@ internal sealed class Flight : MonoBehaviour
                 ? $"stick flight: SUSPENDED on the {hand.Side} hand — its pointer is on a scrollable " +
                   "menu list, and scrolling owns the stick's forward axis while it is. Flight returns " +
                   "by itself the moment the beam leaves the list; the other hand is unaffected, and " +
-                  "turning never was."
+                  $"turning never was. [{UiScrollFocus.Describe(hand)}]"
                 : $"stick flight: RESUMED on the {hand.Side} hand — its pointer is no longer on a " +
                   "scrollable menu list.");
+        }
+        // ATTRIBUTION WHILE IT HURTS (2026-08-04 sentinel latch, see UiScrollFocus.NeverStamped):
+        // that hardware round burned because "SUSPENDED" named no suppressor — the log could not
+        // say WHICH surface stamped the hover, so the dead virgin-slot path was indistinguishable
+        // from a real hover. This line repeats the attribution, throttled, exactly while the
+        // player is EXPERIENCING the suppression: the stick is pushed past the flight deadzone on
+        // a hand whose flight is refused. During a deliberate menu scroll it names the scrolled
+        // list once per interval (harmless, even useful); if the suppression is ever wrong again,
+        // the very first push writes the culprit surface, producer and stamp age into the log.
+        if (scrolling && Mathf.Abs(hand.Thumbstick.y) > Deadzone
+            && Time.unscaledTime - _lastScrollBlockDiagAt >= ScrollBlockDiagSeconds)
+        {
+            _lastScrollBlockDiagAt = Time.unscaledTime;
+            VRLog.Info("Comfort", $"stick flight: suppressed push on the {hand.Side} hand — " +
+                                  $"{UiScrollFocus.Describe(hand)}.");
         }
         return !scrolling;
     }
 
     private bool _scrollBlocked;
+
+    /// <summary>Throttle for the suppressed-push attribution line (unscaled seconds).</summary>
+    private const float ScrollBlockDiagSeconds = 5f;
+    private float _lastScrollBlockDiagAt = float.NegativeInfinity;
 
     /// <summary>Do two hand choices resolve to the same physical controller?</summary>
     private static bool SameHand(TurnHandChoice a, TurnHandChoice b)
