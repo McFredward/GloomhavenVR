@@ -528,6 +528,33 @@ internal sealed class ConvertedPanel
     /// <see cref="HiddenCanvases"/> (grab bar, MR backing plate).</summary>
     public readonly List<Renderer> HiddenRenderers = new(8);
 
+    // ---- MR backing plate opt-out (user ruling 2026-08-04) ---------------------------------
+    /// <summary>
+    /// True for a converted panel that must NEVER receive the mixed-reality backing plate
+    /// (<see cref="MrBacking"/> sweeps <see cref="CanvasConversion.ActivePanels"/> and plates
+    /// EVERY live panel by default — over-coverage is harmless behind an opaque window, but two
+    /// panel families proved the exception and the user ruled them out explicitly, 2026-08-04:
+    /// <list type="bullet">
+    /// <item>ACTOR HEALTH BARS (<see cref="ActorBars"/>): the adopted
+    /// <c>WorldspacePanelUIController</c> host rect is far larger than the thin bar band actually
+    /// drawn in it, so its host-rect plate rendered as a solid dark RECTANGLE floating over the
+    /// miniature / through the middle of the health bar. The bar reads fine against the real room
+    /// (it sits over the board anyway), so it gets no plate at all.</item>
+    /// <item>THE FIGURE-GRAB INFO PANELS (<see cref="Surfaces.StatPanelSurface"/>): the
+    /// actor/enemy stat card shown while a figure is held (and the same card on a miniature poke —
+    /// it is one and the same window, so the exclusion follows the SURFACE, not the trigger)
+    /// carries the game's own parchment card art as backing; a host-rect plate behind it only
+    /// added a dark border proud of the card. User: "hier wird das nicht gebraucht".</item>
+    /// </list>
+    /// Set at Convert/Adopt time by the owning surface — per conversion, so the constant
+    /// create/destroy churn of bars and stat-card hysteresis releases re-applies it on every new
+    /// <see cref="ConvertedPanel"/> instance. No config knob on purpose: the comparable per-panel
+    /// exclusions in this codebase (non-pokeable, flatten2D, transparentBackground) are
+    /// hard-coded architectural decisions of the owning surface, and the user's ruling is the
+    /// reason of record.
+    /// </summary>
+    public bool MrBackingSuppressed;
+
     // ---- per-frame distance draw order (CanvasConversion.8.Order.cs) -----------------------
     //
     // Replaces the per-host depth-compose mask this class used to carry

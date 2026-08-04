@@ -456,6 +456,14 @@ internal sealed class StatPanelSurface
                     pokeable: false, sortingOrder: StatPanelSortingOrder, flatten2D: true);
                 if (watch.Panel != null)
                 {
+                    // MR backing opt-out (user ruling 2026-08-04, reported on the figure-grab
+                    // info panel): the stat card carries the game's own parchment card art as
+                    // backing, so MrBacking's host-rect plate only added a dark rectangle proud
+                    // of the card. It is the SAME window whether opened by holding a figure or
+                    // by poking a miniature, so the exclusion follows the surface, not the
+                    // trigger. Per conversion — the show/hide release hysteresis re-converts
+                    // this window constantly, and every fresh ConvertedPanel needs the flag.
+                    watch.Panel.MrBackingSuppressed = true;
                     CountConversion(watch, name);
                     PlaceWatch(watch);
                 }
@@ -534,8 +542,16 @@ internal sealed class StatPanelSurface
         if (_copyPanel != null && !_copyPanel.IsAlive)
             _copyPanel = null;
         if (_copyHolder != null && _copyRect != null && _copyPanel == null)
+        {
             _copyPanel = CanvasConversion.Convert(_copyRect, "ActorStatPanelCopy", pokeable: false,
                 sortingOrder: StatPanelSortingOrder, flatten2D: true);
+            // MR backing opt-out (user ruling 2026-08-04): the snapshot is a clone of the same
+            // parchment-backed stat card — the second hand's copy must match the real panel's
+            // no-plate treatment (see TickWatch) or only one of two held figures grows a dark
+            // rectangle behind its card in see-through mode.
+            if (_copyPanel != null)
+                _copyPanel.MrBackingSuppressed = true;
+        }
         if (_copyPanel != null)
         {
             if (_copyPanel.HostRaycaster != null && _copyPanel.HostRaycaster.enabled)

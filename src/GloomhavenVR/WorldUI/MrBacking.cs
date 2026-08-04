@@ -28,7 +28,10 @@ namespace GloomhavenVR.WorldUI;
 ///   full-window backing the mod itself strips (WantsTransparentBackground — correct on a flat
 ///   screen, unreadable in MR) and the adopted HUD panels whose game art may be translucent;
 ///   behind a natively opaque panel the plate is simply invisible (drawn first, fully covered),
-///   so over-coverage is harmless while under-coverage is the reported bug.
+///   so over-coverage is harmless while under-coverage is the reported bug. The ONLY exceptions
+///   are panels whose owner set <see cref="ConvertedPanel.MrBackingSuppressed"/> (user ruling
+///   2026-08-04: actor health bars and the figure-grab stat cards — see that flag's doc for the
+///   full reasoning); the sweep never plates those and destroys any plate they already carry.
 ///
 /// PLATE RENDERING: the bundled Overlay shader forced to _ZWrite=1 / _ZTest=4 (LEqual) /
 /// _Cull=0 / Blend One Zero at renderQueue 2998 — after all opaque geometry and before the
@@ -259,7 +262,11 @@ internal static class MrBacking
     private static void TickPanels()
     {
         // Prune entries whose panel released (the host — and the plate under it — is destroyed
-        // by the release; ActivePanels no longer lists it).
+        // by the release; ActivePanels no longer lists it) OR opted out of the plate
+        // (ConvertedPanel.MrBackingSuppressed, user ruling 2026-08-04: actor bars and the
+        // figure-grab stat cards). The flag is normally set at Convert time — before this sweep
+        // ever sees the panel — but a live panel that acquires it later still has its existing
+        // plate destroyed here, so the opt-out can never race the sweep.
         IReadOnlyList<ConvertedPanel> active = CanvasConversion.ActivePanels;
         for (int i = Panels.Count - 1; i >= 0; i--)
         {
@@ -273,15 +280,21 @@ internal static class MrBacking
                     break;
                 }
             }
-            if (!alive)
+            if (!alive || p.MrBackingSuppressed)
+            {
+                // A released panel's plate died with its host (Unity-null here); a suppressed
+                // live panel's plate is mod-owned and must go explicitly.
+                if (Panels[i].Plate != null)
+                    Object.Destroy(Panels[i].Plate!.gameObject);
                 Panels.RemoveAt(i);
+            }
         }
 
         for (int i = 0; i < active.Count; i++)
         {
             ConvertedPanel panel = active[i];
             RectTransform? host = panel.HostRect;
-            if (host == null || panel.HostGo == null)
+            if (host == null || panel.HostGo == null || panel.MrBackingSuppressed)
                 continue;
 
             PanelEntry? entry = null;
