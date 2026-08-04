@@ -271,7 +271,9 @@ internal static partial class Loc
             ["Cards/SlotOverlaySpacing_*"] = Pair("Slot glow: spacing (m)", "Slot-Glühen: Abstand (m)"),
             ["Cards/InitiativeOffset_*"] = Pair("Initiative: position", "Initiative: Position"),
             ["Cards/PickBannerOffset_*"] = Pair("Status placard: position", "Statustafel: Position"),
-            ["Cards/HoverHintOffset_*"] = Pair("Hover hint: position", "Hinweistafel: Position"),
+            // Config KEY kept for cfg compatibility; the DISPLAY name follows the unified
+            // tooltip-area concept (2026-08-04): one fixed area, top-left, per-board adjustable.
+            ["Cards/HoverHintOffset_*"] = Pair("Tooltip area: position", "Tooltip-Bereich: Position"),
             ["Cards/BoardTilt_*"] = Pair("Board: base tilt (°)", "Brett: Grundneigung (°)"),
             ["Cards/BoardPitchMin_*"] = Pair("Tilt limit down (°)", "Neigungslimit unten (°)"),
             ["Cards/BoardPitchMax_*"] = Pair("Tilt limit up (°)", "Neigungslimit oben (°)"),

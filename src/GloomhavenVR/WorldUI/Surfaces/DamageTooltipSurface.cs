@@ -18,8 +18,9 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 ///   - TOO HIGH: <c>InitiativeTrack.helpBox</c> sits up by the initiative track, nowhere
 ///     near the docked buttons the player is reading.
 /// This surface converts whichever HelpBox is currently showing the damage tip (flattened)
-/// and parks it just ABOVE the docked widget row, facing the player — adjacent to the
-/// buttons, not floating high. It is a strict descendant of the take-damage dock: it only
+/// and parks it in the board's unified TOOLTIP AREA (top-left corner, shared with the hover
+/// hint — <see cref="WorldTooltips.TryGetBoardAreaPose"/>), facing the player at the board's
+/// angle. It is a strict descendant of the take-damage dock: it only
 /// runs while <see cref="DecisionDockSurface.DockingTakeDamage"/> holds and the tip window
 /// is open, and it restores the HelpBox to its exact 2D home (CanvasConversion restore
 /// records) the moment either drops — nothing is destroyed.
@@ -99,9 +100,16 @@ internal sealed class DamageTooltipSurface : WorldSurface
     }
 
     /// <summary>
-    /// Park just above the docked widget-row mount (the buttons the tip describes),
-    /// content-fitted into the same width budget and facing the player. While no mount
-    /// exists the surface simply holds off (the dock itself has already floated to the
+    /// Park in the CONTROL BOARD's unified TOOLTIP AREA (user request 2026-08-04: ONE fixed
+    /// area at the board's top-left where EVERY board-owned tooltip appears — this damage tip is
+    /// board-owned by construction, it only runs while the take-damage row is docked on the
+    /// board). The pose comes from the SAME <see cref="WorldTooltips.TryGetBoardAreaPose"/> the
+    /// hover hint uses — same corner, same margins, same per-board offset dial, same board-plane
+    /// facing, same scale-with-the-board behaviour — so the two presentations can never drift
+    /// apart. Content is still fitted into the decision-row width budget (the tip describes
+    /// those buttons and must stay readable at their density). Falls back to the historical
+    /// above-the-row spot when the area cannot resolve (no visible board mid-rebuild). While no
+    /// mount exists the surface simply holds off (the dock itself has already floated to the
     /// HMD in that case; a mispositioned tip is never a lock).
     /// </summary>
     protected override void Place()
@@ -128,9 +136,21 @@ internal sealed class DamageTooltipSurface : WorldSurface
         float metersPerPx = Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale) / density;
 
         Transform host = Panel.HostTransform;
-        Vector3 pos = mount.position + mount.up * (AboveRowMetres * trayScale);
-        host.SetPositionAndRotation(pos, mount.rotation);
-        host.localScale = Vector3.one * (metersPerPx * trayScale);
+        float hostScale = metersPerPx * trayScale;
+        // The host pivot is centered (CanvasConversion contract), so the area helper's
+        // "center that seats the bottom-left corner at the area origin" is directly the pose.
+        if (WorldTooltips.TryGetBoardAreaPose(
+                rect.width * 0.5f * hostScale, rect.height * 0.5f * hostScale,
+                out Vector3 areaPos, out Quaternion areaRot, out _))
+        {
+            host.SetPositionAndRotation(areaPos, areaRot);
+        }
+        else
+        {
+            Vector3 pos = mount.position + mount.up * (AboveRowMetres * trayScale);
+            host.SetPositionAndRotation(pos, mount.rotation);
+        }
+        host.localScale = Vector3.one * hostScale;
     }
 
     /// <summary>

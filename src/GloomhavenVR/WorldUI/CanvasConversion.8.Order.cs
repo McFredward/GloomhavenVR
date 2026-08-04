@@ -229,6 +229,44 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
+    /// The draw order a NON-panel canvas at <paramref name="eyeDistance"/> metres from the eye must
+    /// use to composite correctly WITH the panel ladder: the highest ladder order among panels that
+    /// are FARTHER than (or tied with) that distance, plus <paramref name="lift"/> — so the caller
+    /// draws over everything behind it and under every panel genuinely nearer. This is the board
+    /// tooltip's slot in the ladder architecture (<c>WorldTooltips</c>, board-owned case): the
+    /// game's shared tooltip canvas is not a converted panel — it has no <see cref="ConvertedPanel"/>
+    /// to register a follower on — but it IS a plate at a measurable distance, and the ladder's own
+    /// far-to-near rule answers where such a plate belongs. Before this hook the board tooltip kept
+    /// the game's authored order (≈0), so ANY converted panel (order ≥ <see cref="PanelOrderBase"/>)
+    /// painted over it even when the tooltip was clearly in front — the "sometimes covered" defect.
+    ///
+    /// <para>The tie rule is deliberate: a panel within <see cref="OrderSwapMarginMeters"/> of the
+    /// caller counts as "behind it", because the callers of this method sit PROUD of the surface
+    /// they annotate (the tooltip floats 2 cm off the board plane the board-docked panels lie in) —
+    /// a tie means "the surface I must draw over". <paramref name="lift"/> must stay under
+    /// <see cref="PanelOrderStep"/> (same contract as every order follower) so the result never
+    /// climbs into the next panel's slot. With no farther panel at all the base sits one step BELOW
+    /// the whole ladder — still above the game's own canvases and the board furniture.</para>
+    ///
+    /// <para>Reads the PREVIOUS frame's measured distances/orders (this runs in callers' LateTicks,
+    /// before <see cref="TickPanelOrder"/>) — a one-frame lag on a hysteresis-damped ladder is not
+    /// observable.</para>
+    /// </summary>
+    internal static int OrderAboveDistance(float eyeDistance, int lift)
+    {
+        int order = PanelOrderBase - PanelOrderStep;
+        for (int i = 0; i < OrderedPanels.Count; i++)
+        {
+            ConvertedPanel p = OrderedPanels[i];
+            if (p == null || !p.IsAlive)
+                continue;
+            if (p.OrderDistance >= eyeDistance - OrderSwapMarginMeters && p.DrawSortingOrder > order)
+                order = p.DrawSortingOrder;
+        }
+        return order + lift;
+    }
+
+    /// <summary>
     /// The sortingOrder a converted host was CONVERTED with, for the one consumer that must not see
     /// the live ladder value: UguiPointer.Beats. See the file header ("RAYCASTING IS DELIBERATELY
     /// NOT AFFECTED"). Returns false when <paramref name="raycasterGo"/> is not a converted host's

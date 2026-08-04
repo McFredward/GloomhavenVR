@@ -224,6 +224,11 @@ internal static partial class Defaults
     internal static readonly Vector3 PickBannerOffset_Oak = new Vector3(0f, 0f, 0f);                  // => [Cards] PickBannerOffset_Oak
     internal static readonly Vector3 PickBannerOffset_Steel = new Vector3(0f, 0.095f, 0f);        // => [Cards] PickBannerOffset_Steel
     internal static readonly Vector3 PickBannerOffset_Bronze = new Vector3(0f, 0f, 0f);               // => [Cards] PickBannerOffset_Bronze
+    // TOOLTIP AREA offsets (key kept as HoverHintOffset_* for cfg compatibility). ZERO IS THE
+    // RE-DERIVED DEFAULT for all three boards on purpose: the area's anchor is COMPUTED per board
+    // from the tray's measured renderer extents (PlayTray.MeasureBoardLocalExtents — top-left
+    // corner of the VISIBLE board, frame included), so "starts top-left" already holds on Oak,
+    // Steel and Bronze without a per-board constant that could drift from the real meshes.
     internal static readonly Vector3 HoverHintOffset_Oak = new Vector3(0f, 0f, 0f);                   // => [Cards] HoverHintOffset_Oak
     internal static readonly Vector3 HoverHintOffset_Steel = new Vector3(0f, 0f, 0f);                 // => [Cards] HoverHintOffset_Steel
     internal static readonly Vector3 HoverHintOffset_Bronze = new Vector3(0f, 0f, 0f);                // => [Cards] HoverHintOffset_Bronze

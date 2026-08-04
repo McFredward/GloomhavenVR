@@ -94,6 +94,15 @@ internal readonly struct RemoteBoardLayout
     /// <c>PlayTray.PickBannerLocalPosition</c>.</summary>
     public Vector3 PickBannerMount { get; }
 
+    /// <summary>TOOLTIP AREA origin — the board's authored top-LEFT corner
+    /// (<c>PlayTray.TooltipAreaBase</c> + the SHIPPED per-board <c>HoverHintOffset</c>), where
+    /// <see cref="RemoteBoardTooltip"/> seats a peer's synced tooltip (extension record 9). The
+    /// owner's LOCAL area refines the corner from measured renderer bounds; the remote mirror
+    /// uses the authored constant, the same authored-vs-measured split every dock on this board
+    /// lives with. The DELIBERATELY-NOT rule applies as everywhere here: a peer's private
+    /// debug-menu re-tuning of the offset never rides the wire.</summary>
+    public Vector3 TooltipMount { get; }
+
     public RemoteBoardLayout(ControlBoard style)
     {
         Style = style;
@@ -118,6 +127,8 @@ internal readonly struct RemoteBoardLayout
         ReadoutMount = PlayTray.ReadoutBase + CardsConfig.BoardDefaults.ReadoutOffset[i];
 
         PickBannerMount = PlayTray.PickBannerBase + CardsConfig.BoardDefaults.PickBannerOffset[i];
+
+        TooltipMount = PlayTray.TooltipAreaBase + CardsConfig.BoardDefaults.HoverHintOffset[i];
     }
 
     /// <summary>One-line dump of the derived seats for the board-built log line: a wrong panel

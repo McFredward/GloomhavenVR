@@ -296,6 +296,19 @@ internal sealed partial class PlayTray
     /// </summary>
     internal static readonly Vector3 PickBannerBase = new(0f, BoardH * 0.5f + 0.10f, -0.02f);
 
+    /// <summary>
+    /// The TOOLTIP AREA's origin in board-local metres: the board's AUTHORED top-LEFT corner,
+    /// slightly proud toward the viewer. This is the fixed reading spot every board-owned tooltip
+    /// parks at (user request 2026-08-04: one unified "Tooltip"-Bereich, default top-left,
+    /// per-board adjustable). The LOCAL presentation (<c>WorldUI.WorldTooltips</c>) refines the
+    /// corner from the tray's MEASURED renderer extents (the visible frame overhangs the authored
+    /// plate) — this constant is the authored-plate mirror of that spot, so the MULTIPLAYER board
+    /// (<c>Net.RemoteBoardLayout.TooltipMount</c>) can seat a peer's tooltip by the same rule
+    /// without a live measurement, exactly like <see cref="PickBannerBase"/> does for the placard.
+    /// </summary>
+    internal static readonly Vector3 TooltipAreaBase =
+        new(-BoardW * 0.5f, BoardH * 0.5f, -0.02f);
+
     internal static Vector3 PickBannerLocalPosition() =>
         PickBannerBase + CardsConfig.PickBannerOffset(CardsConfig.CurrentBoard).Value;
 
