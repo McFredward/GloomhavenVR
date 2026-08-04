@@ -56,42 +56,105 @@ internal static class UiScrollFocus
     /// </summary>
     private const int HoverFrameSlack = 1;
 
-    private static readonly int[] HoverFrame = { int.MinValue, int.MinValue };
+    /// <summary>
+    /// "This slot was never stamped" sentinel, and it MUST be tested for by identity, never fed
+    /// into the age subtraction.
+    ///
+    /// ROOT CAUSE of the 2026-08-04 hardware latch ("Ich konnte erst fliegen, NACHDEM ich einmal
+    /// im Menue gescrollt habe"): the original check was the bare subtraction
+    /// <c>Time.frameCount - HoverFrame[i] &lt;= HoverFrameSlack</c> with the slots initialized to
+    /// <c>int.MinValue</c>. In C#'s default UNCHECKED arithmetic, <c>frameCount - int.MinValue</c>
+    /// wraps: for any frameCount &gt;= 0 the result is <c>frameCount - 2147483648</c>, a large
+    /// NEGATIVE number, which passes the "at most one frame old" test. So a virgin slot read as
+    /// "hovered this very frame" and <see cref="IsScrolling"/> answered TRUE for a hand that had
+    /// never once pointed at a scrollable — from process start until the first genuine stamp
+    /// overwrote the sentinel. Evidence (Player.log of that session): "stick flight: SUSPENDED on
+    /// the Right hand" fired on the exact frame of the Menu2D -&gt; TableIdle flip (line 1956, the
+    /// FIRST frame Flight's mode gate ever let ScrollAllowed run, while the scenario was still
+    /// loading and the pointer was on nothing), and RESUMED only ~2800 log lines later (4764),
+    /// immediately after the player's beam finally landed on the options window's scroll area and
+    /// the first real NoteScrollHover healed the slot; SUSPENDED/RESUMED pairs cycle normally from
+    /// then on (4771/4773). The guard below makes the sentinel mean "never", unconditionally: it
+    /// is compared by identity before any subtraction, so no overflow path exists. Once a slot
+    /// holds a real stamp the subtraction is safe by construction — real stamps are frameCount
+    /// values, i.e. in <c>[0, Time.frameCount]</c>, so the difference is non-negative and small.
+    /// </summary>
+    private const int NeverStamped = int.MinValue;
+
+    private static readonly int[] HoverFrame = { NeverStamped, NeverStamped };
     private static readonly float[] ScrollTime = { float.NegativeInfinity, float.NegativeInfinity };
+
+    /// <summary>What stamped each slot last — surface + producer tag, resolved to a name only when
+    /// a diagnostic line actually logs (Object.name allocates; stamping runs per hovered frame).</summary>
+    private static readonly Object?[] HoverSurface = { null, null };
+    private static readonly string?[] HoverProducer = { null, null };
 
     /// <summary>
     /// This hand's pointer is resting on a uGUI surface that a stick push WOULD scroll. Called
     /// every frame the condition holds; it expires on its own, there is no matching "clear".
+    /// <paramref name="surface"/> and <paramref name="producer"/> are attribution for the
+    /// flight-suppression diagnostic (see <see cref="Describe"/>): which scrollable, stamped by
+    /// which code path — so the next "flight is dead" hardware log names its suppressor.
     /// </summary>
-    internal static void NoteScrollHover(VRHand? hand)
+    internal static void NoteScrollHover(VRHand? hand, Object? surface, string producer)
     {
         if (hand == null)
             return;
-        HoverFrame[(int)hand.Side] = Time.frameCount;
+        int i = (int)hand.Side;
+        HoverFrame[i] = Time.frameCount;
+        HoverSurface[i] = surface;
+        HoverProducer[i] = producer;
     }
 
     /// <summary>This hand's stick actually moved a scrollable this frame (arms the grace window).</summary>
-    internal static void NoteScrollDelivered(VRHand? hand)
+    internal static void NoteScrollDelivered(VRHand? hand, Object? surface, string producer)
     {
         if (hand == null)
             return;
         int i = (int)hand.Side;
         HoverFrame[i] = Time.frameCount;
         ScrollTime[i] = Time.unscaledTime;
+        HoverSurface[i] = surface;
+        HoverProducer[i] = producer;
     }
 
     /// <summary>
     /// Is this hand's thumbstick currently owned by menu scrolling? True while its pointer sits
     /// on a live scrollable, plus <see cref="ScrollHoldSeconds"/> after a delivered scroll.
+    /// A slot still holding <see cref="NeverStamped"/> is NO by definition — see the sentinel's
+    /// doc for the overflow latch this identity test fixes; the subtraction must never see it.
     /// </summary>
     internal static bool IsScrolling(VRHand? hand)
     {
         if (hand == null)
             return false;
         int i = (int)hand.Side;
-        if (Time.frameCount - HoverFrame[i] <= HoverFrameSlack)
+        int stamp = HoverFrame[i];
+        if (stamp != NeverStamped && Time.frameCount - stamp <= HoverFrameSlack)
             return true;
         return Time.unscaledTime - ScrollTime[i] <= ScrollHoldSeconds;
+    }
+
+    /// <summary>
+    /// Attribution for a flight-suppression diagnostic: WHICH surface stamped this hand's hover,
+    /// by WHICH producer, and how old the stamps are. Built only when a log line actually fires
+    /// (never per frame). The "never stamped" answer is load-bearing: it is the line that would
+    /// have named the 2026-08-04 sentinel latch in one hardware round instead of three.
+    /// </summary>
+    internal static string Describe(VRHand hand)
+    {
+        int i = (int)hand.Side;
+        int stamp = HoverFrame[i];
+        if (stamp == NeverStamped)
+            return "no scroll hover was ever stamped for this hand this session";
+        Object? surface = HoverSurface[i];
+        string name = surface != null ? surface.name : "<destroyed surface>";
+        string producer = HoverProducer[i] ?? "<unknown producer>";
+        int age = Time.frameCount - stamp;
+        string grace = float.IsNegativeInfinity(ScrollTime[i])
+            ? "no scroll ever delivered"
+            : $"last delivered scroll {Time.unscaledTime - ScrollTime[i]:F2}s ago";
+        return $"hover stamped by {producer} on '{name}' {age} frame(s) ago; {grace}";
     }
 
     /// <summary>

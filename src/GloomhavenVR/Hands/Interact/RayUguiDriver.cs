@@ -287,7 +287,7 @@ internal sealed class RayUguiDriver
         // sent exactly as before, so a ScrollRect this predicate misjudges loses nothing.
         bool live = UiScrollFocus.CanScroll(scrollable);
         if (live)
-            UiScrollFocus.NoteScrollHover(_hand);
+            UiScrollFocus.NoteScrollHover(_hand, scrollable, nameof(RayUguiDriver));
 
         float y = _hand.Thumbstick.y;
         if (Mathf.Abs(y) < ScrollDeadzone)
@@ -298,7 +298,7 @@ internal sealed class RayUguiDriver
         float notches = Mathf.Sign(y) * response * ScrollNotchesPerSecond * Time.unscaledDeltaTime;
         _pointer.Scroll(new Vector2(0f, notches));
         if (live)
-            UiScrollFocus.NoteScrollDelivered(_hand);
+            UiScrollFocus.NoteScrollDelivered(_hand, scrollable, nameof(RayUguiDriver));
     }
 
     /// <summary>
