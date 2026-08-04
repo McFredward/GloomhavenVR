@@ -316,8 +316,36 @@ internal sealed partial class FlatScreenStereo
         // Map (ISSUE 1): the map is not suspended (the split keeps routing so the UI glass survives),
         // but it IS mono — force both eyes onto the PRIVATE map RT that carries the mod's forward render
         // (falling back to the base RT if the private RT is unavailable).
-        if (_mapBaseCapture && _mapRt != null)
+        // REVEAL GATE (user report: brown flash before the real map): the private RT is shown only
+        // once the mod camera has actually rendered into it (a fresh RT holds garbage/black) AND the
+        // driven pose is valid (an early engage can precede the CameraController's radius/height —
+        // the whole-map fallback framing would flash and snap). Until then the quad holds BLACK —
+        // the only alternative content, the shared base RT, is exactly the game's broken brown map
+        // render the user reported. Fail-open: past MapRevealMaxHoldFrames the gate stops holding
+        // and the pre-gate behaviour (map/base RT as available) resumes — never worse than the old
+        // ~1.25 s brown delay. The MAP REVEAL line logs the measured open-to-reveal latency.
+        if (_mapBaseCapture && _mapRt != null && _mapFirstFrameRendered
+            && (_mapDrivenValid || MapRevealHoldElapsed))
+        {
             target = _mapRt;
+            if (!_mapRevealLogged)
+            {
+                _mapRevealLogged = true;
+                int frames = _mapEngageFrame != int.MinValue ? Time.frameCount - _mapEngageFrame : -1;
+                VRLog.Info("WorldUI", $"MAP REVEAL: first mod-rendered map frame shown {frames} frame(s) " +
+                                      $"({(Time.realtimeSinceStartup - _mapEngageTime) * 1000f:F0} ms) after " +
+                                      $"engage (poseValid={_mapDrivenValid}) — the quad held black in between; " +
+                                      "the game's raw brown map render was never shown.");
+            }
+        }
+        else if (_mapBaseCapture && !MapRevealHoldElapsed)
+        {
+            // Engaged, first correct frame not ready yet — hold black (same treatment as the
+            // scenario-overlay branch above; the UI glass keeps compositing on top).
+            if (!ReferenceEquals(mat.mainTexture, Texture2D.blackTexture))
+                mat.mainTexture = Texture2D.blackTexture;
+            return;
+        }
         else if (_videoSuspended || _mapBaseCapture)
             target = _leftRt;
         else if (_videoShift && _rtLeftShifted != null && _rtRight != null)
@@ -337,7 +365,12 @@ internal sealed partial class FlatScreenStereo
     private void OnPostRenderCamera(Camera cam)
     {
         if (_mapAlbedoCam != null && cam == _mapAlbedoCam)
+        {
             RestoreWorldMapOverride();
+            // Reveal gate: the private map RT now holds a real mod-rendered frame — the quad may
+            // switch to it (OnPreRenderCamera additionally requires a valid driven pose).
+            _mapFirstFrameRendered = true;
+        }
     }
 
     // ---- IPD -------------------------------------------------------------------------------

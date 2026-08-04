@@ -127,6 +127,79 @@ internal sealed partial class FlatScreenStereo
                               "all the same. Re-arms on the next scene change.");
     }
 
+    // ---- fast positive map-open engage (user report: brown flash before the real map) --------
+
+    /// <summary>Cached MapChoreographer for the fast positive engage. Unity fake-null after a scene
+    /// change revives the throttled re-find automatically.</summary>
+    private global::MapChoreographer? _fastMapChoreo;
+    private int _fastMapFindFrame = int.MinValue;
+    /// <summary>Frames between FindObjectOfType attempts while no choreographer is cached (near-free
+    /// when the scene has none — the scan is type-indexed).</summary>
+    private const int FastMapFindIntervalFrames = 10;
+    /// <summary><c>Time.realtimeSinceStartup</c> at engage — for the MAP REVEAL latency readout.</summary>
+    private float _mapEngageTime;
+
+    /// <summary>
+    /// ROOT CAUSE (user report 2026-08, "zuerst eine Sekunde ... die braune Farbe sichtbar"): map
+    /// engagement used to be PROBE-driven only — an async base-RT readback every
+    /// <see cref="BlackProbeIntervalFrames"/> (30) frames needing <see cref="BlackConsecutiveToEngage"/>
+    /// (3) consecutive results, so the raw game map camera's brown murk (its dead deferred render
+    /// resolving into the shared base RT) was SHOWN for ~90+ frames (~1.25 s at 72 Hz) before the mod
+    /// render replaced it. But the probes only ever decided WHEN to engage — WHETHER is positively
+    /// decidable the moment the map opens: a MapChoreographer whose worldMap or cityMap is
+    /// activeInHierarchy, the exact criterion the non-black detect path already trusts as proof (see
+    /// <see cref="TickNonBlackMapDetect"/>). So engage at the map-open EVENT: the choreographer lookup
+    /// is throttled, but once cached the active-in-hierarchy check runs per tick, so engagement lands
+    /// on the very frame the map GO activates. Both probe paths remain as fallback (each checks
+    /// <c>_mapBaseCapture</c> first, so they are no-ops once this fired). Paired with the reveal gate
+    /// in <c>OnPreRenderCamera</c> (hold the quad BLACK until the mod camera has produced its first
+    /// frame at a valid driven pose), the brown pre-map content is never shown at all.
+    /// </summary>
+    private void TickFastMapEngage(Camera? mapSource)
+    {
+        if (_mapBaseCapture || mapSource == null || _leftRt == null || _introGuard
+            || !MapAlbedoRenderOn || !(s_leftMirrorFallback?.Value ?? true))
+            return;
+        if (_fastMapChoreo == null)
+        {
+            if (_fastMapFindFrame != int.MinValue
+                && Time.frameCount - _fastMapFindFrame < FastMapFindIntervalFrames)
+                return;
+            _fastMapFindFrame = Time.frameCount;
+            _fastMapChoreo = Object.FindObjectOfType<global::MapChoreographer>();
+            if (_fastMapChoreo == null)
+                return;
+        }
+        GameObject? world = _fastMapChoreo.worldMap;
+        GameObject? city = _fastMapChoreo.cityMap;
+        GameObject? shown = world != null && world.activeInHierarchy ? world
+                          : city != null && city.activeInHierarchy ? city : null;
+        if (shown == null)
+            return;
+        EngageMapCore();
+        VRLog.Info("WorldUI", $"MAP RENDER detection (FAST positive): campaign map '{shown.name}' became active " +
+                              "in the hierarchy — engaging the mod forward render at the map-open event itself " +
+                              "(no probe wait; the black/non-black probe paths remain as fallback). The screen " +
+                              "quad holds BLACK until the first mod-rendered frame at a valid pose, so the " +
+                              "game's raw brown map render is never shown.");
+    }
+
+    // ---- map reveal gate (never show the game's brown pre-map render) ------------------------
+
+    /// <summary>True once the mod map camera has rendered at least one frame into the private map RT
+    /// for THIS engagement (stamped in <c>OnPostRenderCamera</c>). Until then — and until the driven
+    /// pose is valid — the screen quad holds BLACK instead of the base RT's brown murk.</summary>
+    private bool _mapFirstFrameRendered;
+    /// <summary>One-shot guard for the MAP REVEAL latency log (per engagement).</summary>
+    private bool _mapRevealLogged;
+    /// <summary>Upper bound on the post-engage black hold (~1 s at 72 Hz). If the driven pose never
+    /// validates or the private RT never appears, the quad falls back to the pre-gate behaviour
+    /// (map/base RT as available) instead of staying black — never worse than the old brown delay.</summary>
+    private const int MapRevealMaxHoldFrames = 72;
+    /// <summary>True when the post-engage black-hold window has run out (fail-open).</summary>
+    private bool MapRevealHoldElapsed =>
+        _mapEngageFrame != int.MinValue && Time.frameCount - _mapEngageFrame > MapRevealMaxHoldFrames;
+
     /// <summary>
     /// The base RT reads black while a 3D background camera renders — engage MAP ALBEDO
     /// RENDER: the mod's own forward camera renders the worldMap parchment (unlit, from
@@ -155,6 +228,11 @@ internal sealed partial class FlatScreenStereo
     {
         _mapBaseCapture = true;
         _mapEngageFrame = Time.frameCount; // start the fast per-frame base-RT probe window
+        _mapEngageTime = Time.realtimeSinceStartup;
+        // Reveal gate: hold the quad black until the mod camera renders its first frame at a valid
+        // pose (see the map-reveal-gate block) — the MAP REVEAL line logs the measured latency.
+        _mapFirstFrameRendered = false;
+        _mapRevealLogged = false;
         _mapMirrorLogged = false;
         _capLogged = false;
         _capMapValid = false;
@@ -173,6 +251,9 @@ internal sealed partial class FlatScreenStereo
         // sentinel, see the _iconCacheFrame doc block) so the per-entry MAP ICONS diagnostics
         // above always describe a scan from THIS visit, never a set cached on a previous one.
         _iconCacheFrame = int.MinValue;
+        // Fresh MAP ICON GEOMETRY dump budget per map entry (scan-event-throttled per-icon lines).
+        _iconGeomDumps = 0;
+        _iconGeomLastDrawn = -1;
     }
 
     // ---- map render: forward camera over the REAL parchment mesh (class doc MAP RENDER) --------
@@ -700,6 +781,13 @@ internal sealed partial class FlatScreenStereo
     private int _mapIconsLogCount;
     /// <summary>One warn line per map entry when the scene-wide decal fallback engaged.</summary>
     private bool _iconFallbackLogged;
+    /// <summary>Per-map-entry budget for the MAP ICON GEOMETRY dump (re-armed in <see cref="EngageMapCore"/>).</summary>
+    private const int IconGeomDumpMax = 4;
+    /// <summary>MAP ICON GEOMETRY dumps emitted this map entry.</summary>
+    private int _iconGeomDumps;
+    /// <summary>Drawn-icon count at the last geometry dump — a CHANGED count (icons materialize over the
+    /// first scans; decal materials load async) re-dumps, an unchanged one stays silent.</summary>
+    private int _iconGeomLastDrawn = -1;
     /// <summary>Periodic-sample counter + last frame for the MAP RENDER NDC/geometry diagnostic.</summary>
     private int _ndcLogCount;
     private int _ndcLastLogFrame = int.MinValue;
@@ -1438,6 +1526,12 @@ internal sealed partial class FlatScreenStereo
         bool wantDiag = _mapIconsLogCount < 5;
         int nDecals = 0, nNoMat = 0, nNoTex = 0, nDrawn = 0;
         string firstDetail = "";
+        // Per-icon GEOMETRY dump, throttled to SCAN events only (rescan is true at most once per
+        // IconCacheIntervalFrames) and budgeted per map entry: one line per drawn icon naming the
+        // location, texture size, decal scale and the computed quad size — so the next hardware
+        // test can name any icon that still looks wrong. Emitted only when the drawn count CHANGED
+        // (decal materials load async, so icons materialize over the first scans).
+        StringBuilder? geomSb = (rescan && _iconGeomDumps < IconGeomDumpMax) ? new StringBuilder() : null;
 
         for (int i = 0; i < _iconDecals.Count; i++)
         {
@@ -1463,11 +1557,33 @@ internal sealed partial class FlatScreenStereo
             }
             Renderer? rend = _iconDecalRenderers[i];
             if (rend == null) continue;
-            Bounds b = rend.bounds;
-            var pos = new Vector3(b.center.x, planeY, b.center.z);
-            var scale = new Vector3(Mathf.Max(b.size.x, 0.01f), 1f, Mathf.Max(b.size.z, 0.01f));
-            // Orient the quad to the decal's yaw so the icon matches the game (our camera has a 90° yaw).
-            var rot = Quaternion.Euler(0f, d.transform.eulerAngles.y, 0f);
+            // ROOT CAUSE (user report 2026-08, "vereinzelt Icons gequetscht/gestaucht"): the quad
+            // footprint used to come from rend.bounds — the decal cube's WORLD-AXIS-ALIGNED bounding
+            // box — and the quad was then rotated by the decal's yaw ON TOP of that. The game's map
+            // decals carry a 90-degree yaw (hardware log 2026-08-04: decalEuler=(0.00, 90.00, 0.00)
+            // on the drawn icons), and Decalicious draws each decal as a UNIT CUBE transformed by the
+            // decal's own transform (decompiled ThreeEyedGames.DecaliciousRenderer:
+            // DrawMesh(_cubeMesh, current.transform.localToWorldMatrix, ...)), so the AUTHORED
+            // footprint is lossyScale.x (texture u) by lossyScale.z (texture v). Under a 90-degree
+            // yaw the world AABB reports those extents TRANSPOSED (world x extent = local z, world z
+            // extent = local x); scaling the quad by the AABB and then rotating it AGAIN by the yaw
+            // re-transposes them — every NON-SQUARE icon rendered with width and height swapped
+            // (squashed on one axis, stretched on the other), while square footprints came out
+            // pixel-identical: exactly the "most icons fine, some squashed" report. Non-square
+            // footprints are authored per icon type — GlobalSettings.AdventureLocationMaterialSettings
+            // .OverrideLocationScale is a full Vector3 applied to the decal's parent (decompiled
+            // MapLocation, "MeshParent.transform.localScale = ...OverrideLocationScale"). The quad TRS
+            // now comes straight from the decal transform — the same matrix the game itself draws the
+            // decal cube with — so every icon renders at its authored aspect and rotation. (The decal
+            // materials' _MainTex_ST is scale (1,1) offset (0,0) in the hardware log — no atlas trim,
+            // full-rect UVs on the quad are correct.)
+            Transform dt = d.transform;
+            Vector3 dScale = dt.lossyScale;
+            Vector3 dPos = dt.position;
+            var pos = new Vector3(dPos.x, planeY, dPos.z);
+            var scale = new Vector3(Mathf.Max(Mathf.Abs(dScale.x), 0.01f), 1f, Mathf.Max(Mathf.Abs(dScale.z), 0.01f));
+            // Orient the quad to the decal's yaw so the icon matches the game (our camera has a 90-degree yaw).
+            var rot = Quaternion.Euler(0f, dt.eulerAngles.y, 0f);
             // One property block PER DRAW, as before — pooled instead of newly allocated, so the
             // "no shared MPB between draws" property the original comment was protecting is kept.
             MaterialPropertyBlock mpb = cacheOn ? RentIconMpb(nDrawn) : new MaterialPropertyBlock();
@@ -1485,6 +1601,14 @@ internal sealed partial class FlatScreenStereo
             }
             _iconCmd.DrawMesh(_iconQuad, Matrix4x4.TRS(pos, rot, scale), _iconMat, 0, 0, mpb);
             nDrawn++;
+            if (geomSb != null)
+            {
+                // The MapLocation GO sits two levels up (decal -> MeshParent -> location).
+                Transform? locT = dt.parent != null ? dt.parent.parent : null;
+                geomSb.Append($"\n  '{(locT != null ? locT.name : d.name)}/{d.name}' tex='{tex.name}' " +
+                              $"{tex.width}x{tex.height} decalScale=({dScale.x:F2},{dScale.y:F2},{dScale.z:F2}) " +
+                              $"yaw={dt.eulerAngles.y:F0} quad={scale.x:F2}x{scale.z:F2} pos=({pos.x:F1},{pos.z:F1})");
+            }
             if (wantDiag && (firstDetail == "" || !firstDetail.StartsWith("drawn")))
             {
                 Vector2 stS = cm.HasProperty(IconMainTex) ? cm.GetTextureScale(IconMainTex) : Vector2.one;
@@ -1513,6 +1637,15 @@ internal sealed partial class FlatScreenStereo
                 _iconCmd.DrawRenderer(tr, mats[sm], sm, -1); // -1 = the material's own valid passes
                 nToken++;
             }
+        }
+        if (geomSb != null && nDrawn > 0 && nDrawn != _iconGeomLastDrawn)
+        {
+            _iconGeomLastDrawn = nDrawn;
+            _iconGeomDumps++;
+            VRLog.Info("WorldUI", $"MAP ICON GEOMETRY [{_iconGeomDumps}/{IconGeomDumpMax}] ({nDrawn} drawn, " +
+                                  $"{(_activeMapIsCity ? "CITY" : "WORLD")} map): quad footprint = decal lossyScale.xz " +
+                                  "at the decal's own yaw (one line per icon — names any icon that still looks wrong):"
+                                  + geomSb);
         }
         if (wantDiag)
         {
@@ -1841,6 +1974,9 @@ internal sealed partial class FlatScreenStereo
         _mapTargetLogged = false;
         _mapPoseLogged = false;
         _mapDrivenValid = false;
+        _mapFirstFrameRendered = false;
+        _mapRevealLogged = false;
+        _fastMapChoreo = null; // scene is going away — re-find on the next map open
         _mapFov = 0f;
         _mapPanning = false;
         _mapPanLogged = false;

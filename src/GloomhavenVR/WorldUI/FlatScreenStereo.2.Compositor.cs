@@ -572,6 +572,12 @@ internal sealed partial class FlatScreenStereo
                 mapSource = entry.Source;
         }
 
+        // FAST positive map-open engage (user report: brown pre-map flash — see TickFastMapEngage's
+        // doc block): decide map engagement at the map-open event itself instead of waiting ~1.25 s
+        // of probe cadence. Runs BEFORE the suspend/shift decision so the SAME tick already routes
+        // the map mono, turns the mirrors off and configures the mod forward camera.
+        TickFastMapEngage(mapSource);
+
         // Decision (class doc): the intro guard forces the suspension outright — zero
         // shift, the intro must remain verified-identical. The campaign-map albedo
         // render (class doc MAP ALBEDO RENDER) also drives BOTH eyes MONO from the base
