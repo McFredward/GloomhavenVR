@@ -233,7 +233,6 @@ internal static partial class ModalFallback
         _escapeArmingLogged = false;
         _lastActionDismissLogKey = null; // deadlock #3: re-log the ruling per fresh session
         ResetChainPose("module shutdown"); // chain continuity: teardown = rule 1 next time
-        ResetUserPoses("module shutdown"); // re-open pose memory: teardown = fresh gaze spawns
         _forcedTabs.Clear();
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
         ScreenWanted = false;
@@ -320,13 +319,7 @@ internal static partial class ModalFallback
         // and a stale pose must never place the NEXT scenario's first tutorial box (that
         // first window is a rule-1 in-front spawn by definition). Change-gated inside.
         if (!inScenario)
-        {
             ResetChainPose("scenario ended / left");
-            // Same scoping for the re-open pose memory (user ruling 2026-08-04): a player-
-            // chosen pose is anchored to one scenario's table; it must never place a window
-            // in the NEXT scenario. Change-gated inside.
-            ResetUserPoses("scenario ended / left");
-        }
 
         // Prune: scene unloads / ForceHideWindows can close windows without a clean
         // transition reaching us (window destroyed → no event). IsOpen is the game's
@@ -549,13 +542,6 @@ internal static partial class ModalFallback
             // Scenario-gated: on scenario exit the store is reset above, not re-fed here.
             if (inScenario && IsLevelMessageWindow(wp.Window))
                 StoreChainPose(wp);
-            // RE-OPEN POSE MEMORY (user ruling 2026-08-04): a non-level-message float the
-            // player had GRABBED parks its live pose (+ resize factor) in the per-ID memory
-            // before teardown, so a re-open of the same window this scenario restores the
-            // player's spot instead of re-running the gaze spawn (TryConvertWindow). No-op
-            // for untouched windows - those keep spawning fresh exactly as today.
-            else if (inScenario)
-                StoreUserPose(wp);
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
             wp.Grab?.Destroy(); // drop the mod-owned grab holder (sub-item B) before releasing the host

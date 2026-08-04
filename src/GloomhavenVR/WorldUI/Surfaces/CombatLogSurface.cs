@@ -171,6 +171,10 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     Quaternion IPanelGrabOwner.GrabLevelFrame => Quaternion.identity;
     Vector2 IPanelGrabOwner.GrabPitchLimits => new(-180f, 180f);
 
+    /// <summary>The combat log has no apparent-size ruling — the handle's generic factor range
+    /// IS its resize window (see <see cref="IPanelGrabOwner.GrabScaleLimits"/>).</summary>
+    Vector2 IPanelGrabOwner.GrabScaleLimits => new(PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+
     void IPanelGrabOwner.OnGrabFinished()
     {
         // Test #20: release snaps the panel upright — zero roll/pitch, yaw toward

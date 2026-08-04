@@ -1042,6 +1042,11 @@ internal sealed class ButtonCluster
             {
                 Color labelBase = NativeButtonSkin.HasFont ? NativeButtonSkin.LabelColor : Color.white;
                 _label.color = interactable ? labelBase : new Color(labelBase.r, labelBase.g, labelBase.b, 0.35f);
+                // Tofu fix (user report 2026-08-04): the mirrored game string may carry a glyph
+                // this cluster's harvested font cannot render — strip it (whitespace-collapsed)
+                // rather than show TMP's hollow box. Same-instance fast path when clean, so the
+                // reference compare below keeps its allocation-free steady state.
+                text = NativeButtonSkin.SanitizeLabel(_label, text);
                 // Reference compare first: the game only reassigns the string on change.
                 if (!ReferenceEquals(text, _mirroredText) && text != _mirroredText)
                 {

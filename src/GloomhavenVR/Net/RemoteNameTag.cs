@@ -116,6 +116,19 @@ internal sealed class RemoteNameTag
     // (mask style swap destroys the old HeadVisual → Unity-null entries → refetch next tick).
     private Renderer[] _maskRenderers = System.Array.Empty<Renderer>();
 
+    // The tag's OWN renderers (avatar quad + TMP label + any MR backing plate), for the
+    // panel-ladder compositing (BoardVisual.OrderWithPanels — the "Steam logo mixes with the
+    // menu behind it" fix). Cache invalidated by Rebuild; periodically refetched because
+    // MrBacking creates a label backing plate LAZILY when MR mode turns on — an addition a
+    // null-scan can never notice.
+    private Renderer[] _tagRenderers = System.Array.Empty<Renderer>();
+    private int _tagRenderersRefreshAt;
+
+    /// <summary>Frames between two forced refetches of <see cref="_tagRenderers"/> (~1 s at
+    /// 90 Hz): the only way a renderer is ADDED outside Rebuild is MrBacking's lazy MR plate,
+    /// and a plate compositing at the stale order for under a second is invisible.</summary>
+    private const int TagRenderersRefreshFrames = 90;
+
     public RemoteNameTag(RemoteAvatar owner)
     {
         _owner = owner;
@@ -218,7 +231,29 @@ internal sealed class RemoteNameTag
             Vector3 away = _billboard.position - head.transform.position;
             if (away.sqrMagnitude > 1e-6f)
                 _billboard.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
+            // PANEL COMPOSITING (user report 2026-08-04): rank the tag's renderers on the
+            // converted-panel distance ladder so a menu window BEHIND the tag can no longer
+            // alpha-blend over the Steam avatar — and a window in FRONT fully occludes it.
+            // Full root cause: BoardVisual.OrderWithPanels.
+            RefreshTagRenderers();
+            BoardVisual.OrderWithPanels(_tagRenderers, away.magnitude);
         }
+    }
+
+    /// <summary>Lazy-stale cache of the tag's own renderers (see the field note): refetch when
+    /// empty, when a Rebuild dropped it, when an entry died, or on the periodic MR-plate pickup.</summary>
+    private void RefreshTagRenderers()
+    {
+        bool stale = _tagRenderers.Length == 0 || Time.frameCount >= _tagRenderersRefreshAt;
+        for (int i = 0; !stale && i < _tagRenderers.Length; i++)
+        {
+            if (_tagRenderers[i] == null)
+                stale = true;
+        }
+        if (!stale)
+            return;
+        _tagRenderers = _root.GetComponentsInChildren<Renderer>(includeInactive: false);
+        _tagRenderersRefreshAt = Time.frameCount + TagRenderersRefreshFrames;
     }
 
     /// <summary>
@@ -336,6 +371,7 @@ internal sealed class RemoteNameTag
         WorldUI.MrBacking.Label(label); // free-floating over the room in MR — sized from the box above
 
         VRLayers.Apply(_root); // mod layer, so the owned head camera renders it
+        _tagRenderers = System.Array.Empty<Renderer>(); // rebuilt children → re-cache next Tick
     }
 
     /// <summary>

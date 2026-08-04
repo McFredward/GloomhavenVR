@@ -42,6 +42,48 @@ internal static class BoardVisual
     /// it must beat both tiers below.</summary>
     internal const int OrderTooltip = 8;
 
+    // ---- free-floating identity tags ride the PANEL distance ladder -------------------------
+    //
+    // ROOT CAUSE (user report 2026-08-04: "the Steam logo mixes with the menu window behind it").
+    // The Steam-avatar identity tags (RemoteNameTag over a peer's head, OwnerTag on a peer's
+    // board corner) are transparent renderers (Sprites/Default quad + TMP label) that shipped at
+    // sortingOrder 0. Unity resolves transparent renderers by sortingLayer -> sortingOrder FIRST
+    // and only falls back to distance on a tie, and EVERY converted panel lives on the distance
+    // ladder at order >= CanvasConversion.PanelOrderBase (100) - so a floated menu that was
+    // spatially BEHIND the tag still painted LATER and alpha-blended over the avatar picture:
+    // exactly the reported mixing. Perspective must be respected mod-wide (standing user
+    // ruling), so the tags now rank against the ladder per frame through the same seam the
+    // board tooltip uses: CanvasConversion.OrderAboveDistance answers "which order does a
+    // non-panel plate at THIS eye distance need to draw over everything farther and under
+    // every panel genuinely nearer".
+
+    /// <summary>
+    /// Sub-step lift of an identity tag above the farther panel's ladder slot. Must stay under
+    /// CanvasConversion.PanelOrderStep (16) so the tag can never climb into the NEXT panel's
+    /// slot; 12 puts a tag that is genuinely in front of a window above that window's own
+    /// furniture too (close X +2, grab bar +4, menu-laid tooltip +10) - a billboard hovering
+    /// before a window covers the whole window, decorations included.
+    /// </summary>
+    private const int TagPanelLift = 12;
+
+    /// <summary>
+    /// Per-frame: seat a free-floating tag's renderers at the converted-panel-ladder order for
+    /// its eye distance (see the root-cause note above). One shared order for the whole row -
+    /// the row's own internals (label 1 mm proud of its plate/quad) resolve on the distance
+    /// tie-break exactly as before. Change-gated writes; Unity-null entries are skipped (the
+    /// caller refreshes its cache on rebuild).
+    /// </summary>
+    internal static void OrderWithPanels(Renderer?[] renderers, float eyeDistance)
+    {
+        int order = WorldUI.CanvasConversion.OrderAboveDistance(eyeDistance, TagPanelLift);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer? r = renderers[i];
+            if (r != null && r.sortingOrder != order)
+                r.sortingOrder = order;
+        }
+    }
+
     /// <summary>An unlit material (optionally textured), so mod visuals read the same regardless
     /// of the surrounding scene lights. Mirrors <c>HeadMaskLibrary.UnlitMaterial</c>.</summary>
     internal static Material Unlit(Color color, Texture? texture = null)

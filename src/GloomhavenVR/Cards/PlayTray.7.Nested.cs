@@ -683,7 +683,15 @@ internal sealed partial class PlayTray
 
         internal void SetLabel(string text)
         {
-            if (_label != null && _label.text != text)
+            if (_label == null)
+                return;
+            // Tofu fix (user report 2026-08-04, "Viereck vor 'Mach dich bereit'"): strip any
+            // glyph this label's harvested font cannot render (e.g. the '✓ ' confirmed-state
+            // prefix on a font without U+2713) instead of letting TMP draw a hollow box.
+            // Same-instance fast path keeps the change gate below allocation-free; a null
+            // font passes through and is re-judged on the next per-tick SetLabel.
+            text = WorldUI.NativeButtonSkin.SanitizeLabel(_label, text);
+            if (_label.text != text)
                 _label.text = text;
         }
 
