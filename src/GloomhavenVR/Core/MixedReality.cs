@@ -75,8 +75,11 @@ internal static class MixedReality
     /// <summary>Sweep + disable the sky/background GEOMETRY (item 2). Safety valve — default on.</summary>
     internal static ConfigEntry<bool> HideSkyMeshes = null!;
 
-    /// <summary>Force the undiscovered-room PREVIEW tile stacks opaque while MR is on (user
-    /// ruling 2026-08-04). Safety valve like <see cref="HideSkyMeshes"/> — default on.</summary>
+    /// <summary>Give ALL "unseen" fog-of-war geometry (the face-down preview tile stacks AND the
+    /// unseen-area hexes inside revealed tiles) an opaque dark UNDERLAY while MR is on, so the
+    /// passthrough/key can no longer show through it (user rulings 2026-08-04 + 2026-08-05).
+    /// Safety valve like <see cref="HideSkyMeshes"/> — default on. The key keeps its original
+    /// name from the preview-stack-only round; its scope has grown, its cfg identity has not.</summary>
     internal static ConfigEntry<bool> OpaquePreviewTiles = null!;
 
     /// <summary>
@@ -138,26 +141,34 @@ internal static class MixedReality
     private static Material? _savedSkybox;
     private static bool _skyboxSaved;
 
-    // Undiscovered-room PREVIEW tile stacks forced opaque while MR is on (user ruling 2026-08-04:
-    // "die Kacheln, die die Stapel noch nicht entdeckter Räume zeigen, sollen in MR nicht
-    // transparent sein — im normalen Modus ändert sich nichts"). Each entry remembers ONE
-    // renderer's original sharedMaterials array; the opaque copies are session-cached per source
-    // material and destroyed on restore. See ForcePreviewTilesOpaque for the full derivation.
-    private sealed class PreviewOverride
+    // "Unseen" fog-of-war geometry backed by an opaque dark UNDERLAY while MR is on (user rulings
+    // 2026-08-04 "die Stapel noch nicht entdeckter Räume sollen in MR nicht transparent sein" +
+    // 2026-08-05 "die Kacheln, die das noch nicht entdeckte Gebiet markieren, sehen in MR aus wie
+    // grünes Glas — gleicher Look, gleiche Animation, aber keine Transparenz"). Each entry is one
+    // matched source renderer plus the mod-owned underlay CHILD cloned from its mesh; the child
+    // dies with its source (Apparance regenerates tile content constantly — the ModBuild-57 run
+    // accumulated 226 overrides in one session), so teardown is structural, not bookkept.
+    // See ForceUnseenOpaque for the full derivation.
+    private sealed class UnseenUnderlay
     {
-        public Renderer Renderer = null!;
-        public Material[] Originals = null!;
+        public Renderer Source = null!;
+        public int SourceId;          // GetInstanceID at build time (fast dedup-set removal)
+        public Renderer Plate = null!; // the underlay's own MeshRenderer, child of Source
     }
 
-    private static readonly List<PreviewOverride> PreviewOverrides = new(16);
+    private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
 
-    /// <summary>source material instance id → its opaque copy (deduped: several stack slabs share
-    /// one tile material, and they must keep sharing on the copy or batching/state diverge).</summary>
-    private static readonly Dictionary<int, Material> PreviewOpaqueBySource = new(8);
+    /// <summary>Instance ids of every source renderer that already carries an underlay — the
+    /// sweep's dedup test (a linear list scan went quadratic against the regen churn above).</summary>
+    private static readonly HashSet<int> UnseenSources = new(64);
 
+    private static Material? _unseenDarkMat;  // opaque dark plate — key-color-safe, retinted live
+    private static Material? _unseenSkipMat;  // fully invisible — fills a source's opaque slots
+    private static Color _unseenDarkColor;
     private static int _previewScanNextFrame; // throttle (same cadence as the sky sweep)
     private static int _loggedPreviewCount = -1;
     private static bool _previewDiagLogged;
+    private static int _unseenVerboseLogs;    // per-renderer build log cap (see the churn note)
 
     // Sky/background geometry hidden while MR is on (item 2). The scenario backdrop/skydome is
     // opaque mesh geometry, not the skybox — disabled here, re-enabled on restore.
@@ -175,6 +186,33 @@ internal static class MixedReality
 
     /// <summary>Enclosing extent must also clear this fraction of the head far plane (scale-aware).</summary>
     private const float SkyEnclosingFarFraction = 0.1f;
+
+    /// <summary>Shader-name fragment that marks the game's fog-of-war family: `Amp_Basic_Unseen`
+    /// (tools/ShaderOcclusionPatcher/README.md calls it the "X-ray floor tiles" shader). It draws
+    /// BOTH unseen classes — the face-down preview stacks under a tile's 'Preview' node and the
+    /// unseen-AREA hexes inside a REVEALED tile's generated content (the ones behind doors). The
+    /// ModBuild-57 log proves the family: every preview renderer it caught ran this shader, and
+    /// the green-glass hexes it MISSED (no 'Preview' ancestor — they live in the revealed start
+    /// tile) are the same authored family, so the shader is the robust signal, not the node name.</summary>
+    private const string UnseenShaderHint = "Unseen";
+
+    /// <summary>Cap on per-renderer "underlay built" log lines per MR session. Apparance
+    /// regenerates tile content constantly (226 rebuilds of the same two names in the ModBuild-57
+    /// log); after the cap the change-gated count line still tracks the total.</summary>
+    private const int UnseenVerboseLogCap = 12;
+
+    /// <summary>The dark the unseen geometry blends against in MR — outside MR the same geometry
+    /// blends against the unrendered near-black void behind doors, so a dark neutral IS the
+    /// authored background. Mirrors WorldUI.MrBacking's plate neutral family (keep in sync).</summary>
+    private static readonly Color UnseenDark = new(0.12f, 0.11f, 0.10f, 1f);
+
+    /// <summary>Key-avoidance lift (same rule and values as WorldUI.MrBacking): when the live key
+    /// colour comes within keying distance of the dark neutral (only the BLACK preset does), the
+    /// underlay brightens so no compositor threshold can key the backing away.</summary>
+    private static readonly Color UnseenLift = new(0.34f, 0.30f, 0.25f, 1f);
+
+    /// <summary>Per-channel distance below which the underlay counts as key-colored.</summary>
+    private const float UnseenKeyDistance = 0.25f;
 
     /// <summary>Material/shader/name fragments that mark a renderer as sky/background.</summary>
     private static readonly string[] SkyNameHints =
@@ -244,13 +282,17 @@ internal static class MixedReality
             "green / magenta / blue; any RGBA is accepted here.");
         OpaquePreviewTiles = _file.Bind("MixedReality", "OpaquePreviewTiles", Defaults.OpaquePreviewTiles,
             "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
-            "VR menu). The face-down tile STACKS that mark not-yet-discovered rooms are drawn with " +
-            "translucent materials; over the game's dark table that reads fine, but in MR the " +
-            "chroma key / passthrough room bleeds through them and the stacks look see-through. " +
-            "While MR is on, the sweep finds the renderers under a map tile's active 'Preview' " +
-            "subtree whose materials are translucent and swaps in OPAQUE copies (originals " +
-            "restored exactly when MR turns off — normal mode is never touched). Turn OFF only if " +
-            "a run shows it hardening wanted geometry — the log names every renderer it changed.");
+            "VR menu). ALL of the game's translucent 'unseen' fog-of-war geometry — the face-down " +
+            "tile STACKS of not-yet-discovered rooms AND the unseen-area hexes that mark the " +
+            "undiscovered area behind doors — blends with whatever is behind it; over the game's " +
+            "dark void that reads fine, but in MR the chroma key / passthrough room shows through " +
+            "and it all looks like green glass. While MR is on, the sweep finds those renderers " +
+            "(the 'Unseen' shader family, plus anything translucent under a tile's active " +
+            "'Preview' subtree) and slips an OPAQUE dark backing mesh UNDER each one — the " +
+            "authored translucent material keeps rendering exactly as designed, look and " +
+            "animation untouched, it just blends against dark instead of against your room. The " +
+            "backings are destroyed when MR turns off — normal mode is never touched. Turn OFF " +
+            "only if a run shows it darkening wanted geometry — the log names what it backed.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -366,12 +408,14 @@ internal static class MixedReality
         //    the key color never shows until the mesh itself is disabled.
         HideSkyGeometry();
 
-        // 5) Force the undiscovered-room PREVIEW tile stacks OPAQUE (user ruling 2026-08-04).
-        //    Their translucent materials blend with whatever is behind them — over the key colour
-        //    that mix lands inside the compositor's similarity window, so the real room shows
-        //    through the stacks. Materials only, copies only, restored on MR off; normal mode is
-        //    bit-identical because none of this runs while MR is off.
-        ForcePreviewTilesOpaque();
+        // 5) Back ALL translucent "unseen" fog-of-war geometry — the preview tile stacks AND the
+        //    unseen-area hexes inside revealed tiles — with opaque dark underlays (user rulings
+        //    2026-08-04 + 2026-08-05). Their translucent materials blend with whatever is behind
+        //    them — over the key colour that mix lands inside the compositor's similarity window,
+        //    so the real room shows through. Mod-owned child meshes only, the authored materials
+        //    are never touched, everything destroyed on MR off; normal mode is bit-identical
+        //    because none of this runs while MR is off.
+        ForceUnseenOpaque();
 
         _active = true;
         if (!_loggedActive || _loggedColor != key)
@@ -541,106 +585,120 @@ internal static class MixedReality
         return m != null && m.shader != null ? m.shader.name : "<none>";
     }
 
-    // ---- undiscovered-room preview tile stacks (MR opacity) -------------------------------------
+    // ---- "unseen" fog-of-war geometry (MR opaque underlays) -------------------------------------
 
     /// <summary>
-    /// Throttled sweep: find the renderers of the face-down TILE STACKS that mark not-yet-revealed
-    /// rooms and force their translucent materials opaque while MR is on.
+    /// Throttled sweep: find ALL translucent "unseen" fog-of-war renderers — the face-down TILE
+    /// STACKS of not-yet-revealed rooms and the unseen-AREA hexes inside revealed tiles — and slip
+    /// an OPAQUE DARK UNDERLAY under each while MR is on.
     ///
-    /// HOW THE STACKS ARE IDENTIFIED (read from decompiled source): a hidden room's stand-in is the
-    /// 'Preview' child of a map tile's 'Generated Content' — <c>ProceduralMapTile.ShowContent</c>
-    /// activates exactly that child while <c>visibility</c> is Preview* and swaps it for the full
-    /// room content on reveal (decompiled ProceduralMapTile.cs:148). So "a renderer whose ancestor
-    /// chain contains an ACTIVE node named 'Preview'" is the game's own definition of preview
-    /// content, needs no name guessing about the Apparance-generated leaves (the 'EN_Unseen_…'
-    /// hexes), and automatically stops matching the moment a room is revealed (the node
-    /// deactivates, the renderer leaves the active set).
+    /// HOW THE GEOMETRY IS IDENTIFIED (read from the ModBuild-57 log + decompiled source): the
+    /// game draws both classes with the <c>Amp_Basic_Unseen</c> shader family
+    /// (<see cref="UnseenShaderHint"/>). The previous round matched only "renderer under an ACTIVE
+    /// 'Preview' ancestor" (<c>ProceduralMapTile.ShowContent</c>, decompiled
+    /// ProceduralMapTile.cs:148) — correct for the stand-in stacks, but the unseen-area hexes
+    /// behind doors are part of a REVEALED tile's generated content (log: the glassy hexes sit in
+    /// MAPTILE 'E', vis=All, while the Preview-vis tiles report 0 renderers — their content is not
+    /// even generated), so the sweep never saw them and they stayed green glass
+    /// (.planning/debug/keine_ausblendung.png, bottom). The match is now the UNION of both
+    /// signals: shader-family membership OR an active 'Preview' ancestor — one mechanism for the
+    /// whole see-through class, and the Preview signal keeps covering any translucent stack
+    /// renderer that might not run the family shader.
     ///
-    /// WHY MATERIAL COPIES AND NOT IN-PLACE EDITS: the preview slabs share game/Apparance-owned
-    /// materials with unknown other users; mutating them would leak MR state into normal rendering
-    /// — the exact class of bug the mutate-and-restore house rule exists to prevent. Each source
-    /// material gets ONE opaque copy (session cache, so shared materials keep being shared), the
-    /// renderer's original sharedMaterials array is recorded verbatim, and restore reassigns it and
-    /// destroys the copies. Only renderers whose material set actually contains a TRANSLUCENT
-    /// member (transparent render queue, or an active alpha blend) are touched — an already-opaque
-    /// stack renderer is skipped, and Lights are never involved at all (renderers only; the
-    /// standing MR constraint "lights must never be hidden" is untouched).
+    /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
+    /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
+    /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
+    /// full-intensity texture, a different look from the authored one. The underlay changes
+    /// NOTHING about the authored rendering: the original renderer keeps its original materials,
+    /// passes and animation, and merely blends against a mod-owned opaque dark mesh (same mesh,
+    /// same transform, drawn at the end of the opaque range) instead of against the chroma key.
+    /// Outside MR the same geometry blends against the unrendered near-black void, so dark IS the
+    /// authored background — same look, same animation, no see-through. The underlay is a CHILD
+    /// of its source renderer: Apparance's constant tile regeneration (226 rebuilds in the
+    /// ModBuild-57 session) destroys and re-creates sources at will, and a child dies with its
+    /// parent — teardown is structural. Per-slot: translucent slots get the dark plate, opaque
+    /// slots get a draws-nothing filler (their own submesh already occludes; a coplanar dark copy
+    /// would z-fight it). Renderers only — Lights are never touched (standing MR constraint), no
+    /// game material is ever written, no <c>_Cull</c> is changed anywhere.
     ///
-    /// Throttled on the sky sweep's cadence; Apparance re-generates tiles mid-scenario, so the
-    /// re-sweep also catches freshly built preview content. Config safety valve:
-    /// <see cref="OpaquePreviewTiles"/> (default on), restoring live when flipped off.
+    /// Throttled on the sky sweep's cadence (the cheap prune/enabled-sync in
+    /// <see cref="SyncUnseenUnderlays"/> runs every tick); config safety valve:
+    /// <see cref="OpaquePreviewTiles"/> (default on, name kept from the preview-only round),
+    /// restoring live when flipped off.
     /// </summary>
-    private static void ForcePreviewTilesOpaque()
+    private static void ForceUnseenOpaque()
     {
         if (!OpaquePreviewTiles.Value)
         {
-            if (PreviewOverrides.Count > 0)
-                RestorePreviewTiles();
+            if (UnseenUnderlays.Count > 0)
+                RestoreUnseenUnderlays();
             return;
         }
+
+        EnsureUnseenMaterials();
+        SyncUnseenUnderlays();
+
         if (Time.frameCount < _previewScanNextFrame)
             return;
         _previewScanNextFrame = Time.frameCount + SkyScanIntervalFrames;
 
-        int previewRenderers = 0;
+        int unseenRenderers = 0;
         Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>(); // active renderers only
         for (int i = 0; i < all.Length; i++)
         {
             Renderer r = all[i];
-            if (r == null || !r.enabled)
+            if (r == null || !r.enabled || !(r is MeshRenderer))
                 continue;
             int layer = r.gameObject.layer;
             if (layer == VRLayers.ModLayer || layer == 5) // never our own visuals / UI hosts
                 continue;
-            if (!UnderPreviewNode(r.transform))
-                continue;
-            previewRenderers++;
-            if (HasPreviewOverride(r))
+            // Never match a mod-owned object — an underlay under a 'Preview' node would otherwise
+            // match the Preview signal and grow an underlay of its own.
+            if (r.gameObject.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal))
                 continue;
 
-            Material[] originals = r.sharedMaterials;
-            if (originals == null || originals.Length == 0)
+            Material[] mats = r.sharedMaterials;
+            if (mats == null || mats.Length == 0)
                 continue;
+            bool family = false;
             bool anyTranslucent = false;
-            for (int mIdx = 0; mIdx < originals.Length; mIdx++)
+            for (int mIdx = 0; mIdx < mats.Length; mIdx++)
             {
-                if (IsTranslucent(originals[mIdx]))
-                {
+                Material? m = mats[mIdx];
+                if (m == null)
+                    continue;
+                if (m.shader != null && m.shader.name.IndexOf(
+                        UnseenShaderHint, StringComparison.OrdinalIgnoreCase) >= 0)
+                    family = true;
+                if (IsTranslucent(m))
                     anyTranslucent = true;
-                    break;
-                }
             }
+            if (!family && !UnderPreviewNode(r.transform))
+                continue;
+            unseenRenderers++;
             if (!anyTranslucent)
+                continue; // already reads solid — nothing shows through it
+            if (UnseenSources.Contains(r.GetInstanceID()))
                 continue;
 
-            var copies = new Material[originals.Length];
-            for (int mIdx = 0; mIdx < originals.Length; mIdx++)
-            {
-                Material src = originals[mIdx];
-                copies[mIdx] = src != null && IsTranslucent(src) ? OpaqueCopyOf(src) : src!;
-            }
-            r.sharedMaterials = copies;
-            PreviewOverrides.Add(new PreviewOverride { Renderer = r, Originals = originals });
-            VRLog.Info("Core", $"MR: preview tile stack '{r.gameObject.name}' forced OPAQUE " +
-                               $"({originals.Length} material slot(s), shader " +
-                               $"'{ShaderName(r)}') — the undiscovered-room stacks must not " +
-                               "let the passthrough room bleed through.");
+            BuildUnseenUnderlay((MeshRenderer)r, mats);
         }
 
-        if (PreviewOverrides.Count != _loggedPreviewCount)
+        if (UnseenUnderlays.Count != _loggedPreviewCount)
         {
-            _loggedPreviewCount = PreviewOverrides.Count;
-            VRLog.Info("Core", $"MR: {PreviewOverrides.Count} undiscovered-room stack renderer(s) " +
-                               "hold opaque material copies (originals restored when MR turns off).");
+            _loggedPreviewCount = UnseenUnderlays.Count;
+            VRLog.Info("Core", $"MR: {UnseenUnderlays.Count} unseen-geometry renderer(s) carry an " +
+                               "opaque dark underlay (authored materials untouched; underlays " +
+                               "destroyed when MR turns off).");
         }
 
-        // One-shot diagnostic for the next hardware run: preview renderers exist but NONE was
+        // One-shot diagnostic for the next hardware run: unseen renderers exist but NONE was
         // translucent by the material test — then the see-through look has another mechanism
         // (per-vertex alpha, a dither keyword, …) and this dump names the shaders to chase.
-        if (previewRenderers > 0 && PreviewOverrides.Count == 0 && !_previewDiagLogged)
+        if (unseenRenderers > 0 && UnseenUnderlays.Count == 0 && !_previewDiagLogged)
         {
             _previewDiagLogged = true;
-            VRLog.Info("Core", $"MR: {previewRenderers} preview-stack renderer(s) found but none " +
+            VRLog.Info("Core", $"MR: {unseenRenderers} unseen-geometry renderer(s) found but none " +
                                "matched the translucency test — dumping their material state:");
             int dumped = 0;
             for (int i = 0; i < all.Length && dumped < 8; i++)
@@ -649,15 +707,141 @@ internal static class MixedReality
                 if (r == null || !r.enabled || !UnderPreviewNode(r.transform))
                     continue;
                 Material? m = r.sharedMaterial;
-                VRLog.Info("Core", $"MR:   preview '{r.gameObject.name}' shader " +
+                VRLog.Info("Core", $"MR:   unseen '{r.gameObject.name}' shader " +
                                    $"'{ShaderName(r)}' queue {(m != null ? m.renderQueue : -1)}.");
                 dumped++;
             }
         }
     }
 
+    /// <summary>
+    /// Build the opaque dark underlay for one matched source renderer: a mod-owned CHILD sharing
+    /// the source's mesh and full transform, dark plate material on the translucent slots,
+    /// draws-nothing filler on the rest (see <see cref="ForceUnseenOpaque"/> for why). Skipped
+    /// silently when the source has no MeshFilter mesh to clone.
+    /// </summary>
+    private static void BuildUnseenUnderlay(MeshRenderer source, Material[] mats)
+    {
+        MeshFilter? filter = source.GetComponent<MeshFilter>();
+        if (filter == null || filter.sharedMesh == null)
+            return;
+
+        var go = new GameObject("GloomhavenVR.MrUnseenUnderlay");
+        go.transform.SetParent(source.transform, worldPositionStays: false);
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.identity;
+        go.transform.localScale = Vector3.one;
+        go.layer = source.gameObject.layer;
+        go.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
+        var plate = go.AddComponent<MeshRenderer>();
+        var plateMats = new Material[mats.Length];
+        int backed = 0;
+        for (int i = 0; i < mats.Length; i++)
+        {
+            bool translucent = IsTranslucent(mats[i]);
+            plateMats[i] = translucent ? _unseenDarkMat! : _unseenSkipMat!;
+            if (translucent)
+                backed++;
+        }
+        plate.sharedMaterials = plateMats;
+        plate.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        plate.receiveShadows = false;
+        plate.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        plate.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+        int id = source.GetInstanceID();
+        UnseenUnderlays.Add(new UnseenUnderlay { Source = source, SourceId = id, Plate = plate });
+        UnseenSources.Add(id);
+        if (_unseenVerboseLogs < UnseenVerboseLogCap)
+        {
+            _unseenVerboseLogs++;
+            VRLog.Info("Core", $"MR: unseen geometry '{source.gameObject.name}' backed by an " +
+                               $"opaque dark underlay ({backed} of {mats.Length} slot(s), shader " +
+                               $"'{ShaderName(source)}') — the fog-of-war look stays authored, " +
+                               "the passthrough room can no longer show through it." +
+                               (_unseenVerboseLogs == UnseenVerboseLogCap
+                                   ? " (Further builds counted, not listed — tile regen churn.)"
+                                   : string.Empty));
+        }
+    }
+
+    /// <summary>
+    /// Per-tick bookkeeping for the underlays: drop entries whose source died (the underlay child
+    /// died with it — Apparance regen; the next throttled sweep re-backs the replacements) and
+    /// mirror the source's <c>enabled</c> flag onto the plate, so anything that fades or disables
+    /// an unseen renderer (reveal transitions, the mod's own visibility systems) never leaves a
+    /// bare dark slab behind.
+    /// </summary>
+    private static void SyncUnseenUnderlays()
+    {
+        for (int i = UnseenUnderlays.Count - 1; i >= 0; i--)
+        {
+            UnseenUnderlay e = UnseenUnderlays[i];
+            if (e.Source == null || e.Plate == null)
+            {
+                if (e.Plate != null) // source renderer died alone (component removal) — clean up
+                    UnityEngine.Object.Destroy(e.Plate.gameObject);
+                UnseenSources.Remove(e.SourceId);
+                UnseenUnderlays.RemoveAt(i);
+                continue;
+            }
+            if (e.Plate.enabled != e.Source.enabled)
+                e.Plate.enabled = e.Source.enabled;
+        }
+    }
+
+    /// <summary>
+    /// The two shared underlay materials, created lazily and retinted live: the DARK plate uses a
+    /// game-shipped unlit shader at the END of the opaque range (queue 2500 — after all real
+    /// opaque/cutout geometry, before every translucent pass), ZTest LEqual, so nearer geometry
+    /// still occludes it while it paints solid dark exactly where the unseen mesh is about to
+    /// blend. The SKIP filler is the same shader fully transparent — it exists only to keep the
+    /// underlay's material array aligned with the source's submesh slots. Key-colour safety as in
+    /// WorldUI.MrBacking: when the live key moves within keying distance of the dark neutral, the
+    /// plate lifts to a brighter warm gray so it can never be keyed away.
+    /// </summary>
+    private static void EnsureUnseenMaterials()
+    {
+        Color key = KeyColor.Value;
+        bool nearKey = Mathf.Abs(key.r - UnseenDark.r) < UnseenKeyDistance
+                       && Mathf.Abs(key.g - UnseenDark.g) < UnseenKeyDistance
+                       && Mathf.Abs(key.b - UnseenDark.b) < UnseenKeyDistance;
+        Color wanted = nearKey ? UnseenLift : UnseenDark;
+
+        if (_unseenDarkMat == null)
+        {
+            Shader shader = Shader.Find("Sprites/Default")
+                            ?? Shader.Find("Legacy Shaders/Diffuse")
+                            ?? Shader.Find("Hidden/InternalErrorShader");
+            _unseenDarkMat = new Material(shader)
+            {
+                name = "GloomhavenVR.MrUnseenDark",
+                color = wanted,
+                renderQueue = 2500,
+            };
+            _unseenSkipMat = new Material(shader)
+            {
+                name = "GloomhavenVR.MrUnseenSkip",
+                color = new Color(0f, 0f, 0f, 0f), // alpha 0: rasterized to nothing, writes nothing
+                renderQueue = 2500,
+            };
+            _unseenDarkColor = wanted;
+            return;
+        }
+        if (_unseenDarkColor != wanted)
+        {
+            _unseenDarkColor = wanted;
+            _unseenDarkMat.color = wanted;
+            VRLog.Info("Core", $"MR: key color moved near the unseen-underlay neutral — underlay " +
+                               $"re-tinted to RGBA {wanted.r:0.##},{wanted.g:0.##},{wanted.b:0.##},1 " +
+                               "so it can never be chroma-keyed away.");
+        }
+    }
+
     /// <summary>True when an ACTIVE ancestor named 'Preview' sits above <paramref name="t"/> —
     /// the node <c>ProceduralMapTile.ShowContent</c> toggles for a hidden room's stand-in stack.
+    /// One of the two match signals of <see cref="ForceUnseenOpaque"/> (the other is the 'Unseen'
+    /// shader family); kept so a translucent stack renderer outside the family stays covered.
     /// Depth-capped: the preview content is generated a handful of levels under the tile.</summary>
     private static bool UnderPreviewNode(Transform t)
     {
@@ -683,69 +867,34 @@ internal static class MixedReality
         return m.HasProperty("_DstBlend") && m.GetInt("_DstBlend") != 0;
     }
 
-    /// <summary>The session-cached OPAQUE copy of <paramref name="src"/>: same shader, blend
-    /// forced to One/Zero with depth write, blend keywords off, geometry queue, alpha 1. The
-    /// source material is never written.</summary>
-    private static Material OpaqueCopyOf(Material src)
+    /// <summary>Destroy every underlay child and the two shared materials — MR off / VR stop /
+    /// hot reload / the safety valve flipping off. The sources' own materials were never touched,
+    /// so there is nothing to reassign; underlays whose source a scene unload already destroyed
+    /// died with it (Unity fake-null) and are simply dropped.</summary>
+    private static void RestoreUnseenUnderlays()
     {
-        int id = src.GetInstanceID();
-        if (PreviewOpaqueBySource.TryGetValue(id, out Material cached) && cached != null)
-            return cached;
-
-        var copy = new Material(src) { name = src.name + " (GloomhavenVR.MrOpaque)" };
-        if (copy.HasProperty("_SrcBlend")) copy.SetInt("_SrcBlend", 1);   // One  ┐ colour = src
-        if (copy.HasProperty("_DstBlend")) copy.SetInt("_DstBlend", 0);   // Zero ┘ (opaque)
-        if (copy.HasProperty("_ZWrite")) copy.SetInt("_ZWrite", 1);       // real surface again
-        if (copy.HasProperty("_Mode")) copy.SetFloat("_Mode", 0f);        // Standard: Opaque mode
-        copy.DisableKeyword("_ALPHABLEND_ON");
-        copy.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        copy.SetOverrideTag("RenderType", "Opaque");
-        copy.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
-        if (copy.HasProperty("_Color"))
+        for (int i = 0; i < UnseenUnderlays.Count; i++)
         {
-            Color c = copy.color;
-            if (c.a < 1f)
-            {
-                c.a = 1f;
-                copy.color = c;
-            }
+            Renderer plate = UnseenUnderlays[i].Plate;
+            if (plate != null)
+                UnityEngine.Object.Destroy(plate.gameObject);
         }
-        PreviewOpaqueBySource[id] = copy;
-        return copy;
-    }
-
-    /// <summary>True when <paramref name="r"/> already carries an opaque-copy override.</summary>
-    private static bool HasPreviewOverride(Renderer r)
-    {
-        for (int i = 0; i < PreviewOverrides.Count; i++)
+        UnseenUnderlays.Clear();
+        UnseenSources.Clear();
+        if (_unseenDarkMat != null)
         {
-            if (ReferenceEquals(PreviewOverrides[i].Renderer, r))
-                return true;
+            UnityEngine.Object.Destroy(_unseenDarkMat);
+            _unseenDarkMat = null;
         }
-        return false;
-    }
-
-    /// <summary>Reassign every recorded original material array and destroy the opaque copies —
-    /// MR off / VR stop / hot reload / the safety valve flipping off. Renderers destroyed by a
-    /// scene unload (Unity fake-null) are simply dropped; their materials died with them.</summary>
-    private static void RestorePreviewTiles()
-    {
-        for (int i = 0; i < PreviewOverrides.Count; i++)
+        if (_unseenSkipMat != null)
         {
-            Renderer r = PreviewOverrides[i].Renderer;
-            if (r != null)
-                r.sharedMaterials = PreviewOverrides[i].Originals;
+            UnityEngine.Object.Destroy(_unseenSkipMat);
+            _unseenSkipMat = null;
         }
-        PreviewOverrides.Clear();
-        foreach (KeyValuePair<int, Material> pair in PreviewOpaqueBySource)
-        {
-            if (pair.Value != null)
-                UnityEngine.Object.Destroy(pair.Value);
-        }
-        PreviewOpaqueBySource.Clear();
         _previewScanNextFrame = 0;
         _loggedPreviewCount = -1;
         _previewDiagLogged = false;
+        _unseenVerboseLogs = 0;
     }
 
     private static void RestoreSky()
@@ -801,17 +950,18 @@ internal static class MixedReality
         int skyRestored = HiddenSky.Count;
         RestoreSky();
 
-        int previewRestored = PreviewOverrides.Count;
-        RestorePreviewTiles();
+        int unseenRestored = UnseenUnderlays.Count;
+        RestoreUnseenUnderlays();
 
         bool wasActive = _active;
         _active = false;
         if (wasActive && _loggedActive)
         {
             _loggedActive = false;
-            VRLog.Info("Core", $"Mixed reality OFF — skybox, {restored} camera clear(s), " +
-                               $"{skyRestored} sky renderer(s) and {previewRestored} preview-stack " +
-                               "material set(s) restored to vanilla.");
+            VRLog.Info("Core", $"Mixed reality OFF — skybox and {restored} camera clear(s) " +
+                               $"restored, {skyRestored} sky renderer(s) re-enabled and " +
+                               $"{unseenRestored} unseen-geometry underlay(s) destroyed " +
+                               "(authored materials were never touched) — back to vanilla.");
         }
     }
 
@@ -843,13 +993,16 @@ internal static class MixedReality
         _skyDiagLogged = false;
         _loggedSkyCount = -1;
 
-        // Same for the preview-stack overrides: a renderer the unload destroyed took its material
-        // copies with it — drop the entry, keep the shared copy cache (materials survive unloads
-        // only if we own them, and we do), and let the next MR tick re-sweep the new scene.
-        for (int i = PreviewOverrides.Count - 1; i >= 0; i--)
+        // Same for the unseen underlays: a source the unload destroyed took its underlay child
+        // with it — drop the entry (the shared dark/skip materials are mod-owned and survive),
+        // and let the next MR tick re-sweep the new scene.
+        for (int i = UnseenUnderlays.Count - 1; i >= 0; i--)
         {
-            if (PreviewOverrides[i].Renderer == null)
-                PreviewOverrides.RemoveAt(i);
+            if (UnseenUnderlays[i].Source == null)
+            {
+                UnseenSources.Remove(UnseenUnderlays[i].SourceId);
+                UnseenUnderlays.RemoveAt(i);
+            }
         }
         _previewScanNextFrame = 0;
         _previewDiagLogged = false;

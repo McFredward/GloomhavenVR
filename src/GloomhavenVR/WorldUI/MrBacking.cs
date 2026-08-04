@@ -43,6 +43,24 @@ namespace GloomhavenVR.WorldUI;
 /// LEqual. Without the bundle the material falls back to Sprites/Default at the same queue:
 /// no depth write, but the plate still draws before its content — readable either way.
 ///
+/// PLATE SORTING ORDER — the plate RIDES ITS PANEL'S LADDER SLOT (user report 2026-08-05, MR:
+/// "menus that are further back shine THROUGH nearer ones"). Unity resolves transparent
+/// renderers by sortingLayer → sortingOrder FIRST and only then by material renderQueue, and
+/// every converted panel composites on the per-frame distance ladder
+/// (CanvasConversion.8.Order.cs: base 100, step 16, nearer = higher order = painted later; NO
+/// panel writes depth). A plate left at sortingOrder 0 therefore painted before EVERY panel
+/// canvas — so a FARTHER panel's rows painted over a NEARER panel's dark backing, exactly the
+/// bleed-through in .planning/debug/keine_ausblendung.png (top right). Each panel plate now
+/// registers as an ORDER FOLLOWER of its own panel at OFFSET 0: same sortingOrder as the
+/// panel's content, where the plate's EARLIER renderQueue (2998 vs the content's ~3000) is the
+/// tie-break that keeps it just under its own content — the intra-panel contract the queue
+/// split has always expressed — while the slot itself puts it ABOVE every farther panel's
+/// content AND above the board-furniture band (whose top is slot−1; offset −1 would tie with
+/// it, offset 0 cannot). Label plates get the same treatment by copying their label renderer's
+/// LIVE sortingOrder each tick (identity tags ride the ladder via
+/// CanvasConversion.OrderAboveDistance — see Net/BoardVisual.OrderWithPanels — so their plates
+/// must follow; a plain order-0 caption keeps a plain order-0 plate, bit-identical to before).
+///
 /// KEY-COLOR SAFETY: the plate must NEVER render the chroma key (it would punch a passthrough
 /// hole exactly where readability was wanted). Presets are green/magenta/blue/black — the
 /// saturated keys are nowhere near the dark panel neutral, but the BLACK preset is close to
@@ -61,10 +79,12 @@ internal static class MrBacking
     private const float LabelPadFraction = 0.12f;
     private const float LabelPadFloorMeters = 0.004f;
 
-    /// <summary>After opaque geometry, before the text/uGUI it backs (3000). Below the panel draw
-    /// ladder (CanvasConversion.PanelOrderBase = 100) on the order axis too, which is the same
-    /// "the plate composites before the content it backs" contract the renderer's sortingOrder 0
-    /// has always expressed.</summary>
+    /// <summary>After opaque geometry, before the text/uGUI it backs (3000). Since the plate now
+    /// SHARES its content's sortingOrder (panel plates ride their panel's ladder slot at follower
+    /// offset 0, label plates copy their label renderer's live order — see the class doc), this
+    /// queue is the tie-break that draws the plate first WITHIN that shared slot: "the plate
+    /// composites before the content it backs", the same contract sortingOrder 0 used to express
+    /// before the ladder existed.</summary>
     private const int PlateQueue = 2998;
 
     /// <summary>The repo's dark panel neutral (RoundReadout/slot plates use the same family).</summary>
@@ -82,6 +102,17 @@ internal static class MrBacking
     {
         public TMP_Text Label = null!;
         public Transform? Plate;
+
+        /// <summary>The plate's own MeshRenderer (cached at creation — sortingOrder sync target).</summary>
+        public Renderer? PlateRenderer;
+
+        /// <summary>The LABEL's renderer, probed once: a world TMP label draws through a
+        /// MeshRenderer on its own GameObject, and call sites that rank against the panel ladder
+        /// (Net/BoardVisual.OrderWithPanels) write their live order onto exactly that renderer —
+        /// the plate copies it each tick. Null for a label without one (then the plate keeps
+        /// order 0, the pre-ladder behaviour).</summary>
+        public Renderer? LabelRenderer;
+        public bool LabelRendererProbed;
     }
 
     private sealed class PanelEntry
@@ -237,11 +268,28 @@ internal static class MrBacking
                 if (!visible)
                     continue; // nothing to back yet — create lazily on first visible tick
                 e.Plate = CreatePlate(rect);
+                e.PlateRenderer = e.Plate.GetComponent<MeshRenderer>();
             }
             if (e.Plate.gameObject.activeSelf != visible)
                 e.Plate.gameObject.SetActive(visible);
             if (!visible)
                 continue;
+
+            // Perspective (class doc, PLATE SORTING ORDER): the plate copies its label renderer's
+            // LIVE sortingOrder every tick. Labels ranked against the converted-panel ladder
+            // (identity tags via CanvasConversion.OrderAboveDistance) drag their plate with them
+            // — same slot, earlier queue draws the plate just under the glyphs and above every
+            // panel genuinely farther. An unranked order-0 label keeps an order-0 plate.
+            if (!e.LabelRendererProbed)
+            {
+                e.LabelRendererProbed = true;
+                e.LabelRenderer = e.Label.GetComponent<Renderer>();
+            }
+            if (e.LabelRenderer != null && e.PlateRenderer != null
+                && e.PlateRenderer.sortingOrder != e.LabelRenderer.sortingOrder)
+            {
+                e.PlateRenderer.sortingOrder = e.LabelRenderer.sortingOrder;
+            }
 
             // Hug the RENDERED glyph bounds, clamped to the layout box: the TmpFit box is a
             // tight fit already, but some labels sit in a much larger layout rect (the starting
@@ -327,6 +375,14 @@ internal static class MrBacking
                 if (!visible)
                     continue;
                 entry.Plate = CreatePlate(host);
+                // Perspective (class doc, PLATE SORTING ORDER): ride the panel's own ladder slot.
+                // Offset 0 = the content's sortingOrder, where the plate's earlier renderQueue
+                // (2998 vs ~3000) draws it just UNDER its own content — and the slot itself puts
+                // it ABOVE every farther panel's content, so a menu behind this one can no longer
+                // paint through this plate. Re-stamped by ApplyPanelOrder on every ladder resort;
+                // the follower entry self-prunes when the plate is destroyed.
+                CanvasConversion.RegisterOrderFollower(
+                    panel, entry.Plate.GetComponent<MeshRenderer>(), 0);
             }
             if (entry.Plate.gameObject.activeSelf != visible)
                 entry.Plate.gameObject.SetActive(visible);
@@ -490,8 +546,11 @@ internal static class MrBacking
         mr.receiveShadows = false;
         mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-        // sortingOrder stays 0 — below every host canvas (modals: 1000), so on the sorting
-        // axis too the plate composites BEFORE the content it backs.
+        // sortingOrder starts at 0 but does NOT stay there: the callers slave it to the content
+        // the plate backs (panel plates ride their panel's ladder slot as offset-0 order
+        // followers, label plates copy their label renderer's live order each tick) — see the
+        // class doc, PLATE SORTING ORDER. Within the shared slot the plate's earlier renderQueue
+        // (2998 vs the content's ~3000) still draws it first.
         return go.transform;
     }
 
