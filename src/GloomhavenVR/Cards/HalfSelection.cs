@@ -565,6 +565,60 @@ internal sealed class HalfSelection
         return false; // stale registry entry (card left the layout) — reads as "no hover"
     }
 
+    /// <summary>
+    /// The persistently SELECTED half of each docked round card (follow-up defect 2026-08-04:
+    /// "Ich will auch sehen, welche Hälfte der Mitspieler GEKLICKT hat — die wird dauerhaft
+    /// hervorgehoben, und auch das Abwählen muss sichtbar sein"): per board slot,
+    /// <see cref="Net.NetProtocol.HalfSelectNone"/> / <c>…Top</c> / <c>…Bottom</c>.
+    ///
+    /// READ FROM THE GAME'S OWN LATCH, per half: <c>FullAbilityCardAction.isSelected</c> (set by
+    /// <c>ToggleSelect</c>, which is what <c>CardsActionControlller</c> drives on click and on
+    /// undo — the exact latch <c>RefreshHighlight</c> turns into the STEADY
+    /// <c>CardActionHighlight.ShowSelected</c> overlay) plus its <c>isSelectedDefaultAction</c>
+    /// twin (clicking the default "Attack 2"/"Move 2" chip selects the half the same way and
+    /// lights the same region). Polling the widget latch rather than the controller's phase
+    /// fields means click, undo, extra-turn re-init and every other path the game itself uses
+    /// to change the highlight are covered by construction. Zeros while the action-selection
+    /// layout is hidden — a selection nobody's board displays must not ride the wire.
+    /// </summary>
+    internal static void SampleLocalSelection(out int sel0, out int sel1)
+    {
+        sel0 = Net.NetProtocol.HalfSelectNone;
+        sel1 = Net.NetProtocol.HalfSelectNone;
+        HalfSelection? self = s_active;
+        if (self == null || !self.IsVisible)
+            return;
+        for (int i = 0; i < self._cards.Count && i < 2; i++)
+        {
+            int sel = SelectedHalfOf(self._cards[i]);
+            if (i == 0) sel0 = sel;
+            else sel1 = sel;
+        }
+    }
+
+    /// <summary>One card's selected half off the game's own per-half latches (guarded — a card
+    /// mid-teardown reads as none, never throws inside the extras sender).</summary>
+    private static int SelectedHalfOf(VRCard? card)
+    {
+        try
+        {
+            FullAbilityCard? full = card != null ? card.FullCard : null;
+            if (full == null)
+                return Net.NetProtocol.HalfSelectNone;
+            FullAbilityCardAction? top = full.topActionButton;
+            if (top != null && (top.isSelected || top.isSelectedDefaultAction))
+                return Net.NetProtocol.HalfSelectTop;
+            FullAbilityCardAction? bottom = full.bottomActionButton;
+            if (bottom != null && (bottom.isSelected || bottom.isSelectedDefaultAction))
+                return Net.NetProtocol.HalfSelectBottom;
+        }
+        catch
+        {
+            // fall through — none
+        }
+        return Net.NetProtocol.HalfSelectNone;
+    }
+
     internal void RequestPlay(VRCard card, CBaseCard.ActionType type)
     {
         try

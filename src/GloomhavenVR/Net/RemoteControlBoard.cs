@@ -505,16 +505,22 @@ internal sealed class RemoteControlBoard
         // so the slot can find that player's own card widget to clone — it is never written to.
         SeatSlots(actor, showFronts);
 
-        // HALF HOVER (extension record 14): glow the action half the OWNER's pointer is on, on
-        // the same slot card of this mirrored board — per frame (the drive is two change-gated
-        // calls) so the glow lands with the synced edge, not on the 4 Hz content cadence.
-        // Rendered whether the slot shows a face, an identity-known back or an anonymous back:
-        // the owner is hovering a REGION of their board, and that region exists here in all
-        // three states. An empty slot cannot glow (the quads live under the slot's hidden root).
+        // HALF HOVER + SELECTION (extension record 14): glow the action half the OWNER's pointer
+        // is on (pulsing) and the half they have CLICKED (steady — the game's own presentation
+        // split), on the same slot cards of this mirrored board — per frame (the drive is
+        // change-gated flips plus one pulsing colour write) so the glow lands with the synced
+        // edge, not on the 4 Hz content cadence. Rendered whether the slot shows a face, an
+        // identity-known back or an anonymous back: the owner is hovering/clicking a REGION of
+        // their board, and that region exists here in all three states. An empty slot cannot
+        // glow (the quads live under the slot's hidden root).
         for (int s = 0; s < SlotCount; s++)
-            _cards[s]?.SetHalfHover(_owner.HalfHoverSlot == s
-                ? (_owner.HalfHoverTop ? 1 : 0)
-                : -1);
+        {
+            int hover = _owner.HalfHoverSlot == s ? (_owner.HalfHoverTop ? 1 : 0) : -1;
+            int selWire = s == 0 ? _owner.HalfSelect0 : _owner.HalfSelect1;
+            int sel = selWire == NetProtocol.HalfSelectTop ? 1
+                : selWire == NetProtocol.HalfSelectBottom ? 0 : -1;
+            _cards[s]?.SetHalfStates(hover, sel);
+        }
         LogHalfHoverIfChanged();
 
         _tag!.Tick();
@@ -652,28 +658,33 @@ internal sealed class RemoteControlBoard
         }
     }
 
-    /// <summary>Last stated half-hover (slot | top&lt;&lt;8, -1 none; int.MinValue never) — the
-    /// change gate for the render-path evidence line below.</summary>
+    /// <summary>Last stated half state (hover slot|top plus the two selection fields, packed;
+    /// int.MinValue never) — the change gate for the render-path evidence line below.</summary>
     private int _loggedHalfHover = int.MinValue;
 
-    /// <summary>Change-gated evidence that the synced half hover reached the render path
-    /// (grep: "Remote board half-hover").</summary>
+    /// <summary>Change-gated evidence that the synced half hover AND click state reached the
+    /// render path (grep: "Remote board half-hover").</summary>
     private void LogHalfHoverIfChanged()
     {
-        int now = _owner.HalfHoverSlot >= 0
+        int hoverKey = _owner.HalfHoverSlot >= 0
             ? _owner.HalfHoverSlot | (_owner.HalfHoverTop ? 1 << 8 : 0)
             : -1;
+        int now = (hoverKey + 2) | (_owner.HalfSelect0 << 16) | (_owner.HalfSelect1 << 20);
         if (now == _loggedHalfHover)
             return;
         _loggedHalfHover = now;
+        string Sel(int v) => v == NetProtocol.HalfSelectTop ? "TOP"
+            : v == NetProtocol.HalfSelectBottom ? "BOTTOM" : "none";
         VRLog.Info("Net", $"Remote board half-hover [{_owner.PlayerId}]: " +
-                          (now >= 0
-                              ? $"slot {_owner.HalfHoverSlot + 1}, " +
-                                $"{(_owner.HalfHoverTop ? "TOP" : "BOTTOM")} half glows " +
-                                "(extension record 14 — a slot position and a half, no card " +
-                                "identity; the shared telegraph gold over the zone the owner's " +
-                                "pointer is in)."
-                              : "none (glow cleared)."));
+                          (hoverKey >= 0
+                              ? $"slot {_owner.HalfHoverSlot + 1} " +
+                                $"{(_owner.HalfHoverTop ? "TOP" : "BOTTOM")} half pulses"
+                              : "no hover") +
+                          $"; clicked: slot 1 = {Sel(_owner.HalfSelect0)}, " +
+                          $"slot 2 = {Sel(_owner.HalfSelect1)} (steady) — extension record 14: " +
+                          "slot positions and halves only, no card identity; pulse = the owner's " +
+                          "pointer, steady = their committed click (cleared by their undo), the " +
+                          "same two-state split their own card shows.");
     }
 
     /// <summary>

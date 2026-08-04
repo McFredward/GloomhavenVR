@@ -347,13 +347,27 @@ internal struct PresenceState
     /// </summary>
     public bool HasHalfHover;
 
+    /// <summary>True when byte 0 of the record carries a live HOVER (meaningful only when
+    /// <see cref="HasHalfHover"/>). False = the record rides for a SELECTION alone; byte 0 then
+    /// holds the <see cref="NetProtocol.HalfHoverNoneSlot"/> sentinel.</summary>
+    public bool HalfHoverActive;
+
     /// <summary>Board slot (0 = left/Slot1, 1 = right/Slot2) of the card whose half the sender is
-    /// hovering (meaningful only when <see cref="HasHalfHover"/>).</summary>
+    /// hovering (meaningful only when <see cref="HalfHoverActive"/>).</summary>
     public byte HalfHoverSlot;
 
     /// <summary>True when the hovered half is the TOP action, false = bottom (meaningful only when
-    /// <see cref="HasHalfHover"/>).</summary>
+    /// <see cref="HalfHoverActive"/>).</summary>
     public bool HalfHoverTop;
+
+    /// <summary>Slot 0's persistently SELECTED half — the game's own steady click highlight:
+    /// <see cref="NetProtocol.HalfSelectNone"/> / <see cref="NetProtocol.HalfSelectTop"/> /
+    /// <see cref="NetProtocol.HalfSelectBottom"/> (meaningful only when
+    /// <see cref="HasHalfHover"/>).</summary>
+    public byte HalfSelect0;
+
+    /// <summary>Slot 1's persistently selected half, same encoding as <see cref="HalfSelect0"/>.</summary>
+    public byte HalfSelect1;
 
     /// <summary>
     /// True when this packet names the INITIATIVE-TRACK entry the sender is hovering (extension
@@ -472,9 +486,11 @@ internal struct PresenceState
 ///                        sender's CONFIRM cap (bit0) and docked SKIP button (bit1), each capped;
 ///                        written ONLY while a cap is visible with a known label, see
 ///                        NetProtocol.ExtIdCapLabels),
-///                        14 HALF HOVER (1 B: bits0..1 board slot, bit2 top half — the action half
-///                        the sender is hovering in their action-selection layout; only while lit,
-///                        see NetProtocol.ExtIdHalfHover),
+///                        14 HALF HOVER + SELECTION (2 B: byte0 hover — bits0..1 board slot with
+///                        3 = no hover, bit2 top half; byte1 the persistent CLICK state — one
+///                        2-bit none/top/bottom field per slot — the game's steady half highlight
+///                        after a click, cleared by undo; written while a half is hovered OR
+///                        selected, see NetProtocol.ExtIdHalfHover),
 ///                        15 PILE COUNTS ([discard][burnt][items] — the numbers the sender's own
 ///                        stack labels display; sent on EVERY packet while those stacks are shown,
 ///                        absence = pre-record peer ⇒ legacy model-read counts, see
@@ -518,8 +534,8 @@ internal static class PresenceSerializer
     /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
     /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
-    /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 3 (half hover: 2 + 1)
-    /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5) = 717, rounded up to 736 for headroom.
+    /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 4 (half hover+select: 2 + 2)
+    /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5) = 718, still inside the 736 headroom.
     /// Local buffer bound only — nothing on the wire depends on it, and every variable-length
     /// record still bounds-checks against the real buffer before writing.</summary>
     public const int MaxSize = 736;
@@ -839,18 +855,28 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
-                if (state.HasHalfHover && i + 3 <= buffer.Length)
+                if (state.HasHalfHover
+                    && i + 2 + NetProtocol.HalfHoverRecordBytes <= buffer.Length)
                 {
-                    // HALF HOVER (14): one masked byte — board slot (bits 0..1) + top-half bit. A
-                    // slot POSITION and a half, never a card identity. Written only while a half
-                    // is really lit, so an idle packet stays byte-identical to the previous
-                    // build's. Appended in id order behind every record that already existed.
-                    byte half = (byte)(state.HalfHoverSlot & NetProtocol.HalfHoverSlotMask);
-                    if (state.HalfHoverTop)
+                    // HALF HOVER + SELECTION (14): [byte0 hover][byte1 selection]. Byte 0 is the
+                    // transient pointer hover — board slot (bits 0..1, the HalfHoverNoneSlot
+                    // sentinel when the record rides for a selection alone) + top-half bit.
+                    // Byte 1 is the persistent CLICK state, one 2-bit none/top/bottom field per
+                    // slot. Slot POSITIONS and halves, never a card identity. Written only while
+                    // a half is hovered OR selected, so an idle packet stays byte-identical to
+                    // the previous build's. Appended in id order behind every existing record.
+                    byte half = state.HalfHoverActive
+                        ? (byte)(state.HalfHoverSlot & NetProtocol.HalfHoverSlotMask)
+                        : NetProtocol.HalfHoverNoneSlot;
+                    if (state.HalfHoverActive && state.HalfHoverTop)
                         half |= NetProtocol.HalfHoverTopBit;
+                    byte select = (byte)(NetProtocol.EncodeHalfSelect(state.HalfSelect0)
+                                         | NetProtocol.EncodeHalfSelect(state.HalfSelect1)
+                                           << NetProtocol.HalfSelectBitsPerSlot);
                     buffer[i++] = NetProtocol.ExtIdHalfHover;
-                    buffer[i++] = 1;
+                    buffer[i++] = (byte)NetProtocol.HalfHoverRecordBytes;
                     buffer[i++] = (byte)(half & NetProtocol.HalfHoverDefinedMask);
+                    buffer[i++] = (byte)(select & NetProtocol.HalfSelectDefinedMask);
                     records++;
                 }
                 if (state.HasPileCounts
@@ -1364,19 +1390,36 @@ internal static class PresenceSerializer
                             state.BoardTooltipText = tip;
                         }
                     }
-                    else if (id == NetProtocol.ExtIdHalfHover && len >= 1)
+                    else if (id == NetProtocol.ExtIdHalfHover
+                             && len >= NetProtocol.HalfHoverRecordBytes)
                     {
-                        // HALF HOVER: one masked byte. The slot is validated against the board's
-                        // structural slot count — a slot the board does not have (a corrupt byte,
-                        // or a future board shape this build predates) degrades to "record
-                        // absent" = no half lit, never to a glow on the wrong recess.
+                        // HALF HOVER + SELECTION: [byte0 hover][byte1 selection], both masked.
+                        // Byte 0's slot is validated against the board's structural slot count —
+                        // a slot the board does not have (a corrupt byte, or a future board
+                        // shape this build predates) and the HalfHoverNoneSlot sentinel both
+                        // read as "no hover", never as a glow on the wrong recess. Byte 1's
+                        // per-slot fields decode through EncodeHalfSelect, so the invalid value
+                        // 3 degrades to "none" (never trust the wire). A record whose hover AND
+                        // both selections all decode to nothing is dropped whole — identical to
+                        // "record absent", which is what the writer emits for that state anyway.
                         byte half = (byte)(buffer[i] & NetProtocol.HalfHoverDefinedMask);
                         int slot = half & NetProtocol.HalfHoverSlotMask;
-                        if (slot < NetProtocol.BoardUiSlotCount)
+                        bool hover = slot < NetProtocol.BoardUiSlotCount;
+                        byte select = (byte)(buffer[i + 1] & NetProtocol.HalfSelectDefinedMask);
+                        byte sel0 = NetProtocol.EncodeHalfSelect(
+                            select & NetProtocol.HalfSelectFieldMask);
+                        byte sel1 = NetProtocol.EncodeHalfSelect(
+                            (select >> NetProtocol.HalfSelectBitsPerSlot)
+                            & NetProtocol.HalfSelectFieldMask);
+                        if (hover || sel0 != NetProtocol.HalfSelectNone
+                                  || sel1 != NetProtocol.HalfSelectNone)
                         {
                             state.HasHalfHover = true;
-                            state.HalfHoverSlot = (byte)slot;
-                            state.HalfHoverTop = (half & NetProtocol.HalfHoverTopBit) != 0;
+                            state.HalfHoverActive = hover;
+                            state.HalfHoverSlot = hover ? (byte)slot : (byte)0;
+                            state.HalfHoverTop = hover && (half & NetProtocol.HalfHoverTopBit) != 0;
+                            state.HalfSelect0 = sel0;
+                            state.HalfSelect1 = sel1;
                         }
                     }
                     else if (id == NetProtocol.ExtIdPileCounts
