@@ -1190,6 +1190,213 @@ internal static class GoldenVectors
         t.True(rigCard.HeldCardPose.Position == new Vector3(-1f, -2f, 0.5f),
                "at the same pose bytes record 10 reuses");
 
+        // -- 7l. DECISION LINES (extension record 12) --------------------------------------
+        // The board-UI record's decision bit only says THAT a prompt is docked; peers drew a
+        // generic empty drawer. The docked widgets are LOCAL UI on the deciding player's client,
+        // so their BUTTON LABELS ride the tail as one '\n'-joined UTF8 blob — pressable-widget
+        // labels only, never a dialog's description text (which can name a card).
+        t.Case("7l. extras, decision-lines record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionLines = true, DecisionLinesText = "Ja\nNein",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            0C 07            // record: id 12 (decision lines), len 7
+            4A 61 0A 4E 65 69 6E   // UTF8 'Ja\nNein' -- one label per line
+            "), ext, m, "the decision-lines record is [id 12][len][UTF8 '\\n'-joined labels]");
+        t.Equal(20, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 7 = 20 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState dl), "and it parses");
+        t.True(dl.HasDecisionLines, "the decision lines are delivered");
+        t.Equal("Ja\nNein", dl.DecisionLinesText ?? string.Empty, "byte-exact, lines intact");
+
+        // ABSENT WHEN NO ROW IS DOCKED: empty text emits no record, no tail, no block — an idle
+        // packet stays byte-identical to the previous build's.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionLines = true, DecisionLinesText = string.Empty, HandCardCount = 5,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "an empty decision-lines text writes no record at all");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noDl), "and it parses");
+        t.True(!noDl.HasDecisionLines, "with HasDecisionLines false (peers show the plain drawer)");
+
+        // BYTE CAP, character boundary: a run of 2-byte glyphs longer than the cap must never be
+        // cut mid-sequence.
+        string longLines = new string('ö', NetProtocol.DecisionLinesMaxBytes);
+        byte[] cappedLines = PresenceSerializer.EncodeDecisionLines(longLines);
+        t.True(cappedLines.Length <= NetProtocol.DecisionLinesMaxBytes,
+               "the encoded decision lines honour the cap");
+        t.Equal(new string('ö', NetProtocol.DecisionLinesMaxBytes / 2),
+                System.Text.Encoding.UTF8.GetString(cappedLines),
+                "and truncated on a character boundary, not mid-glyph");
+        t.True(NetProtocol.DecisionLinesMaxBytes <= 255, "the cap fits a single-byte TLV length");
+
+        // OLD-READER SKIP-BY-LENGTH + future-record-in-front, the standard TLV pair.
+        byte[] oldReaderDl = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00            // byte A extension tail, byte B count 0
+            02               // 2 records
+            63 07 4A 61 0A 4E 65 69 6E   // id 99, len 7 -- record 12 as a PRE-RECORD-12 READER sees it
+            03 07 01 00 30 2E 31 2E 30   // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(oldReaderDl, oldReaderDl.Length, out PresenceState oldDl),
+               "a 7-byte record this build does not know is skipped, and the packet parses");
+        t.True(!oldDl.HasDecisionLines, "the unknown record delivers nothing (pre-record-12 peer)");
+        t.True(oldDl.HasModVersion, "and the record behind it is read past it");
+        byte[] futureDl = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // 2 records
+            63 04 DE AD BE EF// id 99, len 4 -- unknown
+            0C 02 4A 61      // id 12 decision lines 'Ja'
+            ");
+        t.True(PresenceSerializer.TryRead(futureDl, futureDl.Length, out PresenceState futDl),
+               "a packet with an unknown record ahead of the decision lines parses");
+        t.True(futDl.HasDecisionLines, "and the decision lines behind it are still read");
+        t.Equal("Ja", futDl.DecisionLinesText ?? string.Empty, "with their text intact");
+
+        // TRUNCATED record (claims 5 payload bytes, delivers 2): tail abandoned, nothing throws.
+        byte[] cutDl = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0C 05 4A 61");
+        t.True(PresenceSerializer.TryRead(cutDl, cutDl.Length, out PresenceState cutDlS),
+               "a truncated decision-lines record still parses the packet");
+        t.True(!cutDlS.HasDecisionLines, "and the incomplete record is simply not delivered");
+
+        // -- 7m. CAP LABELS (extension record 13) ------------------------------------------
+        // What the sender's CONFIRM cap and docked SKIP button ACTUALLY read — the fix for
+        // "mein Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'": the receiver's neutral
+        // GUI_CONFIRM re-localization is only the fallback now; the record carries the sender's
+        // own displayed string, verbatim, in their language.
+        t.Case("7m. extras, cap-labels record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasConfirmCapLabel = true, ConfirmCapLabel = "OK",
+            HasSkipCapLabel = true, SkipCapLabel = "Skip",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            0D 09            // record: id 13 (cap labels), len 9
+            03               // mask: bit0 confirm + bit1 skip
+            02 4F 4B         // confirm: len 2, UTF8 'OK'
+            04 53 6B 69 70   // skip: len 4, UTF8 'Skip'
+            "), ext, m, "the cap-labels record is [id 13][len][mask][len+UTF8 per set bit, bit order]");
+        t.Equal(22, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 9 = 22 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cl), "and it parses");
+        t.True(cl.HasConfirmCapLabel && cl.HasSkipCapLabel, "both labels are delivered");
+        t.Equal("OK", cl.ConfirmCapLabel ?? string.Empty, "confirm label byte-exact");
+        t.Equal("Skip", cl.SkipCapLabel ?? string.Empty, "skip label byte-exact");
+
+        // ONE label alone: the mask says which block follows — a skip-only record must not be
+        // misread as a confirm label.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasSkipCapLabel = true, SkipCapLabel = "Zug",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            0D 05            // id 13, len 5
+            02               // mask: bit1 skip only
+            03 5A 75 67      // skip: len 3, UTF8 'Zug'
+            "), ext, m, "a skip-only record carries mask bit1 and one block");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState so), "and it parses");
+        t.True(!so.HasConfirmCapLabel, "no confirm label is invented");
+        t.Equal("Zug", so.SkipCapLabel ?? string.Empty, "and the skip label lands in the skip slot");
+
+        // ABSENT WHEN NOTHING IS SHOWN: no labels -> no record, no tail — byte-identical idle.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasConfirmCapLabel = true, ConfirmCapLabel = string.Empty, HandCardCount = 5,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "an empty confirm label writes no record at all");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noCl), "and it parses");
+        t.True(!noCl.HasConfirmCapLabel && !noCl.HasSkipCapLabel,
+               "with both label flags false (peers keep the neutral fallback wording)");
+
+        // BYTE CAP per label, character boundary.
+        string longLabel = new string('ü', NetProtocol.CapLabelMaxBytes);
+        byte[] cappedLabel = PresenceSerializer.EncodeConfirmCapLabel(longLabel);
+        t.True(cappedLabel.Length <= NetProtocol.CapLabelMaxBytes,
+               "the encoded confirm label honours the cap");
+        t.Equal(new string('ü', NetProtocol.CapLabelMaxBytes / 2),
+                System.Text.Encoding.UTF8.GetString(cappedLabel),
+                "and truncated on a character boundary, not mid-glyph");
+        t.True(1 + 2 * (1 + NetProtocol.CapLabelMaxBytes) <= 255,
+               "mask + two capped labels fit a single-byte TLV length");
+
+        // OLD-READER SKIP-BY-LENGTH + future-record-in-front.
+        byte[] oldReaderCl = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // 2 records
+            63 05 03 01 41 01 42          // id 99, len 5 -- record 13 as a pre-record-13 reader sees it
+            03 07 01 00 30 2E 31 2E 30    // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(oldReaderCl, oldReaderCl.Length, out PresenceState oldCl),
+               "a 5-byte record this build does not know is skipped, and the packet parses");
+        t.True(!oldCl.HasConfirmCapLabel && !oldCl.HasSkipCapLabel,
+               "the unknown record delivers nothing (pre-record-13 peer)");
+        t.True(oldCl.HasModVersion, "and the record behind it is read past it");
+        byte[] futureCl = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02
+            63 04 DE AD BE EF// id 99, len 4 -- unknown
+            0D 04 01 02 4F 4B// id 13 cap labels, confirm 'OK'
+            ");
+        t.True(PresenceSerializer.TryRead(futureCl, futureCl.Length, out PresenceState futCl),
+               "a packet with an unknown record ahead of the cap labels parses");
+        t.Equal("OK", futCl.ConfirmCapLabel ?? string.Empty, "and the confirm label is still read");
+
+        // MALFORMED interior: a label length that claims to run past the record's own end is
+        // dropped WITHOUT bleeding into the next record — the sub-reads are bounded by the
+        // record length, and the outer walk still advances by that length.
+        byte[] overrunCl = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02
+            0D 03 01 10 41   // id 13: confirm claims 16 bytes, record only holds 1
+            03 07 01 00 30 2E 31 2E 30    // id 3, mod version behind it
+            ");
+        t.True(PresenceSerializer.TryRead(overrunCl, overrunCl.Length, out PresenceState ovCl),
+               "a cap-labels record whose inner length overruns still parses the packet");
+        t.True(!ovCl.HasConfirmCapLabel, "the overrunning label is simply not delivered");
+        t.True(ovCl.HasModVersion, "and the record BEHIND the malformed one is read intact");
+
+        // TRUNCATED record (claims 9 payload bytes, delivers 3): tail abandoned, nothing throws.
+        byte[] cutCl = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0D 09 03 02 4F");
+        t.True(PresenceSerializer.TryRead(cutCl, cutCl.Length, out PresenceState cutClS),
+               "a truncated cap-labels record still parses the packet");
+        t.True(!cutClS.HasConfirmCapLabel, "and the incomplete record is simply not delivered");
+
+        // ID ORDER: records 12 and 13 ride LAST, behind every record that already existed.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTooltip = true, BoardTooltipText = "A",
+            HasDecisionLines = true, DecisionLinesText = "Ja",
+            HasConfirmCapLabel = true, ConfirmCapLabel = "OK",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            03               // tail: 3 records, in id order
+            09 01 41         // id 9 board tooltip 'A'
+            0C 02 4A 61      // id 12 decision lines 'Ja'
+            0D 04 01 02 4F 4B// id 13 cap labels, confirm 'OK'
+            "), ext, m, "records 12 and 13 ride the tail behind record 9 (id order 9, 12, 13)");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
@@ -1232,7 +1439,13 @@ internal static class GoldenVectors
         foreach (var s in new[] { ExtrasEverything(), ExtrasMaskSizeOnly(), withDefaults,
                                   ExtrasBoardUiAndFanAnchor(), ExtrasSecondFigure(),
                                   ExtrasSecondHeldCard(),
-                                  new PresenceState { HasBoardTooltip = true, BoardTooltipText = "Tip" } })
+                                  new PresenceState { HasBoardTooltip = true, BoardTooltipText = "Tip" },
+                                  new PresenceState { HasDecisionLines = true, DecisionLinesText = "Ja\nNein" },
+                                  new PresenceState
+                                  {
+                                      HasConfirmCapLabel = true, ConfirmCapLabel = "OK",
+                                      HasSkipCapLabel = true, SkipCapLabel = "Skip",
+                                  } })
         {
             int len = PresenceSerializer.Write(s, ext);
             t.True(PresenceSerializer.TryRead(ext, len, out PresenceState plain), "extras parses");
@@ -1335,5 +1548,11 @@ internal static class GoldenVectors
         && x.HasBoardTooltip == y.HasBoardTooltip
         && x.BoardTooltipText == y.BoardTooltipText
         && x.HasSecondHeldCard == y.HasSecondHeldCard
-        && x.SecondHeldCardPose.Position == y.SecondHeldCardPose.Position;
+        && x.SecondHeldCardPose.Position == y.SecondHeldCardPose.Position
+        && x.HasDecisionLines == y.HasDecisionLines
+        && x.DecisionLinesText == y.DecisionLinesText
+        && x.HasConfirmCapLabel == y.HasConfirmCapLabel
+        && x.ConfirmCapLabel == y.ConfirmCapLabel
+        && x.HasSkipCapLabel == y.HasSkipCapLabel
+        && x.SkipCapLabel == y.SkipCapLabel;
 }
