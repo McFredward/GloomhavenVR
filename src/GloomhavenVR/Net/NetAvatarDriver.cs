@@ -281,6 +281,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         NetCardFx.Reset(); // never carry a queued card animation into the next session
         _hasFx = false;
         _lastSentBoardUi = -1;      // next session re-states the board UI from scratch
+        _lastSentPileCounts = int.MinValue;   // and re-states the pile counts…
+        _lastSentHalfHover = int.MinValue;    // …the half hover…
+        _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
