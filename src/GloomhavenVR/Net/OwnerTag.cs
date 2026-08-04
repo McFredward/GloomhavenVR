@@ -38,6 +38,14 @@ internal sealed class OwnerTag
     private string? _shownName;
     private bool _built;
 
+    // The tag's own renderers for the panel-ladder compositing (BoardVisual.OrderWithPanels —
+    // the "Steam logo mixes with the menu behind it" fix; same cache contract as
+    // RemoteNameTag: invalidated by Rebuild, periodically refetched for MrBacking's lazy MR
+    // backing plate, which is ADDED without any entry dying).
+    private Renderer[] _tagRenderers = System.Array.Empty<Renderer>();
+    private int _tagRenderersRefreshAt;
+    private const int TagRenderersRefreshFrames = 90; // ~1 s at 90 Hz, see RemoteNameTag
+
     /// <summary>Build the tag under <paramref name="boardRoot"/> at the given board-LOCAL corner
     /// (so it inherits the board's world pose + scale for positioning). Facing is re-solved each
     /// <see cref="Tick"/> in world space, independent of the board's rotation.</summary>
@@ -75,7 +83,29 @@ internal sealed class OwnerTag
             Vector3 away = _billboard.position - head.transform.position;
             if (away.sqrMagnitude > 1e-6f)
                 _billboard.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
+            // PANEL COMPOSITING (user report 2026-08-04): rank the tag's renderers on the
+            // converted-panel distance ladder so a menu window BEHIND the tag can no longer
+            // alpha-blend over the Steam avatar — and a window in FRONT fully occludes it.
+            // Full root cause: BoardVisual.OrderWithPanels.
+            RefreshTagRenderers();
+            BoardVisual.OrderWithPanels(_tagRenderers, away.magnitude);
         }
+    }
+
+    /// <summary>Lazy-stale cache of the tag's own renderers (see the field note): refetch when
+    /// empty, when a Rebuild dropped it, when an entry died, or on the periodic MR-plate pickup.</summary>
+    private void RefreshTagRenderers()
+    {
+        bool stale = _tagRenderers.Length == 0 || Time.frameCount >= _tagRenderersRefreshAt;
+        for (int i = 0; !stale && i < _tagRenderers.Length; i++)
+        {
+            if (_tagRenderers[i] == null)
+                stale = true;
+        }
+        if (!stale)
+            return;
+        _tagRenderers = _root.GetComponentsInChildren<Renderer>(includeInactive: false);
+        _tagRenderersRefreshAt = Time.frameCount + TagRenderersRefreshFrames;
     }
 
     private void Rebuild(Sprite? avatar, string name)
@@ -118,6 +148,7 @@ internal sealed class OwnerTag
         WorldUI.MrBacking.Label(_nameLabel); // free-floating over the room in MR
 
         VRLayers.Apply(_root);
+        _tagRenderers = System.Array.Empty<Renderer>(); // rebuilt children → re-cache next Tick
     }
 
     public void Destroy()
