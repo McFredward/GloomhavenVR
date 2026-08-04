@@ -128,6 +128,36 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal bool AllowsGateHand { get; set; }
 
     /// <summary>
+    /// Which pile stack this card visual is currently ON LOAN from (null = not a pile loan).
+    ///
+    /// ROOT CAUSE (user report 2026-08-04, "abgeworfene Karte im Handfaecher"): the release
+    /// routing's only notion of "this is a discard/burnt card" used to be LIVE MEMBERSHIP in the
+    /// open browse arc (<c>CardsDriver.OnCardReleased</c>: <c>_browser.IsOpen &amp;&amp;
+    /// _browser.Contains(card)</c>). That membership is destroyed while the card is still in the
+    /// player's hand: <c>PileBrowser.Close()</c> clears its card list, and the browser closes for
+    /// a dozen reasons that do not end the hold (foreign interaction / click-away, grip release,
+    /// context change, board rebuild, modal dialog). Hardware log (Player.log 3948-4028): a
+    /// DISCARD card is plucked from the browse arc, <c>Pile browse CLOSE (foreign interaction:
+    /// click-away ...)</c> fires mid-hold with ledger <c>borrowed 1 ... returned 0</c> (the
+    /// collapse skips held cards), the card survives four hand-to-hand transfers, and its final
+    /// <c>Drop (Right): ... rule=none -&gt; return to fan</c> routes it into the HAND fan
+    /// (fan n=4 -&gt; n=5) - a discarded card mixed into the hand, which also inflated the
+    /// hand-card count peers receive (NetAvatarDriver reads CardFan.Count).
+    ///
+    /// THE MARKER: stamped at the single point where the browse arc borrows a pile card
+    /// (<c>CardsDriver.UpdateBrowser</c>), it lives ON the card so it survives every path a hold
+    /// can take - grab, T2 rescue, hand-to-hand transfer, transfer abort/re-adopt, and a browser
+    /// that closes underneath the hold. Retired at exactly two game-truth points: the Rebuild
+    /// zone loop (a non-held card the browser no longer lists has been re-homed or parked by
+    /// authoritative game state - including the pick-mode exception flows whose fan legitimately
+    /// IS the discard set) and <see cref="OnDisable"/> (pool hygiene: a parked/pooled card never
+    /// carries a stale loan into its next life). While set, <c>CardsDriver.OnCardReleased</c>
+    /// routes the card back to its pile (browse arc if open, else a fly into the stack) and
+    /// NEVER into the hand fan.
+    /// </summary>
+    internal PileKind? PileOrigin { get; set; }
+
+    /// <summary>
     /// Per-hand grab/hover gate (see <see cref="InteractionBlockedHand"/>). While the
     /// slot-dock apron is active, a docked card also YIELDS to the tray's grab bar:
     /// the apron-extended collider may overlap the bar's grab zone, and ProximityGrabber
@@ -2029,6 +2059,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         SetHandPopSuppressed(false); // arbitration flags never outlive a pooled/parked card
         AllowsGateHand = false;      // parked default = most restrictive; the next role re-stamps
                                      // it (Rebuild: !inFan — general rule 2026-08-04)
+        PileOrigin = null;           // a parked/pooled card is on loan from nowhere; the browse
+                                     // arc re-stamps it on the next borrow (UpdateBrowser)
         _pop = 0f;
         _releaseGlide = 0f;
         CancelFly(); // a parked/pooled card is never mid-flight
