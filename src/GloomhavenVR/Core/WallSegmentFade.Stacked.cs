@@ -1,0 +1,483 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace GloomhavenVR.Core;
+
+/// <summary>
+/// STACKED WALL SUPERSTRUCTURE — the fort/keep shell class (user report 2026-08-02,
+/// keine_ausblendung.png: a multi-story stone keep stands fully solid while the player hovers
+/// above it; "man muss von oben senkrecht runterschauen um überhaupt etwas zu sehen").
+///
+/// WHAT THE KEEP ACTUALLY IS (hardware log, scene 'ProcGen', ModBuild 57): the visible mass of
+/// the fort is NOT wall geometry to either discovery source. Its bottom course is ordinary
+/// <c>ProceduralWall</c> runs (tracked fine — 'Wall 2/4/6', AABB tops 2.42–2.75 wu), but the
+/// stories ABOVE — 'TO_Fort_WallTop02', 'TO_Fort_LowWall_01/_Narrow', 'TO_SB02_WallTop_Narrow',
+/// 'polySurface1/2' (rock corbels), AABB bottoms 3.0–3.5 wu — are plain scenario meshes WITHOUT
+/// a WallFade-family shader. The wall cache never lists them and the shader-adoption sweep can
+/// never match them, so they are invisible to the fade table; the log shows them only as
+/// wall-mounted-DRESSING candidates, where the sconce-scale rules rightly reject them
+/// ("no wall within reach / outside its span": MountedLinkMaxAboveTopWU 0.6 &lt; their 0.6–1.1 wu
+/// rise over the wall top, MountedMaxSpanWU 3.0 &lt; a battlement run's length).
+///
+/// WHY THE TRACKED WALLS NEVER FADED EITHER (the second stacked cause): the room-coverage
+/// metric measures the WALL SEGMENT's AABB against head→floor-sample rays. From any elevated
+/// viewpoint (log: headY 5–15 over samples at 0.05) every ray clears a 2.75-wu slab — raw
+/// coverage stayed 0.00 for minutes on end. The geometry that actually hides the floor is the
+/// 3–7 wu superstructure, which was part of NO segment's AABB. The metric was never wrong; it
+/// was starved of the occluder. So the fix is occluder DISCOVERY, not a new trigger:
+///
+/// THE RULE (config <c>[WallFade] StackedShellFade</c>, shipped ON): a plain mesh that
+/// CONTINUES a tracked wall upward — horizontal gap to the wall AABB ≤
+/// <see cref="FadeDriver.StackLinkMaxXZ"/> and its AABB bottom within
+/// [wall top − <see cref="FadeDriver.StackMaxOverlapDownWU"/>,
+///  wall top + <see cref="FadeDriver.StackMaxRiseWU"/>] — is adopted as a STACKED SHELL PIECE
+/// of that wall (nearest wall wins, one owner per renderer). Adoption iterates to a fixpoint
+/// (<see cref="FadeDriver.StackMaxRounds"/> rounds) so a battlement standing on a low-wall
+/// standing on the wall chains through the whole column. Each adopted piece:
+/// <list type="bullet">
+/// <item>EXTENDS the segment's occlusion AABB (<c>Segment.Bounds</c>) — from then on the
+///   existing room-coverage metric, EMA, Schmitt trigger and dwell rules see the full-height
+///   shell and fire exactly like they do for any tall wall. No new trigger math.</item>
+/// <item>RIDES the wall's fade through the established mounted-prop delivery
+///   (<see cref="FadeDriver.DriveProp"/>/<see cref="FadeDriver.RestoreProp"/>: cutoff or alpha
+///   ramp where the material offers one — the log already proves these meshes classify as
+///   [mesh→cutoff] — and the guaranteed renderer-disable at the end of the wall's dissolve,
+///   restored bit-for-bit on unfade). Same 0→1 <c>seg.Fade</c> as the wall's own cutoff sweep,
+///   so shell and wall dissolve together; the sconce-scale torch dressing hanging ON the shell
+///   is then caught by the ordinary mounted pass, because that pass runs later against the
+///   extended AABB.</item>
+/// </list>
+///
+/// RULES INHERITED WHOLESALE (nothing re-implemented, the piece just joins the segment):
+/// Schmitt trigger + EMA + perspective-anchored dwells (the piece has no decision of its own),
+/// DOORWAY exemption (doorway segments never stack — the keep's gate face stays solid, user
+/// ruling 2026-08-02), fail-safe solid (only segments with a tile-anchored room grid stack),
+/// Lights NEVER touched (delivery writes renderers/MPBs only), everything restored on unfade /
+/// segment death / toggle-off / teardown via the shared mounted ledger + orphan guard.
+///
+/// GUARDS: pieces must be airborne over their room's floor plane (ground band never fades —
+/// same 1 wu bar as everywhere), actors/tile logic/UI are excluded, and a piece whose adoption
+/// would make the wall's extended AABB XZ-contain ≥ <see cref="FadeDriver.EngulfSampleFraction"/>
+/// of its own room's floor grid is REJECTED (the engulf lesson: a ring-shaped shell around the
+/// room would read 100% coverage forever). Scenes without stacked shells adopt nothing and
+/// keep today's behaviour bit-for-bit; every adoption and every near-miss is logged
+/// ("STACKED SHELL" census) so the next hardware log proves which stage claimed or dropped
+/// each fort renderer.
+///
+/// MULTIPLAYER: local rendering only (property blocks + renderer.enabled on local scenery),
+/// nothing synced, peers unaffected — same contract as every other WallSegmentFade attachment.
+/// </summary>
+internal static partial class WallSegmentFade
+{
+    private sealed partial class Segment
+    {
+        /// <summary>STACKED SHELL pieces (fort/keep superstructure meshes without a fade
+        /// shader — see the file header): they extend this wall's occlusion AABB and dissolve
+        /// and restore with its fade. Never contains a Light.</summary>
+        public readonly List<MountedProp> Stacked = new();
+        public readonly List<MountedProp> PrevStacked = new();
+        /// <summary>0 = restored/untouched, 1 = dissolving, 2 = hidden.</summary>
+        public int StackedState;
+    }
+
+    private sealed partial class FadeDriver
+    {
+        /// <summary>Max horizontal gap (wu) between a shell piece and the wall column it
+        /// continues — same reach as the mounted-dressing link: a stacked story hugs its wall
+        /// (log: adopted fort pieces at gap 0.00–0.36), the next parallel wall run is ≥ a hex
+        /// (~1.72 wu) away.</summary>
+        private const float StackLinkMaxXZ = 0.9f;
+        /// <summary>How far (wu) above the wall's current AABB top a piece's BOTTOM may start
+        /// and still count as the next story. The log's fort pieces rise 0.25–1.1 wu over
+        /// their wall tops (interlocking course offsets); a full story is ≥ ~2 wu, so 1.25
+        /// cannot skip across one.</summary>
+        private const float StackMaxRiseWU = 1.25f;
+        /// <summary>How far (wu) a piece's bottom may reach DOWN into the wall body (stories
+        /// interlock) — anything deeper is parallel geometry, not a continuation.</summary>
+        private const float StackMaxOverlapDownWU = 1.2f;
+        /// <summary>Fixpoint rounds: each round can add one more story onto the growing
+        /// column (battlement on low-wall on wall = 3; one spare).</summary>
+        private const int StackMaxRounds = 4;
+        /// <summary>Runaway guard — no wall column carries more shell pieces than this.</summary>
+        private const int StackMaxPerSegment = 48;
+        /// <summary>Caps on the census/near-miss log lists (log hygiene).</summary>
+        private const int StackCensusCap = 12;
+        private const int StackRejectCap = 16;
+        /// <summary>Diagnostic radius (wu): an unadopted candidate this close to a wall is
+        /// logged with its rejection reason (mirrors the mounted near-miss discipline).</summary>
+        private const float StackNearMissXZ = 2.5f;
+
+        /// <summary>Renderers owned by a stacked list THIS rescan (one owner per renderer).</summary>
+        private readonly HashSet<Renderer> _stackedOwned = new();
+        /// <summary>Candidates rejected for cause mid-round (engulf / game logic) — never
+        /// retried in later rounds and excluded from the generic near-miss classification.</summary>
+        private readonly HashSet<Renderer> _stackDead = new();
+        private readonly List<MeshRenderer> _stackCandidates = new();
+        private readonly List<string> _stackCensus = new();
+        private readonly List<string> _stackRejects = new();
+        private int _censusStacked;
+        private int _censusStackedRejected;
+        private int _lastLoggedStackedCount = -1;
+        private int _lastLoggedStackedRejected = -1;
+
+        /// <summary>Restore ALL of a segment's stacked shell pieces — called on every path
+        /// where the segment stops owning them (unfade, segment drop, group split, toggle-off,
+        /// teardown), so no keep story can stay hidden without an owner.</summary>
+        private void RestoreSegmentStacked(Segment seg)
+        {
+            if (seg.StackedState == 0)
+                return;
+            seg.StackedState = 0;
+            foreach (MountedProp p in seg.Stacked)
+                RestoreProp(p);
+        }
+
+        /// <summary>
+        /// Drive the segment's stacked shell alongside its fade — the same 0→1 the wall's own
+        /// cutoff sweep runs on (no particle lead: these are architecture meshes). The renderer
+        /// is disabled at the very end as the guarantee that nothing survives; everything
+        /// reverses exactly on unfade. Shares the mounted ledger, so the orphan guard covers
+        /// these pieces too.
+        /// </summary>
+        private void ApplyStacked(Segment seg)
+        {
+            if (seg.Stacked.Count == 0)
+                return;
+            int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
+            if (want == 0)
+            {
+                RestoreSegmentStacked(seg);
+                return;
+            }
+            if (want == 2 && seg.StackedState == 2)
+                return; // fully hidden — nothing per-frame to do
+            foreach (MountedProp p in seg.Stacked)
+            {
+                if (p.Renderer == null)
+                    continue;
+                _mountedTouched[p.Renderer] = p;
+                DriveProp(p, seg.Fade);
+                if (want == 2)
+                {
+                    if (p.Renderer.enabled)
+                        p.Renderer.enabled = false;
+                }
+                else if (!p.Renderer.enabled)
+                {
+                    p.Renderer.enabled = true;
+                }
+            }
+            seg.StackedState = want;
+        }
+
+        /// <summary>May this segment carry stacked shell pieces? Doorways never fade (user
+        /// ruling 2026-08-02) so their superstructure must stay with them; engulfing and
+        /// fail-safe segments make no fade decision a piece could ride.</summary>
+        private bool StackEligible(Segment seg) =>
+            seg.HasBounds && seg.DoorRoot == null && !seg.Engulfing
+            && RoomDecisionValid(seg.RoomIndex);
+
+        /// <summary>
+        /// Adopt, per rescan, every plain mesh that continues a tracked wall upward (see the
+        /// file header for the rule and the evidence). Runs AFTER ground strip + engulf
+        /// neutralization (needs final base AABBs and room grids) and BEFORE the mounted
+        /// pass (which must see the extended AABBs so shell-hung torches attach). Leavers
+        /// are restored here; orphans by the shared mounted orphan guard.
+        /// </summary>
+        /// <param name="sceneRenderers">The rescan's single scene sweep (shared with the
+        /// adoption + mounted passes — still one FindObjectsOfType per rescan).</param>
+        private void CollectStackedShellPieces(Renderer[] sceneRenderers)
+        {
+            _stackedOwned.Clear();
+            _stackDead.Clear();
+            _stackCandidates.Clear();
+            _stackCensus.Clear();
+            _stackRejects.Clear();
+            _censusStacked = 0;
+            _censusStackedRejected = 0;
+
+            foreach (Segment seg in _segments.Values)
+            {
+                seg.PrevStacked.Clear();
+                seg.PrevStacked.AddRange(seg.Stacked);
+                seg.Stacked.Clear();
+            }
+
+            bool enabled = WallFadeTuning.StackedShells;
+            if (enabled && sceneRenderers != null && _segments.Count > 0)
+            {
+                // STICKY OWNERSHIP while the wall is mid-fade or held faded (the mounted
+                // lesson): pieces are carried over untested — and their AABBs re-extend the
+                // bounds so the coverage decision stays consistent across rescans — because
+                // releasing a piece while its wall is gone is a visible blink.
+                foreach (Segment seg in _segments.Values)
+                {
+                    if (seg.StackedState == 0 && seg.Fade <= 0f)
+                        continue;
+                    foreach (MountedProp p in seg.PrevStacked)
+                    {
+                        if (p.Renderer == null || !_stackedOwned.Add(p.Renderer))
+                            continue;
+                        seg.Stacked.Add(p);
+                        _censusStacked++;
+                        if (seg.HasBounds)
+                            seg.Bounds.Encapsulate(p.Renderer.bounds);
+                    }
+                }
+
+                CollectStackCandidates(sceneRenderers);
+                RunStackAdoptionRounds();
+                ClassifyStackNearMisses();
+            }
+
+            // Leavers: restore anything a segment held that it no longer owns (config off /
+            // piece no longer qualifies). Nothing may stay hidden without an owner.
+            foreach (Segment seg in _segments.Values)
+            {
+                if (seg.StackedState != 0)
+                {
+                    foreach (MountedProp prev in seg.PrevStacked)
+                    {
+                        if (prev.Renderer != null && !seg.Stacked.Contains(prev))
+                            RestoreProp(prev);
+                    }
+                    if (seg.Stacked.Count == 0)
+                        seg.StackedState = 0;
+                }
+                seg.PrevStacked.Clear();
+            }
+
+            if (_censusStacked != _lastLoggedStackedCount
+                || _censusStackedRejected != _lastLoggedStackedRejected)
+                LogStackedCensus();
+        }
+
+        /// <summary>
+        /// Cheap prefilter over the scene sweep: plain MeshRenderers that could possibly be
+        /// shell stories — airborne over the lowest anchored floor (the ground band never
+        /// fades), not mod-owned, not already tracked by any segment list, and not a wall
+        /// (WallFade shader) or foliage (those have their own attachment types).
+        /// </summary>
+        private void CollectStackCandidates(Renderer[] sceneRenderers)
+        {
+            float minFloorY = float.PositiveInfinity;
+            for (int i = 0; i < _roomFloorY.Count && i < _roomFloorAnchored.Count; i++)
+            {
+                if (_roomFloorAnchored[i] && _roomFloorY[i] < minFloorY)
+                    minFloorY = _roomFloorY[i];
+            }
+            if (float.IsInfinity(minFloorY))
+                return; // no anchored room — every wall is fail-safe solid anyway
+
+            float bar = minFloorY + GroundExclusionHeightWU;
+            foreach (Renderer any in sceneRenderers)
+            {
+                if (any is not MeshRenderer r || r == null || !r.enabled)
+                    continue;
+                if (r.gameObject.layer == VRLayers.ModLayer)
+                    continue; // mod-owned visual — never scenery
+                if (r.bounds.min.y < bar)
+                    continue; // touches the ground band — not a stacked story
+                if (_stackedOwned.Contains(r))
+                    continue; // sticky-owned this rescan
+                if (RendererUsesWallFade(r) || RendererUsesFoliage(r))
+                    continue; // walls/foliage have their own tracking
+                if (IsSegmentListedRenderer(r))
+                    continue; // already some segment's renderer/foliage/sibling/mounted prop
+                _stackCandidates.Add(r);
+            }
+        }
+
+        /// <summary>Is the renderer already tracked in any segment attachment list? (The
+        /// stacked pass runs before the mounted pass rebuilds <c>_attachmentOwned</c>, so it
+        /// checks the live lists directly — tens of segments, short lists.) A MOUNTED entry
+        /// blocks adoption only while its owner is actually fading: a shell piece the mounted
+        /// pass mis-filed as dressing in an earlier rescan (log: 'polySurface2' [mesh→cutoff]
+        /// → 'Wall 4') is untouched at fade 0 and must be RECLASSIFIABLE as stacked shell —
+        /// the mounted pass then sees it in <c>_mountedOwned</c> and lets it go cleanly.</summary>
+        private bool IsSegmentListedRenderer(MeshRenderer r)
+        {
+            foreach (Segment seg in _segments.Values)
+            {
+                if (seg.Renderers.Contains(r) || seg.Foliage.Contains(r)
+                    || seg.Siblings.Contains(r))
+                    return true;
+                if (seg.MountedState != 0 || seg.Fade > 0f)
+                {
+                    foreach (MountedProp p in seg.Mounted)
+                    {
+                        if (ReferenceEquals(p.Renderer, r))
+                            return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The fixpoint adoption: each round scans all unowned candidates against the CURRENT
+        /// (already-extended) wall AABBs, adopts the qualifying ones onto their nearest wall
+        /// and grows that wall's AABB — so the next round can chain the story above. Stops
+        /// when a round adopts nothing.
+        /// </summary>
+        private void RunStackAdoptionRounds()
+        {
+            for (int round = 0; round < StackMaxRounds; round++)
+            {
+                bool adoptedAny = false;
+                foreach (MeshRenderer c in _stackCandidates)
+                {
+                    if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
+                        continue;
+                    Bounds b = c.bounds;
+
+                    Segment? best = null;
+                    float bestGap = float.PositiveInfinity;
+                    foreach (Segment seg in _segments.Values)
+                    {
+                        if (!StackEligible(seg) || seg.Stacked.Count >= StackMaxPerSegment)
+                            continue;
+                        float gap = HorizontalGap(seg.Bounds, b);
+                        if (gap > StackLinkMaxXZ || gap >= bestGap)
+                            continue;
+                        float top = seg.Bounds.max.y;
+                        if (b.min.y < top - StackMaxOverlapDownWU
+                            || b.min.y > top + StackMaxRiseWU)
+                            continue; // not the next course of THIS column
+                        if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
+                            continue; // ground band of the wall's own room never fades
+                        bestGap = gap;
+                        best = seg;
+                    }
+                    if (best == null)
+                        continue; // near-miss classification runs once after the rounds
+
+                    // ENGULF GUARD on the would-be extended AABB: a shell piece ringing the
+                    // room would make the wall XZ-contain its own floor grid → permanent
+                    // 100% coverage. Reject the piece, keep the wall decidable.
+                    Bounds ext = best.Bounds;
+                    ext.Encapsulate(b);
+                    if (InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
+                        && InsideOwnRoomFraction(best) < EngulfSampleFraction)
+                    {
+                        _stackDead.Add(c);
+                        NoteStackReject(c, bestGap,
+                            "adoption would make the wall AABB engulf its room's floor grid");
+                        continue;
+                    }
+                    // Live game logic / worldspace UI is never scenery (mounted-pass rule).
+                    if (c.GetComponentInParent<ActorBehaviour>() != null
+                        || c.GetComponentInParent<TileBehaviour>() != null
+                        || c.GetComponentInParent<Canvas>() != null
+                        || c.GetComponent<TMPro.TMP_Text>() != null)
+                    {
+                        _stackDead.Add(c);
+                        NoteStackReject(c, bestGap, "game logic / worldspace UI");
+                        continue;
+                    }
+
+                    // Reuse the ledger's record if we are currently ramping this renderer —
+                    // re-classifying would snapshot our own ramp as "authored".
+                    if (!_mountedTouched.TryGetValue(c, out MountedProp? prop))
+                        prop = ClassifyProp(c);
+                    best.Stacked.Add(prop);
+                    best.Bounds = ext;
+                    _stackedOwned.Add(c);
+                    _censusStacked++;
+                    adoptedAny = true;
+                    if (_stackCensus.Count < StackCensusCap)
+                    {
+                        string wall = best.Anchor != null ? best.Anchor.name : "<dead>";
+                        _stackCensus.Add(
+                            $"'{c.name}'[→{prop.Tier}] base {b.min.y:F1} top {b.max.y:F1} "
+                            + $"gap {bestGap:F2} → '{wall}'");
+                    }
+                }
+                if (!adoptedAny)
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// One pass over the leftovers: every unadopted candidate near a wall gets its exact
+        /// rejection reason into the census — the line that answers "why is THAT keep story
+        /// still solid" from the log alone (the mounted near-miss discipline).
+        /// </summary>
+        private void ClassifyStackNearMisses()
+        {
+            foreach (MeshRenderer c in _stackCandidates)
+            {
+                if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
+                    continue;
+                Bounds b = c.bounds;
+                Segment? near = null;
+                float nearGap = float.PositiveInfinity;
+                foreach (Segment seg in _segments.Values)
+                {
+                    if (!seg.HasBounds)
+                        continue;
+                    float gap = HorizontalGap(seg.Bounds, b);
+                    if (gap < nearGap)
+                    {
+                        nearGap = gap;
+                        near = seg;
+                    }
+                }
+                if (near == null || nearGap > StackNearMissXZ)
+                    continue; // not near any wall — not a shell candidate at all
+                string why;
+                if (near.DoorRoot != null)
+                    why = "nearest wall is a DOORWAY (permanently solid — user ruling 2026-08-02)";
+                else if (near.Engulfing)
+                    why = "nearest wall is held solid (engulfing)";
+                else if (!RoomDecisionValid(near.RoomIndex))
+                    why = "nearest wall is FAIL-SAFE solid (room unanchored/no floor grid)";
+                else if (nearGap > StackLinkMaxXZ)
+                    why = $"gap {nearGap:F2} beyond the stack link range {StackLinkMaxXZ:F2}";
+                else if (b.min.y > near.Bounds.max.y + StackMaxRiseWU)
+                    why = $"base {b.min.y:F1} floats {b.min.y - near.Bounds.max.y:F1} over the "
+                        + "wall top — outside the stack band";
+                else if (b.min.y < near.Bounds.max.y - StackMaxOverlapDownWU)
+                    why = $"base {b.min.y:F1} sits inside/below the wall body — parallel "
+                        + "geometry, not a continuation";
+                else
+                    why = "wall at capacity or ground-band check failed";
+                NoteStackReject(c, nearGap, why);
+            }
+        }
+
+        private void NoteStackReject(MeshRenderer c, float gap, string why)
+        {
+            _censusStackedRejected++;
+            if (_stackRejects.Count < StackRejectCap)
+                _stackRejects.Add($"'{c.name}' gap {gap:F2}: {why}");
+        }
+
+        /// <summary>
+        /// Heartbeat forensics for the keep class: WHICH shell pieces extend WHICH wall (with
+        /// their dissolve channel), and which near candidate was rejected and why. Re-logged
+        /// whenever the adopted/rejected counts change (Apparance streams the shell in over
+        /// several rescans).
+        /// </summary>
+        private void LogStackedCensus()
+        {
+            _lastLoggedStackedCount = _censusStacked;
+            _lastLoggedStackedRejected = _censusStackedRejected;
+            if (_censusStacked == 0 && _censusStackedRejected == 0)
+                return;
+            string riding = _stackCensus.Count > 0 ? string.Join("; ", _stackCensus) : "none new";
+            string misses = _stackRejects.Count > 0
+                ? " | NEAR-MISS (stays solid): " + string.Join("; ", _stackRejects)
+                : string.Empty;
+            VRLog.Info(Name,
+                $"STACKED SHELL: {_censusStacked} superstructure piece(s) extend their wall's "
+                + $"occlusion AABB and dissolve WITH it (plain meshes continuing a wall column "
+                + $"upward — XZ gap ≤{StackLinkMaxXZ:0.00} wu, base within "
+                + $"−{StackMaxOverlapDownWU:0.0}..+{StackMaxRiseWU:0.00} wu of the wall top, "
+                + $"chained over ≤{StackMaxRounds} stories; engulf-guarded; ownership sticky "
+                + $"while faded; Lights are NEVER written to; live config [WallFade] "
+                + $"StackedShellFade): {riding}{misses} ({_censusStackedRejected} near-miss "
+                + "total).");
+        }
+    }
+}
