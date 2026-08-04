@@ -30,11 +30,14 @@ namespace GloomhavenVR.WorldUI;
 /// (user request 2026-08-04: "ein 'Tooltip'-Bereich ... dessen Position oben links startet"),
 /// facing the player and scaling / tilting with the board, adjustable per board via
 /// <c>[Cards] HoverHintOffset_&lt;board&gt;</c> (the pre-existing curved-table
-/// <see cref="PanelSlot.Tooltip"/> slot is the menu / no-tray fallback). Every board-owned
-/// tooltip shares this one area — the hover hint here, the damage tip
-/// (<c>Surfaces.DamageTooltipSurface</c>) through the shared
-/// <see cref="TryGetBoardAreaPose"/> — same anchor, same board-plane orientation, same
-/// scale-with-the-board behaviour. It is NOT
+/// <see cref="PanelSlot.Tooltip"/> slot is the menu / no-tray fallback). THE AREA IS FOR
+/// MOUSEOVER TOOLTIPS ONLY (user ruling 2026-08-04, correcting the ModBuild-46 overreach):
+/// only content that appears BECAUSE the pointer hovers something — i.e. this shared
+/// <c>UITooltip</c> canvas — parks here. Persistent flow text (the decision dock's prompt
+/// HelpBox that <c>Surfaces.DamageTooltipSurface</c> carries, status lines, anything shown
+/// by a game flow rather than a hover) stays where its own surface seats it; rerouting the
+/// damage-prompt HelpBox through this area tore the decision dock's text away from its
+/// buttons and voided the user's tuned <c>[Cards] DecisionGap_*</c> distance. It is NOT
 /// anchored to the fingertip (the hover can come from the laser too, and the user wants a
 /// stable reading spot, not a spot that jumps around). A short hover grace (user #7b) keeps
 /// it from flickering away on micro-jitter off a tiny target: the game's own show/hide fade
@@ -810,11 +813,13 @@ internal sealed class WorldTooltips
     /// LIVE pose + lossy scale on every call, so it re-aligns the instant the board is moved,
     /// resized or tilted, and a debug-menu nudge moves a tooltip that is already open.
     ///
-    /// STATIC AND SHARED ON PURPOSE: this is the ONE definition of "the tooltip area" (user
-    /// request 2026-08-04 — one unified area for every board-owned tooltip). The hover hint
-    /// resolves through it here, and <c>Surfaces.DamageTooltipSurface</c> seats the docked
-    /// damage tip through the same call — same corner, same margins, same offset dial, so the
-    /// two can never drift apart. The corner comes from
+    /// STATIC ON PURPOSE: this is the ONE definition of "the tooltip area" (user request
+    /// 2026-08-04), and it serves MOUSEOVER TOOLTIPS ONLY (the follow-up ruling that same
+    /// day — see the class doc): the hover hint resolves through it here, and the remote
+    /// peer's copy (<c>Net.RemoteBoardLayout.TooltipMount</c>) mirrors the same corner.
+    /// Persistent flow text — notably the decision-prompt HelpBox of
+    /// <c>Surfaces.DamageTooltipSurface</c>, which ModBuild 46 briefly and wrongly routed
+    /// through this call — must NOT seat itself here. The corner comes from
     /// <see cref="PlayTray.MeasureBoardLocalExtents"/> (renderer bounds in board-LOCAL space):
     /// "top left" is COMPUTED from the visible board, never guessed from the authored plate,
     /// which the bundled frame overhangs. <paramref name="areaOrigin"/> reports the measured

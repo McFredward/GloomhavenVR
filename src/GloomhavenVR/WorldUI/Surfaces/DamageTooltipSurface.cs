@@ -18,12 +18,28 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 ///   - TOO HIGH: <c>InitiativeTrack.helpBox</c> sits up by the initiative track, nowhere
 ///     near the docked buttons the player is reading.
 /// This surface converts whichever HelpBox is currently showing the damage tip (flattened)
-/// and parks it in the board's unified TOOLTIP AREA (top-left corner, shared with the hover
-/// hint — <see cref="WorldTooltips.TryGetBoardAreaPose"/>), facing the player at the board's
-/// angle. It is a strict descendant of the take-damage dock: it only
+/// and parks it just ABOVE the docked widget row, facing the player — adjacent to the
+/// buttons, not floating high. It is a strict descendant of the take-damage dock: it only
 /// runs while <see cref="DecisionDockSurface.DockingTakeDamage"/> holds and the tip window
 /// is open, and it restores the HelpBox to its exact 2D home (CanvasConversion restore
 /// records) the moment either drops — nothing is destroyed.
+///
+/// NOT A HOVER TOOLTIP — NEVER SEAT THIS IN THE BOARD TOOLTIP AREA (user ruling 2026-08-04,
+/// the ModBuild-46 regression): despite the game's "GUI_TOOLTIP_*" loc keys, this HelpBox is
+/// the PERSISTENT instruction line of the take-damage decision flow — TakeDamagePanel shows
+/// it when the prompt opens / a toggle clears (ShowDamageTooltip, TakeDamagePanel.cs:319,
+/// called from ClearSelectedToggle:314 and ToggleVisibility:1068) and hides it only when the
+/// prompt closes (ResetAndHide:1044). Nothing about it is pointer-driven. It IS "der Text der
+/// Entscheidungsknoepfe": together with the row it forms the decision dock, and the user's
+/// board-local <c>[Cards] DecisionGap_*</c> stepper tunes the distance between exactly this
+/// text and the buttons — a distance that only means anything while the text sits over the
+/// row. ModBuild 46 rerouted this surface through
+/// <c>WorldTooltips.TryGetBoardAreaPose</c> ("every board-owned tooltip in one area"), which
+/// tore the prompt text away from its buttons into the top-left tooltip corner and voided the
+/// tuned gap — the user's rule is narrower: the tooltip area is ONLY for true MOUSEOVER
+/// tooltips (things shown because the pointer hovers something, i.e. the shared
+/// <c>UITooltip</c> canvas <c>WorldTooltips</c> presents). Persistent flow text stays with
+/// the surface that owns it.
 ///
 /// The global HelpBox doubles as the game's general hint strip; converting it here only
 /// ever happens DURING the take-damage dock (where the strip is showing the damage tip),
@@ -100,17 +116,23 @@ internal sealed class DamageTooltipSurface : WorldSurface
     }
 
     /// <summary>
-    /// Park in the CONTROL BOARD's unified TOOLTIP AREA (user request 2026-08-04: ONE fixed
-    /// area at the board's top-left where EVERY board-owned tooltip appears — this damage tip is
-    /// board-owned by construction, it only runs while the take-damage row is docked on the
-    /// board). The pose comes from the SAME <see cref="WorldTooltips.TryGetBoardAreaPose"/> the
-    /// hover hint uses — same corner, same margins, same per-board offset dial, same board-plane
-    /// facing, same scale-with-the-board behaviour — so the two presentations can never drift
-    /// apart. Content is still fitted into the decision-row width budget (the tip describes
-    /// those buttons and must stay readable at their density). Falls back to the historical
-    /// above-the-row spot when the area cannot resolve (no visible board mid-rebuild). While no
-    /// mount exists the surface simply holds off (the dock itself has already floated to the
+    /// Park just above the docked widget-row mount (the buttons the tip describes),
+    /// content-fitted into the same width budget and facing the player. While no mount
+    /// exists the surface simply holds off (the dock itself has already floated to the
     /// HMD in that case; a mispositioned tip is never a lock).
+    ///
+    /// ROOT CAUSE of the ModBuild-46 regression this reverts ("Der Text der
+    /// Entscheidungsknoepfe ... ist ploetzlich Teil der Tooltip-Section"): commit 6cfab0f
+    /// seated this pose through <c>WorldTooltips.TryGetBoardAreaPose</c> on the reading
+    /// "every board-owned tooltip belongs in the unified area". Wrong classification — see
+    /// the class doc: this HelpBox is the decision dock's persistent PROMPT TEXT, not a
+    /// mouseover tooltip, and moving it to the board's top-left corner (a) split the dock's
+    /// text from its buttons and (b) made the user-tuned <c>[Cards] DecisionGap_*</c>
+    /// text-to-buttons distance meaningless (DecisionDockSurface.Place anchors the widget
+    /// block a gap below the prompt reference at the board's lower edge — the spot this text
+    /// occupies). Restored verbatim to the pre-46 seat: AboveRowMetres over the
+    /// DecisionMount, at the mount's own rotation and tray scale. The tooltip area stays
+    /// reserved for the genuine hover tooltips WorldTooltips presents.
     /// </summary>
     protected override void Place()
     {
@@ -136,21 +158,9 @@ internal sealed class DamageTooltipSurface : WorldSurface
         float metersPerPx = Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale) / density;
 
         Transform host = Panel.HostTransform;
-        float hostScale = metersPerPx * trayScale;
-        // The host pivot is centered (CanvasConversion contract), so the area helper's
-        // "center that seats the bottom-left corner at the area origin" is directly the pose.
-        if (WorldTooltips.TryGetBoardAreaPose(
-                rect.width * 0.5f * hostScale, rect.height * 0.5f * hostScale,
-                out Vector3 areaPos, out Quaternion areaRot, out _))
-        {
-            host.SetPositionAndRotation(areaPos, areaRot);
-        }
-        else
-        {
-            Vector3 pos = mount.position + mount.up * (AboveRowMetres * trayScale);
-            host.SetPositionAndRotation(pos, mount.rotation);
-        }
-        host.localScale = Vector3.one * hostScale;
+        Vector3 pos = mount.position + mount.up * (AboveRowMetres * trayScale);
+        host.SetPositionAndRotation(pos, mount.rotation);
+        host.localScale = Vector3.one * (metersPerPx * trayScale);
     }
 
     /// <summary>
