@@ -35,6 +35,10 @@ internal sealed partial class CardsDriver
     private int _insertGap = -1;
     private VRCard? _insertHighlightCard;
 
+    // Long-rest empty-board dedupe: one Info line per long-rest turn, not one per rebuild
+    // (see CollectRoundCards).
+    private bool _loggedLongRestEmptyBoard;
+
     /// <summary>Stable CardInstanceID key for a fan card (int.MinValue = no game card).</summary>
     private static int FanId(VRCard? card) =>
         card != null && card.GameCard != null ? card.GameCard.CardInstanceID : int.MinValue;
@@ -205,7 +209,17 @@ internal sealed partial class CardsDriver
             {
                 VRCard card = _factory.All[i];
                 if (card != null && !card.IsHeld && card.transform.IsChildOf(trayRoot))
+                {
+                    // Board rebuilt MID-FLIGHT / mid-burn-hold: Park cancels a running FlyToPile
+                    // (VRCard.Park → CancelFly), so its completion callback never fires — drop the
+                    // driver-side flight membership and any pending burn-artwork hold here, or the
+                    // stale entries would block ("ownedElsewhere") or later re-launch ("hold
+                    // release") an animation for a card the pool already owns.
+                    _flyingToPile.Remove(card);
+                    if (card.GameCard != null)
+                        ClearBurnHold(card.GameCard);
                     _factory.Park(card);
+                }
             }
         }
         // PART D: capture the outgoing board's world pose BEFORE Destroy so the new board keeps
@@ -591,7 +605,9 @@ internal sealed partial class CardsDriver
                              : _lastVisibleCards.Contains(card) ? "hand fan"
                              : "board field / pick slot"))
                 {
-                    // burn fly owns this card — never also vanish it (no double animation).
+                    // burn fly owns this card — flying, OR lying in place while its burn artwork
+                    // completes (the bounded artwork hold). Either way: never park/vanish it here,
+                    // that would be exactly the reported "card vanishes after the burn animation".
                 }
                 // Issue 2/1: a docked card that CLEARS on a character/turn switch — a played ACTION
                 // card (in last rebuild's half set) OR a SELECTED card lying in a board SLOT (in last
@@ -684,6 +700,36 @@ internal sealed partial class CardsDriver
 
     private void CollectRoundCards(CardsHandUI hand, List<VRCard> into)
     {
+        // LONG REST (user report 2026-08-04: "die zwei Karten von der vorherigen Runde [sind]
+        // erschienen und haben dann nochmal die Animation abgespielt ... das Board [soll] an den
+        // Kartenstellen leer bleiben"). ROOT CAUSE: on a long-rest confirm the actor's own turn
+        // starts (IsActionTurn true, mode still ActionSelection) with ZERO cards played this
+        // round — but the phase machine's card pair (CardsActionControlller.topCard/bottomCard)
+        // is only ever re-written by Init(...) when cards ARE played
+        // (CardsActionControlller.cs:91-111), which never runs for a long rest. The singleton
+        // therefore still holds the PREVIOUS round's FullAbilityCards, and the supplement below
+        // resurrected exactly that stale pair onto the board (hardware log: turn-clear flights
+        // at 13824/13825, then confirm at 14501 → "Card appear" ×2 at 14534/14535 → the pair
+        // flies to the piles AGAIN at 14721). Gate on the game's OWN long-rest state: the
+        // rules model plays no round cards while CharacterClass.LongRest is set (set on
+        // selection, CardsHandUI.cs:1950; cleared when the rest resolves, GameState.cs:2569)
+        // and HasLongRested covers the tail of the same turn after that clear (set in
+        // GameState.PlayerLongRested, reset at next round start, CCharacterClass.cs:1183) —
+        // so the board's round slots stay EMPTY for the whole long-rest turn, keyed on real
+        // state, not a heuristic. RoundAbilityCards is empty then anyway (IsInRound already
+        // false), so this only suppresses the stale static pair.
+        if (CardsGameApi.IsLongResting(hand) || CardsGameApi.HasLongRested(hand))
+        {
+            if (!_loggedLongRestEmptyBoard)
+            {
+                _loggedLongRestEmptyBoard = true;
+                VRLog.Info("Cards", "Round-card dock EMPTY (long rest): the actor is long-resting, so no round " +
+                                    "cards exist this round — the phase machine's stale topCard/bottomCard pair " +
+                                    "(previous round) is ignored, nothing docks, nothing replays a pile flight.");
+            }
+            return;
+        }
+        _loggedLongRestEmptyBoard = false;
         // The AUTHORITATIVE per-character selector is the acting hand's own round pile
         // (IsInRound → CharacterClass.RoundAbilityCards) — always exactly the two played
         // cards of THIS actor. The phase machine's pair (CardsActionControlller.topCard/
@@ -741,6 +787,11 @@ internal sealed partial class CardsDriver
         float minArc = BoardArcMin();
         float arcHeight = Mathf.Max(minArc, Vector3.Distance(card.transform.position, worldPos) * VRCard.FlyArcHeightFraction);
         _flyingToPile.Add(card);
+        // A burnt-fate round card may have a pending artwork HOLD from the pile watcher (the burn
+        // artwork played on the docked card mid-turn). This flight consumes the burn — drop the
+        // hold so its later release can never fly a second slab for the same card.
+        if (card.GameCard != null)
+            ClearBurnHold(card.GameCard);
         VRCard flying = card;
         PileKind dest = fate;
         // MP parity (report 6): peers replay this exact flight (slot → discard/burnt stack) against
@@ -830,15 +881,22 @@ internal sealed partial class CardsDriver
     /// card-bounded CardSmoke, see <see cref="BurnCardFx"/>) keeps playing on the adopted face while
     /// it flies — no second effect is invented.
     ///
-    /// Returns true only when the flight was actually launched; the caller then skips its park (the
-    /// completion callback parks the card on arrival). Declines — leaving the caller's park and
-    /// <see cref="TickBurnToPile"/>'s transient-slab fallback to take over — when the card is held,
-    /// already animating, no longer live (a pooled/parked or inactive card cannot animate: its
-    /// Update does not run), not a fresh burn, or the burnt pile is off / not built.
+    /// Returns true when the burn path OWNS the card this frame — either the flight launched (the
+    /// completion callback parks the card on arrival) or the flight is HELD while the game's burn
+    /// artwork still plays ON the lying card (<see cref="TryTakeBurnFlightSlot"/>, the same gate
+    /// the pile watcher uses — the user-ruled order: artwork first, THEN the pile flight). In the
+    /// held case the caller must leave the card exactly where it lies (no park, no vanish); the
+    /// per-tick watcher (<see cref="TickBurnToPile"/>) re-offers the widget every tick — it stays
+    /// un-claimed while held — and launches the very same flight the moment the artwork completes
+    /// or the deadline passes, from the card's true position, which this ownership preserved.
+    /// Returns false — leaving the caller's park and <see cref="TickBurnToPile"/>'s transient-slab
+    /// fallback to take over — when the card is held by a hand, already animating, no longer live
+    /// (a pooled/parked or inactive card cannot animate: its Update does not run), not a fresh
+    /// burn, or the burnt pile is off / not built.
     ///
-    /// Claiming: the widget is added to <see cref="_knownBurntWidgets"/> immediately, so the burn
-    /// watcher running LATER in this same frame treats it as already-known and cannot start a second
-    /// animation for it.
+    /// Claiming: on LAUNCH the widget is added to <see cref="_knownBurntWidgets"/> immediately, so
+    /// the burn watcher running LATER in this same frame treats it as already-known and cannot
+    /// start a second animation for it. A HELD widget is deliberately NOT claimed.
     /// </summary>
     private bool TryStartBurnFly(CardsHandUI? hand, VRCard card, string origin)
     {
@@ -852,6 +910,15 @@ internal sealed partial class CardsDriver
             return false; // burnt pile off / not built — no destination to fly to
 
         AbilityCardUI widget = card.GameCard!;
+        // ORDER OF THE BURN (same ruling as TryAnimateBurn): the park sweep can see the fresh burn
+        // BEFORE the pile watcher does (Rebuild runs first in the frame, and the game commits the
+        // pile move frames ahead of starting the card's burn timeline). Flying here immediately
+        // would clip the artwork the user explicitly asked to watch on the lying card — so this
+        // path waits behind the exact same bounded gate. While the gate holds, the card is OWNED:
+        // it stays lying at its true pose (the sweep must not park it), and the watcher's per-tick
+        // re-offer performs the launch when the artwork ends.
+        if (!TryTakeBurnFlightSlot(widget, card))
+            return true; // held: owned by the burn path — caller keeps hands off the card
         Vector3 arcUp = BoardUp();
         float minArc = BoardArcMin();
         Vector3 from = card.transform.position;
@@ -860,6 +927,12 @@ internal sealed partial class CardsDriver
         _knownBurntWidgets.Add(widget); // claim before the watcher's diff sees it (no double animation)
         _lastCardWorldPos.Remove(widget); // consumed — the real card is flying, no fallback slab wanted
         _lastCardWorldRot.Remove(widget);
+        // MP parity (report 6): this launch site was the ONE burn flight that never reported —
+        // every other pile flight (turn-clear, pile-watch, fallback slab) announces itself, so a
+        // peer watching this player's board saw those but missed a burn that fired from the park
+        // sweep. Same 2-byte semantic endpoint pair as the others; peers replay a card-back slab
+        // arcing off this player's board into their burnt stack.
+        Net.NetCardFx.Report(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
         VRCard flying = card;
         card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
@@ -933,11 +1006,14 @@ internal sealed partial class CardsDriver
         CardsGameApi.GetPileWidgets(hand, burnt: true, _burntWidgetBuffer);
 
         // Re-baseline on a hand change (or first sight): record the current burnt set WITHOUT
-        // animating — only cards that cross into it from here on are freshly burned.
+        // animating — only cards that cross into it from here on are freshly burned. Any pending
+        // artwork hold belongs to the OLD hand's cards, so it dies with the baseline.
         if (!ReferenceEquals(hand, _burnWatchHand))
         {
             _burnWatchHand = hand;
             _knownBurntWidgets.Clear();
+            _burnHoldSince.Clear();
+            _burnHoldLogged.Clear();
             for (int i = 0; i < _burntWidgetBuffer.Count; i++)
                 if (_burntWidgetBuffer[i] != null)
                     _knownBurntWidgets.Add(_burntWidgetBuffer[i]);
@@ -954,10 +1030,39 @@ internal sealed partial class CardsDriver
 
         // The rebuilt baseline both records the new arrivals (so they animate exactly once) and
         // drops any that left (a recovered lost card), so a re-burn later animates again.
+        //
+        // ROOT CAUSE of the "burn artwork plays, then the card just VANISHES" report
+        // (user 2026-08-04; hardware log: "BURN ANIM: holding ... ON THE BOARD" at 11379/13331/
+        // 17950/19039 with NOT ONE "waited ... flying to the Burnt pile now" release line in the
+        // whole session): this very re-baseline used to add EVERY burnt widget — including one
+        // whose flight TryTakeBurnFlightSlot had just DECLINED to keep the artwork playing on the
+        // lying card. The next tick's loop above then skipped it as already-known, so
+        // TryAnimateBurn was never re-offered, the hold never released, and the card was left for
+        // a later Rebuild park sweep to swallow (IsFreshBurn false → the Vanish/Park fallback) —
+        // the reported disappearance. A widget whose flight is still HELD must therefore stay OUT
+        // of the baseline: it remains "fresh", the watch re-offers it every tick, and when the
+        // artwork completes (or the deadline passes) the release actually launches the same
+        // FlyToPile arc the discard flow uses.
         _knownBurntWidgets.Clear();
         for (int i = 0; i < _burntWidgetBuffer.Count; i++)
-            if (_burntWidgetBuffer[i] != null)
-                _knownBurntWidgets.Add(_burntWidgetBuffer[i]);
+        {
+            AbilityCardUI w = _burntWidgetBuffer[i];
+            if (w != null && !_burnHoldSince.ContainsKey(w))
+                _knownBurntWidgets.Add(w);
+        }
+
+        // Hold hygiene: a held widget that LEFT the burnt pile again (a recovered lost card —
+        // possible before its flight ever released) has nothing left to fly; drop its hold so
+        // neither dictionary accumulates dead widgets across a scenario.
+        if (_burnHoldSince.Count > 0)
+        {
+            _burnHoldPruneScratch.Clear();
+            foreach (AbilityCardUI held in _burnHoldSince.Keys)
+                if (!_burntWidgetBuffer.Contains(held))
+                    _burnHoldPruneScratch.Add(held);
+            for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
+                ClearBurnHold(_burnHoldPruneScratch[i]);
+        }
     }
 
     /// <summary>Seconds the flight waits for the game's burn artwork to START before giving up on
@@ -974,6 +1079,22 @@ internal sealed partial class CardsDriver
 
     /// <summary>Widgets whose hold has been logged once (one line per burn, not per frame).</summary>
     private readonly HashSet<AbilityCardUI> _burnHoldLogged = new();
+
+    /// <summary>Reused scratch for pruning stale hold entries (allocation-free steady state).</summary>
+    private readonly List<AbilityCardUI> _burnHoldPruneScratch = new(4);
+
+    /// <summary>
+    /// Drop all artwork-hold state for <paramref name="widget"/>. Called when a flight for the
+    /// widget actually launches on ANOTHER path (the turn-clear sweep consumes the burn), when the
+    /// widget leaves the burnt pile again (recovered), and when a board switch parks its card —
+    /// so a consumed hold can never release a SECOND animation later (the release gate itself
+    /// clears these two on a normal in-path release).
+    /// </summary>
+    private void ClearBurnHold(AbilityCardUI widget)
+    {
+        _burnHoldSince.Remove(widget);
+        _burnHoldLogged.Remove(widget);
+    }
 
     /// <summary>
     /// May the burned <paramref name="widget"/> fly THIS tick? False = keep it lying on the board
@@ -1068,12 +1189,22 @@ internal sealed partial class CardsDriver
         // while waiting, so the watch simply re-offers it next tick. If the effect never appears
         // the deadline lets the flight go anyway — a burned card must never be stranded on the
         // board just because its artwork did not play.
-        if (!TryTakeBurnFlightSlot(widget, card))
-            return;
+        //
+        // OWNERSHIP FIRST, gate second: a card the turn-clear sweep will fly (still docked as a
+        // round card, _lastHalfCards), one already mid-flight, or one in the player's hand must
+        // not enter the artwork hold at all — its owner animates (or holds) it, and a hold taken
+        // here would either release into a duplicate flight or cycle hold/release log lines every
+        // grace period until the owner finally moved it. The watch simply keeps re-offering; the
+        // ownership resolves itself (turn-clear launches and consumes any stale hold via
+        // ClearBurnHold, a grabbed card returns to a zone on release).
         bool ownedElsewhere = card != null
             && (card.IsHeld || card.IsFlying || _flyingToPile.Contains(card) || _lastHalfCards.Contains(card));
+        if (ownedElsewhere)
+            return;
+        if (!TryTakeBurnFlightSlot(widget, card))
+            return;
 
-        if (!ownedElsewhere && card != null && card.GameCard != null && card.gameObject.activeInHierarchy)
+        if (card != null && card.GameCard != null && card.gameObject.activeInHierarchy)
         {
             // Ideal: the real VR card is still live at its true board position — fly IT (face and
             // all), from where it actually sits, orientation held for the whole flight (FlyToPile).
@@ -1097,9 +1228,6 @@ internal sealed partial class CardsDriver
                                 $"{arcHeight:F3} m over the board). VR presentation only; game pile state untouched.");
             return;
         }
-
-        if (ownedElsewhere)
-            return; // the turn-clear sweep (or a live grab) is already animating this exact card
 
         // Issue 1: the live VR card is already parked (position lost) or recycled, so fly a transient
         // card-back slab from the burned card's LAST-KNOWN world pose — NEVER from the discard pile

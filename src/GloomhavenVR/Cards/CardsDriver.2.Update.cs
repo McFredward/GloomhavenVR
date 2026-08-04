@@ -271,6 +271,8 @@ internal sealed partial class CardsDriver
         _lastCardWorldRot.Clear();
         _burnWatchHand = null; // issue B
         _knownBurntWidgets.Clear();
+        _burnHoldSince.Clear(); // artwork holds die with the driver — no orphaned release later
+        _burnHoldLogged.Clear();
         _fanOriginCards.Clear();
         _fanOrder.Clear();
         _insertGap = -1;
@@ -394,6 +396,8 @@ internal sealed partial class CardsDriver
         _dockAnimSuppressed = true; // issue 2: the next hand's cards populate silently (no storm)
         _burnWatchHand = null; // issue B: re-baseline the burnt set for the next hand
         _knownBurntWidgets.Clear();
+        _burnHoldSince.Clear(); // the held widgets died with the hand — never release into a slab
+        _burnHoldLogged.Clear();
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;
         if (_browseHand == hand)
