@@ -169,6 +169,10 @@ internal sealed partial class FlatScreenStereo
         // later minute on the map was diagnostically blind.
         _mapIconsLogCount = 0;
         _iconFallbackLogged = false;
+        // Force a fresh decal scan on the FIRST icon draw of this map entry (identity-guarded
+        // sentinel, see the _iconCacheFrame doc block) so the per-entry MAP ICONS diagnostics
+        // above always describe a scan from THIS visit, never a set cached on a previous one.
+        _iconCacheFrame = int.MinValue;
     }
 
     // ---- map render: forward camera over the REAL parchment mesh (class doc MAP RENDER) --------
@@ -1241,6 +1245,36 @@ internal sealed partial class FlatScreenStereo
     // every frame (which preserves the original "one MPB per draw" semantics exactly — the
     // original comment shows that was a deliberate debugging choice, so it is not weakened).
     private MapChoreographer? _iconChoreo;
+
+    /// <summary>
+    /// Frame of the last decal/renderer re-scan; <c>int.MinValue</c> is the "never scanned"
+    /// sentinel and MUST be tested by identity, never fed into the age subtraction.
+    ///
+    /// ROOT CAUSE of the recurring "Icons (z.B. Gloomhaven oder Quest) fehlen auf der Karte"
+    /// report (both occurrences, sessions after the 2026-07-27 MapIconCache perf pass): the
+    /// rescan gate was the bare subtraction
+    /// <c>Time.frameCount - _iconCacheFrame &gt;= IconCacheIntervalFrames</c> with this field
+    /// initialized to <c>int.MinValue</c>. In C#'s default UNCHECKED arithmetic,
+    /// <c>frameCount - int.MinValue</c> wraps: for any frameCount &gt;= 0 the result is
+    /// <c>frameCount - 2147483648</c>, a large NEGATIVE number, which FAILS the "interval
+    /// elapsed" test — so with the cache on (the default) the very first call skipped the
+    /// scan, and because this field is only ever stamped INSIDE the rescan block, no later
+    /// call could ever rescan either. The decal and party-token lists stayed empty for the
+    /// whole session, and the 2026-07-31 scene-wide fallback sweep (added for the FIRST
+    /// occurrence, on the hypothesis that the choreographer parents held no decals) sat
+    /// inside the same dead block and never ran once. Evidence (2026-08-04 Player.log, the
+    /// session WITH the diagnostics): every "MAP ICONS [1..5]" line reads
+    /// <c>decals=0 noMat=0 noTex=0 drawn=0 partyTokenRenderers=0</c> while the SAME lines'
+    /// ZERO-DECAL STATE — queried directly, outside the rescan block — reads
+    /// <c>scenariosParent='Scenarios' active=True children=48, villagesParent='Villages'
+    /// active=True children=5, scene-wide ACTIVE Decal components=41</c>: the icons existed,
+    /// active, right under the parents the scan targets, and no MAP ICONS FALLBACK warn ever
+    /// appeared. The savegame-dependence was illusory — saves whose map visits predated the
+    /// perf pass simply still had the per-frame (cache-off) scan. Same overflow class as the
+    /// <see cref="Hands.Interact.UiScrollFocus"/> hover-stamp latch, opposite polarity: there
+    /// the wrapped negative PASSED a "recent" test, here it FAILS an "elapsed" test. The gate
+    /// now tests the sentinel by identity before any subtraction.
+    /// </summary>
     private int _iconCacheFrame = int.MinValue;
     private readonly List<Component> _iconDecals = new(64);
     private readonly List<Renderer?> _iconDecalRenderers = new(64);
@@ -1328,7 +1362,11 @@ internal sealed partial class FlatScreenStereo
         // Re-scan the decal / party-token component sets. With the cache OFF this is the original
         // per-call behaviour (two allocating GetComponentsInChildren per camera per frame); with it
         // ON the same scan runs once per IconCacheIntervalFrames and the results are reused.
+        // The sentinel is compared by IDENTITY before the subtraction — see the _iconCacheFrame
+        // doc block: the bare subtraction wraps negative for a virgin stamp and killed every
+        // rescan (and with it every icon) for the whole session.
         bool rescan = !cacheOn
+                      || _iconCacheFrame == int.MinValue
                       || Time.frameCount - _iconCacheFrame >= IconCacheIntervalFrames
                       || _iconDecals.Count != _iconDecalRenderers.Count;
         if (!rescan)
@@ -1352,14 +1390,15 @@ internal sealed partial class FlatScreenStereo
             CollectIconDecals(choreo.m_ScenariosParent);
             CollectIconDecals(choreo.m_VillagesParent);
 
-            // FALLBACK (savegame report "Icons waren wieder nicht sichtbar"): a session existed
-            // in which the two choreographer parents held ZERO active decals for the whole map
-            // visit (decals=0 in every MAP ICONS line) while the map itself rendered fine. The
-            // parents are where MapChoreographer instantiates MapLocations, but a save/state
-            // combination that parents them elsewhere (or a game update moving them) must not
-            // blank every icon again — so when the parent scan comes up EMPTY, sweep the whole
-            // scene for live Decal components instead and say where they actually live. Runs
-            // only while the parent scan finds nothing, at rescan cadence.
+            // FALLBACK (kept as a safety net; its founding hypothesis is DISPROVEN): the
+            // "zero decals for the whole map visit" sessions were NOT a save that parents its
+            // MapLocations elsewhere — the 2026-08-04 log showed 41 active decals right under
+            // 'Scenarios'/'Villages' while this whole rescan block was dead code behind the
+            // wrapped-sentinel gate (see the _iconCacheFrame doc block). Now that the block
+            // runs, the parent scan is expected to find them; this sweep stays for the case it
+            // was written for — a game update or save state genuinely reparenting the icons —
+            // and names where they actually live. Runs only while the parent scan finds
+            // nothing, at rescan cadence.
             if (_iconDecals.Count == 0 && _decalType != null)
             {
                 UnityEngine.Object[] all = Object.FindObjectsOfType(_decalType);
