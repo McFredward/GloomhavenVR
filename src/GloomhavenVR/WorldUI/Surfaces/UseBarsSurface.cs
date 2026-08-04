@@ -466,6 +466,12 @@ internal sealed class UseBarsSurface
         Transform? mount = PlayTray.Current?.DecisionMount; // Unity-null aware
         if (mount == null || !mount.gameObject.activeInHierarchy)
         {
+            for (int i = 0; i < _docks.Length; i++)
+            {
+                ConvertedPanel? p = _docks[i].Docked;
+                if (p != null)
+                    p.OrderCluster = null; // floating stack — not part of the board's draw cluster
+            }
             PlaceFloatingStack(docked); // a pending decision must never be invisible
             return;
         }
@@ -516,6 +522,9 @@ internal sealed class UseBarsSurface
             ConvertedPanel? panel = _docks[i].Docked;
             if (panel == null)
                 continue;
+            // Docked on the control board: the board's furniture stays structurally below the
+            // bars at every viewing angle — see ConvertedPanel.OrderCluster.
+            panel.OrderCluster = PlayTray.Current;
             if (!panel.HostGo.activeSelf)
                 panel.HostGo.SetActive(true);
 

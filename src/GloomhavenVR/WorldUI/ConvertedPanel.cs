@@ -574,6 +574,24 @@ internal sealed class ConvertedPanel
     /// <see cref="CanvasConversion.RegisterOrderFollower(ConvertedPanel, Canvas, int)"/>; entries
     /// are pruned when their object dies, so they need no teardown of their own.</summary>
     public readonly List<OrderFollower> OrderFollowers = new(4);
+
+    /// <summary>
+    /// Identity of the BOARD this panel is currently DOCKED on — the <c>PlayTray</c> instance,
+    /// i.e. the very object that anchors that board's furniture group
+    /// (<see cref="IFurnitureOrderAnchor"/>). Null while the panel floats. Written by the dock
+    /// placement paths (TrayMountedPanelSurface, DecisionDockSurface, UseBarsSurface,
+    /// DamageTooltipSurface) every Place, cleared on their floating fallbacks.
+    ///
+    /// WHY (user report 2026-08-04 #2: initiative portraits blending with the Statustafel text,
+    /// popping with viewing angle): a board-docked panel and the board's own transparent furniture
+    /// are effectively COPLANAR, so their measured eye distances sit within (or straddle) the
+    /// ladder's swap margin and which one "wins" flips as the head orbits. Distance must not
+    /// arbitrate inside the board's own plane — the furniture rank pass
+    /// (<c>CanvasConversion.TickFurnitureOrder</c>) reads this tag to keep the board's furniture
+    /// STRUCTURALLY below every panel docked on the same board, at every angle, while distance
+    /// continues to rank the whole board cluster against everything else.
+    /// </summary>
+    public object? OrderCluster;
 }
 
 /// <summary>

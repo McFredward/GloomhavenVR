@@ -350,6 +350,10 @@ internal sealed class RemoteWidgetMirror
 
         var canvas = _host.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        // A DOCKED WIDGET of the remote board's fixed sub-ladder: strictly above the board's
+        // transparent furniture (pick banner at OrderFurniture), whatever the viewing angle -
+        // see BoardVisual's sub-ladder header for the angle-dependent blend this pins down.
+        canvas.sortingOrder = BoardVisual.OrderDockedWidget;
         Camera? head = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
         if (head != null)
             canvas.worldCamera = head;

@@ -12,6 +12,36 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal static class BoardVisual
 {
+    // ---- fixed intra-board draw sub-ladder --------------------------------------------------
+    //
+    // ROOT CAUSE (the remote twin of the LOCAL board's angle-dependent placard pop, user report
+    // 2026-08-04 #2): every transparent visual on a remote board - the pick-banner parchment +
+    // label, the mirrored widget canvases, the fallback chips, the synced tooltip - shipped at
+    // sortingOrder 0. Unity resolves transparent renderers by sortingLayer -> sortingOrder FIRST
+    // and falls back to per-renderer camera distance only on a tie, so two order-0 elements that
+    // overlap on the board plane (the peer's pick banner hovers exactly where their initiative
+    // mirror grows up past the board's top edge) swap winners with the viewing angle - the same
+    // "mal so, mal so" blend-through the local board showed between Statustafel and portraits.
+    //
+    // THE SAME RULE as the local fix (CanvasConversion.9.Furniture.cs ROUND 2): the winner inside
+    // one board's plane is decided ONCE, structurally, never by distance. Furniture at the
+    // bottom, the board's docked widgets above it, the proud tooltip above both. The steps leave
+    // room for an element's own internal offsets, and the whole sub-ladder stays far below the
+    // converted-panel distance ladder (PanelOrderBase = 100), the dropdown overlays (3999+) and
+    // the ray visuals (5000), so nothing outside the remote board is affected.
+
+    /// <summary>Board furniture - the pick-banner plate/label and any other decor ON the board
+    /// face. The default renderer order; named so the intent is greppable.</summary>
+    internal const int OrderFurniture = 0;
+
+    /// <summary>The board's docked widgets - mirrored widget canvases and the fallback chips.
+    /// Strictly above <see cref="OrderFurniture"/>, at every viewing angle.</summary>
+    internal const int OrderDockedWidget = 4;
+
+    /// <summary>The synced board tooltip - sits PROUD of the board and annotates its content, so
+    /// it must beat both tiers below.</summary>
+    internal const int OrderTooltip = 8;
+
     /// <summary>An unlit material (optionally textured), so mod visuals read the same regardless
     /// of the surrounding scene lights. Mirrors <c>HeadMaskLibrary.UnlitMaterial</c>.</summary>
     internal static Material Unlit(Color color, Texture? texture = null)
