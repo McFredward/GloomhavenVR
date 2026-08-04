@@ -92,6 +92,17 @@ internal sealed class RemoteAvatar
     private Mesh? _heldCardMesh;
     private bool _heldCardBillboardLogged; // one-line confirm the receiver-side billboard fired
 
+    // SECOND held-card slab (extras extension record NetProtocol.ExtIdSecondHeldCard): the card
+    // in the sender's OTHER hand while both hands hold one. The SAME machinery as the first slab
+    // — same lazy build, same easing, same head billboard — driven from the extras stream instead
+    // of the rig packet's FlagHeldCard block. Record absent ⇒ slab hidden; peer stale/left ⇒ the
+    // whole root (both slabs) is destroyed; no state survives a scenario load because the avatar
+    // itself does not.
+    private Transform? _secondCardHolder;
+    private Mesh? _secondCardMesh;
+    private bool _hasSecondHeldCard;
+    private RigPose _secondHeldCardPose;
+
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
 
@@ -465,6 +476,8 @@ internal sealed class RemoteAvatar
             _rightHolder.localScale = Vector3.one * scale;
             if (_heldCardHolder != null)
                 _heldCardHolder.localScale = Vector3.one * scale;
+            if (_secondCardHolder != null)
+                _secondCardHolder.localScale = Vector3.one * scale;
         }
     }
 
@@ -498,6 +511,16 @@ internal sealed class RemoteAvatar
         {
             SecondHeldFigureActorId = 0;
         }
+
+        // SECOND HELD CARD (extension record 10): the card in the sender's other hand while both
+        // hold one, rendered by the same slab machinery the rig packet's held card uses
+        // (UpdateCardSlab in Tick). Absent ⇒ at most one card held — which is also exactly what a
+        // peer predating the record (or on build 49's documented compromise) sends — so a plain
+        // reset is right in both cases: the slab hides, and the FIRST card's slab (rig packet) is
+        // untouched.
+        _hasSecondHeldCard = p.HasSecondHeldCard;
+        if (p.HasSecondHeldCard)
+            _secondHeldCardPose = p.SecondHeldCardPose;
 
         // Head-mask SIZE: the sender's own multiplier rides the wire (trailing-block byte A bit 4),
         // so their mask is the same size on every client — the project's standing MP rule that what
@@ -696,14 +719,21 @@ internal sealed class RemoteAvatar
             }
         }
 
+        float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * dt);
         if (_hasTarget)
         {
-            float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * dt);
             UpdatePart(_headHolder, _target.HeadValid, in _target.Head, k);
             UpdateHand(_leftHolder, _leftCurler, in _target.Left, _target.HasFingers, k, dt);
             UpdateHand(_rightHolder, _rightCurler, in _target.Right, _target.HasFingers, k, dt);
             UpdateHeldCard(k);
         }
+
+        // SECOND held-card slab (extras extension record 10): driven off the EXTRAS stream, so it
+        // ticks OUTSIDE the rig-target guard — the record can legitimately arrive before the first
+        // rig packet, and the slab must not wait for one. Same machinery as the first slab; the
+        // head billboard inside simply keeps the transmitted rotation until a synced head exists.
+        UpdateCardSlab(ref _secondCardHolder, ref _secondCardMesh, "HeldCard2",
+                       _hasSecondHeldCard, in _secondHeldCardPose, k);
 
         // Ghost hands: fade exactly the hands the sender says are faded. The extension mask is
         // authoritative when present (a held card can ghost EITHER hand, or both); a sender too
@@ -801,59 +831,90 @@ internal sealed class RemoteAvatar
     /// the lag this removes.
     /// </summary>
     private void UpdateHeldCard(float k)
+        => UpdateCardSlab(ref _heldCardHolder, ref _heldCardMesh, "HeldCard",
+                          _target.HasHeldCard, in _target.HeldCardPose, k);
+
+    /// <summary>
+    /// One card-slab's whole per-frame life: lazy build on first use, ease toward the transmitted
+    /// pose, hide while nothing is held, and re-derive the billboard. Parameterized over the
+    /// holder/mesh pair so the FIRST held card (rig packet <see cref="NetProtocol.FlagHeldCard"/>)
+    /// and the SECOND one (extras extension record
+    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/> — the card in the sender's other hand while
+    /// both hold one) share every line of this machinery instead of duplicating it. NOTE the
+    /// placement contract this shape encodes, which is also why record 10 needs no hand byte: the
+    /// slab is rendered at the ABSOLUTE transmitted pose under the avatar root — it is never
+    /// parented to a hand holder, and no hand transform is consulted anywhere below.
+    ///
+    /// ORIENTATION (multiplayer half of user report 2): a held card is not rigid in the owner's
+    /// hand — <see cref="Cards.VRCard"/>.TickHeldPose re-billboards it to the OWNER's head every
+    /// frame, so the owner always reads it face-on however their wrist is turned. The POSITION for
+    /// that rule rides the wire already; the ROTATION does not need to. A slab that simply slerps
+    /// toward the transmitted rotation breaks the rule on the receiver twice: the quantized
+    /// rotation snapshot eases INDEPENDENTLY of the head and lags out of the "facing its owner"
+    /// relationship during motion, and after packet loss it keeps pointing at where the peer's
+    /// head WAS. Both vanish by re-deriving the billboard each frame from data already here: the
+    /// peer's head is a mandatory part of the rig packet (eased onto <see cref="_headHolder"/> in
+    /// <see cref="Tick"/>), so <c>LookRotation(slabPos − headPos, head.up)</c> reproduces exactly
+    /// what the owner sees — no new wire field. Same receiver-side billboard
+    /// <see cref="RemoteItemFan"/> and <see cref="RemoteBrowserFan"/> already run. The transmitted
+    /// rotation is still read and still the fallback for a peer whose head is not tracked, and no
+    /// extra slerp rides on top: the billboard derives from an already-eased position and an
+    /// already-eased head, so it inherits their smoothing.
+    /// </summary>
+    private void UpdateCardSlab(ref Transform? holder, ref Mesh? mesh, string name,
+                                bool held, in RigPose pose, float k)
     {
-        if (_heldCardHolder == null)
+        if (holder == null)
         {
-            if (!_target.HasHeldCard)
+            if (!held)
                 return; // never held anything yet — build nothing
-            BuildHeldCardSlab();
-            if (_heldCardHolder == null)
-                return;
+            holder = BuildCardSlab(name, out mesh);
         }
-        UpdatePart(_heldCardHolder, _target.HasHeldCard, in _target.HeldCardPose, k);
-        if (!_target.HasHeldCard || !_heldCardHolder.gameObject.activeSelf)
+        UpdatePart(holder, held, in pose, k);
+        if (!held || !holder.gameObject.activeSelf)
             return;
-        if (!_target.HeadValid || !_headHolder.gameObject.activeSelf)
+        if (!_hasTarget || !_target.HeadValid || !_headHolder.gameObject.activeSelf)
             return; // no synced head this frame — keep the transmitted rotation
 
         // Card +Z points AWAY from its reader (CardMesh / BuildBackSlab convention), so the look
         // direction is head → card: the owner sees the face, everyone else sees the back.
-        Vector3 away = _heldCardHolder.position - _headHolder.position;
+        Vector3 away = holder.position - _headHolder.position;
         if (away.sqrMagnitude < 1e-6f)
             return;
         away.Normalize();
         Vector3 up = _headHolder.up; // the OWNER's head-up: their head roll is on the wire too
         if (Mathf.Abs(Vector3.Dot(away, up)) > 0.9995f)
             return; // forward ∥ up — LookRotation undefined; keep the previous rotation
-        _heldCardHolder.rotation = Quaternion.LookRotation(away, up);
+        holder.rotation = Quaternion.LookRotation(away, up);
 
         if (!_heldCardBillboardLogged)
         {
             _heldCardBillboardLogged = true;
             VRLog.Info("Net", $"Remote held card: billboarding player {PlayerId}'s slab to their SYNCED head "
                 + $"(rig-packet head, no new wire field); wire rotation kept only as the untracked-head fallback. "
-                + $"delta vs wire rot {Quaternion.Angle(_target.HeldCardPose.Rotation, _heldCardHolder.rotation):F1} deg.");
+                + $"delta vs wire rot {Quaternion.Angle(pose.Rotation, holder.rotation):F1} deg.");
         }
     }
 
-    private void BuildHeldCardSlab()
+    private Transform BuildCardSlab(string name, out Mesh? mesh)
     {
-        _heldCardHolder = new GameObject("HeldCard").transform;
-        _heldCardHolder.SetParent(_root.transform, worldPositionStays: false);
-        _heldCardHolder.localScale = Vector3.one * AppliedScale;
-        _heldCardHolder.gameObject.SetActive(false);
+        var holder = new GameObject(name).transform;
+        holder.SetParent(_root.transform, worldPositionStays: false);
+        holder.localScale = Vector3.one * AppliedScale;
+        holder.gameObject.SetActive(false);
 
         // Own mesh (freed in Destroy); SHARED back material (CardMesh caches it — never ours
         // to destroy). Sized to the same defaults the remote fan slabs use.
-        _heldCardMesh = RemoteHandFan.BuildBackSlab(
+        mesh = RemoteHandFan.BuildBackSlab(
             RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
-        var mf = _heldCardHolder.gameObject.AddComponent<MeshFilter>();
-        mf.sharedMesh = _heldCardMesh;
-        var mr = _heldCardHolder.gameObject.AddComponent<MeshRenderer>();
+        var mf = holder.gameObject.AddComponent<MeshFilter>();
+        mf.sharedMesh = mesh;
+        var mr = holder.gameObject.AddComponent<MeshRenderer>();
         mr.sharedMaterial = Cards.CardMesh.CreateBackMaterial();
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         mr.receiveShadows = false;
-        VRLayers.Apply(_heldCardHolder.gameObject);
+        VRLayers.Apply(holder.gameObject);
+        return holder;
     }
 
     public void Destroy()
@@ -871,6 +932,10 @@ internal sealed class RemoteAvatar
             Object.Destroy(_heldCardMesh); // asset — not freed with the GameObject tree
         _heldCardMesh = null;
         _heldCardHolder = null;
+        if (_secondCardMesh != null)
+            Object.Destroy(_secondCardMesh); // same asset rule as the first slab's mesh
+        _secondCardMesh = null;
+        _secondCardHolder = null;
         if (_root != null)
             Object.Destroy(_root);
         VRLog.Info("Net", $"Remote avatar destroyed for player {PlayerId}.");

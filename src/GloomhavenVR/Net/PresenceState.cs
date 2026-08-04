@@ -278,6 +278,24 @@ internal struct PresenceState
     /// board's tooltip area (meaningful only when <see cref="HasBoardTooltip"/>). Capped on both
     /// ends at <see cref="NetProtocol.TooltipTextMaxBytes"/> UTF8 bytes.</summary>
     public string? BoardTooltipText;
+
+    /// <summary>
+    /// True when the sender physically holds a card in EACH hand and this packet carries the
+    /// second one (extension record <see cref="NetProtocol.ExtIdSecondHeldCard"/>). The FIRST
+    /// held card keeps riding the rig packet's <see cref="NetProtocol.FlagHeldCard"/> block
+    /// exactly as before (the sampler's left-first preference is unchanged); this record carries
+    /// the OTHER hand's card, and the sender promotes the whole extras packet to the rig rate
+    /// while it moves so both slabs stream at the same cadence (see the record doc). Absent ⇒
+    /// at most one card is held, which keeps an idle packet byte-identical to build 49 and is
+    /// exactly what peers predating the record render.
+    /// </summary>
+    public bool HasSecondHeldCard;
+
+    /// <summary>World-frame pose of the second held card (meaningful only when
+    /// <see cref="HasSecondHeldCard"/>). The shared 20-byte pose encoding — and the ENTIRE
+    /// payload: no hand byte, because the receiver renders the slab at this absolute pose and
+    /// never parents it to a hand (see the record doc), and no identity, ever.</summary>
+    public RigPose SecondHeldCardPose;
 }
 
 /// <summary>
@@ -319,7 +337,10 @@ internal struct PresenceState
 ///                        NetProtocol.ExtIdSecondFigure),
 ///                        9 BOARD TOOLTIP (UTF8 text of the tooltip parked in the sender's board
 ///                        tooltip area, capped and IDENTITY-GATED on the sender — only content
-///                        already public to peers is ever written; see NetProtocol.ExtIdBoardTooltip)
+///                        already public to peers is ever written; see NetProtocol.ExtIdBoardTooltip),
+///                        10 SECOND HELD CARD (the shared 20-byte pose of the card in the sender's
+///                        OTHER hand — pose only, no hand byte and no identity; written ONLY while
+///                        both hands hold a card, see NetProtocol.ExtIdSecondHeldCard)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -353,10 +374,11 @@ internal static class PresenceSerializer
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
     /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
     /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
-    /// + 194 (board tooltip: 2 + its 192-byte cap) = 411, rounded up to 432 for headroom.
+    /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20) = 433,
+    /// rounded up to 456 for headroom.
     /// Local buffer bound only — nothing on the wire depends on it, and every variable-length
     /// record still bounds-checks against the real buffer before writing.</summary>
-    public const int MaxSize = 432;
+    public const int MaxSize = 456;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -386,7 +408,7 @@ internal static class PresenceSerializer
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
         bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
-                          || state.HasSecondFigure
+                          || state.HasSecondFigure || state.HasSecondHeldCard
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
@@ -578,6 +600,20 @@ internal static class PresenceSerializer
                             buffer[i++] = text[b];
                         records++;
                     }
+                }
+                if (state.HasSecondHeldCard
+                    && i + 2 + NetProtocol.SecondHeldCardRecordBytes <= buffer.Length)
+                {
+                    // SECOND HELD CARD: the shared 20-byte pose, nothing else — no hand byte (the
+                    // receiver renders the slab at this absolute pose, never parented to a hand;
+                    // see the record doc) and no identity, ever (peers draw an anonymous BACK).
+                    // Written ONLY while both hands physically hold a card, so a one-card hold —
+                    // and an idle player — emits the exact bytes build 49 emitted. Appended LAST,
+                    // behind every record that already existed, per the tail's id-order contract.
+                    buffer[i++] = NetProtocol.ExtIdSecondHeldCard;
+                    buffer[i++] = (byte)NetProtocol.SecondHeldCardRecordBytes;
+                    AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldCardPose);
+                    records++;
                 }
                 buffer[countAt] = records;
             }
@@ -983,6 +1019,27 @@ internal static class PresenceSerializer
                         {
                             state.HasBoardTooltip = true;
                             state.BoardTooltipText = tip;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdSecondHeldCard
+                             && len >= NetProtocol.SecondHeldCardRecordBytes)
+                    {
+                        // SECOND HELD CARD: the shared 20-byte pose. The one validation is the
+                        // NaN/infinity guard every wire position carries (fan anchor, second
+                        // figure): garbage must degrade to "record absent" — the slab the peer
+                        // predating this build renders — never to a slab flung out of the world.
+                        // No hand byte to validate: the slab is rendered at this absolute pose
+                        // and never attached to a hand, so no hand contradiction is expressible
+                        // (see the record doc for the receiver evidence).
+                        int j = i;
+                        AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose cardPose);
+                        Vector3 cp = cardPose.Position;
+                        if (!float.IsNaN(cp.x) && !float.IsInfinity(cp.x)
+                            && !float.IsNaN(cp.y) && !float.IsInfinity(cp.y)
+                            && !float.IsNaN(cp.z) && !float.IsInfinity(cp.z))
+                        {
+                            state.HasSecondHeldCard = true;
+                            state.SecondHeldCardPose = cardPose;
                         }
                     }
                     i += len; // known or not, the record's own length is how we move past it
