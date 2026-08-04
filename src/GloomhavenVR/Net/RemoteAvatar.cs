@@ -252,6 +252,12 @@ internal sealed class RemoteAvatar
     /// down — including for a sender that predates the record, which renders identically.</summary>
     public string? PickBannerText { get; private set; }
 
+    /// <summary>The BOARD TOOLTIP the owner is reading (extension record 9, identity-gated on
+    /// their side), or null while none is shown — including for a sender that predates the
+    /// record, which renders identically. Shown at the remote board's tooltip area
+    /// (<see cref="RemoteBoardTooltip"/>).</summary>
+    public string? TooltipText { get; private set; }
+
     /// <summary>Visible-controls bitmask (<see cref="NetProtocol.BoardUiConfirmBit"/> …),
     /// meaningful only when <see cref="HasBoardUi"/>.</summary>
     public byte BoardButtonsMask { get; private set; }
@@ -552,6 +558,20 @@ internal sealed class RemoteAvatar
                 ? $"Pick banner RECEIVED from player {PlayerId}: none (placard down)."
                 : $"Pick banner RECEIVED from player {PlayerId}: \"{banner}\" — shown on their " +
                   "remote board at the same board-local seat.");
+        }
+
+        // BOARD TOOLTIP (extension record 9): absent ⇒ null ⇒ the remote tooltip panel hides.
+        // Never a stale text from a hover that ended — the sender writes the record on every
+        // packet while the tooltip is up and omits it the moment it goes down (and whenever the
+        // sender-side identity gate suppresses it).
+        string? tooltip = p.HasBoardTooltip ? p.BoardTooltipText : null;
+        if (tooltip != TooltipText)
+        {
+            TooltipText = tooltip;
+            VRLog.Info("Net", string.IsNullOrEmpty(tooltip)
+                ? $"Board tooltip RECEIVED from player {PlayerId}: none (hidden)."
+                : $"Board tooltip RECEIVED from player {PlayerId}: {tooltip!.Length} chars — " +
+                  "shown at their remote board's tooltip area.");
         }
 
         HasBoardUi = p.HasBoardUi;

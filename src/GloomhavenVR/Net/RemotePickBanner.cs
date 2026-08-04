@@ -36,9 +36,10 @@ namespace GloomhavenVR.Net;
 /// (<c>PlayTray.EnsurePickBanner</c>) — reproduced here with the same colours through the shared
 /// remote-board helpers, so a peer's placard reads like theirs rather than like a mod overlay.
 /// </summary>
-/// <remarks>CLASSIFICATION: WIRE (extension record 7) — the only remote-board element whose
-/// content is neither GLOBAL nor PER-ACTOR MODEL, for the reason given above. See
-/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// <remarks>CLASSIFICATION: WIRE (extension record 7) — sender-composed local UI state that is
+/// neither GLOBAL nor PER-ACTOR MODEL, for the reason given above. Its sibling is the board
+/// tooltip (<see cref="RemoteBoardTooltip"/>, record 9), which shares the shape but adds a
+/// sender-side identity gate. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemotePickBanner
 {
     /// <summary>Plate size, metres — the owner's own placard is 0.44 × 0.055 (localScale of a

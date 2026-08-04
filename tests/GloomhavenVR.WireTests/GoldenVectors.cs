@@ -920,6 +920,139 @@ internal static class GoldenVectors
         t.True(rigHeld.HasHeldFigure, "with the FIRST held figure still delivered by the rig packet");
         t.Equal(0x01020304, rigHeld.HeldFigureActorId, "and its actor id intact");
 
+        // -- 7j. BOARD TOOLTIP (extension record 9) ----------------------------------------
+        // The tooltip parked in the sender's board tooltip area, UTF8, capped and truncated on
+        // a CHARACTER boundary. Written only while a board-owned tooltip is shown AND the
+        // sender-side identity gate passed (only content already public to peers); an idle
+        // packet stays byte-identical to the previous build's.
+        t.Case("7j. extras, board-tooltip record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTooltip = true, BoardTooltipText = "AB",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            09 02 41 42      // record: id 9, len 2, UTF8 'A' 'B'
+            "), ext, m, "the board-tooltip record is [id][len][UTF8 bytes]");
+        t.Equal(15, m, "header 7 + count 1 + block 2 + tail 1 + 4 = 15 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState bt), "and it parses");
+        t.True(bt.HasBoardTooltip, "the board-tooltip record is delivered");
+        t.Equal("AB", bt.BoardTooltipText ?? string.Empty, "with the text intact");
+
+        // Ordered LAST, behind the pick banner — a reorder in Write shows up right here.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCardHighlight = true, HandHighlightIndex = 1,
+            FanHighlightIndex = NetProtocol.CardHighlightNone,
+            HasPickBanner = true, PickBannerText = "A",
+            HasBoardTooltip = true, BoardTooltipText = "B",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            03               // tail: 3 records, in id order
+            06 02 01 FF      // id 6 card highlight
+            07 01 41         // id 7 pick banner, UTF8 'A'
+            09 01 42         // id 9 board tooltip, UTF8 'B'
+            "), ext, m, "the board tooltip rides the tail after the pick banner (id order 6, 7, 9)");
+
+        // ... and behind the SECOND FIGURE too — id 9 is the new last record of the tail.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasSecondFigure = true, SecondFigureActorId = 0x01020304, SecondFigurePose = Figure(),
+            SecondFigureLeftHand = true,
+            HasBoardTooltip = true, BoardTooltipText = "A",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            02               // tail: 2 records, in id order
+            08 19 01 04 03 02 01
+            " + PoseFigure + @"
+            09 01 41         // id 9 board tooltip, UTF8 'A'
+            "), ext, m, "the board tooltip rides the tail after the second figure (id order 8, 9)");
+
+        // A multi-byte glyph survives the round trip intact (a German tooltip is full of them).
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTooltip = true, BoardTooltipText = "Rüstung",
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState btUml), "a UTF8 tooltip parses");
+        t.Equal("Rüstung", btUml.BoardTooltipText ?? string.Empty, "and the umlaut survives byte-exact");
+
+        // ABSENT WHEN NONE. An empty text emits NO record — "no tooltip", "identity gate
+        // suppressed" and "sender predates the record" must all render identically, and an idle
+        // packet stays byte-identical to the previous build's.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTooltip = true, BoardTooltipText = string.Empty, HandCardCount = 5,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "an empty board tooltip writes no record at all");
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "no tooltip -> no block, no tail, no record: byte-identical to the previous build");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noBt), "and it parses");
+        t.True(!noBt.HasBoardTooltip, "with HasBoardTooltip false (peers hide the panel)");
+
+        // The cap truncates on a CHARACTER boundary: a run of 2-byte glyphs longer than the cap
+        // must never be cut mid-sequence (that would decode as a replacement char on the peer).
+        string longTip = new string('ä', NetProtocol.TooltipTextMaxBytes);
+        byte[] cappedTip = PresenceSerializer.EncodeBoardTooltipText(longTip);
+        t.True(cappedTip.Length <= NetProtocol.TooltipTextMaxBytes,
+               "the encoded tooltip honours the cap");
+        t.Equal(new string('ä', NetProtocol.TooltipTextMaxBytes / 2),
+                System.Text.Encoding.UTF8.GetString(cappedTip),
+                "and it truncated on a character boundary, not mid-glyph");
+        t.True(NetProtocol.TooltipTextMaxBytes > NetProtocol.PickBannerTextMaxBytes,
+               "the tooltip cap is wider than the pick line's (tooltips are longer)");
+        t.True(NetProtocol.TooltipTextMaxBytes <= 255,
+               "and still fits a single-byte TLV length");
+
+        // OLD-READER SKIP-BY-LENGTH, both directions. (a) A pre-record-9 peer sees id 9 as the
+        // unknown-id case: simulated with an unknown id carrying record 9's exact payload shape,
+        // followed by a record every build since the handshake knows — read straight past it.
+        byte[] oldReaderTip = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00            // byte A extension tail, byte B count 0
+            02               // 2 records
+            63 02 41 42      // id 99, len 2 -- record 9 as a PRE-RECORD-9 READER sees it
+            03 07 01 00 30 2E 31 2E 30   // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(oldReaderTip, oldReaderTip.Length, out PresenceState oldTip),
+               "a 2-byte record this build does not know is skipped, and the packet parses");
+        t.True(!oldTip.HasBoardTooltip, "the unknown record delivers nothing (as on a pre-record-9 peer)");
+        t.True(oldTip.HasModVersion, "and the record behind it is read past it");
+        // (b) THIS reader steps over a future unknown record in FRONT of id 9 by its length and
+        // still reads the tooltip behind it.
+        byte[] futureTip = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // 2 records
+            63 04 DE AD BE EF// id 99, len 4 -- unknown
+            09 02 41 42      // id 9 board tooltip 'AB'
+            ");
+        t.True(PresenceSerializer.TryRead(futureTip, futureTip.Length, out PresenceState futTip),
+               "a packet with an unknown record ahead of the board tooltip parses");
+        t.True(futTip.HasBoardTooltip, "and the tooltip behind it is still read");
+        t.Equal("AB", futTip.BoardTooltipText ?? string.Empty, "with its text intact");
+
+        // A TRUNCATED tooltip record (claims 5 payload bytes, delivers 2): the tail is abandoned
+        // mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutTip = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 09 05 41 42");
+        t.True(PresenceSerializer.TryRead(cutTip, cutTip.Length, out PresenceState cutBt),
+               "a truncated board-tooltip record still parses the packet");
+        t.True(!cutBt.HasBoardTooltip, "and the incomplete record is simply not delivered");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
@@ -960,7 +1093,8 @@ internal static class GoldenVectors
             t.True(SameRig(plain, fut), "and yields identical state");
         }
         foreach (var s in new[] { ExtrasEverything(), ExtrasMaskSizeOnly(), withDefaults,
-                                  ExtrasBoardUiAndFanAnchor(), ExtrasSecondFigure() })
+                                  ExtrasBoardUiAndFanAnchor(), ExtrasSecondFigure(),
+                                  new PresenceState { HasBoardTooltip = true, BoardTooltipText = "Tip" } })
         {
             int len = PresenceSerializer.Write(s, ext);
             t.True(PresenceSerializer.TryRead(ext, len, out PresenceState plain), "extras parses");
@@ -1059,5 +1193,7 @@ internal static class GoldenVectors
         && x.SecondFigureActorId == y.SecondFigureActorId
         && x.SecondFigurePose.Position == y.SecondFigurePose.Position
         && x.SecondFigureLeftHand == y.SecondFigureLeftHand
-        && x.PrimaryFigureLeftHand == y.PrimaryFigureLeftHand;
+        && x.PrimaryFigureLeftHand == y.PrimaryFigureLeftHand
+        && x.HasBoardTooltip == y.HasBoardTooltip
+        && x.BoardTooltipText == y.BoardTooltipText;
 }

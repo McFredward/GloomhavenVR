@@ -811,12 +811,15 @@ internal static class CardsConfig
                 "places a peer's placard at the same offset on their remote board.");
             _hoverHintOffset[i] = _file.Bind("Cards", $"HoverHintOffset_{board}",
                 BoardDefaults.HoverHintOffset[i],
-                $"[{board}] offset ADDED to the HOVER HINT (the game's tooltip box) while it is shown " +
-                "AT THE CONTROL BOARD, board-local meters. X/Y lie in the board plane, Z = proud depth " +
-                "toward the player (NEGATIVE = prouder). Seeded 0 = today's spot, centred straight " +
-                "above the board's measured top edge. A hint that belongs to a floated WINDOW or MENU " +
-                "is laid on that window instead and this offset does not apply to it. Read live every " +
-                "LateUpdate, so a nudge moves a hint that is already open.");
+                $"[{board}] offset ADDED to the board's TOOLTIP AREA — the ONE fixed spot at the " +
+                "board's top-LEFT corner where EVERY board-owned tooltip appears (hover hints, the " +
+                "docked damage tip) — board-local meters. X/Y lie in the board plane, Z = proud " +
+                "depth toward the player (NEGATIVE = prouder). Seeded 0 = the computed top-left: " +
+                "the shown box's bottom-left corner sits just above the board's MEASURED top-left " +
+                "corner, so 'top left' tracks the real board at any size. A tooltip that belongs to " +
+                "a floated WINDOW or MENU is laid on that window instead and this offset does not " +
+                "apply to it. Read live every LateUpdate, so a nudge moves a tooltip that is " +
+                "already open. (Key name kept from the old per-hint offset for cfg compatibility.)");
             _boardTilt[i] = _file.Bind("Cards", $"BoardTilt_{board}", Defaults.BoardTilt_ByBoard[i],
                 $"[{board}] board tilt from horizontal toward the player, degrees (0 = flat desk, " +
                 "90 = upright). Replaces TrayTilt in the pose math for this board. Seeded from Oak (30).");

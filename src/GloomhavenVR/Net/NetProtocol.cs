@@ -786,6 +786,51 @@ internal static class NetProtocol
     /// 20 pose. A reader requires at least this much before it trusts the record.</summary>
     public const int SecondFigureRecordBytes = 25;
 
+    /// <summary>
+    /// Extension record id: the BOARD TOOLTIP the sender is reading right now — the game's hover
+    /// tooltip while it is parked in the control board's TOOLTIP AREA (top-left of the board,
+    /// <c>WorldUI.WorldTooltips</c>) — as UTF8 bytes, capped at <see cref="TooltipTextMaxBytes"/>.
+    /// Written ONLY while a board-owned tooltip is actually shown, so an idle packet stays
+    /// byte-identical to the previous build's; absence means "no tooltip", which is exactly what
+    /// peers predating this record render. Receivers show it at the REMOTE board's own tooltip
+    /// area (<c>RemoteBoardTooltip</c>), in the SENDER's language, verbatim.
+    ///
+    /// <para>THE IDENTITY GATE (the reason this record is the one text record that is NOT sent
+    /// unconditionally while its source is visible): a tooltip CAN carry card identity — hovering
+    /// an ability card surfaces its keywords and effect text, which names the card as surely as
+    /// its face does. The standing rule is absolute: no card identity on the wire, ever; reveals
+    /// only through <see cref="RevealGate"/>. So the SENDER (<c>WorldUI.WorldTooltips</c>, the
+    /// only place that knows what the tooltip is anchored to) transmits the text ONLY when the
+    /// hovered thing is already public to peers:</para>
+    ///
+    /// <list type="bullet">
+    /// <item><description>Board FURNITURE — keycaps, decision buttons, pile stacks, the element
+    /// board — and the map's cursor-anchored hex tooltips: always public (every client renders
+    /// these from replicated state), always sent.</description></item>
+    /// <item><description>A hover that resolves to a CARD (a <c>Cards.VRCard</c> ancestor of the
+    /// tooltip anchor): sent ONLY when that card is physically parked in a round-card SLOT — the
+    /// one place peers render our cards face-up — AND the reveal phase shows fronts to peers
+    /// (the inverse of the <see cref="RevealGate"/> secret-selection rule). A hand-fan, item-fan,
+    /// pile-browser or held card is BACKS-ONLY on every peer forever, so its tooltip is never
+    /// sent.</description></item>
+    /// <item><description>AMBIGUOUS ownership — a card face whose VRCard cannot be resolved, or
+    /// any anchor the classifier does not positively recognise as furniture: NOT sent. The
+    /// failure direction is suppression, always: a missing remote tooltip is cosmetic, a leaked
+    /// card identity is a broken game rule.</description></item>
+    /// </list>
+    ///
+    /// <para>ADDITIVE TLV exactly like every record before it: an older peer steps over it by its
+    /// length and simply shows no remote tooltip.</para>
+    /// </summary>
+    public const byte ExtIdBoardTooltip = 9;
+
+    /// <summary>UTF8 byte cap for <see cref="ExtIdBoardTooltip"/>. Tooltips are longer than the
+    /// one-sentence pick placard (<see cref="PickBannerTextMaxBytes"/>) — a keyword hint is a
+    /// title plus a short paragraph — so the cap is doubled; anything past it is truncated on a
+    /// UTF8 CHARACTER boundary (never mid-sequence) and re-clamped on read (never trust the
+    /// wire). Must stay well under the 255-byte TLV length ceiling.</summary>
+    public const int TooltipTextMaxBytes = 192;
+
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>
     public const byte CardHighlightNone = 0xFF;

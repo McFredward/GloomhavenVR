@@ -996,7 +996,10 @@ Reached via `NetPlayerActors.ActorFor(playerId)`.
 **VR-ONLY — genuinely needs wire bytes.** Head/hand poses and finger curls; control-board world
 pose + scale + style; hand-fan count; item-fan count + held + which hand; the pile-browse block;
 card-FX events; held-card pose; held-figure id + pose; dominant hand; ghost-hand flag + strength;
-head-mask id + size; hand style. (See the wire tables in Part I.)
+head-mask id + size; hand style; the pick-status placard line (record 7, sender-composed text);
+the board tooltip (record 9, sender-composed text, IDENTITY-GATED at the source — only content
+already public to peers is ever written; see `NetProtocol.ExtIdBoardTooltip`). (See the wire
+tables in Part I.)
 
 **DELIBERATELY-NOT — costs 0 B by decision.**
 

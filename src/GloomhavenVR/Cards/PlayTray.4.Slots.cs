@@ -482,6 +482,31 @@ internal sealed partial class PlayTray
         return false;
     }
 
+    /// <summary>
+    /// True when <paramref name="card"/> is currently PARKED in one of the two round-card slots
+    /// (physically parented under a slot anchor, not held). The same "physical truth" question
+    /// <see cref="OccupiedSlotMask"/> asks, from the card's side: peers render exactly the cards
+    /// that satisfy this predicate on the remote board (occupancy rides the board-UI record), and
+    /// they are the ONLY local cards whose faces peers ever see. That makes this the load-bearing
+    /// half of the tooltip identity gate (<c>WorldUI.WorldTooltips</c>): a card that fails it —
+    /// hand fan, item fan, pile browser, held — is backs-only on every peer forever, so its
+    /// tooltip must never ride the wire.
+    /// </summary>
+    internal bool IsRoundSlotCard(VRCard? card)
+    {
+        if (card == null || card.IsHeld)
+            return false;
+        Transform? parent = card.transform.parent;
+        if (parent == null)
+            return false;
+        for (int i = 0; i < _slots.Length; i++)
+        {
+            if (_slots[i] != null && ReferenceEquals(parent, _slots[i]))
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>True while a CONFIRM control is visible on this board — the mod keycap, or the
     /// docked native Continue widget that replaces it at the same spot (either way the owner
     /// SEES a confirm control there, which is what a peer must reproduce).</summary>

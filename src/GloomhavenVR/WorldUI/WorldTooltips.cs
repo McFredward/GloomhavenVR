@@ -25,11 +25,16 @@ namespace GloomhavenVR.WorldUI;
 /// <c>UITooltipTarget.OnPointerEnter/Exit</c> → the static <c>UITooltip</c> API —
 /// no patches needed. What this class owns is PRESENTATION: the tooltip lives on the
 /// dedicated persistent <c>tooltipCanvas</c> (Screen-Space-Camera), which is useless
-/// in the HMD; while active the canvas is flipped to WorldSpace and parked at a FIXED
-/// spot — clearly ABOVE the CONTROL BOARD's (PlayTray) TOP edge, horizontally centered on
-/// the board, facing the player and scaling / tilting with the board (user #7a; the
-/// pre-existing curved-table <see cref="PanelSlot.Tooltip"/> slot is the menu / no-tray
-/// fallback). It is NOT
+/// in the HMD; while active the canvas is flipped to WorldSpace and parked in the board's
+/// TOOLTIP AREA — one fixed reading spot at the CONTROL BOARD's (PlayTray) TOP-LEFT corner
+/// (user request 2026-08-04: "ein 'Tooltip'-Bereich ... dessen Position oben links startet"),
+/// facing the player and scaling / tilting with the board, adjustable per board via
+/// <c>[Cards] HoverHintOffset_&lt;board&gt;</c> (the pre-existing curved-table
+/// <see cref="PanelSlot.Tooltip"/> slot is the menu / no-tray fallback). Every board-owned
+/// tooltip shares this one area — the hover hint here, the damage tip
+/// (<c>Surfaces.DamageTooltipSurface</c>) through the shared
+/// <see cref="TryGetBoardAreaPose"/> — same anchor, same board-plane orientation, same
+/// scale-with-the-board behaviour. It is NOT
 /// anchored to the fingertip (the hover can come from the laser too, and the user wants a
 /// stable reading spot, not a spot that jumps around). A short hover grace (user #7b) keeps
 /// it from flickering away on micro-jitter off a tiny target: the game's own show/hide fade
@@ -71,23 +76,25 @@ internal sealed class WorldTooltips
     /// <summary>Unanchored world-space parking spot (out of every camera's view).</summary>
     private static readonly Vector3 ParkPosition = new(0f, -1000f, 0f);
 
-    // ---- fixed-above-board anchor (user #7a, "above not inside" fix) -------------------
-    // The tooltip is pinned clearly ABOVE the CONTROL BOARD's (PlayTray) TOP edge, along the
-    // board's own UP axis and horizontally CENTERED on the board, proud toward the viewer, so
-    // the whole PANEL BODY sits fully above the board face and never intrudes into it. The
-    // anchor is recomputed from the board's LIVE world pose + lossy scale EVERY tick (see
-    // TryResolveTooltipPose), so a tray grab-resize (which rewrites Root.localScale) and any
-    // tray move/tilt re-aligns the hint immediately.
+    // ---- the board TOOLTIP AREA (user request 2026-08-04, replaces the centred #7a spot) --
+    // ONE fixed area at the board's TOP-LEFT corner where EVERY board-owned tooltip appears.
+    // The shown box is seated with its BOTTOM-LEFT corner a small margin above the board's
+    // measured top-left corner, so the area's origin is stable whatever size the box is (a
+    // bigger tooltip grows up and to the right, into open air — never down into the board).
+    // The anchor is recomputed from the board's LIVE world pose + lossy scale EVERY tick (see
+    // TryGetBoardAreaPose), so a tray grab-resize (which rewrites Root.localScale) and any
+    // tray move/tilt re-aligns the tooltip immediately.
     //
-    // Bug history: earlier revisions parked the panel at the board's top-LEFT corner and
-    // pushed it outward by (board half-width + tooltip half-width + margin) derived from the
-    // AUTHORED plate constants (InitiativeMountWidth / BoardTopLocalY). The VISIBLE board
-    // (bundled frame + decorations) is LARGER than the authored plate, so a half-extent based
-    // on the constants UNDER-estimated the real edge and the panel still sat inside the board.
-    // The anchor now (1) derives the board's REAL top edge from the tray renderers' combined
-    // bounds (in board-LOCAL space, so tilt does not inflate it) instead of the constants, and
-    // (2) places the pivot straight ABOVE that edge by (tooltip half-height + margin) — a
-    // stable "fixed above" spot, not the side corner.
+    // Bug history, in order: (1) an early revision derived the corner from the AUTHORED plate
+    // constants; the VISIBLE board (bundled frame + decorations) is LARGER than the plate, so
+    // the box sat inside the board — the corner is therefore derived from the tray renderers'
+    // combined bounds in board-LOCAL space (PlayTray.MeasureBoardLocalExtents, tilt-tight).
+    // (2) The interim "centred above the top edge" spot fixed the intrusion but pinned only
+    // the CANVAS pivot, while the game's own placement math kept moving the visible BOX inside
+    // the screen-sized canvas per hover — the "Position ist uneinheitlich" report. The area
+    // now pins the FRAME (the visible box) itself: the canvas position is back-computed from
+    // the frame's offset inside it (see the frame-pinning note in TryResolveTooltipPose), so
+    // every tooltip reads at the SAME spot regardless of where the game arranged it.
 
     /// <summary>Extra clearance above the board's TOP edge, board-local metres × live scale.</summary>
     private const float BoardAnchorMarginY = 0.03f;
@@ -374,9 +381,170 @@ internal sealed class WorldTooltips
             VRLog.Info("WorldUI",
                 $"Hover hint OWNER = the CONTROL BOARD (hovered '{hoveredName}' is under no floated " +
                 "window host — a card in a slot, a board-docked button, or a cursor-anchored world " +
-                "tooltip) — the hint parks above the board's top edge at the board's own angle, " +
-                $"plus [Cards] HoverHintOffset_{{board}} (live).");
+                "tooltip) — the hint parks in the board's TOOLTIP AREA (top-left corner) at the " +
+                $"board's own angle, plus [Cards] HoverHintOffset_{{board}} (live).");
         }
+    }
+
+    // ---- multiplayer wire text (extras record 9) ---------------------------------------
+
+    /// <summary>
+    /// The text of the board-owned tooltip the local player is reading RIGHT NOW, already passed
+    /// through the card-identity gate — or null (no tooltip / window-owned / gate suppressed).
+    /// Read by <c>Net.NetAvatarDriver</c> every extras tick and put on the wire as extension
+    /// record <see cref="Net.NetProtocol.ExtIdBoardTooltip"/>; peers render it at the REMOTE
+    /// board's tooltip area. Null the moment the tooltip hides (the grace window keeps only the
+    /// local PLACEMENT latched, never the wire — "written only while actually shown").
+    /// </summary>
+    internal static string? WireText { get; private set; }
+
+    /// <summary>The lines template the current <see cref="_wireComposedText"/> was composed from
+    /// (reference-compared: the game builds a NEW template per hover, so a reference change is
+    /// exactly "the content changed" — no per-frame string work in the steady state).</summary>
+    private UITooltipLines? _wireComposedTemplate;
+    private string? _wireComposedText;
+
+    /// <summary>Last WireText a wire-gate diagnostic was logged for (change-gated logging).</summary>
+    private string? _wireLoggedText;
+    private bool _wireLoggedSuppressed;
+
+    /// <summary>
+    /// Publish (or withdraw) the tooltip text for the multiplayer wire. Non-null exactly when a
+    /// board-owned tooltip is genuinely SHOWN (not merely within the placement grace) AND its
+    /// content is already public to peers (<see cref="ContentPublicToPeers"/> — the identity
+    /// gate). Window-owned tooltips never ride the wire: a peer has no copy of that window, and
+    /// its content (options rows, unlock dialogs) is not board state.
+    /// </summary>
+    private void UpdateWireText(bool contentShown, bool onMenuPanel)
+    {
+        string? text = null;
+        bool suppressed = false;
+        if (contentShown && !onMenuPanel && _hostWindow == null)
+        {
+            Transform? hovered = _tooltip != null ? _tooltip.m_AnchorToTarget : null;
+            if (ContentPublicToPeers(hovered))
+            {
+                text = ComposeShownText();
+            }
+            else
+            {
+                suppressed = true;
+                // Change-gated: one line per suppressed hover, naming the anchor — the evidence a
+                // hardware log needs to verify the gate fired where it should (and only there).
+                if (!_wireLoggedSuppressed)
+                {
+                    _wireLoggedSuppressed = true;
+                    VRLog.Info("WorldUI",
+                        $"Board tooltip NOT sent to peers (identity gate): hovered " +
+                        $"'{(hovered != null ? hovered.name : "?")}' resolves to a card whose face " +
+                        "peers cannot see (hand/item/pile/held card, secret selection phase, or " +
+                        "ambiguous ownership) — suppression is the designed failure direction.");
+                }
+            }
+        }
+        if (!suppressed)
+            _wireLoggedSuppressed = false;
+
+        WireText = text; // the compose cache hands back the SAME string per hover — no churn
+
+        if (WireText != _wireLoggedText)
+        {
+            _wireLoggedText = WireText;
+            if (WireText != null)
+                VRLog.Info("WorldUI",
+                    $"Board tooltip published for the wire ({WireText.Length} chars, board-owned, " +
+                    "identity gate passed) — peers show it at their copy's tooltip area.");
+        }
+    }
+
+    /// <summary>
+    /// THE CARD-IDENTITY GATE (binding wire rule: no card identity on the wire, ever; reveals
+    /// only through <c>Net.RevealGate</c>). A tooltip is TEXT ABOUT the hovered thing, and for a
+    /// card that text names the card as surely as its face does — so the tooltip may only ride
+    /// the wire when the hovered thing is ALREADY public to peers:
+    ///
+    /// <list type="bullet">
+    /// <item><description>No anchor (the map's cursor-follow hex tooltips) or board furniture
+    /// (keycaps, decision buttons, piles, element board): public — every client renders these
+    /// from replicated state.</description></item>
+    /// <item><description>A card (<see cref="VRCard"/> ancestor of the anchor — the card face
+    /// raycaster reparents the game's 2D card under the VR card, so the ancestry is the
+    /// ownership): public ONLY while it is parked in a round-card SLOT
+    /// (<see cref="PlayTray.IsRoundSlotCard"/> — the one place peers draw our cards face-up,
+    /// via the board-UI occupancy record + <c>Net.RemoteBoardCard</c>) AND fronts are shown to
+    /// peers, i.e. NOT during the online secret-selection phase (the inverse of the
+    /// <c>Net.RevealGate</c> hide rule, evaluated from the peers' perspective on OUR actor).
+    /// Hand-fan, item-fan, pile-browser and held cards are backs-only on every peer forever —
+    /// never public.</description></item>
+    /// <item><description>A card face with no resolvable <see cref="VRCard"/> (a
+    /// <c>FullAbilityCard</c> ancestor alone): AMBIGUOUS — suppressed. The failure direction is
+    /// always suppression: a missing remote tooltip is cosmetic, a leaked identity breaks the
+    /// game's hidden-information rule.</description></item>
+    /// </list>
+    /// </summary>
+    private static bool ContentPublicToPeers(Transform? hovered)
+    {
+        if (hovered == null)
+            return true; // cursor-anchored world tooltip (hex/map info — on every client's screen)
+
+        VRCard? card = hovered.GetComponentInParent<VRCard>();
+        if (card == null)
+        {
+            // A game card face whose VR host we cannot resolve is ambiguous ownership → suppress.
+            if (hovered.GetComponentInParent<FullAbilityCard>() != null)
+                return false;
+            return true; // board furniture / docked buttons — always public
+        }
+
+        PlayTray? tray = PlayTray.Current;
+        if (tray == null || !tray.IsRoundSlotCard(card))
+            return false; // hand fan / item fan / pile browser / held: peers see backs only
+
+        // A slot card is public exactly when peers render its FRONT: everywhere except the
+        // online in-scenario secret-selection phase (Net.RevealGate's rule, peers' perspective).
+        return !(FFSNetwork.IsOnline && Net.RevealGate.InScenario
+                 && Net.RevealGate.IsSecretSelectionPhase);
+    }
+
+    /// <summary>
+    /// Compose the SHOWN tooltip's text from the game's own lines template
+    /// (<c>UITooltip.m_LinesTemplate</c> — set while the box is up, cleared by its
+    /// <c>CleanupLines</c> on hide): one line per template line, left column plus the right
+    /// column where present, joined with newlines. TMP rich-text markup is sent verbatim — the
+    /// receiving label renders rich text too, and stripping it here would also strip legitimate
+    /// emphasis. Cached on the template REFERENCE (rebuilt per hover), so the steady state of a
+    /// held hover allocates nothing.
+    /// </summary>
+    private string? ComposeShownText()
+    {
+        UITooltipLines? template = _tooltip != null ? _tooltip.m_LinesTemplate : null;
+        if (template == null || template.lineList == null || template.lineList.Count == 0)
+            return null;
+        if (ReferenceEquals(template, _wireComposedTemplate))
+            return _wireComposedText;
+        _wireComposedTemplate = template;
+
+        var sb = new System.Text.StringBuilder(128);
+        for (int i = 0; i < template.lineList.Count; i++)
+        {
+            UITooltipLines.Line? line = template.lineList[i];
+            if (line == null)
+                continue;
+            bool hasLeft = !string.IsNullOrEmpty(line.left);
+            bool hasRight = !string.IsNullOrEmpty(line.right);
+            if (!hasLeft && !hasRight)
+                continue;
+            if (sb.Length > 0)
+                sb.Append('\n');
+            if (hasLeft)
+                sb.Append(line.left);
+            if (hasLeft && hasRight)
+                sb.Append("  ");
+            if (hasRight)
+                sb.Append(line.right);
+        }
+        _wireComposedText = sb.Length > 0 ? sb.ToString() : null;
+        return _wireComposedText;
     }
 
     public void LateTick()
@@ -496,12 +664,8 @@ internal sealed class WorldTooltips
             if (_canvas.sortingOrder != menuSorting)
                 _canvas.sortingOrder = menuSorting;
         }
-        else if (_canvas.sortingOrder != _originalSortingOrder)
-        {
-            // Off the menu the authored order is right again (the board anchor is nowhere near
-            // a floated panel), so hand it straight back instead of leaving the lift latched.
-            _canvas.sortingOrder = _originalSortingOrder;
-        }
+        // BOARD-OWNED sorting is resolved AFTER the pose below: its ladder slot depends on the
+        // tooltip's eye distance, which needs the resolved area position first.
 
         // Re-assert the scale every frame (config/diorama scale are live; the game
         // may rewrite the transform) — independent of placement.
@@ -535,14 +699,40 @@ internal sealed class WorldTooltips
         if (!placed)
             placed = TryResolveTooltipPose(out pos, out rot);
 
+        // MULTIPLAYER (extras record 9): publish the text of a SHOWN, BOARD-owned tooltip for
+        // NetAvatarDriver — gated on content that is already public to peers (the card-identity
+        // rule; see UpdateWireText). Runs whether or not a pose resolved: the wire question is
+        // "what is the owner reading", not "where is it parked".
+        UpdateWireText(contentShown, onMenuPanel);
+
         if (!(contentShown || withinGrace) || !placed)
         {
+            // Not showing: hand the authored order straight back instead of leaving a lift
+            // latched on the game's shared canvas (same reversibility contract as Restore).
+            if (!onMenuPanel && _canvas.sortingOrder != _originalSortingOrder)
+                _canvas.sortingOrder = _originalSortingOrder;
             if (_canvas.transform.position != ParkPosition)
             {
                 _canvas.transform.position = ParkPosition;
                 _parkedLogged = false; // re-arm the park diagnostic for the next appearance
             }
             return;
+        }
+
+        if (!onMenuPanel)
+        {
+            // BOARD-OWNED ("sometimes covered" fix): the game's authored order (~0) sits BELOW
+            // the whole converted-panel ladder (base 100, CanvasConversion.8.Order.cs), so any
+            // panel painted over the tooltip even when the tooltip was clearly in front of it.
+            // Slot the canvas into the ladder architecture at the tooltip's own eye distance —
+            // above every panel behind/at the board (the tie rule covers the board-docked
+            // surfaces the area floats 2 cm proud of), below every panel genuinely nearer, with
+            // the same sub-step lift the menu-laid case rides (MenuPanelSortingLift < the
+            // ladder's PanelOrderStep, so it can never climb into the next panel's slot).
+            int boardOrder = CanvasConversion.OrderAboveDistance(
+                Vector3.Distance(head.transform.position, pos), MenuPanelSortingLift);
+            if (_canvas.sortingOrder != boardOrder)
+                _canvas.sortingOrder = boardOrder;
         }
 
         _canvas.transform.SetPositionAndRotation(pos, rot);
@@ -567,15 +757,14 @@ internal sealed class WorldTooltips
             }
 
             bool onBoard = PlayTray.Current != null && PlayTray.Current.IsVisible;
-            // Prove the panel sits ABOVE the board: the pivot is placed above the REAL board
-            // top edge by (tooltip half-height + margin), so anchor.y − topEdge.y ≥ tooltip
-            // half-height — the whole panel body clears the top edge. Logs the resolved top-
-            // edge world Y, the tooltip half-height, and the final anchor for the hardware log.
+            // Prove the box sits in the AREA: the frame's bottom-left is seated (margin) above
+            // the board's measured top-LEFT corner. Logs the corner's world Y, the tooltip
+            // half-extents and the final canvas anchor for the hardware log.
             VRLog.Info("WorldUI",
-                $"Tooltip parked {(onBoard ? "fixed ABOVE control-board top edge" : "at fallback slot")} " +
-                $"anchor {pos:F3} (board scale {scale:F3}, board top-edge world Y {_lastBoardTopEdgeWorldY:F3} m, " +
-                $"tooltip half {_lastTooltipHalfWorld.x:F3}×{_lastTooltipHalfWorld.y:F3} m → " +
-                $"clearance above edge {(pos.y - _lastBoardTopEdgeWorldY):F3} m" +
+                $"Tooltip parked {(onBoard ? "in the board TOOLTIP AREA (top-left corner)" : "at fallback slot")} " +
+                $"canvas anchor {pos:F3} (board scale {scale:F3}, area-origin world Y {_lastBoardTopEdgeWorldY:F3} m, " +
+                $"tooltip half {_lastTooltipHalfWorld.x:F3}×{_lastTooltipHalfWorld.y:F3} m, " +
+                $"sortingOrder {_canvas.sortingOrder} (distance-ladder slot)" +
                 // The user dial only takes part in the BOARD anchor; the no-board fallback slot is
                 // a fixed table pose, so naming an offset there would be a lie in the log.
                 (onBoard
@@ -587,68 +776,94 @@ internal sealed class WorldTooltips
     }
 
     /// <summary>
-    /// Resolve the world pose the tooltip parks at (user #7a), recomputed EVERY tick so it
-    /// RE-ALIGNS the instant the board is moved/resized/tilted: clearly ABOVE the CONTROL
-    /// BOARD's (PlayTray) TOP edge, along the board's own UP axis and horizontally CENTERED on
-    /// the board, proud toward the viewer, facing the player exactly like the board's docked
-    /// panels (their <c>mount.rotation == Root.rotation</c> faces the player).
+    /// The TOOLTIP AREA pose for a panel of the given world half-extents: the pose whose CENTER
+    /// seats that panel's bottom-left corner a small margin above the CONTROL BOARD's measured
+    /// top-LEFT corner, in the board plane, proud toward the viewer, plus the user's live
+    /// per-board <c>[Cards] HoverHintOffset_&lt;board&gt;</c> dial. Recomputed from the board's
+    /// LIVE pose + lossy scale on every call, so it re-aligns the instant the board is moved,
+    /// resized or tilted, and a debug-menu nudge moves a tooltip that is already open.
     ///
-    /// The top edge is the board's REAL rendered top, derived from the tray renderers' combined
-    /// bounds (see <see cref="GetBoardTopEdgeWorld"/>) — NOT the authored plate constants:
-    /// the visible board (bundled frame + decorations) is larger than the plate, so a
-    /// constant-based half-height under-estimated the edge and the panel still sat inside the
-    /// board (the "still inside" report). The pivot is then lifted above that edge by
-    /// (tooltip half-height + margin), so the whole panel body clears the edge at ANY board
-    /// scale and tilt (the offset is along the board up axis, so a tilt carries the panel with
-    /// it). Falls back to the pre-existing <see cref="PanelSlot.Tooltip"/> table slot when no
-    /// board is present (menu / Cards module off).
+    /// STATIC AND SHARED ON PURPOSE: this is the ONE definition of "the tooltip area" (user
+    /// request 2026-08-04 — one unified area for every board-owned tooltip). The hover hint
+    /// resolves through it here, and <c>Surfaces.DamageTooltipSurface</c> seats the docked
+    /// damage tip through the same call — same corner, same margins, same offset dial, so the
+    /// two can never drift apart. The corner comes from
+    /// <see cref="PlayTray.MeasureBoardLocalExtents"/> (renderer bounds in board-LOCAL space):
+    /// "top left" is COMPUTED from the visible board, never guessed from the authored plate,
+    /// which the bundled frame overhangs. <paramref name="areaOrigin"/> reports the measured
+    /// corner for diagnostics. False when no visible board exists (menu / Cards module off).
+    /// </summary>
+    internal static bool TryGetBoardAreaPose(float panelHalfWidth, float panelHalfHeight,
+                                             out Vector3 center, out Quaternion rotation,
+                                             out Vector3 areaOrigin)
+    {
+        center = Vector3.zero;
+        rotation = Quaternion.identity;
+        areaOrigin = Vector3.zero;
+        if (!TryGetBoardRoot(out Transform root))
+            return false;
+
+        // Board basis (unit vectors; Transform.* ignore scale) and live lossy scale.
+        Quaternion boardRot = root.rotation;
+        Vector3 up = boardRot * Vector3.up;           // board +Y  (top / far edge)
+        Vector3 right = boardRot * Vector3.right;     // board +X  (the board's right)
+        Vector3 forward = boardRot * Vector3.forward; // board +Z  (away from viewer)
+
+        Vector3 lossy = root.lossyScale;
+        float scaleX = Mathf.Max(Mathf.Abs(lossy.x), 0.0001f);
+        float scaleY = Mathf.Max(Mathf.Abs(lossy.y), 0.0001f);
+        float scaleZ = Mathf.Max(Mathf.Abs(lossy.z), 0.0001f);
+
+        // The REAL top-left corner of the visible board, from the tray's combined renderer
+        // bounds (degrades to the authored constants while the board has no renderers yet).
+        PlayTray.MeasureBoardLocalExtents(root, out float topLocalY, out float halfLocalX);
+        areaOrigin = root.TransformPoint(new Vector3(-halfLocalX, topLocalY, 0f));
+
+        // Clearance above the edge + proud toward the viewer, both proportional to board scale.
+        float margin = BoardAnchorMarginY * scaleY;
+        float proud = BoardAnchorProudZ * scaleZ;
+
+        // The USER'S OWN per-board offset (read LIVE — that is what makes the debug-menu dial
+        // move an open tooltip). Same convention as every other per-board offset: X/Y in the
+        // board plane, Z proud toward the player (negative = prouder), board-local metres scaled
+        // by the live lossy scale so a grab-resize does not change how far it sits.
+        Vector3 tune = BoardHintOffset();
+        Vector3 tuneWorld = boardRot * new Vector3(
+            tune.x * scaleX, tune.y * scaleY, tune.z * scaleZ);
+
+        // Bottom-left of the panel at (corner + margin up): center = corner + right·halfW +
+        // up·(margin + halfH). A panel of ANY size therefore STARTS at the same top-left spot
+        // and grows up/right into open air — the "starts top-left" contract.
+        center = areaOrigin + right * panelHalfWidth + up * (margin + panelHalfHeight)
+                 - forward * proud + tuneWorld;
+        rotation = boardRot; // docked-panel facing (faces the player)
+        return true;
+    }
+
+    /// <summary>
+    /// Resolve the world pose the tooltip CANVAS parks at so that the visible tooltip FRAME sits
+    /// in the board's tooltip area (<see cref="TryGetBoardAreaPose"/>).
+    ///
+    /// FRAME-PINNING (the "Position ist uneinheitlich" fix): the game's own placement math keeps
+    /// positioning the box INSIDE its screen-sized canvas — beside the hovered row, under the
+    /// cursor, wherever its 2D rules land it — so pinning only the canvas pivot left the visible
+    /// box at a different spot per hover. The canvas position is therefore back-computed from
+    /// the frame's current offset within the canvas (<see cref="FrameCenterOffsetWorld"/>):
+    /// wherever the game put the box this frame, the canvas is moved so the BOX lands exactly at
+    /// the area. Re-run every tick, so the game re-arranging the box mid-hover is corrected the
+    /// same frame. Falls back to the pre-existing <see cref="PanelSlot.Tooltip"/> table slot
+    /// when no board is present (menu / Cards module off).
     /// </summary>
     private bool TryResolveTooltipPose(out Vector3 position, out Quaternion rotation)
     {
-        if (TryGetBoardRoot(out Transform root))
+        // The tooltip's OWN rendered half-extents (world). Scales with the canvas world scale
+        // we set this tick, so it tracks a board resize for free.
+        GetTooltipHalfExtents(out float ttHalfW, out float ttHalfH);
+        if (TryGetBoardAreaPose(ttHalfW, ttHalfH, out Vector3 frameCenter, out rotation,
+                                out Vector3 areaOrigin))
         {
-            // Board basis (unit vectors; Transform.* ignore scale) and live lossy scale.
-            Quaternion boardRot = root.rotation;
-            Vector3 up = boardRot * Vector3.up;          // board +Y  (top / far edge)
-            Vector3 forward = boardRot * Vector3.forward;// board +Z  (away from viewer)
-
-            Vector3 lossy = root.lossyScale;
-            float scaleY = Mathf.Max(Mathf.Abs(lossy.y), 0.0001f);
-            float scaleZ = Mathf.Max(Mathf.Abs(lossy.z), 0.0001f);
-
-            // REAL board top edge in world space (horizontally centred over the board), from the
-            // tray's combined renderer bounds — captures the visible frame/decorations, not just
-            // the authored plate. Degrades to the BoardTopLocalY constant when no renderers.
-            Vector3 topEdgeWorld = GetBoardTopEdgeWorld(root);
-
-            // The tooltip's OWN rendered half-extents (world). Scales with the canvas world scale
-            // we set this tick, so it tracks the board resize for free — the panel's whole body
-            // must clear the top edge, so we lift by its half-HEIGHT.
-            GetTooltipHalfExtents(out float ttHalfW, out float ttHalfH);
-
-            // Clearance above the edge + proud toward the viewer, both proportional to board scale.
-            float margin = BoardAnchorMarginY * scaleY;
-            float proud = BoardAnchorProudZ * scaleZ;
-
-            // Fixed ABOVE the top edge: pivot = topEdge + up·(tooltipHalfHeight + margin), so the
-            // panel's bottom edge sits (margin) above the board's top edge. Proud toward viewer.
-            //
-            // Plus the USER'S OWN per-board offset ([Cards] HoverHintOffset_<board>, user request
-            // 2026-08-03 "Position einstellbar im Debug-Menue"), read LIVE here — the whole pose is
-            // recomputed every LateUpdate, so turning the dial moves a hint that is already open.
-            // Same convention as every other per-board offset: X/Y in the board plane, Z proud
-            // toward the player (negative = prouder), expressed in board-local metres and scaled by
-            // the board's live lossy scale so a grab-resize does not change how far it sits.
-            Vector3 tune = BoardHintOffset();
-            Vector3 tuneWorld = boardRot * new Vector3(
-                tune.x * Mathf.Max(Mathf.Abs(lossy.x), 0.0001f),
-                tune.y * scaleY,
-                tune.z * scaleZ);
-
-            position = topEdgeWorld + up * (ttHalfH + margin) - forward * proud + tuneWorld;
-            rotation = boardRot; // docked-panel facing (faces the player)
-
-            _lastBoardTopEdgeWorldY = topEdgeWorld.y;
+            position = frameCenter - FrameCenterOffsetWorld(rotation);
+            _lastBoardTopEdgeWorldY = areaOrigin.y;
             _lastTooltipHalfWorld = new Vector2(ttHalfW, ttHalfH);
             return true;
         }
@@ -657,6 +872,25 @@ internal sealed class WorldTooltips
         _lastBoardTopEdgeWorldY = 0f;
         _lastTooltipHalfWorld = Vector2.zero;
         return PanelLayout.TryGetPose(PanelSlot.Tooltip, out position, out rotation);
+    }
+
+    /// <summary>
+    /// The tooltip FRAME's center offset from the canvas pivot, expressed in WORLD metres as it
+    /// will be once the canvas carries <paramref name="targetRotation"/> (the offset is intrinsic
+    /// — measured in canvas-local space, then re-expressed under the target basis with the
+    /// canvas's current, already re-asserted scale). Subtracting it from the desired frame pose
+    /// yields the canvas pose that puts the frame there — the frame-pinning trick. Zero when the
+    /// frame does not exist yet (the canvas pivot then parks at the area unadjusted).
+    /// </summary>
+    private Vector3 FrameCenterOffsetWorld(Quaternion targetRotation)
+    {
+        if (_canvas == null || _tooltip == null || _tooltip.transform is not RectTransform frame)
+            return Vector3.zero;
+        frame.GetWorldCorners(CornerScratch); // 0 = bottom-left, 2 = top-right
+        Vector3 frameCenterWorld = (CornerScratch[0] + CornerScratch[2]) * 0.5f;
+        Transform canvasTf = _canvas.transform;
+        Vector3 local = canvasTf.InverseTransformPoint(frameCenterWorld);
+        return targetRotation * Vector3.Scale(local, canvasTf.localScale);
     }
 
     /// <summary>
@@ -675,19 +909,6 @@ internal sealed class WorldTooltips
             CardsConfig.HoverHintOffset(CardsConfig.CurrentBoard);
         return entry != null ? entry.Value : Vector3.zero;
     }
-
-    /// <summary>
-    /// The CONTROL BOARD's REAL top edge in WORLD space, horizontally centred on the board.
-    /// Delegates to <see cref="PlayTray.BoardTopEdgeWorld"/>, which derives the edge from the
-    /// tray's combined MESH-RENDERER bounds expressed in the board's own LOCAL space (tilt-tight)
-    /// because the visible board (bundled frame + decorations) sits PAST the authored plate
-    /// (<see cref="PlayTray.BoardTopLocalY"/>) — a constant-based half-height under-estimated the
-    /// edge and the panel still sat inside the board (the "still inside" report). The measurement
-    /// now lives on <see cref="PlayTray"/> so the enemy-reveal spawn clearance
-    /// (<c>Surfaces.EnemyRevealSurface</c>) clears the SAME measured board, with no second copy of
-    /// this math that could drift out of sync.
-    /// </summary>
-    private static Vector3 GetBoardTopEdgeWorld(Transform root) => PlayTray.BoardTopEdgeWorld(root);
 
     /// <summary>
     /// Measure the tooltip frame's rendered size in WORLD metres (half-width / half-height).
@@ -867,6 +1088,13 @@ internal sealed class WorldTooltips
         _tooltip = null;
         _lastShownTime = float.NegativeInfinity;
         _parkedLogged = false;
+        // The wire must never carry a torn-down presentation's text (extras record 9 is
+        // "written only while a board-owned tooltip is actually shown").
+        WireText = null;
+        _wireComposedTemplate = null;
+        _wireComposedText = null;
+        _wireLoggedText = null;
+        _wireLoggedSuppressed = false;
         // Host ownership is per-hint state — a torn-down presentation must never hand the next
         // session a stale window reference (its panel is released by then), and the change-gated
         // diagnostic re-arms so the first decision after a restore is logged again.

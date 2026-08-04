@@ -96,6 +96,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// <summary>Last pick-banner line put on the wire (null = placard hidden) — change-gated log.</summary>
     private string? _lastSentPickBanner;
 
+    /// <summary>Last board-tooltip text put on the wire (extension record 9; null = no tooltip /
+    /// identity-gated). Appearance, disappearance and a text change are EDGES that pre-empt the
+    /// 5 Hz gate — a tooltip that arrives 200 ms after the peer's hand stopped over the thing it
+    /// explains reads as "not synced", same argument as the pick banner and the board-UI edges.
+    /// Human-paced (a hover), so it can never become a stream.</summary>
+    private string? _lastSentTooltip;
+
     // CARD HIGHLIGHT (extension record 6): the last broadcast (handIndex | fanIndex << 16), so a
     // lift moving from card to card pre-empts the 5 Hz gate (capped at the rig interval — see the
     // send site) and the confirmation log fires once per CHANGE. int.MinValue = never sent.
@@ -600,10 +607,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 || Quaternion.Angle(secondRot, _lastSentSecondRot) > 0.05f);
         bool secondDue = secondMoving && _extrasAccumulator >= fastInterval;
 
+        // BOARD TOOLTIP (extension record 9): the text of the board-owned tooltip the owner is
+        // reading, ALREADY identity-gated by WorldTooltips (only content public to peers ever
+        // reaches this read — see NetProtocol.ExtIdBoardTooltip). Sampled before the rate gate so
+        // its appearance/disappearance/text-change edges pre-empt it like the pick banner's do.
+        string? tooltipNow = WorldUI.WorldTooltips.WireText;
+        bool tooltipChanged = tooltipNow != _lastSentTooltip;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !highlightDue
-            && !secondChanged && !secondDue)
+            && !secondChanged && !secondDue && !tooltipChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -714,6 +728,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 : $"Pick banner SENT: \"{bannerNow}\" — extension record 7 (UTF8, capped " +
                   $"{NetProtocol.PickBannerTextMaxBytes} B: an actor and a count, NO card identity); " +
                   "peers show it on the remote board at the same board-local seat.");
+        }
+        // BOARD TOOLTIP (extension record 9): written on every packet WHILE a board-owned,
+        // identity-gate-passed tooltip is shown; omitted otherwise, so an idle packet stays
+        // byte-identical to the previous build's. The gate itself lives at the source
+        // (WorldUI.WorldTooltips.WireText is null for anything peers may not see).
+        if (!string.IsNullOrEmpty(tooltipNow))
+        {
+            extras.HasBoardTooltip = true;
+            extras.BoardTooltipText = tooltipNow;
+        }
+        if (tooltipChanged)
+        {
+            _lastSentTooltip = tooltipNow;
+            VRLog.Info("Net", string.IsNullOrEmpty(tooltipNow)
+                ? "Board tooltip SENT: hidden — record omitted (peers hide theirs too)."
+                : $"Board tooltip SENT: {tooltipNow!.Length} chars — extension record 9 (UTF8, " +
+                  $"capped {NetProtocol.TooltipTextMaxBytes} B, identity-gated at the source: " +
+                  "only content already public to peers); peers show it at the remote board's " +
+                  "tooltip area.");
         }
 
         if (boardUiChanged)

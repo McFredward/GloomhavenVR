@@ -1019,15 +1019,16 @@ internal static partial class Loc
                 + "Initiativleiste. Im MEHRSPIELER-Modus setzt die Spiegelung die Tafel eines Mitspielers "
                 + "an dieselbe Stelle auf dessen Remote-Board.",
             ["Cards/HoverHintOffset_*"] =
-                "Verschiebung der HINWEISTAFEL (des Tooltip-Kastens des Spiels), solange sie AM "
-                + "CONTROLBOARD angezeigt wird, in board-lokalen Metern. X/Y in der Ebene, Z = Tiefe "
-                + "zum Spieler hin (NEGATIV = weiter vorne). Startwert 0 = die bisherige Stelle, mittig "
-                + "direkt über der gemessenen Oberkante des Boards. Gilt für Hinweise, die zum Board "
-                + "gehören: Karten, die auf dem Board liegen, und die am Board angedockten Tasten "
-                + "(z. B. die Entscheidungs-Tasten). Ein Hinweis, der zu einem schwebenden FENSTER "
-                + "oder MENÜ gehört, wird stattdessen auf diesem Fenster angezeigt und ignoriert "
-                + "diesen Wert. Wird jeden Frame gelesen — eine Änderung verschiebt auch einen bereits "
-                + "offenen Hinweis.",
+                "Verschiebung des TOOLTIP-BEREICHS — der EINEN festen Stelle an der OBEREN LINKEN "
+                + "Ecke des Boards, an der ALLE zum Board gehörenden Tooltips erscheinen (Hover-"
+                + "Hinweise, der angedockte Schadens-Hinweis) — in board-lokalen Metern. X/Y in der "
+                + "Ebene, Z = Tiefe zum Spieler hin (NEGATIV = weiter vorne). Startwert 0 = die "
+                + "berechnete Stelle oben links: die untere linke Ecke des Kastens sitzt knapp über "
+                + "der GEMESSENEN oberen linken Board-Ecke, folgt also dem echten Board in jeder "
+                + "Größe. Ein Tooltip, der zu einem schwebenden FENSTER oder MENÜ gehört, wird "
+                + "stattdessen auf diesem Fenster angezeigt und ignoriert diesen Wert. Wird jeden "
+                + "Frame gelesen — eine Änderung verschiebt auch einen bereits offenen Tooltip. "
+                + "(Der Schlüsselname bleibt aus Kompatibilität zur alten Konfiguration erhalten.)",
             ["Cards/BoardTilt_*"] =
                 "Neigung des Boards aus der Waagerechten zum Spieler hin, Grad (0 = flach wie ein Tisch, 90 = "
                 + "aufrecht). Ersetzt TrayTilt in der Posenberechnung für dieses Board. Von Oak übernommen "

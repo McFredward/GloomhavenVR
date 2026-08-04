@@ -263,6 +263,21 @@ internal struct PresenceState
     /// flag byte has no bit left, and meaningful only while <see cref="HasSecondFigure"/> is set:
     /// it is what lets a reader prove the two figures are in DIFFERENT hands.</summary>
     public bool PrimaryFigureLeftHand;
+
+    /// <summary>
+    /// True when this packet carries the BOARD TOOLTIP the sender is reading (extension record
+    /// <see cref="NetProtocol.ExtIdBoardTooltip"/>) — the game's hover tooltip while it is parked
+    /// in their control board's tooltip area. Written only while such a tooltip is really shown
+    /// AND its content is already public to peers (the identity gate lives on the SENDER, in
+    /// <c>WorldUI.WorldTooltips</c> — see the record doc); absence means "no tooltip", which is
+    /// what peers predating the record render. An idle packet stays byte-identical.
+    /// </summary>
+    public bool HasBoardTooltip;
+
+    /// <summary>The sender's board-tooltip text, in THEIR language, shown verbatim at the remote
+    /// board's tooltip area (meaningful only when <see cref="HasBoardTooltip"/>). Capped on both
+    /// ends at <see cref="NetProtocol.TooltipTextMaxBytes"/> UTF8 bytes.</summary>
+    public string? BoardTooltipText;
 }
 
 /// <summary>
@@ -301,7 +316,10 @@ internal struct PresenceState
 ///                        7 PICK BANNER (UTF8 placard line, capped — see NetProtocol.ExtIdPickBanner),
 ///                        8 SECOND HELD FIGURE ([hand flags][int32 actorId LE][pose 20] = 25 B — the
 ///                        mini in the sender's OTHER hand; the first one rides the rig packet, see
-///                        NetProtocol.ExtIdSecondFigure)
+///                        NetProtocol.ExtIdSecondFigure),
+///                        9 BOARD TOOLTIP (UTF8 text of the tooltip parked in the sender's board
+///                        tooltip area, capped and IDENTITY-GATED on the sender — only content
+///                        already public to peers is ever written; see NetProtocol.ExtIdBoardTooltip)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -334,13 +352,11 @@ internal static class PresenceSerializer
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
     /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
-    /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25) = 217, rounded up
-    /// to 240 for headroom. The pick banner was never in this sum before and the constant carried
-    /// the omission; it is counted now, because the second-figure record is the first one that could
-    /// ride the same packet as a full-length banner. Local buffer bound only — nothing on the wire
-    /// depends on it, and both variable-length records still bounds-check against the real buffer
-    /// before writing.</summary>
-    public const int MaxSize = 240;
+    /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
+    /// + 194 (board tooltip: 2 + its 192-byte cap) = 411, rounded up to 432 for headroom.
+    /// Local buffer bound only — nothing on the wire depends on it, and every variable-length
+    /// record still bounds-checks against the real buffer before writing.</summary>
+    public const int MaxSize = 432;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -373,7 +389,8 @@ internal static class PresenceSerializer
                           || state.HasSecondFigure
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
-                          || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText));
+                          || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
+                          || (state.HasBoardTooltip && !string.IsNullOrEmpty(state.BoardTooltipText));
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -543,6 +560,25 @@ internal static class PresenceSerializer
                     AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondFigurePose);
                     records++;
                 }
+                if (state.HasBoardTooltip && !string.IsNullOrEmpty(state.BoardTooltipText))
+                {
+                    // BOARD TOOLTIP: UTF8 bytes of the tooltip parked in the sender's board
+                    // tooltip area, capped and truncated on a character boundary. Written only
+                    // while such a tooltip is shown AND already passed the sender-side identity
+                    // gate (WorldUI.WorldTooltips — see the record doc: content that could name a
+                    // hidden card never reaches this writer). Appended LAST, behind every record
+                    // that already existed, per the tail's id-order contract; the encode cache
+                    // keeps the hot path allocation-free while the same text rides many packets.
+                    byte[] text = EncodeBoardTooltipText(state.BoardTooltipText!);
+                    if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdBoardTooltip;
+                        buffer[i++] = (byte)text.Length;
+                        for (int b = 0; b < text.Length; b++)
+                            buffer[i++] = text[b];
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
@@ -617,6 +653,61 @@ internal static class PresenceSerializer
         _bannerDecBytes = copy;
         _bannerDecText = System.Text.Encoding.UTF8.GetString(copy);
         return _bannerDecText;
+    }
+
+    // ---- board-tooltip text (en/de)coding caches ----------------------------------------
+    // Same one-entry cache discipline as the pick-banner text above, for the same reason: a
+    // tooltip stays constant for the whole hover (many packets in a row) while the record rides
+    // every extras packet, so a naive Encoding.UTF8 call would allocate per packet on both ends.
+
+    private static string? _tooltipEncText;
+    private static byte[] _tooltipEncBytes = System.Array.Empty<byte>();
+    private static byte[] _tooltipDecBytes = System.Array.Empty<byte>();
+    private static string _tooltipDecText = string.Empty;
+
+    /// <summary>UTF8-encode the board-tooltip text, capped at
+    /// <see cref="NetProtocol.TooltipTextMaxBytes"/> on a CHARACTER boundary (shortening by
+    /// chars, never by bytes, so a multi-byte glyph can never be cut in half).</summary>
+    internal static byte[] EncodeBoardTooltipText(string text)
+    {
+        if (ReferenceEquals(text, _tooltipEncText) || text == _tooltipEncText)
+            return _tooltipEncBytes;
+        string source = text;
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
+        while (bytes.Length > NetProtocol.TooltipTextMaxBytes && source.Length > 0)
+        {
+            source = source.Substring(0, source.Length - 1);
+            bytes = System.Text.Encoding.UTF8.GetBytes(source);
+        }
+        _tooltipEncText = text;  // key on the ORIGINAL string: the caller hands us the same one
+        _tooltipEncBytes = bytes;
+        return bytes;
+    }
+
+    /// <summary>Decode a board-tooltip text off the wire (one-entry cache; never throws).</summary>
+    internal static string DecodeBoardTooltipText(byte[] buffer, int offset, int count)
+    {
+        if (count <= 0)
+            return string.Empty;
+        if (count == _tooltipDecBytes.Length)
+        {
+            bool same = true;
+            for (int b = 0; b < count; b++)
+            {
+                if (buffer[offset + b] != _tooltipDecBytes[b])
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same)
+                return _tooltipDecText;
+        }
+        var copy = new byte[count];
+        System.Buffer.BlockCopy(buffer, offset, copy, 0, count);
+        _tooltipDecBytes = copy;
+        _tooltipDecText = System.Text.Encoding.UTF8.GetString(copy);
+        return _tooltipDecText;
     }
 
     internal static byte[] EncodeModVersionText(string text)
@@ -876,6 +967,22 @@ internal static class PresenceSerializer
                             state.SecondFigurePose = secondPose;
                             state.SecondFigureLeftHand = secondLeft;
                             state.PrimaryFigureLeftHand = primaryLeft;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdBoardTooltip && len >= 1)
+                    {
+                        // BOARD TOOLTIP: UTF8 text. The length is re-clamped on OUR side (never
+                        // trust the wire; the record was already bounds-checked above), and a
+                        // decode that yields nothing degrades to "record absent" = no tooltip.
+                        // The IDENTITY GATE is a sender-side duty (see the record doc) — a
+                        // receiver can only render what arrived, so the guarantee that nothing
+                        // secret arrives lives entirely in the writer's gate.
+                        int textLen = System.Math.Min(len, NetProtocol.TooltipTextMaxBytes);
+                        string? tip = DecodeBoardTooltipText(buffer, i, textLen);
+                        if (!string.IsNullOrEmpty(tip))
+                        {
+                            state.HasBoardTooltip = true;
+                            state.BoardTooltipText = tip;
                         }
                     }
                     i += len; // known or not, the record's own length is how we move past it
