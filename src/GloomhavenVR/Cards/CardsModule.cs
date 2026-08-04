@@ -47,6 +47,12 @@ internal sealed class CardsModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_OnLoseCardClick_Gate));
         VRSession.Harmony?.PatchAll(typeof(TakeDamagePanel_BurnHover_Skip));
         VRSession.Harmony?.PatchAll(typeof(DialogPopup_Show_HoverStrip));
+        // Laser half-hover: the docked action-selection cards take their half highlight
+        // from the beam's geometry (HalfSelection.UpdateLaserHighlight); the per-graphic
+        // pushers are silenced for laser events so a tooltip row winning the raycast can
+        // no longer drop the highlight (see Patches/HalfHoverPatches.cs).
+        VRSession.Harmony?.PatchAll(typeof(FullCardEventPusher_Enter_LaserGeometric));
+        VRSession.Harmony?.PatchAll(typeof(FullCardEventPusher_Exit_LaserGeometric));
 
         HandSuppression.Active = true;
 

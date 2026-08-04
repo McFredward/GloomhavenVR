@@ -76,6 +76,15 @@ internal sealed class RayUguiDriver
     /// <summary>Currently hovered uGUI object under the ray, if any.</summary>
     public GameObject? Hovered => _pointer.Hovered;
 
+    /// <summary>
+    /// The registered canvas the beam currently lands on (valid while <see cref="HasHit"/>;
+    /// latched while pressing). Consumed by <c>Cards.HalfSelection</c>'s geometric half
+    /// highlight: "the beam is on THIS docked card's face" must come from the SAME
+    /// arbitration that delivers the uGUI events (nearest canvas, physics occlusion, fan
+    /// occlusion, settings exemption) - a second ray-vs-card test could disagree with it.
+    /// </summary>
+    internal Canvas? HoveredCanvas => _canvas;
+
     internal void Tick()
     {
         // Dominant hand only (the off-hand holds the fan); dominance can switch live.

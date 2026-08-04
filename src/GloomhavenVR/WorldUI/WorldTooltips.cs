@@ -184,8 +184,29 @@ internal sealed class WorldTooltips
     /// <summary>Descendant transforms flattened this session (original local z + rotation for Restore).</summary>
     private readonly List<FlattenEntry> _flattened = new(32);
 
+    /// <summary>
+    /// Graphics whose <c>raycastTarget</c> WE cleared while the canvas is world-space
+    /// (all were true when cleared - the scan only records true->false flips), for
+    /// verbatim restore. The tooltip is DISPLAY-ONLY: nothing under
+    /// <c>CanvasManager.tooltipCanvas</c> carries a click/drag handler (verified in the
+    /// decompiled sources - <c>UITooltip</c>/<c>UITooltipLines</c> hold no Button or
+    /// IPointerClickHandler, and its line texts are already spawned with
+    /// <c>raycastTarget = false</c>, UITooltip.cs:673), so making the remaining
+    /// graphics (frame background, anchor graphic, icons) ray-transparent loses
+    /// nothing. WHY: in world space the canvas is rendered by the HEAD camera, so the
+    /// game's own InControl mouse module - which raycasts EVERY enabled
+    /// GraphicRaycaster each frame at the parked mouse pixel - can suddenly "hover" the
+    /// floating hint box and report pointer-over-UI while it is up; and no future
+    /// surface registration can ever turn the hint into a hover thief for the mod's
+    /// pointers either. Mutate-and-restore in the established ActorBars style.
+    /// </summary>
+    private readonly List<Graphic> _raycastCleared = new(16);
+
     /// <summary>Reused per-frame scan buffer (no steady-state allocation).</summary>
     private static readonly List<RectTransform> RectScratch = new(64);
+
+    /// <summary>Reused raycast-neutralize scan buffer (no steady-state allocation).</summary>
+    private static readonly List<Graphic> GraphicScratch = new(32);
 
     /// <summary>Reused world-corner buffer for measuring the tooltip's rendered size.</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
@@ -520,7 +541,13 @@ internal sealed class WorldTooltips
         // player sees changes: the canvas is at ParkPosition whenever this gate is false, and the
         // flatten is re-asserted every frame it IS true.
         if (!PerfConfig.TooltipGateOn || visible)
+        {
             FlattenSubtree();
+            // RAY-TRANSPARENT WHILE WORLD-SPACE (see _raycastCleared): re-run on every
+            // visible frame because the game pools/rebuilds the line objects per hover -
+            // a fresh icon graphic must lose its raycastTarget the frame it appears.
+            NeutralizeRaycasts();
+        }
         EnsureFrameClip();
         // HOVER GRACE (user #7b): widen the game's own show/hide fade so a jitter off a
         // tiny target is bridged by its native tween. Undone on Restore().
@@ -812,6 +839,39 @@ internal sealed class WorldTooltips
     }
 
     /// <summary>
+    /// Clear <c>raycastTarget</c> on every graphic under the tooltip canvas that still
+    /// has it set, recording each flip for <see cref="Restore"/> (see the
+    /// <see cref="_raycastCleared"/> doc for why the tooltip must be ray-transparent
+    /// while world-space). Only true->false flips are recorded, so graphics the game
+    /// already spawns ray-transparent (the line texts) are never touched or restored.
+    /// Destroyed entries are pruned so the record list stays bounded to the live
+    /// pooled subtree - the same discipline as the flatten record above.
+    /// </summary>
+    private void NeutralizeRaycasts()
+    {
+        if (_canvas == null)
+            return;
+
+        for (int i = _raycastCleared.Count - 1; i >= 0; i--)
+        {
+            if (_raycastCleared[i] == null)
+                _raycastCleared.RemoveAt(i);
+        }
+
+        GraphicScratch.Clear();
+        _canvas.GetComponentsInChildren(includeInactive: true, GraphicScratch);
+        for (int i = 0; i < GraphicScratch.Count; i++)
+        {
+            Graphic g = GraphicScratch[i];
+            if (g == null || !g.raycastTarget)
+                continue;
+            g.raycastTarget = false;
+            _raycastCleared.Add(g);
+        }
+        GraphicScratch.Clear();
+    }
+
+    /// <summary>
     /// Add a <see cref="RectMask2D"/> on the tooltip frame so text is clipped inside the
     /// panel (part A). Idempotent; if the frame already carries one we leave it alone and
     /// never destroy it on Restore.
@@ -854,6 +914,17 @@ internal sealed class WorldTooltips
             Object.Destroy(_addedMask);
             _addedMask = null;
         }
+
+        // Hand back raycastTarget on every graphic we cleared (all were true when
+        // recorded - see NeutralizeRaycasts), so the vanilla 2D menu tooltip keeps
+        // whatever hit-testing the game authored.
+        for (int i = 0; i < _raycastCleared.Count; i++)
+        {
+            Graphic g = _raycastCleared[i];
+            if (g != null)
+                g.raycastTarget = true;
+        }
+        _raycastCleared.Clear();
 
         // Revert the widened fade (user #7b) so the vanilla 2D menu tooltip keeps its
         // authored transition — before we drop the reference.

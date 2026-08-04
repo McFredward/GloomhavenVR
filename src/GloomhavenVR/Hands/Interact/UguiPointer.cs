@@ -33,6 +33,17 @@ internal sealed class UguiPointer
     private const int LeftHandRayPointerId = -111;
     private const int RightHandRayPointerId = -112;
 
+    /// <summary>
+    /// Is <paramref name="pointerId"/> one of the mod's FAR-RAY (laser) pointers?
+    /// Consumed by <c>Cards.Patches</c> (laser-half-hover suppression): the docked
+    /// half-selection cards take their half highlight from the beam's GEOMETRY, so the
+    /// game's per-graphic <c>FullCardEventPusher</c> must be able to tell a laser event
+    /// from a poke/mouse event. Kept here, next to the ID block, so the two can never
+    /// drift apart (CardFaceRaycaster mirrors the CEILING only, not the laser split).
+    /// </summary>
+    internal static bool IsLaserPointerId(int pointerId) =>
+        pointerId == LeftHandRayPointerId || pointerId == RightHandRayPointerId;
+
     private readonly int _pointerId;
     private readonly string _sourceTag; // click-log provenance ("laser-L", "poke-R")
     private readonly HandSide _side;    // this pointer's hand — source of the depth aim ray
