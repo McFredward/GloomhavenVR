@@ -103,14 +103,37 @@ internal sealed partial class CardsDriver
         int mask = 0;
         if (mode == CardHandMode.CardsSelection)
         {
+            // GRAB-EDGE RE-ARM (user report, hardware MP test 2026-08: "Wenn man eine Karte …
+            // wieder herunternimmt, ist keine Kartenoverlay sichtbar … erst wenn man die Karte
+            // loslässt. Ich möchte dass das Overlay SOFORT wieder erscheint"). A placed round
+            // card that is physically LIFTED back off its recess counts as NOT placed from the
+            // instant the grab starts — even though (a) PlayTray keeps it in _occupants until the
+            // release routes select/unselect/swap, and (b) the GAME still counts it in
+            // RoundAbilityCards (the deselect only lands on release), which makes both
+            // SelectionCardsStillWanted AND IsSelectionReady report the pre-grab state for the
+            // whole hold. Held occupants therefore (1) bypass the ready gate, (2) add themselves
+            // back onto the wanted count, and (3) read as EMPTY for the per-slot fill below — so
+            // their recess re-arms the pulsing hint on the grab edge, not the release edge.
+            // MULTIPLAYER: this same _wantedMask rides the board-UI record (WantedSlotMask,
+            // occupancy already flips at the grab edge via OccupiedSlotMask's IsHeld test), and a
+            // board-UI change PRE-EMPTS the 5 Hz rate gate (NetAvatarDriver.TickExtrasSend) — so
+            // the peer's remote board shows the overlay the same instant, per the user's "auch
+            // auf dem Remote-Board" requirement.
+            VRCard? occ0 = _tray.Occupant(0);
+            VRCard? occ1 = _tray.Occupant(1);
+            bool held0 = occ0 != null && occ0.IsHeld;
+            bool held1 = occ1 != null && occ1.IsHeld;
+
             // The round wants up to two ability cards — mark the still-empty play
             // slots until they are filled. Off once the player chose long/short rest
-            // (no cards wanted), already locked the selection in, or the selection phase
-            // ended while the mode lingered stale (item B — no wanted hint after confirm).
+            // (no cards wanted), already locked the selection in (unless a placed card is
+            // being physically lifted right now — see the grab-edge note above), or the
+            // selection phase ended while the mode lingered stale (item B — no wanted
+            // hint after confirm).
             if (CardsGameApi.IsSelectionPhase(hand)
                 && !CardsGameApi.IsLongRestSelected(hand)
                 && !CardsGameApi.IsShortRestSelected(hand)
-                && !CardsGameApi.IsSelectionReady(hand))
+                && (held0 || held1 || !CardsGameApi.IsSelectionReady(hand)))
             {
                 // TASK #4: overlays glow ONLY for positions where a card CAN actually be
                 // placed. Previously every empty slot glowed unconditionally, so with ONE
@@ -121,13 +144,16 @@ internal sealed partial class CardsDriver
                 // min(2 - roundCards, handCards), 0 when the player must rest, the
                 // maxCardsSelected remainder for extra-turn picks — and only that many
                 // still-empty slots light up (1 required → 1 overlay, 0 placeable → 0).
-                int want = CardsGameApi.SelectionCardsStillWanted(hand);
-                if (want > 0 && _tray.Occupant(0) == null)
+                // A LIFTED card is still counted in roundCards by the game, so it is added
+                // back onto the wanted count here (grab-edge rule above).
+                int want = CardsGameApi.SelectionCardsStillWanted(hand)
+                           + (held0 ? 1 : 0) + (held1 ? 1 : 0);
+                if (want > 0 && (occ0 == null || held0))
                 {
                     mask |= 1;
                     want--;
                 }
-                if (want > 0 && _tray.Occupant(1) == null)
+                if (want > 0 && (occ1 == null || held1))
                     mask |= 2;
             }
         }
@@ -146,6 +172,15 @@ internal sealed partial class CardsDriver
             int want = Mathf.Min(2, CardsGameApi.PickCardsWanted() - locked);
             for (int i = _fieldCards.Count - locked; i < want && i < 2; i++)
                 mask |= 1 << i; // i ≥ 0: locked is clamped to the field count above
+            // GRAB-EDGE RE-ARM (same rule as the CardsSelection branch): a pick card lifted
+            // back off its recess stays in _fieldCards until the release routes the take-back,
+            // so its seat re-arms the hint HERE, the instant the grab starts.
+            for (int i = locked; i < _fieldCards.Count && i - locked < 2; i++)
+            {
+                VRCard placed = _fieldCards[i];
+                if (placed != null && placed.IsHeld)
+                    mask |= 1 << (i - locked);
+            }
         }
         _tray.SetWantedSlots(mask);
     }
