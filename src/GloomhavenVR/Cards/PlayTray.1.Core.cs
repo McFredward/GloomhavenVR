@@ -806,6 +806,29 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         }
     }
 
+    /// <summary>
+    /// APPARENT-SIZE LIMITS, enforced INSIDE the two-hand gesture (user report 2026-08-04: in
+    /// FOLGEN mode the resize pushed past the board's min/max). The release-time safety clamp
+    /// (<see cref="ClampApparentSize"/>) deliberately never runs while a hand grips the bar, and
+    /// the handle's generic factor range bounds the wrong quantity: the apparent width per
+    /// localScale unit moves with the world zoom (rig scale vs. the tray's parent-chain scale —
+    /// in FOLLOW mode the hands-root parent does NOT track the live rig zoom, hardware log:
+    /// constant "parent chain ×25.18" against rig scales 4–70), so a factor the range allows can
+    /// be metres of perceived width. This window converts the perceived-cm limits into localScale
+    /// bounds with the SAME measure the safety clamp uses (one source of truth,
+    /// <see cref="TryGetApparentWidthPerScaleUnit"/>), read live each resize frame — the pinch
+    /// simply stops at the limit, in EVERY anchor mode, and nothing resizes on its own.
+    /// </summary>
+    Vector2 WorldUI.IPanelGrabOwner.GrabScaleLimits
+    {
+        get
+        {
+            if (!TryGetApparentWidthPerScaleUnit(out float perUnit, out _, out _))
+                return new Vector2(WorldUI.PanelGrabHandle.MinScale, WorldUI.PanelGrabHandle.MaxScale);
+            return new Vector2(MinWidthMeters / perUnit, MaxWidthMeters / perUnit);
+        }
+    }
+
     void WorldUI.IPanelGrabOwner.OnGrabFinished() => PersistPoseToConfig();
 
     /// <summary>

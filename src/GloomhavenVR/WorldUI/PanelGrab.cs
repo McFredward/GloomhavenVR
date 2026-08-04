@@ -44,6 +44,26 @@ internal interface IPanelGrabOwner
     /// </summary>
     Vector2 GrabPitchLimits { get; }
 
+    /// <summary>
+    /// ABSOLUTE localScale window (x/min, y/max) the two-hand resize may write, applied AFTER
+    /// (and overriding) the handle's generic factor range — read LIVE each resize frame.
+    ///
+    /// <para>WHY THE OWNER MUST SAY THIS (user report 2026-08-04: "mit der Skalierung des
+    /// 'Folgen'-Modus kann man über die Grenzen schieben"): the handle's own
+    /// [<see cref="PanelGrabHandle.MinScale"/>, <see cref="PanelGrabHandle.MaxScale"/>] clamp
+    /// bounds a raw FACTOR, but what the tray's size ruling limits is the APPARENT width in
+    /// perceived centimetres — and the mapping between the two moves with the world zoom
+    /// (rig scale vs. the tray's parent-chain scale, see PlayTray.ClampApparentSize). The tray's
+    /// release-time safety clamp is deliberately skipped while a hand grips the bar ("never
+    /// touch it mid-carry"), so the pinch itself was the one scale writer with no apparent-size
+    /// bound: at a zoomed-out rig one factor unit is metres of apparent width, and the gesture
+    /// sailed visibly past min/max for as long as it was held. Bounding the TARGET here clamps
+    /// exactly the player's own gesture, live, in every anchor mode — the board never moves or
+    /// resizes on its own (standing ruling), it simply stops following the pinch at the limit.
+    /// Owners without an apparent-size ruling return the handle's generic range verbatim.</para>
+    /// </summary>
+    Vector2 GrabScaleLimits { get; }
+
     /// <summary>The LAST gripping hand let go — persist the layout.</summary>
     void OnGrabFinished();
 }
@@ -454,6 +474,13 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             Quaternion spin = Quaternion.AngleAxis(dYaw, up);
 
             float targetScale = Mathf.Clamp(_rootScale0 * (d / _anchorDistance), MinScale, MaxScale);
+            // Owner's ABSOLUTE window on top of the generic factor range (and overriding it —
+            // the tray's apparent-size limits are a user ruling, the factor range is only
+            // gesture semantics). See IPanelGrabOwner.GrabScaleLimits for the full root cause;
+            // the lerp below then converges monotonically toward the clamped target, so the
+            // write can never overshoot a limit the target respects.
+            Vector2 scaleLimits = _owner.GrabScaleLimits;
+            targetScale = Mathf.Clamp(targetScale, scaleLimits.x, scaleLimits.y);
             float newScale = Mathf.Lerp(root.localScale.x, targetScale, k);
             float ratio = newScale / _rootScale0;
 

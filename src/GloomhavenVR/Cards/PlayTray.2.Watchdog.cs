@@ -324,21 +324,10 @@ internal sealed partial class PlayTray
     {
         if (_root == null || _handle == null)
             return;
+        if (!TryGetApparentWidthPerScaleUnit(out float perUnit, out float parent, out float rigScale))
+            return;
         Vector3 local = _root.localScale;
-        if (!IsFinite(local) || local.x <= 1e-5f)
-            return;
-        float parent = _root.lossyScale.x / local.x; // scale contributed by everything ABOVE us
-        if (!(parent > 1e-6f) || float.IsInfinity(parent))
-            return;
-
-        // The player's own scale. Everything the player perceives is measured against this: at rig
-        // scale 21 they ARE twenty-one times larger, so a world metre is 1/21 of a perceived metre.
-        Transform? rig = Rig.VRRigDriver.RigRoot;
-        float rigScale = rig != null ? rig.lossyScale.x : 1f;
-        if (!(rigScale > 1e-6f) || float.IsInfinity(rigScale))
-            rigScale = 1f; // no rig yet (menu boot): world units ARE player units, clamp as-is
-
-        float width = BoardHalfWidthLocal * 2f * local.x * parent / rigScale;
+        float width = perUnit * local.x;
         float min = MinWidthMeters, max = MaxWidthMeters;
         if (width >= min && width <= max)
             return;
@@ -363,6 +352,43 @@ internal sealed partial class PlayTray
                                 $"parent chain ×{parent:F2} ÷ rig scale ×{rigScale:F2} " +
                                 "(the diorama scale itself is never touched).");
         }
+    }
+
+    /// <summary>
+    /// The tray's apparent width (perceived metres, the frame the min/max limits are written in)
+    /// PER UNIT of the tray's own localScale — the shared measure of the release-time safety
+    /// clamp (<see cref="ClampApparentSize"/>) and the live two-hand gesture window
+    /// (<see cref="WorldUI.IPanelGrabOwner.GrabScaleLimits"/>). One expression on purpose: the
+    /// two enforcement points MUST agree, or a size the gesture allows would be snapped back the
+    /// frame the player lets go (the exact "es wird sofort wieder kleiner" failure the corrected
+    /// measure fixed on 2026-08-03). False when no board exists or a transform is degenerate —
+    /// callers then skip their clamp (safety net) or fall back to the generic factor range
+    /// (gesture window). <paramref name="parent"/>/<paramref name="rigScale"/> are surfaced for
+    /// the clamp's diagnostic line only.
+    /// </summary>
+    private bool TryGetApparentWidthPerScaleUnit(out float perUnit, out float parent, out float rigScale)
+    {
+        perUnit = 0f;
+        parent = 1f;
+        rigScale = 1f;
+        if (_root == null)
+            return false;
+        Vector3 local = _root.localScale;
+        if (!IsFinite(local) || local.x <= 1e-5f)
+            return false;
+        parent = _root.lossyScale.x / local.x; // scale contributed by everything ABOVE us
+        if (!(parent > 1e-6f) || float.IsInfinity(parent))
+            return false;
+
+        // The player's own scale. Everything the player perceives is measured against this: at rig
+        // scale 21 they ARE twenty-one times larger, so a world metre is 1/21 of a perceived metre.
+        Transform? rig = Rig.VRRigDriver.RigRoot;
+        rigScale = rig != null ? rig.lossyScale.x : 1f;
+        if (!(rigScale > 1e-6f) || float.IsInfinity(rigScale))
+            rigScale = 1f; // no rig yet (menu boot): world units ARE player units, clamp as-is
+
+        perUnit = BoardHalfWidthLocal * 2f * parent / rigScale;
+        return perUnit > 1e-6f && !float.IsInfinity(perUnit);
     }
 
     private static bool IsFinite(Vector3 v) =>

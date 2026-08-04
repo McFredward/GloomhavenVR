@@ -210,6 +210,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     Quaternion IPanelGrabOwner.GrabLevelFrame => Quaternion.identity;
     Vector2 IPanelGrabOwner.GrabPitchLimits => new(-180f, 180f);
 
+    /// <summary>Modal windows have no apparent-size ruling — the handle's generic factor range
+    /// IS their resize window (see <see cref="IPanelGrabOwner.GrabScaleLimits"/>).</summary>
+    Vector2 IPanelGrabOwner.GrabScaleLimits => new(PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+
     // Free placement: the menu stays wherever the user left it while open; a re-open
     // re-floats it at the HMD (ModalFallback), so there is nothing to persist here.
     // (Level-message chains are the one family whose pose DOES persist across the game's
