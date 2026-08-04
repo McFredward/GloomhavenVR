@@ -54,6 +54,13 @@ internal sealed class CardsModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(FullCardEventPusher_Enter_LaserGeometric));
         VRSession.Harmony?.PatchAll(typeof(FullCardEventPusher_Exit_LaserGeometric));
 
+        // Multiplayer half-hover TAP (extras extension record 14): record every half
+        // enter/exit the game processes — the single funnel both the geometric laser
+        // resolve and the fingertip pusher chain reach — so the Net sender can tell peers
+        // which half of which docked slot card is lit (see Patches/HalfHoverPatches.cs).
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_Enter_HalfHoverSync));
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_Exit_HalfHoverSync));
+
         HandSuppression.Active = true;
 
         _driverGo = new GameObject("GloomhavenVR.Cards");

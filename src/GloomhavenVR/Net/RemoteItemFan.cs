@@ -258,26 +258,111 @@ internal sealed class RemoteItemFan
                 _emergeElapsed = -1f; // settled: assert the slots exactly from here on
         }
 
+        // WHICH ITEM CHIP THE OWNER IS SINGLING OUT (extension record 6, byte 1 — hardware MP
+        // test 2026-08-04: "Das Highlighting der Karten in den Fächern ist nicht synchronisiert").
+        // ROOT CAUSE of that report: the SENDER has fed the item fan's HighlightedIndex into the
+        // card-highlight record since build 36 (NetAvatarDriver reads ItemsPile.HighlightedIndex
+        // when no pile browser is open — the two board fans share wire byte 1 because at most one
+        // is ever open), and RemoteBrowserFan renders it for the browse arc — but THIS renderer
+        // never consumed the index, so a peer sweeping their equipped items showed a flat arc on
+        // every other screen. Same fix shape as RemoteBrowserFan.Layout: clamp the synced index
+        // against OUR live slab count (a packet can arrive a frame off the count it was measured
+        // against) and lift that one slab.
+        int hovered = _owner.FanHighlightIndex;
+        if (hovered < 0 || hovered >= _cards.Count)
+            hovered = -1;
+
         for (int i = 0; i < _cards.Count; i++)
         {
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * Radius, (Mathf.Cos(rad) - 1f) * Radius, -ZStagger * i);
             Quaternion rot = Quaternion.Euler(0f, 0f, -angle);
+            // The POP, exactly as the owner's own chip applies it (ItemsPile.ItemChip: PopLift
+            // toward the viewer along the chip's local −Z, ×PopScale enlargement, eased at
+            // PopLerpSpeed): reproduced from the synced INDEX alone — the ramp runs on the LOCAL
+            // clock, so the wire carries a position and never an animation. −Z is toward the
+            // owner's head here (the fan billboards its back at everyone else), which matches the
+            // local chip popping toward ITS viewer.
+            float popT = PopAmount(i, hovered, dt);
+            if (popT > 0f)
+                pos += rot * new Vector3(0f, 0f, -PopLift * popT);
+            float scale = 1f + (PopScale - 1f) * popT;
             Transform t = _cards[i].transform;
             if (easing)
             {
                 t.localPosition = Vector3.Lerp(t.localPosition, pos, k);
                 t.localRotation = Quaternion.Slerp(t.localRotation, rot, k);
-                t.localScale = Vector3.Lerp(t.localScale, Vector3.one, k);
+                t.localScale = Vector3.Lerp(t.localScale, Vector3.one * scale, k);
             }
             else
             {
                 t.localPosition = pos;
                 t.localRotation = rot;
-                t.localScale = Vector3.one;
+                t.localScale = Vector3.one * scale;
             }
         }
+        LogHighlightIfChanged(hovered);
+    }
+
+    // ---------------------------------------------------------------- highlight (record 6) --
+
+    /// <summary>ItemsPile.ItemChip.PopScale — the enlargement a lifted item chip takes locally
+    /// (×1.18). Local copy of the authored value, like every geometry constant in this file.</summary>
+    private const float PopScale = 1.18f;
+
+    /// <summary>ItemsPile.ItemChip.PopLift — how far the lifted chip comes toward its viewer
+    /// (local −Z, metres at chip scale 1).</summary>
+    private const float PopLift = 0.02f;
+
+    /// <summary>ItemsPile.ItemChip.PopLerpSpeed — the exponential ease rate of the local pop.</summary>
+    private const float PopLerpSpeed = 16f;
+
+    /// <summary>Per-slab pop ramp (0..1), index-aligned with <c>_cards</c> — per slab so a lift
+    /// MOVING along the arc has the old chip relaxing while the new one rises, exactly like the
+    /// owner's own sweep.</summary>
+    private readonly List<float> _pop = new(MaxCards);
+
+    /// <summary>Last highlighted index stated in the log (−2 = never).</summary>
+    private int _loggedHighlight = -2;
+
+    /// <summary>Advance and return slab <paramref name="i"/>'s pop ramp toward 1 while it is the
+    /// highlighted chip and toward 0 otherwise, on the local chip's own exponential.</summary>
+    private float PopAmount(int i, int hovered, float dt)
+    {
+        while (_pop.Count <= i)
+            _pop.Add(0f);
+        float target = i == hovered ? 1f : 0f;
+        float t = Mathf.Lerp(_pop[i], target, 1f - Mathf.Exp(-PopLerpSpeed * Mathf.Max(dt, 0f)));
+        // Snap the tail so a settled ramp stops writing transforms (the exponential never quite
+        // arrives on its own).
+        if (Mathf.Abs(t - target) < 0.005f)
+            t = target;
+        _pop[i] = t;
+        return t;
+    }
+
+    /// <summary>Drop every pop ramp (fan closed / rebuilt) so a re-opened fan never starts with a
+    /// stale chip already lifted.</summary>
+    private void ClearPops()
+    {
+        for (int i = 0; i < _pop.Count; i++)
+            _pop[i] = 0f;
+        _loggedHighlight = -2;
+    }
+
+    /// <summary>Change-gated evidence that the synced item-fan highlight reached the render path
+    /// (grep: "Remote item fan highlight").</summary>
+    private void LogHighlightIfChanged(int hovered)
+    {
+        if (hovered == _loggedHighlight)
+            return;
+        _loggedHighlight = hovered;
+        VRLog.Info("Net", $"Remote item fan highlight [{_owner.PlayerId}]: " +
+                          $"index {(hovered >= 0 ? hovered.ToString() : "none")} of " +
+                          $"{_cards.Count} slab(s) (wire index {_owner.FanHighlightIndex}) — " +
+                          "the chip lifts on ItemsPile's own pop, from the INDEX alone " +
+                          "(extension record 6: no item identity).");
     }
 
     // ------------------------------------------------------------------ emerge / collapse --
@@ -387,6 +472,7 @@ internal sealed class RemoteItemFan
         }
         _cards.Clear();
         _collapseFrom.Clear(); // parallel to _cards — never let it outlive the slabs it indexed
+        ClearPops();           // index-aligned with _cards too — a rebuilt arc starts flat
 
         Material back = CardMesh.CreateBackMaterial(); // SHARED cache — never ours to destroy
         for (int i = 0; i < count; i++)
@@ -417,6 +503,7 @@ internal sealed class RemoteItemFan
         _emergeElapsed = -1f;   // next appearance emerges out of the stack again
         _collapseElapsed = -1f;
         _collapseFrom.Clear();
+        ClearPops();            // a re-opened fan never starts with a stale chip lifted
     }
 
     public void Destroy()

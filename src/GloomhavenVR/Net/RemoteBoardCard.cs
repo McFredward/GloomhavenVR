@@ -256,6 +256,7 @@ internal sealed class RemoteBoardCard
             return; // already blank — nothing to undo
 
         ClearFace();
+        SetHalfHover(-1); // a re-shown slot must never come back with a stale hover glow lit
         _shownEmpty = true;
         _shownId = int.MinValue;
         _shownFront = false;
@@ -265,6 +266,64 @@ internal sealed class RemoteBoardCard
         _nameLabel.gameObject.SetActive(false);
         if (_root.activeSelf)
             _root.SetActive(false);
+    }
+
+    // ---------------------------------------------------------------- half-hover glow --
+
+    /// <summary>The two half-hover glow quads (top / bottom action region), built lazily on the
+    /// first synced hover so a board whose owner never hovers allocates nothing.</summary>
+    private GameObject? _halfGlowTop;
+    private GameObject? _halfGlowBottom;
+
+    /// <summary>Currently shown half (-1 none, 0 bottom, 1 top) — change gate.</summary>
+    private int _shownHalfHover = -1;
+
+    /// <summary>
+    /// Glow the action HALF the card's owner is hovering (extras extension record 14 — user
+    /// defect 2026-08-04: "Ich will sehen, worüber mein Mitspieler in der Aktionsauswahl
+    /// hovert"). <paramref name="half"/>: -1 none, 0 bottom, 1 top.
+    ///
+    /// LOOK: the shared gold telegraph (<see cref="CardGlow.CreateGlowQuad"/> — the exact
+    /// helper the board slots and the hand-fan insertion gap glow with), sized and seated on
+    /// <c>HalfSelection</c>'s OWN zone fractions, so the glowed region on this mirrored card is
+    /// by construction the region the owner's pointer is in. The owner's own screen shows the
+    /// game's native on-card hover FX instead — that FX lives in uGUI material state a clone
+    /// cannot carry, so the mod's telegraph gold stands in for it here, exactly like every
+    /// other remote-board affordance that reuses the shared glow. Rendered a hair in front of
+    /// the hosted face art and on the docked-widget sorting tier so it reads above the face at
+    /// every angle. A POSITION only — no card data is read.
+    /// </summary>
+    public void SetHalfHover(int half)
+    {
+        if (half == _shownHalfHover)
+            return;
+        _shownHalfHover = half;
+        if (half >= 0 && _halfGlowTop == null)
+        {
+            var size = new Vector3(_width * Cards.HalfSelection.ZoneWidthFrac,
+                                   _height * Cards.HalfSelection.ZoneHeightFrac, 1f);
+            float centerY = _height * Cards.HalfSelection.ZoneCenterYFrac;
+            const float glowZ = -0.004f; // in front of the face art's ~1.4 mm standoff
+            var gold = new Color(1f, 0.85f, 0.3f, 0.95f); // the shared telegraph gold
+            _halfGlowTop = CardGlow.CreateGlowQuad("HalfHoverTop", _root.transform,
+                size, new Vector3(0f, centerY, glowZ), gold);
+            _halfGlowBottom = CardGlow.CreateGlowQuad("HalfHoverBottom", _root.transform,
+                size, new Vector3(0f, -centerY, glowZ), gold);
+            // Docked-widget tier: strictly above the face canvas (order 0) at every angle.
+            SetGlowOrder(_halfGlowTop);
+            SetGlowOrder(_halfGlowBottom);
+        }
+        if (_halfGlowTop != null)
+            _halfGlowTop.SetActive(half == 1);
+        if (_halfGlowBottom != null)
+            _halfGlowBottom.SetActive(half == 0);
+    }
+
+    private static void SetGlowOrder(GameObject glow)
+    {
+        var mr = glow.GetComponent<MeshRenderer>();
+        if (mr != null)
+            mr.sortingOrder = BoardVisual.OrderDockedWidget;
     }
 
     /// <summary>Tear the hosted face down and forget which path drew it (the back/empty states must

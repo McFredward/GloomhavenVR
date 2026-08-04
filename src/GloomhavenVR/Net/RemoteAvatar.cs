@@ -329,6 +329,43 @@ internal sealed class RemoteAvatar
     /// <see cref="HandHighlightIndex"/>.</summary>
     public int FanHighlightIndex { get; private set; } = -1;
 
+    /// <summary>
+    /// True when the sender broadcasts the counts their OWN pile-stack labels display (extension
+    /// record 15). False for peers that predate the field — <see cref="RemoteControlBoard"/> then
+    /// keeps the legacy model-read counts, exactly as every build before this one (which the
+    /// session logs proved to lag a whole choreographer turn behind the owner's board).
+    /// </summary>
+    public bool HasPileCounts { get; private set; }
+
+    /// <summary>The sender's displayed DISCARD stack count (meaningful only when
+    /// <see cref="HasPileCounts"/>).</summary>
+    public int PileDiscardCount { get; private set; }
+
+    /// <summary>The sender's displayed BURNT stack count (with <see cref="HasPileCounts"/>).</summary>
+    public int PileBurntCount { get; private set; }
+
+    /// <summary>The sender's displayed ITEMS stack count (with <see cref="HasPileCounts"/>).</summary>
+    public int PileItemsCount { get; private set; }
+
+    /// <summary>Board slot (0/1) whose docked round card the sender is half-hovering in their
+    /// action-selection layout, or -1 — including for senders that predate record 14, which
+    /// render identically (no glow). A slot POSITION, never a card identity.</summary>
+    public int HalfHoverSlot { get; private set; } = -1;
+
+    /// <summary>True when the hovered half is the TOP action (meaningful only while
+    /// <see cref="HalfHoverSlot"/> is not -1).</summary>
+    public bool HalfHoverTop { get; private set; }
+
+    /// <summary>Stable <c>CActor.ID</c> of the initiative-track entry the sender is hovering, or
+    /// 0 (none / pre-record-16 sender — both render an un-hovered track). Consumed by
+    /// <see cref="RemoteInitiativeTrack"/>, which lifts the matching entry on ITS copy of the
+    /// public track widget.</summary>
+    public int TrackHoverActorId { get; private set; }
+
+    /// <summary>True when the sender's track hover has the entry's info popup open (meaningful
+    /// only while <see cref="TrackHoverActorId"/> is non-zero).</summary>
+    public bool TrackHoverPopup { get; private set; }
+
     /// <summary>True when the sender transmitted the board-local anchor of their open
     /// BOARD-ANCHORED fan (extension record 5). Absent ⇒ the authored default spot.</summary>
     public bool HasFanAnchor { get; private set; }
@@ -683,6 +720,39 @@ internal sealed class RemoteAvatar
             ? p.HandHighlightIndex : -1;
         FanHighlightIndex = p.HasCardHighlight && p.FanHighlightIndex != NetProtocol.CardHighlightNone
             ? p.FanHighlightIndex : -1;
+
+        // PILE COUNTS (extension record 15): the numbers the owner's own stack labels display.
+        // Present ⇒ authoritative (the receiver's model read is proven to lag the owner's board
+        // by up to a whole choreographer turn); absent ⇒ pre-record sender OR their stacks are
+        // hidden — the board keeps the legacy model-read counts either way, so an old peer's
+        // board renders exactly as before.
+        bool hadCounts = HasPileCounts;
+        int prevD = PileDiscardCount, prevB = PileBurntCount, prevI = PileItemsCount;
+        HasPileCounts = p.HasPileCounts;
+        PileDiscardCount = p.HasPileCounts ? p.PileDiscardCount : 0;
+        PileBurntCount = p.HasPileCounts ? p.PileBurntCount : 0;
+        PileItemsCount = p.HasPileCounts ? p.PileItemsCount : 0;
+        if (HasPileCounts != hadCounts || PileDiscardCount != prevD || PileBurntCount != prevB
+            || PileItemsCount != prevI)
+        {
+            VRLog.Info("Net", HasPileCounts
+                ? $"Pile counts RECEIVED from player {PlayerId}: discard={PileDiscardCount}, " +
+                  $"burnt={PileBurntCount}, items={PileItemsCount} (extension record 15 — the " +
+                  "numbers their own stack labels show) — their remote board repaints these on " +
+                  "the next content tick instead of waiting for the replicated model."
+                : $"Pile counts RECEIVED from player {PlayerId}: none (stacks hidden or " +
+                  "pre-record sender) — falling back to the model-read counts.");
+        }
+
+        // HALF HOVER (extension record 14): the action half the sender is hovering on their own
+        // docked round cards. Absent ⇒ -1 ⇒ no glow — never a stale glow from a hover that ended.
+        HalfHoverSlot = p.HasHalfHover ? p.HalfHoverSlot : -1;
+        HalfHoverTop = p.HasHalfHover && p.HalfHoverTop;
+
+        // TRACK HOVER (extension record 16): the initiative-track entry the sender is hovering,
+        // by stable actor id. Absent ⇒ 0 ⇒ un-hovered track — never a stale lift.
+        TrackHoverActorId = p.HasTrackHover ? p.TrackHoverActorId : 0;
+        TrackHoverPopup = p.HasTrackHover && p.TrackHoverPopup;
 
         // Fan anchor (extension record 5): where the sender's open board-anchored fan really
         // sits, board-local. Reset when absent — "absent" must mean the authored default spot,

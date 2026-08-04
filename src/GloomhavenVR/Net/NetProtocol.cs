@@ -945,6 +945,122 @@ internal static class NetProtocol
     public static float DecodeSlotWidth(ushort code) =>
         code < SlotWidthMinCode ? 0f : code / 10000f;
 
+    /// <summary>
+    /// Extension record id: WHICH ACTION HALF the sender's pointer is on in their
+    /// ACTION-SELECTION layout — 1 byte, bits 0..1 the board SLOT of the docked round card
+    /// (<see cref="HalfHoverSlotMask"/>; the same slot indices the board-UI occupancy nibble
+    /// uses), bit 2 set = the TOP action half (<see cref="HalfHoverTopBit"/>), bits 3..7
+    /// reserved (written 0, masked on read).
+    ///
+    /// <para>THE DEFECT IT FIXES (hardware MP test 2026-08-04: "Die Overlay-Auswahl auf Karten
+    /// beim Hovern ist nicht synchronisiert — ich will sehen, worüber mein Mitspieler in der
+    /// Aktionsauswahl hovert"). Locally, pointing the laser (or fingertip) at a docked round
+    /// card's top/bottom half lights the game's own on-card hover overlay
+    /// (<c>FullAbilityCard.Highlight/OnPointerEnter</c>, driven by <c>Cards.HalfSelection</c>);
+    /// nothing of that state was on the wire, so the single most watched gesture of an acting
+    /// player — "this half?" — did not exist on anyone else's screen. Peers now draw a hover
+    /// glow over the same half of the same slot card on the mirrored board.</para>
+    ///
+    /// <para>WHY A SLOT INDEX AND NOT A CARD: the standing rule — no card identity on this wire.
+    /// A slot POSITION reveals nothing: the round cards are docked in the two public board slots
+    /// and their faces are already rendered to peers by the reveal gate's own rules; during the
+    /// action phase they are public anyway. Written ONLY while a half really is lit, so an idle
+    /// packet stays byte-identical to the previous build's; the hover edges pre-empt the extras
+    /// gate (capped at the rig interval, like the card-highlight record's).</para>
+    /// </summary>
+    public const byte ExtIdHalfHover = 14;
+
+    /// <summary>Half-hover record: mask of the SLOT index bits (0..1).</summary>
+    public const byte HalfHoverSlotMask = 0x03;
+
+    /// <summary>Half-hover record: bit 2 — the hovered half is the TOP action (clear = bottom).</summary>
+    public const byte HalfHoverTopBit = 1 << 2;
+
+    /// <summary>Every DEFINED bit of the half-hover byte. Masked on write AND read so a future
+    /// bit cannot be pre-claimed by garbage — the same discipline as every masked byte here.</summary>
+    public const byte HalfHoverDefinedMask = (byte)(HalfHoverSlotMask | HalfHoverTopBit);
+
+    /// <summary>
+    /// Extension record id: the sender's displayed PILE COUNTS — 3 bytes,
+    /// <c>[discard][burnt][items]</c>, each the number the corresponding stack label on their OWN
+    /// board shows this frame (clamped 0..255).
+    ///
+    /// <para>THE DEFECT IT FIXES (hardware MP test 2026-08-04: "Wenn der Mitspieler Karten
+    /// ablegt und sich die Stapel-Zahlen ändern, muss das sofort synchronisiert werden" — the
+    /// session screenshot shows a peer's 'ABGEWORFEN 0' standing while that peer's own board
+    /// already read 2). A peer's stack counts were a pure MODEL read on the receiver
+    /// (<c>CCharacterClass.Discarded/Lost/PermanentlyLostAbilityCards</c> + the inventory), and
+    /// the session logs prove that read is NOT timely: the discarding player's own model showed
+    /// discard=2 (their LogOutput 17919) while the observer's replicated copy still derived
+    /// 0/0 for the whole rest of that turn (observer count edge ~1300 log lines later) — the
+    /// observer's model only catches up as the game's choreographer plays the turn back. The
+    /// OWNER's displayed numbers therefore ride the wire, and the receiver prefers them.</para>
+    ///
+    /// <para>PUBLIC INFO, NO GATE: vanilla lets anyone open any player's full card overview from
+    /// the initiative track (<c>CardsHandManager.ToggleViewAllCards</c>), so a count on a stack
+    /// reveals nothing — the exact argument the remote board's model-read counters already
+    /// documented. No card identity, ever: three integers.</para>
+    ///
+    /// <para>PRESENCE CONTRACT (the board-UI record's, not the "only when non-default" one):
+    /// written on EVERY extras packet while the sender's own pile stacks are displayed
+    /// (<c>PileViewer.CurrentCounts</c> non-null), so "record present, all zeros" (a fresh hand,
+    /// genuinely empty piles) is distinguishable from "sender predates the field" (record absent
+    /// ⇒ the receiver keeps the legacy model-read counts, exactly as every build before this
+    /// one). A count CHANGE pre-empts the 5 Hz extras gate outright — that is the "sofort".</para>
+    /// </summary>
+    public const byte ExtIdPileCounts = 15;
+
+    /// <summary>Payload length of <see cref="ExtIdPileCounts"/>: one byte per stack
+    /// (discard, burnt, items). A reader requires at least this much before it trusts the record.</summary>
+    public const int PileCountsRecordBytes = 3;
+
+    /// <summary>
+    /// Extension record id: the INITIATIVE-TRACK entry the sender's pointer is hovering — 5 bytes,
+    /// <c>[flags][int32 actorId LE]</c>. flags bit 0 (<see cref="TrackHoverPopupBit"/>) = the
+    /// entry's INFO POPUP is open on the sender's screen (the enemy round-action preview,
+    /// <c>MonsterBaseUI.TogglePreview</c>); bits 1..7 reserved (written 0, masked on read).
+    ///
+    /// <para>THE DEFECT PAIR IT FIXES (hardware MP test 2026-08-04: "Die Mouseover der
+    /// Initiativreihenfolge sind (a) nicht synchronisiert und (b) aktuell sehe ich auf dem
+    /// Remote-Brett 1:1 DASSELBE wie auf meinem eigenen"). The mirrored track
+    /// (<c>RemoteInitiativeTrack</c>/<c>RemoteWidgetMirror</c>) is a live per-frame clone of the
+    /// LOCAL client's own track widget, so every hover artefact of the LOCAL player — the widened
+    /// entry, the opened monster preview — was copied onto the PEER's board (that is (b)), while
+    /// the peer's actual hover existed nowhere (that is (a)). This record carries the hover; the
+    /// mirror now suppresses the local hover artefacts and re-applies the PEER's synced ones, so
+    /// each remote board shows exactly what THAT player is doing.</para>
+    ///
+    /// <para>WHY A STABLE ACTOR ID AND NOT A TRACK INDEX: the track's DISPLAY order is
+    /// PER-CLIENT during the online selection phase — vanilla's
+    /// <c>InitiativeTrackActorBehaviour.CompareTo</c> sorts entries by <c>IsUnderMyControl</c>
+    /// there, so my index 3 can be your index 5 and an index would lift the wrong portrait.
+    /// The id is the FNV-1a hash of the game's replicated <c>CActor.ActorGuid</c>
+    /// (<c>NetFigures.StableActorId</c>) — the same cross-client id space the held-figure
+    /// records ride. Deliberately NOT <c>CActor.ID</c>: that one is only unique WITHIN a class
+    /// (StandeeID pools restart at 1 per monster/summon class — the exact ambiguity that
+    /// mis-resolved held summons), so two enemy entries on the track could collide and lift the
+    /// wrong portrait.
+    /// NO CARD IDENTITY: the id names a public track entry (every client renders the same track),
+    /// and the popup CONTENT is not transmitted — the receiver shows its own client's copy of
+    /// that public widget, which vanilla already gates identically on every client.</para>
+    ///
+    /// <para>Written ONLY while an entry is hovered, so an idle packet stays byte-identical to
+    /// the previous build's; hover edges pre-empt the extras gate (capped at the rig interval —
+    /// a laser can sweep the whole track in under a second). Older peers step over the record by
+    /// its length and simply keep the un-hovered track.</para>
+    /// </summary>
+    public const byte ExtIdTrackHover = 16;
+
+    /// <summary>Track-hover record, flags bit 0: the hovered entry's info popup is open.</summary>
+    public const byte TrackHoverPopupBit = 1 << 0;
+
+    /// <summary>Every DEFINED bit of the track-hover flags byte (masked on write and read).</summary>
+    public const byte TrackHoverDefinedMask = TrackHoverPopupBit;
+
+    /// <summary>Payload length of <see cref="ExtIdTrackHover"/>: 1 flags byte + 4 actor id. A
+    /// reader requires at least this much before it trusts the record.</summary>
+    public const int TrackHoverRecordBytes = 5;
+
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>
     public const byte CardHighlightNone = 0xFF;
