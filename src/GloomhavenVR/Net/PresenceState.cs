@@ -359,14 +359,16 @@ internal struct PresenceState
     /// True when this packet names the INITIATIVE-TRACK entry the sender is hovering (extension
     /// record <see cref="NetProtocol.ExtIdTrackHover"/>). Written ONLY while they hover one, so an
     /// idle packet stays byte-identical; absence means "no hover", which is what pre-record peers
-    /// render. The entry is named by its stable <c>CActor.ID</c> — the same id space the held
-    /// figures use — because the track's DISPLAY order is per-client during the selection phase
+    /// render. The entry is named by its stable actor id (the ActorGuid hash,
+    /// <c>NetFigures.StableActorId</c> — the same id space the held figures use; the per-class
+    /// <c>CActor.ID</c> would collide across enemy classes)
+    /// because the track's DISPLAY order is per-client during the selection phase
     /// (vanilla sorts own/foreign players differently), so a display index would lift the wrong
     /// portrait on the other side.
     /// </summary>
     public bool HasTrackHover;
 
-    /// <summary>Stable id (<c>CActor.ID</c>) of the hovered initiative-track entry (meaningful
+    /// <summary>Stable id (<c>NetFigures.StableActorId</c>) of the hovered initiative-track entry (meaningful
     /// only when <see cref="HasTrackHover"/>; never 0 — 0 is "none" everywhere in this system).</summary>
     public int TrackHoverActorId;
 

@@ -228,7 +228,7 @@ internal sealed class RemoteInitiativeTrack
                 InitiativeTrackActorBehaviour beh = ui[i];
                 if (beh == null || beh.Actor == null || beh.Avatar == null)
                     continue;
-                var node = new HoverNode { ActorId = beh.Actor.ID };
+                var node = new HoverNode { ActorId = NetFigures.StableActorId(beh.Actor) };
 
                 TMP_Text? name = beh.Avatar.nameText;
                 Transform? nameClone = name != null ? _mirror.CloneOf(name.transform) : null;
@@ -497,13 +497,11 @@ internal sealed class RemoteInitiativeTrack
         catch { return "?"; }
     }
 
-    /// <summary>Guarded <c>CActor.ID</c> read (0 = unknowable) — the fallback chips match the
-    /// peer's synced hover (record 16) against this.</summary>
-    private static int ActorIdOf(CActor a)
-    {
-        try { return a != null ? a.ID : 0; }
-        catch { return 0; }
-    }
+    /// <summary>The stable actor id the fallback chips match the peer's synced hover (record 16)
+    /// against — the shared ActorGuid hash (<see cref="NetFigures.StableActorId"/>), NOT the
+    /// per-class <c>CActor.ID</c>: two enemy classes' representative standees can share the same
+    /// legacy ID and would tint the wrong chip.</summary>
+    private static int ActorIdOf(CActor a) => NetFigures.StableActorId(a);
 
     /// <summary>Localized actor name — the identical <c>ActorLocKey()</c> string vanilla's own entry
     /// puts in its (hover-only) name label.</summary>

@@ -15,8 +15,9 @@ namespace GloomhavenVR.Net;
 /// WHY THE STABLE ACTOR ID and not the entry's display index: the track's on-screen order is
 /// PER-CLIENT during the online selection phase (vanilla's
 /// <c>InitiativeTrackActorBehaviour.CompareTo</c> sorts by <c>IsUnderMyControl</c> there), so
-/// an index would lift the wrong portrait on the other side. <c>CActor.ID</c> is the same
-/// cross-client id space the held-figure records already ride.
+/// an index would lift the wrong portrait on the other side. The id is the shared ActorGuid
+/// hash (<c>NetFigures.StableActorId</c>) — the same cross-client id space the held-figure
+/// records ride; the per-class <c>CActor.ID</c> would collide across enemy classes.
 ///
 /// THE POPUP FLAG: for an ENEMY entry, hovering opens the round-action preview
 /// (<c>MonsterBaseUI.TogglePreview</c> — the "info popup" of the user report). Its OPEN state
@@ -34,7 +35,8 @@ namespace GloomhavenVR.Net;
 internal static class InitiativeHoverSampler
 {
     /// <summary>
-    /// The initiative-track entry the local pointer is on: its stable <c>CActor.ID</c> and
+    /// The initiative-track entry the local pointer is on: its stable actor id
+    /// (<c>NetFigures.StableActorId</c> — the ActorGuid hash) and
     /// whether its info popup is open. False while the track does not exist, is hidden, or no
     /// entry is highlighted. Wrapped whole — a half-built track (scene teardown, mid-round
     /// rebuild) must read as "no hover", never throw inside the extras sender.
@@ -62,7 +64,7 @@ internal static class InitiativeHoverSampler
                 // the game's own answer to "is this entry hovered" (publicized private).
                 if (avatar == null || !avatar.highlighted)
                     continue;
-                int id = beh.Actor.ID;
+                int id = NetFigures.StableActorId(beh.Actor);
                 if (id == 0)
                     continue; // 0 is "none" everywhere in this system — not expressible
                 actorId = id;

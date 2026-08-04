@@ -350,21 +350,32 @@ internal static class NetFigures
         CActor? ca = actor != null ? actor.Actor : null;
         if (ca == null)
             return false;
+        id = StableActorId(ca);
+        return id != 0;
+    }
+
+    /// <summary>
+    /// The cross-client-stable id of a <see cref="CActor"/> (0 = unknowable) — the ONE id space
+    /// every actor-referencing wire record rides: the held-figure records (8 + the rig block)
+    /// AND the initiative-track hover (record 16). Shared on purpose: any record that named an
+    /// actor by the per-class <see cref="CActor.ID"/> instead would inherit the summon-collision
+    /// ambiguity this hash exists to kill (see the class doc).
+    /// </summary>
+    internal static int StableActorId(CActor? ca)
+    {
+        if (ca == null)
+            return 0;
         string? guid = null;
         try { guid = ca.ActorGuid; } catch { /* mid-teardown actor — fall through */ }
         if (!string.IsNullOrEmpty(guid))
-        {
-            id = Fnv1a32(guid!);
-            return true;
-        }
+            return Fnv1a32(guid!);
         try
         {
-            id = ca.ID;
-            return true;
+            return ca.ID;
         }
         catch
         {
-            return false; // CActor.ID throws for an unsupported actor type
+            return 0; // CActor.ID throws for an unsupported actor type
         }
     }
 
