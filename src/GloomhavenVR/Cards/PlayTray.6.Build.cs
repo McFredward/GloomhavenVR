@@ -297,7 +297,6 @@ internal sealed partial class PlayTray
         // whole cluster stopped matching the dialled-in values. The stack now makes room by SPACING
         // (GenericClusterY), which is itself a tuned value, so every member is exactly the size the
         // player asked for and the geometry stays theirs.
-        float side = CardsConfig.ConfirmUndoSize(active).Value;
         Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
         float spacing = CardsConfig.GenericButtonSpacing(active).Value;
         bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
@@ -306,8 +305,14 @@ internal sealed partial class PlayTray
         // Confirm/Undo keycaps read the [BoardButtons] set EXCLUSIVELY — independent
         // WIDTH/HEIGHT (rectangular keycaps), DEPTH and TRAVEL, all with the authored
         // numeric defaults (0.073 × 0.073 × 0.036 / 4 mm — no 0=Auto sentinel any more).
-        // Round caps keep the per-board authored diameter (the square set does not apply).
+        // ROUND caps take [BoardButtons] Width as their DIAMETER since the 2026-08 retirement of
+        // [Cards] ConfirmUndoSize_{board}: that dial fed ONLY this round branch after the category
+        // split above moved the (default) square caps onto [BoardButtons] — with the shipped
+        // Square shape it was a dead dial in the debug menu (user report). ONE family now sizes
+        // Confirm/Undo in both shapes, and a [BoardButtons] edit live-rebuilds either via the
+        // ButtonTuning.Version watch (ApplyButtonTuningIfChanged).
         WorldUI.ButtonTuning.Bind();
+        float side = WorldUI.ButtonTuning.BoardCapWidth; // round-cap diameter (== square cap width)
         // Square caps ALWAYS keep the tuned [BoardButtons] W×H, whatever the member count — the item
         // "Use" confirm is built from the very same rectSize/depth/travel below, so it is identical
         // to Confirm and Undo by construction and follows every tuning change with them.

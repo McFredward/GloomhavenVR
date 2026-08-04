@@ -699,6 +699,17 @@ internal static class ConfigCatalog
         if (HasBoardSuffix(key))
             return ConfigTopic.BoardGeometry;
 
+        // The control board's OWN button geometry files with the control-board page, not with the
+        // generic buttons topic (user report 2026-08: every "Best./Zurück" dial has to be findable
+        // in ONE place — [BoardButtons] Width/Height/Depth/Travel were in Tasten ▸ "Generisch"
+        // while their siblings ConfirmUndoOffset_*/GenericButtonSpacing_* sat on the per-board
+        // page). [RestButtons] moves with it: the rest keycaps are split across the same two
+        // families ([Cards] RestButton*_{board} + [RestButtons] W/H/D/T), so leaving them behind
+        // would recreate the exact misfiling one report later.
+        if (string.Equals(section, "BoardButtons", StringComparison.Ordinal)
+            || string.Equals(section, "RestButtons", StringComparison.Ordinal))
+            return ConfigTopic.BoardGeometry;
+
         if (string.Equals(module, ModuleConfig.MainModule, StringComparison.Ordinal))
         {
             switch (section)

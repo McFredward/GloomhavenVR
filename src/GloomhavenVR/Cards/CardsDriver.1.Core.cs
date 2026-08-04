@@ -282,7 +282,9 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.RestButtonSpacing(b).SettingChanged += OnControlOffsetChanged;   // spacing = in-place move
                 CardsConfig.GenericButtonSpacing(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged += OnControlSizeChanged;
-                CardsConfig.ConfirmUndoSize(b).SettingChanged += OnControlSizeChanged;
+                // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08): the Confirm/Undo cap
+                // size lives in [BoardButtons] for BOTH shapes now, and those edits already reach
+                // the caps via the ButtonTuning.Version watch (PlayTray.ApplyButtonTuningIfChanged).
                 CardsConfig.RestButtonShape(b).SettingChanged += OnControlSizeChanged;        // shape = rebuild the caps
                 CardsConfig.GenericButtonShape(b).SettingChanged += OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged += OnOverlayOffsetChanged;
@@ -325,7 +327,6 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.RestButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.GenericButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.RestButtonDiameter(b).SettingChanged -= OnControlSizeChanged;
-                CardsConfig.ConfirmUndoSize(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.RestButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.GenericButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;
@@ -436,7 +437,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
             _rest.EnsureBuilt(_tray);
             _restTuningVersion = WorldUI.ButtonTuning.Version; // this rebuild already reflects current [RestButtons] geometry
             VRLog.Info("Cards", $"Debug live-apply [{b}]: rebuilt Generic Confirm/Undo ({CardsConfig.GenericButtonShape(b).Value}, " +
-                                $"size {CardsConfig.ConfirmUndoSize(b).Value:F3} m) + Rest buttons ({CardsConfig.RestButtonShape(b).Value}, " +
+                                $"[BoardButtons] width {WorldUI.ButtonTuning.BoardCapWidth:F3} m) + Rest buttons ({CardsConfig.RestButtonShape(b).Value}, " +
                                 $"diameter {CardsConfig.RestButtonDiameter(b).Value:F3} m).");
         }
         // [RestButtons] geometry live-apply (W/H/D/Travel): the rest keycaps read ButtonTuning in

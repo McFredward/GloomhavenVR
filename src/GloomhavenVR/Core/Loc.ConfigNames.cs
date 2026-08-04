@@ -260,7 +260,9 @@ internal static partial class Loc
             ["Cards/RestButtonSpacing_*"] = Pair("Rest buttons: gap (m)", "Rast-Tasten: Abstand (m)"),
             ["Cards/RestButtonShape_*"] = Pair("Rest buttons: shape", "Rast-Tasten: Form"),
             ["Cards/ConfirmUndoOffset_*"] = Pair("Confirm/Undo: position", "Best./Zurück: Position"),
-            ["Cards/ConfirmUndoSize_*"] = Pair("Confirm/Undo: size (m)", "Best./Zurück: Größe"),
+            // Cards/ConfirmUndoSize_* ("Best./Zurück: Größe") is GONE — retired 2026-08 with the
+            // entry itself (user report: the dial had no effect; [BoardButtons] Width/Height is
+            // the Confirm/Undo size for both cap shapes now).
             ["Cards/GenericButtonSpacing_*"] = Pair("Confirm/Undo: gap (m)", "Best./Zurück: Abstand"),
             ["Cards/GenericButtonShape_*"] = Pair("Confirm/Undo: shape", "Bestätigen/Zurück: Form"),
             ["Cards/ItemUseSlotOffset_*"] = Pair("Item-use slot: position", "Item-Slot: Position"),

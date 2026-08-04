@@ -244,6 +244,15 @@ internal static partial class VROptionsTab
         // tell from the screen what had just been opened.
         BuildHeader(ContentRoot, ConfigCatalog.TopicLabel(topic));
 
+        // The control-board page is HAND-ARRANGED (user report 2026-08: "Aktuell sucht man dort
+        // immer rum ohne wirklich zu finden wonach man sucht"): the automatic key-prefix grouping
+        // below made eighteen leading-word clusters out of the per-board keys and then folded the
+        // small ones into one "Allgemein" grab-bag. That page gets the explicit two-level heading
+        // tree instead (VROptionsTab.6.BoardTopic.cs); every other topic keeps the automatic
+        // grouping, which maintains itself.
+        if (topic == ConfigCatalog.ConfigTopic.BoardGeometry)
+            return BuildBoardTopicBody();
+
         IReadOnlyList<ConfigCatalog.ConfigGroup> groups = ConfigCatalog.Groups(topic);
         int rows = 0;
 
