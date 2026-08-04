@@ -82,6 +82,7 @@ internal sealed class RemoteAvatar
     private float _appliedMaskSize = -1f;
     private float _loggedMaskSize = -1f; // one log line per received CHANGE, never per packet
     private int _loggedBoardStyle = -1;  // ditto for the received control-board style
+    private float _loggedSlotCardWidth = -1f; // ditto for the received slot-card size (record 11)
     private bool _loggedPinned;          // ditto for the received FOLLOW/PIN state (first packet + changes)
     private bool _loggedSlots;           // ditto for the received card-slot occupancy nibble
 
@@ -258,6 +259,22 @@ internal sealed class RemoteAvatar
     /// furniture, so an old peer's board looks exactly as before.
     /// </summary>
     public bool HasBoardUi { get; private set; }
+
+    /// <summary>
+    /// Board-local width of the sender's slot FRAME metric — their
+    /// <c>CardWidth × PlayTray.SlotScale</c>, what the wanted-glow/frame overlays are sized from
+    /// (extension record 11). 0 while unknown (sender predates the record, or their config equals
+    /// the legacy constant) — consumers then fall back to
+    /// <see cref="NetProtocol.SlotCardWidthLegacy"/>, the exact constant every build before the
+    /// record hardcoded, so an old peer renders precisely as it always did.
+    /// </summary>
+    public float SlotFrameWidth { get; private set; }
+
+    /// <summary>Board-local width a CARD parked in the sender's recess renders at — their
+    /// <c>CardWidth × SlotScale × SlotCardFill</c> (extension record 11). Same 0-means-legacy
+    /// contract as <see cref="SlotFrameWidth"/>. This is the size the user's 1:1 rule is about:
+    /// the card-to-board ratio on the remote board must equal what the owner sees.</summary>
+    public float SlotCardWidth { get; private set; }
 
     /// <summary>The owner's PICK-STATUS line (extension record 7), or null while their placard is
     /// down — including for a sender that predates the record, which renders identically.</summary>
@@ -550,6 +567,27 @@ internal sealed class RemoteAvatar
                               $"(wire code {p.BoardStyleCode}, extras block byte A bits 5..6) — " +
                               "their board is drawn in the material THEY chose, the same rule the " +
                               "head mask, mask size and hand style already follow.");
+        }
+
+        // SLOT-CARD SIZE (extension record 11): the widths the sender's own board renders its
+        // slot overlays / a parked card at. Absent ⇒ 0 ⇒ every consumer falls back to the legacy
+        // constant (NetProtocol.SlotCardWidthLegacy) — right both for a pre-record peer and for a
+        // sender whose config equals the constant (which is why they omit it). Stateless reset per
+        // packet, like the mask size: a peer stepping back to the legacy sizes is communicated by
+        // the record disappearing again.
+        SlotFrameWidth = p.HasSlotCardSize ? NetProtocol.DecodeSlotWidth(p.SlotFrameWidthCode) : 0f;
+        SlotCardWidth = p.HasSlotCardSize ? NetProtocol.DecodeSlotWidth(p.SlotCardWidthCode) : 0f;
+        if (!Mathf.Approximately(SlotCardWidth, _loggedSlotCardWidth))
+        {
+            _loggedSlotCardWidth = SlotCardWidth;
+            VRLog.Info("Net", $"Slot-card size RECEIVED from player {PlayerId}: " +
+                              (p.HasSlotCardSize
+                                  ? $"frame {SlotFrameWidth * 1000f:0.0} mm, card " +
+                                    $"{SlotCardWidth * 1000f:0.0} mm (board-local, extension " +
+                                    "record 11) — their board's slot cards render here at exactly " +
+                                    "the size they see (1:1 rule)."
+                                  : "none (legacy 82.55 mm assumption — default config or " +
+                                    "pre-record peer)."));
         }
 
         // Ghost hand: the sender's own strength rides the wire, so their faded hand reads the

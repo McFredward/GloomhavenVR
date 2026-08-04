@@ -296,6 +296,27 @@ internal struct PresenceState
     /// payload: no hand byte, because the receiver renders the slab at this absolute pose and
     /// never parents it to a hand (see the record doc), and no identity, ever.</summary>
     public RigPose SecondHeldCardPose;
+
+    /// <summary>
+    /// True when this packet carries the sender's SLOT-CARD SIZE (extension record
+    /// <see cref="NetProtocol.ExtIdSlotCardSize"/>): the board-local widths their own board renders
+    /// its slot FRAME overlays and a parked CARD at — local config
+    /// (<c>[Cards] CardWidth</c>/<c>SlotCardFill</c>) that is not derivable from anything already
+    /// synced. False means "the legacy constant" (<see cref="NetProtocol.SlotCardWidthLegacy"/>) —
+    /// either the sender's config really lands on it or they predate the record; both render
+    /// identically, which is why the record is only written when the sizes differ.
+    /// </summary>
+    public bool HasSlotCardSize;
+
+    /// <summary>Wire code (tenth-mm) of the sender's slot FRAME width — <c>CardWidth × SlotScale</c>,
+    /// what the wanted-glow/frame overlays are sized from. Meaningful only when
+    /// <see cref="HasSlotCardSize"/>.</summary>
+    public ushort SlotFrameWidthCode;
+
+    /// <summary>Wire code (tenth-mm) of the width a CARD parked in the sender's recess renders at —
+    /// <c>CardWidth × SlotScale × SlotCardFill</c>. Meaningful only when
+    /// <see cref="HasSlotCardSize"/>.</summary>
+    public ushort SlotCardWidthCode;
 }
 
 /// <summary>
@@ -340,7 +361,12 @@ internal struct PresenceState
 ///                        already public to peers is ever written; see NetProtocol.ExtIdBoardTooltip),
 ///                        10 SECOND HELD CARD (the shared 20-byte pose of the card in the sender's
 ///                        OTHER hand — pose only, no hand byte and no identity; written ONLY while
-///                        both hands hold a card, see NetProtocol.ExtIdSecondHeldCard)
+///                        both hands hold a card, see NetProtocol.ExtIdSecondHeldCard),
+///                        11 SLOT-CARD SIZE ([u16 slotFrameWidth LE][u16 slotCardWidth LE], both
+///                        board-local tenth-mm — the sizes the sender's own board renders its slot
+///                        overlays / a parked card at; written only while a board exists AND either
+///                        differs from the legacy 82.55 mm assumption, see
+///                        NetProtocol.ExtIdSlotCardSize)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -374,11 +400,11 @@ internal static class PresenceSerializer
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
     /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
     /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
-    /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20) = 433,
-    /// rounded up to 456 for headroom.
+    /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
+    /// + 6 (slot-card size: 2 + 4) = 439, rounded up to 464 for headroom.
     /// Local buffer bound only — nothing on the wire depends on it, and every variable-length
     /// record still bounds-checks against the real buffer before writing.</summary>
-    public const int MaxSize = 456;
+    public const int MaxSize = 464;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -409,6 +435,7 @@ internal static class PresenceSerializer
         bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
+                          || state.HasSlotCardSize
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
@@ -613,6 +640,22 @@ internal static class PresenceSerializer
                     buffer[i++] = NetProtocol.ExtIdSecondHeldCard;
                     buffer[i++] = (byte)NetProtocol.SecondHeldCardRecordBytes;
                     AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldCardPose);
+                    records++;
+                }
+                if (state.HasSlotCardSize
+                    && i + 2 + NetProtocol.SlotCardSizeRecordBytes <= buffer.Length)
+                {
+                    // SLOT-CARD SIZE: [u16 slotFrameWidth LE][u16 slotCardWidth LE], board-local
+                    // tenth-mm. Written ONLY while a board exists and either width differs from
+                    // the legacy assumption (NetProtocol.SlotCardWidthLegacy), so a sender whose
+                    // config lands exactly on the old constant stays byte-identical to the
+                    // previous build. Appended LAST per the tail's id-order contract.
+                    buffer[i++] = NetProtocol.ExtIdSlotCardSize;
+                    buffer[i++] = (byte)NetProtocol.SlotCardSizeRecordBytes;
+                    buffer[i++] = (byte)(state.SlotFrameWidthCode & 0xFF);
+                    buffer[i++] = (byte)(state.SlotFrameWidthCode >> 8);
+                    buffer[i++] = (byte)(state.SlotCardWidthCode & 0xFF);
+                    buffer[i++] = (byte)(state.SlotCardWidthCode >> 8);
                     records++;
                 }
                 buffer[countAt] = records;
@@ -1040,6 +1083,24 @@ internal static class PresenceSerializer
                         {
                             state.HasSecondHeldCard = true;
                             state.SecondHeldCardPose = cardPose;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdSlotCardSize
+                             && len >= NetProtocol.SlotCardSizeRecordBytes)
+                    {
+                        // SLOT-CARD SIZE: two u16 widths, tenth-mm. Validation = the decoder's own
+                        // 5 mm floor (never trust the wire): a garbage code degrades to "record
+                        // absent" — the legacy width — rather than collapsing a peer's cards to a
+                        // sliver. Both must be sane; a half-valid pair is dropped whole, so the
+                        // card and its frame can never disagree about which build sized them.
+                        ushort frame = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+                        ushort card = (ushort)(buffer[i + 2] | (buffer[i + 3] << 8));
+                        if (frame >= NetProtocol.SlotWidthMinCode
+                            && card >= NetProtocol.SlotWidthMinCode)
+                        {
+                            state.HasSlotCardSize = true;
+                            state.SlotFrameWidthCode = frame;
+                            state.SlotCardWidthCode = card;
                         }
                     }
                     i += len; // known or not, the record's own length is how we move past it

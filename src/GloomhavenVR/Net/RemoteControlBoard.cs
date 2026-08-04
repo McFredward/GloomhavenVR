@@ -125,12 +125,32 @@ internal sealed class RemoteControlBoard
     // the AUTHORED per-board offset the remote copies used to drop (defect (c)). Reintroducing a
     // remote-side board-geometry constant is how that defect comes back.
 
-    // Two round-card slots at the REAL board layout: the authored card width × the local board's
-    // 1.3 SlotScale — the exact size a card parked in the owner's recess renders at. (They were
-    // 0.15 m "enlarged for at-a-distance legibility" on the flat board; on the real asset the
-    // recesses dictate the size, and a wrong-sized card floating over a recess reads broken.)
+    // Two round-card slots. The LEGACY metric below (authored card width × the local board's 1.3
+    // SlotScale) is now only the FALLBACK for peers that predate extension record 11: it was
+    // billed as "the exact size a card parked in the owner's recess renders at", but it dropped
+    // the owner's [Cards] SlotCardFill (default 1.45!) and their CardWidth config entirely, so
+    // every remote card rendered 31 % smaller than its owner sees it even between two
+    // default-configured clients — the user's "nicht 1:1, ich sehe sie kleiner" report. The live
+    // sizes now ride the wire (NetProtocol.ExtIdSlotCardSize) and are read via SlotCardW/SlotCardH
+    // below; keep this constant equal to NetProtocol.SlotCardWidthLegacy.
     private const float CardW = 0.0635f * 1.3f;   // Defaults.CardWidth × PlayTray.SlotScale
     private const float CardH = CardW * (88f / 63.5f);
+
+    /// <summary>The width THIS peer's slot cards must render at: their synced effective size
+    /// (extension record 11 — <c>CardWidth × SlotScale × SlotCardFill</c>, the exact chain
+    /// <c>PlayTray</c> scales a parked card by), or the legacy constant for a pre-record peer.</summary>
+    private float SlotCardW => _owner.SlotCardWidth > 0f ? _owner.SlotCardWidth : CardW;
+    private float SlotCardH => SlotCardW * (88f / 63.5f);
+
+    /// <summary>The peer's slot FRAME metric (their <c>CardWidth × SlotScale</c>, record 11) — the
+    /// size the furniture's glow rims follow, mirroring the local board's slot frames.</summary>
+    private float SlotFrameW => _owner.SlotFrameWidth > 0f ? _owner.SlotFrameWidth : CardW;
+
+    /// <summary>The slot-card width the current visual was BUILT at (with <see cref="_builtSlotFrameW"/>,
+    /// the change key for the live-config rebuild in Tick — a peer editing their card size mid-game
+    /// must re-size here too, and the widgets are constructor-sized).</summary>
+    private float _builtSlotCardW = CardW;
+    private float _builtSlotFrameW = CardW;
     private const float SlotSpacing = 0.155f;     // PlayTray.SlotSpacing (fallback layout)
     private const float SlotY = 0.015f;           // PlayTray procedural slot height (fallback)
     private const float ProudZ = -0.004f;   // toward the viewer (−Z), proud of the frame face
@@ -366,6 +386,21 @@ internal sealed class RemoteControlBoard
         {
             VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] style switch " +
                               $"{_tray.Style} → {_owner.BoardStyle} — rebuilding from the new prefab.");
+            Destroy();
+        }
+        // The peer's synced SLOT-CARD SIZE changed (extension record 11 — a live edit of their
+        // [Cards] CardWidth / SlotCardFill, or the record appearing on the first packet after a
+        // legacy-sized build). The card panels and the furniture's glow rims are
+        // constructor-sized, so the same teardown-rebuild the style switch uses applies; rare
+        // (a settings edit on their side) and one frame. 0.4 mm epsilon = the wire's own
+        // quantization step, so re-quantized noise can never loop rebuilds.
+        else if (_root != null && (Mathf.Abs(SlotCardW - _builtSlotCardW) > 0.0004f
+                                   || Mathf.Abs(SlotFrameW - _builtSlotFrameW) > 0.0004f))
+        {
+            VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] slot-card size change " +
+                              $"{_builtSlotCardW * 1000f:0.0} → {SlotCardW * 1000f:0.0} mm " +
+                              "(extension record 11) — rebuilding the board visuals at the " +
+                              "owner's real card size.");
             Destroy();
         }
         // A board that came up FLAT because the bundle was not resident yet upgrades itself to the
@@ -847,19 +882,25 @@ internal sealed class RemoteControlBoard
         _appliedStyle = -1; // force the first Tick to state what it applied (fallback tint path)
 
         // Round-card slots: ON the real recess anchors when the asset is up (a card then sits IN
-        // the recess of whatever board the peer runs, at the same size their own card parks at),
-        // else at the authored fallback layout on the flat frame.
+        // the recess of whatever board the peer runs), else at the authored fallback layout on the
+        // flat frame. Sized to the OWNER's synced slot-card width (extension record 11 — their
+        // CardWidth × SlotScale × SlotCardFill), so the card-to-board ratio here is exactly the
+        // one they see; the built sizes are latched as the change key for the live rebuild in Tick.
+        _builtSlotCardW = SlotCardW;
+        _builtSlotFrameW = SlotFrameW;
+        float cardW = _builtSlotCardW;
+        float cardH = SlotCardH;
         if (_tray != null)
         {
             _cards[0] = new RemoteBoardCard(_tray.SlotAnchor(0),
-                new Vector3(0f, 0f, CardOnAnchorProudZ), CardW, CardH);
+                new Vector3(0f, 0f, CardOnAnchorProudZ), cardW, cardH);
             _cards[1] = new RemoteBoardCard(_tray.SlotAnchor(1),
-                new Vector3(0f, 0f, CardOnAnchorProudZ), CardW, CardH);
+                new Vector3(0f, 0f, CardOnAnchorProudZ), cardW, cardH);
         }
         else
         {
-            _cards[0] = new RemoteBoardCard(_root.transform, SlotLocal(0), CardW, CardH);
-            _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), CardW, CardH);
+            _cards[0] = new RemoteBoardCard(_root.transform, SlotLocal(0), cardW, cardH);
+            _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), cardW, cardH);
         }
 
         // CONTENT hangs straight off the board root now. The old "ContentProud" spacer carried a
@@ -893,7 +934,8 @@ internal sealed class RemoteControlBoard
         _active = new RemoteActiveCards(contentParent, _layout);
         _track = new RemoteInitiativeTrack(contentParent, _layout);
         _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardStyle, _tray,
-            AnchorLocalLive(CardFxAnchor.Slot0), AnchorLocalLive(CardFxAnchor.Slot1));
+            AnchorLocalLive(CardFxAnchor.Slot0), AnchorLocalLive(CardFxAnchor.Slot1),
+            _builtSlotFrameW, _builtSlotCardW);
         _nextRefreshAt = 0f; // repaint on the very next tick
 
         // Ownership tag pinned just above the board's top-left corner, always facing the head.
