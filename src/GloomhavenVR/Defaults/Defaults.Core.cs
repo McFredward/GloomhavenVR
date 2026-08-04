@@ -33,7 +33,7 @@ namespace GloomhavenVR;
 internal static partial class Defaults
 {
     // ---- Core/MixedReality.cs ------------------------------------------------------
-    internal const bool MixedReality_Enabled = true;                      // => [MixedReality] Enabled
+    internal const bool MixedReality_Enabled = false;                     // => [MixedReality] Enabled  (pinned: user ruling 2026-08-04 — MR see-through is the OWNER's personal setup, a fresh install must start in full VR; the tuned cfg's `true` briefly shipped in ModBuild 55 by accident and was reverted the same day)
     internal static readonly Color KeyColor = new Color(0f, 1f, 0f, 1f);  // => [MixedReality] KeyColor
     internal const bool HideSkyMeshes = true;                             // => [MixedReality] HideSkyMeshes
 
