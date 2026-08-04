@@ -170,14 +170,38 @@ internal sealed class ProximityGrabber
             // BoardTargeting where this interactor is policy-disabled — the edge was simply
             // dropped. A highlighted (visibly lifted) card now honours a closing fist from
             // EITHER hand regardless of the configured grab button.
-            else if (_hand.GripDown)
+            //
+            // EXCEPT trigger-only targets (hardware MP test 2026-08, requirement (b)):
+            // board FIGURES must engage on the TRIGGER exactly like cards — grab, hold,
+            // release — and a closing fist over the board is the canonical ACCIDENTAL
+            // gesture there (it is also the grip half of the fingertip-ping chord). The
+            // ITriggerOnlyGrabbable marker withholds this fist fallback for them; the
+            // trigger path above (with its UI/laser arbitration) is their only entry.
+            else if (_hand.GripDown && Highlighted is not ITriggerOnlyGrabbable)
             {
                 BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
             }
         }
         else if (_hand.GripDown)
         {
+            // Legacy [Cards] GrabButton = Grip mode. A trigger-only target (figures) keeps its
+            // trigger semantics even here — the whole point of the marker is that a grip can
+            // never START a figure hold, whatever the card button preference says.
+            if (Highlighted is ITriggerOnlyGrabbable)
+            {
+                LogRefusal($"'{DescribeGrabbable(Highlighted)}' is trigger-only (figures grab " +
+                           "with the TRIGGER, like cards) — grip ignored");
+                return;
+            }
             BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
+        }
+        else if (_hand.TriggerDown && Highlighted is ITriggerOnlyGrabbable
+                 && !_hand.Ray.HasFreshUiHit)
+        {
+            // Legacy Grip mode, trigger pulled over a trigger-only target: honour it — the
+            // target's contract is "trigger grabs, trigger-up releases" regardless of the
+            // configured card button. Same UI/laser arbitration as the Trigger-mode path.
+            BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
         }
     }
 

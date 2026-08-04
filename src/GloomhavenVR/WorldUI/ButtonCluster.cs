@@ -604,6 +604,10 @@ internal sealed class ButtonCluster
         // retract/re-entry and hover-flicker re-fire).
         private float _nextPressTime;
 
+        // Throttle clock for the grip-gate refusal line (requirement (a) — physical presses need
+        // the same hand's grip held; see the depth-fire in Animate).
+        private float _nextGripGateLogAt;
+
         // Dust-dissolve hide / materialize-from-dust show (user #7). Logical hide is instant
         // (collider off, excluded from the column layout); only the visuals shrink out. Appear
         // reverses it: converging dust + a surface fade-in, in place (no scale pop).
@@ -1120,9 +1124,27 @@ internal sealed class ButtonCluster
             {
                 if (follow >= ButtonTuning.PressFireFraction)
                 {
+                    // GRIP CHORD (hardware MP test 2026-08, requirement (a)): the cluster's
+                    // Ready/Undo/Skip caps are BOARD buttons, so their physical fingertip press
+                    // commits only while the SAME hand's grip is held — the identical chord the
+                    // fingertip-on-tile ping and the tray keycaps (PlayTray BoardButton) require.
+                    // The cap still follows the finger; laser presses (OnPoke with a far
+                    // fingertip) stay grip-free. Throttled Info line so a "did not react"
+                    // report is answerable from the log.
+                    if (!_hoverHand.GripPressed)
+                    {
+                        if (Time.unscaledTime >= _nextGripGateLogAt)
+                        {
+                            _nextGripGateLogAt = Time.unscaledTime + 1f;
+                            VRLog.Info("WorldUI", $"{_rootGo.name} poke WITHHELD ({_hoverHand.Side}) — " +
+                                                  "physical board-button presses require the same " +
+                                                  "hand's GRIP held (accidental-press guard); laser " +
+                                                  "clicks are unaffected.");
+                        }
+                    }
                     // DEBOUNCE (user): fire only when re-armed AND past the shared cooldown, so a
                     // retract-then-push or a hover flicker inside one poke cannot double-fire.
-                    if (_depthArmed && Time.unscaledTime >= _nextPressTime)
+                    else if (_depthArmed && Time.unscaledTime >= _nextPressTime)
                     {
                         _depthArmed = false;
                         Fire(_hoverHand, "poke-depth");
