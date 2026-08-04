@@ -150,97 +150,13 @@ internal static partial class ModalFallback
                && rot.x * rot.x + rot.y * rot.y + rot.z * rot.z + rot.w * rot.w > 0.5f;
     }
 
-    // ---- user-owned re-open pose memory (user ruling 2026-08-04) ------------------------
-
-    /// <summary>
-    /// RE-OPEN POSE MEMORY: the last PLAYER-CHOSEN pose (+ two-hand resize factor) of each
-    /// floated window the player had grabbed, keyed by <see cref="UIWindowID"/>. User ruling
-    /// 2026-08-04 ("Sie sollen dort fix bleiben, wo sie stehen"): once the player has moved a
-    /// window, its pose is theirs - and that extends across a close/re-open within the same
-    /// scenario: re-opening the pause menu / Options must bring it back at the spot (and
-    /// size) the player parked it at, not re-run the gaze spawn. Written at float release
-    /// (<c>Tick</c> step 1) for every non-level-message window whose grab carries
-    /// <see cref="GrabbableModal.UserMoved"/>; consumed verbatim by
-    /// <see cref="TryConvertWindow"/> (no re-clamp, no re-facing - the same authority rule as
-    /// the level-message chain pose, which keeps its OWN store and stays excluded here).
-    /// Reset on scenario end and module teardown - a pose is anchored to one scenario's
-    /// table. Deliberately NOT reset on presence regain: yanking user-parked windows on every
-    /// brief doff/don is exactly the jumping the ruling forbids, and the stored pose stays
-    /// findable via the recall-free escape hatches (X, escape chord).
-    /// </summary>
-    private struct UserPose
-    {
-        public Vector3 Position;
-        public Quaternion Rotation;
-
-        /// <summary>The player's two-hand resize factor at release (frame local scale).</summary>
-        public float ScaleFactor;
-    }
-
-    /// <summary>Player-chosen poses per window ID (see <see cref="UserPose"/>).</summary>
-    private static readonly Dictionary<UIWindowID, UserPose> _userPoses = new();
-
-    /// <summary>
-    /// Capture a closing float's live pose into the re-open memory - only when the player had
-    /// actually grabbed it (<see cref="GrabbableModal.UserMoved"/>); an untouched window keeps
-    /// spawning fresh at the gaze exactly as today. Level-message windows are excluded: their
-    /// continuity is owned by the shared chain store (<see cref="StoreChainPose(WindowPanel)"/>).
-    /// </summary>
-    private static void StoreUserPose(WindowPanel wp)
-    {
-        if (wp.Grab == null || !wp.Grab.UserMoved || wp.Window == null
-            || IsLevelMessageWindow(wp.Window)
-            || wp.Panel == null || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
-            return;
-        Transform host = wp.Panel.HostGo.transform;
-        Vector3 pos = host.position;
-        Quaternion rot = host.rotation;
-        if (!IsFinitePose(pos, rot))
-            return; // never poison the memory - the next open falls back to the gaze spawn
-        _userPoses[wp.Window.ID] = new UserPose
-        {
-            Position = pos,
-            Rotation = rot,
-            ScaleFactor = wp.Grab.UserScaleFactor,
-        };
-        VRLog.Info("WorldUI", $"MODAL WINDOW: '{wp.Window.name}' (ID {wp.Window.ID}) releases at a " +
-                              $"PLAYER-CHOSEN pose ({pos.x:F2},{pos.y:F2},{pos.z:F2}), size factor " +
-                              $"{wp.Grab.UserScaleFactor:F2} - remembered; a re-open this scenario " +
-                              "restores it there instead of re-running the gaze spawn.");
-    }
-
-    /// <summary>The remembered player pose for a window ID, if one exists (finite-checked -
-    /// a poisoned entry is dropped and the caller falls back to the fresh gaze spawn).</summary>
-    private static bool TryGetUserPose(UIWindowID id, out Vector3 pos, out Quaternion rot,
-        out float scaleFactor)
-    {
-        if (_userPoses.TryGetValue(id, out UserPose stored))
-        {
-            if (IsFinitePose(stored.Position, stored.Rotation))
-            {
-                pos = stored.Position;
-                rot = stored.Rotation;
-                scaleFactor = stored.ScaleFactor;
-                return true;
-            }
-            _userPoses.Remove(id);
-        }
-        pos = default;
-        rot = Quaternion.identity;
-        scaleFactor = 1f;
-        return false;
-    }
-
-    /// <summary>Drop every remembered player pose (scenario end / module teardown).
-    /// Change-gated: silent no-op while nothing is stored, one log line otherwise.</summary>
-    private static void ResetUserPoses(string reason)
-    {
-        if (_userPoses.Count == 0)
-            return;
-        _userPoses.Clear();
-        VRLog.Info("WorldUI", $"MODAL WINDOW: remembered player window pose(s) dropped ({reason}) - " +
-                              "the next open of each window spawns fresh at the gaze again.");
-    }
+    // NOTE (user ruling 2026-08-04, REVERTED same day after the hardware round): a short-lived
+    // "re-open pose memory" here restored a closed window at the player's last grab-moved pose
+    // on re-open. The user reversed it: every FRESH open must spawn in the view area again
+    // (rule-1 gaze spawn) — only an already-OPEN window may never move on its own. The ownership
+    // that survives is GrabbableModal.UserMoved: an open, player-grabbed window is exempt from
+    // the lost-menu recall below. The level-message CHAIN pose continuity above is a separate,
+    // still-standing ruling and is untouched.
 
     // ---- lost-menu recall (incident fix) ------------------------------------------------
 

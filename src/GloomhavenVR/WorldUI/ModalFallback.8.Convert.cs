@@ -284,19 +284,10 @@ internal static partial class ModalFallback
             // (see TickPoseRePlace). Left INVALID on the rule-2 branch below — a verbatim stored
             // chain pose is authoritative and must never be recomputed.
             SpawnAnchor spawnAnchor = default;
-            // RE-OPEN POSE MEMORY (user ruling 2026-08-04): a re-open of a window the player
-            // had grab-moved this scenario restores the PLAYER'S last pose verbatim - no gaze
-            // placement, no clamps, no re-facing, exactly the chain-pose authority rule
-            // applied to the non-scripted families (level messages keep their own store).
-            // The spawn anchor stays INVALID, so the pre-reveal pose re-place latches
-            // "kept verbatim" and can never recompute the player's spot; the restored resize
-            // factor is pushed onto the grab after Build below.
-            Vector3 userPos = default;
-            Quaternion userRot = Quaternion.identity;
-            float userScaleFactor = 1f;
-            bool userPoseRestored = !isLevelMsg
-                                    && TryGetUserPose(window.ID, out userPos, out userRot,
-                                        out userScaleFactor);
+            // Re-open reverted (user ruling 2026-08-04, same-day reversal): a fresh open of a
+            // NON-level-message window ALWAYS runs the rule-1 gaze spawn below — it must land
+            // in the view area, whatever pose the player had parked a previous instance at.
+            // Only the level-message chain keeps verbatim pose continuity (its own ruling).
             if (isLevelMsg && TryGetChainPose(window, out Vector3 chainPos, out Quaternion chainRot,
                     out string chainSetBy))
             {
@@ -307,16 +298,6 @@ internal static partial class ModalFallback
                                       $"shared by all scripted windows, last set by the {chainSetBy} — " +
                                       "position continuity: the next scripted window appears exactly " +
                                       "where the previous one was read (rule 2, center-aligned verbatim).");
-            }
-            else if (userPoseRestored)
-            {
-                CanvasConversion.PlaceHost(panel, userPos, userRot,
-                    PanelLayout.WorldScale * extraScale);
-                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) re-floated at the " +
-                                      $"PLAYER'S remembered pose ({userPos.x:F2},{userPos.y:F2}," +
-                                      $"{userPos.z:F2}), size factor {userScaleFactor:F2} - the player " +
-                                      "grab-moved this window earlier this scenario, so its pose is " +
-                                      "theirs (verbatim restore, no gaze spawn, no clamps).");
             }
             else
             {
@@ -368,11 +349,6 @@ internal static partial class ModalFallback
             // HUD it is behind is painted after it and covers it, and nothing writes depth, so a
             // transparent menu pixel shows whatever is genuinely behind it.
             grab.Build(panel, extraScale, name);
-            // Re-open pose memory: a window restored at the player's pose is user-owned from
-            // birth (recall/refloat must treat it like the original moved window) and gets the
-            // player's two-hand resize factor back on the fresh grab frame.
-            if (userPoseRestored)
-                grab.MarkUserOwned(userScaleFactor);
             // Item 3c + MP test ("Kontrolle übergeben" had no X): a small mod-drawn X (top-right
             // of the host, mod layer 27, poke+laser clickable) closes THIS window through the
             // game's own Escape/Hide path. RULE (user): EVERY floated window must be closable

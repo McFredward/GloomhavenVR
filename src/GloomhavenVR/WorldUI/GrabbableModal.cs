@@ -136,34 +136,6 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     internal bool UserMoved { get; private set; }
 
     /// <summary>
-    /// The player's live two-hand resize factor (the grab frame's local scale, clamped to the
-    /// shared handle range). Read at float release by ModalFallback.StoreUserPose so a re-open
-    /// of the same window this scenario restores the size the player pinched it to, not the
-    /// default 1x.
-    /// </summary>
-    internal float UserScaleFactor => _frame != null
-        ? Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale)
-        : 1f;
-
-    /// <summary>
-    /// Seed a freshly built grab from a REMEMBERED player pose (ModalFallback re-open pose
-    /// memory): marks the window user-owned from birth - it was placed at the player's stored
-    /// spot, so the recall/refloat machinery must treat it exactly like the original moved
-    /// window - and restores the player's two-hand resize factor on the frame. Silent (the
-    /// caller logs the restore); the first-grab latch log below stays for genuine first grips.
-    /// </summary>
-    internal void MarkUserOwned(float scaleFactor)
-    {
-        UserMoved = true;
-        EnsureFrame();
-        if (_frame == null)
-            return;
-        float factor = Mathf.Clamp(scaleFactor, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
-        _frame.localScale = Vector3.one * factor;
-        Tick(); // push the restored size onto the host in the same frame
-    }
-
-    /// <summary>
     /// Item 1 (pause-menu size): re-seat the board-relative host shrink AFTER a full-screen menu's
     /// one-shot content fit shrank the host rect. The fit runs a few frames after Build, so the
     /// extraScale first derived from the pre-fit (full 1920) rect would leave the fitted panel
