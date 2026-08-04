@@ -946,39 +946,99 @@ internal static class NetProtocol
         code < SlotWidthMinCode ? 0f : code / 10000f;
 
     /// <summary>
-    /// Extension record id: WHICH ACTION HALF the sender's pointer is on in their
-    /// ACTION-SELECTION layout — 1 byte, bits 0..1 the board SLOT of the docked round card
-    /// (<see cref="HalfHoverSlotMask"/>; the same slot indices the board-UI occupancy nibble
-    /// uses), bit 2 set = the TOP action half (<see cref="HalfHoverTopBit"/>), bits 3..7
-    /// reserved (written 0, masked on read).
+    /// Extension record id: the sender's ACTION-SELECTION half states — 2 bytes,
+    /// <c>[byte0 hover][byte1 selection]</c>.
     ///
-    /// <para>THE DEFECT IT FIXES (hardware MP test 2026-08-04: "Die Overlay-Auswahl auf Karten
-    /// beim Hovern ist nicht synchronisiert — ich will sehen, worüber mein Mitspieler in der
-    /// Aktionsauswahl hovert"). Locally, pointing the laser (or fingertip) at a docked round
-    /// card's top/bottom half lights the game's own on-card hover overlay
-    /// (<c>FullAbilityCard.Highlight/OnPointerEnter</c>, driven by <c>Cards.HalfSelection</c>);
-    /// nothing of that state was on the wire, so the single most watched gesture of an acting
-    /// player — "this half?" — did not exist on anyone else's screen. Peers now draw a hover
-    /// glow over the same half of the same slot card on the mirrored board.</para>
+    /// byte 0 — the transient HOVER (which half their pointer is ON right now):
+    ///   bits 0..1 the board SLOT of the docked round card (<see cref="HalfHoverSlotMask"/>;
+    ///             the same slot indices the board-UI occupancy nibble uses).
+    ///             <see cref="HalfHoverNoneSlot"/> (3) = NO hover this packet — needed since the
+    ///             record also rides for a selection-only state; slot 2 (a recess the two-slot
+    ///             board lacks) is rejected on read and degrades to "no hover" too.
+    ///   bit 2     set = the TOP action half (<see cref="HalfHoverTopBit"/>), clear = bottom.
+    ///   bits 3..7 reserved (written 0, masked on read).
+    /// byte 1 — the persistent SELECTION (which half of each slot card is CLICKED/committed,
+    ///   the game's own steady half highlight after a click, cleared again by undo):
+    ///   bits 0..1 slot 0's selected half (<see cref="HalfSelectNone"/> 0 / <see
+    ///             cref="HalfSelectTop"/> 1 / <see cref="HalfSelectBottom"/> 2; value 3 is
+    ///             invalid and reads as none — never trust the wire),
+    ///   bits 2..3 slot 1's selected half, same encoding,
+    ///   bits 4..7 reserved (written 0, masked on read).
     ///
-    /// <para>WHY A SLOT INDEX AND NOT A CARD: the standing rule — no card identity on this wire.
+    /// <para>THE DEFECT PAIR IT FIXES (hardware MP test 2026-08-04: "Die Overlay-Auswahl auf
+    /// Karten beim Hovern ist nicht synchronisiert" + the follow-up "Ich will auch sehen,
+    /// welche Hälfte der Mitspieler GEKLICKT hat — die wird dauerhaft hervorgehoben, und auch
+    /// das Abwählen muss sichtbar sein"). Locally, pointing at a docked round card's half
+    /// lights the game's PULSING hover overlay (<c>CardActionHighlight.ShowHover</c>, alpha
+    /// 1↔0.3), and CLICKING it latches the STEADY selected overlay
+    /// (<c>FullAbilityCardAction.ToggleSelect → CardActionHighlight.ShowSelected</c>, undone by
+    /// the game's undo path). Neither state was on the wire, so the acting player's two most
+    /// watched gestures — "this half?" and "THIS half." — did not exist on anyone else's
+    /// screen. Peers now draw the same two-state glow on the same halves of the mirrored board:
+    /// pulsing for the hover, steady for the selection, exactly the presentation split the
+    /// owner's own card makes.</para>
+    ///
+    /// <para>WHY SLOT INDICES AND NOT CARDS: the standing rule — no card identity on this wire.
     /// A slot POSITION reveals nothing: the round cards are docked in the two public board slots
     /// and their faces are already rendered to peers by the reveal gate's own rules; during the
-    /// action phase they are public anyway. Written ONLY while a half really is lit, so an idle
-    /// packet stays byte-identical to the previous build's; the hover edges pre-empt the extras
-    /// gate (capped at the rig interval, like the card-highlight record's).</para>
+    /// action phase they are public anyway (the committed half also reaches every client through
+    /// the authoritative action stream — this record only makes it visible at the board).</para>
+    ///
+    /// <para>Written ONLY while a half is hovered OR selected, so an idle packet stays
+    /// byte-identical to the previous build's. Hover edges pre-empt the extras gate capped at
+    /// the rig interval (a drifting beam can flick halves several times a second); SELECTION
+    /// edges pre-empt it OUTRIGHT (a click/undo is discrete and human-paced — the pile-counts
+    /// rule), so the steady highlight lands with the click. This record has never shipped in a
+    /// distributed build, so the 1→2-byte extension costs no compatibility case: the ModBuild
+    /// handshake gates every peer to the same build.</para>
     /// </summary>
     public const byte ExtIdHalfHover = 14;
 
-    /// <summary>Half-hover record: mask of the SLOT index bits (0..1).</summary>
+    /// <summary>Payload length of <see cref="ExtIdHalfHover"/>: hover byte + selection byte. A
+    /// reader requires at least this much before it trusts the record.</summary>
+    public const int HalfHoverRecordBytes = 2;
+
+    /// <summary>Half-hover byte 0: mask of the SLOT index bits (0..1).</summary>
     public const byte HalfHoverSlotMask = 0x03;
 
-    /// <summary>Half-hover record: bit 2 — the hovered half is the TOP action (clear = bottom).</summary>
+    /// <summary>Half-hover byte 0 slot-field sentinel: NO hover rides this packet (the record is
+    /// selection-only). 3 rather than 2 so the one remaining slot value stays free for a
+    /// hypothetical third recess.</summary>
+    public const byte HalfHoverNoneSlot = 0x03;
+
+    /// <summary>Half-hover byte 0, bit 2 — the hovered half is the TOP action (clear = bottom).</summary>
     public const byte HalfHoverTopBit = 1 << 2;
 
-    /// <summary>Every DEFINED bit of the half-hover byte. Masked on write AND read so a future
+    /// <summary>Every DEFINED bit of the half-hover byte 0. Masked on write AND read so a future
     /// bit cannot be pre-claimed by garbage — the same discipline as every masked byte here.</summary>
     public const byte HalfHoverDefinedMask = (byte)(HalfHoverSlotMask | HalfHoverTopBit);
+
+    /// <summary>Selection field (2 bits per slot in byte 1): no half of this slot's card is
+    /// selected. Also what a reader assumes for the invalid value 3.</summary>
+    public const byte HalfSelectNone = 0;
+
+    /// <summary>Selection field: the TOP action half is selected (steady highlight).</summary>
+    public const byte HalfSelectTop = 1;
+
+    /// <summary>Selection field: the BOTTOM action half is selected.</summary>
+    public const byte HalfSelectBottom = 2;
+
+    /// <summary>Bit width of one slot's selection field in byte 1 (slot i lives at
+    /// <c>i * HalfSelectBitsPerSlot</c>).</summary>
+    public const int HalfSelectBitsPerSlot = 2;
+
+    /// <summary>Mask of one slot's selection field (before shifting).</summary>
+    public const byte HalfSelectFieldMask = 0x03;
+
+    /// <summary>Every DEFINED bit of the selection byte (two 2-bit fields for the board's two
+    /// slots — widens with <see cref="BoardUiSlotCount"/> if the board ever grows a recess).</summary>
+    public const byte HalfSelectDefinedMask =
+        (byte)((1 << (BoardUiSlotCount * HalfSelectBitsPerSlot)) - 1);
+
+    /// <summary>Clamp a selection value onto the wire field: anything outside
+    /// none/top/bottom (including the invalid 3) degrades to none.</summary>
+    public static byte EncodeHalfSelect(int value) =>
+        value == HalfSelectTop || value == HalfSelectBottom ? (byte)value : HalfSelectNone;
 
     /// <summary>
     /// Extension record id: the sender's displayed PILE COUNTS — 3 bytes,

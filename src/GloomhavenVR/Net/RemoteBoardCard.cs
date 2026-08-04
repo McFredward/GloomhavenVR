@@ -256,7 +256,7 @@ internal sealed class RemoteBoardCard
             return; // already blank — nothing to undo
 
         ClearFace();
-        SetHalfHover(-1); // a re-shown slot must never come back with a stale hover glow lit
+        SetHalfStates(-1, -1); // a re-shown slot must never come back with a stale glow lit
         _shownEmpty = true;
         _shownId = int.MinValue;
         _shownFront = false;
@@ -268,62 +268,122 @@ internal sealed class RemoteBoardCard
             _root.SetActive(false);
     }
 
-    // ---------------------------------------------------------------- half-hover glow --
+    // ---------------------------------------------------------- half hover/selection glow --
 
-    /// <summary>The two half-hover glow quads (top / bottom action region), built lazily on the
-    /// first synced hover so a board whose owner never hovers allocates nothing.</summary>
+    /// <summary>The two half glow quads (top / bottom action region), built lazily on the first
+    /// synced hover/selection so a board whose owner never touches a half allocates nothing.</summary>
     private GameObject? _halfGlowTop;
     private GameObject? _halfGlowBottom;
 
-    /// <summary>Currently shown half (-1 none, 0 bottom, 1 top) — change gate.</summary>
+    /// <summary>The glow quads' material + renderer refs (index 0 = bottom, 1 = top), captured
+    /// at build time so the per-frame pulse never calls GetComponent.</summary>
+    private Material?[] _halfGlowMats = System.Array.Empty<Material?>();
+
+    /// <summary>The shared telegraph gold — the additive Overlay shader emits RGB as brightness
+    /// (alpha only matters on the Sprites/Default fallback), so the pulse scales both, exactly
+    /// like <c>PlayTray.SlotPulse</c>.</summary>
+    private static readonly Color GlowGold = new(1f, 0.85f, 0.3f, 0.95f);
+
+    /// <summary>Currently shown hover half (-1 none, 0 bottom, 1 top) — change gate.</summary>
     private int _shownHalfHover = -1;
 
+    /// <summary>Currently shown SELECTED half (-1 none, 0 bottom, 1 top) — change gate.</summary>
+    private int _shownHalfSelected = -1;
+
     /// <summary>
-    /// Glow the action HALF the card's owner is hovering (extras extension record 14 — user
-    /// defect 2026-08-04: "Ich will sehen, worüber mein Mitspieler in der Aktionsauswahl
-    /// hovert"). <paramref name="half"/>: -1 none, 0 bottom, 1 top.
+    /// Drive the two-state half glow (extras extension record 14 — "worüber hovert mein
+    /// Mitspieler" + the follow-up "welche Hälfte hat er GEKLICKT"). Called every frame by the
+    /// owning board. <paramref name="hoverHalf"/> / <paramref name="selectedHalf"/>:
+    /// -1 none, 0 bottom, 1 top.
     ///
-    /// LOOK: the shared gold telegraph (<see cref="CardGlow.CreateGlowQuad"/> — the exact
-    /// helper the board slots and the hand-fan insertion gap glow with), sized and seated on
-    /// <c>HalfSelection</c>'s OWN zone fractions, so the glowed region on this mirrored card is
-    /// by construction the region the owner's pointer is in. The owner's own screen shows the
-    /// game's native on-card hover FX instead — that FX lives in uGUI material state a clone
-    /// cannot carry, so the mod's telegraph gold stands in for it here, exactly like every
-    /// other remote-board affordance that reuses the shared glow. Rendered a hair in front of
-    /// the hosted face art and on the docked-widget sorting tier so it reads above the face at
-    /// every angle. A POSITION only — no card data is read.
+    /// LOOK — the owner's own presentation split, reproduced: locally a HOVERED half runs the
+    /// game's PULSING overlay (<c>CardActionHighlight.ShowHover</c>: alpha looping 1↔0.3 over
+    /// 0.5 s per leg) and a CLICKED half latches the STEADY full-strength overlay
+    /// (<c>ShowSelected</c>, cleared by undo). The quads here do the same on the shared
+    /// telegraph gold (<see cref="CardGlow.CreateGlowQuad"/> — the helper every board glow
+    /// uses): hover = breathing brightness on the game's own 1 s cycle, selection = steady
+    /// full brightness, selection wins when both land on one half. Sized and seated on
+    /// <c>HalfSelection</c>'s OWN zone fractions, so the glowed region on this mirrored card
+    /// is by construction the region the owner's pointer/click is in. Rendered a hair in front
+    /// of the hosted face art on the docked-widget sorting tier. POSITIONS only — no card data
+    /// is read.
     /// </summary>
-    public void SetHalfHover(int half)
+    public void SetHalfStates(int hoverHalf, int selectedHalf)
     {
-        if (half == _shownHalfHover)
+        if ((hoverHalf >= 0 || selectedHalf >= 0) && _halfGlowTop == null)
+            BuildHalfGlows();
+        if (_halfGlowTop == null || _halfGlowBottom == null)
             return;
-        _shownHalfHover = half;
-        if (half >= 0 && _halfGlowTop == null)
-        {
-            var size = new Vector3(_width * Cards.HalfSelection.ZoneWidthFrac,
-                                   _height * Cards.HalfSelection.ZoneHeightFrac, 1f);
-            float centerY = _height * Cards.HalfSelection.ZoneCenterYFrac;
-            const float glowZ = -0.004f; // in front of the face art's ~1.4 mm standoff
-            var gold = new Color(1f, 0.85f, 0.3f, 0.95f); // the shared telegraph gold
-            _halfGlowTop = CardGlow.CreateGlowQuad("HalfHoverTop", _root.transform,
-                size, new Vector3(0f, centerY, glowZ), gold);
-            _halfGlowBottom = CardGlow.CreateGlowQuad("HalfHoverBottom", _root.transform,
-                size, new Vector3(0f, -centerY, glowZ), gold);
-            // Docked-widget tier: strictly above the face canvas (order 0) at every angle.
-            SetGlowOrder(_halfGlowTop);
-            SetGlowOrder(_halfGlowBottom);
-        }
-        if (_halfGlowTop != null)
-            _halfGlowTop.SetActive(half == 1);
-        if (_halfGlowBottom != null)
-            _halfGlowBottom.SetActive(half == 0);
+        _shownHalfHover = hoverHalf;
+        _shownHalfSelected = selectedHalf;
+
+        DriveHalf(_halfGlowBottom, 0, hoverHalf, selectedHalf);
+        DriveHalf(_halfGlowTop, 1, hoverHalf, selectedHalf);
     }
 
-    private static void SetGlowOrder(GameObject glow)
+    /// <summary>Per-half state resolve + write: selected → steady, hovered → pulse, else off.
+    /// Active flips are change-gated; the colour write runs only while a pulse is showing (at
+    /// most one half per card) or on the steady half's first frame.</summary>
+    private void DriveHalf(GameObject glow, int half, int hoverHalf, int selectedHalf)
+    {
+        bool selected = selectedHalf == half;
+        bool hovered = hoverHalf == half;
+        bool on = selected || hovered;
+        if (glow.activeSelf != on)
+            glow.SetActive(on);
+        if (!on)
+            return;
+        Material? mat = half < _halfGlowMats.Length ? _halfGlowMats[half] : null;
+        if (mat == null)
+            return;
+        // Selection wins on a doubly-lit half — the steady latch is the stronger statement,
+        // matching the local RefreshHighlight, which parks the selected look over the hover's.
+        float k;
+        if (selected)
+        {
+            k = 1f;
+        }
+        else
+        {
+            // The game's hover loop: LeanTween alpha 1 → 0.3 → 1 at 0.5 s per leg = a 1 s
+            // cycle. A sine at that period reads identically at glow scale.
+            float t = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * Mathf.PI * 2f);
+            k = Mathf.Lerp(0.3f, 1f, t);
+        }
+        Color c = GlowGold;
+        c.r *= k;
+        c.g *= k;
+        c.b *= k;
+        c.a *= k; // the alpha-blended Sprites/Default fallback (Overlay absent) pulses too
+        if (mat.color != c)
+            mat.color = c;
+    }
+
+    /// <summary>Build the two glow quads + capture their materials (lazy — first hover/click).</summary>
+    private void BuildHalfGlows()
+    {
+        var size = new Vector3(_width * Cards.HalfSelection.ZoneWidthFrac,
+                               _height * Cards.HalfSelection.ZoneHeightFrac, 1f);
+        float centerY = _height * Cards.HalfSelection.ZoneCenterYFrac;
+        const float glowZ = -0.004f; // in front of the face art's ~1.4 mm standoff
+        _halfGlowTop = CardGlow.CreateGlowQuad("HalfHoverTop", _root.transform,
+            size, new Vector3(0f, centerY, glowZ), GlowGold);
+        _halfGlowBottom = CardGlow.CreateGlowQuad("HalfHoverBottom", _root.transform,
+            size, new Vector3(0f, -centerY, glowZ), GlowGold);
+        _halfGlowMats = new Material?[2];
+        _halfGlowMats[0] = CaptureGlow(_halfGlowBottom);
+        _halfGlowMats[1] = CaptureGlow(_halfGlowTop);
+    }
+
+    /// <summary>Docked-widget sorting (strictly above the face canvas at every angle) + the
+    /// material ref the pulse writes.</summary>
+    private static Material? CaptureGlow(GameObject glow)
     {
         var mr = glow.GetComponent<MeshRenderer>();
-        if (mr != null)
-            mr.sortingOrder = BoardVisual.OrderDockedWidget;
+        if (mr == null)
+            return null;
+        mr.sortingOrder = BoardVisual.OrderDockedWidget;
+        return mr.sharedMaterial; // CreateGlowQuad makes a fresh material per quad — ours to drive
     }
 
     /// <summary>Tear the hosted face down and forget which path drew it (the back/empty states must

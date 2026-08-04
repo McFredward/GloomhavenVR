@@ -115,6 +115,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // int.MinValue = never sent.
     private int _lastSentPileCounts = int.MinValue;
 
+    // HALF SELECTION (record 14 byte 1): the last broadcast per-slot selection nibble
+    // (sel0 | sel1<<2), so a CLICK — and its undo — pre-empts the 5 Hz gate OUTRIGHT (the
+    // pile-counts rule: a click is discrete and human-paced, it can never become a stream;
+    // the steady highlight must land with the click, not up to 200 ms later).
+    // int.MinValue = never sent.
+    private int _lastSentHalfSelect = int.MinValue;
+
     // HALF HOVER (extension record 14): the last broadcast (slot | top<<8, -1 = none), so the
     // hover moving between halves pre-empts the 5 Hz gate (capped at the rig interval — a laser
     // can flick between halves several times a second) and the log fires once per CHANGE.
@@ -303,6 +310,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentBoardUi = -1;      // next session re-states the board UI from scratch
         _lastSentPileCounts = int.MinValue;   // and re-states the pile counts…
         _lastSentHalfHover = int.MinValue;    // …the half hover…
+        _lastSentHalfSelect = int.MinValue;   // …the clicked halves…
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentConfirmLabel = null;  // and the live cap labels
@@ -671,6 +679,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool halfHoverChanged = halfHoverNow != _lastSentHalfHover;
         bool halfHoverDue = halfHoverChanged && _extrasAccumulator >= fastInterval;
 
+        // HALF SELECTION (record 14 byte 1, follow-up defect "Ich will auch sehen, welche Hälfte
+        // der Mitspieler GEKLICKT hat"): the persistently selected half of each docked round
+        // card, read off the game's own per-half latch (FullAbilityCardAction.isSelected — the
+        // exact state its steady ShowSelected highlight renders, cleared by the game's undo).
+        // Unlike the hover this pre-empts the gate OUTRIGHT: a click/undo is discrete and
+        // human-paced (the pile-counts rule), and the steady highlight must land WITH the click.
+        HalfSelection.SampleLocalSelection(out int halfSel0, out int halfSel1);
+        int halfSelNow = halfSel0 | (halfSel1 << 2);
+        bool halfSelChanged = halfSelNow != _lastSentHalfSelect;
+
         // TRACK HOVER (extension record 16, user defect "die Mouseover der Initiativreihenfolge
         // sind nicht synchronisiert"): which initiative-track entry OUR pointer is on (stable
         // CActor.ID — the display order is per-client, see the record doc) plus whether its info
@@ -772,7 +790,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !poseDue && !boardUiChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
             && !tooltipChanged && !slotCardSizeChanged
-            && !pileCountsChanged && !halfHoverDue && !trackHoverDue
+            && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !decisionChanged && !capLabelsChanged)
             return;
         _extrasAccumulator = 0f;
@@ -1046,22 +1064,40 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "model-read counts).");
         }
 
-        // HALF HOVER (extension record 14): written only while a half really is lit — "absent"
-        // and "nothing lit" render identically, so an idle packet stays byte-identical.
-        if (halfHover)
+        // HALF HOVER + SELECTION (extension record 14): written while a half is hovered OR
+        // clicked — "absent" and "nothing lit, nothing selected" render identically, so an idle
+        // packet stays byte-identical.
+        if (halfHover || halfSel0 != NetProtocol.HalfSelectNone
+                      || halfSel1 != NetProtocol.HalfSelectNone)
         {
             extras.HasHalfHover = true;
-            extras.HalfHoverSlot = (byte)Mathf.Clamp(halfSlot, 0, NetProtocol.BoardUiSlotCount - 1);
-            extras.HalfHoverTop = halfTop;
+            extras.HalfHoverActive = halfHover;
+            extras.HalfHoverSlot = halfHover
+                ? (byte)Mathf.Clamp(halfSlot, 0, NetProtocol.BoardUiSlotCount - 1)
+                : (byte)0;
+            extras.HalfHoverTop = halfHover && halfTop;
+            extras.HalfSelect0 = (byte)halfSel0;
+            extras.HalfSelect1 = (byte)halfSel1;
         }
         if (halfHoverChanged)
         {
             _lastSentHalfHover = halfHoverNow;
             VRLog.Info("Net", halfHover
                 ? $"Half hover SENT: slot {halfSlot + 1}, {(halfTop ? "TOP" : "BOTTOM")} half — " +
-                  "extension record 14 (1 B: a slot POSITION and a half, no card identity); " +
-                  "peers glow the same half of the same docked round card."
-                : "Half hover SENT: none — record omitted (peers clear the glow).");
+                  "extension record 14 byte 0 (a slot POSITION and a half, no card identity); " +
+                  "peers pulse the same half of the same docked round card."
+                : "Half hover SENT: none (byte 0 sentinel / record omitted — peers clear the pulse).");
+        }
+        if (halfSelChanged)
+        {
+            _lastSentHalfSelect = halfSelNow;
+            string Sel(int v) => v == NetProtocol.HalfSelectTop ? "TOP"
+                : v == NetProtocol.HalfSelectBottom ? "BOTTOM" : "none";
+            VRLog.Info("Net", $"Half selection SENT: slot 1 = {Sel(halfSel0)}, " +
+                              $"slot 2 = {Sel(halfSel1)} — extension record 14 byte 1 (the game's " +
+                              "own per-half click latch, undo included; positions only). The edge " +
+                              "PRE-EMPTED the extras gate, so the steady highlight lands with the " +
+                              "click on every peer's board.");
         }
 
         // TRACK HOVER (extension record 16): written only while an entry really is hovered.

@@ -1304,14 +1304,17 @@ internal static class GoldenVectors
         t.True(rigCard.HeldCardPose.Position == new Vector3(-1f, -2f, 0.5f),
                "at the same pose bytes record 10 reuses");
 
-        // -- 7l. HALF HOVER (extension record 14) ------------------------------------------
-        // The action half the sender's pointer is on in their action-selection layout: one
-        // masked byte — board slot (bits 0..1) + top-half bit. A slot POSITION and a half,
-        // never a card identity. Written only while a half really is lit.
-        t.Case("7l. extras, half-hover record");
+        // -- 7l. HALF HOVER + SELECTION (extension record 14) ------------------------------
+        // [byte0 hover][byte1 selection]: byte 0 is the transient pointer hover — board slot
+        // (bits 0..1, sentinel 3 = no hover) + top-half bit; byte 1 the persistent CLICK state
+        // — one 2-bit none/top/bottom field per slot (the game's steady half highlight after a
+        // click, cleared by undo). Slot POSITIONS and halves, never a card identity. Written
+        // while a half is hovered OR selected. (The record never shipped as 1 byte — the
+        // 2-byte layout is its first wire form; ModBuild gates every peer to the same build.)
+        t.Case("7l. extras, half hover + selection record");
         m = PresenceSerializer.Write(new PresenceState
         {
-            HasHalfHover = true, HalfHoverSlot = 1, HalfHoverTop = true,
+            HasHalfHover = true, HalfHoverActive = true, HalfHoverSlot = 1, HalfHoverTop = true,
         }, ext);
         t.Wire(Hex.Bytes(@"
             31 52 56 47      // magic
@@ -1320,31 +1323,91 @@ internal static class GoldenVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
             01               // tail: 1 record
-            0E 01 05         // id 14 (half hover), len 1, slot 1 | top bit (0x04)
-            "), ext, m, "the half-hover record is [id 14][len 1][slot|top] — a position only");
-        t.Equal(14, m, "header 7 + count 1 + block 2 + tail 1 + 3 = 14 bytes");
+            0E 02 05 00      // id 14, len 2: hover slot 1 | top bit (0x04); no selection
+            "), ext, m, "the record is [id 14][len 2][hover][selection] — positions only");
+        t.Equal(15, m, "header 7 + count 1 + block 2 + tail 1 + 4 = 15 bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hh), "and it parses");
-        t.True(hh.HasHalfHover, "the half hover is delivered");
+        t.True(hh.HasHalfHover && hh.HalfHoverActive, "the half hover is delivered");
         t.Equal(1, hh.HalfHoverSlot, "with the slot index intact");
         t.True(hh.HalfHoverTop, "and the TOP half named");
+        t.Equal(NetProtocol.HalfSelectNone, hh.HalfSelect0, "slot 1 unselected");
+        t.Equal(NetProtocol.HalfSelectNone, hh.HalfSelect1, "slot 2 unselected");
 
-        // Bottom half of slot 0 is the all-zero byte — still a valid, delivered record.
-        m = PresenceSerializer.Write(new PresenceState { HasHalfHover = true }, ext);
+        // Hover on the bottom half of slot 0 is the all-zero hover byte — still delivered.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHalfHover = true, HalfHoverActive = true,
+        }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hhB), "slot0/bottom parses");
-        t.True(hhB.HasHalfHover && hhB.HalfHoverSlot == 0 && !hhB.HalfHoverTop,
-               "slot 0 / bottom half round-trips (the record's presence, not its value, is the flag)");
+        t.True(hhB.HasHalfHover && hhB.HalfHoverActive && hhB.HalfHoverSlot == 0 && !hhB.HalfHoverTop,
+               "slot 0 / bottom hover round-trips (byte 0 = 0x00 is a live hover, not the sentinel)");
 
-        // No hover ⇒ no record, no tail, no block: byte-identical to the previous build.
+        // SELECTION-ONLY (the follow-up defect: the CLICKED half, no pointer on the card):
+        // byte 0 carries the no-hover sentinel, byte 1 both clicked halves.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHalfHover = true,
+            HalfSelect0 = NetProtocol.HalfSelectTop,
+            HalfSelect1 = NetProtocol.HalfSelectBottom,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            01
+            0E 02 03 09      // id 14: hover sentinel (slot field 3); sel slot0 TOP | slot1 BOTTOM<<2
+            "), ext, m, "a selection-only record carries the no-hover sentinel in byte 0");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState selOnly), "and it parses");
+        t.True(selOnly.HasHalfHover && !selOnly.HalfHoverActive,
+               "delivered WITHOUT a hover — the sentinel reads as 'selection only'");
+        t.Equal(NetProtocol.HalfSelectTop, selOnly.HalfSelect0, "slot 1's TOP half is clicked");
+        t.Equal(NetProtocol.HalfSelectBottom, selOnly.HalfSelect1, "slot 2's BOTTOM half is clicked");
+
+        // HOVER AND SELECTION TOGETHER (pointing at slot 0's bottom while slot 1's top is
+        // committed) — both channels ride the same 2 bytes.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHalfHover = true, HalfHoverActive = true, HalfHoverSlot = 0, HalfHoverTop = false,
+            HalfSelect1 = NetProtocol.HalfSelectTop,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            01
+            0E 02 00 04      // id 14: hover slot 0 bottom; selection slot1 TOP (1<<2)
+            "), ext, m, "hover and selection ride the record together");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hovSel), "and it parses");
+        t.True(hovSel.HalfHoverActive && hovSel.HalfHoverSlot == 0 && !hovSel.HalfHoverTop,
+               "with the hover intact");
+        t.Equal(NetProtocol.HalfSelectTop, hovSel.HalfSelect1, "and the click intact");
+
+        // No hover and no selection ⇒ no record, no tail, no block: byte-identical to the
+        // previous build (the writer refuses an all-empty record).
         m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);
         t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
-               "no half lit -> no record: byte-identical to a pre-record-14 sender");
+               "nothing lit, nothing clicked -> no record: byte-identical to a pre-record-14 sender");
 
-        // INVALID SLOT (a slot the two-recess board does not have): rejected, degrades to
-        // "record absent" — a glow on the wrong recess is worse than no glow.
-        byte[] badSlot = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 01 06"); // slot 2 | top
+        // INVALID HOVER SLOT (2 — a recess the two-slot board does not have): the hover is
+        // rejected; a valid selection in the same record still lands.
+        byte[] badSlot = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 02 06 01"); // hover slot 2|top; sel0 TOP
         t.True(PresenceSerializer.TryRead(badSlot, badSlot.Length, out PresenceState hhBad),
-               "a half-hover record naming slot 2 still parses the packet");
-        t.True(!hhBad.HasHalfHover, "and the impossible slot is simply not delivered");
+               "a record naming hover slot 2 still parses the packet");
+        t.True(!hhBad.HalfHoverActive, "the impossible hover is simply not delivered");
+        t.True(hhBad.HasHalfHover && hhBad.HalfSelect0 == NetProtocol.HalfSelectTop,
+               "while the valid selection beside it survives");
+
+        // INVALID SELECTION VALUE 3 in a field: reads as none (never trust the wire); with the
+        // hover also absent the whole record degrades to 'absent'.
+        byte[] badSel = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 02 03 0F"); // sentinel hover; sel0=3, sel1=3
+        t.True(PresenceSerializer.TryRead(badSel, badSel.Length, out PresenceState selBad),
+               "a record whose selection fields are both the invalid 3 still parses");
+        t.True(!selBad.HasHalfHover, "and delivers nothing — value 3 is none, none+none = absent");
+
+        // A TRUNCATED record (claims 2 payload bytes, delivers 1): the tail is abandoned
+        // mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutHalf = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 02 05");
+        t.True(PresenceSerializer.TryRead(cutHalf, cutHalf.Length, out PresenceState cutHh),
+               "a truncated half record still parses the packet");
+        t.True(!cutHh.HasHalfHover, "and the incomplete record is simply not delivered");
 
         // An OLD reader steps over id 14 by its length (asserted as the unknown-id case) and a
         // NEW reader steps over an unknown record ahead of it.
@@ -1353,11 +1416,12 @@ internal static class GoldenVectors
             80 00
             02
             63 04 DE AD BE EF// id 99, len 4 -- unknown
-            0E 01 04         // id 14, slot 0, top
+            0E 02 04 00      // id 14: hover slot 0 top, no selection
             ");
         t.True(PresenceSerializer.TryRead(futureHalf, futureHalf.Length, out PresenceState futHh),
-               "a packet with an unknown record ahead of the half hover parses");
-        t.True(futHh.HasHalfHover && futHh.HalfHoverTop, "and the half hover behind it is read");
+               "a packet with an unknown record ahead of the half record parses");
+        t.True(futHh.HasHalfHover && futHh.HalfHoverActive && futHh.HalfHoverTop,
+               "and the half hover behind it is read");
 
         // -- 7m. PILE COUNTS (extension record 15) -----------------------------------------
         // The numbers the sender's own three stack labels display ([discard][burnt][items]).
@@ -1451,7 +1515,7 @@ internal static class GoldenVectors
         m = PresenceSerializer.Write(new PresenceState
         {
             HasSecondHeldCard = true, SecondHeldCardPose = Card(),
-            HasHalfHover = true, HalfHoverSlot = 0, HalfHoverTop = true,
+            HasHalfHover = true, HalfHoverActive = true, HalfHoverSlot = 0, HalfHoverTop = true,
             HasPileCounts = true, PileDiscardCount = 1,
             HasTrackHover = true, TrackHoverActorId = 0x11,
         }, ext);
@@ -1462,7 +1526,7 @@ internal static class GoldenVectors
             04               // tail: 4 records, in id order
             0A 14            // id 10 second held card
             " + PoseCard + @"
-            0E 01 04         // id 14 half hover: slot 0, top
+            0E 02 04 00      // id 14 half hover: slot 0, top; no selection
             0F 03 01 00 00   // id 15 pile counts: 1/0/0
             10 05 00 11 00 00 00 // id 16 track hover: no popup, actor 0x11
             "), ext, m, "the batch's records ride the tail after record 10, in id order 14, 15, 16");

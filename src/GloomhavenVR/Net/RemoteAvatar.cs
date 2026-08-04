@@ -373,6 +373,15 @@ internal sealed class RemoteAvatar
     /// <see cref="HalfHoverSlot"/> is not -1).</summary>
     public bool HalfHoverTop { get; private set; }
 
+    /// <summary>The persistently CLICKED half of the sender's slot-0 round card (record 14
+    /// byte 1 — the game's own steady click highlight, cleared by their undo):
+    /// <see cref="NetProtocol.HalfSelectNone"/> / <c>…Top</c> / <c>…Bottom</c>. None when the
+    /// record is absent. Rendered steady and distinct from the pulsing hover.</summary>
+    public int HalfSelect0 { get; private set; } = NetProtocol.HalfSelectNone;
+
+    /// <summary>Slot 1's persistently clicked half, same contract as <see cref="HalfSelect0"/>.</summary>
+    public int HalfSelect1 { get; private set; } = NetProtocol.HalfSelectNone;
+
     /// <summary>Stable <c>CActor.ID</c> of the initiative-track entry the sender is hovering, or
     /// 0 (none / pre-record-16 sender — both render an un-hovered track). Consumed by
     /// <see cref="RemoteInitiativeTrack"/>, which lifts the matching entry on ITS copy of the
@@ -793,10 +802,14 @@ internal sealed class RemoteAvatar
                   "pre-record sender) — falling back to the model-read counts.");
         }
 
-        // HALF HOVER (extension record 14): the action half the sender is hovering on their own
-        // docked round cards. Absent ⇒ -1 ⇒ no glow — never a stale glow from a hover that ended.
-        HalfHoverSlot = p.HasHalfHover ? p.HalfHoverSlot : -1;
-        HalfHoverTop = p.HasHalfHover && p.HalfHoverTop;
+        // HALF HOVER + SELECTION (extension record 14): the action half the sender is hovering
+        // on their own docked round cards (byte 0, transient) and the halves they have CLICKED
+        // (byte 1, persistent until their undo). Absent ⇒ -1 / none ⇒ no glow — never a stale
+        // glow from a hover that ended or a selection that was undone.
+        HalfHoverSlot = p.HasHalfHover && p.HalfHoverActive ? p.HalfHoverSlot : -1;
+        HalfHoverTop = p.HasHalfHover && p.HalfHoverActive && p.HalfHoverTop;
+        HalfSelect0 = p.HasHalfHover ? p.HalfSelect0 : NetProtocol.HalfSelectNone;
+        HalfSelect1 = p.HasHalfHover ? p.HalfSelect1 : NetProtocol.HalfSelectNone;
 
         // TRACK HOVER (extension record 16): the initiative-track entry the sender is hovering,
         // by stable actor id. Absent ⇒ 0 ⇒ un-hovered track — never a stale lift.
