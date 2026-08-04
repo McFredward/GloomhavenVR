@@ -120,8 +120,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// is geometric nonsense. Stamped at three seams so it can never go stale: per Rebuild
     /// (<c>!inFan</c>, the authoritative re-assert), on fan entry (<see cref="CardFan.Add"/> /
     /// <see cref="CardFan.SetCards"/> — a void-release lands a card in the fan BETWEEN rebuilds),
-    /// and on fan pluck (CardsDriver.OnCardGrabbed — a plucked card left the fan and must be
-    /// hand-to-hand transferable to the gate hand at once; a stale FALSE here would also make
+    /// and on EVERY grab (CardsDriver.OnCardGrabbed, the single point where any card becomes
+    /// held — a held card is by definition not a fan card and must be hand-to-hand transferable
+    /// to the gate hand at once; a stale FALSE here would also make
     /// ProximityGrabber.HealDeadHeld force-drop it out of the gate hand mid-hold).
     /// </summary>
     internal bool AllowsGateHand { get; set; }
@@ -1157,7 +1158,22 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         {
             pinchLocal = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
         }
-        pinchLocal += CardsConfig.HeldPinchOffset.Value;
+        // MIRRORED fine-tune (user report 2026-08-04: "Die Kartenposition der linken Hand ist
+        // falsch ... exakt wie die rechte ... nur eben gespiegelt"). ROOT CAUSE: the tuned
+        // [Cards] HeldPinchOffset (authored on the RIGHT hand, default X = -5.5 cm) was added
+        // RAW on both hands — but the GrabAnchor frames are anatomical mirrors: +Y out of the
+        // palm and +Z along the fingers on BOTH hands, so the lateral ±X axis necessarily
+        // points to the THUMB side on the right hand and the PINKY side on the left (exactly
+        // why `thumbSide` above flips sign per hand). A raw X therefore shifted the card
+        // toward the thumb on one hand and toward the pinky on the other — the left card
+        // missed the thumb/index pinch spot by twice the tuned lateral offset. Flip ONLY the
+        // X term for the left hand (Y/Z are anatomically symmetric); one tuned value set,
+        // mirrored by construction — the same authored-right-mirrored-left convention as
+        // FigureGrabConfig.HeldFaceYawFor and VRHand's grip roll/yaw.
+        Vector3 pinchOffset = CardsConfig.HeldPinchOffset.Value;
+        if (hand.Side == HandSide.Left)
+            pinchOffset.x = -pinchOffset.x;
+        pinchLocal += pinchOffset;
 
         Vector3 pos = pinchLocal + rot * new Vector3(0f, cardH * (0.5f - PinchGripFraction), 0f);
         return new HeldPose(pos, rot, scale);

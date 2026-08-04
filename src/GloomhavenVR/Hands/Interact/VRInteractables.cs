@@ -258,7 +258,25 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
     {
         if (!_attached)
             return;
-        transform.SetParent(_originalParent, worldPositionStays: false);
+        // NEVER detach INTO a dead or inactive hierarchy (fan-card hand-transfer bug
+        // 2026-08-04, hardware log 5216-5297). ROOT CAUSE of "the card disappears": a fan
+        // card's pre-grab parent is the CardFan root, and that root DEACTIVATES when the
+        // palm gate closes — which is exactly the wrist roll of reaching over to receive
+        // the card. Re-parenting the released card under that inactive root here fired the
+        // card's OnDisable IN THE MIDDLE of the release call stack, wiping its interaction
+        // state (VRCard.OnDisable parks AllowsGateHand back to false) BEFORE the Released
+        // subscribers ran — so the hand-to-hand adoption's ForceGrab was refused by
+        // AllowsHand and the card fell into the hidden fan. A released object must stay
+        // ALIVE through its own Released routing: fall back to the scene root instead; the
+        // routing that follows (fan re-add, tray dock, pool park, adopting re-grab) always
+        // re-parents it to its next owner anyway. The local-pose restore below is then
+        // world-space and transient — VRCard.OnRelease immediately re-asserts the true
+        // world pose on top. A DESTROYED original parent (browse arc torn down mid-hold)
+        // would even have thrown in SetParent — same guard covers it.
+        Transform? restoreParent = _originalParent;
+        if (restoreParent == null || !restoreParent.gameObject.activeInHierarchy)
+            restoreParent = null;
+        transform.SetParent(restoreParent, worldPositionStays: false);
         transform.localPosition = _originalLocalPos;
         transform.localRotation = _originalLocalRot;
         if (_scaleOverridden)

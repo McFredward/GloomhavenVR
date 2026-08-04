@@ -542,9 +542,10 @@ internal static class CardsConfig
             "Held card fine-tune: offset (meters) ADDED to the computed pinch point — " +
             "the midpoint between the thumb tip and index tip at grab time — in " +
             "GrabAnchor-local axes: +Y out of the palm, +Z along the fingers, +X " +
-            "sideways (anatomically mirrored between hands). Example {x:0, y:0.01, " +
-            "z:0.02} lifts the card 1 cm off the palm and shifts it 2 cm toward the " +
-            "fingertips.");
+            "sideways. Authored for the RIGHT hand; the X term is automatically " +
+            "sign-flipped on the left hand so the card sits at the same anatomical " +
+            "spot in both. Example {x:0, y:0.01, z:0.02} lifts the card 1 cm off " +
+            "the palm and shifts it 2 cm toward the fingertips.");
         TrayForward = _file.Bind("Cards", "TrayForward", Defaults.TrayForward,
             "Control board placement: forward distance from the head at placement time, meters.");
         TrayDown = _file.Bind("Cards", "TrayDown", Defaults.TrayDown,
