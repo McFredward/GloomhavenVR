@@ -1190,6 +1190,172 @@ internal static class GoldenVectors
         t.True(rigCard.HeldCardPose.Position == new Vector3(-1f, -2f, 0.5f),
                "at the same pose bytes record 10 reuses");
 
+        // -- 7l. HALF HOVER (extension record 14) ------------------------------------------
+        // The action half the sender's pointer is on in their action-selection layout: one
+        // masked byte — board slot (bits 0..1) + top-half bit. A slot POSITION and a half,
+        // never a card identity. Written only while a half really is lit.
+        t.Case("7l. extras, half-hover record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHalfHover = true, HalfHoverSlot = 1, HalfHoverTop = true,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            0E 01 05         // id 14 (half hover), len 1, slot 1 | top bit (0x04)
+            "), ext, m, "the half-hover record is [id 14][len 1][slot|top] — a position only");
+        t.Equal(14, m, "header 7 + count 1 + block 2 + tail 1 + 3 = 14 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hh), "and it parses");
+        t.True(hh.HasHalfHover, "the half hover is delivered");
+        t.Equal(1, hh.HalfHoverSlot, "with the slot index intact");
+        t.True(hh.HalfHoverTop, "and the TOP half named");
+
+        // Bottom half of slot 0 is the all-zero byte — still a valid, delivered record.
+        m = PresenceSerializer.Write(new PresenceState { HasHalfHover = true }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hhB), "slot0/bottom parses");
+        t.True(hhB.HasHalfHover && hhB.HalfHoverSlot == 0 && !hhB.HalfHoverTop,
+               "slot 0 / bottom half round-trips (the record's presence, not its value, is the flag)");
+
+        // No hover ⇒ no record, no tail, no block: byte-identical to the previous build.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "no half lit -> no record: byte-identical to a pre-record-14 sender");
+
+        // INVALID SLOT (a slot the two-recess board does not have): rejected, degrades to
+        // "record absent" — a glow on the wrong recess is worse than no glow.
+        byte[] badSlot = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 01 06"); // slot 2 | top
+        t.True(PresenceSerializer.TryRead(badSlot, badSlot.Length, out PresenceState hhBad),
+               "a half-hover record naming slot 2 still parses the packet");
+        t.True(!hhBad.HasHalfHover, "and the impossible slot is simply not delivered");
+
+        // An OLD reader steps over id 14 by its length (asserted as the unknown-id case) and a
+        // NEW reader steps over an unknown record ahead of it.
+        byte[] futureHalf = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02
+            63 04 DE AD BE EF// id 99, len 4 -- unknown
+            0E 01 04         // id 14, slot 0, top
+            ");
+        t.True(PresenceSerializer.TryRead(futureHalf, futureHalf.Length, out PresenceState futHh),
+               "a packet with an unknown record ahead of the half hover parses");
+        t.True(futHh.HasHalfHover && futHh.HalfHoverTop, "and the half hover behind it is read");
+
+        // -- 7m. PILE COUNTS (extension record 15) -----------------------------------------
+        // The numbers the sender's own three stack labels display ([discard][burnt][items]).
+        // On the wire because the receiver's model read is NOT timely (session logs: the
+        // discarding player's board read 2 while every observer's model still derived 0 for
+        // the rest of the turn); public info, no identity — three integers.
+        t.Case("7m. extras, pile-counts record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPileCounts = true, PileDiscardCount = 2, PileBurntCount = 1, PileItemsCount = 7,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            0F 03 02 01 07   // id 15 (pile counts), len 3: discard 2, burnt 1, items 7
+            "), ext, m, "the pile-counts record is [id 15][len 3][discard][burnt][items]");
+        t.Equal(16, m, "header 7 + count 1 + block 2 + tail 1 + 5 = 16 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState pc), "and it parses");
+        t.True(pc.HasPileCounts, "the counts are delivered");
+        t.Equal(2, pc.PileDiscardCount, "discard intact");
+        t.Equal(1, pc.PileBurntCount, "burnt intact");
+        t.Equal(7, pc.PileItemsCount, "items intact");
+
+        // ALL-ZERO COUNTS still ship (the board-UI presence contract): "present, all empty"
+        // must be distinguishable from "sender predates the field".
+        m = PresenceSerializer.Write(new PresenceState { HasPileCounts = true }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState pcZero), "all-zero counts parse");
+        t.True(pcZero.HasPileCounts, "and are DELIVERED as authoritative zeros, not as absence");
+
+        // No stacks displayed ⇒ no record: byte-identical to a pre-record-15 sender, whose
+        // receivers keep the legacy model-read counts.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 3 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 03"), ext, m,
+               "no displayed stacks -> no record: byte-identical to a pre-record-15 sender");
+
+        // A TRUNCATED record (claims 3 payload bytes, delivers 1): the tail is abandoned
+        // mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutCounts = Hex.Bytes("31 52 56 47 03 01 80 00 90 00 C8 01 0F 03 02");
+        t.True(PresenceSerializer.TryRead(cutCounts, cutCounts.Length, out PresenceState cutPc),
+               "a truncated pile-counts record still parses the packet");
+        t.True(!cutPc.HasPileCounts, "and the incomplete record is simply not delivered");
+        t.True(cutPc.HasMaskSize, "while the mask size ahead of the tail survives");
+
+        // -- 7n. TRACK HOVER (extension record 16) -----------------------------------------
+        // The initiative-track entry the sender hovers, by stable CActor.ID (the track's
+        // display order is per-client during the online selection phase, so an index would
+        // lift the wrong portrait); flags bit 0 = the entry's info popup is open.
+        t.Case("7n. extras, track-hover record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackHover = true, TrackHoverActorId = 0x01020304, TrackHoverPopup = true,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            10 05            // id 16 (track hover), len 5
+            01               // flags: popup open
+            04 03 02 01      // actor id LE
+            "), ext, m, "the track-hover record is [id 16][len 5][flags][actorId LE]");
+        t.Equal(18, m, "header 7 + count 1 + block 2 + tail 1 + 7 = 18 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState th), "and it parses");
+        t.True(th.HasTrackHover, "the track hover is delivered");
+        t.Equal(0x01020304, th.TrackHoverActorId, "with the stable actor id intact");
+        t.True(th.TrackHoverPopup, "and the popup-open flag set");
+
+        // No hover ⇒ no record: byte-identical to a pre-record-16 sender.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 2 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 02"), ext, m,
+               "no hover -> no record: byte-identical to a pre-record-16 sender");
+
+        // ACTOR ID 0 is "none" everywhere in this system and can never name an entry — the
+        // WRITER refuses to emit it and the READER refuses to deliver it (both directions,
+        // because neither side may trust the other).
+        m = PresenceSerializer.Write(new PresenceState { HasTrackHover = true }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "a zero actor id is never written — the packet stays the idle packet");
+        byte[] zeroActor = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 10 05 01 00 00 00 00");
+        t.True(PresenceSerializer.TryRead(zeroActor, zeroActor.Length, out PresenceState thZero),
+               "a hand-built zero-actor record still parses the packet");
+        t.True(!thZero.HasTrackHover, "and is simply not delivered");
+
+        // ID ORDER of the new tail region: records 10, 14, 15, 16 in that order — a reorder in
+        // Write shows up right here, and this is also the OLD-READER vector (to a pre-batch
+        // peer, ids 14/15/16 are unknown records it steps over by length).
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasSecondHeldCard = true, SecondHeldCardPose = Card(),
+            HasHalfHover = true, HalfHoverSlot = 0, HalfHoverTop = true,
+            HasPileCounts = true, PileDiscardCount = 1,
+            HasTrackHover = true, TrackHoverActorId = 0x11,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            04               // tail: 4 records, in id order
+            0A 14            // id 10 second held card
+            " + PoseCard + @"
+            0E 01 04         // id 14 half hover: slot 0, top
+            0F 03 01 00 00   // id 15 pile counts: 1/0/0
+            10 05 00 11 00 00 00 // id 16 track hover: no popup, actor 0x11
+            "), ext, m, "the batch's records ride the tail after record 10, in id order 14, 15, 16");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState combo), "and the combo parses");
+        t.True(combo.HasSecondHeldCard && combo.HasHalfHover && combo.HasPileCounts
+               && combo.HasTrackHover, "with all four records delivered");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:

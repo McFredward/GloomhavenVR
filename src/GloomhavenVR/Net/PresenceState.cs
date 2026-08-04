@@ -296,6 +296,63 @@ internal struct PresenceState
     /// payload: no hand byte, because the receiver renders the slab at this absolute pose and
     /// never parents it to a hand (see the record doc), and no identity, ever.</summary>
     public RigPose SecondHeldCardPose;
+
+    /// <summary>
+    /// True when this packet carries the sender's displayed PILE COUNTS (extension record
+    /// <see cref="NetProtocol.ExtIdPileCounts"/>) — the numbers their own three stack labels show.
+    /// Written on every packet while those stacks are displayed, so "present, all zeros" (empty
+    /// piles) is distinguishable from "sender predates the field" (absent ⇒ the receiver keeps the
+    /// legacy model-read counts). See the record doc for the session evidence that the model read
+    /// is not timely on the receiver.
+    /// </summary>
+    public bool HasPileCounts;
+
+    /// <summary>The sender's displayed DISCARD ("Abgeworfen") stack count (meaningful only when
+    /// <see cref="HasPileCounts"/>).</summary>
+    public byte PileDiscardCount;
+
+    /// <summary>The sender's displayed BURNT ("Verbrannt") stack count.</summary>
+    public byte PileBurntCount;
+
+    /// <summary>The sender's displayed ITEMS ("Gegenstände") stack count.</summary>
+    public byte PileItemsCount;
+
+    /// <summary>
+    /// True when this packet names the HALF the sender's laser/fingertip is hovering in their
+    /// ACTION-SELECTION layout (extension record <see cref="NetProtocol.ExtIdHalfHover"/>): which
+    /// board slot's docked round card, top or bottom half. Written ONLY while a half really is
+    /// lit, so an idle packet stays byte-identical; absence means "no half lit", which is what
+    /// pre-record peers render. A POSITION (slot + half), never a card identity.
+    /// </summary>
+    public bool HasHalfHover;
+
+    /// <summary>Board slot (0 = left/Slot1, 1 = right/Slot2) of the card whose half the sender is
+    /// hovering (meaningful only when <see cref="HasHalfHover"/>).</summary>
+    public byte HalfHoverSlot;
+
+    /// <summary>True when the hovered half is the TOP action, false = bottom (meaningful only when
+    /// <see cref="HasHalfHover"/>).</summary>
+    public bool HalfHoverTop;
+
+    /// <summary>
+    /// True when this packet names the INITIATIVE-TRACK entry the sender is hovering (extension
+    /// record <see cref="NetProtocol.ExtIdTrackHover"/>). Written ONLY while they hover one, so an
+    /// idle packet stays byte-identical; absence means "no hover", which is what pre-record peers
+    /// render. The entry is named by its stable <c>CActor.ID</c> — the same id space the held
+    /// figures use — because the track's DISPLAY order is per-client during the selection phase
+    /// (vanilla sorts own/foreign players differently), so a display index would lift the wrong
+    /// portrait on the other side.
+    /// </summary>
+    public bool HasTrackHover;
+
+    /// <summary>Stable id (<c>CActor.ID</c>) of the hovered initiative-track entry (meaningful
+    /// only when <see cref="HasTrackHover"/>; never 0 — 0 is "none" everywhere in this system).</summary>
+    public int TrackHoverActorId;
+
+    /// <summary>True when the sender's hover has the entry's info popup open (the enemy
+    /// round-action preview — public info; player entries have no popup in VR). Meaningful only
+    /// when <see cref="HasTrackHover"/>.</summary>
+    public bool TrackHoverPopup;
 }
 
 /// <summary>
@@ -340,7 +397,18 @@ internal struct PresenceState
 ///                        already public to peers is ever written; see NetProtocol.ExtIdBoardTooltip),
 ///                        10 SECOND HELD CARD (the shared 20-byte pose of the card in the sender's
 ///                        OTHER hand — pose only, no hand byte and no identity; written ONLY while
-///                        both hands hold a card, see NetProtocol.ExtIdSecondHeldCard)
+///                        both hands hold a card, see NetProtocol.ExtIdSecondHeldCard),
+///                        14 HALF HOVER (1 B: bits0..1 board slot, bit2 top half — the action half
+///                        the sender is hovering in their action-selection layout; only while lit,
+///                        see NetProtocol.ExtIdHalfHover),
+///                        15 PILE COUNTS ([discard][burnt][items] — the numbers the sender's own
+///                        stack labels display; sent on EVERY packet while those stacks are shown,
+///                        absence = pre-record peer ⇒ legacy model-read counts, see
+///                        NetProtocol.ExtIdPileCounts),
+///                        16 TRACK HOVER ([flags][int32 actorId LE] — the initiative-track entry
+///                        the sender hovers, by stable CActor.ID (display order is per-client);
+///                        flags bit0 = info popup open; only while hovering, see
+///                        NetProtocol.ExtIdTrackHover)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -374,11 +442,12 @@ internal static class PresenceSerializer
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
     /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
     /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
-    /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20) = 433,
-    /// rounded up to 456 for headroom.
+    /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
+    /// + 3 (half hover: 2 + 1) + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5) = 448,
+    /// rounded up to 472 for headroom.
     /// Local buffer bound only — nothing on the wire depends on it, and every variable-length
     /// record still bounds-checks against the real buffer before writing.</summary>
-    public const int MaxSize = 456;
+    public const int MaxSize = 472;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -409,6 +478,10 @@ internal static class PresenceSerializer
         bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
+                          || state.HasPileCounts || state.HasHalfHover
+                          // A zero actor id writes no record (0 = "none" everywhere), so it must
+                          // not open the tail either — same rule as the empty pick-banner line.
+                          || (state.HasTrackHover && state.TrackHoverActorId != 0)
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
@@ -613,6 +686,52 @@ internal static class PresenceSerializer
                     buffer[i++] = NetProtocol.ExtIdSecondHeldCard;
                     buffer[i++] = (byte)NetProtocol.SecondHeldCardRecordBytes;
                     AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldCardPose);
+                    records++;
+                }
+                // (ids 11..13 belong to a parallel batch — when they ship, their writes slot in
+                // here, keeping the tail's id order.)
+                if (state.HasHalfHover && i + 3 <= buffer.Length)
+                {
+                    // HALF HOVER (14): one masked byte — board slot (bits 0..1) + top-half bit. A
+                    // slot POSITION and a half, never a card identity. Written only while a half
+                    // is really lit, so an idle packet stays byte-identical to the previous
+                    // build's. Appended in id order behind every record that already existed.
+                    byte half = (byte)(state.HalfHoverSlot & NetProtocol.HalfHoverSlotMask);
+                    if (state.HalfHoverTop)
+                        half |= NetProtocol.HalfHoverTopBit;
+                    buffer[i++] = NetProtocol.ExtIdHalfHover;
+                    buffer[i++] = 1;
+                    buffer[i++] = (byte)(half & NetProtocol.HalfHoverDefinedMask);
+                    records++;
+                }
+                if (state.HasPileCounts
+                    && i + 2 + NetProtocol.PileCountsRecordBytes <= buffer.Length)
+                {
+                    // PILE COUNTS (15): the numbers the sender's own stack labels display. Written
+                    // on every packet while those stacks are shown (the board-UI presence
+                    // contract: "present, all zeros" must be distinguishable from "pre-record
+                    // sender", whose receiver keeps the legacy model-read counts).
+                    buffer[i++] = NetProtocol.ExtIdPileCounts;
+                    buffer[i++] = (byte)NetProtocol.PileCountsRecordBytes;
+                    buffer[i++] = state.PileDiscardCount;
+                    buffer[i++] = state.PileBurntCount;
+                    buffer[i++] = state.PileItemsCount;
+                    records++;
+                }
+                if (state.HasTrackHover && state.TrackHoverActorId != 0
+                    && i + 2 + NetProtocol.TrackHoverRecordBytes <= buffer.Length)
+                {
+                    // TRACK HOVER (16): [flags][int32 actorId LE]. The hovered initiative-track
+                    // entry by stable CActor.ID (display order is per-client — see the record
+                    // doc); the flags byte is masked to the defined bits. Written only while an
+                    // entry is hovered; actor id 0 is "none" everywhere and is never emitted.
+                    byte thFlags = 0;
+                    if (state.TrackHoverPopup)
+                        thFlags |= NetProtocol.TrackHoverPopupBit;
+                    buffer[i++] = NetProtocol.ExtIdTrackHover;
+                    buffer[i++] = (byte)NetProtocol.TrackHoverRecordBytes;
+                    buffer[i++] = (byte)(thFlags & NetProtocol.TrackHoverDefinedMask);
+                    AvatarSerializer.WriteI32(buffer, ref i, state.TrackHoverActorId);
                     records++;
                 }
                 buffer[countAt] = records;
@@ -1019,6 +1138,47 @@ internal static class PresenceSerializer
                         {
                             state.HasBoardTooltip = true;
                             state.BoardTooltipText = tip;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdHalfHover && len >= 1)
+                    {
+                        // HALF HOVER: one masked byte. The slot is validated against the board's
+                        // structural slot count — a slot the board does not have (a corrupt byte,
+                        // or a future board shape this build predates) degrades to "record
+                        // absent" = no half lit, never to a glow on the wrong recess.
+                        byte half = (byte)(buffer[i] & NetProtocol.HalfHoverDefinedMask);
+                        int slot = half & NetProtocol.HalfHoverSlotMask;
+                        if (slot < NetProtocol.BoardUiSlotCount)
+                        {
+                            state.HasHalfHover = true;
+                            state.HalfHoverSlot = (byte)slot;
+                            state.HalfHoverTop = (half & NetProtocol.HalfHoverTopBit) != 0;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdPileCounts
+                             && len >= NetProtocol.PileCountsRecordBytes)
+                    {
+                        // PILE COUNTS: three plain bytes — nothing further to validate (any value
+                        // 0..255 is a drawable count; the renderers clamp their own display).
+                        state.HasPileCounts = true;
+                        state.PileDiscardCount = buffer[i];
+                        state.PileBurntCount = buffer[i + 1];
+                        state.PileItemsCount = buffer[i + 2];
+                    }
+                    else if (id == NetProtocol.ExtIdTrackHover
+                             && len >= NetProtocol.TrackHoverRecordBytes)
+                    {
+                        // TRACK HOVER: [flags][int32 actorId LE]. Actor id 0 is "none" everywhere
+                        // in this system, so it can never name an entry — a zero id degrades to
+                        // "record absent" = no hover, exactly what pre-record peers render.
+                        byte thFlags = (byte)(buffer[i] & NetProtocol.TrackHoverDefinedMask);
+                        int j = i + 1;
+                        int hoverActor = AvatarSerializer.ReadI32(buffer, ref j);
+                        if (hoverActor != 0)
+                        {
+                            state.HasTrackHover = true;
+                            state.TrackHoverActorId = hoverActor;
+                            state.TrackHoverPopup = (thFlags & NetProtocol.TrackHoverPopupBit) != 0;
                         }
                     }
                     else if (id == NetProtocol.ExtIdSecondHeldCard
