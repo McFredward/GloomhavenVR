@@ -60,3 +60,18 @@ internal interface IGrabbableHandFilter
     /// <summary>Return false to make this target invisible to <paramref name="hand"/>.</summary>
     bool AllowsHand(VRHand hand);
 }
+
+/// <summary>
+/// Optional MARKER companion to <see cref="IGrabbable"/> (additive, hardware MP test 2026-08,
+/// user requirement (b): "Figuren sollen — wie die Karten — nur mit dem Trigger aufgenommen
+/// werden können"). A target carrying this marker is picked up by the TRIGGER edge ONLY:
+/// <see cref="ProximityGrabber"/> withholds its universal "a closing fist (grip) always grabs
+/// the highlighted candidate" fallback for it, so a grip squeeze near the target — the most
+/// common accidental gesture over a crowded board — never starts a hold. Board figures
+/// (<c>Board.FigureGrab.FigureGrabbable</c>) carry it; cards deliberately do NOT (the grip
+/// fallback exists for them — the un-grabbable placed pick card of 2026-08-04). Meaningless on
+/// a <see cref="IGrabbable.GrabWithGrip"/> target (that branch never consults it).
+/// </summary>
+internal interface ITriggerOnlyGrabbable
+{
+}

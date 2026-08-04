@@ -96,13 +96,33 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
     {
         // Feature gate, phase gate, scenario gate — outside the selection phase (or with no live
         // scenario) hide every entry glow and stop.
+        //
+        // TEARDOWN GATE (hardware MP test 2026-08: 3370 identical NREs on the peer machine,
+        // starting right after "Hands torn down"). When a scenario ends MID-SELECTION-PHASE
+        // (host quits to the map / scenario aborts), the game never advances the phase:
+        // PhaseManager's static s_CurrentPhase stays SelectAbilityCardsOrLongRest and the stale
+        // ScenarioManager.Scenario object keeps its PlayerActors list — so both gates above still
+        // PASS while the scene under them is being unloaded. IsCardSelectionReady then throws on
+        // its very first statement, `CardsHandManager.Instance.GetHand(...)`
+        // (CPlayerActorExtensions.cs:7 — the Instance singleton dies with the scenario scene),
+        // once per LateUpdate, forever, until the next scenario resets the phase. Two extra gates
+        // make the tick DORMANT (glow cleared, pending dropped) the moment the scenario is no
+        // longer truly live:
+        //  * Net.RevealGate.InScenario — the save's authoritative CurrentGameState == Scenario
+        //    (goes false the instant the teardown flips the game state, see the peer log's
+        //    "gameState=None" placement line between the last good tick and the first NRE), and
+        //  * CardsHandManager.Instance != null — the exact object IsCardSelectionReady derefs,
+        //    as a belt-and-braces floor for any frame gap around the state flip.
         if (_enabled is { Value: false }
             || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest
+            || !Net.RevealGate.InScenario
+            || CardsHandManager.Instance == null
             || ScenarioManager.Scenario?.PlayerActors == null)
         {
             InitiativeSelectionGlow.ClearAll();
             _pending.Clear();
             _lastLoggedSignature = string.Empty;
+            _lastLoggedHash = 0; // stale-signature reset: the next live phase re-logs its first split
             return;
         }
 

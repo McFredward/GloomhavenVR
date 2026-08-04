@@ -889,11 +889,23 @@ internal sealed partial class PlayTray
             {
                 if (follow >= WorldUI.ButtonTuning.PressFireFraction)
                 {
+                    // GRIP CHORD (hardware MP test 2026-08, requirement (a): "Das physische
+                    // Drücken der Tasten … darf nur möglich sein, während der Grip-Knopf
+                    // gehalten wird"): a fingertip press on a BOARD button commits only while
+                    // the SAME hand's grip is held — the identical chord the fingertip-on-tile
+                    // ping already requires, so poking anything on the board is one consistent
+                    // gesture. The cap still follows the finger (the button visibly reacts),
+                    // it just cannot FIRE from an accidental brush-through; laser presses
+                    // arrive via Press(hand, "laser"/"click") and stay grip-free.
+                    if (!_hoverHand.GripPressed)
+                    {
+                        LogGripGate(_hoverHand);
+                    }
                     // DEBOUNCE (user): fire only when re-armed (cap fully retracted past the
                     // hysteresis since the last press) AND the shared cooldown has elapsed —
                     // a retract-then-push or a hover flicker inside the same poke can no longer
                     // machine-gun a second press. Press() re-checks the cooldown and stamps it.
-                    if (_depthArmed && Time.unscaledTime >= _nextPressTime)
+                    else if (_depthArmed && Time.unscaledTime >= _nextPressTime)
                     {
                         _depthArmed = false;
                         Press(_hoverHand, "poke-depth");
@@ -956,6 +968,13 @@ internal sealed partial class PlayTray
         {
             if (DwellSeconds > 0f && _enabledState)
             {
+                // GRIP CHORD (requirement (a), same gate as the depth-fire in Update): a dwell
+                // is still a PHYSICAL fingertip press, so it too only starts under a held grip.
+                if (!hand.GripPressed)
+                {
+                    LogGripGate(hand);
+                    return;
+                }
                 BeginDwell(hand);
                 return;
             }
@@ -1093,6 +1112,23 @@ internal sealed partial class PlayTray
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Cards", $"Board: {name} pressed (source={source}, {hand.Side}).");
             _onClick?.Invoke();
+        }
+
+        /// <summary>Throttle clock for the grip-gate refusal line (once per second per button —
+        /// the finger can sit at full travel for many frames while the gate holds it).</summary>
+        private float _nextGripGateLogAt;
+
+        /// <summary>Requirement (a) diagnostic: the fingertip reached the fire depth but the same
+        /// hand's GRIP is not held, so the press is withheld. One throttled Info line per attempt
+        /// burst — the next hardware log then explains a "button did not react" report itself.</summary>
+        private void LogGripGate(VRHand hand)
+        {
+            if (Time.unscaledTime < _nextGripGateLogAt)
+                return;
+            _nextGripGateLogAt = Time.unscaledTime + 1f;
+            VRLog.Info("Cards", $"Board: {name} poke WITHHELD ({hand.Side}) — physical board-button " +
+                                "presses require the same hand's GRIP held (accidental-press guard, " +
+                                "same chord as the fingertip tile ping); laser clicks are unaffected.");
         }
 
         public override void OnPokeEnter(VRHand hand)

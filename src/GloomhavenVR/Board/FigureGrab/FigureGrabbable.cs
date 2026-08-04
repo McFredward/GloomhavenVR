@@ -27,13 +27,21 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// pluck the card fan uses). Release (trigger-up) restores the real transform; the game
 /// snaps the mini back to its cell on the next frame.
 ///
+/// TRIGGER-ONLY (hardware MP test 2026-08, requirement (b)): the marker
+/// <see cref="ITriggerOnlyGrabbable"/> additionally withholds the ProximityGrabber's
+/// "closing fist (grip) grabs the highlighted candidate" fallback for figures — a fist
+/// over a crowded board is the canonical accidental gesture (and the grip half of the
+/// fingertip-ping chord), so a figure hold can ONLY start on the trigger edge and ends
+/// on trigger-up, exactly the card semantics. The pre-grab hover highlight
+/// (<see cref="OnGrabHighlight"/>) is untouched.
+///
 /// The held pose (offset / rotation / scale) is LIVE-TUNABLE: every currently-held
 /// grabbable registers in <see cref="Live"/> and re-applies its pose from
 /// <see cref="FigureGrabConfig"/> whenever a tunable changes (<see cref="ReapplyAll"/>,
 /// wired to each entry's SettingChanged in <see cref="FigureGrabConfig.Bind"/>), so the
 /// in-headset debug-menu steppers nudge the mini in your hand in real time.
 /// </summary>
-internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHandFilter
+internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable
 {
     /// <summary>Every grabbable currently held in a hand — the live-tune broadcast target.</summary>
     private static readonly HashSet<FigureGrabbable> Live = new();
