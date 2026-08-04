@@ -33,7 +33,7 @@ namespace GloomhavenVR;
 internal static partial class Defaults
 {
     // ---- Core/MixedReality.cs ------------------------------------------------------
-    internal const bool MixedReality_Enabled = false;                     // => [MixedReality] Enabled
+    internal const bool MixedReality_Enabled = true;                      // => [MixedReality] Enabled
     internal static readonly Color KeyColor = new Color(0f, 1f, 0f, 1f);  // => [MixedReality] KeyColor
     internal const bool HideSkyMeshes = true;                             // => [MixedReality] HideSkyMeshes
 
