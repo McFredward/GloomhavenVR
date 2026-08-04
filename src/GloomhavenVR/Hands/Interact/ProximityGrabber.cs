@@ -156,7 +156,24 @@ internal sealed class ProximityGrabber
             // laser-pluck and a proximity highlight coincide, whichever grabs first sets
             // Held and the other early-outs on Held != null — no double grab.
             if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
+            {
                 BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
+            }
+            // GRIP is ALWAYS a valid proximity-grab edge, even in Trigger mode (user report
+            // 2026-08-04, the un-grabbable placed pick card). ROOT CAUSE: the pick take-back
+            // guard of b7bfb38 told the player to "grip it to swap" — but in Trigger mode a
+            // grip pull on a highlighted card fell through HERE and did nothing, so the
+            // promised deliberate grab route never existed. The grip is never a UI/laser
+            // click (no HasFreshUiHit arbitration needed), the world drag lives on the
+            // stick click (WorldGrab), grip-only grabbables (tray bar, panels) took the
+            // GrabWithGrip branch above, and BoardPick's grip-gated hex touch only runs in
+            // BoardTargeting where this interactor is policy-disabled — the edge was simply
+            // dropped. A highlighted (visibly lifted) card now honours a closing fist from
+            // EITHER hand regardless of the configured grab button.
+            else if (_hand.GripDown)
+            {
+                BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
+            }
         }
         else if (_hand.GripDown)
         {

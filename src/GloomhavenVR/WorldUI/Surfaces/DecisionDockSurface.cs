@@ -156,6 +156,14 @@ internal sealed class DecisionDockSurface : WorldSurface
     private UIWindow? _suppressedWindow;
     private CanvasGroup? _suppressedGroup;
     private readonly List<Canvas> _disabledCanvases = new(2);
+
+    /// <summary>
+    /// The pick confirm dialog's CANCEL option ("Waehle eine andere Karte" /
+    /// GUI_CHOOSE_OTHER_CARD) while WE hid it from the docked row — see
+    /// <see cref="ApplyPickCancelSuppression"/>. Null while nothing is hidden.
+    /// </summary>
+    private InputButton? _hiddenCancelButton;
+    private bool _cancelSuppressionLogged;
     private static readonly List<Canvas> CanvasScratch = new(8);
 
     // ---- docked-row adjustments (user #5 antique tint; user #14 placement-driven gap) ---
@@ -306,6 +314,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             {
                 UnregisterDeliberateCanvas();
                 RestoreRowAdjustments();
+                RestorePickCancelSuppression();
                 RestoreSuppression();
                 RowBottomUpMeters = null; // stale row gone; the next prompt's Place re-publishes
                 if (Panel != null && ReleaseCurrentPanel())
@@ -355,6 +364,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                 _lastLoggedGapPx = float.NaN;
             }
             ApplySuppression(_activeWindow!); // non-null: WantConverted required IsOpen
+            ApplyPickCancelSuppression();     // user ruling 2026-08-04: no "choose another card" button on the dock
             // The one surface that must accept input even under the game's UI-lock
             // raycaster mirror — the ModalFallback floating-modal exemption.
             if (Panel.HostRaycaster != null && !Panel.HostRaycaster.enabled)
@@ -368,6 +378,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             {
                 UnregisterDeliberateCanvas();
                 RestoreRowAdjustments();
+                RestorePickCancelSuppression();
                 RestoreSuppression();
                 VRLog.Info("WorldUI", "DECISION DOCK: widget row released — restored to its 2D home " +
                                       $"(open={open}), suppression lifted, row style/layout restored.");
@@ -952,6 +963,77 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
+    /// USER RULING 2026-08-04 ("daher kann diese Option als Button komplett entfernt
+    /// werden (und der verbleibende Button mittig angeordnet werden)"): while the
+    /// docked prompt is the burn/lose PICK CONFIRM DialogPopup, its CANCEL option
+    /// ("Waehle eine andere Karte" / GUI_CHOOSE_OTHER_CARD) is REMOVED from the docked
+    /// row — physically grabbing a laid-down pick card drives that exact option through
+    /// the game's own seam (CardsDriver.MaybeReopenPickSelection →
+    /// CardsGameApi.CancelPickConfirmDialog → DialogPopup.Cancel → this very button's
+    /// onClick), so the button and the grab were two affordances for one action, and the
+    /// button's presence next to the commit invited the wrong reach.
+    ///
+    /// Identified STRUCTURALLY (never by screen text): <see
+    /// cref="CardsGameApi.PickConfirmCancelButton"/> returns
+    /// <c>optionButtons[cancelOption]</c> of the live <c>UIManager.dialogPopup</c> only
+    /// while the current hand is in a modal pick mode — any other DialogPopup use
+    /// (scenario choices etc.) returns null and keeps its full option row.
+    ///
+    /// CENTERING rides the existing machinery, so the user's tuned decision offsets/gap
+    /// are untouched: the option holder's HorizontalLayoutGroup re-lays out the
+    /// remaining button(s), the content fit (CanvasConversion.TickFit) re-measures the
+    /// VISIBLE union and re-centers it in the host, and <see cref="Place"/> measures the
+    /// widget block from ACTIVE widgets only (<see cref="ResolvePromptWidgets"/> skips
+    /// inactive buttons) against the same DecisionGap placement anchor as before.
+    ///
+    /// Hiding the GameObject is safe (see the helper's doc): DialogPopup.Cancel invokes
+    /// the onClick regardless of active state, and HelperTools.NormalizePool re-activates
+    /// pooled option buttons on every Show. Re-asserted every docked tick (level-
+    /// triggered, the house pattern); restored on undock/prompt change/shutdown.
+    /// </summary>
+    private void ApplyPickCancelSuppression()
+    {
+        if (_active == null || _active.Name != "DialogPopup")
+        {
+            RestorePickCancelSuppression();
+            return;
+        }
+        InputButton? cancel = CardsGameApi.PickConfirmCancelButton();
+        if (cancel == null)
+        {
+            RestorePickCancelSuppression(); // not the pick confirm — full option row stays
+            return;
+        }
+        if (_hiddenCancelButton != null && !ReferenceEquals(cancel, _hiddenCancelButton))
+            RestorePickCancelSuppression(); // pooled button identity moved — never strand a hidden one
+        _hiddenCancelButton = cancel;
+        if (cancel.gameObject.activeSelf)
+        {
+            cancel.gameObject.SetActive(false);
+            if (!_cancelSuppressionLogged)
+            {
+                _cancelSuppressionLogged = true;
+                VRLog.Info("WorldUI", "DECISION DOCK: pick confirm CANCEL option ('choose another card', " +
+                                      "optionButtons[cancelOption]) hidden from the docked row — grabbing the " +
+                                      "laid-down card IS that action (reopen seam); the remaining commit " +
+                                      "option re-centers via the content fit, DecisionGap placement unchanged.");
+            }
+        }
+    }
+
+    /// <summary>Undo <see cref="ApplyPickCancelSuppression"/>: reactivate the hidden cancel
+    /// option button (idempotent; the game's own button pool would also re-activate it on the
+    /// next DialogPopup.Show). The one-shot log latch re-arms for the next pick confirm.</summary>
+    private void RestorePickCancelSuppression()
+    {
+        InputButton? hidden = _hiddenCancelButton;
+        _hiddenCancelButton = null;
+        _cancelSuppressionLogged = false;
+        if (hidden != null && !hidden.gameObject.activeSelf)
+            hidden.gameObject.SetActive(true);
+    }
+
+    /// <summary>
     /// Undo (undock/shutdown): re-enable every canvas WE disabled; give the
     /// CanvasGroup back only while the window is still open (a closed window's
     /// group belongs to the game's own hide fade — the HandSuppression.Restore rule).
@@ -1004,6 +1086,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         if (hadPanel)
         {
             RestoreRowAdjustments();
+            RestorePickCancelSuppression();
             RestoreSuppression();
         }
         _active = null;

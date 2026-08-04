@@ -569,7 +569,16 @@ internal sealed partial class CardsDriver
             // alone take, a card in the discard/burnt arc floating above the board. Exempt exactly
             // that zone; every other card keeps the veto. Re-asserted every rebuild, so a recycled
             // widget can never carry the exemption into a hand-fan role.
-            card.AllowsGateHand = inBrowse;
+            //
+            // BOTH HANDS on the placed PICK cards too (user report 2026-08-04: "Es soll mit beiden
+            // Haenden aufnehmbar sein ... es reagiert nur bei der rechten Hand"). ROOT CAUSE of the
+            // right-hand-only proximity highlight: a burn/lose candidate lying in a slot recess is
+            // a FIELD card, and field cards were not exempted here, so AllowsHand refused the gate
+            // (non-dominant) hand outright — no highlight, no grab, ever, from that hand. The veto's
+            // one reason (the ability fan hangs off the gate hand's own palm) does not apply to a
+            // card docked on the board, exactly like the browse arc; taking a laid-down pick card
+            // back must work with EITHER hand at any time.
+            card.AllowsGateHand = inBrowse || inField;
             // Fan strips only apply while the card is in a fan that TILES its colliders. That is
             // now the browse arc as well as the hand fan (PileBrowser.Relayout strips exactly like
             // CardFan.Relayout — the sweep-skips-cards fix), so a browse card must keep its strip
