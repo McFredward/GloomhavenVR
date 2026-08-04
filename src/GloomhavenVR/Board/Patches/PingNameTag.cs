@@ -6,6 +6,7 @@ using GloomhavenVR.Rig;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.Board.Patches;
 
@@ -33,10 +34,11 @@ namespace GloomhavenVR.Board.Patches;
 /// other ping on the same element (<c>HidePing(player, element)</c>). Lifetime mirrors the
 /// manager's own <c>lifetimePing</c> (2 s default), with a short fade tail.
 ///
-/// COSMETIC ONLY: renders a mod-owned world-space TMP label; never touches game state, no
-/// wire bytes of ours (the name arrives via the game's own PingHex payload/registry —
-/// second-source-of-truth rule, INVARIANTS-Net-Rig.md). Only active while VR runs; the flat
-/// tooltip keeps doing its job on desktop. Degrades to a silent no-op if reflection fails.
+/// COSMETIC ONLY: renders a mod-owned world-space copy of the game's own tooltip; never
+/// touches game state, no wire bytes of ours (the name arrives via the game's own PingHex
+/// payload/registry — second-source-of-truth rule, INVARIANTS-Net-Rig.md). Only active while
+/// VR runs; the flat tooltip keeps doing its job on desktop. Degrades to a silent no-op if
+/// reflection fails.
 /// </summary>
 [HarmonyPatch]
 internal static class PingNameTag_Patch
@@ -69,21 +71,62 @@ internal static class PingNameTag_Patch
 }
 
 /// <summary>
-/// The world-space name label itself: an unlit-style TMP line floating above the pinged hex,
-/// billboarded to the local head every frame (same convention as <see cref="Net.OwnerTag"/>:
-/// TMP reads from −Z, so aim +Z away from the head). Self-expires after the manager's ping
-/// lifetime with an alpha fade. Sizes are in WORLD units relative to the game's hex tile
-/// (~1.72 world units across), so the tag reads like a small caption over the tile at any
-/// rig scale.
+/// The world-space name tag itself, floating above the pinged hex and billboarded to the
+/// local head every frame.
+///
+/// ORIGINAL-DESIGN REBUILD (user request 2026-08: "Ich moechte, dass das Original-Design vom
+/// Spiel genutzt wird beim Namenstag"): the tag used to be a bare mod-drawn TMP line, which
+/// looked nothing like the game's ping tooltip. It is now a CLONE of the game's own tooltip
+/// PREFAB — <c>PingManager.pingTooltipPrefab</c> (publicized [SerializeField],
+/// PingManager.cs:29-30) — parented under a mod-owned WORLD-SPACE canvas at the marker, so
+/// the background sprite, font, material, colors, layout AND the platform-icon TMP sprite
+/// come from the game's own assets, pixel-identical by construction. Route chosen: CLONE
+/// (over pixel-for-pixel rebuild) per the <see cref="Net.RemoteWidgetMirror"/> precedent —
+/// its Neutralize pipeline (strip every non-presentation component while the clone is under
+/// an INACTIVE root, so no game script ever reaches Awake) is reused here in miniature, with
+/// one deliberate difference: layout components (LayoutGroup / ContentSizeFitter /
+/// LayoutElement) are KEPT, because nothing puppets this clone's rects — the game's own
+/// layout must size the backdrop to the name.
+///
+/// The prefab is cloned PRISTINE (authored serialized state) rather than duplicating the
+/// LIVE screen-space instance: the live tooltip is cloned mid-show-animation (GUIAnimator
+/// runtime state does not survive Instantiate — non-serialized fields reset), so a live copy
+/// can freeze at alpha/scale 0; the prefab's authored state is the fully-visible design.
+/// The TEXT however is read from the live instance the game just configured
+/// (<see cref="FindVanillaTooltipText"/> matches <c>UIPingTooltip.m_ObjectToTrack</c> to the
+/// pinged element), so the string — platform icon sprite tag + masked username, composed by
+/// PingManager.cs:81-82 — is the exact one the flat game shows, with a reflection-free
+/// fallback to the mod-resolved name.
+///
+/// FALLBACK: if the prefab is missing, the clone comes out degenerate (e.g. a game update
+/// re-anchors it stretch-style so it collapses against our zero-size frame) or anything
+/// throws, the old TMP label is built instead — the tag NEVER silently disappears.
+/// Self-expires after the manager's ping lifetime with an alpha fade (CanvasGroup on the
+/// clone; TMP color on the fallback). Billboard convention as before (<see cref="Net.OwnerTag"/>:
+/// text reads from -Z, so aim +Z away from the head).
 /// </summary>
 internal sealed class PingNameTag : MonoBehaviour
 {
-    // World-unit metrics (game tile ≈ 1.72 world units across).
+    // World-unit metrics (game tile ~= 1.72 world units across).
     private const float Rise = 2.4f;        // label height above the hex center
-    private const float Width = 4.6f;       // text box width (~2.7 tiles, fits long names)
-    private const float Height = 0.85f;     // text box height (TmpFit caps line fill)
     private const float FadeTail = 0.35f;   // alpha fade-out at end of life (seconds)
     private const float DefaultLifetime = 2f; // PingManager.lifetimePing fallback
+
+    /// <summary>Target world height of the cloned tooltip (backdrop included) — reads like a
+    /// small caption over the ~1.72-unit hex, matching the old tag's presence.</summary>
+    private const float TooltipWorldHeight = 0.9f;
+
+    /// <summary>Width clamp (world units) so an extreme name cannot span the diorama — the old
+    /// tag's text-box width, kept as the ceiling.</summary>
+    private const float TooltipMaxWorldWidth = 4.6f;
+
+    /// <summary>Below this measured pixel size the clone is treated as degenerate (collapsed
+    /// stretch anchors / empty prefab) and the fallback label is used instead.</summary>
+    private const float MinPrefabPixels = 4f;
+
+    // Fallback-label metrics (the pre-clone design, kept as the degrade path).
+    private const float FallbackWidth = 4.6f;
+    private const float FallbackHeight = 0.85f;
 
     /// <summary>Live tags, for the vanilla one-per-(element,player) / replacement rules.</summary>
     private static readonly List<PingNameTag> Live = new();
@@ -99,7 +142,8 @@ internal sealed class PingNameTag : MonoBehaviour
     private int _elementId;
     private int _playerKey;
     private float _dieAt;                    // unscaled time
-    private TextMeshPro? _label;
+    private CanvasGroup? _group;             // clone route: fade carrier
+    private TextMeshPro? _label;             // fallback route: mod-drawn TMP line
     private Color _baseColor;
     private Action? _tickCached;             // [Optimize] CacheTickDelegates — see BoardPing.Update
 
@@ -123,7 +167,10 @@ internal sealed class PingNameTag : MonoBehaviour
             name = LocalUserName();
         if (string.IsNullOrEmpty(name))
             name = playerKey != 0 ? $"Player {playerKey}" : null; // same fallback OwnerTag ships
-        if (name == null)
+
+        // The exact string the game's own tooltip shows for THIS ping (platform icon + name).
+        string? vanillaText = FindVanillaTooltipText(manager, element);
+        if (vanillaText == null && name == null)
             return; // nothing presentable — cosmetic feature, skip silently
 
         int elementId = element.GetInstanceID();
@@ -169,11 +216,238 @@ internal sealed class PingNameTag : MonoBehaviour
         tag._elementId = elementId;
         tag._playerKey = playerKey;
         tag._dieAt = Time.unscaledTime + lifetime;
-        tag.Build(name!);
+        tag.Build(manager, vanillaText, name);
         Live.Add(tag);
     }
 
-    private void Build(string name)
+    /// <summary>Clone route first, mod label second (see the class remarks for why either).</summary>
+    private void Build(PingManager manager, string? vanillaText, string? fallbackName)
+    {
+        if (!TryBuildVanillaClone(manager, vanillaText ?? fallbackName))
+        {
+            // Prefer the PLAIN name here: a vanilla string carries a <sprite name="..."> tag
+            // that only resolves against the game TMP component's sprite asset — on the bare
+            // mod label it would render as a missing-glyph box.
+            BuildFallbackLabel(fallbackName ?? vanillaText ?? "?");
+        }
+        VRLayers.Apply(gameObject);
+    }
+
+    /// <summary>
+    /// The game-design route: world-space canvas on this GameObject, pristine clone of
+    /// <c>PingManager.pingTooltipPrefab</c> under it, neutralized to pure presentation +
+    /// layout, text injected, then measured and scaled to <see cref="TooltipWorldHeight"/>.
+    /// Built under the INACTIVE root so no cloned game script ever reaches Awake
+    /// (RemoteWidgetMirror/RemoteCardArt's proven ordering) — which also guarantees
+    /// DestroyImmediate below never triggers a game OnDestroy.
+    /// </summary>
+    private bool TryBuildVanillaClone(PingManager manager, string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
+
+        UIPingTooltip? prefab;
+        try
+        {
+            prefab = manager.pingTooltipPrefab; // publicized [SerializeField], PingManager.cs:29-30
+        }
+        catch
+        {
+            prefab = null;
+        }
+        if (prefab == null)
+        {
+            WarnCloneUnavailableOnce("PingManager.pingTooltipPrefab is null/renamed");
+            return false;
+        }
+
+        gameObject.SetActive(false);
+        try
+        {
+            var canvas = gameObject.AddComponent<Canvas>(); // auto-upgrades our Transform to RectTransform
+            canvas.renderMode = RenderMode.WorldSpace;
+            Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+            if (head != null)
+                canvas.worldCamera = head;
+            var rootRect = (RectTransform)transform;
+            rootRect.sizeDelta = Vector2.zero; // the clone is centered, never stretch-resolved
+
+            GameObject clone = Instantiate(prefab.gameObject, transform, false);
+            clone.name = "VanillaPingTooltipClone";
+
+            // Grab the authored text target BEFORE the component carrying the reference dies.
+            UIPingTooltip? ui = clone.GetComponent<UIPingTooltip>();
+            TextMeshProUGUI? label = ui != null ? ui.descriptionText : null;
+            if (label == null)
+            {
+                WarnCloneUnavailableOnce("UIPingTooltip.descriptionText not resolvable on the clone");
+                AbortClone(clone, canvas);
+                return false;
+            }
+
+            Neutralize(clone);
+
+            var cloneRect = clone.transform as RectTransform;
+            if (cloneRect == null || label == null)
+            {
+                WarnCloneUnavailableOnce("clone root is not a RectTransform / text died in Neutralize");
+                AbortClone(clone, canvas);
+                return false;
+            }
+
+            // Center on the marker regardless of how the prefab is anchored on its flat canvas.
+            cloneRect.anchorMin = cloneRect.anchorMax = cloneRect.pivot = new Vector2(0.5f, 0.5f);
+            cloneRect.anchoredPosition = Vector2.zero;
+            cloneRect.localRotation = Quaternion.identity;
+            cloneRect.localScale = Vector3.one;
+
+            label.text = text;
+            clone.SetActive(true); // pool pattern: the prefab may be authored inactive (GetPingTooltip → Show)
+            gameObject.SetActive(true);
+
+            // The game's own layout sizes the backdrop to the name — force it now so the
+            // measurement below sees final geometry (cold-open lesson from CanvasConversion).
+            LayoutRebuilder.ForceRebuildLayoutImmediate(cloneRect);
+            Vector2 sizePx = cloneRect.rect.size;
+            if (sizePx.x < MinPrefabPixels || sizePx.y < MinPrefabPixels)
+            {
+                WarnCloneUnavailableOnce($"clone measures degenerate ({sizePx.x:F0}x{sizePx.y:F0} px)");
+                AbortClone(clone, canvas);
+                return false;
+            }
+
+            float scale = Mathf.Min(TooltipWorldHeight / sizePx.y, TooltipMaxWorldWidth / sizePx.x);
+            transform.localScale = new Vector3(scale, scale, scale);
+
+            _group = clone.GetComponent<CanvasGroup>(); // Neutralize guarantees one at the root
+            VRLog.Debug("Board", $"[Ping] name tag: game tooltip clone ({sizePx.x:F0}x{sizePx.y:F0} px, " +
+                                 $"{scale * 1000f:F2} mm/px) at the marker.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("Board", $"[Ping] vanilla tooltip clone failed — mod label fallback: {e.Message}");
+            // Tear down whatever half-built children exist; the fallback label rebuilds on the root.
+            for (int i = transform.childCount - 1; i >= 0; i--)
+                DestroyImmediate(transform.GetChild(i).gameObject);
+            Canvas? c = GetComponent<Canvas>();
+            if (c != null)
+                DestroyImmediate(c);
+            _group = null;
+            return false;
+        }
+        finally
+        {
+            gameObject.SetActive(true); // never leave the tag parked inactive (Update = lifetime)
+        }
+    }
+
+    /// <summary>Failure unwinding for the clone route: drop the clone and the canvas so the
+    /// fallback TMP label builds on a plain (Rect)Transform root.</summary>
+    private void AbortClone(GameObject clone, Canvas canvas)
+    {
+        DestroyImmediate(clone);
+        DestroyImmediate(canvas);
+        _group = null;
+    }
+
+    /// <summary>
+    /// RemoteWidgetMirror's Neutralize in miniature (see there for the pass/ordering
+    /// rationale): destroy everything that is not presentation, reverse component order,
+    /// repeated until a pass frees nothing, Canvas held to the last pass, colliders swept.
+    /// DELIBERATE DELTA: layout components stay (this clone is not rect-puppeted — the game's
+    /// own layout must size the backdrop to the injected name), and every CanvasGroup is
+    /// forced to alpha 1 because show/hide GUIAnimators may author their rest state at 0.
+    /// </summary>
+    private static void Neutralize(GameObject clone)
+    {
+        for (int pass = 0; pass < 3; pass++)
+        {
+            Component[] components = clone.GetComponentsInChildren<Component>(includeInactive: true);
+            bool freed = false;
+            for (int i = components.Length - 1; i >= 0; i--)
+            {
+                Component c = components[i];
+                if (c == null || c is Transform || IsPresentation(c))
+                    continue;
+                if (c is Canvas && pass == 0)
+                    continue;
+                DestroyImmediate(c);
+                if (c == null)
+                    freed = true;
+            }
+            if (!freed && pass > 0)
+                break;
+        }
+
+        foreach (Collider col in clone.GetComponentsInChildren<Collider>(true))
+            DestroyImmediate(col);
+
+        foreach (CanvasGroup g in clone.GetComponentsInChildren<CanvasGroup>(true))
+        {
+            g.alpha = 1f;
+            g.interactable = false;
+            g.blocksRaycasts = false;
+        }
+        if (clone.GetComponent<CanvasGroup>() == null)
+        {
+            CanvasGroup cg = clone.AddComponent<CanvasGroup>();
+            cg.alpha = 1f;
+            cg.interactable = false;
+            cg.blocksRaycasts = false;
+        }
+    }
+
+    /// <summary>The presentation whitelist — RemoteWidgetMirror's plus the layout family
+    /// (kept here on purpose, see <see cref="Neutralize"/>).</summary>
+    private static bool IsPresentation(Component c) =>
+        c is Graphic || c is CanvasRenderer || c is Mask || c is RectMask2D
+        || c is BaseMeshEffect || c is CanvasGroup
+        || c is LayoutGroup || c is ContentSizeFitter || c is LayoutElement;
+
+    /// <summary>
+    /// The exact description string the game composed for THIS ping: Ping3DElement has just
+    /// called <c>tooltip.Show(description, element, …)</c>, tooltips live as children of the
+    /// PingManager (<c>Instantiate(pingTooltipPrefab, base.transform)</c>, PingManager.cs:53),
+    /// and vanilla guarantees at most one ACTIVE tooltip per element (<c>HidePing(player,
+    /// element, instant: true)</c> right before showing) — so matching the publicized
+    /// <c>m_ObjectToTrack</c> against the pinged element is unambiguous.
+    /// </summary>
+    private static string? FindVanillaTooltipText(PingManager manager, GameObject element)
+    {
+        try
+        {
+            foreach (UIPingTooltip t in manager.GetComponentsInChildren<UIPingTooltip>(includeInactive: false))
+            {
+                if (t == null || t.m_ObjectToTrack != element)
+                    continue;
+                string? s = t.descriptionText != null ? t.descriptionText.text : null;
+                if (!string.IsNullOrEmpty(s))
+                    return s;
+            }
+        }
+        catch (Exception e)
+        {
+            VRLog.Debug("Board", $"[Ping] live tooltip text lookup failed (mod name fallback): {e.Message}");
+        }
+        return null;
+    }
+
+    private static bool _warnedCloneUnavailable;
+
+    /// <summary>One warning per session when the clone route is unavailable — the tag still
+    /// works via the fallback label, but the design regression should be visible in logs.</summary>
+    private static void WarnCloneUnavailableOnce(string reason)
+    {
+        if (_warnedCloneUnavailable)
+            return;
+        _warnedCloneUnavailable = true;
+        VRLog.Warn("Board", $"[Ping] game tooltip clone unavailable ({reason}) — ping name tags " +
+            "use the mod-drawn label this session.");
+    }
+
+    /// <summary>The pre-clone mod label, kept verbatim as the degrade path.</summary>
+    private void BuildFallbackLabel(string name)
     {
         _label = gameObject.AddComponent<TextMeshPro>();
         _label.text = name;
@@ -181,9 +455,9 @@ internal sealed class PingNameTag : MonoBehaviour
         _baseColor = new Color(1f, 0.95f, 0.85f);   // OwnerTag's warm off-white
         _label.color = _baseColor;
         _label.fontStyle = FontStyles.Bold;
-        TmpFit.Fit(_label, Width, Height, wrap: false);
+        TmpFit.Fit(_label, FallbackWidth, FallbackHeight, wrap: false);
         WorldUI.MrBacking.Label(_label); // free-floating over the room in MR (plate dies with the tag)
-        VRLayers.Apply(gameObject);
+        // (The clone route needs no MR plate — the game tooltip brings its own backdrop.)
     }
 
     private void Update()
@@ -200,16 +474,20 @@ internal sealed class PingNameTag : MonoBehaviour
             return;
         }
 
-        // Fade tail (alpha only; vanilla hides via a GUI animator we don't have here).
-        if (_label != null)
+        // Fade tail (alpha only; vanilla hides via a GUI animator we deliberately stripped).
+        float remain = _dieAt - now;
+        float a = remain < FadeTail ? remain / FadeTail : 1f;
+        if (_group != null)
         {
-            float remain = _dieAt - now;
-            float a = remain < FadeTail ? remain / FadeTail : 1f;
-            if (!Mathf.Approximately(_label.color.a, a))
-                _label.color = new Color(_baseColor.r, _baseColor.g, _baseColor.b, a);
+            if (!Mathf.Approximately(_group.alpha, a))
+                _group.alpha = a;
+        }
+        else if (_label != null && !Mathf.Approximately(_label.color.a, a))
+        {
+            _label.color = new Color(_baseColor.r, _baseColor.g, _baseColor.b, a);
         }
 
-        // Billboard toward the local head (aim +Z AWAY — TMP reads from −Z).
+        // Billboard toward the local head (aim +Z AWAY — TMP and uGUI both read from −Z).
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head != null)
         {
@@ -234,6 +512,7 @@ internal sealed class PingNameTag : MonoBehaviour
                 UnityEngine.Object.Destroy(t.gameObject);
         }
         Live.Clear();
+        _warnedCloneUnavailable = false;
     }
 
     /// <summary>The flat game's own local-name source: <c>PlatformLayer.UserData.UserName</c>

@@ -55,13 +55,20 @@ namespace GloomhavenVR.Board;
 /// only when <c>BoardPick.HasHit</c> AND the hit collider resolves to a
 /// <c>TileBehaviour.m_ClientTile</c> — the exact tile object the game itself pings.
 ///
+/// SHARED SEAM (fingertip ping, 2026-08): <see cref="TryPingClientTile"/> is the ONE mod
+/// entry into the game's ping machinery — this class's A-press path and the fingertip-touch
+/// ping in <see cref="BoardClickDriver"/> both go through it, so the reflection resolution,
+/// the online/offline arbitration and the global anti-spam cooldown exist exactly once.
+///
 /// All game calls are reflection-guarded: if a method can't be resolved at runtime
 /// (game update / stripped build) that path degrades gracefully after one warning rather
 /// than throwing every press.
 /// </summary>
 internal sealed class BoardPing : MonoBehaviour
 {
-    /// <summary>Minimum gap between pings (seconds, unscaled) — anti-spam on top of the press edge.</summary>
+    /// <summary>Minimum gap between pings (seconds, unscaled) — anti-spam on top of the press
+    /// edge. STATIC (2026-08): shared between the A-press path and the fingertip ping, so the
+    /// two input routes cannot interleave into a faster stream than either alone is allowed.</summary>
     private const float Cooldown = 0.2f;
 
     private static bool _resolved;
@@ -69,7 +76,7 @@ internal sealed class BoardPing : MonoBehaviour
     private static MethodInfo? _pingSinglePlayer;   // PingManager.Ping3DElementSinglePlayer(GameObject)
     private static bool _warnedUnresolved;
 
-    private float _lastPingTime = float.NegativeInfinity;
+    private static float _lastPingTime = float.NegativeInfinity;
 
     /// <summary>Cached tick delegate — see the allocation note in <see cref="Update"/>.</summary>
     private System.Action? _tickCached;
@@ -99,9 +106,6 @@ internal sealed class BoardPing : MonoBehaviour
         // From here on the press is an explicit ping ATTEMPT — every rejection is logged
         // (once per press, the edge above makes spam impossible), because the MP test #7
         // failure mode "peer cannot ping at all" was exactly a silent gate in this chain.
-        if (Time.unscaledTime - _lastPingTime < Cooldown)
-            return; // pure anti-spam, the only intentionally quiet gate
-
         if (!BoardPick.HasHit)
         {
             VRLog.Info("Board", "[Ping] press rejected — the laser/near pick hits nothing " +
@@ -117,22 +121,44 @@ internal sealed class BoardPing : MonoBehaviour
             return;
         }
 
+        TryPingClientTile(clientTile, "laser A-press");
+    }
+
+    /// <summary>
+    /// THE mod's single entry into the game's ping machinery — used by the A-press path above
+    /// and by the outside-selection-phase fingertip ping (<see cref="BoardClickDriver"/>).
+    ///
+    /// Preferred route: the game's own flat-game ping entry
+    /// <c>UIScenarioMultiplayerController.PingTile(CClientTile)</c>, which handles online
+    /// (local display with own name + <c>GameActionType.PingHex</c> replication to all peers)
+    /// and offline (single-player display) itself — host and client identically, no assignment
+    /// required. Fallback: local-only <c>PingManager.Ping3DElementSinglePlayer</c>.
+    ///
+    /// Returns true only when a ping actually fired (either route) — callers key haptics on
+    /// this. The shared <see cref="Cooldown"/> gate is deliberately QUIET (pure anti-spam;
+    /// every explicit-press rejection stays logged at the call sites).
+    /// </summary>
+    internal static bool TryPingClientTile(CClientTile? clientTile, string source)
+    {
+        if (clientTile == null || clientTile.m_GameObject == null)
+            return false;
+
+        if (Time.unscaledTime - _lastPingTime < Cooldown)
+            return false; // pure anti-spam, the only intentionally quiet gate
+
         if (!EnsureResolved())
-            return; // warned once in EnsureResolved
+            return false; // warned once in EnsureResolved
 
         try
         {
-            // Preferred: the game's own flat-game ping entry. Handles online (local display
-            // with own name + PingHex replication to all peers) and offline (single-player
-            // display) itself — host and client identically, no assignment required.
             UIScenarioMultiplayerController? mpc = UIScenarioMultiplayerController.Instance;
             if (mpc != null && _pingTile != null)
             {
                 _pingTile.Invoke(mpc, new object[] { clientTile });
                 _lastPingTime = Time.unscaledTime;
                 VRLog.Info("Board", $"[Ping] pinged hex '{clientTile.m_GameObject.name}' via game " +
-                    "PingTile (replicated to peers when online).");
-                return;
+                    $"PingTile (replicated to peers when online; source: {source}).");
+                return true;
             }
 
             // Fallback: local-only display (no scenario MP controller alive / game update
@@ -140,20 +166,22 @@ internal sealed class BoardPing : MonoBehaviour
             PingManager? manager = PingManager.Instance;
             if (manager == null || _pingSinglePlayer == null)
             {
-                VRLog.Warn("Board", "[Ping] press rejected — neither UIScenarioMultiplayerController " +
+                VRLog.Warn("Board", $"[Ping] {source} rejected — neither UIScenarioMultiplayerController " +
                     $"nor PingManager is available (mpc={(mpc == null ? "null" : "ok")}, " +
                     $"manager={(manager == null ? "null" : "ok")}).");
-                return;
+                return false;
             }
 
             _pingSinglePlayer.Invoke(manager, new object[] { clientTile.m_GameObject });
             _lastPingTime = Time.unscaledTime;
             VRLog.Info("Board", $"[Ping] pinged hex '{clientTile.m_GameObject.name}' (LOCAL-ONLY " +
-                "fallback — no UIScenarioMultiplayerController; peers will not see this ping).");
+                $"fallback — no UIScenarioMultiplayerController; peers will not see this ping; source: {source}).");
+            return true;
         }
         catch (Exception ex)
         {
-            VRLog.Warn("Board", $"[Ping] game ping call threw: {ex}");
+            VRLog.Warn("Board", $"[Ping] game ping call threw ({source}): {ex}");
+            return false;
         }
     }
 
