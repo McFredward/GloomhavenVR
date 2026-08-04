@@ -505,6 +505,11 @@ internal sealed class PileViewer
             stack._topMaterial = topMaterial;
             stack._baseColor = color;
             Core.VRLayers.Apply(go); // mod layer (render-only; poke/grab via registries)
+            // 2026-08-04 (status-placard defect family): the count/caption TMP labels are
+            // depth-less transparent renderers at order 0 — a converted panel BEHIND the board
+            // painted over them. Ride the board's furniture order group (the opaque slab cubes
+            // are skipped by the queue filter).
+            PlayTray.AdoptFurniture(go);
             return stack;
         }
 
@@ -673,6 +678,9 @@ internal sealed class PileViewer
             renderer.sortingOrder = 2; // over the slabs, under the panel canvases
 
             Core.VRLayers.Apply(go); // mod-owned FX on the mod layer (no children — recursion-safe)
+            // 2026-08-04: the ember motes are alpha-blended and depth-less like the labels —
+            // ride the board's furniture order group (offset 2 captured from the line above).
+            PlayTray.AdoptFurniture(go);
             return ps;
         }
 

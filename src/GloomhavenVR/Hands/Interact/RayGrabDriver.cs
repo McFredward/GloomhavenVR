@@ -114,10 +114,11 @@ internal sealed class RayGrabDriver
             return;
         }
 
-        // Fan occlusion (user issue): the off-hand's raised card fan blocks the grab bar
-        // BEHIND it — pointing THROUGH the hand of cards must not drag a window's bar
-        // visible past them. Uses the ray's precomputed nearest fan-card distance.
-        if (_hand.Ray.FanOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
+        // Solid occlusion (fan cards AND the control board, 2026-08-04): a solid mod-owned
+        // surface blocks the grab bar BEHIND it — pointing THROUGH the hand of cards or the
+        // board must not drag a window's bar visible past them. Uses the ray's precomputed
+        // nearest solid distance (RayInteractor.SolidOccluderDistance).
+        if (_hand.Ray.SolidOccluderDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
             if (RayInteractor.WantFanOcclusionNote)

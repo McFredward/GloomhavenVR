@@ -277,6 +277,12 @@ internal sealed partial class PlayTray
         _pickBannerLabel.color = new Color(0.24f, 0.17f, 0.10f); // ink brown on parchment
         Core.TmpFit.Fit(_pickBannerLabel, 0.42f, 0.048f, maxFontSize: 0.30f, wrap: true);
 
+        // The placard is the "Statustafel" of the 2026-08-04 report: a Sprites/Default quad +
+        // plain TMP, both transparent and depth-less at sortingOrder 0 — any converted panel
+        // (order >= 100 on the distance ladder) painted straight over it even when the panel
+        // was BEHIND the board. Ride the board's furniture order group instead.
+        AdoptFurniture(_pickBannerRoot);
+
         _pickBannerRoot.SetActive(false);
     }
 
