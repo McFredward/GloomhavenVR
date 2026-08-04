@@ -119,7 +119,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `InputFieldActivateWatch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:142</sub> | `TMP_InputField.ActivateInputField()` | postfix | `InputFieldFocusWatch`:105 |
 | `InputFieldDeactivateWatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:157</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `InputFieldFocusWatch`:106 |
 | `KeyboardHideSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/KeyboardAutoHideBlock.cs:91</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `KeyboardAutoHideBlock`:62 |
-| `SettingsClickExemption` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs:65</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `SettingsClickExemption`:109 |
+| `SettingsClickExemption` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs:102</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `SettingsClickExemption`:146 |
 | `TakeDamagePanelSafety`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TakeDamagePanelSafety.cs:58</sub> | `TakeDamagePanel.TakeDamage()` | prefix | `WorldUIModule`:48 |
 | &nbsp; | `TakeDamagePanel.BurnAvailableCard(bool)` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.BurnDiscardedCards(bool)` | prefix | &nbsp; |

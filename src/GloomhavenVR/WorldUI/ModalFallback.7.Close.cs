@@ -587,9 +587,9 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
-    /// SETTINGS-CLICK EXEMPTION companion (user ruling 2026-08-02, escalation round 3): is this
-    /// widget transform INSIDE the floated options window — the mod-owned settings surface whose
-    /// clicks must never be swallowed?
+    /// SETTINGS-CLICK EXEMPTION companion (user ruling 2026-08-02, rounds 3+4): is this widget
+    /// transform INSIDE the floated options window or the floated pause menu that hosts it —
+    /// the mod-owned surfaces whose clicks must never be swallowed?
     ///
     /// WHY this exists: the round-2 laser fall-through (<see cref="IsSettingsSurface"/> +
     /// RayUguiDriver.TrySettingsFallThrough) fixed only the MOD-side arbitration — but the
@@ -602,17 +602,27 @@ internal static partial class ModalFallback
     /// <c>s_EventsControllerActive</c> is true, so EVERY Extended*/Tracked*/UITab widget not on
     /// an isolated control's allow list silently eats its click — including all options-window
     /// tabs and the cloned VR-tab/sub-tab toggles. <see cref="Patches.SettingsClickExemption"/>
-    /// postfixes those gate methods and consults THIS predicate to flip the veto — only for
-    /// widgets under the floated options window.
+    /// finalizes those gate methods (round 4: a finalizer, so a gate that THROWS is covered
+    /// too) and consults THIS predicate to flip the veto — only for widgets under the floated
+    /// pause/options windows.
     ///
-    /// Scope mirrors <see cref="IsSettingsSurface"/> exactly (Options / OptionsSubmenu floats,
-    /// alive, not user-closing) and the check is by TRANSFORM ANCESTRY against the float's host
-    /// rect (everything the conversion reparented under the host: the window's own tabs AND the
-    /// mod-injected VR tab clones) with the window root as fallback. The moment the options
-    /// float releases, this returns false and every gate verdict is byte-identical vanilla again
-    /// — nothing is mutated, so there is nothing to restore.
+    /// Scope (round 4, user ruling 2026-08-02 "das Optionsmenue soll NIEMALS blockiert sein"):
+    /// the settings floats of <see cref="IsSettingsSurface"/> (Options / OptionsSubmenu — the
+    /// window's own tabs AND the mod-injected VR tab clones) PLUS the floated pause menu
+    /// (<see cref="UIWindowID.ESCMenu"/>). The ESC menu is the ONLY path that OPENS the options
+    /// window in VR: its "Options" widget is an <c>ExtendedToggle</c> behind the exact same five
+    /// gates, so a gate veto (or a gate that THROWS, see the round-4 evidence in
+    /// <see cref="Patches.SettingsClickExemption"/>) on the pause menu made the options window
+    /// un-OPENABLE — the second half of the ruling. Deliberately NOT widened any further: the
+    /// multiplayer submenu, the compendium, quit/main-menu confirmation dialogs and every
+    /// decision/targeting confirm keep byte-identical gate semantics. All floats checked here
+    /// must be alive and not user-closing; the check is by TRANSFORM ANCESTRY against the
+    /// float's host rect (everything the conversion reparented under the host) with the window
+    /// root as fallback. The moment a float releases, this returns false for it and every gate
+    /// verdict is byte-identical vanilla again — nothing is mutated, so there is nothing to
+    /// restore.
     /// </summary>
-    internal static bool IsUnderFloatedSettingsWindow(Transform? widget)
+    internal static bool IsUnderFloatedPauseOrSettingsWindow(Transform? widget)
     {
         if (widget == null)
             return false;
@@ -622,7 +632,8 @@ internal static partial class ModalFallback
             if (wp.Window == null || wp.UserClosing || !wp.Panel.IsAlive)
                 continue;
             UIWindowID id = wp.Window.ID;
-            if (id != UIWindowID.Options && id != UIWindowID.OptionsSubmenu)
+            if (id != UIWindowID.Options && id != UIWindowID.OptionsSubmenu
+                && id != UIWindowID.ESCMenu)
                 continue;
             RectTransform? host = wp.Panel.HostRect;
             if (host != null && widget.IsChildOf(host))

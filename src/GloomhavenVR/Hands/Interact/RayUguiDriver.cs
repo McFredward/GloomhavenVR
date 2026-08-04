@@ -454,7 +454,7 @@ internal sealed class RayUguiDriver
     /// the candidate the game-side window stack would use to soft-disable the window;</item>
     /// <item>the game's InteractabilityManager state: whether the global veto is armed
     /// (<c>ShouldTryPreventControl</c>) and the per-widget gate verdict for the handler's widget
-    /// type — AFTER the mod's SettingsClickExemption postfix, so "gate ARMED, verdict allowed"
+    /// type — AFTER the mod's SettingsClickExemption finalizer, so "gate ARMED, verdict allowed"
     /// is the exemption proving itself, while "verdict VETOED" pinpoints a still-active game
     /// gate.</item>
     /// </list>
@@ -532,7 +532,9 @@ internal sealed class RayUguiDriver
     /// <summary>
     /// The game-side InteractabilityManager verdict for the widget that will receive the click:
     /// global veto armed? and, for the five gated widget families, the exact ShouldAllowClickFor*
-    /// result (evaluated through the mod's SettingsClickExemption postfix — see the trace doc).
+    /// result (evaluated through the mod's SettingsClickExemption finalizer — a "probe threw"
+    /// here can therefore only come from a NON-exempt widget or a degraded patch; see the
+    /// trace doc).
     /// Reflection-free direct calls (repo-normal for game types); exception-guarded so a game
     /// update can never turn the diagnostic into a crash.
     /// </summary>
