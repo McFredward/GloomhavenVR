@@ -369,6 +369,7 @@ internal static partial class Loc
             ["WorldUI/FlatScreen"] = Pair("Floating 2D screen", "Schwebender 2D-Schirm"),
             ["WorldUI/Tooltips"] = Pair("Tooltips at fingertip", "Tooltips am Finger"),
             ["WorldUI/ActionElementHints"] = Pair("Element hints", "Element-Hinweise"),
+            ["WorldUI/PanelMipBake"] = Pair("Smooth panel textures", "Tafeltexturen glätten"),
             ["WorldUI/CatchAllModals"] = Pair("Catch unknown windows", "Unbek. Fenster fangen"),
             ["WorldUI/MenuPopupFloat"] = Pair("Float error popups", "Fehler schwebend"),
             ["WorldUI/ForceMouseMode"] = Pair("Force mouse mode", "Maus-Modus erzwingen"),

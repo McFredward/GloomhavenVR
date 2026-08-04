@@ -91,10 +91,14 @@ internal static class CardFaceMipBake
     /// <summary>
     /// Hard cap on unique baked ATLAS textures (VRAM guard). The first cut's cap of 8 was fully
     /// consumed in the hardware log (MIP BAKE 8/8 — per-class art strips arrive async and stack
-    /// up across classes), so any later class' art was silently left mipless; 24 covers a full
+    /// up across classes), so any later class' art was silently left mipless; 24 covered a full
     /// four-class party with headroom, and hitting the cap now LOGS instead of silently skipping.
+    /// Raised to 32 when the WorldUI surfaces joined this shared cache (initiative-track
+    /// portraits are one small per-class texture each, tooltip frames ride the already-baked UI
+    /// atlases — see <c>WorldUI.PanelMipBake</c>): the newcomers are small, but they must never
+    /// evict a later class' card art into silent miplessness by exhausting the old budget.
     /// </summary>
-    private const int MaxBakedTextures = 24;
+    private const int MaxBakedTextures = 32;
 
     /// <summary>Hard cap on PER-SPRITE bakes (trimmed/tight-packed sprites get their own small texture).</summary>
     private const int MaxSpriteBakes = 48;
@@ -203,7 +207,9 @@ internal static class CardFaceMipBake
     /// Put the ORIGINAL sprites back on every Image under <paramref name="faceRoot"/>
     /// that currently wears one of our replacements — called by CardFace.Restore before
     /// the face returns to the game's pool (the baked copies are a VR-side presentation
-    /// detail and must never leak into the restored 2D widget). Guarded like Rescan.
+    /// detail and must never leak into the restored 2D widget), and by
+    /// <c>WorldUI.PanelMipBake.Restore</c> for the initiative track / tooltip canvases
+    /// whose sprites were swapped through the same shared cache. Guarded like Rescan.
     /// </summary>
     internal static void RestoreSprites(Component? faceRoot)
     {
@@ -243,8 +249,14 @@ internal static class CardFaceMipBake
     /// exactly which face elements stay mipless. Untrimmed rect sprites ride the shared
     /// atlas copy; trimmed rect-packed sprites get a per-sprite region bake with the
     /// trim margins restored as real texels.
+    /// INTERNAL (not private) since the WorldUI mip pass: <c>WorldUI.PanelMipBake</c> swaps
+    /// sprites on the initiative track and the tooltip canvas through this same entry, so a
+    /// tooltip icon living on an atlas a card face already paid for reuses the cached bake
+    /// (and vice versa) instead of holding a second ~85 MB copy. The caches, budgets and
+    /// skip verdicts are deliberately ONE pool — content identity does not care which module
+    /// samples the atlas.
     /// </summary>
-    private static Sprite? ReplacementFor(Sprite source)
+    internal static Sprite? ReplacementFor(Sprite source)
     {
         int id = source.GetInstanceID();
         if (s_replacementBySource.TryGetValue(id, out Sprite? cached))
@@ -271,7 +283,7 @@ internal static class CardFaceMipBake
             {
                 // Fast path: plain unrotated, untrimmed rect — an equivalent FullRect
                 // sprite on the SHARED mipmapped atlas copy (one bake serves many sprites).
-                Texture2D? baked = BakedTextureFor(source);
+                Texture2D? baked = BakedTextureFor(srcTex);
                 if (baked != null)
                 {
                     made = Sprite.Create(baked, texRect, NormalizedPivot(source), source.pixelsPerUnit, 0,
@@ -592,10 +604,21 @@ internal static class CardFaceMipBake
                             $"stays MIPLESS — {reason}.");
     }
 
-    /// <summary>Baked mipmapped copy of the sprite's texture (cached; null = skipped/failed).</summary>
-    private static Texture2D? BakedTextureFor(Sprite source)
+    /// <summary>True when <paramref name="sprite"/> is one of OUR baked replacements — the
+    /// rescan loops (here and in <c>WorldUI.PanelMipBake</c>) use it to recognize an Image
+    /// that already samples a baked copy without a second dictionary shape.</summary>
+    internal static bool IsBakedSprite(Sprite sprite) =>
+        s_originalByReplacement.ContainsKey(sprite.GetInstanceID());
+
+    /// <summary>
+    /// Baked mipmapped copy of a whole texture (cached; null = skipped/failed, never retried).
+    /// INTERNAL since the WorldUI mip pass: <c>WorldUI.PanelMipBake</c> feeds the initiative
+    /// track's <c>RawImage</c> portraits (the game assigns a raw Texture + uvRect there, no
+    /// sprite exists to swap) through this same texture-level cache, so the budget, the
+    /// content-identity dedupe and the bake log lines cover every module's bakes uniformly.
+    /// </summary>
+    internal static Texture2D? BakedTextureFor(Texture2D? tex)
     {
-        Texture2D? tex = source.texture;
         if (tex == null)
             return null;
         int id = tex.GetInstanceID();
@@ -650,7 +673,7 @@ internal static class CardFaceMipBake
                 VRLog.Info("Cards", $"MIP BAKE ({s_bakeCount}/{MaxBakedTextures}): '{tex.name}' " +
                                     $"{tex.width}x{tex.height} mips 1 → {baked.mipmapCount} " +
                                     $"(RGBA32 Trilinear aniso {BakedAnisoLevel}, ~{vramMb:F0} MB VRAM) — " +
-                                    "card-face sprites re-created on the baked copy.");
+                                    "consumer graphics (card faces / WorldUI panels) re-created on the baked copy.");
             }
         }
         s_bakedByTexture[id] = baked;

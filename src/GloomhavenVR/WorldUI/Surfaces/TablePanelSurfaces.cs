@@ -466,6 +466,18 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary><see cref="Time.unscaledTime"/> until which the content fit stays armed.</summary>
     private float _fitArmedUntil;
 
+    /// <summary>
+    /// Mip-bake rescan cadence while converted (mirrors <c>CardFace.MipRescanInterval</c>, the
+    /// proven card-face value): the portraits arrive ASYNC from the misc_characterportraits
+    /// bundle and the game re-registers every avatar per round
+    /// (<c>SetAttributesDirect</c> -&gt; <c>CharacterPortraitsProvider.RegisterNewUser</c> -&gt;
+    /// <c>UpdateTexture</c> puts the ORIGINAL mipless texture back), so a one-shot swap at
+    /// conversion would silently decay. 1 s keeps the re-assert cost negligible; the scan
+    /// itself is change-gated (see <see cref="PanelMipBake.Rescan"/>).
+    /// </summary>
+    private const float MipRescanInterval = 1f;
+    private float _nextMipRescan;
+
     public override void Tick()
     {
         bool wasConverted = Panel != null;
@@ -479,6 +491,13 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             UpdateFitHold();
             if (!_reorderActive)
                 NormalizeDepth();
+            // Aliasing round 4: keep the portraits/frames on their mip-baked copies (the game
+            // swaps the mipless originals back on round changes and async art arrival).
+            if (Time.unscaledTime >= _nextMipRescan)
+            {
+                _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+                PanelMipBake.Rescan(InitiativeTrack.Instance, Name);
+            }
         }
         else if (wasConverted)
         {
@@ -487,6 +506,9 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             _fitArmedUntil = 0f;
             RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
             UnregisterDepthPick();
+            // Full-restore contract: the 2D track gets its authored sprites/textures back the
+            // moment the canvas returns to the game (baked copies are a VR presentation detail).
+            PanelMipBake.Restore(InitiativeTrack.Instance);
         }
     }
 
@@ -595,6 +617,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         _fitArmedUntil = 0f;
         RestoreDepth(); // before base releases the panel (holder still alive here)
         UnregisterDepthPick();
+        PanelMipBake.Restore(InitiativeTrack.Instance); // originals back before the release
         base.Shutdown();
     }
 
@@ -750,6 +773,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         }
 
         LogTrackTextureDiag();
+
+        // Aliasing round 4: first swap right at conversion (whatever art is already in), then
+        // the Tick cadence keeps re-asserting as pooled avatars and async portraits arrive.
+        _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+        PanelMipBake.Rescan(InitiativeTrack.Instance, Name);
     }
 
     // ---- rendered-texture diagnostics (aliasing round 3) --------------------------------
@@ -797,7 +825,8 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             s_texDiagLogged = true;
             VRLog.Info("WorldUI", "INITIATIVE TEXTURE DIAG (game sprites the adopted track samples): " +
                                   $"{sb} — mips=1 ⇒ MIPLESS source data: MSAA/aniso cannot stop the " +
-                                  "shimmer; raise [RenderQuality] EyeResolutionScale (e.g. 1.3) instead.");
+                                  "shimmer. [WorldUI] PanelMipBake now swaps these onto mip-baked " +
+                                  "trilinear/aniso copies — see the MIP BAKE lines for what was baked.");
         }
         catch (System.Exception ex)
         {
