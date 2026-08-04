@@ -417,6 +417,102 @@ internal static class NativeButtonSkin
         }
     }
 
+    // ---- un-renderable glyph strip (tofu-box fix) -------------------------------------------
+
+    /// <summary>One log line per distinct raw string we ever stripped (session-scoped).</summary>
+    private static readonly System.Collections.Generic.HashSet<string> _sanitizeLogged = new();
+
+    /// <summary>
+    /// Strip characters <paramref name="label"/>'s font chain cannot render, collapsing the
+    /// whitespace that stripping leaves behind. The label text is NEVER shortened otherwise —
+    /// no ellipsis, no truncation (standing rule) — and a fully renderable string is returned
+    /// AS THE SAME INSTANCE, so callers' reference-compare change gates stay allocation-free.
+    ///
+    /// <para>ROOT CAUSE (user report 2026-08-04: "Wenn der Button den Text 'Mach dich bereit'
+    /// zeigt, ist ein kleines Viereck vor dem Text"). The confirmed-state CONFIRM keycap builds
+    /// its label as <c>"✓ " + Loc.Game("GUI_READY", …)</c> (PlayTray.TickStatus) — German
+    /// GUI_READY is the reported "Mach dich bereit". TMP substitutes every character the
+    /// label's font (plus its fallback chain) lacks with the hollow box U+25A1, and the mod's
+    /// keycap font is HARVESTED from whatever live label <see cref="EnsureSampled"/> finds
+    /// first — scene- and language-dependent, so '✓' (U+2713) renders on one setup and boxes
+    /// on another. The same failure shape covers a GAME-provided label embedding a glyph only
+    /// the game's own HUD font carries (the keycaps mirror <c>buttonText.text</c> verbatim).
+    /// Fixing it at this seam — the moment a game/mod string meets a mod-owned TMP label —
+    /// handles both: the glyph renders properly wherever the font has it, and is stripped
+    /// cleanly (whitespace-collapsed) wherever it does not, instead of ever showing tofu.</para>
+    ///
+    /// <para>Surrogate pairs (astral-plane symbols) are stripped with the same rule — the SDF
+    /// text fonts in play are BMP-only. A null label font means "not sampled yet": the text
+    /// passes through unjudged, and the per-tick SetLabel re-runs the check once the font
+    /// lands (the changed result then re-applies through the caller's change gate).</para>
+    /// </summary>
+    internal static string SanitizeLabel(TMP_Text? label, string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+        TMP_FontAsset? font = label != null ? label.font : null;
+        if (font == null)
+            return text!;
+
+        // Fast path: nothing to strip → hand back the same instance.
+        bool dirty = false;
+        for (int i = 0; i < text!.Length && !dirty; i++)
+        {
+            char c = text[i];
+            if (!char.IsWhiteSpace(c) && !CanRender(font, c))
+                dirty = true;
+        }
+        if (!dirty)
+            return text;
+
+        var sb = new System.Text.StringBuilder(text.Length);
+        var stripped = new System.Text.StringBuilder(8);
+        bool pendingSpace = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsWhiteSpace(c))
+            {
+                pendingSpace = sb.Length > 0; // collapse runs; never lead with whitespace
+                continue;
+            }
+            if (!CanRender(font, c))
+            {
+                stripped.Append(stripped.Length > 0 ? " U+" : "U+").Append(((int)c).ToString("X4"));
+                continue; // dropped — the pendingSpace state is untouched, so "✓ Text" → "Text"
+            }
+            if (pendingSpace)
+            {
+                sb.Append(' ');
+                pendingSpace = false;
+            }
+            sb.Append(c);
+        }
+        string result = sb.ToString();
+        if (_sanitizeLogged.Add(text))
+            VRLog.Info("WorldUI", $"BUTTON LABEL: stripped un-renderable glyph(s) [{stripped}] from " +
+                                  $"'{text}' → '{result}' — font '{font.name}' (incl. fallbacks) has no " +
+                                  "outline for them and TMP would draw a hollow box (U+25A1) instead.");
+        return result;
+    }
+
+    /// <summary>Can the font chain (own fallbacks + TMP global fallbacks) draw this UTF-16 unit?
+    /// Surrogate halves are never renderable by a BMP SDF font; the try/catch mirrors
+    /// TablePanelSurfaces.PickGlyph (font asset mid-teardown must never break a label).</summary>
+    private static bool CanRender(TMP_FontAsset font, char c)
+    {
+        if (char.IsSurrogate(c))
+            return false;
+        try
+        {
+            return font.HasCharacter(c, searchFallbacks: true);
+        }
+        catch (System.Exception)
+        {
+            return true; // unjudgeable this frame — keep the character, re-checked next SetLabel
+        }
+    }
+
     /// <summary>Drop cached references (hot-reload / scene teardown safe).</summary>
     internal static void Reset()
     {

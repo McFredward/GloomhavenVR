@@ -1000,9 +1000,14 @@ internal sealed class RemoteBoardFurniture
             return b;
         }
 
-        /// <summary>Change-gated label write (a per-tick TMP assignment re-triggers auto-size).</summary>
+        /// <summary>Change-gated label write (a per-tick TMP assignment re-triggers auto-size).
+        /// Runs the shared tofu strip first (WorldUI.NativeButtonSkin.SanitizeLabel): the chip
+        /// labels are the same translated strings the LOCAL keycaps show, so a glyph the mod
+        /// font cannot render would box identically on the peer's mirror — both sides must
+        /// show exactly the same thing (MP rule), including the same clean fallback.</summary>
         public void SetLabel(string text)
         {
+            text = WorldUI.NativeButtonSkin.SanitizeLabel(_label, text);
             if (text == _shown)
                 return;
             _shown = text;
