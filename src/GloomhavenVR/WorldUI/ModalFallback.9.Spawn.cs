@@ -842,8 +842,8 @@ internal static partial class ModalFallback
         }
         if (!anchor.Valid)
         {
-            LatchPoseRePlace(panel, ref done, "kept verbatim (stored chain pose / no gaze " +
-                                              "placement) — rule 2 is authoritative");
+            LatchPoseRePlace(panel, ref done, "kept verbatim (stored chain/user pose / no gaze " +
+                                              "placement) — the stored pose is authoritative");
             return;
         }
         if (!panel.RevealPending)

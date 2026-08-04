@@ -558,6 +558,27 @@ internal sealed class UguiPointer
             : null;
         if (_pressedClickHandler != null && ReferenceEquals(hoveredClickHandler, _pressedClickHandler))
         {
+            // OPEN-ONLY pause-menu tabs (user ruling 2026-08-04): a re-click on an ESC-menu tab
+            // whose window is ALREADY open is swallowed HERE - the one choke point both mod
+            // click paths (poke and laser) deliver pointerClick through - so the tab's Toggle
+            // never flips and the game's Show/Hide (which resets the still-floating window's
+            // content) never runs. ModalFallback resolves the tab's target window and logs the
+            // decision; anything that is not an already-open tab passes through unchanged.
+            // pointerUp above already ran, which is correct - a real input module also releases
+            // the press; only the click itself is withheld.
+            if (WorldUI.ModalFallback.ShouldSwallowMenuTabClick(_pressedClickHandler))
+            {
+                data.pointerPress = null;
+                data.eligibleForClick = false;
+                _pressed = null;
+                _pressedClickHandler = null;
+                _dragging = false;
+                data.dragging = false;
+                data.pointerDrag = null;
+                _dragTarget = null;
+                return;
+            }
+
             // The on-screen keyboard opens and closes on clicks. This is the world-space half of
             // that (converted panels, fingertip poke); FlatScreen.DirectClick is the flat-screen
             // half. Told before the click is delivered, so the keyboard is already up when the field

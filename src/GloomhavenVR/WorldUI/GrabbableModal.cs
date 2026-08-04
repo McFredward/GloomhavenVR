@@ -121,6 +121,49 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     internal bool IsGrabbed => _handle != null && _handle.IsGrabbed;
 
     /// <summary>
+    /// USER-OWNED POSE (user report 2026-08-04: "Sie sollen dort fix bleiben, wo sie stehen,
+    /// nicht springen"): latched TRUE the first time the player grips this window (and never
+    /// cleared for the lifetime of the float). From that moment its pose belongs to the
+    /// player - the lost-menu recall (ModalFallback.TickMenuRecall) and the presence-regain
+    /// refloat (ModalFallback.RefloatOpenWindows) both skip a user-moved window, because the
+    /// user deliberately parks windows OUT of the view ("manchmal schiebe ich sie absichtlich
+    /// zur Seite") and the 6 s out-of-view timer kept yanking them back to the gaze (hardware
+    /// log: repeated "MODAL RECALL: 'UI Options Window_unified' ... out of view for 6s"
+    /// lines). ANY grip counts as the claim - even a grab released in place: the player
+    /// touched it, so the mod stops second-guessing where it belongs. The X close button and
+    /// the modal escape chord remain the rescue for a window the player genuinely loses.
+    /// </summary>
+    internal bool UserMoved { get; private set; }
+
+    /// <summary>
+    /// The player's live two-hand resize factor (the grab frame's local scale, clamped to the
+    /// shared handle range). Read at float release by ModalFallback.StoreUserPose so a re-open
+    /// of the same window this scenario restores the size the player pinched it to, not the
+    /// default 1x.
+    /// </summary>
+    internal float UserScaleFactor => _frame != null
+        ? Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale)
+        : 1f;
+
+    /// <summary>
+    /// Seed a freshly built grab from a REMEMBERED player pose (ModalFallback re-open pose
+    /// memory): marks the window user-owned from birth - it was placed at the player's stored
+    /// spot, so the recall/refloat machinery must treat it exactly like the original moved
+    /// window - and restores the player's two-hand resize factor on the frame. Silent (the
+    /// caller logs the restore); the first-grab latch log below stays for genuine first grips.
+    /// </summary>
+    internal void MarkUserOwned(float scaleFactor)
+    {
+        UserMoved = true;
+        EnsureFrame();
+        if (_frame == null)
+            return;
+        float factor = Mathf.Clamp(scaleFactor, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+        _frame.localScale = Vector3.one * factor;
+        Tick(); // push the restored size onto the host in the same frame
+    }
+
+    /// <summary>
     /// Item 1 (pause-menu size): re-seat the board-relative host shrink AFTER a full-screen menu's
     /// one-shot content fit shrank the host rect. The fit runs a few frames after Build, so the
     /// extraScale first derived from the pre-fit (full 1920) rect would leave the fitted panel
@@ -260,6 +303,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _holder.localScale = Vector3.one;
         if (!_holder.gameObject.activeSelf)
             _holder.gameObject.SetActive(true);
+
+        // USER-OWNED POSE: the first grip claims the window for the player (see UserMoved).
+        // Latched here, on the grip's first follow tick, so both grab paths (palm zone and
+        // laser bar) and the two-hand resize all count - they run through this same follow.
+        if (!UserMoved && _handle != null && _handle.IsGrabbed)
+        {
+            UserMoved = true;
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' grabbed - its pose is now PLAYER-OWNED: " +
+                                  "no out-of-view recall and no presence-regain refloat will move it " +
+                                  "while it stays open, and a re-open this scenario reuses the " +
+                                  "player's last pose/size (X + escape chord remain the rescue).");
+        }
 
         // Item 4: the user grab factor rides the SAME [MinScale, MaxScale] range the shared handle
         // clamps to — a higher local floor here would silently re-cap what the two-hand pinch shrank.
