@@ -246,6 +246,15 @@ internal static partial class Loc
                 + "Bounds, die den Kopf auf allen Achsen umschließen — nie die Dioramaplatten/Requisiten), und "
                 + "stellt sie beim Ausschalten von MR wieder her. Nur AUS, wenn ein Durchlauf zeigt, dass "
                 + "gewollte Geometrie versteckt wird — das Log nennt jeden abgeschalteten Renderer.",
+            ["MixedReality/OpaquePreviewTiles"] =
+                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). Die "
+                + "verdeckten Kachel-STAPEL noch nicht entdeckter Räume sind mit durchscheinenden Materialien "
+                + "gezeichnet; über dem dunklen Tisch fällt das nicht auf, aber in MR blutet die Key-Farbe / "
+                + "das echte Zimmer durch die Stapel. Solange MR an ist, sucht der Durchlauf die Renderer "
+                + "unter dem aktiven 'Preview'-Teilbaum einer Map-Kachel, deren Materialien durchscheinend "
+                + "sind, und tauscht OPAKE Kopien ein (Originale werden beim Ausschalten von MR exakt "
+                + "wiederhergestellt — der normale Modus bleibt unberührt). Nur AUS, wenn ein Durchlauf "
+                + "zeigt, dass gewollte Geometrie verhärtet wird — das Log nennt jeden geänderten Renderer.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "

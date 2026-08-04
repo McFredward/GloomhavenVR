@@ -75,6 +75,10 @@ internal static class MixedReality
     /// <summary>Sweep + disable the sky/background GEOMETRY (item 2). Safety valve — default on.</summary>
     internal static ConfigEntry<bool> HideSkyMeshes = null!;
 
+    /// <summary>Force the undiscovered-room PREVIEW tile stacks opaque while MR is on (user
+    /// ruling 2026-08-04). Safety valve like <see cref="HideSkyMeshes"/> — default on.</summary>
+    internal static ConfigEntry<bool> OpaquePreviewTiles = null!;
+
     /// <summary>
     /// Key-colour presets offered by the settings UI.
     ///
@@ -133,6 +137,27 @@ internal static class MixedReality
     private static readonly List<Camera> Scratch = new(8);
     private static Material? _savedSkybox;
     private static bool _skyboxSaved;
+
+    // Undiscovered-room PREVIEW tile stacks forced opaque while MR is on (user ruling 2026-08-04:
+    // "die Kacheln, die die Stapel noch nicht entdeckter Räume zeigen, sollen in MR nicht
+    // transparent sein — im normalen Modus ändert sich nichts"). Each entry remembers ONE
+    // renderer's original sharedMaterials array; the opaque copies are session-cached per source
+    // material and destroyed on restore. See ForcePreviewTilesOpaque for the full derivation.
+    private sealed class PreviewOverride
+    {
+        public Renderer Renderer = null!;
+        public Material[] Originals = null!;
+    }
+
+    private static readonly List<PreviewOverride> PreviewOverrides = new(16);
+
+    /// <summary>source material instance id → its opaque copy (deduped: several stack slabs share
+    /// one tile material, and they must keep sharing on the copy or batching/state diverge).</summary>
+    private static readonly Dictionary<int, Material> PreviewOpaqueBySource = new(8);
+
+    private static int _previewScanNextFrame; // throttle (same cadence as the sky sweep)
+    private static int _loggedPreviewCount = -1;
+    private static bool _previewDiagLogged;
 
     // Sky/background geometry hidden while MR is on (item 2). The scenario backdrop/skydome is
     // opaque mesh geometry, not the skybox — disabled here, re-enabled on restore.
@@ -217,6 +242,15 @@ internal static class MixedReality
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
             "green / magenta / blue; any RGBA is accepted here.");
+        OpaquePreviewTiles = _file.Bind("MixedReality", "OpaquePreviewTiles", Defaults.OpaquePreviewTiles,
+            "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
+            "VR menu). The face-down tile STACKS that mark not-yet-discovered rooms are drawn with " +
+            "translucent materials; over the game's dark table that reads fine, but in MR the " +
+            "chroma key / passthrough room bleeds through them and the stacks look see-through. " +
+            "While MR is on, the sweep finds the renderers under a map tile's active 'Preview' " +
+            "subtree whose materials are translucent and swaps in OPAQUE copies (originals " +
+            "restored exactly when MR turns off — normal mode is never touched). Turn OFF only if " +
+            "a run shows it hardening wanted geometry — the log names every renderer it changed.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -331,6 +365,13 @@ internal static class MixedReality
         //    the HeadCamera renders (mask 0xFFFFFFFF) — a SolidColor clear draws BEHIND it, so
         //    the key color never shows until the mesh itself is disabled.
         HideSkyGeometry();
+
+        // 5) Force the undiscovered-room PREVIEW tile stacks OPAQUE (user ruling 2026-08-04).
+        //    Their translucent materials blend with whatever is behind them — over the key colour
+        //    that mix lands inside the compositor's similarity window, so the real room shows
+        //    through the stacks. Materials only, copies only, restored on MR off; normal mode is
+        //    bit-identical because none of this runs while MR is off.
+        ForcePreviewTilesOpaque();
 
         _active = true;
         if (!_loggedActive || _loggedColor != key)
@@ -500,6 +541,213 @@ internal static class MixedReality
         return m != null && m.shader != null ? m.shader.name : "<none>";
     }
 
+    // ---- undiscovered-room preview tile stacks (MR opacity) -------------------------------------
+
+    /// <summary>
+    /// Throttled sweep: find the renderers of the face-down TILE STACKS that mark not-yet-revealed
+    /// rooms and force their translucent materials opaque while MR is on.
+    ///
+    /// HOW THE STACKS ARE IDENTIFIED (read from decompiled source): a hidden room's stand-in is the
+    /// 'Preview' child of a map tile's 'Generated Content' — <c>ProceduralMapTile.ShowContent</c>
+    /// activates exactly that child while <c>visibility</c> is Preview* and swaps it for the full
+    /// room content on reveal (decompiled ProceduralMapTile.cs:148). So "a renderer whose ancestor
+    /// chain contains an ACTIVE node named 'Preview'" is the game's own definition of preview
+    /// content, needs no name guessing about the Apparance-generated leaves (the 'EN_Unseen_…'
+    /// hexes), and automatically stops matching the moment a room is revealed (the node
+    /// deactivates, the renderer leaves the active set).
+    ///
+    /// WHY MATERIAL COPIES AND NOT IN-PLACE EDITS: the preview slabs share game/Apparance-owned
+    /// materials with unknown other users; mutating them would leak MR state into normal rendering
+    /// — the exact class of bug the mutate-and-restore house rule exists to prevent. Each source
+    /// material gets ONE opaque copy (session cache, so shared materials keep being shared), the
+    /// renderer's original sharedMaterials array is recorded verbatim, and restore reassigns it and
+    /// destroys the copies. Only renderers whose material set actually contains a TRANSLUCENT
+    /// member (transparent render queue, or an active alpha blend) are touched — an already-opaque
+    /// stack renderer is skipped, and Lights are never involved at all (renderers only; the
+    /// standing MR constraint "lights must never be hidden" is untouched).
+    ///
+    /// Throttled on the sky sweep's cadence; Apparance re-generates tiles mid-scenario, so the
+    /// re-sweep also catches freshly built preview content. Config safety valve:
+    /// <see cref="OpaquePreviewTiles"/> (default on), restoring live when flipped off.
+    /// </summary>
+    private static void ForcePreviewTilesOpaque()
+    {
+        if (!OpaquePreviewTiles.Value)
+        {
+            if (PreviewOverrides.Count > 0)
+                RestorePreviewTiles();
+            return;
+        }
+        if (Time.frameCount < _previewScanNextFrame)
+            return;
+        _previewScanNextFrame = Time.frameCount + SkyScanIntervalFrames;
+
+        int previewRenderers = 0;
+        Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>(); // active renderers only
+        for (int i = 0; i < all.Length; i++)
+        {
+            Renderer r = all[i];
+            if (r == null || !r.enabled)
+                continue;
+            int layer = r.gameObject.layer;
+            if (layer == VRLayers.ModLayer || layer == 5) // never our own visuals / UI hosts
+                continue;
+            if (!UnderPreviewNode(r.transform))
+                continue;
+            previewRenderers++;
+            if (HasPreviewOverride(r))
+                continue;
+
+            Material[] originals = r.sharedMaterials;
+            if (originals == null || originals.Length == 0)
+                continue;
+            bool anyTranslucent = false;
+            for (int mIdx = 0; mIdx < originals.Length; mIdx++)
+            {
+                if (IsTranslucent(originals[mIdx]))
+                {
+                    anyTranslucent = true;
+                    break;
+                }
+            }
+            if (!anyTranslucent)
+                continue;
+
+            var copies = new Material[originals.Length];
+            for (int mIdx = 0; mIdx < originals.Length; mIdx++)
+            {
+                Material src = originals[mIdx];
+                copies[mIdx] = src != null && IsTranslucent(src) ? OpaqueCopyOf(src) : src!;
+            }
+            r.sharedMaterials = copies;
+            PreviewOverrides.Add(new PreviewOverride { Renderer = r, Originals = originals });
+            VRLog.Info("Core", $"MR: preview tile stack '{r.gameObject.name}' forced OPAQUE " +
+                               $"({originals.Length} material slot(s), shader " +
+                               $"'{ShaderName(r)}') — the undiscovered-room stacks must not " +
+                               "let the passthrough room bleed through.");
+        }
+
+        if (PreviewOverrides.Count != _loggedPreviewCount)
+        {
+            _loggedPreviewCount = PreviewOverrides.Count;
+            VRLog.Info("Core", $"MR: {PreviewOverrides.Count} undiscovered-room stack renderer(s) " +
+                               "hold opaque material copies (originals restored when MR turns off).");
+        }
+
+        // One-shot diagnostic for the next hardware run: preview renderers exist but NONE was
+        // translucent by the material test — then the see-through look has another mechanism
+        // (per-vertex alpha, a dither keyword, …) and this dump names the shaders to chase.
+        if (previewRenderers > 0 && PreviewOverrides.Count == 0 && !_previewDiagLogged)
+        {
+            _previewDiagLogged = true;
+            VRLog.Info("Core", $"MR: {previewRenderers} preview-stack renderer(s) found but none " +
+                               "matched the translucency test — dumping their material state:");
+            int dumped = 0;
+            for (int i = 0; i < all.Length && dumped < 8; i++)
+            {
+                Renderer r = all[i];
+                if (r == null || !r.enabled || !UnderPreviewNode(r.transform))
+                    continue;
+                Material? m = r.sharedMaterial;
+                VRLog.Info("Core", $"MR:   preview '{r.gameObject.name}' shader " +
+                                   $"'{ShaderName(r)}' queue {(m != null ? m.renderQueue : -1)}.");
+                dumped++;
+            }
+        }
+    }
+
+    /// <summary>True when an ACTIVE ancestor named 'Preview' sits above <paramref name="t"/> —
+    /// the node <c>ProceduralMapTile.ShowContent</c> toggles for a hidden room's stand-in stack.
+    /// Depth-capped: the preview content is generated a handful of levels under the tile.</summary>
+    private static bool UnderPreviewNode(Transform t)
+    {
+        Transform? p = t;
+        for (int depth = 0; p != null && depth < 12; depth++)
+        {
+            if (p.name == "Preview")
+                return true;
+            p = p.parent;
+        }
+        return false;
+    }
+
+    /// <summary>Translucency test: a transparent-range render queue, or an active alpha blend
+    /// (DstBlend != Zero). Cutout (AlphaTest ≤ 2500, DstBlend 0) counts as opaque — it does not
+    /// let the key colour through per-pixel, so it needs no forcing.</summary>
+    private static bool IsTranslucent(Material? m)
+    {
+        if (m == null)
+            return false;
+        if (m.renderQueue > 2500)
+            return true;
+        return m.HasProperty("_DstBlend") && m.GetInt("_DstBlend") != 0;
+    }
+
+    /// <summary>The session-cached OPAQUE copy of <paramref name="src"/>: same shader, blend
+    /// forced to One/Zero with depth write, blend keywords off, geometry queue, alpha 1. The
+    /// source material is never written.</summary>
+    private static Material OpaqueCopyOf(Material src)
+    {
+        int id = src.GetInstanceID();
+        if (PreviewOpaqueBySource.TryGetValue(id, out Material cached) && cached != null)
+            return cached;
+
+        var copy = new Material(src) { name = src.name + " (GloomhavenVR.MrOpaque)" };
+        if (copy.HasProperty("_SrcBlend")) copy.SetInt("_SrcBlend", 1);   // One  ┐ colour = src
+        if (copy.HasProperty("_DstBlend")) copy.SetInt("_DstBlend", 0);   // Zero ┘ (opaque)
+        if (copy.HasProperty("_ZWrite")) copy.SetInt("_ZWrite", 1);       // real surface again
+        if (copy.HasProperty("_Mode")) copy.SetFloat("_Mode", 0f);        // Standard: Opaque mode
+        copy.DisableKeyword("_ALPHABLEND_ON");
+        copy.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        copy.SetOverrideTag("RenderType", "Opaque");
+        copy.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+        if (copy.HasProperty("_Color"))
+        {
+            Color c = copy.color;
+            if (c.a < 1f)
+            {
+                c.a = 1f;
+                copy.color = c;
+            }
+        }
+        PreviewOpaqueBySource[id] = copy;
+        return copy;
+    }
+
+    /// <summary>True when <paramref name="r"/> already carries an opaque-copy override.</summary>
+    private static bool HasPreviewOverride(Renderer r)
+    {
+        for (int i = 0; i < PreviewOverrides.Count; i++)
+        {
+            if (ReferenceEquals(PreviewOverrides[i].Renderer, r))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Reassign every recorded original material array and destroy the opaque copies —
+    /// MR off / VR stop / hot reload / the safety valve flipping off. Renderers destroyed by a
+    /// scene unload (Unity fake-null) are simply dropped; their materials died with them.</summary>
+    private static void RestorePreviewTiles()
+    {
+        for (int i = 0; i < PreviewOverrides.Count; i++)
+        {
+            Renderer r = PreviewOverrides[i].Renderer;
+            if (r != null)
+                r.sharedMaterials = PreviewOverrides[i].Originals;
+        }
+        PreviewOverrides.Clear();
+        foreach (KeyValuePair<int, Material> pair in PreviewOpaqueBySource)
+        {
+            if (pair.Value != null)
+                UnityEngine.Object.Destroy(pair.Value);
+        }
+        PreviewOpaqueBySource.Clear();
+        _previewScanNextFrame = 0;
+        _loggedPreviewCount = -1;
+        _previewDiagLogged = false;
+    }
+
     private static void RestoreSky()
     {
         for (int i = 0; i < HiddenSky.Count; i++)
@@ -553,13 +801,17 @@ internal static class MixedReality
         int skyRestored = HiddenSky.Count;
         RestoreSky();
 
+        int previewRestored = PreviewOverrides.Count;
+        RestorePreviewTiles();
+
         bool wasActive = _active;
         _active = false;
         if (wasActive && _loggedActive)
         {
             _loggedActive = false;
-            VRLog.Info("Core", $"Mixed reality OFF — skybox, {restored} camera clear(s) and " +
-                               $"{skyRestored} sky renderer(s) restored to vanilla.");
+            VRLog.Info("Core", $"Mixed reality OFF — skybox, {restored} camera clear(s), " +
+                               $"{skyRestored} sky renderer(s) and {previewRestored} preview-stack " +
+                               "material set(s) restored to vanilla.");
         }
     }
 
@@ -590,5 +842,17 @@ internal static class MixedReality
         _skyScanNextFrame = 0;
         _skyDiagLogged = false;
         _loggedSkyCount = -1;
+
+        // Same for the preview-stack overrides: a renderer the unload destroyed took its material
+        // copies with it — drop the entry, keep the shared copy cache (materials survive unloads
+        // only if we own them, and we do), and let the next MR tick re-sweep the new scene.
+        for (int i = PreviewOverrides.Count - 1; i >= 0; i--)
+        {
+            if (PreviewOverrides[i].Renderer == null)
+                PreviewOverrides.RemoveAt(i);
+        }
+        _previewScanNextFrame = 0;
+        _previewDiagLogged = false;
+        _loggedPreviewCount = -1;
     }
 }
