@@ -146,6 +146,17 @@ internal sealed class ButtonCluster
     /// </summary>
     internal static bool BoardSkipShown { get; private set; }
 
+    /// <summary>
+    /// Multiplayer cap-label read seam (wire record <c>NetProtocol.ExtIdCapLabels</c> bit 1): the
+    /// text the docked SKIP disc currently displays — the game's own live
+    /// <c>SkipButton.buttonText</c> wording ("Bewegen überspringen" / "Angriff überspringen" /
+    /// "Fähigkeit überspringen"), which the cluster already mirrors onto the cap. Null while the
+    /// skip is not shown on the board, so the record is omitted exactly then. Peers render this
+    /// string on their copy's skip cap verbatim (their board, their language — the pick-banner
+    /// rule); the neutral GUI_SKIP_MOVEMENT re-localization is only their no-record fallback.
+    /// </summary>
+    internal static string? BoardSkipLabel { get; private set; }
+
     // Right-column layout state (user #8).
     private bool _dockedNow;
     private float _rootToLocal = 1f / 0.7f; // root-local → cluster-local unit factor (mount carries the 0.7 dock scale)
@@ -172,6 +183,7 @@ internal sealed class ButtonCluster
         {
             SetVisible(false);
             BoardSkipShown = false;
+            BoardSkipLabel = null;
             return;
         }
 
@@ -199,6 +211,7 @@ internal sealed class ButtonCluster
         if (!placed)
         {
             BoardSkipShown = false;
+            BoardSkipLabel = null;
             return;
         }
 
@@ -216,6 +229,13 @@ internal sealed class ButtonCluster
         // Publish the docked Skip's live visibility for the multiplayer board-UI record — the
         // one cluster member a peer's copy of this board draws.
         BoardSkipShown = _dockedNow && _skip.VisibleNow;
+        // The label the shown disc wears, for the cap-labels wire record: the game's own live
+        // SkipButton text (the exact string MirrorSkip just applied). Null while not shown, so
+        // the record's presence tracks the control's.
+        BoardSkipLabel = BoardSkipShown && choreographer.m_SkipButton != null
+                         && choreographer.m_SkipButton.buttonText != null
+            ? choreographer.m_SkipButton.buttonText.text
+            : null;
 
         // User #8: pack whatever is visible into the fixed right-side column, auto-sized
         // from the live count (transient buttons reflow slots only, never the anchor).
@@ -332,6 +352,7 @@ internal sealed class ButtonCluster
         _laserTray = null; // a rebuilt cluster must re-register its laser targets
         _dockedNow = false;
         BoardSkipShown = false;
+        BoardSkipLabel = null;
         _dockLocalFactor = -1f;
         _lastLayoutCount = -1;
         _lastLayoutRadius = 0f;
@@ -953,7 +974,24 @@ internal sealed class ButtonCluster
                 SetState(visible: false, interactable: false, null, null);
                 return;
             }
-            bool visible = real.gameObject.activeInHierarchy;
+            // VISIBILITY IS THE GAME'S OWN, NOT THE GAMEOBJECT'S (MP leak fix, hardware test
+            // 2026-08-04: "der 'Bewegen überspringen'-Button erschien auf MEINEM Board obwohl
+            // mein MITSPIELER die Bewegung ausführte"). The Choreographer toggles m_SkipButton
+            // ACTIVE on EVERY client whenever a PLAYER actor gets a skippable step
+            // (Choreographer.cs:4353 `Toggle(message.m_ActorSpawningMessage.Type ==
+            // CActor.EType.Player, GUI_SKIP_MOVEMENT, …)` — no owner gate); what hides it for
+            // the non-acting players is the per-frame interactability check driving the
+            // CanvasGroup ALPHA to 0 (SkipButton.CheckButtonInteractability →
+            // `ChangeCanvasAlpha(skipButton.interactable && canvasGroup.interactable)`, where
+            // skipButton.interactable requires Choreographer.ThisPlayerHasTurnControl —
+            // ButtonOnBlockingPanel.cs). Vanilla 2D therefore renders NOTHING on the peer's
+            // screen while the flag object is active. Mirroring activeInHierarchy alone is what
+            // put a (dimmed) skip cap on the local board for the PEER's movement — so the mirror
+            // now requires the game's own visibility too, at the game's own threshold (its base
+            // IsInteractable() reads `canvasGroup.alpha > 0.5f`). This also feeds BoardSkipShown,
+            // so the board-UI wire bit stops claiming a skip control the owner cannot see.
+            bool visible = real.gameObject.activeInHierarchy
+                           && real.canvasGroup != null && real.canvasGroup.alpha > 0.5f;
             bool canUse = visible && real.skipButton != null && real.skipButton.interactable && !locked;
             SetState(visible, canUse, real.buttonText != null ? real.buttonText.text : null, null);
         }

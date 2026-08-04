@@ -525,6 +525,34 @@ internal sealed partial class PlayTray
         || (WorldUI.Surfaces.TrayControlDockSurface.ContinueDocked
             && WorldUI.Surfaces.TrayControlDockSurface.ContinueVisible);
 
+    /// <summary>
+    /// The text the SHOWN confirm control currently displays — the multiplayer cap-label read seam
+    /// (wire record <c>NetProtocol.ExtIdCapLabels</c> bit 0). Which control answers follows
+    /// <see cref="ConfirmControlShown"/>'s own precedence: the docked NATIVE Continue widget when
+    /// it is the visible one (its live <c>ReadyButton.buttonText</c> — the 16-state wording the
+    /// game rewrites per flow, e.g. "Fortfahren"), else the mod keycap's current label (which
+    /// TickStatus already drives through the pick overrides / "✓ READY" / ConfirmLabel logic).
+    /// Null while no confirm control is shown, so the wire record is omitted exactly then.
+    /// Peers render this string verbatim on their copy's confirm cap; their neutral GUI_CONFIRM
+    /// re-localization is only the no-record fallback — the fix for the hardware-test report
+    /// "mein Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'".
+    /// </summary>
+    internal string? ConfirmControlLabel
+    {
+        get
+        {
+            if (WorldUI.Surfaces.TrayControlDockSurface.ContinueDocked
+                && WorldUI.Surfaces.TrayControlDockSurface.ContinueVisible)
+            {
+                ReadyButton? native = Choreographer.s_Choreographer != null
+                    ? Choreographer.s_Choreographer.readyButton
+                    : null;
+                return native != null && native.buttonText != null ? native.buttonText.text : null;
+            }
+            return _confirm != null && _confirm.LogicalVisible ? _confirm.CurrentLabel : null;
+        }
+    }
+
     /// <summary>True while an UNDO control is visible on this board (mod keycap or the docked
     /// native Undo widget) — see <see cref="ConfirmControlShown"/>.</summary>
     internal bool UndoControlShown =>
