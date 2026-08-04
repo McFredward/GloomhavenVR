@@ -49,3 +49,32 @@ internal static class FullCardEventPusher_Exit_LaserGeometric
     private static bool Prefix(FullCardEventPusher __instance, PointerEventData eventData) =>
         !HalfSelection.SuppressPusherEvent(__instance, eventData);
 }
+
+/// <summary>
+/// MULTIPLAYER half-hover TAP (extras extension record 14 — user defect 2026-08-04: "Die
+/// Overlay-Auswahl auf Karten beim Hovern ist nicht synchronisiert"): record every half
+/// enter/exit the game itself processes, so the Net sender can name the half OUR pointer is
+/// lighting. <c>FullAbilityCard.OnPointerEnter(bool)</c> is the single funnel BOTH pointer
+/// paths reach — the geometric laser driver calls it directly
+/// (<see cref="HalfSelection.UpdateLaserHighlight"/>) and the fingertip/mouse pusher chain
+/// calls it through <c>FullCardEventPusher</c> — which is exactly why the tap sits here and
+/// not on either input path. POSTFIX + read-only: the game's own guards have already run, and
+/// nothing of the game's behaviour changes with the mod on. The registry keeps a card
+/// REFERENCE only for slot mapping inside <see cref="HalfSelection.TrySampleLocalHover"/>;
+/// no identity ever reaches the wire.
+/// </summary>
+[HarmonyPatch(typeof(FullAbilityCard), nameof(FullAbilityCard.OnPointerEnter))]
+internal static class FullAbilityCard_Enter_HalfHoverSync
+{
+    private static void Postfix(FullAbilityCard __instance, bool isTopAbility) =>
+        HalfSelection.NoteGameHover(__instance, isTopAbility, active: true);
+}
+
+/// <summary>Exit twin of <see cref="FullAbilityCard_Enter_HalfHoverSync"/> — clears the
+/// registry entry (match-gated inside, so an out-of-order exit cannot wipe a fresh hover).</summary>
+[HarmonyPatch(typeof(FullAbilityCard), nameof(FullAbilityCard.OnPointerExit))]
+internal static class FullAbilityCard_Exit_HalfHoverSync
+{
+    private static void Postfix(FullAbilityCard __instance, bool isTopAbility) =>
+        HalfSelection.NoteGameHover(__instance, isTopAbility, active: false);
+}

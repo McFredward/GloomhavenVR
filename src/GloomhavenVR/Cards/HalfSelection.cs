@@ -71,10 +71,12 @@ internal sealed class HalfSelection
     // Half-zone geometry in CARD-LOCAL units (fractions of card width/height). Shared by
     // the poke zone colliders (ArmCard) AND the laser's geometric half resolve
     // (UpdateLaserHighlight) so the two affordances can never disagree about where a
-    // half begins.
-    private const float ZoneCenterYFrac = 0.27f;
-    private const float ZoneWidthFrac = 0.96f;
-    private const float ZoneHeightFrac = 0.42f;
+    // half begins. INTERNAL (not private) since the half-hover MP sync: the remote board's
+    // hover glow (Net.RemoteBoardCard) draws the peer's lit half with these same fractions,
+    // so the glowed region on a mirrored card is the region the owner's pointer is in.
+    internal const float ZoneCenterYFrac = 0.27f;
+    internal const float ZoneWidthFrac = 0.96f;
+    internal const float ZoneHeightFrac = 0.42f;
 
     private readonly List<VRCard> _cards = new(4);
     private readonly Dictionary<VRCard, ZoneSet> _zones = new(4);
@@ -496,6 +498,71 @@ internal sealed class HalfSelection
             return true;
         }
         return Mathf.Abs(local.y + centerY) <= halfH; // bottom zone (top stays false)
+    }
+
+    // ------------------------------------------------- multiplayer half-hover sample --
+    // The LIT HALF, published for NetAvatarDriver's extras sender (extension record 14 — user
+    // defect 2026-08-04: "Die Overlay-Auswahl auf Karten beim Hovern ist nicht synchronisiert").
+    //
+    // FED FROM THE GAME'S OWN HOVER CALLS, not from this class's laser state alone: BOTH pointer
+    // paths end in FullAbilityCard.OnPointerEnter/OnPointerExit — the geometric laser resolve
+    // above calls them directly, and the fingertip's uGUI pusher chain
+    // (FullCardEventPusher.OnPointerEnter -> _target.OnPointerEnter) does too — so one postfix
+    // pair (Patches.HalfHoverPatches) covers laser, fingertip and even a desktop mouse. The
+    // registry stores the raw game card; the SLOT mapping happens at sample time against the
+    // live docked list, so a stale entry (card left the layout mid-hover, missed exit) simply
+    // stops matching and reads as "no hover".
+
+    /// <summary>The game card whose half the pointer is on (per the game's own enter/exit calls);
+    /// null = none. Unity-object field, so destruction reads as null at the sample site.</summary>
+    private static FullAbilityCard? s_gameHoverFull;
+
+    /// <summary>True = the lit half is the TOP action (valid while <see cref="s_gameHoverFull"/>).</summary>
+    private static bool s_gameHoverTop;
+
+    /// <summary>Record a <c>FullAbilityCard.OnPointerEnter/Exit</c> edge (Harmony postfix —
+    /// <c>Patches.HalfHoverPatches</c>). Exits only clear a matching entry, so an out-of-order
+    /// exit from a previous card cannot wipe a fresh hover.</summary>
+    internal static void NoteGameHover(FullAbilityCard? full, bool top, bool active)
+    {
+        if (full == null)
+            return;
+        if (active)
+        {
+            s_gameHoverFull = full;
+            s_gameHoverTop = top;
+        }
+        else if (ReferenceEquals(s_gameHoverFull, full) && s_gameHoverTop == top)
+        {
+            s_gameHoverFull = null;
+        }
+    }
+
+    /// <summary>
+    /// Which docked round card's half the local pointer is lighting RIGHT NOW: the board SLOT
+    /// index (0 = left recess, 1 = right — <see cref="SetCards"/> docks card i into slot i, the
+    /// same indices the wire's occupancy nibble uses) and the half. False while the
+    /// action-selection layout is hidden or nothing is lit. A POSITION only — the card itself
+    /// never leaves this method.
+    /// </summary>
+    internal static bool TrySampleLocalHover(out int slot, out bool top)
+    {
+        slot = 0;
+        top = false;
+        HalfSelection? self = s_active;
+        FullAbilityCard? full = s_gameHoverFull;
+        if (self == null || !self.IsVisible || full == null)
+            return false;
+        for (int i = 0; i < self._cards.Count; i++)
+        {
+            VRCard card = self._cards[i];
+            if (card == null || !ReferenceEquals(card.FullCard, full))
+                continue;
+            slot = i;
+            top = s_gameHoverTop;
+            return true;
+        }
+        return false; // stale registry entry (card left the layout) — reads as "no hover"
     }
 
     internal void RequestPlay(VRCard card, CBaseCard.ActionType type)

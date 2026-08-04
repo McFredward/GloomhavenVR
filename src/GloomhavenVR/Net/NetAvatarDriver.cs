@@ -108,6 +108,26 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // send site) and the confirmation log fires once per CHANGE. int.MinValue = never sent.
     private int _lastSentHighlight = int.MinValue;
 
+    // PILE COUNTS (extension record 15, user defect "die Stapel-Zahlen müssen sofort
+    // synchronisiert werden"): the last broadcast (discard | burnt<<8 | items<<16, -1 = stacks
+    // hidden). A COUNT CHANGE pre-empts the 5 Hz gate OUTRIGHT — a discard is a discrete,
+    // human-paced event and "sofort" is the requirement; it can never become a stream.
+    // int.MinValue = never sent.
+    private int _lastSentPileCounts = int.MinValue;
+
+    // HALF HOVER (extension record 14): the last broadcast (slot | top<<8, -1 = none), so the
+    // hover moving between halves pre-empts the 5 Hz gate (capped at the rig interval — a laser
+    // can flick between halves several times a second) and the log fires once per CHANGE.
+    // int.MinValue = never sent.
+    private int _lastSentHalfHover = int.MinValue;
+
+    // TRACK HOVER (extension record 16): the last broadcast (actorId, with bit 31 abused is not
+    // safe — the popup flag is tracked alongside in the bool), -1 = none. Same capped pre-emption
+    // as the half hover: a laser can sweep the whole track in under a second. int.MinValue =
+    // never sent.
+    private int _lastSentTrackHoverActor = int.MinValue;
+    private bool _lastSentTrackHoverPopup;
+
     // BOARD POSE MOTION (defect 7 "Bewegen kommt nicht flüssig an"): the last SENT board pose in
     // the shared anchor frame. While the pose is CHANGING (the owner drags/scales their board),
     // extras go out at the RIG rate (SendRateHz, 15 Hz) instead of the idle 5 Hz — the receiver's
@@ -584,6 +604,45 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool highlightChanged = highlightNow != _lastSentHighlight;
         bool highlightDue = highlightChanged && _extrasAccumulator >= fastInterval;
 
+        // PILE COUNTS (extension record 15, user defect "die Stapel-Zahlen müssen sofort
+        // synchronisiert werden"): the numbers OUR OWN three stack labels display right now,
+        // read off the seam the renderer itself publishes (PileViewer.CurrentCounts — the
+        // rendered values, not a second model derivation, so the wire state is the displayed
+        // state by construction). Null = the stacks are hidden / no hand presented ⇒ record
+        // absent ⇒ receivers keep their legacy model-read counts, exactly like a pre-record
+        // sender. A change pre-empts the 5 Hz gate OUTRIGHT: discards are discrete, human-paced
+        // events and the requirement is "sofort".
+        (int discard, int burnt, int items)? pileCountsNow = PileViewer.CurrentCounts;
+        int pileCountsKey = pileCountsNow.HasValue
+            ? (Mathf.Clamp(pileCountsNow.Value.discard, 0, 255)
+               | Mathf.Clamp(pileCountsNow.Value.burnt, 0, 255) << 8
+               | Mathf.Clamp(pileCountsNow.Value.items, 0, 255) << 16)
+            : -1;
+        bool pileCountsChanged = pileCountsKey != _lastSentPileCounts;
+
+        // HALF HOVER (extension record 14, user defect "die Overlay-Auswahl beim Hovern in der
+        // Aktionsauswahl ist nicht synchronisiert"): which docked round card's action half OUR
+        // pointer is on, sampled off the same registry the local overlay is driven from
+        // (HalfSelection — fed by FullAbilityCard.OnPointerEnter/Exit, which BOTH pointer paths
+        // call: the geometric laser resolve and the fingertip's uGUI pusher chain). A slot + a
+        // half, never a card. Same capped pre-emption as the card highlight: the beam can flick
+        // between halves several times a second.
+        bool halfHover = HalfSelection.TrySampleLocalHover(out int halfSlot, out bool halfTop);
+        int halfHoverNow = halfHover ? (halfSlot | (halfTop ? 1 << 8 : 0)) : -1;
+        bool halfHoverChanged = halfHoverNow != _lastSentHalfHover;
+        bool halfHoverDue = halfHoverChanged && _extrasAccumulator >= fastInterval;
+
+        // TRACK HOVER (extension record 16, user defect "die Mouseover der Initiativreihenfolge
+        // sind nicht synchronisiert"): which initiative-track entry OUR pointer is on (stable
+        // CActor.ID — the display order is per-client, see the record doc) plus whether its info
+        // popup is open. Same capped pre-emption: a laser can sweep the whole track in under a
+        // second.
+        bool trackHover = InitiativeHoverSampler.TrySample(out int trackActorId, out bool trackPopup);
+        int trackHoverActorNow = trackHover ? trackActorId : -1;
+        bool trackHoverChanged = trackHoverActorNow != _lastSentTrackHoverActor
+                                 || (trackHover && trackPopup != _lastSentTrackHoverPopup);
+        bool trackHoverDue = trackHoverChanged && _extrasAccumulator >= fastInterval;
+
         // SECOND HELD FIGURE (extension record 8): the mini in the player's OTHER hand. Sampled
         // BEFORE the rate gate so it can pre-empt it, and converted to the shared anchor frame here
         // (once) so the change test compares the very bytes that go on the wire.
@@ -656,7 +715,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
-            && !tooltipChanged)
+            && !tooltipChanged && !pileCountsChanged && !halfHoverDue && !trackHoverDue)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -838,6 +897,68 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                     "peers lift the same card and split its neighbours apart."
                                   : "nothing lifted, record omitted (peers render flat fans)."));
         }
+        // PILE COUNTS (extension record 15): written on every packet while our stacks are
+        // displayed — "present with zeros" must stay distinguishable from "pre-record sender"
+        // (see the record doc). The values are the RENDERED ones; the receiver prefers them over
+        // its own (session-proven laggy) model read.
+        if (pileCountsNow.HasValue)
+        {
+            extras.HasPileCounts = true;
+            extras.PileDiscardCount = (byte)Mathf.Clamp(pileCountsNow.Value.discard, 0, 255);
+            extras.PileBurntCount = (byte)Mathf.Clamp(pileCountsNow.Value.burnt, 0, 255);
+            extras.PileItemsCount = (byte)Mathf.Clamp(pileCountsNow.Value.items, 0, 255);
+        }
+        if (pileCountsChanged)
+        {
+            _lastSentPileCounts = pileCountsKey;
+            VRLog.Info("Net", pileCountsNow.HasValue
+                ? $"Pile counts SENT: discard={pileCountsNow.Value.discard}, " +
+                  $"burnt={pileCountsNow.Value.burnt}, items={pileCountsNow.Value.items} — " +
+                  "extension record 15 (3 B, the numbers our own stack labels display; public " +
+                  "info, no identity). The change PRE-EMPTED the extras gate, so peers' boards " +
+                  "update immediately instead of waiting for their model to replay the turn."
+                : "Pile counts SENT: stacks hidden — record omitted (peers fall back to their " +
+                  "model-read counts).");
+        }
+
+        // HALF HOVER (extension record 14): written only while a half really is lit — "absent"
+        // and "nothing lit" render identically, so an idle packet stays byte-identical.
+        if (halfHover)
+        {
+            extras.HasHalfHover = true;
+            extras.HalfHoverSlot = (byte)Mathf.Clamp(halfSlot, 0, NetProtocol.BoardUiSlotCount - 1);
+            extras.HalfHoverTop = halfTop;
+        }
+        if (halfHoverChanged)
+        {
+            _lastSentHalfHover = halfHoverNow;
+            VRLog.Info("Net", halfHover
+                ? $"Half hover SENT: slot {halfSlot + 1}, {(halfTop ? "TOP" : "BOTTOM")} half — " +
+                  "extension record 14 (1 B: a slot POSITION and a half, no card identity); " +
+                  "peers glow the same half of the same docked round card."
+                : "Half hover SENT: none — record omitted (peers clear the glow).");
+        }
+
+        // TRACK HOVER (extension record 16): written only while an entry really is hovered.
+        if (trackHover)
+        {
+            extras.HasTrackHover = true;
+            extras.TrackHoverActorId = trackActorId;
+            extras.TrackHoverPopup = trackPopup;
+        }
+        if (trackHoverChanged)
+        {
+            _lastSentTrackHoverActor = trackHoverActorNow;
+            _lastSentTrackHoverPopup = trackHover && trackPopup;
+            VRLog.Info("Net", trackHover
+                ? $"Track hover SENT: actor {trackActorId}, popup {(trackPopup ? "OPEN" : "closed")} — " +
+                  "extension record 16 (5 B: stable actor id — the track's display order is " +
+                  "per-client — plus the popup flag; the popup CONTENT is the receiver's own " +
+                  "copy of the public track widget). Peers show this hover on OUR mirrored " +
+                  "track only."
+                : "Track hover SENT: none — record omitted (peers render our track un-hovered).");
+        }
+
         // HEAD-MASK SIZE, riding the SAME trailing block (byte A bit 4 + one trailing byte — the
         // reserved-bit extension path both flag bytes' exhaustion forces us onto, see NetProtocol).
         // Sent ONLY when it differs from the default: absence already means "1.00x" to every

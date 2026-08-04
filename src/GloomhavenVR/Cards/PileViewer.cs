@@ -250,6 +250,7 @@ internal sealed class PileViewer
 
     internal void Destroy()
     {
+        CurrentCounts = null; // a torn-down viewer displays nothing — the wire must not claim it does
         if (_locHooked)
         {
             Core.Loc.OnChanged -= RefreshLabels;
@@ -288,9 +289,15 @@ internal sealed class PileViewer
     {
         _hand = hand;
         if (_discard == null || _burnt == null || hand == null)
+        {
+            CurrentCounts = null; // nothing displayed ⇒ nothing for the wire to claim
             return;
+        }
         if (!_discard.gameObject.activeSelf)
+        {
+            CurrentCounts = null;
             return; // hidden ([Cards] PileViewer off / no hand) — no counts, no logs
+        }
         int discard = CardsGameApi.DiscardedCount(hand);
         int burnt = CardsGameApi.BurntCount(hand);
         if (_loggedCounts != (discard, burnt))
@@ -313,7 +320,25 @@ internal sealed class PileViewer
         }
         _itemsBrowse.Tick(hand);
         TickItemsUsableHighlight(hand, items);
+
+        // MULTIPLAYER seam (extras extension record 15): the numbers this board is DISPLAYING
+        // right now, published for NetAvatarDriver's extras sender. Deliberately the RENDERED
+        // values and not a second model read — "was der User auch sieht" is the standing MP rule,
+        // and these three ints are, by construction, exactly what the owner's three stack labels
+        // show this frame. Null while the stacks are hidden / no hand is presented, which the
+        // sender turns into "record absent" ⇒ receivers fall back to their own model read.
+        CurrentCounts = (discard, burnt, items);
     }
+
+    /// <summary>
+    /// The pile counts the LOCAL board's three stacks are displaying right now
+    /// (discard / burnt / items), or null while none are shown. THE sender-side source of extras
+    /// extension record 15 — see <see cref="TickStatus"/> for why it publishes the rendered
+    /// values rather than re-deriving them. Static for the same reason <c>PileBrowser.Current</c>
+    /// is: the viewer instance is a private of CardsDriver and the Net layer must not thread
+    /// through it.
+    /// </summary>
+    internal static (int discard, int burnt, int items)? CurrentCounts { get; private set; }
 
     /// <summary>
     /// USABLE-HIGHLIGHT on the CLOSED items stack: drift soft gold embers off the "Gegenstände" stack

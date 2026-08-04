@@ -442,6 +442,18 @@ internal sealed class RemoteControlBoard
         // so the slot can find that player's own card widget to clone — it is never written to.
         SeatSlots(actor, showFronts);
 
+        // HALF HOVER (extension record 14): glow the action half the OWNER's pointer is on, on
+        // the same slot card of this mirrored board — per frame (the drive is two change-gated
+        // calls) so the glow lands with the synced edge, not on the 4 Hz content cadence.
+        // Rendered whether the slot shows a face, an identity-known back or an anonymous back:
+        // the owner is hovering a REGION of their board, and that region exists here in all
+        // three states. An empty slot cannot glow (the quads live under the slot's hidden root).
+        for (int s = 0; s < SlotCount; s++)
+            _cards[s]?.SetHalfHover(_owner.HalfHoverSlot == s
+                ? (_owner.HalfHoverTop ? 1 : 0)
+                : -1);
+        LogHalfHoverIfChanged();
+
         _tag!.Tick();
 
         // Content (objectives / elements / round / initiative / rest / pile counts / active cards)
@@ -487,6 +499,15 @@ internal sealed class RemoteControlBoard
             // passed through unchanged and the join-time board gets its snap glow like any other.
             _furniture?.Refresh(null, _owner, showFronts: false,
                 _slotOccupiedMask, faceMask: 0);
+            // Pile counts are wire-fed too (extension record 15), so an ACTORLESS peer's stacks
+            // can already show the owner's real numbers — before this the actor path was the
+            // only writer and a join-time board stood at 0/0/0 regardless.
+            if (_owner.HasPileCounts)
+            {
+                _piles[0]?.Set(_owner.PileDiscardCount);
+                _piles[1]?.Set(_owner.PileBurntCount);
+                _piles[2]?.Set(_owner.PileItemsCount);
+            }
         }
         catch (System.Exception e)
         {
@@ -518,17 +539,33 @@ internal sealed class RemoteControlBoard
             // anything the board does not already show.
             _furniture?.Refresh(actor, _owner, showFronts, _slotOccupiedMask, _slotFaceMask);
 
-            // Pile counts — the SAME reads CardsGameApi.DiscardedCount/BurntCount and
-            // ItemsPile.Count make for the local board, against this actor instead of the local
-            // hand. PUBLIC information: vanilla lets anyone open ANY player's full card overview
-            // from the initiative track (InitiativeTrackPlayerAvatar.OnClick →
-            // CardsHandManager.ToggleViewAllCards), so a count on a stack reveals nothing new and
-            // needs no reveal gate.
-            CCharacterClass cc = actor.CharacterClass;
-            int discard = cc != null ? cc.DiscardedAbilityCards.Count : 0;
-            int burnt = cc != null ? cc.LostAbilityCards.Count + cc.PermanentlyLostAbilityCards.Count : 0;
-            CInventory? inv = actor.Inventory;
-            int items = inv?.AllItems != null ? inv.AllItems.Count : 0;
+            // Pile counts. PREFERRED SOURCE since the count-lag defect (hardware MP test
+            // 2026-08-04, 'ABGEWORFEN 0' standing while the owner's board read 2): the OWNER's
+            // OWN displayed numbers, off the wire (extension record 15) — the session logs
+            // proved the model read below lags a whole choreographer turn on observers (the
+            // owner's model applies their action immediately; ours re-derives it only as the
+            // turn plays back). FALLBACK for pre-record senders (and senders whose stacks are
+            // hidden): the legacy model read — the SAME reads CardsGameApi.DiscardedCount/
+            // BurntCount and ItemsPile.Count make for the local board, against this actor.
+            // PUBLIC information either way: vanilla lets anyone open ANY player's full card
+            // overview from the initiative track (InitiativeTrackPlayerAvatar.OnClick →
+            // CardsHandManager.ToggleViewAllCards), so a count on a stack reveals nothing new
+            // and needs no reveal gate.
+            int discard, burnt, items;
+            if (_owner.HasPileCounts)
+            {
+                discard = _owner.PileDiscardCount;
+                burnt = _owner.PileBurntCount;
+                items = _owner.PileItemsCount;
+            }
+            else
+            {
+                CCharacterClass cc = actor.CharacterClass;
+                discard = cc != null ? cc.DiscardedAbilityCards.Count : 0;
+                burnt = cc != null ? cc.LostAbilityCards.Count + cc.PermanentlyLostAbilityCards.Count : 0;
+                CInventory? inv = actor.Inventory;
+                items = inv?.AllItems != null ? inv.AllItems.Count : 0;
+            }
             _piles[0]?.Set(discard);
             _piles[1]?.Set(burnt);
             _piles[2]?.Set(items);
@@ -539,6 +576,30 @@ internal sealed class RemoteControlBoard
         {
             VRLog.Warn("Net", $"Remote board [{_owner.PlayerId}] content refresh failed: {e.Message}");
         }
+    }
+
+    /// <summary>Last stated half-hover (slot | top&lt;&lt;8, -1 none; int.MinValue never) — the
+    /// change gate for the render-path evidence line below.</summary>
+    private int _loggedHalfHover = int.MinValue;
+
+    /// <summary>Change-gated evidence that the synced half hover reached the render path
+    /// (grep: "Remote board half-hover").</summary>
+    private void LogHalfHoverIfChanged()
+    {
+        int now = _owner.HalfHoverSlot >= 0
+            ? _owner.HalfHoverSlot | (_owner.HalfHoverTop ? 1 << 8 : 0)
+            : -1;
+        if (now == _loggedHalfHover)
+            return;
+        _loggedHalfHover = now;
+        VRLog.Info("Net", $"Remote board half-hover [{_owner.PlayerId}]: " +
+                          (now >= 0
+                              ? $"slot {_owner.HalfHoverSlot + 1}, " +
+                                $"{(_owner.HalfHoverTop ? "TOP" : "BOTTOM")} half glows " +
+                                "(extension record 14 — a slot position and a half, no card " +
+                                "identity; the shared telegraph gold over the zone the owner's " +
+                                "pointer is in)."
+                              : "none (glow cleared)."));
     }
 
     /// <summary>
@@ -597,7 +658,8 @@ internal sealed class RemoteControlBoard
                       $"round='{(_status != null ? _status.RoundText : "-")}', " +
                       $"initiative={(_status != null ? _status.InitiativeText : "?")}, " +
                       $"rest='{(_status != null ? _status.RestText : string.Empty)}', " +
-                      $"piles d/b/i={discard}/{burnt}/{items}, " +
+                      $"piles d/b/i={discard}/{burnt}/{items}" +
+                      $"{(_owner.HasPileCounts ? "(synced)" : "(model)")}, " +
                       $"round-card faces={slots}, " +
                       $"slot-occupancy={(_owner.SlotOccupancyKnown ? "0x" + _owner.BoardSlotMask.ToString("X1") + "(synced)" : "model-only")}, " +
                       $"active={(_active != null ? _active.Count : 0)} card(s) " +
