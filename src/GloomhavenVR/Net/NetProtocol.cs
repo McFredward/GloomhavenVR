@@ -831,6 +831,54 @@ internal static class NetProtocol
     /// wire). Must stay well under the 255-byte TLV length ceiling.</summary>
     public const int TooltipTextMaxBytes = 192;
 
+    /// <summary>
+    /// Extension record id: the sender's SECOND held card — the card-back slab for the card in
+    /// their OTHER hand. 20 bytes: the shared pose encoding (pos 3 x f32 LE + quantized quat),
+    /// nothing else. POSE ONLY, never an identity — peers render an anonymous card BACK, the
+    /// standing rule of this wire.
+    ///
+    /// <para>THE COMPROMISE IT REMOVES (user ruling 2026-08-04: "Alles soll synchronisiert
+    /// werden - auch die Karten in der jeweiligen Hand. Wenn Karten in beiden Haenden sind, soll
+    /// das auch synchronisiert werden!"). Since the both-hands card ruling either hand can
+    /// physically hold a card — hand-to-hand transfer, gate hand allowed on all cards — but the
+    /// rig packet's <see cref="FlagHeldCard"/> block carries exactly ONE 20-byte pose and the rig
+    /// flag byte is FULL (see the note at <see cref="FlagHeldCard"/>), so the sampler
+    /// deterministically preferred the LEFT hand and the right hand's card was invisible to
+    /// peers. That documented compromise is now rejected: the rig packet keeps carrying exactly
+    /// what it always carried (the sampler's left-first preference, byte-unchanged for every
+    /// old reader), and THIS record carries the other hand's card.</para>
+    ///
+    /// <para>WHY THERE IS NO HAND BYTE, unlike <see cref="ExtIdSecondFigure"/>: the receiver
+    /// does not parent the slab to a hand. <c>RemoteAvatar.UpdateHeldCard</c> places the held-card
+    /// slab at the ABSOLUTE transmitted world pose (a holder under the avatar root, driven by
+    /// <c>UpdatePart</c> from the wire pose) and then re-derives its rotation by billboarding to
+    /// the sender's synced head — a hand transform is never consulted, so a hand id would be a
+    /// dead byte. The second-figure record needed its hand bits because <c>NetFigures</c> DOES
+    /// attach real board minis to hands and had to reject a contradictory pair; no such
+    /// contradiction is expressible for a slab rendered at an absolute pose. Which hand LOOKS
+    /// occupied is already told by the finger curls and the ghost-sides mask that ride the wire
+    /// anyway.</para>
+    ///
+    /// <para>POSE RATE: same argument, same mechanism as <see cref="ExtIdSecondFigure"/> (read
+    /// its doc for the full cadence argument) — while the second card is held and moving the
+    /// sender promotes the whole extras packet to the rig rate (<see cref="SendRateHz"/>), so
+    /// both cards stream at the same 15 Hz and are eased by the same
+    /// <see cref="InterpolationSharpness"/>; identical sample density plus identical easing is
+    /// identical motion by construction. Grab and release are EDGES that pre-empt the send gate
+    /// outright.</para>
+    ///
+    /// <para>Written ONLY while TWO cards are physically held (one per hand), so a one-card hold
+    /// — and an idle player — emits the exact bytes build 49 emitted. Older peers step over the
+    /// record by its length and keep showing the one slab they always showed. ADDITIVE TLV
+    /// exactly like every record before it.</para>
+    /// </summary>
+    public const byte ExtIdSecondHeldCard = 10;
+
+    /// <summary>Payload length of <see cref="ExtIdSecondHeldCard"/>: the shared 20-byte pose
+    /// (pos 12 + quantized quat 8), nothing else. A reader requires at least this much before it
+    /// trusts the record.</summary>
+    public const int SecondHeldCardRecordBytes = 20;
+
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>
     public const byte CardHighlightNone = 0xFF;

@@ -137,6 +137,22 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private Quaternion _lastSentSecondRot = Quaternion.identity;
     private bool _loggedSecondFigure;
 
+    // SECOND HELD CARD (user ruling: "Alles soll synchronisiert werden - auch die Karten in der
+    // jeweiligen Hand. Wenn Karten in beiden Haenden sind, soll das auch synchronisiert werden!").
+    // The card in the player's OTHER hand rides extension record 10 on THIS packet and gets the
+    // SAME treatment the second figure above gets, for the same reason and through the same
+    // mechanism: while it moves, extras go out at the RIG rate (SendRateHz), so the second card is
+    // streamed at exactly the cadence the first one gets in the rig packet's FlagHeldCard block
+    // and the receiver's identical easing then produces identical motion. Grab and release are
+    // EDGES that pre-empt the gate outright, so the second slab appears and vanishes with the
+    // gesture rather than up to an extras interval later. A perfectly still second card falls
+    // back to the idle 5 Hz — nothing moves, so nothing is observable there.
+    // _sentSecondCardValid false = nothing sent yet this session.
+    private bool _sentSecondCardValid;
+    private Vector3 _lastSentSecondCardPos;
+    private Quaternion _lastSentSecondCardRot = Quaternion.identity;
+    private bool _loggedSecondCard;
+
     private readonly Dictionary<int, RemoteAvatar> _avatars = new();
     // Latest world-frame state per sender, awaiting apply on the next Update (dedup: only the
     // newest matters for an unreliable stream).
@@ -248,6 +264,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
+        _sentSecondCardValid = false;   // nor its second held card
         // Version handshake is session state; badges are reversible game-UI decoration — both
         // must not survive a driver teardown (hot reload / module shutdown).
         VersionGuard.Reset();
@@ -607,6 +624,27 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 || Quaternion.Angle(secondRot, _lastSentSecondRot) > 0.05f);
         bool secondDue = secondMoving && _extrasAccumulator >= fastInterval;
 
+        // SECOND HELD CARD (extension record 10): the card in the player's OTHER hand, present
+        // only while BOTH hands hold one — the rig packet's FlagHeldCard slot keeps carrying the
+        // sampler's unchanged left-first pick, so this is deterministically the RIGHT hand's card.
+        // Sampled BEFORE the rate gate so it can pre-empt it, and converted to the shared anchor
+        // frame here (once) so the change test compares the very bytes that go on the wire. Same
+        // edge/motion treatment as the second figure above: grab/release pre-empt outright, and
+        // while the card moves the whole extras packet rides at the rig rate so both held cards
+        // stream at the same cadence.
+        bool secondCard = LocalRigSampler.TrySampleSecondHeldCard(
+            out Vector3 secondCardWorldPos, out Quaternion secondCardWorldRot);
+        Vector3 secondCardPos = default;
+        Quaternion secondCardRot = Quaternion.identity;
+        if (secondCard)
+            _anchor.ToAnchor(secondCardWorldPos, secondCardWorldRot,
+                             out secondCardPos, out secondCardRot);
+        bool secondCardChanged = secondCard != _sentSecondCardValid;
+        bool secondCardMoving = secondCard && _sentSecondCardValid
+            && ((secondCardPos - _lastSentSecondCardPos).sqrMagnitude > 1e-8f
+                || Quaternion.Angle(secondCardRot, _lastSentSecondCardRot) > 0.05f);
+        bool secondCardDue = secondCardMoving && _extrasAccumulator >= fastInterval;
+
         // BOARD TOOLTIP (extension record 9): the text of the board-owned tooltip the owner is
         // reading, ALREADY identity-gated by WorldTooltips (only content public to peers ever
         // reaches this read — see NetProtocol.ExtIdBoardTooltip). Sampled before the rate gate so
@@ -617,7 +655,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !highlightDue
-            && !secondChanged && !secondDue && !tooltipChanged)
+            && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
+            && !tooltipChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -929,6 +968,39 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentSecondPos = secondPos;
         _lastSentSecondRot = secondRot;
 
+        // SECOND HELD CARD (extension record 10): the card in the player's OTHER hand — pose
+        // only, no hand byte (the receiver renders the slab at the absolute pose, never parented
+        // to a hand) and no identity, ever. Written only while BOTH hands really hold a card, so
+        // a one-card hold — and every idle player — emits the exact bytes build 49 emitted.
+        if (secondCard)
+        {
+            extras.HasSecondHeldCard = true;
+            extras.SecondHeldCardPose.Position = secondCardPos;
+            extras.SecondHeldCardPose.Rotation = secondCardRot;
+        }
+        if (secondCardChanged)
+        {
+            if (secondCard)
+            {
+                VRLog.Info("Net", "Second held card SENT: BOTH hands hold a card — the rig packet " +
+                                  "keeps the LEFT hand's card (FlagHeldCard, unchanged), the RIGHT " +
+                                  "hand's rides extension record 10 (20 B: pose only, back slab on " +
+                                  "peers, no identity). While it moves the extras packet rides at " +
+                                  $"{NetProtocol.SendRateHz:0} Hz, the SAME cadence the first card " +
+                                  "gets, so peers see both slabs move alike.");
+                _loggedSecondCard = true;
+            }
+            else if (_loggedSecondCard)
+            {
+                _loggedSecondCard = false;
+                VRLog.Info("Net", "Second held card SENT: released — record omitted; peers drop " +
+                                  "that slab, and the card still in the other hand is untouched.");
+            }
+        }
+        _sentSecondCardValid = secondCard;
+        _lastSentSecondCardPos = secondCardPos;
+        _lastSentSecondCardRot = secondCardRot;
+
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
         // breaking the "only when non-default" rule the other records follow — its ABSENCE is
         // the signal (peers without it read as pre-handshake ModBuild 0 = mismatch), so there
@@ -1239,6 +1311,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                             out Vector3 fp, out Quaternion fr);
             p.SecondFigurePose.Position = fp;
             p.SecondFigurePose.Rotation = fr;
+        }
+        // The second held card's pose is a SHARED-FRAME pose exactly like the rig packet's held
+        // card, so it converts here for the same reason: RemoteAvatar is world-only.
+        if (p.HasSecondHeldCard)
+        {
+            _anchor.ToWorld(p.SecondHeldCardPose.Position, p.SecondHeldCardPose.Rotation,
+                            out Vector3 cp, out Quaternion cr);
+            p.SecondHeldCardPose.Position = cp;
+            p.SecondHeldCardPose.Rotation = cr;
         }
     }
 }
