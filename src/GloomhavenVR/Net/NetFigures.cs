@@ -41,11 +41,28 @@ namespace GloomhavenVR.Net;
 /// releases exactly that one — and both are torn down together when the peer goes stale or leaves.
 /// </para>
 ///
-/// The stable id is <see cref="CActor.ID"/> — the game's OWN networked actor identifier (player =
-/// <c>CharacterClass.ModelInstanceID</c>, enemy / summon = <c>StandeeID</c>), identical on every
-/// client for the same figure (it is what the game keys networked card / actor actions by, e.g.
-/// <c>CardsHandManager.GetHand(int actorID)</c> / <c>GameAction.ActorID</c>). Works for heroes AND
-/// monsters. Everything is a strict no-op offline / single-player (nothing is ever sampled unless a
+/// The stable id is a 32-bit FNV-1a hash of <see cref="CActor.ActorGuid"/> — the game's OWN
+/// replicated per-actor GUID, stamped in the <c>CActor</c> constructor, serialized in every actor
+/// state and used by the game itself as its cross-machine actor reference (e.g.
+/// <c>EnemyState.ActorGuid</c>, <c>KilledByActorGuid</c> lookups over
+/// <c>Scenario.AllActors</c>). Both ends of the wire derive the hash from the same replicated
+/// string, so it is identical on every client for the same figure — heroes, monsters AND summons.
+///
+/// WHY NOT <see cref="CActor.ID"/>, which earlier builds sent (hardware MP defect: "wenn ein
+/// Spieler eine BESCHWORENE Figur in die Hand nimmt, synct das falsch — man sieht eine zufällige
+/// ANDERE Figur in seiner Hand"). <c>CActor.ID</c> is only unique WITHIN a class: for enemies and
+/// hero summons it returns <c>StandeeID</c>, which every monster/summon class allocates from its
+/// OWN 1..StandeeLimit pool (<c>CMonsterClass.ResetEnemyStandeeIDs</c> /
+/// <c>CHeroSummonClass.ResetHeroSummonStandeeIDs</c>, both counting from 1). So a summon with
+/// standee 1 collides with EVERY monster class's standee 1, and the receive-side id→figure lookup
+/// (last write wins) routinely resolved a held summon to some unrelated monster — the "random
+/// other figure in their hand". The per-actor GUID has no such per-class scoping. The 32-bit hash
+/// keeps the existing wire layout byte-for-byte (rig held-figure block and extras record 8 both
+/// carry a 4-byte id); a hash collision across the ≤ dozens of live figures of a scenario is
+/// negligible and at worst cosmetic. Actors without a GUID (defensive — the ctor always stamps
+/// one) fall back to the legacy <c>CActor.ID</c>.
+///
+/// Everything is a strict no-op offline / single-player (nothing is ever sampled unless a
 /// figure is locally held, and no remote figure is driven unless a modded VR peer reports one).
 /// </summary>
 internal static class NetFigures
@@ -319,14 +336,27 @@ internal static class NetFigures
         NetHeldFigures.ReplaceWith(_scratchActors);
     }
 
-    /// <summary>The game's cross-client-stable actor id (<see cref="CActor.ID"/>). False when the
-    /// actor has no character or is an unsupported type (ID throws).</summary>
+    /// <summary>
+    /// The cross-client-stable actor id: FNV-1a(32) of the game's replicated
+    /// <see cref="CActor.ActorGuid"/> (see the class doc for why the old per-class
+    /// <see cref="CActor.ID"/> mis-resolved SUMMONS on the receiving machine). Send and receive
+    /// sides both funnel through this one function, so the derivation can never diverge between
+    /// the sampler and the lookup. False when the actor is gone; a guid-less actor (defensive)
+    /// degrades to the legacy id.
+    /// </summary>
     private static bool TryStableId(ActorBehaviour actor, out int id)
     {
         id = 0;
         CActor? ca = actor != null ? actor.Actor : null;
         if (ca == null)
             return false;
+        string? guid = null;
+        try { guid = ca.ActorGuid; } catch { /* mid-teardown actor — fall through */ }
+        if (!string.IsNullOrEmpty(guid))
+        {
+            id = Fnv1a32(guid!);
+            return true;
+        }
         try
         {
             id = ca.ID;
@@ -335,6 +365,27 @@ internal static class NetFigures
         catch
         {
             return false; // CActor.ID throws for an unsupported actor type
+        }
+    }
+
+    /// <summary>
+    /// FNV-1a, 32-bit, over the guid's UTF-16 code units — deterministic across machines and
+    /// runs (no <c>string.GetHashCode</c>, whose value is process-randomizable on modern
+    /// runtimes and was never contractual on Mono either). Zero is remapped so an id of 0 can
+    /// keep meaning "no figure" everywhere the wire defaults it.
+    /// </summary>
+    private static int Fnv1a32(string s)
+    {
+        unchecked
+        {
+            uint hash = 2166136261u;
+            for (int i = 0; i < s.Length; i++)
+            {
+                hash ^= s[i];
+                hash *= 16777619u;
+            }
+            int id = (int)hash;
+            return id != 0 ? id : 1;
         }
     }
 
@@ -388,7 +439,10 @@ internal static class NetFigures
 
     private static void Index(ActorBehaviour? ab)
     {
+        // Ids are GUID hashes now, so a collision is a genuine 2^-32 accident rather than the
+        // systematic per-class StandeeID overlap that used to make "last write wins" resolve a
+        // held summon to a random other figure. Still last-write-wins: cosmetic only.
         if (ab != null && TryStableId(ab, out int id))
-            _idLookup[id] = ab; // last write wins on a rare id collision (cosmetic only)
+            _idLookup[id] = ab;
     }
 }
