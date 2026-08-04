@@ -425,6 +425,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         Transform? mount = PlayTray.Current?.DecisionMount; // Unity-null aware
         if (mount == null || !mount.gameObject.activeInHierarchy)
         {
+            Panel.OrderCluster = null; // HMD-floated — not part of the board's draw cluster
             if (!Panel.HostGo.activeSelf)
                 Panel.HostGo.SetActive(true);
             if (!_hmdFloatPlaced)
@@ -433,6 +434,9 @@ internal sealed class DecisionDockSurface : WorldSurface
             return;
         }
         _hmdFloatPlaced = false;
+        // Docked on the control board: furniture must stay structurally below this row at
+        // every viewing angle — see ConvertedPanel.OrderCluster.
+        Panel.OrderCluster = PlayTray.Current;
 
         // SHOW ONLY WHEN IT IS ALREADY RIGHT (user ruling 2026-08-03: "Wenn die
         // Entscheidungsbutton & Text aufplopped sieht man ihn erst kleiner/an einer Stelle für

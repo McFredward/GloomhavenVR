@@ -62,12 +62,19 @@ internal sealed class RemotePickBanner
 
         // Parchment plate, seated slightly BEHIND the text toward the board — the same 4 mm the
         // owner's own placard uses, so the text never z-fights its backing.
-        BoardVisual.Quad(_root, "Plate", PlateSize,
-            BoardVisual.Unlit(new Color(0.85f, 0.78f, 0.62f, 0.85f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.004f);
+        MeshRenderer plate = BoardVisual.Quad(_root, "Plate", PlateSize,
+            BoardVisual.Unlit(new Color(0.85f, 0.78f, 0.62f, 0.85f)));
+        plate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
 
         _label = RemoteBoardContent.Label(_root, "Label", Vector3.zero, TextBox, MaxFont,
             new Color(0.24f, 0.17f, 0.10f), TextAlignmentOptions.Center, wrap: true);
+
+        // FURNITURE tier of the remote board's fixed sub-ladder (a deliberate, greppable no-op:
+        // 0 is the default): the peer's placard must sit UNDER their initiative mirror/chips at
+        // every viewing angle, exactly like the owner's own Statustafel sits under their docked
+        // track — see BoardVisual's sub-ladder header for the angle-dependent blend this pins.
+        plate.sortingOrder = BoardVisual.OrderFurniture;
+        _label.sortingOrder = BoardVisual.OrderFurniture;
 
         _root.gameObject.SetActive(false);
     }

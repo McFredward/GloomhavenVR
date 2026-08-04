@@ -68,6 +68,32 @@ internal static partial class CanvasConversion
     // re-ranks within ~0.1 s. Known residue, accepted: TMP fallback-font submeshes created
     // AFTER registration (e.g. the checkmark glyph of "✓ READY") copy the parent's order
     // at spawn and only re-seat on the next rank change.
+    //
+    // ROUND 2 (user report 2026-08-04 #2: "Die Initiativbilder vermischen sich mit dem Text der
+    // Statustafel. Auch nicht immer - je nach Winkel ploppt es manchmal auf und manchmal nicht.").
+    // ROOT CAUSE: the rank above counted EVERY listed panel measurably farther than the board -
+    // including the board's OWN docked panels. The initiative track is docked at the board's top
+    // edge and grows UP (PlayTray.InitiativeMountY = BoardH/2 - 0.06, max height 0.14), so its
+    // rect is a thin strip around the top edge, exactly where the placard hovers (PickBannerBase
+    // y = BoardH/2 + 0.10). The furniture group's distance is measured to the board's LARGE
+    // furnished face rect, the track's to its own SMALL strip - two nearest-point-of-rect
+    // measures that move DIFFERENTLY as the head orbits: with the eye near board-top level both
+    // clamp to the top edge (tie, track in front, placard under the portraits - correct), while
+    // from lower/lateral angles the eye's foot lies inside the big rect but several centimetres
+    // below/away from the strip, the track measures > OrderSwapMarginMeters farther than the
+    // board, got COUNTED as "behind" it, and the band jumped ABOVE the track's ladder slot -
+    // placard plate and text painted over the portraits. The 2 cm margin is the flip line the
+    // user saw popping.
+    //
+    // THE FIX is structural, not a bigger margin: distance never arbitrates INSIDE the board's
+    // own plane. Every dock placement tags its panel with the board it is docked on
+    // (ConvertedPanel.OrderCluster == this group's anchor), and the rank pass (a) never counts a
+    // same-board panel as "behind" the board, whatever it measures, and (b) caps the rank at the
+    // lowest ladder index any same-board panel occupies, so the band always sits BELOW every
+    // docked panel's slot. Board furniture < board-docked panels is now a fixed sub-ladder that
+    // holds at every angle; the measured distance still ranks the whole board cluster against
+    // everything else (floated menus, bars, other boards), so a window between the eye and the
+    // board still beats both, and the furniture still beats panels genuinely behind the board.
     private const int FurnitureBandWidth = 5;
 
     /// <summary>One registered renderer of a furniture group: the renderer plus its
@@ -165,15 +191,31 @@ internal static partial class CanvasConversion
 
             float dist = group.Anchor.FurnitureEyeDistance(eye);
             // A panel counts as "behind the board" only when it is farther by MORE than the
-            // swap margin - a tie keeps the panel in front (the board's own docked surfaces
-            // measure within millimetres of the slab and must stay above the furniture,
-            // exactly as they always were).
+            // swap margin - a tie keeps the panel in front. A panel DOCKED ON THIS BOARD
+            // (OrderCluster == this anchor) never counts, whatever it measures: its rect and
+            // the board's furnished rect are coplanar strips whose nearest-point measures
+            // drift apart by several centimetres as the head orbits (see the ROUND 2 header),
+            // and letting that drift cross the margin was the angle-dependent placard-over-
+            // portraits pop. The cap below additionally pins the band under the LOWEST ladder
+            // slot any same-board panel holds, so "furniture below the board's own panels"
+            // holds even when the ladder ranks a docked panel below a non-board panel that
+            // out-measured the board anchor.
             int desired = 0;
+            int clusterFloor = int.MaxValue;
             for (int i = 0; i < OrderedPanels.Count; i++)
             {
-                if (OrderedPanels[i].OrderDistance > dist + OrderSwapMarginMeters)
+                ConvertedPanel p = OrderedPanels[i];
+                if (ReferenceEquals(p.OrderCluster, group.Anchor))
+                {
+                    if (i < clusterFloor)
+                        clusterFloor = i; // rigid sub-ladder: band must stay below this slot
+                    continue;
+                }
+                if (p.OrderDistance > dist + OrderSwapMarginMeters)
                     desired++;
             }
+            if (desired > clusterFloor)
+                desired = clusterFloor;
             if (desired > PanelOrderMaxRank)
                 desired = PanelOrderMaxRank;
 

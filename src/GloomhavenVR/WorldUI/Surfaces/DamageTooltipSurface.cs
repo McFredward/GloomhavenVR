@@ -141,7 +141,14 @@ internal sealed class DamageTooltipSurface : WorldSurface
 
         Transform? mount = PlayTray.Current?.DecisionMount; // Unity-null aware
         if (mount == null || !mount.gameObject.activeInHierarchy)
+        {
+            Panel.OrderCluster = null; // no board — not part of any draw cluster
             return;
+        }
+        // Board-owned tip parked on the board plane: join the board's draw-order cluster so the
+        // board's transparent furniture stays structurally below it — see
+        // ConvertedPanel.OrderCluster.
+        Panel.OrderCluster = PlayTray.Current;
 
         if (!Panel.HostGo.activeSelf)
             Panel.HostGo.SetActive(true);

@@ -114,11 +114,18 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
         if (mount == null)
         {
             _dockLoggedMountId = 0; // undocked — the next dock logs its rect again
+            Panel.OrderCluster = null; // floating — distance arbitrates against everything again
             if (!Panel.HostGo.activeSelf)
                 Panel.HostGo.SetActive(true);
             base.Place(); // old floating layout (fallback per the mount-seam contract)
             return;
         }
+
+        // Docked on the control board: join the board's draw-order cluster, so the board's
+        // transparent furniture (the Statustafel placard, labels, glows) stays STRUCTURALLY
+        // below this panel instead of letting two coplanar distance measures flip with the
+        // viewing angle — see ConvertedPanel.OrderCluster.
+        Panel.OrderCluster = PlayTray.Current;
 
         // Tray hidden (out-of-scenario transitions, hands down) → panel hides too.
         bool visible = mount.gameObject.activeInHierarchy;
