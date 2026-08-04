@@ -247,14 +247,19 @@ internal static partial class Loc
                 + "stellt sie beim Ausschalten von MR wieder her. Nur AUS, wenn ein Durchlauf zeigt, dass "
                 + "gewollte Geometrie versteckt wird — das Log nennt jeden abgeschalteten Renderer.",
             ["MixedReality/OpaquePreviewTiles"] =
-                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). Die "
-                + "verdeckten Kachel-STAPEL noch nicht entdeckter Räume sind mit durchscheinenden Materialien "
-                + "gezeichnet; über dem dunklen Tisch fällt das nicht auf, aber in MR blutet die Key-Farbe / "
-                + "das echte Zimmer durch die Stapel. Solange MR an ist, sucht der Durchlauf die Renderer "
-                + "unter dem aktiven 'Preview'-Teilbaum einer Map-Kachel, deren Materialien durchscheinend "
-                + "sind, und tauscht OPAKE Kopien ein (Originale werden beim Ausschalten von MR exakt "
-                + "wiederhergestellt — der normale Modus bleibt unberührt). Nur AUS, wenn ein Durchlauf "
-                + "zeigt, dass gewollte Geometrie verhärtet wird — das Log nennt jeden geänderten Renderer.",
+                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). SÄMTLICHE "
+                + "durchscheinende 'Unseen'-Geometrie des Spiels — die verdeckten Kachel-STAPEL noch nicht "
+                + "entdeckter Räume UND die Hexfelder, die das unentdeckte Gebiet hinter Türen markieren — "
+                + "mischt sich mit dem, was hinter ihr liegt; über der dunklen Leere des Spiels fällt das "
+                + "nicht auf, aber in MR scheint die Key-Farbe / das echte Zimmer hindurch und alles wirkt "
+                + "wie grünes Glas. Solange MR an ist, findet der Durchlauf diese Renderer (die "
+                + "'Unseen'-Shader-Familie plus alles Durchscheinende unter dem aktiven 'Preview'-Teilbaum "
+                + "einer Map-Kachel) und schiebt UNTER jeden eine OPAKE dunkle Rückplatte — das gestaltete "
+                + "durchscheinende Material rendert exakt weiter wie entworfen, Look und Animation bleiben "
+                + "unangetastet, es mischt sich nur gegen Dunkel statt gegen dein Zimmer. Die Rückplatten "
+                + "werden beim Ausschalten von MR zerstört — der normale Modus bleibt unberührt. Nur AUS, "
+                + "wenn ein Durchlauf zeigt, dass gewollte Geometrie verdunkelt wird — das Log nennt, was "
+                + "hinterlegt wurde.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
