@@ -40,6 +40,19 @@ namespace GloomhavenVR.Board;
 /// <see cref="Tick"/> reaches ONE of the two branches), so with the fingertip in range and
 /// the grip held the trigger is simply not a board click.
 ///
+/// FINGERTIP PING OUTSIDE SELECTION PHASES (user request 2026-08: "wenn KEINE Auswahlphase
+/// ist ... soll es dort pingen"). The SAME gesture and the SAME commit mechanics (grip gate,
+/// entry edge, cooldown, occluder/poke guards) — only the commit's MEANING branches at the
+/// last moment: when the touched target is a hex TILE and no selection phase is active
+/// (<see cref="SelectionPhaseActive"/>), the touch fires the game's own ping through
+/// <see cref="BoardPing.TryPingClientTile"/> INSTEAD of the click. During any selection
+/// phase the click path below runs untouched, byte-identical to before. Non-tile touches
+/// (miniatures, doors, chests) always keep the click + <see cref="MiniaturePokedEvent"/> —
+/// the user asked for tile pings only, and poking a miniature must keep opening its panel.
+/// Vanilla precedent for "same click, different meaning by state": Controller.LateUpdate
+/// itself branches the very same tile click into PingTile when s_ShouldPing is set
+/// (decompiled Controller.cs:178-183) — we branch on phase instead of a gamepad combo.
+///
 /// INJECTION STRATEGY — postfix on <c>Controller.CommonLoop</c> (the single input
 /// read the click dispatcher uses). Rationale, from the decompiled Controller.cs
 /// (verified against the real DLL, see the patch class below):
@@ -91,6 +104,21 @@ internal static class BoardClickDriver
     private const float TouchLogIntervalSeconds = 1f;
 
     /// <summary>
+    /// Minimum seconds between two FINGERTIP PINGS (both hands share it). The commit edge
+    /// already guarantees one ping per hex ENTRY (a resting fingertip cannot repeat), so this
+    /// only has to defeat the hex-BORDER case: tracking jitter flips the resolved target
+    /// between two adjacent hexes, each flip re-arms, and at <see cref="TouchCooldownSeconds"/>
+    /// (0.15 s — deliberately fast for clicks, it must stay inside the game's 0.3 s
+    /// double-click window) that would machine-gun replicated pings at up to ~6/s. The game
+    /// itself has NO ping rate limit to mirror — checked PingManager.cs: the only throttle is
+    /// the IsPingShown dedupe (same element + same player while shown is a no-op over the 2 s
+    /// lifetime), and a DIFFERENT element replaces the ping and re-sends
+    /// <c>Synchronizer.SendSideAction(PingHex)</c> unthrottled. 0.6 s: well above any border
+    /// jitter alternation, below deliberate "ping here, then there" pacing.
+    /// </summary>
+    private const float FingertipPingCooldownSeconds = 0.6f;
+
+    /// <summary>
     /// Per-hand fingertip-touch arming. <see cref="Target"/> is the thing under the fingertip
     /// on the last near-pick frame (the <c>CInteractable</c> when there is one, else the raw
     /// collider) — identity only, never dereferenced, which is what makes "did the finger ENTER
@@ -114,6 +142,7 @@ internal static class BoardClickDriver
     private static readonly NearTouch[] _near = { new() { Armed = true }, new() { Armed = true } };
     private static string _lastTouchLogKey = string.Empty;
     private static float _lastTouchLogTime = float.NegativeInfinity;
+    private static float _lastFingertipPingTime = float.NegativeInfinity;
 
     /// <summary>Consumed by the CommonLoop postfix (once per game frame).</summary>
     public static bool ConsumePendingClick()
@@ -130,6 +159,7 @@ internal static class BoardClickDriver
         _near[1] = new NearTouch { Armed = true };
         _lastTouchLogKey = string.Empty;
         _lastTouchLogTime = float.NegativeInfinity;
+        _lastFingertipPingTime = float.NegativeInfinity;
     }
 
     /// <summary>Per-frame from <see cref="BoardDriver"/> (before the game's LateUpdate).</summary>
@@ -201,6 +231,17 @@ internal static class BoardClickDriver
             {
                 state.Armed = false;
                 state.LastCommitTime = Time.unscaledTime;
+
+                // Outside a selection phase a TILE touch means PING, not click (class remarks).
+                // All commit gates above (grip, contact depth, poke/UI occluders, entry edge,
+                // per-hand cooldown) have already passed — only the meaning branches here.
+                CClientTile? pingTile = ResolveFingertipPingTile(target);
+                if (pingTile != null)
+                {
+                    CommitFingertipPing(hand, pingTile);
+                    return;
+                }
+
                 LogTouchCommit(hand);
                 RequestClick(hand, "fingertip touch");
 
@@ -220,6 +261,78 @@ internal static class BoardClickDriver
         {
             // Lifted off the same target — touching it AGAIN is allowed (second-click-to-confirm).
             state.Armed = true;
+        }
+    }
+
+    /// <summary>
+    /// The <c>CClientTile</c> to PING for this fingertip commit — or null when the commit must
+    /// stay a CLICK. Null when (a) a selection phase is active (today's behaviour, untouched)
+    /// or (b) the touched target is not a hex tile. Tile identification mirrors the game's own
+    /// click dispatch verbatim: Controller.LateUpdate resolves the interactable and asks
+    /// <c>cInteractable.GetComponent&lt;TileBehaviour&gt;()</c> — the SAME GameObject, not a
+    /// parent walk — so exactly the touches vanilla would treat as tile clicks become pings
+    /// (decompiled Controller.cs:170-176). Miniatures/doors/chests resolve no TileBehaviour
+    /// on their interactable and keep the click path.
+    /// </summary>
+    private static CClientTile? ResolveFingertipPingTile(Component? target)
+    {
+        if (SelectionPhaseActive())
+            return null;
+        TileBehaviour? tile = target is CInteractable interactable
+            ? interactable.GetComponent<TileBehaviour>()
+            : null;
+        return tile != null ? tile.m_ClientTile : null;
+    }
+
+    /// <summary>
+    /// "Is the game waiting for the player to pick a tile/target right now?" — the gate that
+    /// keeps the fingertip's SELECTION meaning exactly as it is today. Two game-owned signals,
+    /// OR'd (belt and braces, each covers cases the other misses):
+    ///
+    /// - <see cref="VRModeStateMachine.TargetingActive"/> — the Choreographer sits in a
+    ///   targeting wait state (waypoint / area-attack focus / push / pull / tile selection).
+    ///   Read RAW rather than via <c>CurrentMode == BoardTargeting</c> because ModalUI masks
+    ///   the mode while targeting stays live underneath.
+    /// - <c>WorldspaceStarHexDisplay.CurrentDisplayState != ShowNone</c> — the game is
+    ///   DISPLAYING selection stars on the board. This is what covers the phases that never
+    ///   enter a TargetingStates member: hero placement and single-target attacks both wait in
+    ///   <c>WaitingForCardSelection</c> (the exact trap documented on the laser-persistence
+    ///   fix in VRModeStateMachine.InteractorsFor) but show CharacterPlacement /
+    ///   TargetSelection stars (decompiled WorldspaceStarHexDisplay.cs:60-68).
+    /// </summary>
+    private static bool SelectionPhaseActive()
+    {
+        if (VRModeStateMachine.TargetingActive)
+            return true;
+        WorldspaceStarHexDisplay display = WorldspaceStarHexDisplay.Instance;
+        return display != null
+            && display.CurrentDisplayState != WorldspaceStarHexDisplay.WorldSpaceStarDisplayState.ShowNone;
+    }
+
+    /// <summary>
+    /// Fire the ping for a fingertip tile touch: the shared <see cref="FingertipPingCooldownSeconds"/>
+    /// debounce (see its doc — hex-border jitter is the enemy), then the SAME proven seam the
+    /// A-press uses (<see cref="BoardPing.TryPingClientTile"/>: replicated online, local-only
+    /// offline, name attached by the game itself). Haptic: the same <see cref="HapticPreset.ClickPulse"/>
+    /// every other fingertip commit fires, keyed on the ping actually going out.
+    /// </summary>
+    private static void CommitFingertipPing(VRHand hand, CClientTile tile)
+    {
+        float now = Time.unscaledTime;
+        if (now - _lastFingertipPingTime < FingertipPingCooldownSeconds)
+        {
+            VRLog.Debug("Board", $"fingertip ping swallowed ({hand.Side}) — inside the " +
+                                 $"{FingertipPingCooldownSeconds:0.0}s ping cooldown (border-jitter guard).");
+            return;
+        }
+
+        if (BoardPing.TryPingClientTile(tile, $"fingertip touch {hand.Side}"))
+        {
+            _lastFingertipPingTime = now;
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            VRLog.Info("Board", $"FINGERTIP PING: hex {DescribeTouchedHex()}, {hand.Side} hand, " +
+                                $"grip HELD, no selection phase (mode={VRModeStateMachine.CurrentMode}) — " +
+                                "routed through the same game PingTile path as the laser A-press.");
         }
     }
 

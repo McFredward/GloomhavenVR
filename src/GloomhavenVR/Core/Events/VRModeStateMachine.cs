@@ -108,6 +108,17 @@ internal static class VRModeStateMachine
     /// </summary>
     public static bool ScenarioBoardExists => Choreographer.s_Choreographer != null;
 
+    /// <summary>
+    /// True while the Choreographer sits in one of the <see cref="TargetingStates"/> (the board
+    /// is actively waiting for a waypoint/focus/push/pull/tile pick). Additive query for the
+    /// fingertip-ping arbitration (BoardClickDriver.SelectionPhaseActive): it exposes the RAW
+    /// targeting input rather than <see cref="CurrentMode"/> because the composition masks
+    /// targeting behind ModalUI (priority Menu2D &gt; ModalUI &gt; BoardTargeting) — a modal
+    /// floating over an active tile selection must still count as "selection phase", or a
+    /// fingertip touch under it would ping where the game expects a pick.
+    /// </summary>
+    public static bool TargetingActive => _targeting;
+
     // ---- data-driven mapping tables -------------------------------------------------
 
     /// <summary>Engine message → flow mode (only TableIdle/CardSelection/HalfSelection make sense here).</summary>
