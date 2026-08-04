@@ -325,14 +325,14 @@ internal static partial class VROptionsTab
     /// nobody could see. Deriving from the style that demonstrably reads, and forcing full alpha,
     /// means a header cannot end up invisible no matter what any donor is authored like.</para>
     /// </summary>
-    private static void ApplyHeaderCaption(TMP_Text? title)
+    private static void ApplyHeaderCaption(TMP_Text? title, float sizeFactor = HeaderSizeFactor)
     {
         ApplyOptionCaption(title);
         if (title == null || _titleStyle == null)
             return;
 
         (TMP_FontAsset? font, float size, Color colour, FontStyles style, TextAlignmentOptions align) plain = _titleStyle.Value;
-        title.fontSize = plain.size * HeaderSizeFactor;
+        title.fontSize = plain.size * sizeFactor;
         title.color = new Color(
             Mathf.Clamp01(plain.colour.r * 1.25f + 0.10f),
             Mathf.Clamp01(plain.colour.g * 1.25f + 0.10f),
@@ -445,14 +445,36 @@ internal static partial class VROptionsTab
     //  Row builders — one per control shape
     // ==========================================================================================
 
-    /// <summary>A section caption: a toggle row with its control and its hover frame taken out.</summary>
-    private static void BuildHeader(Transform parent, string caption)
+    /// <summary>
+    /// A section caption: a toggle row with its control and its hover frame taken out.
+    ///
+    /// <para><paramref name="hintKey"/> is the heading's OWN hover explanation (user report
+    /// 2026-08: "Geb auch den Überschriften Tooltipps die kurz erklären was auf dem Controllboard
+    /// mit den folgenden Einstellungen kontrolliert wird") — the same game-tooltip mechanism the
+    /// settings rows use (<see cref="AttachHoverHint"/>), keyed into <see cref="Loc.Mod"/> so it is
+    /// localized like everything else. A heading whose key has no text simply has no hint, the
+    /// same degradation <see cref="HintFor"/> already allows a row.</para>
+    ///
+    /// <para><paramref name="sub"/> renders the SECOND heading level of the per-board page: same
+    /// bold small-caps treatment so it still reads as structure, one size step down (the plain
+    /// caption size) so the page's two levels are tellable apart at a glance.</para>
+    /// </summary>
+    private static void BuildHeader(Transform parent, string caption, string? hintKey = null,
+                                    bool sub = false)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
         {
-            title.text = caption;
-            ApplyHeaderCaption(title);
+            title.text = sub ? "· " + caption : caption;
+            ApplyHeaderCaption(title, sub ? 1f : HeaderSizeFactor);
+            if (!string.IsNullOrEmpty(hintKey))
+            {
+                // Loc.Mod hands the id back when a key is absent — the "no hint" signal HintFor
+                // already relies on; never show a raw key as a tooltip.
+                string hint = Loc.Mod(hintKey!);
+                if (!string.Equals(hint, hintKey, StringComparison.Ordinal))
+                    AttachHoverHint(title, hint, caption);
+            }
         }
 
         if (option != null)
@@ -1139,12 +1161,23 @@ internal static partial class VROptionsTab
         if (title == null)
             return;
 
+        string text = HintFor(item, hintKey);
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        AttachHoverHint(title, text, item.Key);
+    }
+
+    /// <summary>
+    /// Put <paramref name="text"/> in the game's own tooltip box when this caption is hovered.
+    /// The shared tail of <see cref="AttachTooltip"/>, split out so a HEADING (which has no
+    /// <see cref="ConfigCatalog.ConfigItem"/> behind it) can carry a hover hint through the very
+    /// same mechanism the rows use.
+    /// </summary>
+    private static void AttachHoverHint(TMP_Text title, string text, string what)
+    {
         try
         {
-            string text = HintFor(item, hintKey);
-            if (string.IsNullOrEmpty(text))
-                return;
-
             title.raycastTarget = true;
 
             var target = title.gameObject.GetComponent<UITextTooltipTarget>()
@@ -1166,7 +1199,7 @@ internal static partial class VROptionsTab
         }
         catch (Exception e)
         {
-            VRLog.Warn("WorldUI", $"VR options tab: the game tooltip for {item.Key} could not be "
+            VRLog.Warn("WorldUI", $"VR options tab: the game tooltip for {what} could not be "
                                   + $"attached ({e.Message}) — that row simply has no hint.");
         }
     }

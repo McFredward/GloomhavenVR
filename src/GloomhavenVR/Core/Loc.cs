@@ -688,7 +688,112 @@ internal static partial class Loc
         ["cfg_topic_cards"] = Pair("Cards & fan", "Karten & Fächer"),
         ["cfg_topic_panels"] = Pair("Menus & panels", "Menüs & Tafeln"),
         ["cfg_topic_board"] = Pair("Board & targeting", "Brett & Zielen"),
-        ["cfg_topic_board_geometry"] = Pair("Board geometry (per board)", "Brett-Geometrie (pro Brett)"),
+        // "Steuerbrett", not "Brett-Geometrie": the topic holds every dial of the CONTROL BOARD —
+        // buttons, piles, readouts — and "geometry" described only a third of that. The user's own
+        // name for the page is "das Debug-Menu 'pro Board'" (report 2026-08).
+        ["cfg_topic_board_geometry"] = Pair("Control board (per board)", "Steuerbrett (pro Brett)"),
+
+        // ---- Debug ▸ Steuerbrett: the hand-arranged heading tree (user report 2026-08:
+        // "Ordne sie so an, dass man schneller findet wonach man sucht … Geb auch den
+        // Überschriften Tooltipps"). Labels are the headings; each "h_"-prefixed sibling is that
+        // heading's hover text, and the pairing is BY NAME so the two can never drift apart
+        // (same convention as CuratedEntry.HintKey). The tree itself is
+        // VROptionsTab.6.BoardTopic.cs.
+        ["vr_bg_buttons"] = Pair("Buttons", "Tasten"),
+        ["h_vr_bg_buttons"] = Pair(
+            "The pressable keycaps on the control board: Confirm/Undo, the rest keys, the docked "
+            + "turn-button cluster and the FOLLOW/PINNED key — position, size, gap and shape.",
+            "Die drückbaren Tasten auf dem Steuerbrett: Bestätigen/Zurück, Rast-Tasten, die "
+            + "angedockte Rundenknopf-Gruppe und die FOLGEN/FIXIERT-Taste — Lage, Größe, Abstand "
+            + "und Form."),
+        ["vr_bg_cu"] = Pair("Confirm/Undo", "Best./Zurück"),
+        ["h_vr_bg_cu"] = Pair(
+            "The Confirm and Undo keycaps: position, gap and shape per board, plus their "
+            + "width/height/depth/travel (shared by all boards; the width doubles as the diameter "
+            + "when the shape is round).",
+            "Die Bestätigen- und Zurück-Tasten: Position, Abstand und Form pro Brett, dazu "
+            + "Breite/Höhe/Tiefe/Hub (gelten für alle Bretter; bei runder Form ist die Breite "
+            + "zugleich der Durchmesser)."),
+        ["vr_bg_rest"] = Pair("Rest keys", "Rast-Tasten"),
+        ["h_vr_bg_rest"] = Pair(
+            "The short/long rest keys: seat, size, gap and shape per board, plus the keycap "
+            + "geometry shared by all boards.",
+            "Die Tasten für kurze/lange Rast: Sitz, Größe, Abstand und Form pro Brett, dazu die "
+            + "für alle Bretter gemeinsame Kappen-Geometrie."),
+        ["vr_bg_cluster"] = Pair("Turn buttons & pin", "Rundenknöpfe & Fixier-Taste"),
+        ["h_vr_bg_cluster"] = Pair(
+            "The docked turn-flow button cluster and the FOLLOW/PINNED key: where they dock on "
+            + "the board and how large they are.",
+            "Die angedockte Rundenknopf-Gruppe und die FOLGEN/FIXIERT-Taste: wo sie am Brett "
+            + "andocken und wie groß sie sind."),
+        ["vr_bg_board"] = Pair("Board & alignment", "Brett & Ausrichtung"),
+        ["h_vr_bg_board"] = Pair(
+            "The control board itself: how it hangs in front of you, and the decorative board "
+            + "mesh's own trim underneath the functional layout.",
+            "Das Steuerbrett selbst: wie es vor dir hängt, und die Feinjustage des dekorativen "
+            + "Brett-Meshes unter dem funktionalen Layout."),
+        ["vr_bg_pose"] = Pair("Pose & size", "Haltung & Größe"),
+        ["h_vr_bg_pose"] = Pair(
+            "The whole board's pose: base tilt, the allowed tilt window, extra yaw, overall size "
+            + "and position offset.",
+            "Die Haltung des ganzen Bretts: Grundneigung, erlaubtes Neigungsfenster, "
+            + "Zusatzdrehung, Gesamtgröße und Positionsversatz."),
+        ["vr_bg_mesh"] = Pair("Board mesh", "Brett-Mesh"),
+        ["h_vr_bg_mesh"] = Pair(
+            "Only the visible board model: nudge and rotate the mesh without moving any of the "
+            + "elements seated on it.",
+            "Nur das sichtbare Brett-Modell: verschiebt und dreht das Mesh, ohne die darauf "
+            + "sitzenden Elemente zu bewegen."),
+        ["vr_bg_cards"] = Pair("Cards & slots", "Karten & Slots"),
+        ["h_vr_bg_cards"] = Pair(
+            "Everything card-shaped on the board: the active-cards dock, the card slots' glow, "
+            + "the item-use slot and the item cards.",
+            "Alles Kartenförmige auf dem Brett: das Dock aktiver Karten, das Glühen der "
+            + "Kartenslots, der Item-Slot und die Item-Karten."),
+        ["vr_bg_active"] = Pair("Active cards", "Aktive Karten"),
+        ["h_vr_bg_active"] = Pair(
+            "The dock showing your currently active ability cards: position, card size and grid "
+            + "step.",
+            "Das Dock mit deinen gerade aktiven Fähigkeitskarten: Position, Kartengröße und "
+            + "Rasterabstand."),
+        ["vr_bg_slots"] = Pair("Slots & items", "Slots & Items"),
+        ["h_vr_bg_slots"] = Pair(
+            "The two card slots' snap glow, the item-use clip-in slot, and the item-card fan.",
+            "Das Einrast-Glühen der beiden Kartenslots, der Item-Einsteck-Slot und der "
+            + "Item-Kartenfächer."),
+        ["vr_bg_piles"] = Pair("Piles", "Stapel"),
+        ["h_vr_bg_piles"] = Pair(
+            "The discard and burn piles on the board: where they sit, how large they are, and "
+            + "the gap between them.",
+            "Ablage- und Verbrannt-Stapel auf dem Brett: wo sie liegen, wie groß sie sind und "
+            + "ihr Abstand zueinander."),
+        ["vr_bg_readouts"] = Pair("Readouts & text", "Anzeigen & Text"),
+        ["h_vr_bg_readouts"] = Pair(
+            "Everything the board tells you: initiative track, placards and hints, the round "
+            + "readout, objectives, elements and the decision dock.",
+            "Alles, was das Brett dir anzeigt: Initiative-Leiste, Tafeln und Hinweise, die "
+            + "Runden-Anzeige, Aufgaben, Elemente und das Entscheidungsdock."),
+        ["vr_bg_placards"] = Pair("Placards & hints", "Tafeln & Hinweise"),
+        ["h_vr_bg_placards"] = Pair(
+            "The initiative track, the status placard, the hover-hint panel and the round "
+            + "readout: where each one sits on the board.",
+            "Initiative-Leiste, Statustafel, Hinweistafel und Runden-Anzeige: wo sie jeweils "
+            + "auf dem Brett sitzen."),
+        ["vr_bg_docks"] = Pair("Objectives & elements", "Aufgaben & Elemente"),
+        ["h_vr_bg_docks"] = Pair(
+            "The objectives panel and the element-infusion dock: position and size of both.",
+            "Die Aufgaben-Tafel und das Elemente-Dock: Position und Größe von beiden."),
+        ["vr_bg_decision"] = Pair("Decision dock", "Entscheidungsdock"),
+        ["h_vr_bg_decision"] = Pair(
+            "The shared dock where decision prompts land (take damage, dialogs): position, size, "
+            + "and the gap between the prompt text and the buttons.",
+            "Das gemeinsame Dock für Entscheidungs-Abfragen (Schaden nehmen, Dialoge): Position, "
+            + "Größe und der Abstand zwischen Abfragetext und Tasten."),
+        ["h_vr_bg_misc"] = Pair(
+            "Control-board entries not filed under a heading above — usually settings added "
+            + "after this page was arranged. Nothing is ever lost here.",
+            "Steuerbrett-Einträge ohne eigene Überschrift oben — meist Einstellungen, die nach "
+            + "dieser Aufteilung dazukamen. Hier geht nichts verloren."),
         ["cfg_topic_network"] = Pair("Multiplayer", "Mehrspieler"),
         ["cfg_topic_system"] = Pair("System & start-up", "System & Start"),
         ["cfg_topic_other"] = Pair("Other", "Sonstiges"),

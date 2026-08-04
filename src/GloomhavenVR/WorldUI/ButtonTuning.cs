@@ -58,7 +58,7 @@ internal static class ButtonTuning
     internal const float DefaultRoundHeight = 0.084f;
     internal const float DefaultRoundDepth = 0.012f;    // authored square cluster-cap extrusion
     internal const float DefaultRoundTravel = Defaults.RoundButtons_Travel;   // authored 8 mm cluster cap travel
-    internal const float DefaultBoardWidth = 0.073f;    // authored ConfirmUndoSize default (CardsConfig)
+    internal const float DefaultBoardWidth = 0.073f;    // authored Confirm/Undo cap side (was [Cards] ConfirmUndoSize_Bronze until its 2026-08 retirement; also the round-cap diameter now)
     internal const float DefaultBoardHeight = 0.073f;
     internal const float DefaultBoardDepth = 0.036f;    // PlayTray.SquareCapThickness
     internal const float DefaultBoardTravel = Defaults.BoardButtons_Travel;   // BoardButton.CapTravel

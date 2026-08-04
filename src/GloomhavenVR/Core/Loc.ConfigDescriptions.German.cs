@@ -928,8 +928,9 @@ internal static partial class Loc
                 + "X/Y in der Ebene (−X von der rechten Spalte zur Board-Mitte), Z = Herausstehen zum Spieler "
                 + "hin (NEGATIV = steht weiter heraus). Von Oak übernommen (ConfirmUndoInsetX −0.014, −5 mm "
                 + "heraus).",
-            ["Cards/ConfirmUndoSize_*"] =
-                "Kantenlänge (Meter) der eckigen Fortfahren/Rückgängig-Knöpfe. Von Oak übernommen (0.073).",
+            // Cards/ConfirmUndoSize_* ist WEG — 2026-08 mit dem Eintrag selbst stillgelegt
+            // (Nutzerbericht: der Regler hatte keinen Effekt; die Größe der Bestätigen/Zurück-
+            // Tasten kommt jetzt für beide Formen aus [BoardButtons] Breite/Höhe).
             ["Cards/ItemUseSlotOffset_*"] =
                 "Versatz, der zur lokalen Position des Einsteck-Slots GEGENSTAND BENUTZEN ADDIERT wird "
                 + "(zusätzlich zu seiner festen Basis UNTER dem Board neben den Fortfahren/Rückgängig-Knöpfen), "

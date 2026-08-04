@@ -205,9 +205,10 @@ internal static partial class Defaults
     internal static readonly Vector3 ConfirmUndoOffset_Oak = new Vector3(-0.008f, 0f, 0.009f);        // => [Cards] ConfirmUndoOffset_Oak
     internal static readonly Vector3 ConfirmUndoOffset_Steel = new Vector3(0.462f, 0.006f, -0.047f);  // => [Cards] ConfirmUndoOffset_Steel
     internal static readonly Vector3 ConfirmUndoOffset_Bronze = new Vector3(-0.014f, 0f, -0.005f);    // => [Cards] ConfirmUndoOffset_Bronze
-    internal const float ConfirmUndoSize_Oak = 0.071f;                                                // => [Cards] ConfirmUndoSize_Oak
-    internal const float ConfirmUndoSize_Steel = 0.059f;                                              // => [Cards] ConfirmUndoSize_Steel
-    internal const float ConfirmUndoSize_Bronze = 0.073f;                                             // => [Cards] ConfirmUndoSize_Bronze
+    // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08: the dial only fed the non-default
+    // ROUND cap shape after the button-family split; the cap size is [BoardButtons] Width/Height
+    // now, for both shapes). No lines here on purpose — a tuned cfg that still carries the keys is
+    // reported as UNMAPPED by scripts/rebase-defaults.py, which is exactly right for retired keys.
     internal static readonly Vector3 SlotOverlayOffset_Oak = new Vector3(0.002f, -0.002f, 0.004f);    // => [Cards] SlotOverlayOffset_Oak
     internal static readonly Vector3 SlotOverlayOffset_Steel = new Vector3(0.018f, -0.002f, 0.004f);  // => [Cards] SlotOverlayOffset_Steel
     internal static readonly Vector3 SlotOverlayOffset_Bronze = new Vector3(0f, 0f, 0f);              // => [Cards] SlotOverlayOffset_Bronze

@@ -189,7 +189,14 @@ internal static class CardsConfig
     private static readonly ConfigEntry<Vector3>[] _restButtonOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<float>[] _restButtonDiameter = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _confirmUndoOffset = new ConfigEntry<Vector3>[3];
-    private static readonly ConfigEntry<float>[] _confirmUndoSize = new ConfigEntry<float>[3];
+    // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08, user report "hat keinen Effekt").
+    // It was the square Confirm/Undo side length until the button-family split (e0432fe) moved the
+    // square caps onto [BoardButtons] Width/Height EXCLUSIVELY; after that only the non-default
+    // ROUND shape still read it, so with the shipped Square shape the dial did nothing. The round
+    // diameter now comes from [BoardButtons] Width too (PlayTray.BuildButtons), so ONE family sizes
+    // the caps in both shapes. Not re-bound on purpose: an unbound key is dropped from the user's
+    // cfg on the next save, and rebase-defaults.py reports a tuned cfg still carrying it as
+    // UNMAPPED — exactly right for a retired key.
     // Item-use clip-in slot (items rework): a card-sized recess UNDER the board next to the
     // Confirm/Undo decision buttons — dropping a held, usable item card into it USES the item.
     // Per-board offset, mirrors ConfirmUndoOffset's binding/accessor/debug-menu wiring exactly.
@@ -416,7 +423,8 @@ internal static class CardsConfig
         internal static readonly Vector3[] RestButtonOffset = { Defaults.RestButtonOffset_Oak, Defaults.RestButtonOffset_Steel, Defaults.RestButtonOffset_Bronze };
         internal static readonly float[] RestButtonDiameter = { Defaults.RestButtonDiameter_Oak, Defaults.RestButtonDiameter_Steel, Defaults.RestButtonDiameter_Bronze };
         internal static readonly Vector3[] ConfirmUndoOffset = { Defaults.ConfirmUndoOffset_Oak, Defaults.ConfirmUndoOffset_Steel, Defaults.ConfirmUndoOffset_Bronze };
-        internal static readonly float[] ConfirmUndoSize = { Defaults.ConfirmUndoSize_Oak, Defaults.ConfirmUndoSize_Steel, Defaults.ConfirmUndoSize_Bronze };
+        // ConfirmUndoSize is GONE (retired 2026-08) — the Confirm/Undo cap size is [BoardButtons]
+        // Width/Height for both shapes now; see the tombstone at the _confirmUndoOffset field.
         internal static readonly Vector3[] SlotOverlayOffset = { Defaults.SlotOverlayOffset_Oak, Defaults.SlotOverlayOffset_Steel, Defaults.SlotOverlayOffset_Bronze };
         internal static readonly float[] SlotOverlaySpacing = { Defaults.SlotOverlaySpacing_Oak, Defaults.SlotOverlaySpacing_Steel, Defaults.SlotOverlaySpacing_Bronze };
         internal static readonly Vector3[] InitiativeOffset = { Defaults.InitiativeOffset_Oak, Defaults.InitiativeOffset_Steel, Defaults.InitiativeOffset_Bronze };
@@ -770,8 +778,8 @@ internal static class CardsConfig
                 $"[{board}] SQUARE Confirm/Undo offset from their button anchors, board-local meters. " +
                 "X/Y in plane (−X toward board center from the right column), Z = proud depth toward " +
                 "the player (NEGATIVE = prouder). Ships this board's own measured seat.");
-            _confirmUndoSize[i] = _file.Bind("Cards", $"ConfirmUndoSize_{board}", BoardDefaults.ConfirmUndoSize[i],
-                $"[{board}] side length (meters) of the square Confirm/Undo buttons. Per-board measured.");
+            // ConfirmUndoSize_{board} is deliberately NOT bound any more — see the tombstone at
+            // the _confirmUndoOffset field. The cap size is [BoardButtons] Width/Height.
             _itemUseSlotOffset[i] = _file.Bind("Cards", $"ItemUseSlotOffset_{board}", Defaults.ItemUseSlotOffset_ByBoard[i],
                 $"[{board}] offset ADDED to the ITEM-USE clip-in slot local position (on top of its fixed " +
                 "base UNDER the board next to the Confirm/Undo buttons), board-local meters. X/Y in plane, " +
@@ -1283,7 +1291,8 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> RestButtonOffset(ControlBoard b) => _restButtonOffset[(int)b];
     internal static ConfigEntry<float> RestButtonDiameter(ControlBoard b) => _restButtonDiameter[(int)b];
     internal static ConfigEntry<Vector3> ConfirmUndoOffset(ControlBoard b) => _confirmUndoOffset[(int)b];
-    internal static ConfigEntry<float> ConfirmUndoSize(ControlBoard b) => _confirmUndoSize[(int)b];
+    // ConfirmUndoSize(b) accessor is GONE with its entry (retired 2026-08) — the cap size is
+    // WorldUI.ButtonTuning.BoardCapWidth/Height ([BoardButtons]) for both shapes.
     internal static ConfigEntry<Vector3> ItemUseSlotOffset(ControlBoard b) => _itemUseSlotOffset[(int)b];
     internal static ConfigEntry<Vector3> ItemCardOffset(ControlBoard b) => _itemCardOffset[(int)b];
     internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
