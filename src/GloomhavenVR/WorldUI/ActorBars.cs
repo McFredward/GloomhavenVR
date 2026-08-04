@@ -445,6 +445,15 @@ internal static class ActorBars
         if (panel == null)
             return;
 
+        // MR backing opt-out (user ruling 2026-08-04): MrBacking's panel sweep plates EVERY
+        // converted host by default, and the bar's host rect is far larger than the thin
+        // health/summon band actually drawn inside it — in see-through mode the host-rect plate
+        // rendered as a solid dark RECTANGLE floating over the miniature / through the middle of
+        // the health bar. The bar sits over the board (never over bare room), so it needs no
+        // readability plate at all. Set per ADOPT on the fresh ConvertedPanel, so the constant
+        // create/destroy churn of pooled bar controllers re-applies it on every re-adoption.
+        panel.MrBackingSuppressed = true;
+
         Adoptions[controller] = new Adopted
         {
             Controller = controller,
