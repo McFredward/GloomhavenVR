@@ -68,6 +68,15 @@ internal static class SpawnRing
     internal const float EdgeClearanceMeters = 0.35f;
 
     /// <summary>
+    /// Extra height a RING seat adds on top of the standing eye preset, real metres (user ruling
+    /// 2026-08-04: every player spawns "etwas höher als das Spielfeld selber"). Consumed by
+    /// <c>VRRigDriver.ApplyRingSeat</c> — ring seats only; the deliberate B+Y recenter keeps the
+    /// plain table-edge height. 0.35 m lifts the arrival vantage noticeably above the board plane
+    /// without reading as flying; from there stick flight puts the player wherever they like.
+    /// </summary>
+    internal const float RingSeatLiftMeters = 0.35f;
+
+    /// <summary>
     /// Seat radius floor, real metres — never closer to the board centre than the ordinary
     /// table-edge seat has always been (<see cref="ComfortSettings.EffectiveEyeBackMeters"/>,
     /// 0.70 m). A scenario that has revealed only its starting room has a footprint a few

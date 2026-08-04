@@ -122,8 +122,16 @@ internal sealed partial class VRRigDriver
         Quaternion seatYaw = seat.Yaw * Quaternion.Inverse(YawOnly(_camera!.transform.localRotation));
         _rigRoot.transform.rotation = seatYaw;
 
+        // RING SEATS SPAWN RAISED (user ruling 2026-08-04: "Heb den Spawn-Ring etwas an, ich will
+        // dass alle Spieler etwas höher als das Spielfeld selber spawnen"). The lift is ON TOP of
+        // the standing eye height and applies to RING seats only — the B+Y recenter chord keeps
+        // the plain table-edge seat, because that gesture means "put me back AT the table", while
+        // the ring is an ARRIVAL pose: a slightly elevated vantage reads the whole field at a
+        // glance, and with stick flight the player descends in a second if they want to. Real
+        // metres (times rig scale), same unit as the eye-height preset beside it.
         Vector3 desiredHeadWorld = seat.HeadFlat
-                                   + Vector3.up * (ComfortSettings.EffectiveEyeHeightMeters * scale);
+                                   + Vector3.up * ((ComfortSettings.EffectiveEyeHeightMeters
+                                                    + SpawnRing.RingSeatLiftMeters) * scale);
         Vector3 headOffsetWorld = seatYaw * (_camera.transform.localPosition * scale);
         _rigRoot.transform.position = desiredHeadWorld - headOffsetWorld;
         RigClamp.Apply(_rigRoot.transform);
