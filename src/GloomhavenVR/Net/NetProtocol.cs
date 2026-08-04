@@ -1061,6 +1061,81 @@ internal static class NetProtocol
     /// reader requires at least this much before it trusts the record.</summary>
     public const int TrackHoverRecordBytes = 5;
 
+    /// <summary>
+    /// Extension record id: the BUTTON LABELS of the sender's DOCKED DECISION ROW — the real game
+    /// widgets their <c>WorldUI.Surfaces.DecisionDockSurface</c> currently docks below their
+    /// control board ("Verbrennen", "Ja"/"Nein", the take-damage burn choices, …) — as ONE UTF8
+    /// blob, one label per line ('\n'-separated), capped at
+    /// <see cref="DecisionLinesMaxBytes"/> bytes.
+    ///
+    /// <para>WHY IT RIDES THE WIRE (user report 2026-08-04: "die remote decision buttons ...
+    /// sollen 1:1 angezeigt werden"): the board-UI record's <see cref="BoardUiDecisionBit"/> only
+    /// says THAT a prompt is docked, so peers drew a generic empty "ENTSCHEIDUNGEN" drawer — a
+    /// picture of furniture, not of the decision. The docked widgets themselves are LOCAL UI
+    /// (TakeDamagePanel / UIManager.dialogPopup / the short-rest YesNoDialog exist only on the
+    /// deciding player's client), so the only way a peer can render the owner's actual choices is
+    /// for their labels to travel. Receivers render one inert, antique-styled button plate per
+    /// line at the same board seat the owner's dock uses.</para>
+    ///
+    /// <para>NO CARD IDENTITY, BY CONSTRUCTION: only the labels of PRESSABLE widgets (TMP texts
+    /// under a <c>Selectable</c>) are ever sampled — action verbs and counts authored from generic
+    /// GUI_* keys ("Verbrennen", "2 abgelegte Karten verbrennen", "Ja"). The prompt/question TEXT
+    /// of a dialog is deliberately NOT sent: a confirm dialog's description can embed the card it
+    /// is about, and the standing rule is absolute (reveals only through <see cref="RevealGate"/>;
+    /// suppression is the designed failure direction).</para>
+    ///
+    /// <para>Written ONLY while a decision row is really docked on the owner's board, so an idle
+    /// packet stays byte-identical to the previous build's; absence means "no docked decision",
+    /// which is what peers predating the record render (the drawer, via the board-UI bit).
+    /// ADDITIVE TLV exactly like every record before it.</para>
+    /// </summary>
+    public const byte ExtIdDecisionLines = 12;
+
+    /// <summary>UTF8 byte cap for <see cref="ExtIdDecisionLines"/> (the '\n'-joined label blob).
+    /// A decision row holds at most a handful of short verbs; the cap bounds the record and is
+    /// re-clamped on read (never trust the wire). Truncation on a UTF8 CHARACTER boundary, never
+    /// mid-sequence; a label that gets cut simply renders shortened on the peer. Must stay well
+    /// under the 255-byte TLV length ceiling.</summary>
+    public const int DecisionLinesMaxBytes = 160;
+
+    /// <summary>
+    /// Extension record id: the LIVE LABELS of the sender's turn-flow board caps — what their
+    /// CONFIRM keycap and their docked SKIP button ACTUALLY read right now — as
+    /// <c>[byte mask][per set bit: byte len + UTF8]</c>, each label capped at
+    /// <see cref="CapLabelMaxBytes"/> bytes. Mask bits: <see cref="CapLabelConfirmBit"/>,
+    /// <see cref="CapLabelSkipBit"/>.
+    ///
+    /// <para>WHY (user report 2026-08-04: "Mein Mitspieler las 'Fortfahren', ich sehe
+    /// 'Bestätigen'"): the remote furniture used to label the mirrored caps from the RECEIVER's
+    /// localization at the neutral GUI_CONFIRM / GUI_SKIP_MOVEMENT wording, while the owner's own
+    /// caps re-read the game's live button text every tick (16 <c>ReadyButton.EButtonState</c>
+    /// wordings, GUI_SKIP_ABILITY/GUI_SKIP_ATTACK swaps, pick-flow overrides, "✓ READY"). Those
+    /// states are peer-local UI, so the only 1:1 rendering is the sender's own displayed string,
+    /// verbatim, in THEIR language — the same argument as the pick banner.</para>
+    ///
+    /// <para>Public UI text only — button labels never name a card, and nothing here consults
+    /// one. Written ONLY while at least one of the two caps is visible with a known label, so an
+    /// idle packet stays byte-identical; absence keeps the receiver's neutral-label fallback,
+    /// which is exactly what peers predating the record render. ADDITIVE TLV.</para>
+    /// </summary>
+    public const byte ExtIdCapLabels = 13;
+
+    /// <summary>Cap-labels record, mask bit 0: a CONFIRM label block follows.</summary>
+    public const byte CapLabelConfirmBit = 1 << 0;
+
+    /// <summary>Cap-labels record, mask bit 1: a SKIP label block follows (after the confirm
+    /// block when both are present — mask-bit order, the same rule the extras flag blocks use).</summary>
+    public const byte CapLabelSkipBit = 1 << 1;
+
+    /// <summary>Every DEFINED bit of the cap-labels mask byte — masked on write AND on read so an
+    /// undefined bit can never be pre-claimed by garbage (the board-UI overlay discipline).</summary>
+    public const byte CapLabelDefinedMask = CapLabelConfirmBit | CapLabelSkipBit;
+
+    /// <summary>UTF8 byte cap PER LABEL in <see cref="ExtIdCapLabels"/>. Button wordings are a few
+    /// words ("Lange Rast durchführen"); truncation on a UTF8 CHARACTER boundary, re-clamped on
+    /// read. Two labels + mask + lengths stay far under the 255-byte TLV ceiling.</summary>
+    public const int CapLabelMaxBytes = 48;
+
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>
     public const byte CardHighlightNone = 0xFF;

@@ -376,6 +376,44 @@ internal struct PresenceState
     /// round-action preview — public info; player entries have no popup in VR). Meaningful only
     /// when <see cref="HasTrackHover"/>.</summary>
     public bool TrackHoverPopup;
+
+    /// <summary>
+    /// True when this packet carries the BUTTON LABELS of the sender's docked decision row
+    /// (extension record <see cref="NetProtocol.ExtIdDecisionLines"/>). Written only while a
+    /// decision row is really docked on their board — absence means "no docked decision", which
+    /// is what peers predating the record render (the empty drawer via the board-UI bit).
+    /// </summary>
+    public bool HasDecisionLines;
+
+    /// <summary>The docked decision row's button labels, one per line ('\n'-joined), in the
+    /// SENDER's language (meaningful only when <see cref="HasDecisionLines"/>). Pressable-widget
+    /// labels ONLY — never a dialog's description text, which could name a card (see the record
+    /// doc). Capped on both ends at <see cref="NetProtocol.DecisionLinesMaxBytes"/> UTF8 bytes.</summary>
+    public string? DecisionLinesText;
+
+    /// <summary>
+    /// True when this packet names what the sender's CONFIRM board cap actually reads (extension
+    /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 0). Absence keeps the receiver's
+    /// neutral GUI_CONFIRM fallback — exactly what peers predating the record render.
+    /// </summary>
+    public bool HasConfirmCapLabel;
+
+    /// <summary>The sender's live CONFIRM cap wording ("Fortfahren", "✓ BEREIT", a pick-flow
+    /// override…), in THEIR language (meaningful only when <see cref="HasConfirmCapLabel"/>).
+    /// Capped at <see cref="NetProtocol.CapLabelMaxBytes"/> UTF8 bytes.</summary>
+    public string? ConfirmCapLabel;
+
+    /// <summary>
+    /// True when this packet names what the sender's docked SKIP button actually reads (extension
+    /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 1). Absence keeps the receiver's
+    /// neutral GUI_SKIP_MOVEMENT fallback.
+    /// </summary>
+    public bool HasSkipCapLabel;
+
+    /// <summary>The sender's live SKIP wording ("Bewegen überspringen", "Angriff überspringen"…),
+    /// in THEIR language (meaningful only when <see cref="HasSkipCapLabel"/>). Capped at
+    /// <see cref="NetProtocol.CapLabelMaxBytes"/> UTF8 bytes.</summary>
+    public string? SkipCapLabel;
 }
 
 /// <summary>
@@ -426,6 +464,14 @@ internal struct PresenceState
 ///                        overlays / a parked card at; written only while a board exists AND either
 ///                        differs from the legacy 82.55 mm assumption, see
 ///                        NetProtocol.ExtIdSlotCardSize),
+///                        12 DECISION LINES (UTF8 blob, one docked decision-button label per
+///                        '\n'-separated line, capped — pressable-widget labels only, never a
+///                        dialog's description text; written ONLY while a decision row is docked,
+///                        see NetProtocol.ExtIdDecisionLines),
+///                        13 CAP LABELS ([mask][per set bit: len + UTF8] — the live wording of the
+///                        sender's CONFIRM cap (bit0) and docked SKIP button (bit1), each capped;
+///                        written ONLY while a cap is visible with a known label, see
+///                        NetProtocol.ExtIdCapLabels),
 ///                        14 HALF HOVER (1 B: bits0..1 board slot, bit2 top half — the action half
 ///                        the sender is hovering in their action-selection layout; only while lit,
 ///                        see NetProtocol.ExtIdHalfHover),
@@ -471,11 +517,12 @@ internal static class PresenceSerializer
     /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
     /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
     /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
-    /// + 6 (slot-card size: 2 + 4) + 3 (half hover: 2 + 1) + 5 (pile counts: 2 + 3)
-    /// + 7 (track hover: 2 + 5) = 454, rounded up to 480 for headroom.
+    /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
+    /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 3 (half hover: 2 + 1)
+    /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5) = 717, rounded up to 736 for headroom.
     /// Local buffer bound only — nothing on the wire depends on it, and every variable-length
     /// record still bounds-checks against the real buffer before writing.</summary>
-    public const int MaxSize = 480;
+    public const int MaxSize = 736;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -514,7 +561,10 @@ internal static class PresenceSerializer
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
-                          || (state.HasBoardTooltip && !string.IsNullOrEmpty(state.BoardTooltipText));
+                          || (state.HasBoardTooltip && !string.IsNullOrEmpty(state.BoardTooltipText))
+                          || (state.HasDecisionLines && !string.IsNullOrEmpty(state.DecisionLinesText))
+                          || (state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel))
+                          || (state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel));
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -724,7 +774,7 @@ internal static class PresenceSerializer
                     // tenth-mm. Written ONLY while a board exists and either width differs from
                     // the legacy assumption (NetProtocol.SlotCardWidthLegacy), so a sender whose
                     // config lands exactly on the old constant stays byte-identical to the
-                    // previous build. Appended in id order (11 before 14/15/16).
+                    // previous build. Appended in id order (record 11, before 12..16).
                     buffer[i++] = NetProtocol.ExtIdSlotCardSize;
                     buffer[i++] = (byte)NetProtocol.SlotCardSizeRecordBytes;
                     buffer[i++] = (byte)(state.SlotFrameWidthCode & 0xFF);
@@ -732,6 +782,62 @@ internal static class PresenceSerializer
                     buffer[i++] = (byte)(state.SlotCardWidthCode & 0xFF);
                     buffer[i++] = (byte)(state.SlotCardWidthCode >> 8);
                     records++;
+                }
+                if (state.HasDecisionLines && !string.IsNullOrEmpty(state.DecisionLinesText))
+                {
+                    // DECISION LINES: UTF8 blob of the docked decision row's button labels, one
+                    // per '\n'-separated line, capped and truncated on a character boundary.
+                    // Written only while a row is really docked (see the record doc — pressable
+                    // labels only, never a dialog's card-naming description). Same one-entry
+                    // encode cache as the pick banner: the labels are constant for the whole
+                    // prompt while the record rides every 5 Hz packet.
+                    byte[] text = EncodeDecisionLines(state.DecisionLinesText!);
+                    if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdDecisionLines;
+                        buffer[i++] = (byte)text.Length;
+                        for (int b = 0; b < text.Length; b++)
+                            buffer[i++] = text[b];
+                        records++;
+                    }
+                }
+                {
+                    // CAP LABELS: [mask][per set bit, in mask-bit order: len + UTF8] — what the
+                    // sender's CONFIRM cap and docked SKIP button actually read. Written only
+                    // while at least one label exists, so an idle packet stays byte-identical.
+                    // Each label runs through its own one-entry encode cache (they change on
+                    // game-state edges, not per packet).
+                    byte[] confirm = state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel)
+                        ? EncodeConfirmCapLabel(state.ConfirmCapLabel!)
+                        : System.Array.Empty<byte>();
+                    byte[] skip = state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel)
+                        ? EncodeSkipCapLabel(state.SkipCapLabel!)
+                        : System.Array.Empty<byte>();
+                    int payload = 1 + (confirm.Length > 0 ? 1 + confirm.Length : 0)
+                                  + (skip.Length > 0 ? 1 + skip.Length : 0);
+                    if ((confirm.Length > 0 || skip.Length > 0) && payload <= 255
+                        && i + 2 + payload <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdCapLabels;
+                        buffer[i++] = (byte)payload;
+                        byte capMask = 0;
+                        if (confirm.Length > 0) capMask |= NetProtocol.CapLabelConfirmBit;
+                        if (skip.Length > 0) capMask |= NetProtocol.CapLabelSkipBit;
+                        buffer[i++] = (byte)(capMask & NetProtocol.CapLabelDefinedMask);
+                        if (confirm.Length > 0)
+                        {
+                            buffer[i++] = (byte)confirm.Length;
+                            for (int b = 0; b < confirm.Length; b++)
+                                buffer[i++] = confirm[b];
+                        }
+                        if (skip.Length > 0)
+                        {
+                            buffer[i++] = (byte)skip.Length;
+                            for (int b = 0; b < skip.Length; b++)
+                                buffer[i++] = skip[b];
+                        }
+                        records++;
+                    }
                 }
                 if (state.HasHalfHover && i + 3 <= buffer.Length)
                 {
@@ -907,6 +1013,81 @@ internal static class PresenceSerializer
         _tooltipDecText = System.Text.Encoding.UTF8.GetString(copy);
         return _tooltipDecText;
     }
+
+    // ---- capped-UTF8 codec (decision lines + cap labels) --------------------------------
+    // The pick-banner / board-tooltip codecs above predate this type and keep their shipped
+    // field pairs untouched (wire-test vectors pin their behaviour); the three text records of
+    // the decision-mirror round share ONE reusable one-entry cache type instead of a third and
+    // fourth copy of the same four fields. Same contract: cap on a CHARACTER boundary (never
+    // mid-glyph), one alloc per text change on either end, never throws.
+
+    private sealed class CappedUtf8Codec
+    {
+        private readonly int _maxBytes;
+        private string? _encText;
+        private byte[] _encBytes = System.Array.Empty<byte>();
+        private byte[] _decBytes = System.Array.Empty<byte>();
+        private string _decText = string.Empty;
+
+        public CappedUtf8Codec(int maxBytes) => _maxBytes = maxBytes;
+
+        public byte[] Encode(string text)
+        {
+            if (ReferenceEquals(text, _encText) || text == _encText)
+                return _encBytes;
+            string source = text;
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
+            while (bytes.Length > _maxBytes && source.Length > 0)
+            {
+                source = source.Substring(0, source.Length - 1);
+                bytes = System.Text.Encoding.UTF8.GetBytes(source);
+            }
+            _encText = text;   // key on the ORIGINAL string: the caller hands us the same one
+            _encBytes = bytes;
+            return bytes;
+        }
+
+        public string Decode(byte[] buffer, int offset, int count)
+        {
+            if (count <= 0)
+                return string.Empty;
+            if (count == _decBytes.Length)
+            {
+                bool same = true;
+                for (int b = 0; b < count; b++)
+                {
+                    if (buffer[offset + b] != _decBytes[b])
+                    {
+                        same = false;
+                        break;
+                    }
+                }
+                if (same)
+                    return _decText;
+            }
+            var copy = new byte[count];
+            System.Buffer.BlockCopy(buffer, offset, copy, 0, count);
+            _decBytes = copy;
+            _decText = System.Text.Encoding.UTF8.GetString(copy);
+            return _decText;
+        }
+    }
+
+    private static readonly CappedUtf8Codec DecisionLinesCodec = new(NetProtocol.DecisionLinesMaxBytes);
+    private static readonly CappedUtf8Codec ConfirmLabelCodec = new(NetProtocol.CapLabelMaxBytes);
+    private static readonly CappedUtf8Codec SkipLabelCodec = new(NetProtocol.CapLabelMaxBytes);
+
+    /// <summary>UTF8-encode the '\n'-joined decision-button labels, capped at
+    /// <see cref="NetProtocol.DecisionLinesMaxBytes"/> on a character boundary.</summary>
+    internal static byte[] EncodeDecisionLines(string text) => DecisionLinesCodec.Encode(text);
+
+    /// <summary>UTF8-encode the live CONFIRM cap label, capped at
+    /// <see cref="NetProtocol.CapLabelMaxBytes"/> on a character boundary.</summary>
+    internal static byte[] EncodeConfirmCapLabel(string text) => ConfirmLabelCodec.Encode(text);
+
+    /// <summary>UTF8-encode the live SKIP label, capped at
+    /// <see cref="NetProtocol.CapLabelMaxBytes"/> on a character boundary.</summary>
+    internal static byte[] EncodeSkipCapLabel(string text) => SkipLabelCodec.Encode(text);
 
     internal static byte[] EncodeModVersionText(string text)
     {
@@ -1261,6 +1442,61 @@ internal static class PresenceSerializer
                             state.HasSlotCardSize = true;
                             state.SlotFrameWidthCode = frame;
                             state.SlotCardWidthCode = card;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdDecisionLines && len >= 1)
+                    {
+                        // DECISION LINES: UTF8 blob, one button label per '\n'-separated line.
+                        // The length is re-clamped on OUR side (never trust the wire; the record
+                        // was bounds-checked above), and a decode that yields nothing degrades to
+                        // "record absent" = no docked decision content.
+                        int textLen = System.Math.Min(len, NetProtocol.DecisionLinesMaxBytes);
+                        string lines = DecisionLinesCodec.Decode(buffer, i, textLen);
+                        if (!string.IsNullOrEmpty(lines))
+                        {
+                            state.HasDecisionLines = true;
+                            state.DecisionLinesText = lines;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
+                    {
+                        // CAP LABELS: [mask][per set bit, mask-bit order: len + UTF8]. Every
+                        // sub-read is bounds-checked against the record's OWN length, so a
+                        // hostile length can neither overrun the record nor bleed into the next
+                        // one; a malformed block simply delivers nothing (the neutral-label
+                        // fallback, the designed failure direction).
+                        int j = i;
+                        int end = i + len;
+                        byte capMask = (byte)(buffer[j++] & NetProtocol.CapLabelDefinedMask);
+                        if ((capMask & NetProtocol.CapLabelConfirmBit) != 0 && j < end)
+                        {
+                            int l = buffer[j++];
+                            if (l > 0 && j + l <= end)
+                            {
+                                string label = ConfirmLabelCodec.Decode(buffer, j,
+                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                                if (!string.IsNullOrEmpty(label))
+                                {
+                                    state.HasConfirmCapLabel = true;
+                                    state.ConfirmCapLabel = label;
+                                }
+                            }
+                            j += l;
+                        }
+                        if ((capMask & NetProtocol.CapLabelSkipBit) != 0 && j < end)
+                        {
+                            int l = buffer[j++];
+                            if (l > 0 && j + l <= end)
+                            {
+                                string label = SkipLabelCodec.Decode(buffer, j,
+                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                                if (!string.IsNullOrEmpty(label))
+                                {
+                                    state.HasSkipCapLabel = true;
+                                    state.SkipCapLabel = label;
+                                }
+                            }
+                            j += l;
                         }
                     }
                     i += len; // known or not, the record's own length is how we move past it

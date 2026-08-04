@@ -127,6 +127,19 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // never sent.
     private int _lastSentTrackHoverActor = int.MinValue;
     private bool _lastSentTrackHoverPopup;
+    /// <summary>Last decision-button lines put on the wire (extension record 12; null = no row
+    /// docked). Dock, undock and a re-label are EDGES that pre-empt the 5 Hz gate — a decision
+    /// row that appears on the peer's copy 200 ms after the owner's reads as "not synced", the
+    /// board-UI-edge argument. Human-paced (a prompt opening), never a stream.</summary>
+    private string? _lastSentDecisionLines;
+
+    /// <summary>Last CONFIRM cap label put on the wire (extension record 13 bit 0; null = no
+    /// confirm control shown). Same edge pre-emption as the decision lines.</summary>
+    private string? _lastSentConfirmLabel;
+
+    /// <summary>Last SKIP label put on the wire (extension record 13 bit 1; null = skip not
+    /// shown on the board). Same edge pre-emption as the decision lines.</summary>
+    private string? _lastSentSkipLabel;
 
     // BOARD POSE MOTION (defect 7 "Bewegen kommt nicht flüssig an"): the last SENT board pose in
     // the shared anchor frame. While the pose is CHANGING (the owner drags/scales their board),
@@ -291,6 +304,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentPileCounts = int.MinValue;   // and re-states the pile counts…
         _lastSentHalfHover = int.MinValue;    // …the half hover…
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
+        _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
+        _lastSentConfirmLabel = null;  // and the live cap labels
+        _lastSentSkipLabel = null;
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
@@ -734,12 +750,30 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         string? tooltipNow = WorldUI.WorldTooltips.WireText;
         bool tooltipChanged = tooltipNow != _lastSentTooltip;
 
+        // DECISION LINES (extension record 12): the labels of the decision row currently docked
+        // below the owner's board, published by DecisionDockSurface (pressable-widget labels
+        // only — the identity gate lives in the sampler, see WireButtonLines). Sampled before
+        // the rate gate so dock/undock/re-label edges pre-empt it like the board-UI bits do.
+        string? decisionNow = WorldUI.Surfaces.DecisionDockSurface.WireButtonLines;
+        bool decisionChanged = decisionNow != _lastSentDecisionLines;
+
+        // CAP LABELS (extension record 13): what the owner's CONFIRM cap and docked SKIP button
+        // actually read. Null while the control is hidden, so the record's presence tracks the
+        // board-UI visibility bits; appearance/disappearance/re-wording are edges.
+        string? confirmLabelNow = trayNow != null && trayNow.ConfirmControlShown
+            ? trayNow.ConfirmControlLabel
+            : null;
+        string? skipLabelNow = WorldUI.ButtonCluster.BoardSkipLabel;
+        bool capLabelsChanged = confirmLabelNow != _lastSentConfirmLabel
+                                || skipLabelNow != _lastSentSkipLabel;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
             && !tooltipChanged && !slotCardSizeChanged
-            && !pileCountsChanged && !halfHoverDue && !trackHoverDue)
+            && !pileCountsChanged && !halfHoverDue && !trackHoverDue
+            && !decisionChanged && !capLabelsChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -894,6 +928,48 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   $"capped {NetProtocol.TooltipTextMaxBytes} B, identity-gated at the source: " +
                   "only content already public to peers); peers show it at the remote board's " +
                   "tooltip area.");
+        }
+        // DECISION LINES (extension record 12): written on every packet WHILE a decision row is
+        // docked; omitted otherwise, so an idle packet stays byte-identical to the previous
+        // build's. The sampler already excluded everything that is not a pressable widget label.
+        if (!string.IsNullOrEmpty(decisionNow))
+        {
+            extras.HasDecisionLines = true;
+            extras.DecisionLinesText = decisionNow;
+        }
+        if (decisionChanged)
+        {
+            _lastSentDecisionLines = decisionNow;
+            VRLog.Info("Net", string.IsNullOrEmpty(decisionNow)
+                ? "Decision lines SENT: row undocked — record omitted (peers drop the mirrored buttons)."
+                : $"Decision lines SENT: \"{decisionNow!.Replace('\n', '|')}\" — extension record 12 " +
+                  $"(UTF8, capped {NetProtocol.DecisionLinesMaxBytes} B: pressable-widget labels " +
+                  "only, NO card identity); peers render them as inert plates at their copy's " +
+                  "decision seat.");
+        }
+        // CAP LABELS (extension record 13): written on every packet while a confirm/skip control
+        // is shown with a known label; omitted otherwise (peers fall back to the neutral wording,
+        // which is also what pre-record peers render).
+        if (!string.IsNullOrEmpty(confirmLabelNow))
+        {
+            extras.HasConfirmCapLabel = true;
+            extras.ConfirmCapLabel = confirmLabelNow;
+        }
+        if (!string.IsNullOrEmpty(skipLabelNow))
+        {
+            extras.HasSkipCapLabel = true;
+            extras.SkipCapLabel = skipLabelNow;
+        }
+        if (capLabelsChanged)
+        {
+            _lastSentConfirmLabel = confirmLabelNow;
+            _lastSentSkipLabel = skipLabelNow;
+            VRLog.Info("Net", $"Cap labels SENT: confirm=" +
+                              $"{(string.IsNullOrEmpty(confirmLabelNow) ? "<hidden>" : "\"" + confirmLabelNow + "\"")}, " +
+                              $"skip={(string.IsNullOrEmpty(skipLabelNow) ? "<hidden>" : "\"" + skipLabelNow + "\"")} — " +
+                              $"extension record 13 (UTF8, {NetProtocol.CapLabelMaxBytes} B cap per label, " +
+                              "sender language verbatim); peers letter their mirrored caps with " +
+                              "EXACTLY these words instead of a re-localized GUI_CONFIRM/GUI_SKIP_MOVEMENT.");
         }
 
         if (boardUiChanged)

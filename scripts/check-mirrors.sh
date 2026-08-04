@@ -85,6 +85,18 @@ MIRRORS=(
   "dock fit ceiling : WorldUI/Surfaces/TablePanelSurfaces.cs:MaxDensityScale Net/RemoteWidgetMirror.cs:MaxDensityScale"
   "content-fit alpha floor : WorldUI/CanvasConversion.3.Fit.cs:FitMinAlpha Net/RemoteWidgetMirror.cs:FitMinAlpha"
 
+  # The DECISION DOCK's prompt anchor, mirrored by the remote board (decision-mirror round):
+  # the owner's widget block hangs (bar bottom − BarClearanceMeters − DecisionGap) below the
+  # board, and Net/RemoteBoardFurniture derives a peer's mirrored row from the same clearance.
+  # (The bar-zone half-height and the 0.7 cluster dock scale are mirrored too — private
+  # authored values inside PlayTray/ButtonCluster, called out in both doc comments; the zone
+  # half is a derived expression the float extractor cannot read.) A drift here re-opens the
+  # "detached ENTSCHEIDUNGEN plate" defect: the mirrored row stops hanging where the owner's
+  # buttons really are.
+  "decision prompt bar clearance : WorldUI/Surfaces/DecisionDockSurface.cs:BarClearanceMeters Net/RemoteBoardFurniture.cs:BarClearanceMeters"
+  "cluster proud seat : WorldUI/ButtonCluster.cs:ClusterProudOffset Net/RemoteBoardFurniture.cs:ClusterProudLift"
+  "cluster dock scale : Cards/PlayTray.1.Core.cs:ButtonClusterMountScale Net/RemoteBoardFurniture.cs:ClusterDockScale"
+
   # The graphics-jobs handshake: the PRELOADER publishes what the engine actually booted
   # with (read before it edits boot.config) and the PLUGIN reports it. They are separate
   # assemblies and the plugin deliberately does not link the patcher — it has to degrade to

@@ -117,11 +117,42 @@ internal sealed class RemoteBoardFurniture
     /// <summary>ButtonCluster's docked right-column anchor (ColumnCenterX/Y/RootZ).</summary>
     private static readonly Vector3 ClusterMount = new(0.148f, -0.124f, -0.006f);
 
+    /// <summary>Mirror of <c>PlayTray.ButtonClusterMountScale</c> — the fixed 0.7× dock shrink
+    /// every docked cluster button renders under (on TOP of the per-style
+    /// <see cref="ClusterScaleFor"/>). Dropping it is half of why the remote skip cap rendered
+    /// 43 % too big (task 3(b)).</summary>
+    private const float ClusterDockScale = 0.7f;
+
+    /// <summary>Mirror of <c>ButtonCluster.ClusterProudOffset</c> — the depth-correct proud seat
+    /// the docked cluster is lifted toward the viewer, scaled by the dock factor.</summary>
+    private const float ClusterProudLift = 0.010f;
+
+    /// <summary>The SHIPPED [RoundButtons] group offset (<c>Defaults.RoundButtons_OffsetX/Y</c> +
+    /// <c>Defaults.OffsetZ</c>) — the authored seat term <c>ButtonCluster.AttachDocked</c> adds to
+    /// the column anchor in tray-root-local metres (X/Y straight, Z along the outward normal).
+    /// The shipped values are NOT zero (build 34 rebased the tuned cfg into the defaults:
+    /// x −0.045, y +0.26, z 0.025 — the skip disc lives UP-BOARD beside the card slots, not in
+    /// the authored bottom-right column), and dropping them is the other half of task 3(b)'s
+    /// "wrongly positioned round button". As everywhere on this board these are the AUTHORED
+    /// defaults, never the peer's live [RoundButtons] tuning (DELIBERATELY-NOT).</summary>
+    private static readonly Vector3 SkipSeatOffset = new(
+        Defaults.RoundButtons_OffsetX, Defaults.RoundButtons_OffsetY, 0f);
+
     /// <summary>PlayTray.ItemUseSlotBase (ButtonZoneX, −BoardH/2 − 0.095, −0.020).</summary>
     private static readonly Vector3 ItemUseMount = new(ButtonZoneX, -BoardH * 0.5f - 0.095f, -0.020f);
 
     /// <summary>PlayTray.DecisionMountBase (0, −0.29, −0.020) — the shared decision drawer.</summary>
     private static readonly Vector3 DecisionMount = new(0f, -0.29f, -0.020f);
+
+    /// <summary>Half height of the local grab-bar's trigger zone (<c>PlayTray.BuildHandle</c>
+    /// box.size.y 0.05 / 2) — the bar-bottom reference the local decision dock hangs its widget
+    /// block from.</summary>
+    private const float HandleZoneHalfY = 0.025f;
+
+    /// <summary>Mirror of <c>DecisionDockSurface.BarClearanceMeters</c> — the clearance between
+    /// the grab-bar bottom and the prompt reference the owner's dock anchors under (linted
+    /// against drift by <c>scripts/check-mirrors.sh</c>).</summary>
+    private const float BarClearanceMeters = 0.008f;
 
     // ---- authored widget sizes (Defaults — the shipped [ButtonTuning] values) ------------------
     // The live ButtonTuning entries are the LOCAL player's own config; a peer's caps are drawn at
@@ -230,11 +261,17 @@ internal sealed class RemoteBoardFurniture
         _ => Defaults.ItemUseSlotOffset_Oak,
     };
 
-    private static Vector3 ClusterOffsetFor(Cards.ControlBoard s) => s switch
+    /// <summary>Per-style ButtonCluster mount SCALE (<c>Defaults.ClusterScale_*</c>). Note the
+    /// POSITION half of that pair (<c>ClusterOffset_*</c>) is deliberately NOT applied here: the
+    /// local cluster's rigid dock (<c>ButtonCluster.AttachDocked</c>) reads the mount's ROTATION
+    /// and SCALE only and seats the buttons at the fixed column constants — the mount's position
+    /// never moves the rendered cluster, so mirroring it would move the copy where the original
+    /// never goes (the previous revision's misplacement, task 3(b)).</summary>
+    private static float ClusterScaleFor(Cards.ControlBoard s) => s switch
     {
-        Cards.ControlBoard.Steel => Defaults.ClusterOffset_Steel,
-        Cards.ControlBoard.Bronze => Defaults.ClusterOffset_Bronze,
-        _ => Defaults.ClusterOffset_Oak,
+        Cards.ControlBoard.Steel => Defaults.ClusterScale_Steel,
+        Cards.ControlBoard.Bronze => Defaults.ClusterScale_Bronze,
+        _ => Defaults.ClusterScale_Oak,
     };
 
     private static Vector3 DecisionOffsetFor(Cards.ControlBoard s) => s switch
@@ -293,6 +330,31 @@ internal sealed class RemoteBoardFurniture
     private readonly Transform _itemUse;
     private readonly Material _itemUseGlowMat;
     private readonly Transform _decision;
+
+    /// <summary>The board style this furniture was built for — keys the decision row's authored
+    /// scale/gap when the synced content is rebuilt after construction.</summary>
+    private Cards.ControlBoard _decisionStyle;
+
+    /// <summary>The captioned IDLE drawer under <see cref="_decision"/> — shown while the owner
+    /// has a docked prompt whose labels this client does not hold (legacy sender).</summary>
+    private Transform? _drawerIdle;
+
+    /// <summary>The SYNCED button row under <see cref="_decision"/> (wire record 12), rebuilt by
+    /// <see cref="SetDecisionLines"/>; null while no labels are synced.</summary>
+    private Transform? _decisionRow;
+
+    /// <summary>Change gate for <see cref="SetDecisionLines"/> (the '\n'-joined labels last
+    /// built; null = idle drawer).</summary>
+    private string? _shownDecisionLines;
+
+    /// <summary>Last synced CONFIRM wording applied to the cap (wire record 13; null = the
+    /// neutral GUI_CONFIRM fallback is applied). Reset by <see cref="ApplyLabels"/> so a language
+    /// switch re-derives the fallback without losing a live synced label.</summary>
+    private string? _appliedConfirmWire;
+
+    /// <summary>Last synced SKIP wording applied to the cap — same contract as
+    /// <see cref="_appliedConfirmWire"/>.</summary>
+    private string? _appliedSkipWire;
     private readonly GameObject?[] _wanted = new GameObject?[2];
     private readonly GameObject?[] _snap = new GameObject?[2];
     private readonly GameObject?[] _halves = new GameObject?[2];
@@ -419,16 +481,46 @@ internal sealed class RemoteBoardFurniture
         // FIDELITY NOTE (this is why only ONE cap is drawn, not three): on a DOCKED board the
         // cluster's Ready and Undo twins are forced permanently OFF — ButtonCluster.Tick calls
         // MirrorReady(null, …) / MirrorUndo(null, …) precisely so the board never shows a duplicate
-        // "Fortfahren"/Undo next to the right-hand pads. ONLY Skip is mirrored there. A single
-        // round Skip disc at the column anchor is the faithful picture.
-        _skip = InertCap.Round(_root, "TurnFlowSkip", ClusterMount + ClusterOffsetFor(style),
-            TransientCapR * 2f, TransientCapD, SkipColor);
+        // "Fortfahren"/Undo next to the right-hand pads. ONLY Skip is mirrored there.
+        //
+        // SEAT + SHAPE + SIZE are the local rigid dock's, reproduced term for term (task 3(b) —
+        // "der runde Button ist falsch positioniert und ignoriert die Offsets des Boards"): the
+        // column anchor + the SHIPPED [RoundButtons] group offset (x −0.045, y +0.26 — up-board
+        // beside the card slots, where the owner actually sees it), lifted along −Z by the proud
+        // seat + the authored OffsetZ, at the 0.7× dock shrink × the per-style cluster scale, in
+        // the AUTHORED shape (the shipped default is a SQUARE keycap of the [RoundButtons] W/H/D,
+        // not a round disc). The previous revision drew an unscaled round disc at the bare column
+        // anchor — wrong spot, wrong shape, 1.43× too big.
+        float clusterScale = ClusterDockScale * ClusterScaleFor(style);
+        Vector3 skipSeat = ClusterMount + SkipSeatOffset
+                           + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + Defaults.OffsetZ));
+        _skip = Defaults.RoundButtons_Shape == Cards.ButtonShape.Round
+            ? InertCap.Round(_root, "TurnFlowSkip", skipSeat,
+                TransientCapR * 2f * clusterScale, TransientCapD * clusterScale, SkipColor)
+            : InertCap.Square(_root, "TurnFlowSkip", skipSeat,
+                new Vector2(Defaults.RoundButtons_Width, Defaults.RoundButtons_Height) * clusterScale,
+                Defaults.RoundButtons_Depth * clusterScale, SkipColor);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
         _itemUse = BuildItemUseRecess(ItemUseMount + ItemUseOffsetFor(style), out _itemUseGlowMat);
 
         // ---- shared decision drawer -----------------------------------------------------------
-        _decision = BuildDecisionDrawer(DecisionMount + DecisionOffsetFor(style));
+        // ANCHORED WHERE THE OWNER'S DOCK REALLY HANGS (task 2 — the detached "ENTSCHEIDUNGEN"
+        // plate): the local DecisionDockSurface does NOT place its widget block at the decision
+        // MOUNT's y — it anchors the block TOP a configured gap below the grab-bar BOTTOM
+        // (Place(): promptRef = bar bottom − BarClearance; block top = promptRef − DecisionGap;
+        // the mount's own Y cancels out of the solve). The old drawer sat at the RAW mount seat
+        // (y −0.29 − 0.157 = −0.447 on Steel) — 0.18 m below where the owner's buttons actually
+        // are. The mirror now derives the same top edge from the same references: the handle
+        // bar's authored seat, its zone half-height, the shared clearance and the AUTHORED
+        // per-board DecisionGap. The mount contributes only its authored X/Z (sideways + proud),
+        // exactly as it does locally.
+        _decisionStyle = style;
+        Vector3 decisionOff = DecisionOffsetFor(style);
+        float barBottomY = HandleMount.y - HandleZoneHalfY;
+        float decisionTopY = barBottomY - BarClearanceMeters - DecisionGapFor(style);
+        _decision = BuildDecisionDrawer(new Vector3(
+            DecisionMount.x + decisionOff.x, decisionTopY, DecisionMount.z + decisionOff.z));
 
         // ---- slot overlays: wanted pulse, snap glow, half-poke divider ------------------------
         // Centred on the CARD positions handed in by the board (the real recess anchors when the
@@ -517,6 +609,16 @@ internal sealed class RemoteBoardFurniture
                 SetShown(_decision, true);
             }
         }
+
+        // ---- SYNCED CAP LABELS (wire record 13 — task 4 "der Button-Text muss immer korrekt
+        //      synchronisiert sein"). The owner's actually-displayed CONFIRM/SKIP wording, shown
+        //      verbatim in their language; absent record = the neutral ApplyLabels fallback.
+        SetCapLabels(owner);
+
+        // ---- SYNCED DECISION ROW (wire record 12 — task 2 "die Entscheidungsbuttons 1:1").
+        //      The labels of the row the owner's dock really shows, rendered as inert plates at
+        //      the same bar-anchored seat; without labels the captioned idle drawer stands in.
+        SetDecisionLines(owner.DecisionLines);
 
         // ---- FOLLOW / PIN toggle (defect (a)) -------------------------------------------------
         // The owner's tray anchor mode now rides the board-UI record (byte 1 bit 2), so this cap
@@ -617,7 +719,10 @@ internal sealed class RemoteBoardFurniture
                     $"buttons={(synced ? "0x" + owner.BoardButtonsMask.ToString("X2") : "legacy")}, " +
                     $"wanted={wantedMask}{(synced ? "(synced)" : string.Empty)}, snap={snapMask}, " +
                     $"halves={halfMask}, " +
-                    $"tray={(owner.TrayPinned ? "PINNED" : "FOLLOW")}{(synced ? "(synced)" : "(default)")}";
+                    $"tray={(owner.TrayPinned ? "PINNED" : "FOLLOW")}{(synced ? "(synced)" : "(default)")}, " +
+                    $"capLabels[confirm={(owner.ConfirmCapLabel != null ? "'" + owner.ConfirmCapLabel + "'" : "neutral")}, " +
+                    $"skip={(owner.SkipCapLabel != null ? "'" + owner.SkipCapLabel + "'" : "neutral")}], " +
+                    $"decision={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}";
         _ = actor; // reserved: no per-actor furniture state is knowable beyond the slots (see notes)
     }
 
@@ -636,6 +741,29 @@ internal sealed class RemoteBoardFurniture
         _shownPinned = pinned;
         _pin.SetLabel(pinned ? Loc.Mod("pinned") : Loc.Mod("follow"));
         _pin.SetTint(pinned ? PinAccentColor : PinIdleColor);
+    }
+
+    /// <summary>
+    /// Apply the owner's SYNCED cap wordings (wire record 13): the confirm cap and the skip cap
+    /// read EXACTLY what the owner's do, verbatim in their language; a null (record absent —
+    /// control hidden, or a pre-record sender) falls back to the neutral localized seed. Both
+    /// writes are change-gated against the WIRE value, and <see cref="ApplyLabels"/> re-arms the
+    /// gates on a language switch so the fallback re-localizes without clobbering a live label.
+    /// </summary>
+    private void SetCapLabels(RemoteAvatar owner)
+    {
+        string? confirm = owner.ConfirmCapLabel;
+        if (confirm != _appliedConfirmWire)
+        {
+            _appliedConfirmWire = confirm;
+            _confirm.SetLabel(confirm ?? Loc.Game("GUI_CONFIRM", "Confirm"));
+        }
+        string? skip = owner.SkipCapLabel;
+        if (skip != _appliedSkipWire)
+        {
+            _appliedSkipWire = skip;
+            _skip.SetLabel(skip ?? Loc.Game("GUI_SKIP_MOVEMENT", "Skip"));
+        }
     }
 
     /// <summary>Change-safe activeSelf flip for a plain furniture root.</summary>
@@ -657,27 +785,34 @@ internal sealed class RemoteBoardFurniture
     ///   • CONFIRM / UNDO / SKIP / REST enabled-vs-disabled — the local caps mirror the peer's OWN
     ///     uGUI widget interactability, which is recomputed per frame on THEIR client only.
     ///     Drawn ENABLED (the authored base colour), never dimmed.
-    ///   • CONFIRM's live label — the local cap re-reads the game widget's own text every tick
-    ///     (16 <c>ReadyButton.EButtonState</c> values: "Continue", "Perform long rest", …). Drawn
-    ///     with the neutral GUI_CONFIRM wording.
     ///
     /// The FOLLOW/PIN toggle is NO LONGER on that list: its label and accent are SYNCED (board-UI
     /// record byte 1 bit 2) and applied in <see cref="SetPinned"/>, so this method only seeds the
     /// wording. Calling <c>[Cards] TrayFollow</c> "a private VR preference" was the mistake — it is
     /// a labelled two-state control on a board the user requires to read 1:1 like its owner's.
+    /// The CONFIRM and SKIP wordings left the list the same way (user report 2026-08-04: "mein
+    /// Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'"): the owner's actually-displayed text
+    /// rides wire record 13 and is applied in <see cref="SetCapLabels"/> — this method only seeds
+    /// the no-record fallback.
     /// </summary>
     private void ApplyLabels()
     {
         _confirm.SetLabel(Loc.Game("GUI_CONFIRM", "Confirm"));
         _undo.SetLabel(Loc.Game("GUI_UNDO", "Undo"));
+        // The CONFIRM/SKIP wordings are SYNCED state now (wire record 13, see SetCapLabels):
+        // this method only seeds the neutral fallback, and re-arming the gates here makes the
+        // next refresh re-assert whichever synced label is live in place of the reseed.
+        _appliedConfirmWire = null;
+        _appliedSkipWire = null;
         _use.SetLabel(Loc.Game("GUI_USE", "USE").ToUpperInvariant());
         // FOLLOW/PIN is SYNCED state now (see SetPinned), so a language switch must re-state the
         // CURRENT mode's word, not the FOLLOW one — and must re-arm the change gate so the next
         // refresh re-applies it in the new language.
         _pin.SetLabel(_shownPinned == true ? Loc.Mod("pinned") : Loc.Mod("follow"));
         _shownPinned = null;
-        // GUI_SKIP_MOVEMENT is the key SkipButton.Start() seeds its own label from; the live button
-        // swaps in GUI_SKIP_ABILITY / GUI_SKIP_ATTACK per situation, which is peer-local state.
+        // GUI_SKIP_MOVEMENT is the key SkipButton.Start() seeds its own label from; the live
+        // button swaps in GUI_SKIP_ABILITY / GUI_SKIP_ATTACK per situation — that live wording
+        // rides wire record 13 now (SetCapLabels overrides this seed whenever it is present).
         _skip.SetLabel(Loc.Game("GUI_SKIP_MOVEMENT", "Skip"));
         // Same strings the local RestControls caps wear (no game key exists for the short rest).
         _shortRest?.SetLabel(Loc.Mod("short_rest"));
@@ -722,36 +857,142 @@ internal sealed class RemoteBoardFurniture
     }
 
     /// <summary>
-    /// The SHARED DECISION DRAWER: the reserved strip below the board where the take-damage burn
+    /// The SHARED DECISION DOCK mirror: the strip below the board where the take-damage burn
     /// choice, the burn-confirm dialog and every other in-scenario prompt dock their REAL widgets
-    /// on the local board (<c>PlayTray.DecisionMount</c>, 0.42 × 0.12 max).
+    /// on the local board (<c>DecisionDockSurface</c> on <c>PlayTray.DecisionMount</c>).
     ///
-    /// LOCAL-ONLY STATE: whether a peer currently has such a prompt open lives entirely in THEIR
-    /// client's UI (<c>TakeDamagePanel</c>, <c>UIManager.dialogPopup</c>) — there is no replicated
-    /// model flag for it and it is not worth a wire field. So the drawer is drawn permanently in
-    /// its IDLE look: the slim empty drawer with its caption, at the mount's own offset, rather
-    /// than a fake button row.
+    /// The root's local origin is the WIDGET-BLOCK TOP EDGE the owner's dock anchors at (bar
+    /// bottom − clearance − authored DecisionGap; computed at the ctor call site), horizontally
+    /// centred like the local dock; content grows DOWN from it. Two mutually exclusive children:
+    ///   • <see cref="_drawerIdle"/> — the slim captioned drawer, shown while the owner HAS a
+    ///     docked prompt (board-UI decision bit) but this client holds no labels for it (legacy
+    ///     sender, or a row whose labels could not be read);
+    ///   • <see cref="_decisionRow"/> — the MIRRORED BUTTON ROW (wire record 12): one inert
+    ///     antique plate per label the owner's dock really shows, rebuilt in
+    ///     <see cref="SetDecisionLines"/>.
     /// </summary>
-    private Transform BuildDecisionDrawer(Vector3 mount)
+    private Transform BuildDecisionDrawer(Vector3 topEdgeLocal)
     {
         var root = new GameObject("DecisionDrawer").transform;
         root.SetParent(_root, worldPositionStays: false);
-        root.localPosition = mount;
+        root.localPosition = topEdgeLocal;
 
-        MeshRenderer drawerPlate = BoardVisual.Quad(root, "Plate", new Vector2(0.42f, 0.055f),
+        // Idle drawer, hung with its TOP edge at the root origin (the same anchor the real
+        // buttons use, so legacy and synced looks sit at the same spot).
+        _drawerIdle = new GameObject("Idle").transform;
+        _drawerIdle.SetParent(root, worldPositionStays: false);
+        _drawerIdle.localPosition = new Vector3(0f, -0.0275f, 0f);
+
+        MeshRenderer drawerPlate = BoardVisual.Quad(_drawerIdle, "Plate", new Vector2(0.42f, 0.055f),
             BoardVisual.Unlit(new Color(0.10f, 0.09f, 0.08f, 0.80f)));
         drawerPlate.transform.localPosition = new Vector3(0f, 0f, 0.001f);
         WorldUI.MrBacking.Opacify(drawerPlate.sharedMaterial); // 0.80 → 1 while MR is on
         // A thin lip along the top edge so the empty drawer reads as a drawer and not as a shadow.
-        BoardVisual.Quad(root, "Lip", new Vector2(0.42f, 0.004f),
+        BoardVisual.Quad(_drawerIdle, "Lip", new Vector2(0.42f, 0.004f),
             BoardVisual.Unlit(new Color(0.36f, 0.31f, 0.20f, 1f)))
             .transform.localPosition = new Vector3(0f, 0.0275f, 0f);
 
-        RemoteBoardContent.Label(root, "Caption", new Vector3(0f, 0f, -0.001f),
+        RemoteBoardContent.Label(_drawerIdle, "Caption", new Vector3(0f, 0f, -0.001f),
             new Vector2(0.36f, 0.026f), 0.05f,
             new Color(0.72f, 0.68f, 0.58f), TextAlignmentOptions.Center)
             .text = Loc.Mod("decision_dock").ToUpperInvariant();
         return root;
+    }
+
+    /// <summary>Authored per-board decision text↔button gap (<c>Defaults.DecisionGap_*</c> — the
+    /// board-local metres the owner's widget-block top hangs below the prompt reference).</summary>
+    private static float DecisionGapFor(Cards.ControlBoard s) =>
+        Cards.CardsConfig.BoardDefaults.DecisionGap[(int)Cards.ControlBoards.Clamp((int)s)];
+
+    /// <summary>Authored per-board decision dock SCALE (<c>Defaults.DecisionScale_*</c>, 1.6 on
+    /// every shipped board — the "readable under pressure" enlargement the local mount carries).</summary>
+    private static float DecisionScaleFor(Cards.ControlBoard s) =>
+        Defaults.DecisionScale_ByBoard[(int)Cards.ControlBoards.Clamp((int)s)];
+
+    // ---- decision-row geometry (all board-local metres, scaled by DecisionScaleFor) ----------
+    // The local row is the game's own widget row fitted into PlayTray.DecisionMountWidth ×
+    // DecisionMountMaxHeight at the mount's 1.6× scale; the mirror reproduces that envelope with
+    // one plate per synced label — content-true widths inside the same budget.
+
+    /// <summary>Plate height at scale 1 (a game option button's ~90 px at the dock density).</summary>
+    private const float DecisionButtonH = 0.048f;
+
+    /// <summary>Gap between two plates, board-local metres (at scale 1).</summary>
+    private const float DecisionButtonGap = 0.008f;
+
+    /// <summary>Per-plate width ceiling at scale 1 — a lone confirm button must not stretch
+    /// across the whole 0.42 budget the way an equal split would.</summary>
+    private const float DecisionButtonMaxW = 0.20f;
+
+    /// <summary>
+    /// (Re)build the mirrored decision-button row from the owner's synced labels (wire record
+    /// 12; null = none). Change-gated on the joined string — a rebuild is a handful of quads and
+    /// labels, and it only happens when the owner's dock content really changed. The idle
+    /// captioned drawer shows exactly while the decision bit is set WITHOUT labels, so a legacy
+    /// sender keeps its familiar look.
+    /// </summary>
+    private void SetDecisionLines(string? lines)
+    {
+        if (lines == _shownDecisionLines)
+            return;
+        _shownDecisionLines = lines;
+
+        if (_decisionRow != null)
+        {
+            Object.Destroy(_decisionRow.gameObject);
+            _decisionRow = null;
+        }
+        if (_drawerIdle != null && _drawerIdle.gameObject.activeSelf != (lines == null))
+            _drawerIdle.gameObject.SetActive(lines == null);
+        if (lines == null)
+            return;
+
+        float scale = DecisionScaleFor(_decisionStyle);
+        string[] labels = lines.Split('\n');
+        int n = labels.Length;
+
+        _decisionRow = new GameObject("SyncedRow").transform;
+        _decisionRow.SetParent(_decision, worldPositionStays: false);
+        _decisionRow.localPosition = Vector3.zero;
+
+        // One horizontal row, centred on the dock axis like the game's own option rows: equal
+        // slots inside the owner's width budget, each plate capped at the content ceiling.
+        float budget = Cards.PlayTray.DecisionMountWidth * scale;
+        float gap = DecisionButtonGap * scale;
+        float h = DecisionButtonH * scale;
+        float w = Mathf.Min(DecisionButtonMaxW * scale, (budget - (n - 1) * gap) / n);
+        float rowW = n * w + (n - 1) * gap;
+        for (int i = 0; i < n; i++)
+        {
+            var plate = new GameObject($"Button{i}").transform;
+            plate.SetParent(_decisionRow, worldPositionStays: false);
+            plate.localPosition = new Vector3(-rowW * 0.5f + w * 0.5f + i * (w + gap),
+                                              -h * 0.5f, 0f);
+            // The local docked row's antique restyle, mirrored: the game's light-stone button
+            // sprite multiplied toward dark wood/aged brass (DecisionDockSurface.AntiqueTint)
+            // with parchment-gold labels — a gold rim + dark body reads as exactly that family.
+            BoardVisual.Quad(plate, "Rim", new Vector2(w, h),
+                BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f)))
+                .transform.localPosition = new Vector3(0f, 0f, 0.0015f);
+            BoardVisual.Quad(plate, "Face", new Vector2(w - 0.006f * scale, h - 0.006f * scale),
+                BoardVisual.Unlit(new Color(0.23f, 0.18f, 0.12f, 1f)))
+                .transform.localPosition = new Vector3(0f, 0f, 0.001f);
+            Color gold = WorldUI.NativeButtonSkin.HasFont
+                ? WorldUI.NativeButtonSkin.LabelColor
+                : new Color(0.91f, 0.82f, 0.62f);
+            RemoteBoardContent.Label(plate, "Label", new Vector3(0f, 0f, -0.001f),
+                new Vector2(w * 0.9f, h * 0.72f), 0.23f * scale, gold,
+                TextAlignmentOptions.Center, wrap: true)
+                .text = labels[i];
+        }
+        StripColliders(_decisionRow.gameObject, "RemoteBoardFurniture.SyncedRow");
+
+        VRLog.Info("Net", $"Remote decision dock: {n} mirrored button(s) " +
+                          $"(\"{lines.Replace('\n', '|')}\") — row {rowW:F3} m wide, plates " +
+                          $"{w:F3}x{h:F3} m at the authored ×{scale:F2} dock scale, top edge at " +
+                          $"board-local y {_decision.localPosition.y:F3} (bar bottom − clearance − " +
+                          $"authored DecisionGap_{_decisionStyle}) — the seat the OWNER's own dock " +
+                          "hangs its widget block from.");
     }
 
     /// <summary>A collider-free glow rim behind a round-card slot (the teal "wanted" pulse and the

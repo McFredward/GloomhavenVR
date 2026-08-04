@@ -286,6 +286,23 @@ internal sealed class RemoteAvatar
     /// (<see cref="RemoteBoardTooltip"/>).</summary>
     public string? TooltipText { get; private set; }
 
+    /// <summary>The BUTTON LABELS of the owner's docked decision row (extension record 12), one
+    /// per '\n'-separated line, or null while no row is docked — including for a sender that
+    /// predates the record, which then renders the plain drawer via the board-UI decision bit.
+    /// Rendered as inert plates at the remote board's decision seat
+    /// (<see cref="RemoteBoardFurniture"/>).</summary>
+    public string? DecisionLines { get; private set; }
+
+    /// <summary>What the owner's CONFIRM cap actually reads (extension record 13 bit 0), or null
+    /// — the receiver then letters the mirrored cap with the neutral GUI_CONFIRM fallback,
+    /// exactly what pre-record senders get.</summary>
+    public string? ConfirmCapLabel { get; private set; }
+
+    /// <summary>What the owner's docked SKIP button actually reads (extension record 13 bit 1),
+    /// or null — neutral GUI_SKIP_MOVEMENT fallback, same contract as
+    /// <see cref="ConfirmCapLabel"/>.</summary>
+    public string? SkipCapLabel { get; private set; }
+
     /// <summary>Visible-controls bitmask (<see cref="NetProtocol.BoardUiConfirmBit"/> …),
     /// meaningful only when <see cref="HasBoardUi"/>.</summary>
     public byte BoardButtonsMask { get; private set; }
@@ -670,6 +687,38 @@ internal sealed class RemoteAvatar
                 ? $"Board tooltip RECEIVED from player {PlayerId}: none (hidden)."
                 : $"Board tooltip RECEIVED from player {PlayerId}: {tooltip!.Length} chars — " +
                   "shown at their remote board's tooltip area.");
+        }
+
+        // DECISION LINES (extension record 12): absent ⇒ null ⇒ the mirrored decision buttons
+        // hide (the drawer alone remains while the board-UI decision bit still says a prompt is
+        // docked — the pre-record look). Never a stale row from a prompt that has since resolved:
+        // the sender writes the record on every packet while a row is docked and omits it the
+        // moment it undocks.
+        string? decision = p.HasDecisionLines ? p.DecisionLinesText : null;
+        if (decision != DecisionLines)
+        {
+            DecisionLines = decision;
+            VRLog.Info("Net", string.IsNullOrEmpty(decision)
+                ? $"Decision lines RECEIVED from player {PlayerId}: none (row undocked)."
+                : $"Decision lines RECEIVED from player {PlayerId}: " +
+                  $"\"{decision!.Replace('\n', '|')}\" — mirrored as inert plates at their remote " +
+                  "board's decision seat (labels only, no card identity on this wire).");
+        }
+
+        // CAP LABELS (extension record 13): absent ⇒ null ⇒ the neutral-label fallback. The
+        // sender writes them while the respective control is shown, so a label can never outlive
+        // the cap it letters.
+        string? confirmLabel = p.HasConfirmCapLabel ? p.ConfirmCapLabel : null;
+        string? skipLabel = p.HasSkipCapLabel ? p.SkipCapLabel : null;
+        if (confirmLabel != ConfirmCapLabel || skipLabel != SkipCapLabel)
+        {
+            ConfirmCapLabel = confirmLabel;
+            SkipCapLabel = skipLabel;
+            VRLog.Info("Net", $"Cap labels RECEIVED from player {PlayerId}: confirm=" +
+                              $"{(string.IsNullOrEmpty(confirmLabel) ? "<neutral fallback>" : "\"" + confirmLabel + "\"")}, " +
+                              $"skip={(string.IsNullOrEmpty(skipLabel) ? "<neutral fallback>" : "\"" + skipLabel + "\"")} — " +
+                              "their mirrored caps read EXACTLY what the owner's do (record 13, " +
+                              "sender language verbatim).");
         }
 
         HasBoardUi = p.HasBoardUi;

@@ -695,6 +695,11 @@ internal sealed partial class PlayTray
                 _label.text = text;
         }
 
+        /// <summary>The label this cap currently DISPLAYS — read by the multiplayer cap-label
+        /// seam (<c>PlayTray.ConfirmControlLabel</c>) so the wire carries the wording the owner
+        /// actually sees, whichever TickStatus branch last wrote it. Null before a label exists.</summary>
+        internal string? CurrentLabel => _label != null ? _label.text : null;
+
         /// <summary>
         /// Show/hide the whole button (test #23 item 4): the mod CONFIRM/UNDO buttons
         /// hide while the REAL ReadyButton/UndoButton dock at the same spot. Inactive

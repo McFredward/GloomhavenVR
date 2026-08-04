@@ -142,6 +142,30 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// </summary>
     internal static bool DockingTakeDamage { get; private set; }
 
+    /// <summary>
+    /// MULTIPLAYER READ SEAM (wire record <c>NetProtocol.ExtIdDecisionLines</c>): the labels of
+    /// the docked row's PRESSABLE widgets, one per line ('\n'-joined), or null while no row is
+    /// docked. Peers render one inert button plate per line at their copy of this board's
+    /// decision seat, so the remote dock shows the owner's ACTUAL choices instead of an empty
+    /// drawer (user report 2026-08-04: "die remote decision buttons ... 1:1").
+    ///
+    /// IDENTITY GATE, BY SAMPLING RULE: only TMP texts UNDER a <c>Selectable</c> are collected —
+    /// action wordings authored from generic GUI_* keys ("Verbrennen", "Ja"/"Nein", the burn
+    /// counts). The prompt/description text of a dialog is deliberately never sampled: a confirm
+    /// dialog's body can embed the card it is about, and the standing wire rule is absolute (no
+    /// card identity; reveals only through <c>Net.RevealGate</c> — suppression is the designed
+    /// failure direction). Recomputed on the shared content cadence (0.25 s) while docked, which
+    /// also picks up the game re-labelling a pooled button mid-prompt.
+    /// </summary>
+    internal static string? WireButtonLines { get; private set; }
+
+    /// <summary>Next unscaled time <see cref="WireButtonLines"/> is re-sampled while docked.</summary>
+    private float _nextWireLinesAt;
+
+    /// <summary>Join scratch for the wire-lines sample (no steady-state allocation — the joined
+    /// string itself is change-gated by comparison before it replaces the published one).</summary>
+    private static readonly System.Text.StringBuilder WireLinesScratch = new(96);
+
     /// <summary>The prompt currently docked (or being docked); null while none is open.</summary>
     private ModalFallback.DecisionDock.Prompt? _active;
 
@@ -365,6 +389,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             }
             ApplySuppression(_activeWindow!); // non-null: WantConverted required IsOpen
             ApplyPickCancelSuppression();     // user ruling 2026-08-04: no "choose another card" button on the dock
+            SampleWireButtonLines();          // MP: publish the docked buttons' labels (record 12)
             // The one surface that must accept input even under the game's UI-lock
             // raycaster mirror — the ModalFallback floating-modal exemption.
             if (Panel.HostRaycaster != null && !Panel.HostRaycaster.enabled)
@@ -373,6 +398,13 @@ internal sealed class DecisionDockSurface : WorldSurface
         else
         {
             _hmdFloatPlaced = false;
+            if (WireButtonLines != null)
+            {
+                WireButtonLines = null; // record 12 stops riding the moment the row undocks
+                _nextWireLinesAt = 0f;
+                VRLog.Info("WorldUI", "DECISION DOCK: wire button lines withdrawn (row undocked) — " +
+                                      "peers drop the mirrored decision buttons with it.");
+            }
             RowBottomUpMeters = null; // no docked row → the bar stack falls back to the zone top
             if (hadPanel)
             {
@@ -555,6 +587,64 @@ internal sealed class DecisionDockSurface : WorldSurface
                                   $"{scale:F5} (tray {trayScale:F3}). The gap is board-local metres, so this " +
                                   "distance does NOT move with the dock size or its offset.");
         }
+    }
+
+    /// <summary>
+    /// Sample the docked row's PRESSABLE-widget labels for the multiplayer wire (see
+    /// <see cref="WireButtonLines"/>): every active <c>Selectable</c> under the docked target, in
+    /// hierarchy order (which is the row's visual order), contributes its first TMP text. Runs on
+    /// the shared content cadence while a row is docked — a handful of GetComponentsInChildren
+    /// walks over a ≤6-widget subtree, allocation-free until the joined string actually changes.
+    /// Never throws its way out of Tick: a half-torn-down row degrades to "no lines".
+    /// </summary>
+    private void SampleWireButtonLines()
+    {
+        if (Time.unscaledTime < _nextWireLinesAt)
+            return;
+        _nextWireLinesAt = Time.unscaledTime + 0.25f;
+        string? lines = null;
+        try
+        {
+            RectTransform? root = Panel?.Target;
+            if (root != null)
+            {
+                SelectableScratch.Clear();
+                root.GetComponentsInChildren(includeInactive: false, SelectableScratch);
+                WireLinesScratch.Length = 0;
+                for (int i = 0; i < SelectableScratch.Count; i++)
+                {
+                    Selectable sel = SelectableScratch[i];
+                    if (sel == null || !sel.gameObject.activeInHierarchy)
+                        continue;
+                    TMP_Text? label = sel.GetComponentInChildren<TMP_Text>(includeInactive: false);
+                    string text = label != null ? label.text : string.Empty;
+                    if (string.IsNullOrWhiteSpace(text))
+                        continue;
+                    if (WireLinesScratch.Length > 0)
+                        WireLinesScratch.Append('\n');
+                    // Labels are single-line wordings; a stray newline inside one would split it
+                    // into two plates on the peer, so it is flattened to a space here.
+                    WireLinesScratch.Append(text.Replace('\n', ' ').Replace('\r', ' ').Trim());
+                }
+                if (WireLinesScratch.Length > 0)
+                    lines = WireLinesScratch.ToString();
+            }
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("WorldUI", $"DECISION DOCK: wire button-line sample failed ({e.Message}) — " +
+                                  "peers keep the plain drawer this cadence.");
+            lines = null;
+        }
+        if (lines == WireButtonLines)
+            return;
+        WireButtonLines = lines;
+        VRLog.Info("WorldUI", lines == null
+            ? "DECISION DOCK: wire button lines cleared (no readable widget labels)."
+            : $"DECISION DOCK: wire button lines published — {lines.Split('\n').Length} label(s), " +
+              $"\"{lines.Replace('\n', '|')}\" (record 12: pressable-widget labels only, never a " +
+              "dialog's description text — peers mirror these as inert plates at their copy's " +
+              "decision seat).");
     }
 
     /// <summary>HMD-anchored fallback float (the ModalFallback.PlaceAtHmd pattern). True when placed.</summary>
@@ -1097,6 +1187,8 @@ internal sealed class DecisionDockSurface : WorldSurface
         _placementLogged = false;
         _lastLoggedGapPx = float.NaN;
         RowBottomUpMeters = null;
+        WireButtonLines = null;    // record 12 must not survive a module re-init
+        _nextWireLinesAt = 0f;
         _takeDamageDumped = false; // re-emit the one-time ground-truth dump after a module re-init
         DockingTakeDamage = false;
         ModalFallback.DecisionDock.Reset(); // any grace hand-off drops with us
