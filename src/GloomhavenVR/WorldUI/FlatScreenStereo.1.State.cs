@@ -208,8 +208,10 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// THE FIX (as shipped — this paragraph was rewritten after the hunt closed; the earlier
 /// version described the two designs that were DISPROVEN, see below): while the campaign
-/// map is showing (detected by the reliable black-probe below — the game 'MapCamera'
-/// renders BLACK into any RenderTexture we own), a mod-owned FORWARD camera we fully
+/// map is showing (detected FAST and positively at the map-open event — a MapChoreographer
+/// whose worldMap/cityMap is active, see <c>TickFastMapEngage</c>; the black-probe below —
+/// the game 'MapCamera' renders BLACK into any RenderTexture we own — and the non-black
+/// MapChoreographer probe remain as fallbacks), a mod-owned FORWARD camera we fully
 /// control renders the map mesh into its OWN PRIVATE RenderTexture
 /// (<see cref="_mapRt"/>, <see cref="EnsureMapRt"/>), and the screen quad samples THAT in
 /// map mode. The private RT is load-bearing: the game's deferred MapCamera is force-pinned
