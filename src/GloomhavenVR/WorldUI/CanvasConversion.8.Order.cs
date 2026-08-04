@@ -118,7 +118,11 @@ internal static partial class CanvasConversion
     /// Draw order of the FARTHEST converted panel. The whole ladder sits above every OTHER
     /// transparent order this mod and this game use, which is what makes a panel a panel:
     ///   * the game's own canvas orders (seen: -1, 0, 1, 40);
-    ///   * MrBacking's opaque per-host plate at 0, whose contract is "below every host canvas";
+    ///   * MrBacking's opaque per-host plate — which since the MR perspective round (2026-08-05)
+    ///     is NOT a fixed order 0 any more but an offset-0 ORDER FOLLOWER of its own panel: it
+    ///     shares its panel's slot and only its earlier renderQueue (2998 vs ~3000) draws it
+    ///     under that panel's content. At order 0 a FARTHER panel's content (order ≥ this base)
+    ///     painted over a NEARER panel's plate — menus shone through each other's backings in MR;
     ///   * the control board's transparent furniture - keycap face sprites (&lt;=1), the button dust
     ///     FX (2), the engraved keycap labels (3). Those already carry "under panel canvases"
     ///     comments; before this round the order-0 HUD hosts contradicted them and a keycap face
@@ -195,6 +199,13 @@ internal static partial class CanvasConversion
     /// panel's content, still below the next panel on the ladder). Idempotent per canvas; the entry
     /// is dropped automatically once the canvas is destroyed. Used by
     /// <see cref="ModalCloseButton"/> for the visible X plate.
+    ///
+    /// <para>OFFSET 0 is also legal — for a follower that must draw in the panel's OWN slot but
+    /// resolve UNDER the panel's content via its earlier material renderQueue (Unity's transparent
+    /// sort: sortingLayer → sortingOrder → renderQueue → distance). That is the MR backing plate's
+    /// contract (<see cref="MrBacking"/>, queue 2998 vs the content's ~3000): above every farther
+    /// panel and above the furniture band (whose top is slot−1 — a NEGATIVE offset would tie with
+    /// it, so negative offsets stay forbidden), yet still behind its own content.</para>
     /// </summary>
     internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)
     {
@@ -211,9 +222,10 @@ internal static partial class CanvasConversion
 
     /// <summary>
     /// Register a mod-owned <see cref="Renderer"/> that must ride <paramref name="panel"/>'s ladder
-    /// order (see the Canvas overload). Used by <see cref="GrabbableModal"/> for the brass grab bar,
-    /// which lives on a SCENE-ROOT holder rather than under the host - the ladder is a sortingOrder
-    /// value, not a hierarchy relation, so that makes no difference here.
+    /// order (see the Canvas overload, offset-0 rule included). Used by <see cref="GrabbableModal"/>
+    /// for the brass grab bar, which lives on a SCENE-ROOT holder rather than under the host - the
+    /// ladder is a sortingOrder value, not a hierarchy relation, so that makes no difference here -
+    /// and by <see cref="MrBacking"/> for the per-panel MR backing plate at offset 0.
     /// </summary>
     internal static void RegisterOrderFollower(ConvertedPanel panel, Renderer renderer, int offset)
     {
