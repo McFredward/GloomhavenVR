@@ -73,6 +73,11 @@ internal sealed class RemoteBoardTooltip
         MeshRenderer plate = BoardVisual.Quad(_root, "Plate", PlateSize,
             BoardVisual.Unlit(new Color(0.85f, 0.78f, 0.62f, 0.90f)));
         plate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+        // MR readability (user: the text backing must cover REMOTE boards too): the owner reads
+        // their tooltip on a CONVERTED panel, which MrBacking's panel sweep plates opaquely in MR;
+        // this mod-drawn mirror is no panel, so its 0.90 parchment is Opacified instead — alpha 1
+        // while MR is on, restored exactly on off. Normal mode stays bit-identical.
+        WorldUI.MrBacking.Opacify(plate.sharedMaterial);
 
         _label = RemoteBoardContent.Label(_root, "Label", Vector3.zero, TextBox, MaxFont,
             new Color(0.24f, 0.17f, 0.10f), TextAlignmentOptions.TopLeft, wrap: true);

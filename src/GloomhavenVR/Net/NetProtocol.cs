@@ -879,6 +879,72 @@ internal static class NetProtocol
     /// trusts the record.</summary>
     public const int SecondHeldCardRecordBytes = 20;
 
+    /// <summary>
+    /// Extension record id: the sender's SLOT-CARD SIZE — 4 bytes,
+    /// <c>[u16 slotFrameWidth LE][u16 slotCardWidth LE]</c>, both board-local WIDTHS in
+    /// TENTH-MILLIMETRES (see <see cref="EncodeSlotWidth"/>; heights are derived — every card
+    /// surface in this project is the fixed 63.5:88 poker aspect).
+    ///
+    /// <para>THE DEFECT IT FIXES (user, hardware MP test 2026-08-04: "Die Kartengröße am fremden
+    /// Board stimmt nicht 1:1 — ich sehe sie kleiner"). The LOCAL board renders a card parked in a
+    /// recess at <c>CardsConfig.CardWidth × PlayTray.SlotScale × PlayTray.SlotCardScale</c> —
+    /// the last factor is <c>[Cards] SlotCardFill</c>, whose DEFAULT is 1.45 — while the remote
+    /// mirror hardcoded <c>Defaults.CardWidth × SlotScale</c> and dropped the fill entirely, so
+    /// even two default-configured clients disagreed by 31 %: everyone's remote cards rendered at
+    /// 82.6 mm where their owner sees 119.7 mm. Both factors are LOCAL CONFIG on the sender and
+    /// therefore not derivable from anything already synced; the effective sizes must ride the
+    /// wire, exactly like the board style and the hand scale before them.</para>
+    ///
+    /// <para>WHY TWO WIDTHS: the board's slot visuals are TWO independent sizes layered from the
+    /// same config — the recess/glow FRAME metric (<c>CardWidth × SlotScale</c>, what
+    /// <c>PlayTray.4.Slots</c> sizes the wanted-glow/frame quads from) and the CARD occupying it
+    /// (that × <c>SlotCardFill</c>). Transmitting only the card width would leave the receiver
+    /// unable to reproduce the frame (the fill is not recoverable from one number), so the glow
+    /// overlays would mis-frame the very card the record just fixed.</para>
+    ///
+    /// <para>NO IDENTITY, NO GAMEPLAY: two cosmetic lengths. Written only while a control board
+    /// exists AND at least one of the two differs from the legacy assumption
+    /// (<see cref="SlotCardWidthLegacy"/> — the constant every pre-record receiver hardcodes), so
+    /// a sender whose effective sizes equal that constant stays byte-identical to the previous
+    /// build. ADDITIVE TLV exactly like every record before it: an older peer steps over it by
+    /// length and keeps the legacy constant — today's look, never a broken one.</para>
+    /// </summary>
+    public const byte ExtIdSlotCardSize = 11;
+
+    /// <summary>Payload length of <see cref="ExtIdSlotCardSize"/>: two u16 widths. A reader
+    /// requires at least this much before it trusts the record.</summary>
+    public const int SlotCardSizeRecordBytes = 4;
+
+    /// <summary>
+    /// The board-local slot width every receiver ASSUMES when <see cref="ExtIdSlotCardSize"/> is
+    /// absent — <c>Defaults.CardWidth (0.0635) × PlayTray.SlotScale (1.3)</c>, the constant the
+    /// remote board hardcoded before the record existed (both for the card and for the frame).
+    /// Kept as the shared fallback so an old sender renders exactly as it always did.
+    /// </summary>
+    public const float SlotCardWidthLegacy = 0.0635f * 1.3f;
+
+    /// <summary>Smallest wire code <see cref="DecodeSlotWidth"/> accepts: 5 mm. Below it (garbage,
+    /// zero) the decoder degrades to "record absent" — the legacy width — rather than collapsing a
+    /// peer's cards to a sliver.</summary>
+    public const ushort SlotWidthMinCode = 50;
+
+    /// <summary>Quantize a board-local slot/card width (metres) to its u16 wire code — TENTH
+    /// MILLIMETRES, clamped. 0.1 mm is far below what the eye resolves on an ~120 mm card and the
+    /// u16 ceiling (6.55 m) is far above any board; tenths keep the value readable in a hardware
+    /// log (1197 = 119.7 mm).</summary>
+    public static ushort EncodeSlotWidth(float meters)
+    {
+        if (float.IsNaN(meters) || float.IsInfinity(meters))
+            return (ushort)UnityEngine.Mathf.RoundToInt(SlotCardWidthLegacy * 10000f);
+        return (ushort)UnityEngine.Mathf.Clamp(
+            UnityEngine.Mathf.RoundToInt(meters * 10000f), SlotWidthMinCode, ushort.MaxValue);
+    }
+
+    /// <summary>Decode a slot-width code back to metres; 0 for an invalid code, which every
+    /// consumer treats as "use <see cref="SlotCardWidthLegacy"/>".</summary>
+    public static float DecodeSlotWidth(ushort code) =>
+        code < SlotWidthMinCode ? 0f : code / 10000f;
+
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>
     public const byte CardHighlightNone = 0xFF;

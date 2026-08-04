@@ -135,6 +135,15 @@ internal static class GoldenVectors
         HasSecondHeldCard = true, SecondHeldCardPose = Card(),
     };
 
+    /// <summary>SLOT-CARD SIZE (record 11) and nothing else: the sender's board renders its slot
+    /// frame overlays at 90.0 mm and a parked card at 119.7 mm (the shipped-default effective
+    /// card width, 0.0635 × 1.3 × 1.45). Clean tenth-mm codes so the golden hex is
+    /// hand-verifiable: 900 = 0x0384, 1197 = 0x04AD.</summary>
+    private static PresenceState ExtrasSlotCardSize() => new PresenceState
+    {
+        HasSlotCardSize = true, SlotFrameWidthCode = 900, SlotCardWidthCode = 1197,
+    };
+
     /// <summary>Board-UI + fan-anchor records (the 1:1 parity round's two additions), with a board
     /// so the round-trip loop also exercises them next to the pose. Position components are exact
     /// float32 values so the golden hex is hand-verifiable.</summary>
@@ -1179,6 +1188,111 @@ internal static class GoldenVectors
         t.True(cutSc.HasMaskSize, "the mask size ahead of the tail survives");
         t.True(!cutSc.HasSecondHeldCard, "and the incomplete record is simply not delivered");
 
+        // -- 7l. SLOT-CARD SIZE (extension record 11) --------------------------------------
+        // The remote board hardcoded 0.0635 × 1.3 = 82.55 mm for a parked card and dropped the
+        // owner's CardWidth config and [Cards] SlotCardFill (default 1.45!) entirely, so even two
+        // default-configured clients disagreed by 31 % — the user's "Kartengröße nicht 1:1"
+        // report. The record carries BOTH live widths (frame metric + card) in board-local
+        // tenth-mm; absent = the legacy constant, which is exactly what pre-record peers render.
+        t.Case("7l. extras, slot-card size record");
+        m = PresenceSerializer.Write(ExtrasSlotCardSize(), ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            0B 04            // record: id 11 (slot-card size), len 4
+            84 03            // u16 LE 900  -> slot FRAME width 90.0 mm
+            AD 04            // u16 LE 1197 -> slot CARD width 119.7 mm
+            "), ext, m, "the slot-card size record is [id 11][len 4][u16 frame][u16 card], tenth-mm LE");
+        t.Equal(17, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 4 = 17 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState scs), "and it parses");
+        t.True(scs.HasSlotCardSize, "the slot-card size is delivered");
+        t.Equal((ushort)900, scs.SlotFrameWidthCode, "with the frame width code intact");
+        t.Equal((ushort)1197, scs.SlotCardWidthCode, "and the card width code intact");
+        t.True(Mathf.Approximately(NetProtocol.DecodeSlotWidth(1197), 0.1197f),
+               "decoding 1197 tenth-mm yields 119.7 mm — the shipped-default effective card width");
+
+        // ABSENT AT THE LEGACY SIZES. A sender whose effective widths equal the pre-record
+        // constant (0.0635 × 1.3) writes no record — HasSlotCardSize stays false at the driver —
+        // so its packet is byte-identical to the previous build's. Serializer level: no flag, no
+        // record, no tail.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 3 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 03"), ext, m,
+               "legacy-sized sender -> no record, no tail, no block: byte-identical to the previous build");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noScs), "and it parses");
+        t.True(!noScs.HasSlotCardSize, "with HasSlotCardSize false (peers keep the legacy 82.55 mm)");
+
+        // Ordered LAST, behind the second held card — record 11 is the new last record of the
+        // tail (id order ... 9, 10, 11); a reorder in Write shows up right here.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasSecondHeldCard = true, SecondHeldCardPose = Card(),
+            HasSlotCardSize = true, SlotFrameWidthCode = 900, SlotCardWidthCode = 1197,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            02               // tail: 2 records, in id order
+            0A 14            // id 10 second held card, len 20
+            " + PoseCard + @"
+            0B 04 84 03 AD 04 // id 11 slot-card size
+            "), ext, m, "the slot-card size rides the tail after record 10 (id order 10, 11)");
+
+        // BACKWARD COMPATIBILITY, the direction that actually ships: a peer built BEFORE
+        // record 11 receives this packet, sees an unknown 4-byte record where record 11 sits,
+        // steps over it by its length and reads everything it DOES know — so it renders the
+        // legacy card size (today's look) and nothing else changes.
+        byte[] oldReaderSize = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00            // byte A extension tail, byte B count 0
+            02               // 2 records
+            63 04 84 03 AD 04            // id 99, len 4 -- record 11 as a PRE-RECORD-11 READER sees it
+            03 07 01 00 30 2E 31 2E 30   // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(oldReaderSize, oldReaderSize.Length, out PresenceState oldScs),
+               "a 4-byte record this build does not know is skipped, and the packet parses");
+        t.True(!oldScs.HasSlotCardSize, "the unknown record delivers nothing (as on a pre-record-11 peer)");
+        t.True(oldScs.HasModVersion, "and the record behind it is read past it");
+
+        // ... and THIS reader steps over a future unknown record in FRONT of id 11 by its
+        // length and still reads the slot-card size behind it.
+        byte[] futureSize = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // 2 records
+            63 04 DE AD BE EF// id 99, len 4 -- unknown
+            0B 04 84 03 AD 04
+            ");
+        t.True(PresenceSerializer.TryRead(futureSize, futureSize.Length, out PresenceState futScs),
+               "a packet with an unknown record ahead of the slot-card size parses");
+        t.True(futScs.HasSlotCardSize, "and the slot-card size behind it is still read");
+        t.Equal((ushort)1197, futScs.SlotCardWidthCode, "with its value intact");
+
+        // GARBAGE CODES (below the 5 mm floor) must not collapse a peer's cards to a sliver:
+        // the pair is dropped WHOLE (a half-valid pair could split card and frame across two
+        // builds' sizing), degrading to the legacy width.
+        byte[] zeroSize = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            0B 04 00 00 AD 04            // frame code 0 (< SlotWidthMinCode)
+            ");
+        t.True(PresenceSerializer.TryRead(zeroSize, zeroSize.Length, out PresenceState zeroScs),
+               "a garbage slot-width code still parses the packet");
+        t.True(!zeroScs.HasSlotCardSize, "and the poisoned pair is simply not delivered");
+
+        // A TRUNCATED record (claims 4 payload bytes, delivers 2): the tail is abandoned
+        // mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutSize = Hex.Bytes("31 52 56 47 03 01 80 00 90 00 C8 01 0B 04 84 03");
+        t.True(PresenceSerializer.TryRead(cutSize, cutSize.Length, out PresenceState cutScs),
+               "a truncated slot-card size record still parses the packet");
+        t.True(cutScs.HasMaskSize, "the mask size ahead of the tail survives");
+        t.True(!cutScs.HasSlotCardSize, "and the incomplete record is simply not delivered");
+
         // The RIG packet is untouched by all of this: the FIRST held card still rides its own
         // FlagHeldCard block at the same offsets — the sampler's left-first preference is
         // unchanged — which is why a pre-record-10 peer keeps seeing that one card exactly as
@@ -1231,7 +1345,7 @@ internal static class GoldenVectors
         }
         foreach (var s in new[] { ExtrasEverything(), ExtrasMaskSizeOnly(), withDefaults,
                                   ExtrasBoardUiAndFanAnchor(), ExtrasSecondFigure(),
-                                  ExtrasSecondHeldCard(),
+                                  ExtrasSecondHeldCard(), ExtrasSlotCardSize(),
                                   new PresenceState { HasBoardTooltip = true, BoardTooltipText = "Tip" } })
         {
             int len = PresenceSerializer.Write(s, ext);
@@ -1335,5 +1449,8 @@ internal static class GoldenVectors
         && x.HasBoardTooltip == y.HasBoardTooltip
         && x.BoardTooltipText == y.BoardTooltipText
         && x.HasSecondHeldCard == y.HasSecondHeldCard
-        && x.SecondHeldCardPose.Position == y.SecondHeldCardPose.Position;
+        && x.SecondHeldCardPose.Position == y.SecondHeldCardPose.Position
+        && x.HasSlotCardSize == y.HasSlotCardSize
+        && x.SlotFrameWidthCode == y.SlotFrameWidthCode
+        && x.SlotCardWidthCode == y.SlotCardWidthCode;
 }

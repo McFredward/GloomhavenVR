@@ -136,10 +136,22 @@ internal sealed class RemoteBoardFurniture
     private const float TransientCapR = Defaults.RoundButtons_CapSize; // cap RADIUS
     private const float TransientCapD = Defaults.RoundButtons_Depth;
 
-    /// <summary>The card size the remote board's own round-card slots render at (authored card
-    /// width × the local board's 1.3 SlotScale) — the recess/overlay metrics follow it.</summary>
+    /// <summary>LEGACY slot metric (authored card width × the local board's 1.3 SlotScale) — the
+    /// fallback the live fields below take when the owner's real sizes are not on the wire.
+    /// Identical to <see cref="NetProtocol.SlotCardWidthLegacy"/> by construction.</summary>
     private const float CardW = 0.0635f * 1.3f;
     private const float CardH = CardW * (88f / 63.5f);
+
+    /// <summary>The owner's live slot FRAME metric (their <c>CardWidth × SlotScale</c>, extension
+    /// record 11) — what the wanted/snap glow rims are sized from, exactly like the local board's
+    /// slot frames. Falls back to <see cref="CardW"/> for pre-record peers.</summary>
+    private readonly float _slotFrameW;
+    private readonly float _slotFrameH;
+
+    /// <summary>The width a CARD parked in the owner's recess actually renders at (their
+    /// <c>… × SlotCardFill</c>, extension record 11) — the half-poke divider spans THIS, because
+    /// it marks the split on the rendered card, not on the recess.</summary>
+    private readonly float _slotCardW;
 
     /// <summary>Authored card size for the item-use RECESS (the recess is card-sized at the
     /// UNSCALED card metric on the local board).</summary>
@@ -325,8 +337,15 @@ internal sealed class RemoteBoardFurniture
     /// half divider) centre on them so glow and card agree on every board style.
     /// </summary>
     public RemoteBoardFurniture(Transform boardRoot, Cards.ControlBoard style, RemoteTrayVisual? tray,
-        Vector3 slot0CardLocal, Vector3 slot1CardLocal)
+        Vector3 slot0CardLocal, Vector3 slot1CardLocal,
+        float slotFrameWidth = 0f, float slotCardWidth = 0f)
     {
+        // The owner's synced slot metrics (extension record 11); 0 = not on the wire, keep the
+        // legacy constant — the exact size every build before the record drew.
+        _slotFrameW = slotFrameWidth > 0f ? slotFrameWidth : CardW;
+        _slotFrameH = _slotFrameW * (88f / 63.5f);
+        _slotCardW = slotCardWidth > 0f ? slotCardWidth : CardW;
+
         _root = new GameObject("Furniture").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
 
@@ -689,11 +708,16 @@ internal sealed class RemoteBoardFurniture
             BoardVisual.Unlit(new Color(0.12f, 0.10f, 0.08f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
 
-        RemoteBoardContent.Label(root, "Label",
+        TextMeshPro caption = RemoteBoardContent.Label(root, "Label",
             new Vector3(0f, -(ItemCardH * 0.5f + 0.026f), -0.001f),
             new Vector2(ItemCardW * 1.1f, 0.030f), 0.05f,
-            new Color(1f, 0.92f, 0.72f), TextAlignmentOptions.Center, FontStyles.Bold)
-            .text = Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+            new Color(1f, 0.92f, 0.72f), TextAlignmentOptions.Center, FontStyles.Bold);
+        caption.text = Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+        // MR readability parity with the owner's board: the local item-use caption below the
+        // recess is MrBacking.Label'd (PlayTray.4.Slots), because it hangs below the recess in
+        // open air — over the passthrough room in MR. Same treatment for its mirror; the fitted
+        // plate renders only while MR is on, so normal mode stays bit-identical.
+        WorldUI.MrBacking.Label(caption);
         return root;
     }
 
@@ -738,7 +762,8 @@ internal sealed class RemoteBoardFurniture
         Color color, bool pulse)
     {
         var mat = BoardVisual.Unlit(color);
-        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(CardW * scale, CardH * scale), mat);
+        MeshRenderer mr = BoardVisual.Quad(_root, name,
+            new Vector2(_slotFrameW * scale, _slotFrameH * scale), mat);
         mr.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z + proud);
         if (pulse)
             mr.gameObject.AddComponent<RemoteGlowPulse>().Init(mat, color);
@@ -751,7 +776,7 @@ internal sealed class RemoteBoardFurniture
     /// (see <see cref="Refresh"/>). A single inert quad; nothing to poke.</summary>
     private GameObject BuildHalfDivider(string name, Vector3 cardLocal)
     {
-        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(CardW * 0.90f, 0.0012f),
+        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(_slotCardW * 0.90f, 0.0012f),
             BoardVisual.Unlit(new Color(0.20f, 0.16f, 0.12f, 0.75f)));
         mr.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z - 0.002f);
         mr.gameObject.SetActive(false);

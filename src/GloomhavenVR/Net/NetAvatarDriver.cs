@@ -121,6 +121,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private Quaternion _lastSentBoardRot = Quaternion.identity;
     private float _lastSentBoardScale = 1f;
 
+    // SLOT-CARD SIZE (extension record 11, user report "Die Kartengröße am fremden Board stimmt
+    // nicht 1:1"): the last broadcast (frameCode | cardCode << 16), so a live config edit (the
+    // debug menu's per-board sliders) is an EDGE that pre-empts the 5 Hz gate and the confirmation
+    // log fires once per change. int.MinValue = never sent — the first packet with a live tray
+    // always states the sizes (or their deliberate omission) explicitly.
+    private int _lastSentSlotCardSize = int.MinValue;
+
     // SECOND HELD FIGURE (user report: "Wenn ein Mitspieler zwei Figuren in der Hand haelt soll auch
     // dies vollstaendig synchronisiert werden"). The mini in the player's OTHER hand rides extension
     // record 8 on THIS packet, and it gets the SAME treatment the board pose above gets, for the
@@ -566,6 +573,19 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
         bool boardUiChanged = boardUiNow != _lastSentBoardUi;
 
+        // SLOT-CARD SIZE (extension record 11, defect "Kartengröße am fremden Board nicht 1:1"):
+        // the widths the local board renders its slot overlays and a parked card at — the exact
+        // factor chain PlayTray uses (CardWidth × SlotScale for the frame metric, × SlotCardFill
+        // for the card; see PlayTray.4.Slots.SlotCardScale). Local config, not derivable from
+        // anything already synced, so it must ride the wire like the board style does. Sampled
+        // before the rate gate so a live config edit reaches peers on the next frame.
+        ushort slotFrameCode = NetProtocol.EncodeSlotWidth(
+            CardsConfig.CardWidth.Value * PlayTray.SlotScale);
+        ushort slotCardCode = NetProtocol.EncodeSlotWidth(
+            CardsConfig.CardWidth.Value * PlayTray.SlotScale * PlayTray.SlotCardScale);
+        int slotCardSizeNow = trayNow != null ? slotFrameCode | (slotCardCode << 16) : -1;
+        bool slotCardSizeChanged = slotCardSizeNow != _lastSentSlotCardSize;
+
         // CARD HIGHLIGHT (extension record 6, defect (f) "das Hervorheben von Karten ist gar nicht
         // synchronisiert"): WHICH card in the hand fan and in the open board fan the owner is
         // singling out. Read as a bare INDEX off the fans' own highlight predicate — never a card
@@ -656,7 +676,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
-            && !tooltipChanged)
+            && !tooltipChanged && !slotCardSizeChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -749,6 +769,31 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HasBoardUi = true;
             extras.BoardButtonsMask = (byte)(boardUiNow & 0xFF);
             extras.BoardOverlayMask = (byte)((boardUiNow >> 8) & 0xFF);
+        }
+        // SLOT-CARD SIZE (extension record 11): written only while a live tray exists AND either
+        // width differs from the legacy assumption every pre-record receiver hardcodes
+        // (NetProtocol.SlotCardWidthLegacy = 82.55 mm). At the SHIPPED defaults it always differs
+        // — SlotCardFill defaults to 1.45, so an untuned player's card renders at 119.7 mm while
+        // every peer used to draw 82.55 mm; that 31 % gap is the reported defect. A sender whose
+        // config lands exactly on the legacy constant omits the record and stays byte-identical
+        // to the previous build.
+        ushort legacyCode = NetProtocol.EncodeSlotWidth(NetProtocol.SlotCardWidthLegacy);
+        if (trayNow != null && (slotFrameCode != legacyCode || slotCardCode != legacyCode))
+        {
+            extras.HasSlotCardSize = true;
+            extras.SlotFrameWidthCode = slotFrameCode;
+            extras.SlotCardWidthCode = slotCardCode;
+        }
+        if (slotCardSizeChanged)
+        {
+            _lastSentSlotCardSize = slotCardSizeNow;
+            VRLog.Info("Net", trayNow == null
+                ? "Slot-card size SENT: no live tray — record omitted."
+                : $"Slot-card size SENT: frame {slotFrameCode / 10f:0.0} mm, card " +
+                  $"{slotCardCode / 10f:0.0} mm (board-local tenth-mm, extension record 11) — " +
+                  (extras.HasSlotCardSize
+                      ? "peers render our slot cards at exactly this size (1:1 rule)."
+                      : "equals the legacy 82.55 mm assumption, record omitted (identical render)."));
         }
         // PICK BANNER (extension record 7): the placard line above the owner's board, so a peer's
         // remote board carries the same sentence at the same seat. Written only while a placard is

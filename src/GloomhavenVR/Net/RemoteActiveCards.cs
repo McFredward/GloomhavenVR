@@ -121,6 +121,9 @@ internal sealed class RemoteActiveCards
             // still gated by the very same showFronts answer — the gate can only ever be stricter
             // than vanilla here, never looser.
             _cards[i].Set(_buffer[i], showFronts, actor);
+            // Set() is change-gated, so the cadenced mip-bake rescan for a hosted face's async
+            // header art rides this refresh instead (see RemoteBoardCard.MaintainMips).
+            _cards[i].MaintainMips();
         }
     }
 

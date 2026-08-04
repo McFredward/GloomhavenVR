@@ -59,11 +59,18 @@ internal sealed class RemoteCardArt
     // Small inset so the art sits just inside the slab silhouette (mirrors CardFace.BorderFraction).
     private const float BorderFraction = 0.06f;
 
+    /// <summary>Re-run the shared mip-bake sprite swap over the shown clone this often (seconds) —
+    /// the exact cadence the LOCAL card faces use (<c>CardFace.MipRescanInterval</c>). Needed
+    /// because the clone's art arrives ASYNC (OnEnable → ShowCard → addressable header load) and
+    /// the game can hand sub-widgets fresh mipless sprites after the build-time pass ran.</summary>
+    private const float MipRescanInterval = 1f;
+
     private readonly Transform _slab;
     private GameObject? _host;      // world-space canvas host (child of the slab), inactive when hidden
     private Canvas? _canvas;
     private GameObject? _clone;     // the instantiated fullAbilityCard clone (child of _host)
     private int _shownSourceId = int.MinValue; // GetInstanceID of the source fullAbilityCard shown
+    private float _nextMipRescan;   // unscaled time of the next cadenced mip-bake rescan
 
     public RemoteCardArt(Transform slab, float cardWidth, float cardHeight)
     {
@@ -90,6 +97,11 @@ internal sealed class RemoteCardArt
         {
             if (!_host.activeSelf)
                 _host.SetActive(true);
+            // The hand fan calls ShowFront every frame while a front is up, so the steady-state
+            // cadence rescan lives right here on the dedup path — the remote twin of
+            // CardFace.Maintain's 1 s loop (the board slots, whose Set() is change-gated instead,
+            // reach the same loop through MaintainMipBake below).
+            MaintainMipBake();
             return true;
         }
 
@@ -118,6 +130,16 @@ internal sealed class RemoteCardArt
             _host.SetActive(true);   // clone activates → OnEnable → ShowCard reloads the real art
             FitClone(clone);         // final pose write, so OnEnable's own reposition can't offset it
 
+            // MIP BAKE (user report: "the aliasing on the remote cards is extreme — the fix for my
+            // own local cards should apply here too"). The clone's Image sprites are verbatim
+            // copies of the source's, i.e. they sample the game's MIPLESS UI atlases — the exact
+            // data defect CardFaceMipBake exists for, and the remote faces bypassed it entirely.
+            // One immediate pass swaps everything already copied; the cadenced rescan (see
+            // MaintainMipBake) catches the async header art and any sprite the widget re-assigns.
+            // Shared cache: an atlas the local faces already baked costs nothing here, and vice
+            // versa. The clone is a throwaway we own, so no restore pass is ever needed.
+            RescanMips();
+
             _shownSourceId = id;
             return true;
         }
@@ -128,6 +150,34 @@ internal sealed class RemoteCardArt
             HideFront();
             return false;
         }
+    }
+
+    /// <summary>
+    /// Cadenced mip-bake upkeep while a front is shown — the remote equivalent of the 1 s rescan
+    /// loop in <c>CardFace.Maintain</c> (and <c>ItemsPile</c>'s hosted card): the clone's header
+    /// illustration arrives ASYNC after activation, so a single build-time pass would leave
+    /// exactly the biggest image on the card mipless. Idempotent-cheap once warm (dictionary hits
+    /// inside <see cref="CardFaceMipBake.Rescan"/>); a hidden/absent front early-returns. Called
+    /// per frame by the hand fan (via ShowFront's dedup path) and on the 4 Hz content cadence by
+    /// the board-card owners, whose Set() is change-gated and would otherwise never rescan.
+    /// </summary>
+    public void MaintainMipBake()
+    {
+        if (_clone == null || _host == null || !_host.activeSelf)
+            return;
+        if (Time.unscaledTime < _nextMipRescan)
+            return;
+        RescanMips();
+    }
+
+    /// <summary>One shared-cache sprite-swap pass over the clone, cadence re-armed. Guarded inside
+    /// <see cref="CardFaceMipBake.Rescan"/> itself (a bake surprise never breaks the face) and
+    /// config-gated there on [Cards] FaceMipBake — the same switch the local cards obey.</summary>
+    private void RescanMips()
+    {
+        if (_canvas != null)
+            CardFaceMipBake.Rescan(_canvas);
+        _nextMipRescan = Time.unscaledTime + MipRescanInterval;
     }
 
     /// <summary>Hide any front (the slab's card BACK shows through). Keeps the host for reuse.</summary>
