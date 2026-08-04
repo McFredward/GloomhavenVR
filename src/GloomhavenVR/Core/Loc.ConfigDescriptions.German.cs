@@ -1388,6 +1388,15 @@ internal static partial class Loc
                 + "er bei winzigen Bewegungen vom Element weg wegflackert. Aus = der Hinweis wird nie in den "
                 + "3D-Raum überführt und in VR nie gezeigt (der normale 2D-Menü-Tooltip bleibt unberührt). Mit "
                 + "der VR-Einstellungstafel verdrahtet und live gelesen — das Umschalten wirkt ohne Neustart.",
+            ["WorldUI/PanelMipBake"] =
+                "Aliasing-Nachzügler zu [Cards] FaceMipBake: auch die Texturen, die die INITIATIVLEISTE "
+                + "(RawImage-Porträts + Rahmen-/Linien-Sprites) und die Mouseover-HINWEISBOX abtasten, liefert "
+                + "das Spiel OHNE Mipmaps — beide flimmern deshalb auf ihren Welt-Tafeln bei Verkleinerung, "
+                + "egal welche MSAA-Stufe läuft. Bei true wird jede eindeutige miplose Textur EINMAL in eine "
+                + "mipmapped trilinear/aniso-Kopie gebacken (gemeinsamer Cache mit den Kartenbildern — ein von "
+                + "beiden genutzter Atlas wird nur einmal gebacken) und die Grafiken auf die Kopien umgestellt "
+                + "(Originale kehren zurück, sobald eine Fläche freigegeben wird). false = Initiativleiste und "
+                + "Hinweisbox tasten weiter die miplosen Originale ab.",
             ["WorldUI/ForceMouseMode"] =
                 "Hält den InputManager während des VR-Betriebs im Maus-Modus, damit die \"Game\"- (nicht "
                 + "\"Game_gamepad\"-) Szenenvarianten laden und Knöpfe ohne Gamepad-Langdruck-Abläufe auslösen.",

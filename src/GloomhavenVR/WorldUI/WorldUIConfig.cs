@@ -46,6 +46,11 @@ internal static class WorldUIConfig
     /// (the world-space tooltip presentation). Wired to the in-VR settings panel; read live.</summary>
     internal static ConfigEntry<bool> ActionElementHints = null!;
 
+    /// <summary>Aliasing follow-up to [Cards] FaceMipBake: mip-bake the mipless game textures the
+    /// initiative track and the hover-hint tooltip sample on their world-space hosts (see
+    /// <see cref="PanelMipBake"/>). Mirrors the cards' kill switch; read live.</summary>
+    internal static ConfigEntry<bool> PanelMipBake = null!;
+
     // ---- behavior ----------------------------------------------------------------------
     /// <summary>Keep the game in mouse mode so `Game` (not `Game_gamepad`) scenes load.</summary>
     internal static ConfigEntry<bool> ForceMouseMode = null!;
@@ -374,6 +379,15 @@ internal static class WorldUIConfig
             "movements off the hovered element. Off = the hint is never flipped to world space " +
             "and never shown in VR (the vanilla 2D menu tooltip is unaffected). Wired to the " +
             "in-VR settings panel and read live, so toggling takes effect without a restart.");
+        PanelMipBake = _file.Bind("WorldUI", "PanelMipBake", Defaults.PanelMipBake,
+            "Aliasing follow-up to [Cards] FaceMipBake: the game also ships the textures the " +
+            "INITIATIVE TRACK (RawImage portraits + frame/line sprites) and the mouseover " +
+            "TOOLTIP box sample WITHOUT mipmaps, so both shimmer on their world-space panels " +
+            "under minification no matter the MSAA level. When true, each unique mipless " +
+            "texture is baked ONCE into a mipmapped trilinear/aniso copy (same shared cache " +
+            "as the card faces - an atlas both use is baked once) and the live graphics are " +
+            "swapped onto the baked copies (originals restored when a surface is released). " +
+            "false = the initiative track and tooltip keep sampling the mipless originals.");
 
         CatchAllModals = _file.Bind("WorldUI", "CatchAllModals", Defaults.CatchAllModals,
             "Deadlock insurance: any UNKNOWN game window that opens during a scenario (an ID " +

@@ -140,6 +140,7 @@ internal static partial class Defaults
     internal const bool FlatScreen = true;                   // => [WorldUI] FlatScreen
     internal const bool Tooltips = true;                     // => [WorldUI] Tooltips
     internal const bool ActionElementHints = true;           // => [WorldUI] ActionElementHints
+    internal const bool PanelMipBake = true;                 // => [WorldUI] PanelMipBake
     internal const bool ForceMouseMode = true;               // => [WorldUI] ForceMouseMode
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx

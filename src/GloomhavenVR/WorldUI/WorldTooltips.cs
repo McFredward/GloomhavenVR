@@ -714,6 +714,14 @@ internal sealed class WorldTooltips
             // visible frame because the game pools/rebuilds the line objects per hover -
             // a fresh icon graphic must lose its raycastTarget the frame it appears.
             NeutralizeRaycasts();
+            // MIP BAKE (aliasing round 4, "Raender der Mouse-Overlay-Hints"): the frame /
+            // line sprites sample the game's mipless UI atlases, which shimmer on this
+            // world-space canvas exactly like the card faces did. Re-run on the same
+            // visible frames because the lines are pooled per hover — a fresh icon must
+            // swap the frame it appears; the scan is change-gated dictionary hits once
+            // warm and uses reused scratch lists (no per-frame allocation). Restored with
+            // everything else in Restore().
+            PanelMipBake.Rescan(_canvas, "Tooltip");
         }
         EnsureFrameClip();
         // HOVER GRACE (user #7b): widen the game's own show/hide fade so a jitter off a
@@ -1121,6 +1129,11 @@ internal sealed class WorldTooltips
             return;
         _converted = false;
         CanvasConversion.RemoveMaskRequest();
+
+        // Mip-baked graphics back to the game's originals BEFORE the canvas returns to
+        // screen space (mutate-and-restore contract; the 2D menu tooltip keeps its
+        // authored sprites/textures — the baked copies are a VR presentation detail).
+        PanelMipBake.Restore(_canvas);
 
         // Un-flatten: original local z + rotation back per live recorded transform.
         for (int i = 0; i < _flattened.Count; i++)
