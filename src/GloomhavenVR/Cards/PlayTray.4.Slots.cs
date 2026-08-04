@@ -184,6 +184,9 @@ internal sealed partial class PlayTray
                 new Vector3(w * 1.24f, h * 1.24f, 1f),
                 new Vector3(ov.x + xSpread, ov.y, SlotGlowBaseZ + ov.z),
                 new Color(1f, 0.85f, 0.3f, 0.95f));
+            // 2026-08-04 (status-placard defect family): additive glow, depth-less — ride the
+            // board's furniture order group like the placard/labels.
+            AdoptFurniture(_slotHighlights[i]);
         }
     }
 
@@ -235,6 +238,9 @@ internal sealed partial class PlayTray
             if (mat != null)
                 renderer.sharedMaterial = mat;
             quad.AddComponent<SlotPulse>().Init(renderer, baseColor);
+            // 2026-08-04 (status-placard defect family): additive glow, depth-less — ride the
+            // board's furniture order group like the placard/labels.
+            AdoptFurniture(quad);
             quad.SetActive(false);
             _wantedHighlights[i] = quad;
         }
@@ -330,6 +336,10 @@ internal sealed partial class PlayTray
         // slot awaiting the decision. See BuildButtons / SetItemUseConfirmVisible.
 
         Core.VRLayers.Apply(go);
+        // 2026-08-04 (status-placard defect family): the pulsing glow quad and the "USE" TMP
+        // caption are depth-less transparents — ride the board's furniture order group so a
+        // panel BEHIND the board cannot paint over them (opaque frame/inner quads skipped).
+        AdoptFurniture(go);
         go.SetActive(false); // ItemsPile toggles it live via SetItemUseSlotVisible
         _itemUseSlot = go.transform;
     }

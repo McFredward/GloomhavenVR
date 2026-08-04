@@ -626,6 +626,15 @@ internal sealed partial class PlayTray
             button.Collider = box;
             button.Travel = travel; // per-category press travel (category split; rest discs keep the authored default)
             button.UpdateColor(); // seat the initial (disabled) native/procedural face tint
+
+            // 2026-08-04 (status-placard defect family): the button's TRANSPARENT parts — the
+            // native face sprite (sortingOrder 1) and the engraved TMP label (3) — write no
+            // depth, so a converted panel BEHIND the board painted over them. Join the board's
+            // furniture order group (opaque base/cap meshes are skipped by the queue filter);
+            // the captured relative orders keep label-over-face intact inside the band. Runs
+            // AFTER every sortingOrder write above; keycap rebuilds re-adopt here and the dead
+            // renderers are pruned by the group on its next order apply.
+            AdoptFurniture(go);
             return button;
         }
 

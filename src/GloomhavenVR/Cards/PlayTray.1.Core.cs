@@ -75,7 +75,7 @@ namespace GloomhavenVR.Cards;
 /// LongRestToken/ConfirmButton/UndoButton</c>, see unity/.../Table/README.md) with a
 /// full procedural fallback.
 /// </summary>
-internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
+internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurnitureOrderAnchor
 {
     // Meters at scale 1, scaled by tray lossyScale. GENEROUS on purpose (test #13),
     // widened again in test #15: hardware logs showed releases consistently landing
@@ -604,6 +604,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         // No RenderOnTop: the readout is depth-correct now (seated proud). The TMP text draws
         // in the transparent queue after the opaque plate, and sits proud of it (text z 0 vs
         // plate z +0.006 toward the board), so the label reads over its own dark backing plate.
+
+        // 2026-08-04 (same defect family as the status placard): the TMP label is a depth-less
+        // transparent renderer at order 0 — join the board's furniture order group so a panel
+        // BEHIND the board can no longer paint over it (the opaque plate needs nothing).
+        AdoptFurniture(readoutGo);
     }
 
     /// <summary>Cluster dock scale: the cluster's real-meter layout shrunk onto the button strip.</summary>
@@ -1251,5 +1256,103 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner
         }
         if (_wantVisible)
             SetVisible(true); // re-show a pinned board that a presence blip hid
+    }
+
+    // ------------------------------------------ solid occluder + furniture draw order --
+
+    /// <summary>
+    /// Nearest SOLID board hit along the aim ray, or +inf (board hidden / ray misses it).
+    ///
+    /// ROOT CAUSE (user report 2026-08-04: "collidet der Laser mit etwas davor, soll er nicht
+    /// unsichtbar weitergehen und trotzdem im Optionsmenu etwas auswaehlen"): every board
+    /// surface - the board mesh, the keycaps, the pile stacks, the rest discs - lives on the
+    /// mod layer as TRIGGER colliders, tested geometrically by the board laser
+    /// (CardsDriver.UpdateBoardLaser) and INVISIBLE to <c>RayInteractor</c>'s physics pick
+    /// Mask. RayUguiDriver's occlusion rule ("a nearer physics hit blocks the UI hit")
+    /// therefore never saw the board: with the board pushed in front of the options menu the
+    /// beam visibly landed ON the board while the uGUI raycast sailed through it and delivered
+    /// hover + click to the menu tabs behind. This method is the board's answer to the ray's
+    /// per-frame "what solid mod-owned surface do I cross first?" question
+    /// (<c>RayInteractor.SolidOccluderDistance</c>) - the exact scan the board laser runs
+    /// (registered laser-target colliders + the two slotted cards), reduced to a distance.
+    /// Runs BEFORE the interactor drivers each frame, so the uGUI/grab arbitration sees the
+    /// board the same frame it sees everything else. No allocations (Collider.Raycast over the
+    /// small registry; the Ray struct is a stack value).
+    /// </summary>
+    internal float RaycastSolidDistance(Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        if (!IsVisible)
+            return float.PositiveInfinity;
+        float best = float.PositiveInfinity;
+        var ray = new Ray(origin, direction);
+        for (int i = 0; i < LaserTargets.Count; i++)
+        {
+            Collider col = LaserTargets[i].Collider;
+            if (col == null || !col.enabled || !col.gameObject.activeInHierarchy)
+                continue;
+            if (col.Raycast(ray, out RaycastHit hit, maxDistance) && hit.distance < best)
+                best = hit.distance;
+        }
+        if (TryRaycastCards(origin, direction, out _, out _, out float cardDist)
+            && cardDist <= maxDistance && cardDist < best)
+            best = cardDist;
+        return best;
+    }
+
+    /// <summary>
+    /// Adopt every TRANSPARENT renderer under <paramref name="subtree"/> into the current
+    /// board's furniture draw-order group (<see cref="WorldUI.CanvasConversion.RegisterFurniture"/>
+    /// - see part 9's root-cause header: the status placard, labels and glow quads write no
+    /// depth and sat at sortingOrder 0..3, so any converted panel BEHIND the board painted
+    /// over them). Static + <see cref="Current"/>-based so the nested builders (BoardButton,
+    /// PileStack) and RestControls can call it without threading a tray reference. Opaque and
+    /// AlphaTest materials (queue &lt;= 2500) are skipped - they write depth and already
+    /// resolve against panels per pixel. Call AFTER all relative sortingOrder writes on the
+    /// subtree (the current order is captured as the in-band offset).
+    /// </summary>
+    internal static void AdoptFurniture(GameObject? subtree)
+    {
+        PlayTray? tray = Current;
+        if (tray == null || subtree == null)
+            return;
+        foreach (Renderer r in subtree.GetComponentsInChildren<Renderer>(true))
+        {
+            Material? m = r.sharedMaterial;
+            if (m == null || m.renderQueue <= 2500)
+                continue; // depth-writing opaque/cutout: already correct against depthless panels
+            WorldUI.CanvasConversion.RegisterFurniture(tray, r);
+        }
+    }
+
+    string WorldUI.IFurnitureOrderAnchor.FurnitureOrderName => "control board";
+
+    /// <summary>Alive while the tray root exists - NOT gated on visibility, so a hidden board
+    /// keeps its registrations and re-shows with correct orders (a rebuild re-adopts anyway).</summary>
+    bool WorldUI.IFurnitureOrderAnchor.FurnitureOrderAlive => _root != null;
+
+    /// <summary>Extra rect margin (board-local meters) around the slab when measuring the
+    /// furniture group's eye distance: the placard hovers ~0.16 m above the top edge, the pile
+    /// captions and the FIXIERT toggle hang below/beside it - the measure must cover the whole
+    /// furnished apron or a menu tucked right behind an overhanging piece could out-measure it.</summary>
+    private const float FurnitureApronMeters = 0.18f;
+
+    /// <summary>
+    /// The furniture group's eye distance: nearest point of the board's furnished face rect
+    /// (slab plus <see cref="FurnitureApronMeters"/> apron, on the z=0 face plane) - the same
+    /// clamp-into-rect measure <c>CanvasConversion.PanelEyeDistance</c> uses for panels, so the
+    /// group and the panels are ranked by directly comparable numbers.
+    /// </summary>
+    float WorldUI.IFurnitureOrderAnchor.FurnitureEyeDistance(Vector3 eye)
+    {
+        if (_root == null)
+            return float.PositiveInfinity;
+        Vector3 local = _root.InverseTransformPoint(eye);
+        float halfW = BoardHalfWidthLocal + FurnitureApronMeters;
+        float halfH = BoardH * 0.5f + FurnitureApronMeters;
+        var onFace = new Vector3(
+            Mathf.Clamp(local.x, -halfW, halfW),
+            Mathf.Clamp(local.y, -halfH, halfH),
+            0f);
+        return Vector3.Distance(eye, _root.TransformPoint(onFace));
     }
 }

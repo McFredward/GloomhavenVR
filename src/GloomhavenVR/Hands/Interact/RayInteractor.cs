@@ -132,6 +132,41 @@ internal sealed class RayInteractor : IPickProvider
     private float _fanOccluderHeldDistance = float.PositiveInfinity;
     private float _fanOccluderHoldUntil;
 
+    /// <summary>
+    /// Distance along the aim ray to the nearest SOLID MOD-OWNED surface of ANY kind - the
+    /// minimum of <see cref="FanOccluderDistance"/> (all three open fans) and the control
+    /// board's own solid surfaces (board mesh, keycaps, pile stacks, rest discs, slotted
+    /// cards - <c>PlayTray.RaycastSolidDistance</c>); +inf when the ray crosses none of them.
+    ///
+    /// ROOT CAUSE of the generalisation (user report 2026-08-04): with the control board
+    /// pushed in front of the OPTIONS MENU, the beam visibly collided with the board and
+    /// STILL selected the menu tabs behind it. The board, like the fan cards, is mod-layer
+    /// trigger geometry the physics pick <see cref="Mask"/> never sees, and it is scanned by
+    /// CardsDriver's board laser only AFTER RayUguiDriver has already delivered hover/press
+    /// to the canvases (VRHand tick order) - so the "a nearer physics hit blocks the UI hit"
+    /// rule had a blind spot exactly the size of the board. This value closes it at the one
+    /// arbitration seam every far consumer already honours: RayUguiDriver and RayGrabDriver
+    /// reject any UI/grab-bar target FARTHER than it (with the shared 0.005 m epsilon, so the
+    /// board's own docked/converted surfaces - initiative track, control dock, decision rows,
+    /// slot-card face canvases, all seated proud of or coplanar with the board colliders -
+    /// are never self-occluded), and the physics pick below drops board/hex targets behind
+    /// it. UI NEARER than the board (a floated window in front of it) is untouched: the
+    /// rejection is strictly one-directional. Desktop/flat mode never runs this interactor.
+    ///
+    /// STICKY like the fan value: the board contribution holds its last live distance for
+    /// <see cref="FanOccluderGraceSeconds"/> after the beam slips off the board, so the
+    /// trigger-pull jerk cannot open a one-frame window in which a menu tab behind the board
+    /// edge receives the press (the exact leak the fan hold was built for).
+    /// </summary>
+    public float SolidOccluderDistance { get; private set; } = float.PositiveInfinity;
+
+    /// <summary>True while <see cref="SolidOccluderDistance"/> comes from the control board
+    /// rather than an open fan - drives the occlusion log's culprit naming only.</summary>
+    public bool SolidOccluderIsBoard { get; private set; }
+
+    private float _boardOccluderHeldDistance = float.PositiveInfinity;
+    private float _boardOccluderHoldUntil;
+
     // Constant ANGULAR size for the ray visuals (P6, hardware test #8): the reticle
     // used to scale with the rig's WorldScale — zooming the diorama out grew the dot
     // enormously (and doubly so: localScale under an already rig-scaled parent).
@@ -254,6 +289,9 @@ internal sealed class RayInteractor : IPickProvider
             // before a grab suppress UI after the release.
             _fanOccluderHoldUntil = 0f;
             FanOccluderHeld = false;
+            SolidOccluderDistance = float.PositiveInfinity;
+            SolidOccluderIsBoard = false;
+            _boardOccluderHoldUntil = 0f;
             return;
         }
 
@@ -325,6 +363,24 @@ internal sealed class RayInteractor : IPickProvider
             FanOccluderDistance = float.PositiveInfinity;
         }
 
+        // SOLID occluder = fans MIN the control board (see the SolidOccluderDistance doc).
+        // The board contribution gets the same pull-jerk hold as the fan value: the geometric
+        // scan is exact but memoryless, and the trigger pull jerks the aim - a press born on
+        // the frame the beam slips off the board edge must still belong to the board side,
+        // never to a menu tab behind it.
+        float liveBoard = ComputeBoardOccluder(origin, direction, maxDistance);
+        if (!float.IsPositiveInfinity(liveBoard))
+        {
+            _boardOccluderHeldDistance = liveBoard;
+            _boardOccluderHoldUntil = Time.unscaledTime + FanOccluderGraceSeconds;
+        }
+        else if (Time.unscaledTime <= _boardOccluderHoldUntil)
+        {
+            liveBoard = _boardOccluderHeldDistance;
+        }
+        SolidOccluderDistance = Mathf.Min(FanOccluderDistance, liveBoard);
+        SolidOccluderIsBoard = liveBoard < FanOccluderDistance;
+
         // The physics pick ALWAYS runs — in every mode, under every modal (user ruling
         // 2026-08: the laser must exist and collide without exception). The former modal
         // input-block suppressed this raycast so nothing behind a floating menu was
@@ -337,10 +393,10 @@ internal sealed class RayInteractor : IPickProvider
         UpdateCommitSuppression();
         if (Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, Mask))
         {
-            if (hit.distance > FanOccluderDistance + FanOcclusionEpsilonMeters * scale)
+            if (hit.distance > SolidOccluderDistance + FanOcclusionEpsilonMeters * scale)
             {
-                // The raised card fan is clearly nearer along the ray — this board/hex/
-                // furniture target is behind the hand of cards; drop it (no pick-through).
+                // The raised card fan / control board is clearly nearer along the ray — this
+                // game hex/figure/furniture target is behind it; drop it (no pick-through).
                 _current.HasHit = false;
                 _current.HitCollider = null;
                 // [Optimize] LeanLogStrings: only pay for the interpolation + the allocating
@@ -663,6 +719,23 @@ internal sealed class RayInteractor : IPickProvider
     }
 
     /// <summary>
+    /// Nearest CONTROL-BOARD solid hit along the ray, or +inf (no board / board hidden / ray
+    /// misses it). Same pattern as <see cref="ComputeFanOccluder"/>: the board is mod-layer
+    /// trigger geometry the physics pick <see cref="Mask"/> never sees, so its occlusion must
+    /// be measured geometrically up front — the scan itself lives with the board
+    /// (<c>PlayTray.RaycastSolidDistance</c>: registered laser-target colliders + slotted
+    /// cards, the exact surfaces the board laser hovers). See the
+    /// <see cref="SolidOccluderDistance"/> root-cause doc.
+    /// </summary>
+    private static float ComputeBoardOccluder(Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        Cards.PlayTray? tray = Cards.PlayTray.Current;
+        return tray != null
+            ? tray.RaycastSolidDistance(origin, direction, maxDistance)
+            : float.PositiveInfinity;
+    }
+
+    /// <summary>
     /// [Optimize] LeanLogStrings gate (2026-07 perf pass). <see cref="NoteFanOcclusion"/> throttles
     /// itself to one line per second INSIDE the method — but its callers had already interpolated
     /// the message (and read <c>UnityEngine.Object.name</c>, which allocates a fresh managed string
@@ -675,18 +748,22 @@ internal sealed class RayInteractor : IPickProvider
         !Core.PerfConfig.LeanStrings || Time.unscaledTime >= s_nextFanOcclusionLogAt;
 
     /// <summary>
-    /// Throttled note (shared across both hands and every target kind) that the raised card
-    /// fan occluded a would-be pick BEHIND it — names the blocked target so a hardware log
-    /// shows the fix engaging. Called from the board pick here and the far uGUI/grab drivers.
+    /// Throttled note (shared across both hands and every target kind) that a solid mod-owned
+    /// occluder — the raised card fan or the control board, per
+    /// <see cref="SolidOccluderIsBoard"/> — blocked a would-be pick BEHIND it; names the
+    /// blocked target so a hardware log shows the fix engaging. Called from the board pick
+    /// here and the far uGUI/grab drivers. (Name kept from the fan-only era; the board joined
+    /// the same seam 2026-08-04.)
     /// </summary>
     public void NoteFanOcclusion(string blockedTarget, float targetDistance)
     {
         if (Time.unscaledTime < s_nextFanOcclusionLogAt)
             return;
         s_nextFanOcclusionLogAt = Time.unscaledTime + 1f;
-        Core.VRLog.Info("Hands", $"{_hand.Side} ray occluded by the raised card fan — blocked {blockedTarget} " +
-                                 $"(sits {targetDistance:F2} m out, behind a fan card at {FanOccluderDistance:F2} m" +
-                                 $"{(FanOccluderHeld ? ", pull-jerk HOLD — beam just left the fan" : "")}).");
+        string culprit = SolidOccluderIsBoard ? "the control board" : "the raised card fan";
+        Core.VRLog.Info("Hands", $"{_hand.Side} ray occluded by {culprit} — blocked {blockedTarget} " +
+                                 $"(sits {targetDistance:F2} m out, behind a solid surface at {SolidOccluderDistance:F2} m" +
+                                 $"{(!SolidOccluderIsBoard && FanOccluderHeld ? ", pull-jerk HOLD — beam just left the fan" : "")}).");
     }
 
     internal void DestroyVisuals()

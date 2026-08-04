@@ -123,7 +123,10 @@ internal static partial class CanvasConversion
     ///     FX (2), the engraved keycap labels (3). Those already carry "under panel canvases"
     ///     comments; before this round the order-0 HUD hosts contradicted them and a keycap face
     ///     painted over a panel that was spatially in front of it, which is the same "order beats
-    ///     distance" defect this file exists to remove.
+    ///     distance" defect this file exists to remove. Part 9 has since put that furniture ON the
+    ///     ladder as a distance-ranked GROUP (user 2026-08-04: the board's status placard was
+    ///     painted over by the options menu BEHIND the board) - with no panel behind the board its
+    ///     band tops out at PanelOrderBase-1, i.e. still under every panel, the shipped contract.
     /// Cards need nothing from the ladder in either direction: a fan/tray card's backing slab is
     /// depth-writing AlphaTest geometry at queue 2450, so it stamps its own footprint before any
     /// canvas draws and resolves against panels by real depth, per pixel, whatever the orders say.
@@ -350,6 +353,10 @@ internal static partial class CanvasConversion
             int rank = i < PanelOrderMaxRank ? i : PanelOrderMaxRank;
             ApplyPanelOrder(OrderedPanels[i], PanelOrderBase + rank * PanelOrderStep);
         }
+
+        // (5) Non-canvas transparent furniture (the control board's placard/labels/glows)
+        // ranks against the same measured distances - see part 9's root-cause header.
+        TickFurnitureOrder(eye);
 
         LogPanelOrder();
     }
