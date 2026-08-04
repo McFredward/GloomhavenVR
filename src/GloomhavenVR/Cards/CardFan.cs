@@ -212,7 +212,17 @@ internal sealed class CardFan
             _overlay.SetActive(false);
         _cards.Clear();
         for (int i = 0; i < cards.Count; i++)
+        {
             _cards.Add(cards[i]);
+            // Gate-hand veto seam (general rule 2026-08-04, see VRCard.AllowsGateHand): a card
+            // becomes a FAN card the moment it enters this list, and only fan cards refuse the
+            // fan-owning hand. Stamped here — not only in the driver's Rebuild loop — so a card
+            // handed to the fan between rebuilds can never spend frames grabbable by the very
+            // hand the fan hangs off. The ONE interaction fact this layout class writes, because
+            // fan membership is decided exactly here.
+            if (cards[i] != null)
+                cards[i].AllowsGateHand = false;
+        }
         if (IsOpen)
         {
             Relayout(instant: false);
@@ -256,6 +266,10 @@ internal sealed class CardFan
     {
         if (!_cards.Contains(card))
             _cards.Add(card);
+        // Fan entry = gate-hand veto (general rule 2026-08-04, see SetCards / VRCard.AllowsGateHand):
+        // a void-released card re-enters the fan HERE, often frames before the next Rebuild
+        // re-stamps zones — without this the fan-owning hand could hover/grab its own fan card.
+        card.AllowsGateHand = false;
         if (IsOpen)
             Relayout(instant: false);
     }

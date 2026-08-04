@@ -563,22 +563,20 @@ internal sealed partial class CardsDriver
             // Active cards (feature 6) are grabbable for the same read-only reason:
             // pluck one to read it, release returns it to the column, never a game seam.
             card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse || inActive;
-            // BOTH HANDS in the browse arc (user ruling 2026-08-03). The fan-owning-hand veto
-            // (VRCard.InteractionBlockedHand) exists for the ability fan alone — it hangs off that
-            // hand's palm — but it vetoes EVERY card, so the off hand could not even highlight, let
-            // alone take, a card in the discard/burnt arc floating above the board. Exempt exactly
-            // that zone; every other card keeps the veto. Re-asserted every rebuild, so a recycled
-            // widget can never carry the exemption into a hand-fan role.
-            //
-            // BOTH HANDS on the placed PICK cards too (user report 2026-08-04: "Es soll mit beiden
-            // Haenden aufnehmbar sein ... es reagiert nur bei der rechten Hand"). ROOT CAUSE of the
-            // right-hand-only proximity highlight: a burn/lose candidate lying in a slot recess is
-            // a FIELD card, and field cards were not exempted here, so AllowsHand refused the gate
-            // (non-dominant) hand outright — no highlight, no grab, ever, from that hand. The veto's
-            // one reason (the ability fan hangs off the gate hand's own palm) does not apply to a
-            // card docked on the board, exactly like the browse arc; taking a laid-down pick card
-            // back must work with EITHER hand at any time.
-            card.AllowsGateHand = inBrowse || inField;
+            // BOTH HANDS ON EVERY CARD (user ruling 2026-08-04: "Alle Karten sollen allgemein auch
+            // mit der nicht-dominanten Hand aufgenommen werden koennen ... Das soll fuer alle
+            // Karten gelten - ausser den Faecherkarten selber"). This is the GENERAL rule that
+            // replaces the per-zone whittling of the last two builds (browse arc exempted
+            // 2026-08-03, pick-field cards 2026-08-04): the fan-owning-hand veto
+            // (VRCard.InteractionBlockedHand) exists for ONE geometric reason — the ability fan
+            // hangs off the gate hand's own palm, so that hand's hover sits permanently inside the
+            // fan — and therefore applies to the fan's OWN cards and nothing else. Every other
+            // zone (browse arc, pick field, tray slots, active column, half selection) is
+            // hover/highlight/grabbable with BOTH hands. Re-asserted every rebuild, so a recycled
+            // widget can never carry a stale verdict into a new role; the two between-rebuild
+            // seams (fan pluck -> true, fan re-entry -> false) are stamped at CardsDriver.
+            // OnCardGrabbed and CardFan.Add/SetCards respectively (see VRCard.AllowsGateHand).
+            card.AllowsGateHand = !inFan;
             // Fan strips only apply while the card is in a fan that TILES its colliders. That is
             // now the browse arc as well as the hand fan (PileBrowser.Relayout strips exactly like
             // CardFan.Relayout — the sweep-skips-cards fix), so a browse card must keep its strip

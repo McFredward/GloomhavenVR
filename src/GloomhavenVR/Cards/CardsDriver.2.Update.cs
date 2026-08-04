@@ -280,6 +280,7 @@ internal sealed partial class CardsDriver
         VRCard.InteractionBlockedHand = null;
         VRCard.HandArbitrationHand = null;
         _handContactWinner = null;
+        _gateContactWinner = null; // gate-hand dock election dies with the driver too
         _contactSuppressed.Clear(); // flags themselves die with the cards (OnDisable clears)
         _emptyFanHint.Destroy(); // task #9: ghost placard teardown
         _fan.Destroy();
@@ -622,6 +623,10 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void TickInteractionsAndStatus()
     {
+        // BEFORE the palm gate on purpose: a dominant→gate hand-to-hand transfer must count as
+        // "the gate hand holds a card" in the very frame it happens, so the fan block engages
+        // without a one-frame open fan through the just-received card.
+        UpdateHeldCardTransfer();
         UpdatePalmGate();
 
         // Modal COMMIT-block: while a BLOCKING modal floats (story/results/durability — NOT the
@@ -919,10 +924,12 @@ internal sealed partial class CardsDriver
         VRHand? gateHand = VRHands.Primary == VRHands.Left ? VRHands.Right : VRHands.Left;
         if (gateHand != _gateHand)
             _gateHand = gateHand;
-        // P7 (test #10): the fan-owning hand is COMPLETELY excluded from card
-        // hover/highlight/grab/poke — its palm sits inside the fan and its own
-        // proximity hover made two cards flip-flop highlights forever. Only the
-        // free (dominant) hand interacts with cards, by laser or proximity.
+        // P7 (test #10) narrowed by the 2026-08-04 general rule: the fan-owning hand is excluded
+        // from the ability fan's OWN cards only — its palm sits inside the fan and its own
+        // proximity hover made two fan cards flip-flop highlights forever. Every other card
+        // exempts itself via VRCard.AllowsGateHand (stamped !inFan per Rebuild), so BOTH hands
+        // hover/highlight/grab everywhere else; this static only tells VRCard WHICH hand the
+        // fan-card veto refuses.
         VRCard.InteractionBlockedHand = _gateHand;
         if (_gateHand == null)
         {
@@ -948,13 +955,26 @@ internal sealed partial class CardsDriver
         gate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
 
         bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
+        // FAN BLOCK while the gate hand HOLDS something (user ruling 2026-08-04: "Wird eine Karte
+        // in die nicht-dominante Hand genommen, wird - solange sie in der Hand ist - der Faecher
+        // blockiert"). The gate hand can now take cards (general both-hands rule), and a fan
+        // opening through the very card that hand is holding is nonsense. Deliberately its OWN
+        // predicate rather than PalmGate.IgnoreWhenHandBusy: that suppression is an optional
+        // config ([Cards] RevealIgnoreWhenGrabbing) and RevealAlways / the tilt-mode laser-hold
+        // (_laserHover) bypass gate.IsOpen entirely — this rule must hold in every mode. Both
+        // edges ride the NORMAL animations below: holding while open -> _fan.Close() (reverse
+        // fan-in + hide sound); releasing -> Grabber.Held clears and the existing reveal gate
+        // decides the reopen from the live wrist roll ("je nach Rotation der Hand" — PalmGate
+        // keeps measuring while suppressed, so the verdict is instant), via _fan.Open()'s
+        // fan-out reveal. No new timer, no snap-hide.
+        bool gateHandHolds = _gateHand.Grabber.Held != null;
         // RevealMode=always: no gesture at all while a card phase is live (gate.Enabled
         // is the mode policy). Tilt mode additionally HOLDS the fan open while the
         // dominant laser is on it — plucking must never collapse the fan mid-reach.
         bool revealed = CardsConfig.RevealAlways
             ? gate.Enabled
             : gate.Enabled && (gate.IsOpen || _laserHover != null);
-        bool shouldOpen = allowFan && revealed;
+        bool shouldOpen = allowFan && revealed && !gateHandHolds;
         if (shouldOpen && !_fan.IsOpen)
         {
             _fan.Open(_gateHand);
@@ -980,7 +1000,7 @@ internal sealed partial class CardsDriver
         // on the reveal gesture; only in the real hand-fan context (CardsSelection with
         // a bound hand, no modal, not the dev fake hand) so pick flows / dialogs, where
         // an empty fan is expected, never flash it.
-        if (revealed && !_gateWasRevealed && !allowFan
+        if (revealed && !_gateWasRevealed && !allowFan && !gateHandHolds
             && !_modalInputBlocked && !_fakeActive && _boundHand != null
             && CardsGameApi.Mode(_boundHand) == CardHandMode.CardsSelection)
         {
