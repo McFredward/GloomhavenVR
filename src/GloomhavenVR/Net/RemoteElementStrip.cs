@@ -72,6 +72,17 @@ internal sealed class RemoteElementStrip
     };
 
     private readonly Transform _root;
+
+    /// <summary>
+    /// MIXED-REALITY backing plate behind the chip run (user: the MR text/content backing must
+    /// cover REMOTE boards too). The owner's element board is a CONVERTED panel, so MrBacking's
+    /// panel sweep puts an opaque host plate behind it in MR; this mod-drawn mirror is no panel
+    /// and its discs floated bare over the passthrough room. The plate is authored at ALPHA 0 —
+    /// a fully transparent draw, so normal mode renders pixel-identically — and registered with
+    /// <c>MrBacking.Opacify</c>, which drives it to alpha 1 while MR is on and restores the
+    /// recorded 0 exactly on off. Refit to the visible run on every repaint.
+    /// </summary>
+    private readonly MeshRenderer _mrPlate;
     private readonly Transform[] _chips = new Transform[6];
     private readonly MeshRenderer[] _quads = new MeshRenderer[6];
     private readonly Material[] _mats = new Material[6];
@@ -104,6 +115,14 @@ internal sealed class RemoteElementStrip
         _root = new GameObject("Elements").transform;
         _root.SetParent(mount, worldPositionStays: false);
         _root.localPosition = new Vector3(-Width * 0.5f, 0f, 0f);
+
+        // MR backing plate (see the field doc): the repo's dark panel neutral at alpha 0, seated
+        // slightly BEHIND the chips toward the board (+Z) like every remote text plate.
+        _mrPlate = BoardVisual.Quad(_root, "MrPlate", new Vector2(1f, 1f),
+            BoardVisual.Unlit(new Color(0.12f, 0.11f, 0.10f, 0f)));
+        _mrPlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+        _mrPlate.gameObject.SetActive(false);
+        WorldUI.MrBacking.Opacify(_mrPlate.sharedMaterial);
 
         for (int i = 0; i < 6; i++)
         {
@@ -157,6 +176,18 @@ internal sealed class RemoteElementStrip
             return;
         _signature = sig;
         ActiveCount = visible;
+
+        // MR plate: hug the visible run (centred at the strip origin, like the run itself), with a
+        // small out-pad so the disc edges sit on plate rather than passthrough room; hidden while
+        // no element is up (an empty strip must not show a bare plate in MR).
+        bool anyChips = visible > 0;
+        if (_mrPlate.gameObject.activeSelf != anyChips)
+            _mrPlate.gameObject.SetActive(anyChips);
+        if (anyChips)
+        {
+            float runW = (visible - 1) * ChipStep + ChipSize + 0.010f;
+            _mrPlate.transform.localScale = new Vector3(runW, ChipSize + 0.010f, 1f);
+        }
 
         // Pack the visible chips left-to-right and centre the run, exactly like the game's own
         // horizontal element holder does with its layout group.

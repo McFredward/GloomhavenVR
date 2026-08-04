@@ -708,11 +708,16 @@ internal sealed class RemoteBoardFurniture
             BoardVisual.Unlit(new Color(0.12f, 0.10f, 0.08f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
 
-        RemoteBoardContent.Label(root, "Label",
+        TextMeshPro caption = RemoteBoardContent.Label(root, "Label",
             new Vector3(0f, -(ItemCardH * 0.5f + 0.026f), -0.001f),
             new Vector2(ItemCardW * 1.1f, 0.030f), 0.05f,
-            new Color(1f, 0.92f, 0.72f), TextAlignmentOptions.Center, FontStyles.Bold)
-            .text = Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+            new Color(1f, 0.92f, 0.72f), TextAlignmentOptions.Center, FontStyles.Bold);
+        caption.text = Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+        // MR readability parity with the owner's board: the local item-use caption below the
+        // recess is MrBacking.Label'd (PlayTray.4.Slots), because it hangs below the recess in
+        // open air — over the passthrough room in MR. Same treatment for its mirror; the fitted
+        // plate renders only while MR is on, so normal mode stays bit-identical.
+        WorldUI.MrBacking.Label(caption);
         return root;
     }
 

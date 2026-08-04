@@ -65,6 +65,11 @@ internal sealed class RemotePickBanner
         MeshRenderer plate = BoardVisual.Quad(_root, "Plate", PlateSize,
             BoardVisual.Unlit(new Color(0.85f, 0.78f, 0.62f, 0.85f)));
         plate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+        // MR readability (user: the text backing must appear on REMOTE boards exactly as on the
+        // owner's): the owner's own placard parchment is Opacified (PlayTray.5.Status), so this
+        // mirror's 0.85 parchment gets the identical treatment — alpha 1 while MR is on, restored
+        // exactly on off. Mod-owned material; normal mode stays bit-identical.
+        WorldUI.MrBacking.Opacify(plate.sharedMaterial);
 
         _label = RemoteBoardContent.Label(_root, "Label", Vector3.zero, TextBox, MaxFont,
             new Color(0.24f, 0.17f, 0.10f), TextAlignmentOptions.Center, wrap: true);
