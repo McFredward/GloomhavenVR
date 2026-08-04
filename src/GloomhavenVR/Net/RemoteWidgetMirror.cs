@@ -162,6 +162,37 @@ internal sealed class RemoteWidgetMirror
     /// content line so a "the panel sits too high" report is answerable from the log alone.</summary>
     public string MeasurePath => _measurePath;
 
+    /// <summary>Bumps every time the clone is rebuilt from scratch (structure change / new
+    /// source). The cache-invalidation key for anything holding <see cref="CloneOf"/> results —
+    /// a holder re-resolves when this moves, and never dereferences a node of a dead clone.</summary>
+    public int RebuildStamp { get; private set; }
+
+    /// <summary>
+    /// The CLONE node paired with source node <paramref name="src"/>, or null when the mirror is
+    /// down or the node is not part of the mirrored subtree.
+    ///
+    /// THE SEAM FOR STATE OVERRIDES: the drive (<see cref="Pair.Apply"/>) is deliberately a
+    /// faithful copy of the source, but some source state is LOCAL-PLAYER state that must not be
+    /// mirrored onto a peer's board — the initiative track's hover artefacts are the shipped
+    /// case (defect (b) of the initiative-mouseover report: MY hover popup showed on the PEER's
+    /// mirrored track). A caller resolves the affected clone nodes through this, then overrides
+    /// them AFTER each Sync — the drive re-copies, the override re-corrects, both change-gated.
+    /// Linear scan over the pre-paired arrays; cache the result keyed on
+    /// <see cref="RebuildStamp"/> rather than calling this per frame.
+    /// </summary>
+    public Transform? CloneOf(Transform? src)
+    {
+        if (src == null || _clone == null)
+            return null;
+        Pair[] pairs = _pairs;
+        for (int i = 0; i < pairs.Length; i++)
+        {
+            if (ReferenceEquals(pairs[i].Src, src))
+                return pairs[i].Dst;
+        }
+        return null;
+    }
+
     /// <summary>
     /// Create a mirror that will host its clone under <paramref name="mount"/> (a board-local
     /// anchor the CALLER owns and positions from the authored per-style layout), fitted into
@@ -324,6 +355,7 @@ internal sealed class RemoteWidgetMirror
         _pairs = new Pair[n];
         for (int i = 0; i < n; i++)
             _pairs[i] = new Pair(srcNodes[i], _walk[i]);
+        RebuildStamp++; // CloneOf holders must re-resolve against the fresh clone
 
         // Own head camera renders the mod layer only; the whole clone is ours, so re-layering it is
         // safe (and required — the game face was on a game UI layer).
@@ -466,6 +498,7 @@ internal sealed class RemoteWidgetMirror
 
     private void DestroyClone()
     {
+        RebuildStamp++; // even a teardown without a rebuild invalidates every CloneOf result
         if (_clone != null)
         {
             // DestroyImmediate: a deferred Destroy would leave the OLD clone rendering on top of the

@@ -475,6 +475,10 @@ internal sealed class RemoteControlBoard
         // reorder slide and the objectives' progress fill would step visibly at 4 Hz. The drive is a
         // flat walk over pre-resolved component references with change-gated writes, so this costs
         // a few hundred field compares per board per frame and allocates nothing.
+        // TRACK HOVER (extension record 16) — handed to the mirror BEFORE its per-frame drive so
+        // the same frame that copies the source also applies the PEER's hover on top (and strips
+        // the LOCAL player's — defect (b) of the initiative-mouseover report).
+        _track?.SetPeerHover(_owner.TrackHoverActorId, _owner.TrackHoverPopup);
         _track?.TickLive();
         _objectives?.TickLive();
     }
