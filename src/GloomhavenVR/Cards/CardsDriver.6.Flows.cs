@@ -1182,6 +1182,10 @@ internal sealed partial class CardsDriver
         for (int i = 0; i < cards.Count; i++)
         {
             VRCard card = cards[i];
+            // A HELD card is skipped here (the collapse never yanks a card out of the player's
+            // hand) - that is the moment its pile loan outlives this ledger, and exactly why the
+            // origin travels ON the card (VRCard.PileOrigin): its eventual release routes it back
+            // to this pile via ReturnCardToPile instead of falling into the hand-fan routing.
             if (card == null || card.IsHeld || card.IsFlying || _flyingToPile.Contains(card)
                 || !card.gameObject.activeInHierarchy)
                 continue;
@@ -1236,6 +1240,66 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
+    /// Release routing for a card that is ON LOAN from a pile stack (<see cref="VRCard.PileOrigin"/>):
+    /// back into the open browse arc when it is still browsing that pile, otherwise a fly into the
+    /// pile's own stack (the same arc + park lifecycle as <see cref="StartBrowseCollapse"/>), with an
+    /// instant park when the stack is off / not built. NEVER the hand fan.
+    ///
+    /// ROOT CAUSE (user report 2026-08-04, "abgeworfene Karte im Handfaecher"): before this path
+    /// existed, a pile card whose browse arc had closed UNDERNEATH the hold fell through
+    /// OnCardReleased's browse branch (browser closed -> IsOpen false / list cleared) into the
+    /// normal hand-card routing, whose void case is "_fan.Add(card)" - a DISCARDED card entered the
+    /// hand fan (hardware log: "Pile browse CLOSE (foreign interaction: click-away ...)" with ledger
+    /// "borrowed 1 ... returned 0" at 3951-3952, then "Drop (Right): ... rule=none -> return to fan"
+    /// at 4028, fan n=4 -> n=5). The next rebuild reconciled it away again (the game's hand pile
+    /// never contained it), which is exactly the reported "grabbed it again, released, vanished".
+    ///
+    /// No NetCardFx report on purpose: the browse collapse does not report either - the peer's view
+    /// of the arc is driven by the browse extras block, and a hand-release flight into a stack the
+    /// peer never saw borrowed would render a phantom flight. The wire format is untouched.
+    /// </summary>
+    private void ReturnCardToPile(VRCard card, PileKind kind, VRHand hand)
+    {
+        // The arc is still open on this very pile: the ordinary pluck-return (item 5).
+        if (_browser.IsOpen && _browser.Kind == kind)
+        {
+            _browser.Add(card);
+            return;
+        }
+        // Already animating into a stack - its own completion callback parks it; never double-launch.
+        if (card.IsFlying || _flyingToPile.Contains(card))
+            return;
+        // Survive any parent teardown while flying (the hand's grab anchor releases this frame),
+        // exactly like the collapse re-parents cards out of the deactivating browser root.
+        Transform? anchor = AnchorParent();
+        if (anchor != null)
+            card.transform.SetParent(anchor, worldPositionStays: true);
+        if (_piles.TryGetPileWorld(kind, out Vector3 worldPos, out float slabWidth)
+            && card.gameObject.activeInHierarchy)
+        {
+            _flyingToPile.Add(card);
+            VRCard flying = card;
+            card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, BoardUp(), () =>
+            {
+                _flyingToPile.Remove(flying);
+                _factory.Park(flying);
+                VRLog.Info("Cards", $"Pile-origin return: '{flying.name}' reached the {kind} stack - parked.");
+            }, BoardArcMin());
+            VRLog.Info("Cards", $"Pile-origin return ({hand.Side}): '{card.name}' released while its {kind} " +
+                                $"browse is closed - flying back into the {kind} stack ({FlyToPileSeconds:F2}s), " +
+                                "never into the hand fan (discarded/burnt cards are not hand cards).");
+        }
+        else
+        {
+            _factory.Park(card);
+            VRLog.Info("Cards", $"Pile-origin return ({hand.Side}): '{card.name}' released while its {kind} " +
+                                $"browse is closed and the stack is off/not built - parked instantly, " +
+                                "never into the hand fan (discarded/burnt cards are not hand cards).");
+        }
+        _dirty = true; // the next rebuild re-asserts every zone from game truth
+    }
+
+    /// <summary>
     /// Rebuild-time browse refresh: close on any context change (mode/hand — C),
     /// otherwise mirror the authoritative pile into the arc. Content comes from the
     /// same widgets the 2D pile viewer re-parents (see CardsGameApi.GetPileWidgets),
@@ -1252,6 +1316,7 @@ internal sealed partial class CardsDriver
         }
 
         bool burnt = _browser.Kind == PileKind.Burnt;
+        PileKind kind = burnt ? PileKind.Burnt : PileKind.Discard;
         CardsGameApi.GetPileWidgets(hand, burnt, _pileWidgetBuffer);
         _browseBuffer.Clear();
         int pileCount = 0;    // cards the GAME has in this pile (the truth behind the title count)
@@ -1277,6 +1342,14 @@ internal sealed partial class CardsDriver
                 leftOnBoard++;
                 continue;
             }
+            // PILE-ORIGIN MARKER (discard-in-hand-fan bug 2026-08-04): the borrow is the single
+            // point where a pile card becomes a fan visual, so this is the single stamping
+            // point. The marker lives on the CARD (see VRCard.PileOrigin) because the browser's
+            // own list - the release routing's previous only origin record - is cleared by
+            // PileBrowser.Close() while the card can still be in the player's hand, after which
+            // the release routed the discard card into the HAND fan (hardware log 3951/4028).
+            // Retired by the Rebuild zone loop / OnDisable once game truth re-homes the card.
+            card.PileOrigin = kind;
             _browseBuffer.Add(card);
         }
         // The close is gated on the GAME's pile being empty, never on the borrowed count: a pile
@@ -1287,7 +1360,6 @@ internal sealed partial class CardsDriver
             CloseBrowser("pile empty");
             return;
         }
-        PileKind kind = burnt ? PileKind.Burnt : PileKind.Discard;
         // Title keeps the TRUE pile size — the player is told what the pile holds, even when some
         // of those cards are physically on the board instead of in the arc.
         _browser.SetCards(_browseBuffer, $"{PileViewer.Caption(kind)} ({pileCount})");

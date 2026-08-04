@@ -544,6 +544,17 @@ internal sealed partial class CardsDriver
             // keep it OUT of the park sweep so PresentShortRestCard's centre home holds.
             bool inShortRest = ReferenceEquals(card, _shortRestCard);
 
+            // PILE-ORIGIN MARKER RETIRE (discard-in-hand-fan bug 2026-08-04): a non-held,
+            // non-flying card the browse arc no longer lists has been re-homed by THIS rebuild
+            // from game truth (hand fan, pick fan - where the whole fan legitimately IS the
+            // discard/burnt set -, tray, half, field, active, short rest) or is about to park.
+            // Either way its browse loan is over, so the marker must not outlive it: a stale
+            // marker would hijack the card's next release into the pile routing. Held cards were
+            // skipped above - their marker survives the hold, which is the entire point (the
+            // browser's own list does NOT survive a mid-hold close; see VRCard.PileOrigin).
+            if (!inBrowse)
+                card.PileOrigin = null;
+
             // Task #2 follow-up: the slot-dock grab apron (under/around-grab accept,
             // VRCard.SetDockGrabPad) is TRUE exactly for slot-docked cards — tray
             // occupants and pick/field cards in the recesses — and FALSE everywhere

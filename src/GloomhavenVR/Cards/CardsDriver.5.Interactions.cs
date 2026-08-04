@@ -300,6 +300,25 @@ internal sealed partial class CardsDriver
             return;
         }
 
+        // PILE-ORIGIN FALLBACK (user report 2026-08-04, "abgeworfene Karte im Handfaecher"): a
+        // card the browse arc borrowed from the discard/burnt pile whose browser CLOSED while the
+        // card was held. The branch above never catches it - PileBrowser.Close() cleared the list
+        // (and IsOpen) mid-hold, which the close ledger proves ("borrowed 1 ... returned 0", the
+        // collapse skips held cards) - so the release used to fall through to the HAND-card
+        // routing below, whose void case is "_fan.Add(card)": the hardware log's "Drop (Right):
+        // ... rule=none -> return to fan" put a DISCARDED card into the hand fan (n=4 -> n=5),
+        // and the fan count is what peers receive as the hand-card count. The marker lives on the
+        // card (VRCard.PileOrigin) precisely so it survives every hold path - grab, T2 rescue,
+        // hand-to-hand transfer, transfer abort - and this single branch routes ALL of them back
+        // to their pile (arc if open, else the stack). Runs BEFORE the pick-mode branch: a card
+        // still marked at release was never re-homed into a pick fan by a rebuild (the zone loop
+        // retires the marker there), so committing it through a pick seam would be wrong too.
+        if (card.PileOrigin is PileKind pileOrigin)
+        {
+            ReturnCardToPile(card, pileOrigin, hand);
+            return;
+        }
+
         CardsHandUI? gameHand = CurrentHand();
         if (gameHand == null || card.GameCard == null)
         {
