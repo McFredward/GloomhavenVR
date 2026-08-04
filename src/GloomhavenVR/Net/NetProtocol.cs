@@ -395,7 +395,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 51;
+    public const ushort ModBuild = 52;
     // Build 36: per-pile fan spread/radius (items, discard, burnt) in the debug menu; the ITEM fan
     // finally feeds the card-highlight record so peers see a lifted chip; the duplicate hand<->slot
     // card flights peers were replaying are gone. Local + existing wire record — no format change.
