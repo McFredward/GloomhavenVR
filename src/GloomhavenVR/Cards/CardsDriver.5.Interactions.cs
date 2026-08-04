@@ -140,7 +140,9 @@ internal sealed partial class CardsDriver
     /// carry). The receiving hold is trigger-held (<c>releaseOnTriggerUp</c>), exactly like a
     /// pluck: keep the trigger to keep the card, release it to drop/dock through the normal,
     /// hand-agnostic release routing. If the adoption was refused, <see cref="OnCardReleased"/>
-    /// fell through to that same normal routing — either way the card ends somewhere legal.
+    /// ABORTS the handover by re-adopting the card into the ORIGINAL hand (a refusal must never
+    /// route a mid-transfer card into a hidden fan — the "card disappears" bug); only when both
+    /// hands refuse does it fall through to the normal routing — either way, somewhere legal.
     /// </summary>
     private void TransferHeldCard(VRCard card, VRHand from, VRHand to)
     {
@@ -153,12 +155,21 @@ internal sealed partial class CardsDriver
         finally
         {
             bool adopted = ReferenceEquals(to.Grabber.Held, card);
+            bool aborted = !adopted && ReferenceEquals(from.Grabber.Held, card);
             _transferCard = null;
             _transferTo = null;
             _transferHoverHand = null; // roles flipped; re-derive the hover next frame
-            if (!adopted)
+            // Refusal outcomes (see OnCardReleased's transfer branch): the primary fallback
+            // re-adopts into the ORIGINAL hand (abort — the card visibly stays put); only when
+            // both hands refuse does the release route normally. Named apart so a hardware log
+            // can tell the safe abort from an actual routed drop.
+            if (aborted)
                 VRLog.Warn("Cards", $"Hand transfer: adoption into the {to.Side} hand was refused — " +
-                                    "the card took the normal release routing instead (no limbo).");
+                                    $"ABORTED, the card stays held in the {from.Side} hand.");
+            else if (!adopted)
+                VRLog.Warn("Cards", $"Hand transfer: adoption into the {to.Side} hand AND the " +
+                                    $"re-adoption into the {from.Side} hand were refused — the card " +
+                                    "took the normal release routing instead (no limbo).");
         }
     }
 
@@ -198,13 +209,18 @@ internal sealed partial class CardsDriver
         {
             _fanOriginCards.Add(card); // reorder: eligible for a fan-gap commit on release
             _fan.Remove(card);
-            // Plucked OUT of the fan = no longer a fan card, so the gate-hand veto lifts NOW
-            // (general rule 2026-08-04, see VRCard.AllowsGateHand): the held card must be
-            // hand-to-hand transferable to the gate hand immediately, and a stale FALSE would
-            // make that hand's ProximityGrabber.HealDeadHeld force-drop it mid-hold. The fan
-            // re-entry seam (CardFan.Add/SetCards) stamps it back the moment it returns.
-            card.AllowsGateHand = true;
         }
+        // A HELD card is never a fan card, so the gate-hand veto lifts NOW for EVERY grab —
+        // this is THE single stamping point where any card becomes held (all pluck paths —
+        // proximity, laser, T2 rescue, pull-jerk grace, fingertip poke, transfer adoption —
+        // funnel through VRCard.OnGrab -> Grabbed -> here). Previously stamped only inside
+        // the fan branch above; unconditional now (general rule 2026-08-04, see
+        // VRCard.AllowsGateHand): the held card must be hand-to-hand transferable to the
+        // gate hand immediately, and a stale FALSE would make that hand's
+        // ProximityGrabber.HealDeadHeld force-drop it mid-hold. Idempotent for every
+        // non-fan zone (their Rebuild verdict is TRUE anyway); the fan re-entry seams
+        // (CardFan.Add/SetCards) stamp it back the moment the card returns.
+        card.AllowsGateHand = true;
         // Tray occupancy stays until the release decides select/unselect/swap.
     }
 
@@ -222,15 +238,37 @@ internal sealed partial class CardsDriver
         // below runs (the card never left the hands; docking/fan-return/pick seams would all be
         // wrong). The fan-origin marker deliberately survives: a card plucked from the fan and
         // handed over still commits into a fan gap when its FINAL release is a void release.
-        // If the adopting grab is refused (mode policy flipped this very frame), fall through to
-        // the normal routing — the card then honestly releases where it is, never limbos.
-        if (ReferenceEquals(card, _transferCard) && _transferTo != null
-            && _transferTo.Grabber.ForceGrab(card, releaseOnTriggerUp: true))
+        if (ReferenceEquals(card, _transferCard) && _transferTo != null)
         {
-            VRLog.Info("Cards", $"Hand transfer: '{card.name}' handed {hand.Side} → " +
-                                $"{_transferTo.Side} (trigger on the held card) — release routing " +
-                                "skipped, hold continues on the receiving hand's trigger.");
-            return;
+            if (_transferTo.Grabber.ForceGrab(card, releaseOnTriggerUp: true))
+            {
+                VRLog.Info("Cards", $"Hand transfer: '{card.name}' handed {hand.Side} → " +
+                                    $"{_transferTo.Side} (trigger on the held card) — release routing " +
+                                    "skipped, hold continues on the receiving hand's trigger.");
+                return;
+            }
+            // ADOPTION REFUSED — ABORT the transfer instead of releasing (fan-transfer vanish,
+            // hardware log 5216-5297): a refusal used to fall through to the normal drop routing,
+            // and for a fan-origin card that routing is "return to fan" — a fan that is CLOSED at
+            // this very moment (receiving a card is the same wrist roll that shuts the palm gate),
+            // so the card visually vanished mid-handover. Whatever refused the adoption (mode
+            // policy edge, a filter re-armed mid-release), the strictly safer outcome is that the
+            // card simply STAYS in the hand that was holding it: re-adopt into the RELEASING hand
+            // in this same call stack (its Grabber.Held is already null — CancelAll cleared it
+            // before dispatching this release). The re-adopted hold keeps the button that is
+            // PHYSICALLY still pressed: trigger-held when the trigger is down (the pluck norm),
+            // grip-held otherwise (a grip-hold re-adopted trigger-held would release itself the
+            // very next Tick and vanish through the routing after all). No frame observes the
+            // card un-held either way.
+            if (hand.Grabber.ForceGrab(card, releaseOnTriggerUp: hand.TriggerPressed))
+            {
+                VRLog.Warn("Cards", $"Hand transfer ABORTED: adoption of '{card.name}' into the " +
+                                    $"{_transferTo.Side} hand was refused — the card stays in the " +
+                                    $"{hand.Side} hand (no release routing, nothing vanishes).");
+                return;
+            }
+            // Both hands refused (the card itself became ungrabbable this very frame): fall
+            // through to the normal routing as the last honest resort — never limbo.
         }
 
         // Hand reorder: was this card plucked out of the fan? (consumed here, used by the void

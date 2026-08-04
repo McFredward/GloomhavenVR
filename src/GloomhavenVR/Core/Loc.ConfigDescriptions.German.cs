@@ -764,8 +764,10 @@ internal static partial class Loc
             ["Cards/HeldPinchOffset"] =
                 "Feinjustierung der gehaltenen Karte: Versatz (Meter), der auf den berechneten Pinch-Punkt — "
                 + "die Mitte zwischen Daumen- und Zeigefingerspitze im Moment des Greifens — ADDIERT wird, in "
-                + "GrabAnchor-lokalen Achsen: +Y aus der Handfläche heraus, +Z entlang der Finger, +X seitlich "
-                + "(zwischen den Händen anatomisch gespiegelt). Beispiel {x:0, y:0.01, z:0.02} hebt die Karte 1 "
+                + "GrabAnchor-lokalen Achsen: +Y aus der Handfläche heraus, +Z entlang der Finger, +X seitlich. "
+                + "Für die RECHTE Hand eingestellt; das X-Vorzeichen wird für die linke Hand automatisch "
+                + "gespiegelt, sodass die Karte in beiden Händen an derselben anatomischen Stelle sitzt. "
+                + "Beispiel {x:0, y:0.01, z:0.02} hebt die Karte 1 "
                 + "cm von der Handfläche ab und schiebt sie 2 cm zu den Fingerspitzen.",
             ["Cards/TrayForward"] =
                 "Platzierung des Kontrollbretts: Abstand nach vorn vom Kopf im Moment der Platzierung, in "
