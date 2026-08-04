@@ -372,8 +372,21 @@ internal sealed partial class CardsDriver
     // this fan (whose root hangs off the palm, i.e. relative size exactly 1) gets the identical
     // numbers back while the board-anchored fans finally scale with the board. See FanSweep.
 
-    /// <summary>The single card the free hand is currently "in contact with" (null = none).</summary>
+    /// <summary>The single card the free (dominant) hand is currently "in contact with"
+    /// (null = none). Elected over the open fan plus the dock/pick-field pool.</summary>
     private VRCard? _handContactWinner;
+
+    /// <summary>
+    /// The single dock/pick-field card the GATE (fan-owning, non-dominant) hand is currently in
+    /// contact with (null = none). Exists since the 2026-08-04 both-hands ruling: the gate hand now
+    /// hovers/grabs every card except the ability fan's own, so it needs the same single-winner
+    /// contact election the dominant hand has — without one, two adjacent dock cards could both
+    /// pop for that hand (the very issue A/B this arbitration was built for). Deliberately scored
+    /// over the dock/pick-field pool ONLY: fan cards refuse the gate hand outright
+    /// (VRCard.AllowsGateHand=false — the fan hangs off this very palm), and electing one would
+    /// re-create the palm-in-fan flip-flop the veto was born from.
+    /// </summary>
+    private VRCard? _gateContactWinner;
 
     /// <summary>Cards currently pop-suppressed by the arbitration — cleared and re-filled every
     /// tick so a card leaving the fan/dock pools can never keep a stale suppression.</summary>
@@ -395,12 +408,18 @@ internal sealed partial class CardsDriver
     /// ProximityGrabber's highlight — and therefore the trigger grab — lands on the same
     /// single winner. The laser-hovered fan/tray card is never suppressed (the laser path
     /// already arbitrates itself and its pluck must keep working). Allocation-free.
+    ///
+    /// BOTH HANDS (user ruling 2026-08-04): the GATE hand runs its own parallel election over
+    /// the dock/pick-field pool (never the fan — see <see cref="_gateContactWinner"/>), so its
+    /// contact lift is single-winner too; dock losers refuse exactly the hands that elected
+    /// someone else (<see cref="SuppressDockLoser"/>).
     /// </summary>
     private void UpdateHandContactArbitration()
     {
         VRHand? dom = VRHands.Primary;
         VRCard.HandArbitrationHand = dom;
 
+        // ---- dominant-hand election: open fan + dock/pick-field (unchanged shape) ----
         FanSweepPick<VRCard> pick = FanSweepPick<VRCard>.Empty;
         float worldScale = 1f;
         if (dom != null && !ReferenceEquals(dom, _gateHand) && dom.HasPose
@@ -421,17 +440,43 @@ internal sealed partial class CardsDriver
                 // deterministically. This is now literally the same code the pile fans run.
                 IReadOnlyList<VRCard> fanCards = _fan.Cards;
                 for (int i = 0; i < fanCards.Count; i++)
-                    ScoreContact(fanCards[i], tip, palm, worldScale, tipFirst: true, ref pick);
+                    ScoreContact(fanCards[i], tip, palm, worldScale, tipFirst: true,
+                        _handContactWinner, ref pick);
             }
             if (_tray.IsVisible)
             {
                 // Dock / pick-field cards keep the min(tip,palm) reach metric — the complaint
                 // is the fan sweep, and these sit far enough apart not to oscillate.
-                ScoreContact(_tray.Occupant(0), tip, palm, worldScale, tipFirst: false, ref pick);
-                ScoreContact(_tray.Occupant(1), tip, palm, worldScale, tipFirst: false, ref pick);
+                ScoreContact(_tray.Occupant(0), tip, palm, worldScale, tipFirst: false,
+                    _handContactWinner, ref pick);
+                ScoreContact(_tray.Occupant(1), tip, palm, worldScale, tipFirst: false,
+                    _handContactWinner, ref pick);
                 for (int i = 0; i < _fieldCards.Count; i++)
-                    ScoreContact(_fieldCards[i], tip, palm, worldScale, tipFirst: false, ref pick);
+                    ScoreContact(_fieldCards[i], tip, palm, worldScale, tipFirst: false,
+                        _handContactWinner, ref pick);
             }
+        }
+
+        // ---- gate-hand election: dock/pick-field ONLY (both-hands ruling 2026-08-04) ----
+        // Same candidacy/ranking/incumbent-stickiness as the dominant hand above (shared
+        // FanSweep.Score), its own incumbent so the two elections can never steal each other's
+        // hysteresis. Skipped while that hand holds something / under a modal, exactly like the
+        // dominant branch. Fan cards are deliberately NOT scored — see _gateContactWinner.
+        FanSweepPick<VRCard> gatePick = FanSweepPick<VRCard>.Empty;
+        float gateScale = 1f;
+        if (_gateHand != null && _gateHand.HasPose && _gateHand.Grabber.Held == null
+            && !_modalInputBlocked && _tray.IsVisible)
+        {
+            Vector3 tip = _gateHand.Rig.IndexTip.position;
+            Vector3 palm = _gateHand.Rig.PalmCenter.position;
+            gateScale = _gateHand.WorldScale;
+            ScoreContact(_tray.Occupant(0), tip, palm, gateScale, tipFirst: false,
+                _gateContactWinner, ref gatePick);
+            ScoreContact(_tray.Occupant(1), tip, palm, gateScale, tipFirst: false,
+                _gateContactWinner, ref gatePick);
+            for (int i = 0; i < _fieldCards.Count; i++)
+                ScoreContact(_fieldCards[i], tip, palm, gateScale, tipFirst: false,
+                    _gateContactWinner, ref gatePick);
         }
 
         VRCard? winner = pick.Winner;
@@ -449,6 +494,18 @@ internal sealed partial class CardsDriver
                     FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)winner).SweepFaceWidthWorld));
             }
         }
+        VRCard? gateWinner = gatePick.Winner;
+        if (!ReferenceEquals(gateWinner, _gateContactWinner))
+        {
+            _gateContactWinner = gateWinner;
+            float now = Time.unscaledTime;
+            if (gateWinner != null && _gateHand != null && now >= _nextContactLogAt)
+            {
+                _nextContactLogAt = now + 0.5f;
+                FanSweep.LogWinner("Dock/pick-field", _gateHand.Side.ToString(), gatePick,
+                    FanSweep.ResolveReach(gateScale, ((IFanSweepTarget)gateWinner).SweepFaceWidthWorld));
+            }
+        }
 
         // Re-derive the suppression set from scratch every tick (stale-flag proof: a card
         // that left the pools mid-frame is cleared here or by its own OnDisable).
@@ -458,9 +515,9 @@ internal sealed partial class CardsDriver
                 _contactSuppressed[i].SetHandPopSuppressed(false);
         }
         _contactSuppressed.Clear();
-        if (winner == null)
+        if (winner == null && gateWinner == null)
             return;
-        if (_fan.IsOpen)
+        if (_fan.IsOpen && winner != null)
         {
             // SINGLE FAN HIGHLIGHT (user issue: laser on one card, hand near another, both lifted).
             // While the LASER owns the fan hover (see _fanHoverOwner) the hand may not raise a
@@ -478,10 +535,10 @@ internal sealed partial class CardsDriver
         }
         if (_tray.IsVisible)
         {
-            SuppressContactLoser(_tray.Occupant(0), winner);
-            SuppressContactLoser(_tray.Occupant(1), winner);
+            SuppressDockLoser(_tray.Occupant(0), winner, gateWinner, dom);
+            SuppressDockLoser(_tray.Occupant(1), winner, gateWinner, dom);
             for (int i = 0; i < _fieldCards.Count; i++)
-                SuppressContactLoser(_fieldCards[i], winner);
+                SuppressDockLoser(_fieldCards[i], winner, gateWinner, dom);
         }
     }
 
@@ -498,22 +555,45 @@ internal sealed partial class CardsDriver
     /// board-anchored arc scales with the board. Two divides per card per frame.
     /// </summary>
     private void ScoreContact(VRCard? card, Vector3 tip, Vector3 palm, float worldScale,
-        bool tipFirst, ref FanSweepPick<VRCard> pick)
+        bool tipFirst, VRCard? incumbent, ref FanSweepPick<VRCard> pick)
     {
         if (card == null)
             return;
         FanReach reach = FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)card).SweepFaceWidthWorld);
-        FanSweep.Score(card, tip, palm, reach, _handContactWinner, tipFirst, ref pick);
+        FanSweep.Score(card, tip, palm, reach, incumbent, tipFirst, ref pick);
     }
 
-    /// <summary>Suppress a pool card that lost the contact arbitration. The laser-hovered
-    /// fan/tray card is exempt — laser hover/pluck must keep working unchanged.</summary>
+    /// <summary>Suppress a FAN card that lost the dominant hand's contact arbitration. The
+    /// laser-hovered fan/tray card is exempt — laser hover/pluck must keep working unchanged.</summary>
     private void SuppressContactLoser(VRCard? card, VRCard winner)
     {
         if (card == null || card.IsHeld || ReferenceEquals(card, winner)
             || ReferenceEquals(card, _laserHover) || ReferenceEquals(card, _trayCardHover))
             return;
         card.SetHandPopSuppressed(true);
+        _contactSuppressed.Add(card);
+    }
+
+    /// <summary>
+    /// Suppress a DOCK/PICK-FIELD card that lost the per-hand contact elections (both-hands
+    /// ruling 2026-08-04: this pool is swept by BOTH hands). A card that won EITHER election is
+    /// never suppressed — pop suppression is card-wide, so suppressing one hand's winner for the
+    /// other hand's sake would kill the lift the winning hand was promised. A loser refuses
+    /// exactly the hands whose elections ran and elected someone else (the accumulating two-slot
+    /// refusal in <see cref="VRCard.SetHandPopSuppressed(bool, VRHand?)"/>), so each hand's grab
+    /// keeps following its own winner. Laser-hover exemptions as in
+    /// <see cref="SuppressContactLoser"/>.
+    /// </summary>
+    private void SuppressDockLoser(VRCard? card, VRCard? domWinner, VRCard? gateWinner, VRHand? dom)
+    {
+        if (card == null || card.IsHeld
+            || ReferenceEquals(card, domWinner) || ReferenceEquals(card, gateWinner)
+            || ReferenceEquals(card, _laserHover) || ReferenceEquals(card, _trayCardHover))
+            return;
+        if (domWinner != null)
+            card.SetHandPopSuppressed(true, dom);
+        if (gateWinner != null)
+            card.SetHandPopSuppressed(true, _gateHand);
         _contactSuppressed.Add(card);
     }
 

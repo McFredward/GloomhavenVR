@@ -14,6 +14,7 @@ namespace GloomhavenVR.Net;
 internal static class LocalRigSampler
 {
     private static bool s_loggedHeldItem; // one-time confirm the held-item MP parity path fired (#3)
+    private static bool s_loggedDoubleHeld; // one-time note when BOTH hands hold a card (one pose on the wire)
 
     // COMPILE-TIME WIRE GUARD — do not delete. Sibling of NetAvatarDriver.PileKindWireOrderGuard,
     // for the OTHER enum whose member values ride the wire.
@@ -160,11 +161,33 @@ internal static class LocalRigSampler
 
     /// <summary>The world pose of the single card the local player grip-holds, if any (left
     /// hand wins when both hold one — matches the mirror's slab order). False when no hand
-    /// holds a <see cref="Cards.VRCard"/> ability card or an <see cref="Cards.ItemsPile.ItemChip"/>.</summary>
+    /// holds a <see cref="Cards.VRCard"/> ability card or an <see cref="Cards.ItemsPile.ItemChip"/>.
+    ///
+    /// TWO SIMULTANEOUS HELD CARDS (both-hands ruling 2026-08-04: either hand can now take a
+    /// card, so e.g. the gate hand can hold a browse card while the dominant hand plucks
+    /// another): the wire's <c>FlagHeldCard</c> field carries exactly ONE pose by design and the
+    /// wire format must not change, so the LEFT hand's card is the deterministic pick and the
+    /// right hand's card is simply invisible to peers for the overlap (they see that hand's
+    /// finger curls close on nothing — cosmetic only, no game state rides either card). Logged
+    /// once per session below so a hardware log can attribute the "missing" second slab.</summary>
     private static bool TrySampleHeldCard(out Vector3 pos, out Quaternion rot)
     {
-        return TryHeldCard(VRHands.Left, out pos, out rot) || TryHeldCard(VRHands.Right, out pos, out rot);
+        bool left = TryHeldCard(VRHands.Left, out pos, out rot);
+        if (left && !s_loggedDoubleHeld && HoldsCardShape(VRHands.Right))
+        {
+            s_loggedDoubleHeld = true;
+            Core.VRLog.Info("Net", "MP note: BOTH hands hold a card — the wire carries one held-card " +
+                                   "pose (FlagHeldCard), so peers see the LEFT hand's card only; the " +
+                                   "right hand's card is not represented for the overlap (cosmetic).");
+        }
+        return left || TryHeldCard(VRHands.Right, out pos, out rot);
     }
+
+    /// <summary>True when <paramref name="hand"/> holds either wire-visible card shape (ability
+    /// card or item chip) — the same pattern <see cref="TryHeldCard"/> matches, sans pose.</summary>
+    private static bool HoldsCardShape(VRHand? hand)
+        => hand != null && hand.Grabber != null
+           && (hand.Grabber.Held is Cards.ItemsPile.ItemChip || hand.Grabber.Held is Cards.VRCard);
 
     private static bool TryHeldCard(VRHand? hand, out Vector3 pos, out Quaternion rot)
     {

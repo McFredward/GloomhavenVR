@@ -25,18 +25,161 @@ internal sealed partial class CardsDriver
     /// </summary>
     private readonly HashSet<VRCard> _liveGrabs = new();
 
+    // ------------------------------------------------------- hand-to-hand card transfer --
+
+    /// <summary>The free hand currently in touch reach of the OTHER hand's held card (null =
+    /// none) — the hover state of the hand-to-hand transfer. Edge-tracked for the haptic tick
+    /// and hysteresis (see <see cref="UpdateHeldCardTransfer"/>).</summary>
+    private VRHand? _transferHoverHand;
+
+    /// <summary>The card mid-handover and the hand adopting it — non-null ONLY inside
+    /// <see cref="TransferHeldCard"/>'s release+grab call stack. Read by
+    /// <see cref="OnCardReleased"/> (adopt instead of routing the drop) and
+    /// <see cref="OnCardGrabbed"/> (a handover is not a foreign interaction / pick reopen).</summary>
+    private VRCard? _transferCard;
+    private VRHand? _transferTo;
+
+    /// <summary>Throttle clock (unscaled seconds) for the transfer hover log line.</summary>
+    private float _nextTransferLogAt;
+
+    /// <summary>Reach hysteresis for the transfer hover: once hovering, the free hand must move
+    /// this factor beyond the enter reach to lose it — the same enter-smaller-than-exit idea every
+    /// other hover in this driver uses, so the haptic tick cannot buzz at the boundary.</summary>
+    private const float TransferHoverExitScale = 1.35f;
+
+    /// <summary>
+    /// Hand-to-hand card transfer (user addendum 2026-08-04: "dass man die Karte aus einer Hand
+    /// in die andere Hand nimmt … wenn er dann den Trigger der freien Hand drückt, während er an
+    /// der Karte in der anderen Hand ist, soll die Hand wechseln").
+    ///
+    /// While one hand HOLDS a VRCard and the other hand is EMPTY, the free hand touching the held
+    /// card (index tip / palm against the card's live collider, the same scale-aware
+    /// <see cref="FanSweep.ResolveReach"/> envelope the fan sweeps use) gets the standard hover
+    /// haptic (<see cref="HapticPreset.HoverTick"/> — the exact feedback a proximity highlight
+    /// gives), edge-triggered on reach entry with hysteresis so it cannot buzz. A TriggerDown of
+    /// the free hand while in reach hands the card over: see <see cref="TransferHeldCard"/> for
+    /// the release+grab ordering. Works in both directions, repeatedly.
+    ///
+    /// A held card is invisible to every existing hover system on purpose (<c>CanGrab</c> is false
+    /// while attached), so this is a dedicated detector rather than a ProximityGrabber candidate;
+    /// it CLAIMS the free hand's trigger while in reach (<c>Ray.SuppressFarClick</c> — the exact
+    /// mechanism <see cref="ClaimHandFanTrigger"/> uses) so the same pull can neither far-click
+    /// the board nor proximity-grab a bystander card, and it yields to a live game-UI hit like
+    /// every other trigger owner. Runs BEFORE <see cref="UpdatePalmGate"/> in the tick so a
+    /// dominant→gate handover blocks the fan the very same frame. Allocation-free.
+    /// </summary>
+    private void UpdateHeldCardTransfer()
+    {
+        VRHand? left = VRHands.Left;
+        VRHand? right = VRHands.Right;
+        VRCard? leftCard = left != null ? left.Grabber.Held as VRCard : null;
+        VRCard? rightCard = right != null ? right.Grabber.Held as VRCard : null;
+        // Exactly one hand must hold a card and the other must be free — two held cards
+        // (possible since the both-hands rule) simply means no hand is free to receive.
+        VRHand? holder = leftCard != null ? left : rightCard != null ? right : null;
+        VRCard? held = leftCard != null ? leftCard : rightCard;
+        VRHand? free = ReferenceEquals(holder, left) ? right : left;
+        if (held == null || holder == null || free == null || !free.HasPose
+            || free.Grabber.Held != null || _modalInputBlocked)
+        {
+            _transferHoverHand = null;
+            return;
+        }
+
+        // Touch test against the held card's own collider (enabled while held — the grab keeps
+        // it live for exactly this kind of physical query), scale-aware via the shared reach.
+        var target = (IFanSweepTarget)held;
+        if (!target.TrySweepDistance(free.Rig.IndexTip.position, out float tipDist)
+            || !target.TrySweepDistance(free.Rig.PalmCenter.position, out float palmDist))
+        {
+            _transferHoverHand = null;
+            return;
+        }
+        FanReach reach = FanSweep.ResolveReach(free.WorldScale, target.SweepFaceWidthWorld);
+        bool wasHovering = ReferenceEquals(_transferHoverHand, free);
+        float exit = wasHovering ? TransferHoverExitScale : 1f;
+        if (tipDist > reach.Tip * exit && palmDist > reach.Palm * exit)
+        {
+            _transferHoverHand = null;
+            return;
+        }
+
+        if (!wasHovering)
+        {
+            _transferHoverHand = free;
+            // The established hover feedback, on the hand that can act: one HoverTick on the
+            // reach-entry edge (rate-limited by the hysteresis above), same preset and strength
+            // as every proximity highlight.
+            free.SendHaptic(HapticPreset.HoverTick);
+            if (Time.unscaledTime >= _nextTransferLogAt)
+            {
+                _nextTransferLogAt = Time.unscaledTime + 1f;
+                VRLog.Info("Cards", $"Hand transfer hover: {free.Side} hand at '{held.name}' held by " +
+                                    $"{holder.Side} (tip {reach.Cm(tipDist):F1} cm / palm " +
+                                    $"{reach.Cm(palmDist):F1} cm) — trigger hands the card over.");
+            }
+        }
+
+        // Claim the free hand's trigger while it is on the held card: no board far-click, no
+        // proximity grab of a bystander card with the very pull that means "take THIS card".
+        if (free.Ray.Enabled)
+            free.Ray.SuppressFarClick();
+        if (free.RayUgui.HasHit)
+            return; // genuinely nearer game UI keeps the trigger, as everywhere else
+        if (free.TriggerDown)
+            TransferHeldCard(held, holder, free);
+    }
+
+    /// <summary>
+    /// Execute the handover: release from <paramref name="from"/> and adopt into
+    /// <paramref name="to"/> in ONE call stack. The release (<c>CancelAll</c> → card
+    /// <c>OnRelease</c> → <see cref="OnCardReleased"/>) finds <see cref="_transferCard"/> set and
+    /// ForceGrabs the card into <paramref name="to"/> INSTEAD of running the drop routing — so
+    /// the hands are never observed empty (no fan flash, no net sample of a card-less frame) and
+    /// the card keeps its world pose through both re-parents (the existing grab/release pose
+    /// carry). The receiving hold is trigger-held (<c>releaseOnTriggerUp</c>), exactly like a
+    /// pluck: keep the trigger to keep the card, release it to drop/dock through the normal,
+    /// hand-agnostic release routing. If the adoption was refused, <see cref="OnCardReleased"/>
+    /// fell through to that same normal routing — either way the card ends somewhere legal.
+    /// </summary>
+    private void TransferHeldCard(VRCard card, VRHand from, VRHand to)
+    {
+        _transferCard = card;
+        _transferTo = to;
+        try
+        {
+            from.Grabber.CancelAll();
+        }
+        finally
+        {
+            bool adopted = ReferenceEquals(to.Grabber.Held, card);
+            _transferCard = null;
+            _transferTo = null;
+            _transferHoverHand = null; // roles flipped; re-derive the hover next frame
+            if (!adopted)
+                VRLog.Warn("Cards", $"Hand transfer: adoption into the {to.Side} hand was refused — " +
+                                    "the card took the normal release routing instead (no limbo).");
+        }
+    }
+
     private void OnCardGrabbed(VRCard card, VRHand hand)
     {
         _liveGrabs.Add(card);
+        // Hand-to-hand transfer (user addendum 2026-08-04): the adopting grab of a handover is
+        // NOT a new player interaction — the card never left the hands. It must neither dismiss
+        // an open browse (ForeignInteraction) nor poke the pick-reopen seam; the trigger that
+        // caused it was consumed by the transfer (see UpdateHeldCardTransfer).
+        bool transferring = ReferenceEquals(card, _transferCard);
         // More-card-sounds: soft pick tick on every card grab (fan pluck, slot pluck, pile/
-        // active read-grab — proximity and laser alike). Edge-triggered by nature: Grabbed
-        // fires exactly once per grab session. The game plays nothing of its own here (a
+        // active read-grab — proximity and laser alike; also the adopting grab of a hand-to-hand
+        // transfer, where it doubles as the audible handover feedback). Edge-triggered by nature:
+        // Grabbed fires exactly once per grab session. The game plays nothing of its own here (a
         // physical VR grab has no game call), so no stacking.
         PlayCardSound(CardsConfig.CardGrabSound.Value, card.transform);
         // Item 8: grabbing a hand/tray/field card while a browse is open is a foreign
         // interaction. Grabbing a BROWSE card is part of the browse (read close), so
         // it is exempt — only the arc's own cards may be plucked without dismissing.
-        if (!_browser.Contains(card))
+        if (!_browser.Contains(card) && !transferring)
             ForeignInteraction("card grabbed");
         // Accident window (test #19): a pluck FROM a slot or the pick field means
         // the hand is working right next to CONFIRM — arm the suppression guard.
@@ -49,11 +192,18 @@ internal sealed partial class CardsDriver
         // under a live popup, a state the 2D game forbids (it locks all cards while
         // the popup shows), and the stale popup's commit then indexed an empty
         // selectedCardsUI → GlobalErrorMessage → dumped to the main menu.
-        MaybeReopenPickSelection(card);
+        if (!transferring)
+            MaybeReopenPickSelection(card);
         if (_fan.Contains(card))
         {
             _fanOriginCards.Add(card); // reorder: eligible for a fan-gap commit on release
             _fan.Remove(card);
+            // Plucked OUT of the fan = no longer a fan card, so the gate-hand veto lifts NOW
+            // (general rule 2026-08-04, see VRCard.AllowsGateHand): the held card must be
+            // hand-to-hand transferable to the gate hand immediately, and a stale FALSE would
+            // make that hand's ProximityGrabber.HealDeadHeld force-drop it mid-hold. The fan
+            // re-entry seam (CardFan.Add/SetCards) stamps it back the moment it returns.
+            card.AllowsGateHand = true;
         }
         // Tray occupancy stays until the release decides select/unselect/swap.
     }
@@ -63,6 +213,23 @@ internal sealed partial class CardsDriver
         if (!_liveGrabs.Remove(card))
         {
             VRLog.Warn("Cards", $"Release without live grab ignored ({card.name}) — drop path is once-per-release.");
+            return;
+        }
+
+        // Hand-to-hand transfer (user addendum 2026-08-04): this release is the FIRST half of a
+        // handover — adopt the card into the receiving hand INSIDE the release call stack, so no
+        // frame (and no net rig sample) can ever observe it un-held, and none of the drop routing
+        // below runs (the card never left the hands; docking/fan-return/pick seams would all be
+        // wrong). The fan-origin marker deliberately survives: a card plucked from the fan and
+        // handed over still commits into a fan gap when its FINAL release is a void release.
+        // If the adopting grab is refused (mode policy flipped this very frame), fall through to
+        // the normal routing — the card then honestly releases where it is, never limbos.
+        if (ReferenceEquals(card, _transferCard) && _transferTo != null
+            && _transferTo.Grabber.ForceGrab(card, releaseOnTriggerUp: true))
+        {
+            VRLog.Info("Cards", $"Hand transfer: '{card.name}' handed {hand.Side} → " +
+                                $"{_transferTo.Side} (trigger on the held card) — release routing " +
+                                "skipped, hold continues on the receiving hand's trigger.");
             return;
         }
 
