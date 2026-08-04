@@ -512,6 +512,13 @@ internal sealed class RemoteControlBoard
             _track?.Refresh();
             SyncInitiativeBadge();
 
+            // Mip-bake upkeep for the two round-card slots' hosted faces (the active column does
+            // its own inside Refresh above): their Set() is change-gated, so the cadenced rescan
+            // that catches the clones' async header art has to be driven from here. Free while the
+            // slots show backs (self-early-return).
+            _cards[0]?.MaintainMips();
+            _cards[1]?.MaintainMips();
+
             // The inert furniture layer. It is fed the SAME reveal answer and the SAME slot state
             // the board is already rendering (the masks SeatSlots resolved, not a second derivation
             // of its own) — see RemoteBoardFurniture for why nothing derived from those can leak

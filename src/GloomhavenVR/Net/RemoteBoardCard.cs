@@ -118,6 +118,15 @@ internal sealed class RemoteBoardCard
     public void Move(Vector3 localPos) => _root.transform.localPosition = localPos;
 
     /// <summary>
+    /// Mip-bake upkeep for a hosted real face (see <see cref="RemoteCardArt.MaintainMipBake"/>).
+    /// <see cref="Set"/> is change-gated, so without this the clone would only ever get the single
+    /// build-time sprite swap and its ASYNC header art would stay mipless — the "extreme aliasing"
+    /// the user reported on remote cards. Called by the owners on their 4 Hz content cadence;
+    /// self-early-returns while no front is up, so it is free on backs/empty slots.
+    /// </summary>
+    public void MaintainMips() => _art?.MaintainMipBake();
+
+    /// <summary>
     /// Show <paramref name="card"/> face-up when <paramref name="front"/> — as the REAL game card
     /// face when one can be resolved for <paramref name="owner"/>, else as the mod-drawn
     /// name+initiative panel — otherwise the card BACK; hide entirely when there is no card.
