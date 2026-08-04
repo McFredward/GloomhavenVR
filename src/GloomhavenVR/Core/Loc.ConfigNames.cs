@@ -319,6 +319,7 @@ internal static partial class Loc
             ["WallFade/OffFraction"] = Pair("Unfade below coverage", "Einblenden unter Wert"),
             ["WallFade/ExitDwellMovedSeconds"] = Pair("Unfade dwell, moved (s)", "Einblende-Wartezeit (s)"),
             ["WallFade/ExitDwellStationarySeconds"] = Pair("Unfade dwell, still (s)", "Wartezeit, ruhig (s)"),
+            ["WallFade/StackedShellFade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
 
             // ---- [Perf] / [Optimize] — measurement & optimizations --------------------------
             ["Perf/Enabled"] = Pair("Enable measurement", "Messung aktivieren"),

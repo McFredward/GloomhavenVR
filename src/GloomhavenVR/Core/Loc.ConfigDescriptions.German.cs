@@ -284,6 +284,13 @@ internal static partial class Loc
                 "Wartezeit bis zum Wiedererscheinen, solange sich der Kopf zuletzt nur GEDREHT hat — eine "
                 + "Drehung allein soll eine Wand fast nie zurückbringen. Live änderbar; nie unter "
                 + "ExitDwellMovedSeconds.",
+            ["WallFade/StackedShellFade"] =
+                "Blendet Festungs-/Burg-Aufbauten mit ihrer Mauer aus: Meshes OHNE Ausblende-Shader, die "
+                + "direkt auf einem erkannten Mauerzug aufsitzen (Zinnen, Obergeschosse), zählen zur "
+                + "Verdeckungs-Box dieser Mauer und verschwinden bzw. erscheinen mit deren Ausblendung — "
+                + "ohne diese Option bleibt eine mehrstöckige Festung komplett massiv, weil nur ihr unterstes "
+                + "Geschoss echte Mauer-Geometrie ist. AUS = Originalanblick solcher Aufbauten. Live (greift "
+                + "beim nächsten 2-Sekunden-Rescan).",
             // ---- [Comfort] ----
             ["Comfort/WorldGrabEnabled"] =
                 "Tisch-Manipulation über den Griff: ein Griff (abseits greifbarer Objekte) zieht den Tisch, "

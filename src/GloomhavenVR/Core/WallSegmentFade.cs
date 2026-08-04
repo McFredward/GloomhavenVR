@@ -28,6 +28,9 @@ internal static class WallFadeTuning
     internal static ConfigEntry<float>? ExitDwellMoved;
     /// <summary>Un-fade dwell when the head only rotated (no recent translation/world-grab/recenter).</summary>
     internal static ConfigEntry<float>? ExitDwellStationary;
+    /// <summary>Fort/keep superstructures: adopt plain meshes stacked on a tracked wall into that
+    /// wall's fade (occlusion AABB + dissolve ride-along — see WallSegmentFade.Stacked.cs).</summary>
+    internal static ConfigEntry<bool>? StackedShellFade;
 
     internal static void Bind()
     {
@@ -47,6 +50,12 @@ internal static class WallFadeTuning
         ExitDwellStationary = config.Bind("WallFade", "ExitDwellStationarySeconds", Defaults.ExitDwellStationarySeconds,
             "Un-fade dwell while the head has only ROTATED recently — rotation alone should almost " +
             "never bring a wall back. Live; never below ExitDwellMovedSeconds.");
+        StackedShellFade = config.Bind("WallFade", "StackedShellFade", Defaults.StackedShellFade,
+            "Fade fort/keep superstructures with their wall: meshes WITHOUT a fade shader that sit " +
+            "stacked directly on a tracked wall run (battlements, upper stories) join that wall's " +
+            "occlusion box and dissolve/reappear with its fade — without this, a multi-story keep " +
+            "stays fully solid because only its bottom course is real wall geometry. OFF = vanilla " +
+            "look for such shells. Live (applies at the next 2s rescan).");
     }
 
     // Clamped live accessors — safe before Bind() (fall back to the shipped defaults).
@@ -55,6 +64,7 @@ internal static class WallFadeTuning
     internal static float DwellMoved => Clamped(ExitDwellMoved, 2.5f, 0.1f, 60f);
     internal static float DwellStationary =>
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
+    internal static bool StackedShells => StackedShellFade == null || StackedShellFade.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -528,6 +538,8 @@ internal static partial class WallSegmentFade
             _lastRoomCensusAnchored = -1;
             _lastLoggedMountedCount = -1;    // re-print the dressing census for the new scene
             _lastLoggedMountedRejected = -1;
+            _lastLoggedStackedCount = -1;    // …and the stacked-shell census
+            _lastLoggedStackedRejected = -1;
         }
 
         /// <summary>
@@ -732,7 +744,7 @@ internal static partial class WallSegmentFade
                 LogFloorColumnCensus();
                 LogMountedCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
-                int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0;
+                int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0, stacked = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
@@ -742,6 +754,7 @@ internal static partial class WallSegmentFade
                     foliage += s.Foliage.Count;
                     siblings += s.Siblings.Count;
                     mounted += s.Mounted.Count;
+                    stacked += s.Stacked.Count;
                     if (!RoomDecisionValid(s.RoomIndex)) failSafeSegs++;
                     if (s.DoorRoot != null)
                         doorways++;
@@ -759,7 +772,9 @@ internal static partial class WallSegmentFade
                     + $"split per renderer, {engulfSegs} unsplittable held solid; {foliage} foliage "
                     + $"attachment(s) + {siblings} asset-sibling(s) + {mounted} wall-mounted "
                     + $"prop(s) (torches/candles — renderer.enabled only, Lights never touched) "
-                    + $"ride their wall's fade; "
+                    + $"ride their wall's fade; {stacked} STACKED SHELL piece(s) (fort/keep "
+                    + $"superstructure meshes — extend their wall's occlusion AABB, dissolve "
+                    + $"with it; [WallFade] StackedShellFade) ride their wall column; "
                     + $"{doorways} DOORWAY segment(s) held permanently solid (doorway fade "
                     + $"disabled — user ruling 2026-08-02); "
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
@@ -1005,7 +1020,8 @@ internal static partial class WallSegmentFade
                     $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
                     $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage, " +
                     $"+{seg.Siblings.Count} asset-sibling(s), +{seg.Mounted.Count} mounted " +
-                    $"prop(s) [{MountedNames(seg)}]) — held state: " +
+                    $"prop(s) [{MountedNames(seg)}], +{seg.Stacked.Count} stacked shell " +
+                    $"piece(s)) — held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
                         ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
@@ -1068,6 +1084,10 @@ internal static partial class WallSegmentFade
                    .Append(b.max.y.ToString("F2")).Append(']')
                    .Append(" e").Append(seg.BlockEps.ToString("F2"))
                    .Append(seg.VariantHigh ? (seg.VariantLow ? " vH+L" : " vHIGH") : " vLOW");
+            // Stacked shell pieces riding this wall (keep stories) — only printed when any
+            // exist, so scenes without superstructures keep their diag lines unchanged.
+            if (seg.Stacked.Count > 0)
+                _diagSb.Append(" S").Append(seg.Stacked.Count);
             // Tripwire: this wall's own room's sample plane sits above the wall AABB top —
             // the exact frame-mismatch class the round-6 hardware log caught (sampY 9.05 vs
             // wall tops ≤3.67: bounds-derived plane, occlusion-proxy meshes).
@@ -1221,6 +1241,7 @@ internal static partial class WallSegmentFade
             ApplyFoliage(seg);
             ApplySiblings(seg);
             ApplyMounted(seg);
+            ApplyStacked(seg);
             if (seg.Fade <= 0f)
             {
                 if (seg.HasBlock)
@@ -1394,6 +1415,7 @@ internal static partial class WallSegmentFade
                     RestoreSegmentFoliage(kv.Value);
                     RestoreSegmentSiblings(kv.Value);
                     RestoreSegmentMounted(kv.Value);
+                    RestoreSegmentStacked(kv.Value);
                     _deadKeys.Add(kv.Key!); // destroyed Unity object — reference still hashes
                 }
             }
@@ -1461,10 +1483,15 @@ internal static partial class WallSegmentFade
             // exactly the "floor vanishes at the wall's foot" class. The pass is idempotent and
             // the table is ~tens of segments, so running it twice is noise.
             StripGroundRenderers();
+            // Fort/keep superstructures (WallSegmentFade.Stacked.cs): AFTER ground strip +
+            // engulf neutralization (needs the final base AABBs and room grids), BEFORE the
+            // mounted pass (which must see the EXTENDED AABBs so torches hanging on the shell
+            // attach to the same wall the shell rides).
+            CollectStackedShellPieces(sceneRenderers);
             CollectAdoptedSiblings();
             // LAST on purpose: the mounted-dressing rule is geometric (airborne over the room
             // plane + hugging the wall slab), so it needs the FINAL segment table, their room
-            // association and their ground-stripped AABBs.
+            // association and their ground-stripped (now shell-extended) AABBs.
             CollectWallMountedProps(sceneRenderers);
         }
 
@@ -1525,6 +1552,7 @@ internal static partial class WallSegmentFade
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
                     RestoreSegmentMounted(seg);
+                    RestoreSegmentStacked(seg);
                     _deadKeys.Add(kv.Key);
                     continue;
                 }
@@ -1607,6 +1635,7 @@ internal static partial class WallSegmentFade
                 RestoreSegmentFoliage(group); // pieces re-adopt the bushes on the next rescan
                 RestoreSegmentSiblings(group); // ditto for asset siblings (doors/trim)
                 RestoreSegmentMounted(group);  // …and for the wall-mounted dressing (torches)
+                RestoreSegmentStacked(group);  // …and for stacked shell pieces (keep stories)
                 if (group.HasBlock)
                 {
                     foreach (MeshRenderer r in group.Renderers)
@@ -1644,9 +1673,14 @@ internal static partial class WallSegmentFade
 
         /// <summary>Fraction of the segment's OWN room's floor samples that lie inside the
         /// segment AABB's XZ footprint (Y ignored — wall AABBs span the whole column).</summary>
-        private float InsideOwnRoomFraction(Segment seg)
+        private float InsideOwnRoomFraction(Segment seg) =>
+            InsideRoomFraction(seg.Bounds, seg.RoomIndex);
+
+        /// <summary>Same containment test for an arbitrary AABB — the stacked-shell pass
+        /// pre-checks a WOULD-BE extended wall AABB against the room grid before adopting a
+        /// piece (a shell ringing the room must never join, or coverage reads 100% forever).</summary>
+        private float InsideRoomFraction(Bounds b, int room)
         {
-            int room = seg.RoomIndex;
             if (room < 0 || room >= _roomSampleCount.Count)
                 return 0f;
             int total = _roomSampleCount[room];
@@ -1654,7 +1688,6 @@ internal static partial class WallSegmentFade
                 return 0f;
             int start = _roomSampleStart[room];
             int end = Mathf.Min(start + total, _allSamples.Count);
-            Bounds b = seg.Bounds;
             int inside = 0;
             for (int i = start; i < end; i++)
             {
@@ -1758,6 +1791,7 @@ internal static partial class WallSegmentFade
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
                     RestoreSegmentMounted(seg);
+                    RestoreSegmentStacked(seg);
                     _deadKeys.Add(kv.Key);
                 }
             }
@@ -2672,6 +2706,7 @@ internal static partial class WallSegmentFade
                 RestoreSegmentFoliage(seg);
                 RestoreSegmentSiblings(seg);
                 RestoreSegmentMounted(seg);
+                RestoreSegmentStacked(seg);
                 if (!seg.HasBlock)
                     continue;
                 seg.HasBlock = false;

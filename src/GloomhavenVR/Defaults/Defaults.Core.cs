@@ -73,4 +73,5 @@ internal static partial class Defaults
     internal const float OffFraction = 0.3f;                 // => [WallFade] OffFraction
     internal const float ExitDwellMovedSeconds = 2.5f;       // => [WallFade] ExitDwellMovedSeconds
     internal const float ExitDwellStationarySeconds = 3.6f;  // => [WallFade] ExitDwellStationarySeconds
+    internal const bool StackedShellFade = true;             // => [WallFade] StackedShellFade
 }

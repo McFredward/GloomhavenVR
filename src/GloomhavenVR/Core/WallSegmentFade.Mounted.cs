@@ -370,7 +370,10 @@ internal static partial class WallSegmentFade
             _mountedScratch.Clear();
             _mountedTouched.Clear();
             foreach (Segment seg in _segments.Values)
+            {
                 seg.MountedState = 0;
+                seg.StackedState = 0; // stacked pieces share the ledger just emptied
+            }
         }
 
         // ---- collection ---------------------------------------------------------------------
@@ -444,6 +447,21 @@ internal static partial class WallSegmentFade
             _mountedRejects.Clear();
             _censusMounted = 0;
             _censusMountedRejected = 0;
+
+            // STACKED SHELL pieces (adopted by the pass right before this one) are spoken for
+            // FIRST: they must never be double-claimed by a sticky mounted list, the sweep
+            // below, or the orphan guard (which restores any ledger entry missing from
+            // _mountedOwned — a stacked piece IS in the shared ledger while ramped/hidden).
+            foreach (Segment seg in _segments.Values)
+            {
+                foreach (MountedProp p in seg.Stacked)
+                {
+                    if (p.Renderer == null)
+                        continue;
+                    _mountedOwned.Add(p.Renderer);
+                    _attachmentOwned[p.Renderer] = new OwnerRef(seg, "stacked shell piece");
+                }
+            }
 
             // Park the previous lists and record who is already spoken for. STICKY OWNERSHIP: a
             // segment that is mid-fade or held faded keeps every prop it already owns — releasing
