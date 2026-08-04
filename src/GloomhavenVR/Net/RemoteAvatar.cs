@@ -968,10 +968,19 @@ internal sealed class RemoteAvatar
         _ghostLeft?.Release();
         _ghostRight?.Release();
 
-        for (int i = _leftHolder.childCount - 1; i >= 0; i--)
-            Object.Destroy(_leftHolder.GetChild(i).gameObject);
-        for (int i = _rightHolder.childCount - 1; i >= 0; i--)
-            Object.Destroy(_rightHolder.GetChild(i).gameObject);
+        // Destroy ONLY the rig visuals this method itself created (the "HandVisual" child each
+        // build parents the HandVisuals rig under) — NEVER every child of the holder. The holders
+        // are also the ATTACHMENT POINTS for cosmetic add-ons that live across hand rebuilds:
+        // RemoteHandFan parents its whole card-fan subtree under the non-dominant holder. The old
+        // full-children sweep destroyed that fan root and its slabs while the fan's own _cards
+        // bookkeeping survived — and because its rebuild was keyed on the card COUNT alone, every
+        // subsequent LayoutCards deref'd destroyed slabs (the hundreds of
+        // "RemoteAvatar.Tick … RemoteHandFan.LayoutCards" NREs of the 2026-08 MP hardware log).
+        // The fan additionally self-heals against ANY external destruction now (see
+        // RemoteHandFan.EnsureBuiltAlive), but the mutation-site rule stands: a hand REBUILD must
+        // only replace the hand.
+        DestroyHandVisuals(_leftHolder);
+        DestroyHandVisuals(_rightHolder);
 
         Transform leftVisual = new GameObject("HandVisual").transform;
         leftVisual.SetParent(_leftHolder, worldPositionStays: false);
@@ -994,6 +1003,20 @@ internal sealed class RemoteAvatar
 
         // Keep the whole subtree on the mod layer so the owned head camera renders it.
         VRLayers.Apply(_root);
+    }
+
+    /// <summary>Destroy exactly the "HandVisual" rig children of <paramref name="holder"/> —
+    /// the objects <see cref="BuildHands"/> creates — leaving every other attachment (the
+    /// remote hand fan's root, any future holder-anchored add-on) alive. See the call-site
+    /// note for the NRE family the old destroy-all-children sweep caused.</summary>
+    private static void DestroyHandVisuals(Transform holder)
+    {
+        for (int i = holder.childCount - 1; i >= 0; i--)
+        {
+            Transform child = holder.GetChild(i);
+            if (child != null && child.name == "HandVisual")
+                Object.Destroy(child.gameObject);
+        }
     }
 
     // ---- head mask ----------------------------------------------------------------------

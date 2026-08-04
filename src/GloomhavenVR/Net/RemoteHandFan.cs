@@ -279,7 +279,9 @@ internal sealed class RemoteHandFan
 
         // Rebuild the card slabs only when the count actually changes (cheap; the sizes/poses of
         // existing slabs are refreshed every frame below and auto-inherit AppliedScale via the
-        // scaled holder, so a scale change needs no rebuild).
+        // scaled holder, so a scale change needs no rebuild). EnsureRoot may additionally have
+        // invalidated _builtCount because the built fan died under us (external destruction —
+        // see the self-heal note there), which funnels through this same rebuild.
         if (count != _builtCount)
             Rebuild(count);
 
@@ -776,14 +778,62 @@ internal sealed class RemoteHandFan
 
     private void EnsureRoot(Transform holder)
     {
-        if (_root == null)
+        // SELF-HEAL against EXTERNAL destruction (root cause of the 2026-08 MP hardware log's
+        // repeating "RemoteHandFan.LayoutCards … get_transform NRE", hundreds of hits). The fan
+        // subtree is parented under the avatar's HAND HOLDER, so anything that clears that
+        // holder's children (RemoteAvatar.BuildHands used to sweep ALL of them on a hand-style
+        // rebuild — fixed to spare attachments, but any future writer or a scene-side destroy
+        // hits the same seam) kills _root and every slab in _cards while this class's
+        // bookkeeping survives. _root == null then reads TRUE again (Unity's destroyed-object
+        // null), a fresh root was created — but _cards still listed the DESTROYED slabs and
+        // _builtCount still matched the live count, so Rebuild never ran and LayoutCards deref'd
+        // dead GameObjects every frame, forever. The heal is structural, at the state-mutation
+        // boundary rather than a null-skip in the hot loop: whenever the root (or any slab) is
+        // found dead, drop ALL stale slab/face bookkeeping and invalidate _builtCount so the
+        // caller's `count != _builtCount` check funnels straight into a full Rebuild this frame.
+        bool rootDied = _root == null;
+        if (rootDied && (_cards.Count > 0 || _faces.Count > 0))
+        {
+            // The GameObjects are already gone (destroyed with the old root); RemoteCardArt.Destroy
+            // is Unity-null-tolerant and still releases any clone bookkeeping that survived.
+            for (int i = _faces.Count - 1; i >= 0; i--)
+                _faces[i].Destroy();
+            _faces.Clear();
+            _cards.Clear();
+            _builtCount = -1;
+            _frontsShown = false;
+            ClearPops();
+            VRLog.Warn("Net", $"Remote hand fan [player {_owner.PlayerId}]: fan root was destroyed " +
+                              "externally — stale slab list dropped, fan rebuilds this frame " +
+                              "(self-heal; see EnsureRoot).");
+        }
+        else if (!rootDied && _builtCount > 0)
+        {
+            // Root alive but a SLAB died (partial external destruction): same heal, same funnel.
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                if (_cards[i] == null)
+                {
+                    _builtCount = -1; // Rebuild destroys survivors + recreates the full set
+                    VRLog.Warn("Net", $"Remote hand fan [player {_owner.PlayerId}]: card slab {i} was " +
+                                      "destroyed externally — fan rebuilds this frame (self-heal).");
+                    break;
+                }
+            }
+        }
+
+        if (rootDied)
         {
             _root = new GameObject($"GloomhavenVR.RemoteHandFan[{_owner.PlayerId}]");
             _root.transform.localScale = Vector3.one; // inherit AppliedScale from the holder
             _root.SetActive(false);
+            _holder = null; // a fresh root must ALWAYS reparent, even onto the same holder object
         }
 
-        // (Re)parent when the non-dominant holder changes (e.g. the sender flips dominant hand).
+        // (Re)parent when the non-dominant holder changes (e.g. the sender flips dominant hand)
+        // or when the root was just recreated (the old code compared holder identity only, so a
+        // recreated root whose holder had not changed was never parented at all and floated at
+        // the scene origin).
         if (_holder != holder)
         {
             _holder = holder;
