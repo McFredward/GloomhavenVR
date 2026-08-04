@@ -313,6 +313,34 @@ internal sealed class RemoteControlBoard
     /// <see cref="_slotOccupiedMask"/> and disjoint from <see cref="_slotFaceMask"/>.</summary>
     private int _slotAnonMask;
 
+    /// <summary>
+    /// ACTION-PHASE FACE LATCH (user report, hardware MP test 2026-08: "Obwohl wir noch in der
+    /// Aktionsphase waren … wurden meine Karten den anderen verdeckt angezeigt WÄHREND meines
+    /// Zuges"). Per slot: the last card identity this board legitimately showed FACE-UP while the
+    /// reveal gate was open.
+    ///
+    /// ROOT CAUSE THIS SOLVES. <see cref="SeatSlots"/> names an occupied recess exclusively from
+    /// the live <c>RoundAbilityCards</c> list (<see cref="OrderRoundCards"/>) — but the game DRAINS
+    /// that list DURING the owner's own turn: every used half moves its card out via
+    /// <c>CCharacterClass.MoveAbilityCardToPile</c> / <c>DiscardRoundAbilityCards</c>
+    /// (CCharacterClass.cs:505-533), long before the action phase ends. The wire's occupancy
+    /// nibble still says the cards physically lie in the recesses (they do, on the owner's board),
+    /// so the peer degraded them to ANONYMOUS BACKS mid-action-phase — exactly the log's
+    /// "LiveWidget/anon-back → anon-back/anon-back" flips at fronts=True (peer log 18436/20409).
+    /// The reveal gate itself never closed; the IDENTITY dried up.
+    ///
+    /// THE POLICY: a face that <see cref="RevealGate"/> has already permitted stays showable for
+    /// as long as that same gate stays open — i.e. for the WHOLE action phase, for every player
+    /// symmetrically, matching vanilla (whose own played-card panel keeps the revealed cards up
+    /// until the next selection phase). The latch is filled ONLY inside SeatSlots' front branch
+    /// (which runs strictly under the gate) and cleared the moment the gate answers false — the
+    /// next secret selection phase, scenario end, actor loss — so nothing is ever shown that the
+    /// gate did not first approve, and nothing survives into the next round's secrecy. Reveals
+    /// still flow ONLY through RevealGate; this changes when an approved face may be REPEATED,
+    /// never whether one may be shown.
+    /// </summary>
+    private readonly CAbilityCard?[] _latchedFaces = new CAbilityCard?[SlotCount];
+
     public RemoteControlBoard(RemoteAvatar owner)
     {
         _owner = owner;
@@ -742,6 +770,15 @@ internal sealed class RemoteControlBoard
         _slotFaceMask = 0;
         _slotAnonMask = 0;
 
+        // The reveal gate closing is the latch's ONLY reset (see _latchedFaces): the next secret
+        // selection phase / scenario end / actor loss all answer showFronts == false, and from
+        // that frame on nothing latched during the previous action phase exists any more.
+        if (!showFronts)
+        {
+            for (int i = 0; i < _latchedFaces.Length; i++)
+                _latchedFaces[i] = null;
+        }
+
         if (wire < 0)
         {
             // LEGACY sender (no occupancy nibble): the model IS the occupancy, per index, exactly
@@ -776,6 +813,14 @@ internal sealed class RemoteControlBoard
             CAbilityCard? card = null;
             while (next < SlotCount && card == null)
                 card = _ordered[next++];
+            // ACTION-PHASE FACE LATCH (see _latchedFaces): while the gate is OPEN, a recess the
+            // model can no longer name — the game drained RoundAbilityCards as the owner used the
+            // cards mid-turn — keeps showing the face this board already legitimately showed
+            // there, instead of degrading to an anonymous back for the rest of the action phase.
+            // Strictly gate-scoped: the latch is only ever FILLED here under showFronts, only
+            // ever READ here under showFronts, and cleared above the moment the gate shuts.
+            if (card == null && showFronts)
+                card = _latchedFaces[i];
             if (card == null)
             {
                 _slotAnonMask |= 1 << i;
@@ -784,7 +829,10 @@ internal sealed class RemoteControlBoard
             }
             _cards[i].Set(card, showFronts, actor);
             if (showFronts)
+            {
                 _slotFaceMask |= 1 << i;
+                _latchedFaces[i] = card; // remember the approved face for this recess
+            }
         }
     }
 
