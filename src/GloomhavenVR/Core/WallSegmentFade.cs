@@ -442,6 +442,10 @@ internal static partial class WallSegmentFade
         private int _censusWallsWithoutFade;
         private readonly HashSet<string> _unfadeableWallShaders = new();
         private int _heartbeatSegCount = -1;
+        /// <summary>Fade-capable renderer census as last heartbeat-logged — a change re-arms
+        /// the heartbeat (round 5: the one stale pre-generation heartbeat hid the TRIPWIRE
+        /// for five hardware rounds).</summary>
+        private int _heartbeatFadeRenderers = -1;
 
         /// <summary>Adopted-group anchors whose combined AABB was too FAT to act as a wall slab
         /// (both horizontal extents large — e.g. a tile whose wall pieces ring the room; the AABB
@@ -563,6 +567,10 @@ internal static partial class WallSegmentFade
             _lastLoggedMountedRejected = -1;
             _lastLoggedStackedCount = -1;    // …and the stacked-shell census
             _lastLoggedStackedRejected = -1;
+            _nextFastReclaim = 0f;           // fresh scene = fresh regen-churn sweep state
+            _fastReclaimTotal = 0;
+            _nextFastReclaimLog = 0f;
+            _heartbeatFadeRenderers = -1;
         }
 
         /// <summary>
@@ -753,17 +761,28 @@ internal static partial class WallSegmentFade
                 LogDiagnostic(headPos, visibleCount);
             }
 
+            // Regenerated shell pieces (Apparance churn) must be re-hidden faster than the
+            // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
+            FastReclaimRegeneratedShell(now);
+
             // Re-log the heartbeat when the tracked set changes materially (walls stream in over
             // several rescans as Apparance generates, and adopted tilesets appear late) — the
             // first heartbeat of a scenario otherwise reports a half-built table forever.
             if (_heartbeatLogged && _heartbeatSegCount >= 0
                 && Mathf.Abs(_segments.Count - _heartbeatSegCount) >= 5)
                 _heartbeatLogged = false;
+            // …and when the fade-capable renderer census changes (round 5): five hardware
+            // rounds ran on a single STALE pre-generation heartbeat ("fade-capable 0") that
+            // hid the unfadeable-wall TRIPWIRE — the line that names the shaders of cache
+            // walls carrying NO fade-capable renderer (this keep tileset's masonry).
+            if (_heartbeatLogged && _censusFadeRenderers != _heartbeatFadeRenderers)
+                _heartbeatLogged = false;
 
             if (!_heartbeatLogged)
             {
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _segments.Count;
+                _heartbeatFadeRenderers = _censusFadeRenderers;
                 LogFloorColumnCensus();
                 LogMountedCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
@@ -1227,8 +1246,8 @@ internal static partial class WallSegmentFade
                 RestoreSegmentSiblings(seg);
                 return;
             }
-            if (seg.SiblingState == 2)
-                return; // already hidden — nothing per-frame to do
+            // No held-state early-out (round 5, regen churn): re-hide per frame — in the
+            // steady state this is one enabled compare per sibling.
             foreach (MeshRenderer s in seg.Siblings)
             {
                 if (s != null && s.enabled)
@@ -1253,8 +1272,8 @@ internal static partial class WallSegmentFade
                 RestoreSegmentFoliage(seg);
                 return;
             }
-            if (want == 2 && seg.FoliageState == 2)
-                return; // already hidden — nothing per-frame to do
+            // No held-state early-out (round 5, regen churn): a bush regenerated while the
+            // wall is held faded must be re-hidden this frame, not never.
             if (want == 1)
             {
                 _foliageMpb ??= new MaterialPropertyBlock();
