@@ -345,25 +345,37 @@ internal static partial class WallSegmentFade
                 RestoreSegmentMounted(seg);
                 return;
             }
-            if (want == 2 && seg.MountedState == 2)
-                return; // fully hidden — nothing per-frame to do
+            // No held-state early-out (round 5, the regen-churn lesson — see ApplyStacked):
+            // a prop adopted or re-enabled while the segment is already held faded must be
+            // hidden THIS frame. Held steady state = one enabled compare per prop.
             float ramp = Mathf.Clamp01(seg.Fade * MountedFadeLead);
+            bool lost = false;
             foreach (MountedProp p in seg.Mounted)
             {
                 if (p.Renderer == null)
+                {
+                    lost = true;
                     continue;
-                _mountedTouched[p.Renderer] = p;
-                DriveProp(p, ramp);
+                }
                 if (want == 2)
                 {
                     if (p.Renderer.enabled)
+                    {
+                        _mountedTouched[p.Renderer] = p;
+                        DriveProp(p, ramp);
                         p.Renderer.enabled = false;
+                    }
                 }
-                else if (!p.Renderer.enabled)
+                else
                 {
-                    p.Renderer.enabled = true;
+                    _mountedTouched[p.Renderer] = p;
+                    DriveProp(p, ramp);
+                    if (!p.Renderer.enabled)
+                        p.Renderer.enabled = true;
                 }
             }
+            if (lost)
+                _nextRescan = 0f; // prop regenerated away mid-fade — re-collect promptly
             seg.MountedState = want;
         }
 

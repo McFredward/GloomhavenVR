@@ -87,6 +87,30 @@ namespace GloomhavenVR.Core;
 ///   starving. The mounted pass now has an architecture-scale mesh guard
 ///   (<see cref="FadeDriver.MountedMaxMeshVolumeWU3"/>) so this class cannot recur.</item>
 /// </list>
+///
+/// HARDWARE ROUND 5 (2026-08-05 23:19 — decision chain proven end-to-end, 'Wall 2' raw1.00
+/// ON 1.00 with S41/S48, yet the user saw a fully solid keep; all delivery-side, fixed here):
+/// <list type="bullet">
+/// <item>HELD-STATE EARLY-OUT: `StackedState == 2 → return` skipped every piece that ARRIVED
+///   while the wall was already held faded. Apparance regenerates the shell continuously
+///   (census 93→87→48→41 in one session), so within seconds of the flip the whole shell was
+///   back — visible forever. All four attachment appliers now enforce the held state per
+///   frame (steady cost: one enabled compare per piece).</item>
+/// <item>FAST RECLAIM: a regenerated piece is a NEW renderer the 2s rescan re-claims too
+///   late at regen cadence — <see cref="FadeDriver.FastReclaimRegeneratedShell"/> sweeps
+///   every 0.25s while a stack-carrying wall is held faded and hides fresh matches within
+///   a frame of appearing.</item>
+/// <item>ENGULF → RIDE-ONLY and cap 48→128 (see the respective doc comments): real shell
+///   mass was being left solid by the recalibrated-room guard and the per-column cap.</item>
+/// <item>DELIVERY TRUTH (this tileset): the cache walls' only fade-shader renderers are
+///   torch/shelf props — the masonry itself carries NO WallFade shader, so the MPB
+///   map/cutoff path changes nearly nothing on screen; <c>renderer.enabled = false</c> on
+///   the stacked/mounted pieces IS the mechanism that visibly opens the keep, and the
+///   cutoff MPB ramp on these shaders is best-effort (unverified — a silent no-op ends in
+///   the same guaranteed disable). The heartbeat now re-arms when the fade-capable census
+///   changes, so the unfadeable-wall TRIPWIRE (shader names of such masonry) finally
+///   reaches the log.</item>
+/// </list>
 /// </summary>
 internal static partial class WallSegmentFade
 {
@@ -128,8 +152,11 @@ internal static partial class WallSegmentFade
         /// <summary>Fixpoint rounds: each round can add one more story onto the growing
         /// column (battlement on low-wall on wall = 3; one spare).</summary>
         private const int StackMaxRounds = 4;
-        /// <summary>Runaway guard — no wall column carries more shell pieces than this.</summary>
-        private const int StackMaxPerSegment = 48;
+        /// <summary>Runaway guard — no wall column carries more shell pieces than this.
+        /// Round 5 raised 48 → 128: the keep session had 93+ real shell pieces and the old
+        /// cap visibly sliced Wall 2's column at S48; the guard now only catches genuine
+        /// runaway (a column cannot plausibly have 128 real courses).</summary>
+        private const int StackMaxPerSegment = 128;
         /// <summary>Caps on the census/near-miss log lists (log hygiene).</summary>
         private const int StackCensusCap = 12;
         private const int StackRejectCap = 16;
@@ -179,25 +206,142 @@ internal static partial class WallSegmentFade
                 RestoreSegmentStacked(seg);
                 return;
             }
-            if (want == 2 && seg.StackedState == 2)
-                return; // fully hidden — nothing per-frame to do
+            // NO held-state early-out (round 5): Apparance regenerates the shell content
+            // continuously (stacked census fluctuated 93→87→48→41 within one session), so a
+            // piece adopted or re-enabled while the segment is ALREADY held faded must be
+            // hidden THIS frame — the old `StackedState == 2 → return` skipped exactly those,
+            // and the user saw a fully solid keep while the decision loop reported ON 1.00.
+            // In the held steady state the loop below is one enabled-flag compare per piece.
+            bool lost = false;
             foreach (MountedProp p in seg.Stacked)
             {
                 if (p.Renderer == null)
+                {
+                    lost = true;
                     continue;
-                _mountedTouched[p.Renderer] = p;
-                DriveProp(p, seg.Fade);
+                }
                 if (want == 2)
                 {
                     if (p.Renderer.enabled)
+                    {
+                        // Fresh arrival during the held state: park the material/particle
+                        // ramp at the hidden end first, then the guaranteed disable.
+                        _mountedTouched[p.Renderer] = p;
+                        DriveProp(p, 1f);
                         p.Renderer.enabled = false;
+                    }
                 }
-                else if (!p.Renderer.enabled)
+                else
                 {
-                    p.Renderer.enabled = true;
+                    _mountedTouched[p.Renderer] = p;
+                    DriveProp(p, seg.Fade);
+                    if (!p.Renderer.enabled)
+                        p.Renderer.enabled = true;
                 }
             }
+            if (lost)
+                _nextRescan = 0f; // piece regenerated away mid-fade — re-collect promptly
             seg.StackedState = want;
+        }
+
+        // ---- fast reclaim (Apparance regen churn, round 5) --------------------------------
+
+        /// <summary>Between-rescan sweep cadence while a wall is held faded. The full 2s
+        /// rescan is far too slow against Apparance's regen churn: a regenerated shell piece
+        /// arrives fresh and VISIBLE, and at regen cadence ≤ rescan cadence the keep never
+        /// visibly disappears although the decision loop holds ON 1.00.</summary>
+        private const float FastReclaimIntervalSeconds = 0.25f;
+
+        private float _nextFastReclaim;
+        private int _fastReclaimTotal;
+        private float _nextFastReclaimLog;
+        private readonly List<Segment> _fastSegScratch = new();
+
+        /// <summary>
+        /// FAST RECLAIM (round 5): while at least one stack-carrying wall is HELD FADED,
+        /// sweep the scene every 0.25s for fresh visible meshes inside a faded wall's stack
+        /// band and hide them within a frame of appearing — the structural answer to
+        /// Apparance regenerating shell content between 2s rescans. Cost: one
+        /// FindObjectsOfType&lt;MeshRenderer&gt; per 0.25s ONLY while a wall is faded (the
+        /// full rescan already does a heavier sweep every 2s); per renderer the hot path is
+        /// one gap compare against the few faded segments. Adopted pieces follow the exact
+        /// rescan rules (band, ground, engulf→ride-only, game-logic guards) and land in the
+        /// shared ledger, so restore/orphan discipline is unchanged.
+        /// </summary>
+        private void FastReclaimRegeneratedShell(float now)
+        {
+            if (!WallFadeTuning.StackedShells || now < _nextFastReclaim)
+                return;
+            _nextFastReclaim = now + FastReclaimIntervalSeconds;
+            _fastSegScratch.Clear();
+            foreach (Segment seg in _segments.Values)
+            {
+                if (seg.HasBounds && seg.Fade >= FoliageHideFade && seg.Stacked.Count > 0
+                    && StackEligible(seg) && seg.Stacked.Count < StackMaxPerSegment)
+                    _fastSegScratch.Add(seg);
+            }
+            if (_fastSegScratch.Count == 0)
+                return;
+
+            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
+            int claimed = 0;
+            foreach (MeshRenderer r in all)
+            {
+                if (r == null || !r.enabled || IsModObject(r))
+                    continue;
+                if (_mountedTouched.ContainsKey(r))
+                    continue; // already ours (hidden or ramped)
+                Bounds b = r.bounds;
+                Segment? best = null;
+                float bestGap = float.PositiveInfinity;
+                foreach (Segment seg in _fastSegScratch)
+                {
+                    float gap = HorizontalGap(seg.Bounds, b);
+                    if (gap > StackLinkMaxXZ || gap >= bestGap)
+                        continue;
+                    if (b.min.y < seg.StackOrigTop - StackMaxOverlapDownWU
+                        || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
+                        continue;
+                    if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
+                        continue;
+                    best = seg;
+                    bestGap = gap;
+                }
+                if (best == null)
+                    continue;
+                if (RendererUsesWallFade(r) || RendererUsesFoliage(r))
+                    continue; // cached shader verdicts — cheap
+                if (r.GetComponentInParent<ActorBehaviour>() != null
+                    || r.GetComponentInParent<TileBehaviour>() != null
+                    || r.GetComponentInParent<Canvas>() != null
+                    || r.GetComponent<TMPro.TMP_Text>() != null)
+                    continue;
+                Bounds ext = best.Bounds;
+                ext.Encapsulate(b);
+                bool extend = !(InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
+                    && InsideOwnRoomFraction(best) < EngulfSampleFraction);
+                MountedProp prop = ClassifyProp(r);
+                best.Stacked.Add(prop);
+                if (extend)
+                    best.Bounds = ext;
+                _stackedOwned.Add(r);
+                _mountedTouched[r] = prop;
+                DriveProp(prop, 1f);
+                r.enabled = false;
+                claimed++;
+            }
+            if (claimed > 0)
+            {
+                _fastReclaimTotal += claimed;
+                if (now >= _nextFastReclaimLog)
+                {
+                    _nextFastReclaimLog = now + 5f;
+                    VRLog.Info(Name,
+                        $"FAST-RECLAIM: {claimed} regenerated shell piece(s) re-hidden within "
+                        + $"{FastReclaimIntervalSeconds:0.00}s of appearing (Apparance regen "
+                        + $"churn; session total {_fastReclaimTotal}).");
+                }
+            }
         }
 
         /// <summary>May this segment carry stacked shell pieces? Doorways never fade (user
@@ -389,19 +533,20 @@ internal static partial class WallSegmentFade
                     if (best == null)
                         continue; // near-miss classification runs once after the rounds
 
-                    // ENGULF GUARD on the would-be extended AABB: a shell piece ringing the
-                    // room would make the wall XZ-contain its own floor grid → permanent
-                    // 100% coverage. Reject the piece, keep the wall decidable.
+                    // ENGULF GUARD on the would-be extended AABB — round 5 recalibration:
+                    // a piece whose adoption would make the wall XZ-contain ≥40% of its
+                    // room's grid (permanent 100% coverage) is no longer REJECTED, it is
+                    // adopted RIDE-ONLY: it dissolves/hides with the wall but does NOT
+                    // extend the decision AABB. Rejecting outright left real shell mass
+                    // permanently solid once the logical-room merge turned the guard's
+                    // sample-fraction reference into the WHOLE keep interior (round-5 log:
+                    // dozens of 'adoption would engulf' near-misses on true fort courses
+                    // while the user saw a solid keep in a faded state). The coverage slab
+                    // stays decidable; the shell still opens.
                     Bounds ext = best.Bounds;
                     ext.Encapsulate(b);
-                    if (InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
-                        && InsideOwnRoomFraction(best) < EngulfSampleFraction)
-                    {
-                        _stackDead.Add(c);
-                        NoteStackReject(c, bestGap,
-                            "adoption would make the wall AABB engulf its room's floor grid");
-                        continue;
-                    }
+                    bool extend = !(InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
+                        && InsideOwnRoomFraction(best) < EngulfSampleFraction);
                     // Live game logic / worldspace UI is never scenery (mounted-pass rule).
                     if (c.GetComponentInParent<ActorBehaviour>() != null
                         || c.GetComponentInParent<TileBehaviour>() != null
@@ -418,7 +563,8 @@ internal static partial class WallSegmentFade
                     if (!_mountedTouched.TryGetValue(c, out MountedProp? prop))
                         prop = ClassifyProp(c);
                     best.Stacked.Add(prop);
-                    best.Bounds = ext;
+                    if (extend)
+                        best.Bounds = ext;
                     _stackedOwned.Add(c);
                     _censusStacked++;
                     adoptedAny = true;
@@ -426,7 +572,8 @@ internal static partial class WallSegmentFade
                     {
                         string wall = best.Anchor != null ? best.Anchor.name : "<dead>";
                         _stackCensus.Add(
-                            $"'{c.name}'[→{prop.Tier}] base {b.min.y:F1} top {b.max.y:F1} "
+                            $"'{c.name}'[→{prop.Tier}{(extend ? "" : ", ride-only")}] "
+                            + $"base {b.min.y:F1} top {b.max.y:F1} "
                             + $"gap {bestGap:F2} → '{wall}'");
                     }
                 }
@@ -547,7 +694,9 @@ internal static partial class WallSegmentFade
                 + $"−{StackMaxOverlapDownWU:0.0} wu and ≤ grown column top "
                 + $"+{StackMaxRiseWU:0.00} wu, chained over ≤{StackMaxRounds} stories; "
                 + $"doorways skipped in favor of the nearest fadeable wall; "
-                + $"engulf-guarded; ownership sticky "
+                + $"engulf → ride-only (piece hides with the wall, AABB unextended); "
+                + $"regen fast-reclaim every {FastReclaimIntervalSeconds:0.00}s while faded "
+                + $"(session total {_fastReclaimTotal}); ownership sticky "
                 + $"while faded; Lights are NEVER written to; live config [WallFade] "
                 + $"StackedShellFade): {riding}{misses} ({_censusStackedRejected} near-miss "
                 + "total).");
