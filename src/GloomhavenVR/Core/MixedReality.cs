@@ -170,6 +170,12 @@ internal static class MixedReality
     private static bool _previewDiagLogged;
     private static int _unseenVerboseLogs;    // per-renderer build log cap (see the churn note)
 
+    // Border-census scratch/state (CensusUnseenBorder): reused lists, change-gate hash, rate floor.
+    private static readonly List<Renderer> CensusScratch = new(32);
+    private static readonly List<Bounds> CensusBoundsScratch = new(64);
+    private static int _censusLastHash;
+    private static float _censusNextAllowed;
+
     // Sky/background geometry hidden while MR is on (item 2). The scenario backdrop/skydome is
     // opaque mesh geometry, not the skybox — disabled here, re-enabled on restore.
     private static readonly List<Renderer> HiddenSky = new(8);
@@ -187,19 +193,32 @@ internal static class MixedReality
     /// <summary>Enclosing extent must also clear this fraction of the head far plane (scale-aware).</summary>
     private const float SkyEnclosingFarFraction = 0.1f;
 
-    /// <summary>Shader-name fragment that marks the game's fog-of-war family: `Amp_Basic_Unseen`
-    /// (tools/ShaderOcclusionPatcher/README.md calls it the "X-ray floor tiles" shader). It draws
-    /// BOTH unseen classes — the face-down preview stacks under a tile's 'Preview' node and the
-    /// unseen-AREA hexes inside a REVEALED tile's generated content (the ones behind doors). The
-    /// ModBuild-57 log proves the family: every preview renderer it caught ran this shader, and
-    /// the green-glass hexes it MISSED (no 'Preview' ancestor — they live in the revealed start
-    /// tile) are the same authored family, so the shader is the robust signal, not the node name.</summary>
+    /// <summary>Name fragment that marks the game's fog-of-war family. The game uses it
+    /// consistently across the whole kit: the hex shader `Amp_Basic_Unseen`
+    /// (tools/ShaderOcclusionPatcher/README.md: "X-ray floor tiles"), the dedicated ground-plane
+    /// shader `UnseenGroundPlane_Shd` (Player.log addressables list), and the Apparance object
+    /// names ('EN_Unseen_…'). The ModBuild-57 log proves the shader half (every preview renderer
+    /// it caught ran Amp_Basic_Unseen); hardware round 2 ("die Animation drumrum ist immer noch
+    /// transparent") forced the round-3 widening from shader-name-only to GO/material/shader name
+    /// (<see cref="HasUnseenName"/>) so the animated pieces of the kit match too.</summary>
     private const string UnseenShaderHint = "Unseen";
 
     /// <summary>Cap on per-renderer "underlay built" log lines per MR session. Apparance
     /// regenerates tile content constantly (226 rebuilds of the same two names in the ModBuild-57
     /// log); after the cap the change-gated count line still tracks the total.</summary>
     private const int UnseenVerboseLogCap = 12;
+
+    /// <summary>Border margin (world units) around the matched unseen AABBs inside which the
+    /// census (<see cref="CensusUnseenBorder"/>) looks for uncovered translucent renderers — the
+    /// "Animation drumrum" plays at/just beyond the unseen region's edge.</summary>
+    private const float CensusBorderWu = 1f;
+
+    /// <summary>Census candidates named in full; beyond this only the count is reported.</summary>
+    private const int CensusMaxListed = 20;
+
+    /// <summary>Rate floor between census logs even when the candidate set keeps changing —
+    /// Apparance regen would otherwise re-print it every sweep.</summary>
+    private const float CensusMinIntervalSeconds = 30f;
 
     /// <summary>The dark the unseen geometry blends against in MR — outside MR the same geometry
     /// blends against the unrendered near-black void behind doors, so a dark neutral IS the
@@ -605,6 +624,21 @@ internal static class MixedReality
     /// whole see-through class, and the Preview signal keeps covering any translucent stack
     /// renderer that might not run the family shader.
     ///
+    /// ROUND 3 (hardware 2026-08-05: the hexes read right, but "die ANIMATION DRUMRUM ist immer
+    /// noch transparent"). All 226 family hexes carried full-slot underlays, so the still-open
+    /// border animation is either a DIFFERENT renderer both round-2 signals miss, or an animated
+    /// pass overhanging its own static underlay silhouette. Three changes: (a) the family signal
+    /// widened from shader-name-only to GO/material/shader name — the game names the whole kit
+    /// 'Unseen', including the dedicated animated ground-plane shader 'UnseenGroundPlane_Shd'
+    /// the Player.log addressables list ships and round 2 could miss (its material can fail the
+    /// blend probe; family slots therefore now earn the dark plate on the NAME too, see
+    /// <see cref="BuildUnseenUnderlay"/>); (b) family PARTICLES/trails are recognised but never
+    /// material-touched (standing instruction) — they compose additively/blended over the
+    /// now-dark region wherever a backed mesh is behind them; (c) the census
+    /// (<see cref="CensusUnseenBorder"/>) prints every uncovered translucent renderer near the
+    /// region so the next hardware log names the animation definitively instead of the mod
+    /// guessing a fourth time.
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -647,7 +681,7 @@ internal static class MixedReality
         for (int i = 0; i < all.Length; i++)
         {
             Renderer r = all[i];
-            if (r == null || !r.enabled || !(r is MeshRenderer))
+            if (r == null || !r.enabled)
                 continue;
             int layer = r.gameObject.layer;
             if (layer == VRLayers.ModLayer || layer == 5) // never our own visuals / UI hosts
@@ -660,28 +694,36 @@ internal static class MixedReality
             Material[] mats = r.sharedMaterials;
             if (mats == null || mats.Length == 0)
                 continue;
-            bool family = false;
+            // ROUND 3 family signal (hardware round 2: "die Animation drumrum ist immer noch
+            // transparent"): the game names its whole fog-of-war kit 'Unseen' — the object names
+            // ('EN_Unseen_…'), the hex shader ('Amp_Basic_Unseen') AND a dedicated ground-plane
+            // shader the Player.log addressables list ships as 'UnseenGroundPlane_Shd'. Round 2
+            // read only the SHADER name, so an unseen-family mesh running a differently-named
+            // animated shader — or the ground plane if its material fails the blend probe below —
+            // stayed uncovered. Any of GO name / material name / shader name now counts.
+            bool family = HasUnseenName(r.gameObject.name);
             bool anyTranslucent = false;
             for (int mIdx = 0; mIdx < mats.Length; mIdx++)
             {
                 Material? m = mats[mIdx];
                 if (m == null)
                     continue;
-                if (m.shader != null && m.shader.name.IndexOf(
-                        UnseenShaderHint, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (IsUnseenFamilyMaterial(m))
                     family = true;
                 if (IsTranslucent(m))
                     anyTranslucent = true;
             }
-            if (!family && !UnderPreviewNode(r.transform))
+            if (!family && !(anyTranslucent && UnderPreviewNode(r.transform)))
                 continue;
             unseenRenderers++;
-            if (!anyTranslucent)
-                continue; // already reads solid — nothing shows through it
             if (UnseenSources.Contains(r.GetInstanceID()))
                 continue;
 
-            BuildUnseenUnderlay((MeshRenderer)r, mats);
+            // Only a mesh can carry a same-mesh underlay. A family PARTICLE/TRAIL system is left
+            // authored (standing instruction: never touch particle materials) — the census below
+            // names it so the region backing can be verified/extended against the next log.
+            if (r is MeshRenderer mesh)
+                BuildUnseenUnderlay(mesh, mats);
         }
 
         if (UnseenUnderlays.Count != _loggedPreviewCount)
@@ -712,6 +754,150 @@ internal static class MixedReality
                 dumped++;
             }
         }
+
+        CensusUnseenBorder(all);
+    }
+
+    /// <summary>
+    /// THE identification instrument for the remaining "Animation drumrum" transparency (hardware
+    /// round 2): every translucent/additive/particle renderer whose AABB intersects the unseen
+    /// region (union of the matched sources' AABBs, ±<see cref="CensusBorderWu"/> wu) and carries
+    /// NO dark backing is listed by name, kind, shader, queue, slot count and bounds. The border
+    /// animation the user still sees through MUST be in this list — or the list is empty, and the
+    /// transparency then comes from the matched family itself (a vertex-animated pass overhanging
+    /// its static underlay silhouette), which is the other hypothesis this census exists to tell
+    /// apart. Change-gated on the candidate set (plus a rate floor) so a steady scene logs once
+    /// per MR session; reset with the underlays.
+    /// </summary>
+    private static void CensusUnseenBorder(Renderer[] all)
+    {
+        if (UnseenUnderlays.Count == 0)
+            return;
+
+        // Union AABB of the matched unseen sources (coarse gate), plus the per-source list for
+        // the fine test — both expanded by the border margin.
+        CensusBoundsScratch.Clear();
+        Bounds union = default;
+        bool first = true;
+        for (int i = 0; i < UnseenUnderlays.Count; i++)
+        {
+            Renderer src = UnseenUnderlays[i].Source;
+            if (src == null)
+                continue;
+            Bounds b = src.bounds;
+            b.Expand(CensusBorderWu * 2f);
+            CensusBoundsScratch.Add(b);
+            if (first)
+            {
+                union = b;
+                first = false;
+            }
+            else
+            {
+                union.Encapsulate(b);
+            }
+        }
+        if (first)
+            return;
+
+        CensusScratch.Clear();
+        for (int i = 0; i < all.Length; i++)
+        {
+            Renderer r = all[i];
+            if (r == null || !r.enabled)
+                continue;
+            int layer = r.gameObject.layer;
+            if (layer == VRLayers.ModLayer || layer == 5)
+                continue;
+            if (r.gameObject.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal))
+                continue;
+            if (UnseenSources.Contains(r.GetInstanceID()))
+                continue; // already carries a dark backing
+            Bounds rb = r.bounds;
+            if (!union.Intersects(rb))
+                continue;
+
+            // "Could show the passthrough through itself": particles/trails/lines always qualify
+            // (their material state is opaque to the blend probe), meshes qualify when any slot
+            // is translucent or family-named.
+            bool interesting = r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer;
+            if (!interesting)
+            {
+                Material[] mats = r.sharedMaterials;
+                if (mats != null)
+                {
+                    for (int mIdx = 0; mIdx < mats.Length; mIdx++)
+                    {
+                        if (IsTranslucent(mats[mIdx]) || IsUnseenFamilyMaterial(mats[mIdx]))
+                        {
+                            interesting = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!interesting)
+                continue;
+
+            for (int bIdx = 0; bIdx < CensusBoundsScratch.Count; bIdx++)
+            {
+                if (CensusBoundsScratch[bIdx].Intersects(rb))
+                {
+                    CensusScratch.Add(r);
+                    break;
+                }
+            }
+        }
+
+        int hash = 17;
+        for (int i = 0; i < CensusScratch.Count; i++)
+            hash = hash * 31 + CensusScratch[i].GetInstanceID();
+        float now = Time.unscaledTime;
+        if (hash == _censusLastHash || now < _censusNextAllowed)
+        {
+            CensusScratch.Clear();
+            return;
+        }
+        _censusLastHash = hash;
+        _censusNextAllowed = now + CensusMinIntervalSeconds;
+
+        if (CensusScratch.Count == 0)
+        {
+            VRLog.Info("Core", "MR: UNSEEN-BORDER CENSUS — no uncovered translucent/additive " +
+                               "renderer intersects the unseen region (±1 wu). If an animation " +
+                               "still reads transparent there, it comes from the MATCHED family " +
+                               "itself: a vertex-animated pass overhanging its static underlay " +
+                               "silhouette (the skirt hypothesis).");
+            return;
+        }
+
+        VRLog.Info("Core", $"MR: UNSEEN-BORDER CENSUS — {CensusScratch.Count} translucent/additive " +
+                           $"renderer(s) intersect the unseen region (±{CensusBorderWu:0.#} wu, " +
+                           $"union center {union.center}, size {union.size}) and carry NO dark " +
+                           "backing; the still-transparent border animation must be among these:");
+        int listed = Mathf.Min(CensusScratch.Count, CensusMaxListed);
+        for (int i = 0; i < listed; i++)
+        {
+            Renderer r = CensusScratch[i];
+            string kind = r switch
+            {
+                ParticleSystemRenderer => "particles",
+                TrailRenderer => "trail",
+                LineRenderer => "line",
+                SkinnedMeshRenderer => "skinned",
+                MeshRenderer => "mesh",
+                _ => r.GetType().Name,
+            };
+            Material? m = r.sharedMaterial;
+            Bounds b = r.bounds;
+            VRLog.Info("Core", $"MR:   census '{r.gameObject.name}' [{kind}] shader " +
+                               $"'{ShaderName(r)}' queue {(m != null ? m.renderQueue : -1)} " +
+                               $"slot(s) {(r.sharedMaterials != null ? r.sharedMaterials.Length : 0)} " +
+                               $"size {b.size} @ {b.center}.");
+        }
+        if (CensusScratch.Count > listed)
+            VRLog.Info("Core", $"MR:   census … +{CensusScratch.Count - listed} more.");
+        CensusScratch.Clear();
     }
 
     /// <summary>
@@ -726,6 +912,26 @@ internal static class MixedReality
         if (filter == null || filter.sharedMesh == null)
             return;
 
+        // Per-slot dark rule (round 3): a slot earns the dark plate when the blend probe reads it
+        // translucent OR when it is family-named — the family IS the see-through class by the
+        // game's own naming, and a family shader that hardcodes its blend in the pass (no
+        // '_DstBlend' property, queue ≤ 2500) is invisible to the probe. A dark plate under a
+        // slot that turns out genuinely opaque is covered by that slot's own later draw (family
+        // materials render at ≥ our 2500) — harmless; a SKIPPED see-through slot is the reported
+        // bug. Slots that are neither stay on the draws-nothing filler (their opaque submesh
+        // already occludes; a coplanar dark copy would z-fight it).
+        var plateMats = new Material[mats.Length];
+        int backed = 0;
+        for (int i = 0; i < mats.Length; i++)
+        {
+            bool dark = IsTranslucent(mats[i]) || IsUnseenFamilyMaterial(mats[i]);
+            plateMats[i] = dark ? _unseenDarkMat! : _unseenSkipMat!;
+            if (dark)
+                backed++;
+        }
+        if (backed == 0)
+            return; // GO-name family with all-opaque, non-family slots: nothing to back
+
         var go = new GameObject("GloomhavenVR.MrUnseenUnderlay");
         go.transform.SetParent(source.transform, worldPositionStays: false);
         go.transform.localPosition = Vector3.zero;
@@ -734,15 +940,6 @@ internal static class MixedReality
         go.layer = source.gameObject.layer;
         go.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
         var plate = go.AddComponent<MeshRenderer>();
-        var plateMats = new Material[mats.Length];
-        int backed = 0;
-        for (int i = 0; i < mats.Length; i++)
-        {
-            bool translucent = IsTranslucent(mats[i]);
-            plateMats[i] = translucent ? _unseenDarkMat! : _unseenSkipMat!;
-            if (translucent)
-                backed++;
-        }
         plate.sharedMaterials = plateMats;
         plate.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         plate.receiveShadows = false;
@@ -855,6 +1052,17 @@ internal static class MixedReality
         return false;
     }
 
+    /// <summary>True when <paramref name="s"/> carries the game's fog-of-war naming fragment
+    /// (<see cref="UnseenShaderHint"/>) — applied to GO names ('EN_Unseen_…'), material names and
+    /// shader names ('Amp_Basic_Unseen', 'UnseenGroundPlane_Shd') alike since round 3.</summary>
+    private static bool HasUnseenName(string? s) =>
+        !string.IsNullOrEmpty(s)
+        && s!.IndexOf(UnseenShaderHint, StringComparison.OrdinalIgnoreCase) >= 0;
+
+    /// <summary>Family test for one material: its own name or its shader's name reads 'Unseen'.</summary>
+    private static bool IsUnseenFamilyMaterial(Material? m) =>
+        m != null && (HasUnseenName(m.name) || (m.shader != null && HasUnseenName(m.shader.name)));
+
     /// <summary>Translucency test: a transparent-range render queue, or an active alpha blend
     /// (DstBlend != Zero). Cutout (AlphaTest ≤ 2500, DstBlend 0) counts as opaque — it does not
     /// let the key colour through per-pixel, so it needs no forcing.</summary>
@@ -895,6 +1103,8 @@ internal static class MixedReality
         _loggedPreviewCount = -1;
         _previewDiagLogged = false;
         _unseenVerboseLogs = 0;
+        _censusLastHash = 0;
+        _censusNextAllowed = 0f;
     }
 
     private static void RestoreSky()
