@@ -162,6 +162,12 @@ internal static class MixedReality
         public Renderer Source = null!;
         public int SourceId;          // GetInstanceID at build time (fast dedup-set removal)
         public Renderer Plate = null!; // the underlay's own MeshRenderer, child of Source
+
+        /// <summary>Round 5: the piece's flat BASE quad under the scene-root holder (world-space,
+        /// so the source's arbitrary rotation/scale never distorts it — NOT a child of the
+        /// source, hence pruned/destroyed explicitly, see <see cref="SyncUnseenUnderlays"/>).
+        /// Null when the piece's XZ bounds were degenerate.</summary>
+        public Renderer? Base;
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -187,6 +193,23 @@ internal static class MixedReality
     /// <summary>The skirt scale the live underlays were built with — a config change rebuilds
     /// them (restore + immediate resweep) so tuning needs no MR toggle, let alone a rebuild.</summary>
     private static float _appliedSkirtScale = -1f;
+
+    /// <summary>Scene-root holder for the per-piece base quads (round 5) — world-space parent at
+    /// identity, so a quad's localScale IS its world size whatever the source's transform does.
+    /// Created lazily, destroyed with the underlays; a scene unload takes it (Unity-null here).</summary>
+    private static Transform? _unseenBaseRoot;
+
+    /// <summary>How far below a piece's lowest world Y its base quad sits (world units). Small
+    /// enough to hug the geometry, big enough to clear z-precision at HMD depth.</summary>
+    private const float UnseenBaseDropWu = 0.02f;
+
+    /// <summary>Base-quad footprint relative to the piece's world AABB in XZ. Slightly INSIDE
+    /// (0.98) on purpose: the user explicitly accepts a thin transparency at the region's OUTER
+    /// frame ("zwischen den hexagons oder dem rahmen ist immer noch transparenz (was ok ist)"),
+    /// while a quad poking dark past the outermost hex edge onto void/floor is the visible
+    /// failure. Interior grout stays covered because ADJACENT pieces' AABBs overlap far more
+    /// than 2 % — hex AABBs are wider than the hexes they bound.</summary>
+    private const float UnseenBaseFit = 0.98f;
 
     /// <summary>Shader names whose float/vector properties were already dumped this session
     /// (<see cref="DumpUnseenShaderProperties"/> — the margin-derivation instrument).</summary>
@@ -676,6 +699,19 @@ internal static class MixedReality
     /// regression instrument: a future transparent border WITH an empty census means the margin
     /// is short, not a renderer missed — its empty-set message says exactly that.
     ///
+    /// ROUND 5 (hardware 2026-08-05 #3, ModBuild 61): the shader-property dump ANSWERED the
+    /// margin question — 'Unseen_Floor_Hex_Mat' animates by UV-SCROLL (_UV_Offset/_UVTiling/
+    /// _WorldSpace_tiling, no displacement property), so the pattern can never leave its mesh
+    /// silhouette and the round-4 skirt was aimed at a failure mode that does not exist
+    /// (harmless, kept — it still widens the backing under each piece). The census again listed
+    /// only ambient FX, and no 'UnseenGroundPlane_Shd' material was ever family-matched (the
+    /// dump would have fired for it), so by elimination the remaining "green glass BETWEEN the
+    /// hexagons" is family geometry scrolling its pattern over the GROUT GAPS between pieces,
+    /// where no piece — and therefore no per-piece underlay — has anything dark behind the
+    /// blend. Fix: the per-piece REGION BASE quads (<see cref="BuildUnseenBase"/>) that tile
+    /// the region floor under and between the pieces; the user-accepted residual is a thin
+    /// transparency at the region's OUTER frame (<see cref="UnseenBaseFit"/>).
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -780,8 +816,8 @@ internal static class MixedReality
         {
             _loggedPreviewCount = UnseenUnderlays.Count;
             VRLog.Info("Core", $"MR: {UnseenUnderlays.Count} unseen-geometry renderer(s) carry an " +
-                               "opaque dark underlay (authored materials untouched; underlays " +
-                               "destroyed when MR turns off).");
+                               "opaque dark underlay + region base quad (authored materials " +
+                               "untouched; everything destroyed when MR turns off).");
         }
 
         // One-shot diagnostic for the next hardware run: unseen renderers exist but NONE was
@@ -1013,7 +1049,13 @@ internal static class MixedReality
         plate.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
         int id = source.GetInstanceID();
-        UnseenUnderlays.Add(new UnseenUnderlay { Source = source, SourceId = id, Plate = plate });
+        UnseenUnderlays.Add(new UnseenUnderlay
+        {
+            Source = source,
+            SourceId = id,
+            Plate = plate,
+            Base = BuildUnseenBase(source),
+        });
         UnseenSources.Add(id);
         for (int i = 0; i < mats.Length; i++)
         {
@@ -1031,6 +1073,52 @@ internal static class MixedReality
                                    ? " (Further builds counted, not listed — tile regen churn.)"
                                    : string.Empty));
         }
+    }
+
+    /// <summary>
+    /// Round 5 — THE REGION BASE, built per piece (user: the tiles read right, but BETWEEN the
+    /// hexagons an animated layer still shows green glass; ruling "Ich will Animationen und
+    /// Bewegung haben, aber ich will jegliche Transparenz an den Tiles im Mixed-Reality-Modus
+    /// entfernen"). In the grout gaps between unseen pieces the family's UV-scrolled pattern
+    /// (read from the round-5 UNSEEN-SHADER PROPERTIES line: _UV_Offset/_UVTiling — scroll, no
+    /// vertex amplitude) draws with NOTHING dark behind it — straight onto the chroma key. The
+    /// per-piece underlay+skirt can never fill the space between meshes, so each matched piece
+    /// gets a flat opaque dark QUAD hugging the underside of its own world AABB
+    /// (<see cref="UnseenBaseDropWu"/> below min-Y, XZ footprint <see cref="UnseenBaseFit"/> of
+    /// the AABB): adjacent pieces' AABBs overlap, so the union of quads tiles the whole region
+    /// floor including the gaps — while no quad can reach farther than its own piece's bounds,
+    /// which is what a single rectangular cluster plate would get wrong on an L-shaped region
+    /// (its AABB corner would hang far over the void as a floating dark slab). Depth does the
+    /// masking for free: the quads are ZTest LEqual with no depth write at queue 2500, so
+    /// revealed floor and every real surface above them occludes them and they become visible
+    /// ONLY through the gaps — exactly where the glass is. World-space under a scene-root
+    /// holder (a child quad under an arbitrarily rotated/scaled Apparance piece cannot be kept
+    /// axis-aligned); per-tick lifecycle mirrors the underlay's.
+    /// </summary>
+    private static Renderer? BuildUnseenBase(MeshRenderer source)
+    {
+        Bounds wb = source.bounds;
+        if (wb.size.x < 0.05f || wb.size.z < 0.05f)
+            return null; // degenerate footprint — nothing to tile
+
+        if (_unseenBaseRoot == null)
+            _unseenBaseRoot = new GameObject("GloomhavenVR.MrUnseenBasePlates").transform;
+
+        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        go.name = "GloomhavenVR.MrUnseenBase";
+        UnityEngine.Object.Destroy(go.GetComponent<Collider>()); // never a poke/laser target
+        go.transform.SetParent(_unseenBaseRoot, worldPositionStays: false);
+        go.transform.position = new Vector3(wb.center.x, wb.min.y - UnseenBaseDropWu, wb.center.z);
+        go.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // unit quad XY → lying flat, +Y normal
+        go.transform.localScale = new Vector3(wb.size.x * UnseenBaseFit, wb.size.z * UnseenBaseFit, 1f);
+        go.layer = source.gameObject.layer;
+        var quad = go.GetComponent<MeshRenderer>();
+        quad.sharedMaterial = _unseenDarkMat;
+        quad.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        quad.receiveShadows = false;
+        quad.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        quad.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        return quad;
     }
 
     /// <summary>
@@ -1099,12 +1187,28 @@ internal static class MixedReality
             {
                 if (e.Plate != null) // source renderer died alone (component removal) — clean up
                     UnityEngine.Object.Destroy(e.Plate.gameObject);
+                // The base quad lives under the scene-root holder, NOT under the source — it
+                // never dies structurally with the piece and must go explicitly (Apparance regen
+                // would otherwise strand a dark quad under a piece that no longer exists).
+                if (e.Base != null)
+                    UnityEngine.Object.Destroy(e.Base.gameObject);
                 UnseenSources.Remove(e.SourceId);
                 UnseenUnderlays.RemoveAt(i);
                 continue;
             }
             if (e.Plate.enabled != e.Source.enabled)
                 e.Plate.enabled = e.Source.enabled;
+            // The base follows BOTH switches of its piece: the renderer flag (mirrored above for
+            // the child plate too) and the hierarchy state, which the child plate gets for free
+            // but the scene-root quad does not (ProceduralMapTile.ShowContent deactivates whole
+            // subtrees on reveal — the quad must vanish with its piece, not linger over the
+            // freshly revealed room's floor).
+            if (e.Base != null)
+            {
+                bool want = e.Source.enabled && e.Source.gameObject.activeInHierarchy;
+                if (e.Base.gameObject.activeSelf != want)
+                    e.Base.gameObject.SetActive(want);
+            }
         }
     }
 
@@ -1207,9 +1311,17 @@ internal static class MixedReality
             Renderer plate = UnseenUnderlays[i].Plate;
             if (plate != null)
                 UnityEngine.Object.Destroy(plate.gameObject);
+            Renderer? baseQuad = UnseenUnderlays[i].Base;
+            if (baseQuad != null)
+                UnityEngine.Object.Destroy(baseQuad.gameObject);
         }
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
+        if (_unseenBaseRoot != null)
+        {
+            UnityEngine.Object.Destroy(_unseenBaseRoot.gameObject);
+            _unseenBaseRoot = null;
+        }
         if (_unseenDarkMat != null)
         {
             UnityEngine.Object.Destroy(_unseenDarkMat);
@@ -1331,6 +1443,8 @@ internal static class MixedReality
         {
             if (UnseenUnderlays[i].Source == null)
             {
+                if (UnseenUnderlays[i].Base != null) // normally died with the scene; belt+braces
+                    UnityEngine.Object.Destroy(UnseenUnderlays[i].Base!.gameObject);
                 UnseenSources.Remove(UnseenUnderlays[i].SourceId);
                 UnseenUnderlays.RemoveAt(i);
             }
