@@ -215,6 +215,18 @@ internal static class MixedReality
     /// (<see cref="DumpUnseenShaderProperties"/> — the margin-derivation instrument).</summary>
     private static readonly HashSet<string> DumpedUnseenShaders = new(4);
 
+    /// <summary>Lowest renderQueue observed on any matched family MATERIAL this session (round
+    /// 6): the base quads/underlays must composite BEFORE the family draws, against a depth
+    /// buffer that does not yet contain the family surfaces. All evidence says the family sits
+    /// in the transparent range (&gt;2500 — the ModBuild-57 IsTranslucent match could only have
+    /// passed on the queue, the materials expose no _DstBlend), so the default 2500 already
+    /// precedes it; but if a family material ever shows up AT or BELOW 2500 with its pass-0
+    /// hardcoded ZWrite On (ShaderOcclusionPatcher README: Amp_Basic_Unseen 0/0 zWrite On), a
+    /// later-drawn backing would fail LEqual behind it from above — so the shared materials'
+    /// queue adapts to observedMin−1 the moment the observation says so. int.MaxValue = none
+    /// observed yet.</summary>
+    private static int _familyMinQueue = int.MaxValue;
+
     // Sky/background geometry hidden while MR is on (item 2). The scenario backdrop/skydome is
     // opaque mesh geometry, not the skybox — disabled here, re-enabled on restore.
     private static readonly List<Renderer> HiddenSky = new(8);
@@ -712,6 +724,20 @@ internal static class MixedReality
     /// the region floor under and between the pieces; the user-accepted residual is a thin
     /// transparency at the region's OUTER frame (<see cref="UnseenBaseFit"/>).
     ///
+    /// ROUND 6 (hardware 2026-08-05 #4, ModBuild 62): the base quads seal the region from BELOW
+    /// but not from ABOVE ("falsch rum — es soll von BEIDEN Seiten dicht sein"). Two candidate
+    /// mechanisms, both closed: (a) CULLING — a single quad is one-sided under any cull-back
+    /// shader, and the dark material's Shader.Find chain can silently fall back from
+    /// Sprites/Default (Cull Off) to Legacy Diffuse (Cull Back); every base is now a TWIN
+    /// back-to-back quad pair (<see cref="BuildUnseenBase"/>), double-sided whatever the shader,
+    /// and the material-creation log names the shader actually found. (b) DEPTH — if the family
+    /// drew AT/below the backings' queue with its pass-0 hardcoded ZWrite On, a later backing
+    /// would fail LEqual behind it from above; the evidence says the family sits above 2500
+    /// (the ModBuild-57 IsTranslucent match could only have passed on the queue), but the
+    /// backings' queue now ADAPTS to observedFamilyMin−1 (<see cref="_familyMinQueue"/>) the
+    /// moment a family material contradicts that, and the property dump prints queue +
+    /// depth/blend state so the next log settles it as fact, not inference.
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -795,7 +821,11 @@ internal static class MixedReality
                 if (m == null)
                     continue;
                 if (IsUnseenFamilyMaterial(m))
+                {
                     family = true;
+                    if (m!.renderQueue < _familyMinQueue)
+                        _familyMinQueue = m.renderQueue; // round 6: EnsureUnseenMaterials adapts
+                }
                 if (IsTranslucent(m))
                     anyTranslucent = true;
             }
@@ -1118,6 +1148,31 @@ internal static class MixedReality
         quad.receiveShadows = false;
         quad.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         quad.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+        // ROUND 6 (hardware: "von unten dicht, von oben nicht — es soll von BEIDEN Seiten dicht
+        // sein"): a single quad is one-sided the moment the dark material's shader culls back
+        // faces — Sprites/Default is Cull Off, but the Shader.Find chain can fall back to
+        // Legacy Diffuse (Cull Back), and the observed asymmetry is exactly a base plate whose
+        // face points down. Shader-agnostic double-siding: a TWIN quad, child of the first
+        // (SetActive/Destroy cascade keeps the lifecycle single-headed), rotated 180° so the
+        // pair faces up AND down whatever the primitive's winding or the shader's cull mode.
+        // Same material: with a Cull Off shader the twin is pure (cheap) overdraw of the same
+        // flat colour; with a Cull Back shader exactly one of the two renders per view side.
+        GameObject twin = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        twin.name = "GloomhavenVR.MrUnseenBase.Back";
+        UnityEngine.Object.Destroy(twin.GetComponent<Collider>());
+        twin.transform.SetParent(go.transform, worldPositionStays: false);
+        twin.transform.localPosition = Vector3.zero;
+        twin.transform.localRotation = Quaternion.Euler(0f, 180f, 0f); // flip the face
+        twin.transform.localScale = Vector3.one;
+        twin.layer = go.layer;
+        var back = twin.GetComponent<MeshRenderer>();
+        back.sharedMaterial = _unseenDarkMat;
+        back.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        back.receiveShadows = false;
+        back.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        back.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
         return quad;
     }
 
@@ -1165,10 +1220,29 @@ internal static class MixedReality
             }
             listed++;
         }
+
+        // Round 6: the render-state half — the from-above/from-below asymmetry hypotheses hinge
+        // on the family's queue and depth/blend state, so pin them. A state name that is not a
+        // material property is hardcoded in the compiled pass (the serialized pass state for
+        // Amp_Basic_Unseen — zTest LEqual, zWrite On/Off across its two FORWARD passes — is in
+        // tools/ShaderOcclusionPatcher/README.md, read from the shipped bundles).
+        var state = new System.Text.StringBuilder(96);
+        state.Append(" queue=").Append(m.renderQueue)
+             .Append(" renderTypeTag='").Append(m.GetTag("RenderType", false, "<none>")).Append('\'');
+        string[] stateProps = { "_ZWrite", "_ZTest", "_SrcBlend", "_DstBlend", "_Cull" };
+        for (int i = 0; i < stateProps.Length; i++)
+        {
+            state.Append(' ').Append(stateProps[i]).Append('=');
+            if (m.HasProperty(stateProps[i]))
+                state.Append(m.GetFloat(stateProps[i]).ToString("0.#"));
+            else
+                state.Append("hardcoded");
+        }
+
         VRLog.Info("Core", $"MR: UNSEEN-SHADER PROPERTIES '{m.shader.name}' (material '{m.name}', " +
-                           $"{count} propert(ies)):{sb} — read the animation amplitude off this " +
-                           "line to replace the inferred UnseenSkirtScale default with an " +
-                           "asset-derived one.");
+                           $"{count} propert(ies)):{state} |{sb} — this line pins the family's " +
+                           "queue/depth/blend behaviour AND names the animation mechanism " +
+                           "(round 5 read UV-scroll off it).");
     }
 
     /// <summary>
@@ -1230,6 +1304,17 @@ internal static class MixedReality
                        && Mathf.Abs(key.b - UnseenDark.b) < UnseenKeyDistance;
         Color wanted = nearKey ? UnseenLift : UnseenDark;
 
+        // Round 6: the backings must draw BEFORE the family, against a depth buffer that does
+        // not yet contain the family surfaces (pass 0 of Amp_Basic_Unseen hardcodes ZWrite On —
+        // ShaderOcclusionPatcher README). All evidence puts the family in the transparent range
+        // (>2500), where the default 2500 already precedes it; the adaptive branch exists for
+        // the one unconfirmed case (family AT/below 2500) so the fix cannot be outrun by a
+        // material this code has not seen yet. Revealed floor stays safe in both branches: it
+        // draws at the geometry queue (~2000) with depth, and a backing drawn later either
+        // fails LEqual below it or — where the floor is behind — is painted over by nothing,
+        // because the backing writes no depth and the floor already won the pixel.
+        int wantedQueue = _familyMinQueue <= 2500 ? Mathf.Max(2000, _familyMinQueue - 1) : 2500;
+
         if (_unseenDarkMat == null)
         {
             Shader shader = Shader.Find("Sprites/Default")
@@ -1239,16 +1324,31 @@ internal static class MixedReality
             {
                 name = "GloomhavenVR.MrUnseenDark",
                 color = wanted,
-                renderQueue = 2500,
+                renderQueue = wantedQueue,
             };
             _unseenSkipMat = new Material(shader)
             {
                 name = "GloomhavenVR.MrUnseenSkip",
                 color = new Color(0f, 0f, 0f, 0f), // alpha 0: rasterized to nothing, writes nothing
-                renderQueue = 2500,
+                renderQueue = wantedQueue,
             };
             _unseenDarkColor = wanted;
+            // One-shot state line (round 6): the next hardware log must show WHICH shader the
+            // dark material actually got — the from-above/from-below asymmetry hypotheses hinge
+            // on its cull/depth state, and Shader.Find fallbacks are invisible without this.
+            VRLog.Info("Core", $"MR: unseen dark material created — shader '{shader.name}', " +
+                               $"queue {wantedQueue}, twin back-to-back base quads (double-sided " +
+                               "regardless of the shader's cull mode).");
             return;
+        }
+        if (_unseenDarkMat.renderQueue != wantedQueue)
+        {
+            _unseenDarkMat.renderQueue = wantedQueue;
+            if (_unseenSkipMat != null)
+                _unseenSkipMat.renderQueue = wantedQueue;
+            VRLog.Info("Core", $"MR: unseen backings re-queued to {wantedQueue} — a family " +
+                               $"material was observed at queue {_familyMinQueue}, and the " +
+                               "backings must composite before the family's depth-writing pass.");
         }
         if (_unseenDarkColor != wanted)
         {
@@ -1338,6 +1438,7 @@ internal static class MixedReality
         _unseenVerboseLogs = 0;
         _censusLastHash = 0;
         _censusNextAllowed = 0f;
+        _familyMinQueue = int.MaxValue; // re-observe per session (round 6 adaptive queue)
     }
 
     private static void RestoreSky()
