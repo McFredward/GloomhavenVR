@@ -31,9 +31,6 @@ internal static class WallFadeTuning
     /// <summary>Fort/keep superstructures: adopt plain meshes stacked on a tracked wall into that
     /// wall's fade (occlusion AABB + dissolve ride-along — see WallSegmentFade.Stacked.cs).</summary>
     internal static ConfigEntry<bool>? StackedShellFade;
-    /// <summary>Cross-room coverage numerator: a wall's fraction is the MAX over nearby rooms of
-    /// "share of THAT room's floor this wall hides" (see BlockedFraction — the keep lesson).</summary>
-    internal static ConfigEntry<bool>? CrossRoomCoverage;
 
     internal static void Bind()
     {
@@ -59,13 +56,6 @@ internal static class WallFadeTuning
             "occlusion box and dissolve/reappear with its fade — without this, a multi-story keep " +
             "stays fully solid because only its bottom course is real wall geometry. OFF = vanilla " +
             "look for such shells. Live (applies at the next 2s rescan).");
-        CrossRoomCoverage = config.Bind("WallFade", "CrossRoomCoverage", Defaults.CrossRoomCoverage,
-            "A wall fades when it hides enough of SOME nearby room's floor, not only the one room " +
-            "it borders: the coverage fraction becomes the maximum over all tile-anchored rooms " +
-            "within 12 wu of the wall. Needed for compact multi-room structures (a keep's outer " +
-            "wall hides the NEIGHBORING rooms' floors while its own room stays visible beside it — " +
-            "the own-room fraction reads 0 forever). Single-room scenes compute identically either " +
-            "way. OFF = strict own-room accounting. Live.");
     }
 
     // Clamped live accessors — safe before Bind() (fall back to the shipped defaults).
@@ -75,7 +65,6 @@ internal static class WallFadeTuning
     internal static float DwellStationary =>
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
     internal static bool StackedShells => StackedShellFade == null || StackedShellFade.Value;
-    internal static bool CrossRoom => CrossRoomCoverage == null || CrossRoomCoverage.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -210,14 +199,20 @@ internal static class WallFadeTuning
 /// the 5%-of-distance term keeps the margin proportionate). Head inside the wall AABB
 /// counts as 1.0 (wall in the face).
 ///
-/// CROSS-ROOM NUMERATOR (keep round 3, config [WallFade] CrossRoomCoverage, shipped ON):
-/// the fraction is the MAX of the per-room value over the wall's OWN room plus every
-/// tile-anchored room within CrossRoomMaxRangeWU (12 wu) of the wall — semantics "this
-/// wall hides ≥ threshold of SOME nearby room's floor". The keep proved the own-room-only
-/// accounting blind: its outer wall stood between the head and the NEIGHBORING rooms'
-/// floors while its own room lay visible beside it (raw 0.00 forever at headY below the
-/// shell tops). Own room is always the first candidate, so single-room scenes — and the
-/// config-OFF path — compute byte-identically to the old metric.
+/// LOGICAL ROOM GROUPING (keep round 4 — user ruling: "Ich will weiterhin die normale
+/// Raum-Logik", which retired round 3's distance-based cross-room MAX after one ModBuild):
+/// the game's unit of reveal is the <c>CMap</c> (ScenarioRuleLibrary) reached via
+/// <c>TilesOcclusionVolume.CentralTile.m_ClientTile.m_Tile.m_HexMap</c> — the exact object
+/// whose <c>Revealed</c> flag the volume's own <c>IsVisible()</c> reads. One revealed room
+/// may ship SEVERAL occlusion volumes ('Volume_1..6' of the keep are sub-volumes of ONE
+/// CMap), and the registry used to treat every volume renderer as its own room — so the
+/// wall in front of the player hid "another room's" samples that were in truth the SAME
+/// room, and its own-room fraction read 0.00 forever. The registry now merges volume
+/// renderers per (CMap, quantized floor height) into one LOGICAL room — union XZ footprint,
+/// one grid, one fail-safe/anchor state — and the metric stays strict own-room accounting
+/// against that merged grid. Single-volume rooms group to themselves (identical math);
+/// terraced same-CMap volumes at different heights stay separate so each keeps its true
+/// sample plane.
 ///
 /// TRIGGER (fully stepper-driven, WallFadeTuning live config): the raw fraction is
 /// EMA-smoothed (tau 0.15s), then compared against the VR-menu steppers — ON at
@@ -384,10 +379,6 @@ internal static partial class WallSegmentFade
         public int LastRoomVisible;
         /// <summary>Total floor-grid points of this wall's room (the fraction denominator).</summary>
         public int LastRoomTotal;
-        /// <summary>Which room won the coverage MAX last tick (cross-room numerator — the keep
-        /// lesson). Equals <see cref="RoomIndex"/> under own-room accounting; the diag prints
-        /// it as '(rN)' only when it differs, so single-room logs stay unchanged.</summary>
-        public int LastRawRoom = -1;
     }
 
     private sealed partial class FadeDriver : MonoBehaviour
@@ -501,6 +492,14 @@ internal static partial class WallSegmentFade
         private readonly List<Bounds> _roomBounds = new();
         private readonly List<float> _roomFloorY = new();       // tile-anchored floor plane per room
         private readonly List<bool> _roomFloorAnchored = new(); // true = from a CentralTile anchor
+        // LOGICAL ROOM GROUPING (round 4): per-renderer game-room identity (the CMap behind
+        // the volume's CentralTile — the object whose .Revealed the game itself reveals),
+        // its display label, and the merged-room tables the registry builds from them.
+        private readonly Dictionary<MeshRenderer, object> _roomMapByRenderer = new();
+        private readonly Dictionary<MeshRenderer, string> _roomMapLabelByRenderer = new();
+        private readonly Dictionary<(object, int), int> _keyToRoomScratch = new();
+        private readonly List<string> _roomLabels = new();      // per logical room (diag/census)
+        private readonly List<int> _roomRendererCounts = new(); // volume renderers merged per room
         private readonly List<int> _roomSampleStart = new();    // first sample index per room
         private readonly List<int> _roomSampleCount = new();    // grid size per room (denominator)
         private readonly List<Vector3> _allSamples = new();     // per-room floor-plane grid
@@ -804,14 +803,13 @@ internal static partial class WallSegmentFade
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
                     + $"{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
-                    + $"{highSegs} HIGH) against {_roomBounds.Count} room-renderer "
-                    + $"bounds / {_allSamples.Count} floor samples ({_roomsAnchored}/"
+                    + $"{highSegs} HIGH) against {_roomBounds.Count} LOGICAL room(s) "
+                    + $"(grouped from {_builtRoomCount} volume renderer(s) by the game's CMap "
+                    + $"room identity — round 4) / {_allSamples.Count} floor samples "
+                    + $"({_roomsAnchored}/"
                     + $"{_roomBounds.Count} rooms tile-anchored, plane +"
                     + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}) — "
-                    + $"per-wall ROOM-coverage fade "
-                    + $"(cross-room numerator {(WallFadeTuning.CrossRoom ? "ON" : "OFF")}, "
-                    + $"MAX over rooms ≤{CrossRoomMaxRangeWU:0} wu — [WallFade] "
-                    + $"CrossRoomCoverage; "
+                    + $"per-wall ROOM-coverage fade (strict own-room accounting; "
                     + $"EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
                     + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
                     + $"{exitDwellMoved:0.0}s out moved / "
@@ -955,85 +953,41 @@ internal static partial class WallSegmentFade
         ///   0.15·ln(0.3125/0.0625) ≈ 0.24s → ON ~0.45s after the pose settles. A wall
         ///   hiding ~30% of its room's floor therefore reliably triggers at default 0.25.
         /// </summary>
-        /// <summary>CROSS-ROOM range guard (hardware round 3): only rooms whose AABB center
-        /// lies within this XZ distance of the wall enter the coverage MAX. Chosen from the
-        /// keep data — all six room centers sit within ~8 wu of every keep wall (rooms span
-        /// x 18.7–24.3, z ±2.5; the shell is ~10 wu across), while unrelated structures'
-        /// rooms live on other map tiles ≥ ~11 wu away. 12 covers keep scale with margin and
-        /// keeps a distant wall from ever triggering off a far room it cannot meaningfully
-        /// occlude at diorama viewing angles.</summary>
-        private const float CrossRoomMaxRangeWU = 12f;
-
         private float BlockedFraction(Segment seg, Vector3 headPos)
         {
             seg.LastBlocked = 0;
             seg.LastRoomVisible = 0;
             seg.LastRoomTotal = 0;
-            seg.LastRawRoom = seg.RoomIndex;
-            int own = seg.RoomIndex;
-            if (own < 0 || own >= _roomSampleCount.Count)
+            int room = seg.RoomIndex;
+            if (room < 0 || room >= _roomSampleCount.Count)
                 return 0f;
-            int ownTotal = _roomSampleCount[own];
-            seg.LastRoomTotal = ownTotal;
-            if (ownTotal <= 0)
+            int total = _roomSampleCount[room];
+            seg.LastRoomTotal = total;
+            if (total <= 0)
                 return 0f;
 
-            Bounds b = seg.Bounds;
-            if (b.Contains(headPos))
+            if (seg.Bounds.Contains(headPos))
             {
                 // Wall in the face — treat as full coverage of its room.
-                seg.LastBlocked = ownTotal;
-                seg.LastRoomVisible = ownTotal;
+                seg.LastBlocked = total;
+                seg.LastRoomVisible = total;
                 return 1f;
             }
 
-            // Own room FIRST — with cross-room off (or only one room in range) this is the
-            // whole computation, byte-identical to the pre-round-3 own-room accounting.
-            float best = RoomBlockedFraction(seg, headPos, own,
-                out int bestBlocked, out int bestVisible, out int bestTotal);
-
-            // CROSS-ROOM NUMERATOR (hardware round 3, keine_ausblendung round; config
-            // [WallFade] CrossRoomCoverage): the keep proved a wall can stand fully between
-            // the head and the NEIGHBORING rooms' floors while its OWN room lies visible
-            // beside it — own-room raw read 0.00 forever (diags: headY 5.7–6.5 BELOW the
-            // shell tops ~6.0, blk0/16) although the user saw the floor completely covered.
-            // The fraction therefore becomes the MAX over all tile-anchored rooms in range:
-            // semantics "this wall hides ≥ threshold of SOME room's floor". EMA/Schmitt/
-            // dwell run unchanged on top; the winning room is recorded for the diag.
-            if (WallFadeTuning.CrossRoom)
-            {
-                for (int r = 0; r < _roomSampleCount.Count; r++)
-                {
-                    if (r == own)
-                        continue;
-                    if (r >= _roomFloorAnchored.Count || !_roomFloorAnchored[r]
-                        || _roomSampleCount[r] <= 0)
-                        continue; // unanchored/no-grid rooms never decide anything (fail-safe rule)
-                    if (r < _roomBounds.Count
-                        && HorizontalGap(b, _roomBounds[r].center) > CrossRoomMaxRangeWU)
-                        continue; // out of keep-scale range — a far wall must never trigger off it
-                    float f = RoomBlockedFraction(seg, headPos, r,
-                        out int blocked, out int visible, out int total);
-                    if (f > best)
-                    {
-                        best = f;
-                        bestBlocked = blocked;
-                        bestVisible = visible;
-                        bestTotal = total;
-                        seg.LastRawRoom = r;
-                    }
-                }
-            }
-
-            seg.LastBlocked = bestBlocked;
-            seg.LastRoomVisible = bestVisible;
-            seg.LastRoomTotal = bestTotal;
-            return best;
+            // STRICT OWN-ROOM accounting (round 4 — user ruling "normale Raum-Logik"; the
+            // round-3 cross-room MAX is retired). The room is the LOGICAL room now: all
+            // volume renderers of one game CMap merged into one grid, so a wall that
+            // fronts a multi-volume room measures against that room's WHOLE floor.
+            float fraction = RoomBlockedFraction(seg, headPos, room,
+                out int blocked, out int visible, out _);
+            seg.LastBlocked = blocked;
+            seg.LastRoomVisible = visible;
+            return fraction;
         }
 
-        /// <summary>The per-room half of the metric (unchanged math, extracted for the
-        /// cross-room MAX): fraction of ROOM's grid that is in view-direction AND whose
-        /// head→point segment this wall's AABB clearly interrupts.</summary>
+        /// <summary>The per-room half of the metric: fraction of ROOM's grid that is in
+        /// view-direction AND whose head→point segment this wall's AABB clearly
+        /// interrupts.</summary>
         private float RoomBlockedFraction(Segment seg, Vector3 headPos, int room,
             out int blockedOut, out int visibleOut, out int totalOut)
         {
@@ -1169,12 +1123,8 @@ internal static partial class WallSegmentFade
             Bounds b = seg.Bounds;
             _diagSb.Append(" | '").Append(name)
                    .Append("' r").Append(seg.RoomIndex)
-                   .Append(" raw").Append(seg.LastRaw.ToString("F2"));
-            // Cross-room numerator won over a DIFFERENT room than the wall's own — name it
-            // (only then, so single-room / own-room-decided diag lines stay unchanged).
-            if (seg.LastRawRoom >= 0 && seg.LastRawRoom != seg.RoomIndex)
-                _diagSb.Append("(r").Append(seg.LastRawRoom).Append(')');
-            _diagSb.Append(" ema").Append(seg.Smooth.ToString("F2"))
+                   .Append(" raw").Append(seg.LastRaw.ToString("F2"))
+                   .Append(" ema").Append(seg.Smooth.ToString("F2"))
                    .Append(" blk").Append(seg.LastBlocked).Append('/').Append(seg.LastRoomTotal)
                    .Append(" v").Append(seg.LastRoomVisible)
                    .Append(seg.State ? " ON " : " off ").Append(seg.Fade.ToString("F2"))
@@ -1417,30 +1367,86 @@ internal static partial class WallSegmentFade
             // occlusion-proxy artifact the round-6 hardware log caught (tops ~9 wu above
             // the actual floor, see class header).
             _floorYByRenderer.Clear();
+            _roomMapByRenderer.Clear();
+            _roomMapLabelByRenderer.Clear();
             TilesOcclusionVolume[] volumes = UnityEngine.Object.FindObjectsOfType<TilesOcclusionVolume>();
             foreach (TilesOcclusionVolume v in volumes)
             {
                 if (v == null || v.CentralTile == null || v.Renderers == null)
                     continue;
                 float tileY = v.CentralTile.transform.position.y;
+                // ROUND-4 ROOM IDENTITY (user ruling: "normale Raum-Logik" — the game's own
+                // room is the unit): CentralTile.m_ClientTile.m_Tile.m_HexMap is the CMap
+                // this volume's own IsVisible() reads .Revealed from — the game's unit of
+                // reveal. Every volume of one revealed room carries the same CMap.
+                object? mapKey = null;
+                string mapLabel = "?";
+                try
+                {
+                    ScenarioRuleLibrary.CMap? map = v.CentralTile.m_ClientTile?.m_Tile?.m_HexMap;
+                    if (map != null)
+                    {
+                        mapKey = map;
+                        mapLabel = string.IsNullOrEmpty(map.RoomName)
+                            ? map.MapInstanceName : map.RoomName;
+                    }
+                }
+                catch { /* client-tile chain mid-build — renderers stay singleton rooms */ }
                 foreach (MeshRenderer vr in v.Renderers)
                 {
-                    if (vr != null)
-                        _floorYByRenderer[vr] = tileY;
+                    if (vr == null)
+                        continue;
+                    _floorYByRenderer[vr] = tileY;
+                    if (mapKey != null)
+                    {
+                        _roomMapByRenderer[vr] = mapKey;
+                        _roomMapLabelByRenderer[vr] = mapLabel;
+                    }
                 }
             }
 
+            // LOGICAL ROOM GROUPING (round 4): the keep ships ONE game room as SIX occlusion
+            // sub-volumes ('Volume_1..6', all under map tile 'E', same CMap); treating each
+            // volume renderer as its own room split the room's floor grid six ways, walls
+            // were assigned to one sixth each, and the front wall's own-room coverage read
+            // 0.00 although it hid the (whole) room. Registry entries therefore merge per
+            // (CMap, quantized anchor height): union XZ bounds, ONE grid, one anchor state.
+            // Renderers without a CMap (no volume / chain unbuilt) stay singleton rooms —
+            // exactly the old behaviour, and unanchored ones stay fail-safe solid.
             _roomBounds.Clear();
             _roomFloorY.Clear();
             _roomFloorAnchored.Clear();
+            _roomLabels.Clear();
+            _roomRendererCounts.Clear();
+            _keyToRoomScratch.Clear();
             foreach (MeshRenderer r in gen.m_RoomRenderers)
             {
                 if (r == null)
                     continue;
-                _roomBounds.Add(r.bounds);
                 bool anchored = _floorYByRenderer.TryGetValue(r, out float floorY);
+                object? key = anchored && _roomMapByRenderer.TryGetValue(r, out object k)
+                    ? k : null;
+                if (key != null)
+                {
+                    // Same CMap on a DIFFERENT floor level (terraced rooms) must not share
+                    // one sample plane — the anchor height is part of the key (0.5 wu bins).
+                    (object, int) groupKey = (key, Mathf.RoundToInt(floorY * 2f));
+                    if (_keyToRoomScratch.TryGetValue(groupKey, out int idx))
+                    {
+                        Bounds merged = _roomBounds[idx];
+                        merged.Encapsulate(r.bounds);
+                        _roomBounds[idx] = merged;
+                        _roomRendererCounts[idx]++;
+                        continue;
+                    }
+                    _keyToRoomScratch[groupKey] = _roomBounds.Count;
+                }
+                _roomBounds.Add(r.bounds);
                 _roomFloorY.Add(anchored ? floorY : float.NaN);
                 _roomFloorAnchored.Add(anchored);
+                _roomLabels.Add(key != null && _roomMapLabelByRenderer.TryGetValue(r, out string lbl)
+                    ? lbl : r.name);
+                _roomRendererCounts.Add(1);
             }
             _builtRoomCount = gen.m_RoomRenderers.Count;
 
@@ -1477,9 +1483,25 @@ internal static partial class WallSegmentFade
                 || _roomsAnchored != _lastRoomCensusAnchored)
             {
                 bool reveal = _lastRoomCensusCount >= 0 && _roomBounds.Count > _lastRoomCensusCount;
+                // Grouping census: which logical rooms exist and how many volume renderers
+                // each merged ('E'×6 = the keep's six sub-volumes as ONE room — round 4).
+                var groups = new System.Text.StringBuilder();
+                for (int i = 0; i < _roomLabels.Count && i < 8; i++)
+                {
+                    if (groups.Length > 0)
+                        groups.Append(", ");
+                    groups.Append('\'').Append(_roomLabels[i]).Append('\'');
+                    if (i < _roomRendererCounts.Count && _roomRendererCounts[i] > 1)
+                        groups.Append('×').Append(_roomRendererCounts[i]);
+                }
+                if (_roomLabels.Count > 8)
+                    groups.Append(", …");
                 VRLog.Info(Name,
                     $"room registry {(reveal ? "REVEAL re-anchor" : "refresh")}: "
-                    + $"{Mathf.Max(_lastRoomCensusCount, 0)}→{_roomBounds.Count} room renderer(s), "
+                    + $"{Mathf.Max(_lastRoomCensusCount, 0)}→{_roomBounds.Count} LOGICAL room(s) "
+                    + $"from {_builtRoomCount} volume renderer(s), grouped by the game's room "
+                    + $"identity (CMap via CentralTile.m_ClientTile.m_Tile.m_HexMap — round 4): "
+                    + $"[{groups}]; "
                     + $"{_roomsAnchored}/{_roomBounds.Count} tile-anchored — walls of unanchored "
                     + "rooms are held SOLID (fail-safe) until their volume anchors.");
                 _lastRoomCensusCount = _roomBounds.Count;
@@ -2140,8 +2162,12 @@ internal static partial class WallSegmentFade
                 Vector3 center = _roomBounds[r].center;
                 float floorY = r < _roomFloorY.Count ? _roomFloorY[r] : 0f;
                 sb.Length = 0;
-                sb.Append("FLOOR CENSUS room ").Append(r)
-                  .Append(" center(").Append(center.x.ToString("F1")).Append(',')
+                sb.Append("FLOOR CENSUS room ").Append(r);
+                if (r < _roomLabels.Count)
+                    sb.Append(" '").Append(_roomLabels[r]).Append('\'');
+                if (r < _roomRendererCounts.Count && _roomRendererCounts[r] > 1)
+                    sb.Append('x').Append(_roomRendererCounts[r]);
+                sb.Append(" center(").Append(center.x.ToString("F1")).Append(',')
                   .Append(center.z.ToString("F1")).Append(") floorY ").Append(floorY.ToString("F2"))
                   .Append(':');
                 int listed = 0;
@@ -2849,6 +2875,11 @@ internal static partial class WallSegmentFade
             _roomBounds.Clear();
             _roomFloorY.Clear();
             _roomFloorAnchored.Clear();
+            _roomLabels.Clear();
+            _roomRendererCounts.Clear();
+            _keyToRoomScratch.Clear();
+            _roomMapByRenderer.Clear();
+            _roomMapLabelByRenderer.Clear();
             _roomSampleStart.Clear();
             _roomSampleCount.Clear();
             _allSamples.Clear();
