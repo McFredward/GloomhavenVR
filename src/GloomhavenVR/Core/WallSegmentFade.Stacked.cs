@@ -307,8 +307,9 @@ internal static partial class WallSegmentFade
             {
                 if (any is not MeshRenderer r || r == null || !r.enabled)
                     continue;
-                if (r.gameObject.layer == VRLayers.ModLayer)
-                    continue; // mod-owned visual — never scenery
+                if (IsModObject(r))
+                    continue; // mod-owned visual (layer OR 'GloomhavenVR.' name — round 3:
+                              // the MR backing plate leaked into the near-miss census)
                 if (r.bounds.min.y < bar)
                     continue; // touches the ground band — not a stacked story
                 if (_stackedOwned.Contains(r))

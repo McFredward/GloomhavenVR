@@ -523,8 +523,10 @@ internal static partial class WallSegmentFade
                 {
                     if (c == null)
                         continue;
-                    if (c.gameObject.layer == VRLayers.ModLayer)
-                        continue; // mod-owned visual (hands, cards, panels) — never scenery
+                    if (IsModObject(c))
+                        continue; // mod-owned visual (hands, cards, panels, MR backing — by
+                                  // layer OR 'GloomhavenVR.' name prefix) — never scenery,
+                                  // never a candidate, never in the diagnostics
                     if (_mountedOwned.Contains(c))
                         continue; // already attached this rescan (sticky or earlier in the sweep)
                     // STRUCTURAL SKIPS — the three ways a renderer leaves this sweep before any

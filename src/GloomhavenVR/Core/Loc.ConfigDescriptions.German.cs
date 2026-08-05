@@ -296,6 +296,14 @@ internal static partial class Loc
                 + "ohne diese Option bleibt eine mehrstöckige Festung komplett massiv, weil nur ihr unterstes "
                 + "Geschoss echte Mauer-Geometrie ist. AUS = Originalanblick solcher Aufbauten. Live (greift "
                 + "beim nächsten 2-Sekunden-Rescan).",
+            ["WallFade/CrossRoomCoverage"] =
+                "Eine Mauer wird ausgeblendet, wenn sie genug vom Boden IRGENDEINES nahen Raums verdeckt — "
+                + "nicht nur des einen Raums, an den sie grenzt: Der Verdeckungsanteil ist das Maximum über "
+                + "alle verankerten Räume im Umkreis von 12 Einheiten der Mauer. Nötig für kompakte Bauten "
+                + "mit mehreren Räumen (die Außenmauer einer Festung verdeckt die Böden der NACHBARRÄUME, "
+                + "während ihr eigener Raum daneben sichtbar bleibt — der Eigenraum-Anteil bliebe für immer "
+                + "0). Szenarien mit nur einem Raum rechnen in beiden Fällen identisch. AUS = strenge "
+                + "Eigenraum-Zählung. Live änderbar.",
             // ---- [Comfort] ----
             ["Comfort/WorldGrabEnabled"] =
                 "Tisch-Manipulation über den Griff: ein Griff (abseits greifbarer Objekte) zieht den Tisch, "

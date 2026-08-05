@@ -31,6 +31,9 @@ internal static class WallFadeTuning
     /// <summary>Fort/keep superstructures: adopt plain meshes stacked on a tracked wall into that
     /// wall's fade (occlusion AABB + dissolve ride-along — see WallSegmentFade.Stacked.cs).</summary>
     internal static ConfigEntry<bool>? StackedShellFade;
+    /// <summary>Cross-room coverage numerator: a wall's fraction is the MAX over nearby rooms of
+    /// "share of THAT room's floor this wall hides" (see BlockedFraction — the keep lesson).</summary>
+    internal static ConfigEntry<bool>? CrossRoomCoverage;
 
     internal static void Bind()
     {
@@ -56,6 +59,13 @@ internal static class WallFadeTuning
             "occlusion box and dissolve/reappear with its fade — without this, a multi-story keep " +
             "stays fully solid because only its bottom course is real wall geometry. OFF = vanilla " +
             "look for such shells. Live (applies at the next 2s rescan).");
+        CrossRoomCoverage = config.Bind("WallFade", "CrossRoomCoverage", Defaults.CrossRoomCoverage,
+            "A wall fades when it hides enough of SOME nearby room's floor, not only the one room " +
+            "it borders: the coverage fraction becomes the maximum over all tile-anchored rooms " +
+            "within 12 wu of the wall. Needed for compact multi-room structures (a keep's outer " +
+            "wall hides the NEIGHBORING rooms' floors while its own room stays visible beside it — " +
+            "the own-room fraction reads 0 forever). Single-room scenes compute identically either " +
+            "way. OFF = strict own-room accounting. Live.");
     }
 
     // Clamped live accessors — safe before Bind() (fall back to the shipped defaults).
@@ -65,6 +75,7 @@ internal static class WallFadeTuning
     internal static float DwellStationary =>
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
     internal static bool StackedShells => StackedShellFade == null || StackedShellFade.Value;
+    internal static bool CrossRoom => CrossRoomCoverage == null || CrossRoomCoverage.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -198,6 +209,15 @@ internal static class WallFadeTuning
 /// whole signal; a pure thickness epsilon was still too strict for long grazing rays —
 /// the 5%-of-distance term keeps the margin proportionate). Head inside the wall AABB
 /// counts as 1.0 (wall in the face).
+///
+/// CROSS-ROOM NUMERATOR (keep round 3, config [WallFade] CrossRoomCoverage, shipped ON):
+/// the fraction is the MAX of the per-room value over the wall's OWN room plus every
+/// tile-anchored room within CrossRoomMaxRangeWU (12 wu) of the wall — semantics "this
+/// wall hides ≥ threshold of SOME nearby room's floor". The keep proved the own-room-only
+/// accounting blind: its outer wall stood between the head and the NEIGHBORING rooms'
+/// floors while its own room lay visible beside it (raw 0.00 forever at headY below the
+/// shell tops). Own room is always the first candidate, so single-room scenes — and the
+/// config-OFF path — compute byte-identically to the old metric.
 ///
 /// TRIGGER (fully stepper-driven, WallFadeTuning live config): the raw fraction is
 /// EMA-smoothed (tau 0.15s), then compared against the VR-menu steppers — ON at
@@ -364,6 +384,10 @@ internal static partial class WallSegmentFade
         public int LastRoomVisible;
         /// <summary>Total floor-grid points of this wall's room (the fraction denominator).</summary>
         public int LastRoomTotal;
+        /// <summary>Which room won the coverage MAX last tick (cross-room numerator — the keep
+        /// lesson). Equals <see cref="RoomIndex"/> under own-room accounting; the diag prints
+        /// it as '(rN)' only when it differs, so single-room logs stay unchanged.</summary>
+        public int LastRawRoom = -1;
     }
 
     private sealed partial class FadeDriver : MonoBehaviour
@@ -785,7 +809,10 @@ internal static partial class WallSegmentFade
                     + $"{_roomBounds.Count} rooms tile-anchored, plane +"
                     + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}) — "
                     + $"per-wall ROOM-coverage fade "
-                    + $"(EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
+                    + $"(cross-room numerator {(WallFadeTuning.CrossRoom ? "ON" : "OFF")}, "
+                    + $"MAX over rooms ≤{CrossRoomMaxRangeWU:0} wu — [WallFade] "
+                    + $"CrossRoomCoverage; "
+                    + $"EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
                     + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
                     + $"{exitDwellMoved:0.0}s out moved / "
                     + $"{exitDwellStationary:0.0}s stationary — live config [WallFade]; "
@@ -928,30 +955,97 @@ internal static partial class WallSegmentFade
         ///   0.15·ln(0.3125/0.0625) ≈ 0.24s → ON ~0.45s after the pose settles. A wall
         ///   hiding ~30% of its room's floor therefore reliably triggers at default 0.25.
         /// </summary>
+        /// <summary>CROSS-ROOM range guard (hardware round 3): only rooms whose AABB center
+        /// lies within this XZ distance of the wall enter the coverage MAX. Chosen from the
+        /// keep data — all six room centers sit within ~8 wu of every keep wall (rooms span
+        /// x 18.7–24.3, z ±2.5; the shell is ~10 wu across), while unrelated structures'
+        /// rooms live on other map tiles ≥ ~11 wu away. 12 covers keep scale with margin and
+        /// keeps a distant wall from ever triggering off a far room it cannot meaningfully
+        /// occlude at diorama viewing angles.</summary>
+        private const float CrossRoomMaxRangeWU = 12f;
+
         private float BlockedFraction(Segment seg, Vector3 headPos)
         {
             seg.LastBlocked = 0;
             seg.LastRoomVisible = 0;
             seg.LastRoomTotal = 0;
-            int room = seg.RoomIndex;
-            if (room < 0 || room >= _roomSampleCount.Count)
+            seg.LastRawRoom = seg.RoomIndex;
+            int own = seg.RoomIndex;
+            if (own < 0 || own >= _roomSampleCount.Count)
                 return 0f;
-            int total = _roomSampleCount[room];
-            seg.LastRoomTotal = total;
-            if (total <= 0)
+            int ownTotal = _roomSampleCount[own];
+            seg.LastRoomTotal = ownTotal;
+            if (ownTotal <= 0)
                 return 0f;
 
             Bounds b = seg.Bounds;
             if (b.Contains(headPos))
             {
                 // Wall in the face — treat as full coverage of its room.
-                seg.LastBlocked = total;
-                seg.LastRoomVisible = total;
+                seg.LastBlocked = ownTotal;
+                seg.LastRoomVisible = ownTotal;
                 return 1f;
             }
 
+            // Own room FIRST — with cross-room off (or only one room in range) this is the
+            // whole computation, byte-identical to the pre-round-3 own-room accounting.
+            float best = RoomBlockedFraction(seg, headPos, own,
+                out int bestBlocked, out int bestVisible, out int bestTotal);
+
+            // CROSS-ROOM NUMERATOR (hardware round 3, keine_ausblendung round; config
+            // [WallFade] CrossRoomCoverage): the keep proved a wall can stand fully between
+            // the head and the NEIGHBORING rooms' floors while its OWN room lies visible
+            // beside it — own-room raw read 0.00 forever (diags: headY 5.7–6.5 BELOW the
+            // shell tops ~6.0, blk0/16) although the user saw the floor completely covered.
+            // The fraction therefore becomes the MAX over all tile-anchored rooms in range:
+            // semantics "this wall hides ≥ threshold of SOME room's floor". EMA/Schmitt/
+            // dwell run unchanged on top; the winning room is recorded for the diag.
+            if (WallFadeTuning.CrossRoom)
+            {
+                for (int r = 0; r < _roomSampleCount.Count; r++)
+                {
+                    if (r == own)
+                        continue;
+                    if (r >= _roomFloorAnchored.Count || !_roomFloorAnchored[r]
+                        || _roomSampleCount[r] <= 0)
+                        continue; // unanchored/no-grid rooms never decide anything (fail-safe rule)
+                    if (r < _roomBounds.Count
+                        && HorizontalGap(b, _roomBounds[r].center) > CrossRoomMaxRangeWU)
+                        continue; // out of keep-scale range — a far wall must never trigger off it
+                    float f = RoomBlockedFraction(seg, headPos, r,
+                        out int blocked, out int visible, out int total);
+                    if (f > best)
+                    {
+                        best = f;
+                        bestBlocked = blocked;
+                        bestVisible = visible;
+                        bestTotal = total;
+                        seg.LastRawRoom = r;
+                    }
+                }
+            }
+
+            seg.LastBlocked = bestBlocked;
+            seg.LastRoomVisible = bestVisible;
+            seg.LastRoomTotal = bestTotal;
+            return best;
+        }
+
+        /// <summary>The per-room half of the metric (unchanged math, extracted for the
+        /// cross-room MAX): fraction of ROOM's grid that is in view-direction AND whose
+        /// head→point segment this wall's AABB clearly interrupts.</summary>
+        private float RoomBlockedFraction(Segment seg, Vector3 headPos, int room,
+            out int blockedOut, out int visibleOut, out int totalOut)
+        {
+            blockedOut = 0;
+            visibleOut = 0;
+            totalOut = room >= 0 && room < _roomSampleCount.Count ? _roomSampleCount[room] : 0;
+            if (totalOut <= 0)
+                return 0f;
+
+            Bounds b = seg.Bounds;
             int start = _roomSampleStart[room];
-            int end = Mathf.Min(start + total, Mathf.Min(_allSamples.Count, _sampleVisible.Length));
+            int end = Mathf.Min(start + totalOut, Mathf.Min(_allSamples.Count, _sampleVisible.Length));
             float thicknessEps = seg.BlockEps;
             int blocked = 0, roomVisible = 0;
             for (int i = start; i < end; i++)
@@ -975,9 +1069,9 @@ internal static partial class WallSegmentFade
                     blocked++;
                 }
             }
-            seg.LastBlocked = blocked;
-            seg.LastRoomVisible = roomVisible;
-            return blocked / (float)total;
+            blockedOut = blocked;
+            visibleOut = roomVisible;
+            return blocked / (float)totalOut;
         }
 
         /// <summary>
@@ -1075,8 +1169,12 @@ internal static partial class WallSegmentFade
             Bounds b = seg.Bounds;
             _diagSb.Append(" | '").Append(name)
                    .Append("' r").Append(seg.RoomIndex)
-                   .Append(" raw").Append(seg.LastRaw.ToString("F2"))
-                   .Append(" ema").Append(seg.Smooth.ToString("F2"))
+                   .Append(" raw").Append(seg.LastRaw.ToString("F2"));
+            // Cross-room numerator won over a DIFFERENT room than the wall's own — name it
+            // (only then, so single-room / own-room-decided diag lines stay unchanged).
+            if (seg.LastRawRoom >= 0 && seg.LastRawRoom != seg.RoomIndex)
+                _diagSb.Append("(r").Append(seg.LastRawRoom).Append(')');
+            _diagSb.Append(" ema").Append(seg.Smooth.ToString("F2"))
                    .Append(" blk").Append(seg.LastBlocked).Append('/').Append(seg.LastRoomTotal)
                    .Append(" v").Append(seg.LastRoomVisible)
                    .Append(seg.State ? " ON " : " off ").Append(seg.Fade.ToString("F2"))
@@ -2337,6 +2435,17 @@ internal static partial class WallSegmentFade
             }
             return null;
         }
+
+        /// <summary>Mod-owned visual (hands, cards, panels, MR backing plates…)? Never scenery:
+        /// such a renderer must neither be adopted by ANY attachment sweep nor appear in their
+        /// candidate/near-miss diagnostics. Two signals, because not every mod object lives on
+        /// the mod layer: hardware round 3 caught the MR sky backing 'GloomhavenVR.MrBacking'
+        /// (y[21.3..33.3]) in the stacked-shell NEAR-MISS census — every mod-created object
+        /// carries the 'GloomhavenVR.' name prefix (repo convention), so that prefix is the
+        /// second, layer-independent test.</summary>
+        private static bool IsModObject(Renderer r) =>
+            r.gameObject.layer == VRLayers.ModLayer
+            || r.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal);
 
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
         private bool RendererUsesFoliage(MeshRenderer r)
