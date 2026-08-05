@@ -82,6 +82,14 @@ internal static class MixedReality
     /// name from the preview-stack-only round; its scope has grown, its cfg identity has not.</summary>
     internal static ConfigEntry<bool> OpaquePreviewTiles = null!;
 
+    /// <summary>Uniform scale of each unseen underlay beyond its source's rest-pose silhouette
+    /// (round 4, the skirt): the family shaders animate their surface past the static mesh, so a
+    /// 1:1 underlay leaves the moving fringe blending against the passthrough. Tunable so one
+    /// hardware round can dial the margin without a rebuild; applied live (a change rebuilds the
+    /// underlays on the next sweep). Too small = fringe still transparent at the silhouette edge;
+    /// too big = dark apron visibly overlapping the revealed floor next to the unseen region.</summary>
+    internal static ConfigEntry<float> UnseenSkirtScale = null!;
+
     /// <summary>
     /// Key-colour presets offered by the settings UI.
     ///
@@ -175,6 +183,14 @@ internal static class MixedReality
     private static readonly List<Bounds> CensusBoundsScratch = new(64);
     private static int _censusLastHash;
     private static float _censusNextAllowed;
+
+    /// <summary>The skirt scale the live underlays were built with — a config change rebuilds
+    /// them (restore + immediate resweep) so tuning needs no MR toggle, let alone a rebuild.</summary>
+    private static float _appliedSkirtScale = -1f;
+
+    /// <summary>Shader names whose float/vector properties were already dumped this session
+    /// (<see cref="DumpUnseenShaderProperties"/> — the margin-derivation instrument).</summary>
+    private static readonly HashSet<string> DumpedUnseenShaders = new(4);
 
     // Sky/background geometry hidden while MR is on (item 2). The scenario backdrop/skydome is
     // opaque mesh geometry, not the skybox — disabled here, re-enabled on restore.
@@ -312,6 +328,15 @@ internal static class MixedReality
             "animation untouched, it just blends against dark instead of against your room. The " +
             "backings are destroyed when MR turns off — normal mode is never touched. Turn OFF " +
             "only if a run shows it darkening wanted geometry — the log names what it backed.");
+        UnseenSkirtScale = _file.Bind("MixedReality", "UnseenSkirtScale", Defaults.UnseenSkirtScale,
+            "Size of each unseen-geometry dark backing relative to its geometry (1 = exact " +
+            "silhouette). The fog-of-war shaders ANIMATE their surface slightly past the static " +
+            "mesh, so an exact-size backing leaves the moving fringe blending against the " +
+            "passthrough room — the backing is therefore scaled up around the piece's center by " +
+            "this factor so the animation always lands on dark. Applies while MR is on, live " +
+            "(backings rebuild on change). Raise if an animated rim still shimmers transparent; " +
+            "lower if a dark apron visibly overlaps the revealed floor next to the unseen area. " +
+            "Clamped to 1..2.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -639,6 +664,18 @@ internal static class MixedReality
     /// region so the next hardware log names the animation definitively instead of the mod
     /// guessing a fourth time.
     ///
+    /// ROUND 4 (hardware 2026-08-05 #2, ModBuild 59): the census ANSWERED — all 19 candidates
+    /// near the region were ambient FX (torch sparks, character idle-FX systems with sloppy
+    /// AABBs, the waypoint path), none the border animation, and round 3's name-widening matched
+    /// nothing new (count stayed 226). By elimination the still-transparent "Animation drumrum"
+    /// is the matched family's OWN animated pass reaching past its rest-pose mesh — beyond the
+    /// 1:1 underlay's static silhouette. Fix: THE SKIRT — every underlay is scaled up about its
+    /// bounds center (<see cref="UnseenSkirtScale"/>; the default is INFERRED, not asset-derived
+    /// — see <see cref="DumpUnseenShaderProperties"/>, the instrument that lets the next log
+    /// replace the guess) so the moving fringe always lands on dark. The census stays as the
+    /// regression instrument: a future transparent border WITH an empty census means the margin
+    /// is short, not a renderer missed — its empty-set message says exactly that.
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -671,6 +708,19 @@ internal static class MixedReality
 
         EnsureUnseenMaterials();
         SyncUnseenUnderlays();
+
+        // Live skirt tuning (round 4): a changed [MixedReality] UnseenSkirtScale tears every
+        // underlay down and falls through to an immediate resweep, so a hardware round can dial
+        // the margin in without a rebuild or an MR toggle. Restore resets the scan throttle.
+        float skirt = Mathf.Clamp(UnseenSkirtScale.Value, 1f, 2f);
+        if (_appliedSkirtScale > 0f && !Mathf.Approximately(skirt, _appliedSkirtScale)
+            && UnseenUnderlays.Count > 0)
+        {
+            VRLog.Info("Core", $"MR: unseen skirt scale changed {_appliedSkirtScale:0.###} → " +
+                               $"{skirt:0.###} — rebuilding every underlay at the new margin.");
+            RestoreUnseenUnderlays();
+        }
+        _appliedSkirtScale = skirt;
 
         if (Time.frameCount < _previewScanNextFrame)
             return;
@@ -866,8 +916,9 @@ internal static class MixedReality
             VRLog.Info("Core", "MR: UNSEEN-BORDER CENSUS — no uncovered translucent/additive " +
                                "renderer intersects the unseen region (±1 wu). If an animation " +
                                "still reads transparent there, it comes from the MATCHED family " +
-                               "itself: a vertex-animated pass overhanging its static underlay " +
-                               "silhouette (the skirt hypothesis).");
+                               "itself — with the skirt applied (round 4) that means the margin " +
+                               "is SHORT, not a renderer missed: raise [MixedReality] " +
+                               $"UnseenSkirtScale (currently {_appliedSkirtScale:0.###}).");
             return;
         }
 
@@ -934,11 +985,26 @@ internal static class MixedReality
 
         var go = new GameObject("GloomhavenVR.MrUnseenUnderlay");
         go.transform.SetParent(source.transform, worldPositionStays: false);
-        go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
-        go.transform.localScale = Vector3.one;
         go.layer = source.gameObject.layer;
         go.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
+
+        // THE SKIRT (round 4, confirmed by census elimination — every uncovered candidate near
+        // the region was ambient FX, so the remaining transparent "Animation drumrum" is the
+        // family's OWN animated pass reaching past the rest-pose mesh). The underlay is scaled
+        // uniformly about the MESH-LOCAL bounds center — child scale composes with the source's
+        // transform, so the margin stays proportional per axis whatever the piece's world scale.
+        // Uniform on purpose: the wave is 3D (the pieces have real height — census region height
+        // 2.32 wu — and the same-mesh underlay already backs the vertical faces 1:1, so the Y
+        // margin extends that cover to fringe rising past the top). The scaled copy stays ZTest
+        // LEqual with no depth write: real geometry occludes it normally, the part sunk below a
+        // revealed floor simply fails the depth test, and the accepted failure mode is a small
+        // dark apron at the region border (see the UnseenSkirtScale doc for both directions).
+        float skirt = _appliedSkirtScale > 0f ? _appliedSkirtScale : 1f;
+        Vector3 meshCenter = filter.sharedMesh.bounds.center;
+        go.transform.localScale = new Vector3(skirt, skirt, skirt);
+        go.transform.localPosition = meshCenter * (1f - skirt); // keeps the bounds center fixed
+
         var plate = go.AddComponent<MeshRenderer>();
         plate.sharedMaterials = plateMats;
         plate.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -949,6 +1015,11 @@ internal static class MixedReality
         int id = source.GetInstanceID();
         UnseenUnderlays.Add(new UnseenUnderlay { Source = source, SourceId = id, Plate = plate });
         UnseenSources.Add(id);
+        for (int i = 0; i < mats.Length; i++)
+        {
+            if (IsUnseenFamilyMaterial(mats[i]))
+                DumpUnseenShaderProperties(mats[i]!);
+        }
         if (_unseenVerboseLogs < UnseenVerboseLogCap)
         {
             _unseenVerboseLogs++;
@@ -960,6 +1031,56 @@ internal static class MixedReality
                                    ? " (Further builds counted, not listed — tile regen churn.)"
                                    : string.Empty));
         }
+    }
+
+    /// <summary>
+    /// Margin-derivation instrument (once per shader name per session): the skirt's default
+    /// factor is INFERRED — the game bundles are not readable offline (ressources/ carries only
+    /// Managed DLLs, tools/ShaderDisasm has no Unseen entry), so the authored wave amplitude of
+    /// the family shaders is unknown. This dump prints every float/range/vector/color property
+    /// of a matched family material with its LIVE value into the hardware log; if an
+    /// amplitude/displacement property shows up there, the next round replaces the guessed
+    /// <see cref="UnseenSkirtScale"/> default with a value read from the asset.
+    /// </summary>
+    private static void DumpUnseenShaderProperties(Material m)
+    {
+        if (m.shader == null || DumpedUnseenShaders.Count >= 4 || !DumpedUnseenShaders.Add(m.shader.name))
+            return;
+
+        var sb = new System.Text.StringBuilder(256);
+        int count = m.shader.GetPropertyCount();
+        int listed = 0;
+        for (int i = 0; i < count && listed < 24; i++)
+        {
+            string name = m.shader.GetPropertyName(i);
+            UnityEngine.Rendering.ShaderPropertyType type = m.shader.GetPropertyType(i);
+            if (!m.HasProperty(name))
+                continue;
+            switch (type)
+            {
+                case UnityEngine.Rendering.ShaderPropertyType.Float:
+                case UnityEngine.Rendering.ShaderPropertyType.Range:
+                    sb.Append(' ').Append(name).Append('=').Append(m.GetFloat(name).ToString("0.###"));
+                    break;
+                case UnityEngine.Rendering.ShaderPropertyType.Vector:
+                    Vector4 v = m.GetVector(name);
+                    sb.Append(' ').Append(name).Append('=')
+                      .Append($"({v.x:0.###},{v.y:0.###},{v.z:0.###},{v.w:0.###})");
+                    break;
+                case UnityEngine.Rendering.ShaderPropertyType.Color:
+                    Color c = m.GetColor(name);
+                    sb.Append(' ').Append(name).Append('=')
+                      .Append($"rgba({c.r:0.##},{c.g:0.##},{c.b:0.##},{c.a:0.##})");
+                    break;
+                default:
+                    continue; // textures/ints carry no wave amplitude
+            }
+            listed++;
+        }
+        VRLog.Info("Core", $"MR: UNSEEN-SHADER PROPERTIES '{m.shader.name}' (material '{m.name}', " +
+                           $"{count} propert(ies)):{sb} — read the animation amplitude off this " +
+                           "line to replace the inferred UnseenSkirtScale default with an " +
+                           "asset-derived one.");
     }
 
     /// <summary>

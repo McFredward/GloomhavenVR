@@ -260,6 +260,16 @@ internal static partial class Loc
                 + "werden beim Ausschalten von MR zerstört — der normale Modus bleibt unberührt. Nur AUS, "
                 + "wenn ein Durchlauf zeigt, dass gewollte Geometrie verdunkelt wird — das Log nennt, was "
                 + "hinterlegt wurde.",
+            ["MixedReality/UnseenSkirtScale"] =
+                "Größe jeder dunklen Rückplatte der 'Unseen'-Geometrie relativ zu ihrer Geometrie (1 = "
+                + "exakte Silhouette). Die Fog-of-War-Shader ANIMIEREN ihre Oberfläche leicht über das "
+                + "statische Mesh hinaus; eine exakt gleich große Rückplatte lässt den bewegten Saum "
+                + "gegen das durchscheinende Zimmer mischen — die Platte wird deshalb um diesen Faktor um "
+                + "den Mittelpunkt des Stücks vergrößert, damit die Animation immer auf Dunkel landet. "
+                + "Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu gebaut). Erhöhen, wenn "
+                + "ein animierter Rand weiter transparent schimmert; verringern, wenn ein dunkler Saum "
+                + "sichtbar über den aufgedeckten Boden neben dem unentdeckten Gebiet ragt. Begrenzt auf "
+                + "1..2.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
