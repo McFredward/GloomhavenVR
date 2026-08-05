@@ -276,7 +276,8 @@ internal static partial class WallSegmentFade
             _fastSegScratch.Clear();
             foreach (Segment seg in _segments.Values)
             {
-                if (seg.HasBounds && seg.Fade >= FoliageHideFade && seg.Stacked.Count > 0
+                if (seg.HasBounds && seg.Fade >= FoliageHideFade
+                    && (seg.Stacked.Count > 0 || seg.Body.Count > 0)
                     && StackEligible(seg) && seg.Stacked.Count < StackMaxPerSegment)
                     _fastSegScratch.Add(seg);
             }
@@ -299,7 +300,13 @@ internal static partial class WallSegmentFade
                     float gap = HorizontalGap(seg.Bounds, b);
                     if (gap > StackLinkMaxXZ || gap >= bestGap)
                         continue;
-                    if (b.min.y < seg.StackOrigTop - StackMaxOverlapDownWU
+                    // BODY walls (round 6, enabled-only masonry): a regenerated course can
+                    // sit anywhere in the wall column, so the band's lower bound is the
+                    // ground exclusion, not the original course top.
+                    float lower = seg.Renderers.Count == 0 && seg.Body.Count > 0
+                        ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                        : seg.StackOrigTop - StackMaxOverlapDownWU;
+                    if (b.min.y < lower
                         || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
                         continue;
                     if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
@@ -395,6 +402,10 @@ internal static partial class WallSegmentFade
                     {
                         if (p.Renderer == null || !_stackedOwned.Add(p.Renderer))
                             continue;
+                        // A fast-reclaimed mesh that the body collection has since taken
+                        // over (round 6) belongs to the BODY now — do not double-own it.
+                        if (p.Renderer is MeshRenderer bm && IsSegmentListedRenderer(bm))
+                            continue;
                         seg.Stacked.Add(p);
                         _censusStacked++;
                         if (seg.HasBounds)
@@ -480,6 +491,12 @@ internal static partial class WallSegmentFade
                 if (seg.Renderers.Contains(r) || seg.Foliage.Contains(r)
                     || seg.Siblings.Contains(r))
                     return true;
+                // Wall BODY meshes (round 6) are the wall itself — never stack candidates.
+                foreach (MountedProp p in seg.Body)
+                {
+                    if (ReferenceEquals(p.Renderer, r))
+                        return true;
+                }
                 if (seg.MountedState != 0 || seg.Fade > 0f)
                 {
                     foreach (MountedProp p in seg.Mounted)
