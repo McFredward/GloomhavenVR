@@ -37,6 +37,7 @@ internal static partial class Defaults
     internal static readonly Color KeyColor = new Color(0f, 1f, 0f, 1f);  // => [MixedReality] KeyColor
     internal const bool HideSkyMeshes = true;                             // => [MixedReality] HideSkyMeshes
     internal const bool OpaquePreviewTiles = true;                        // => [MixedReality] OpaquePreviewTiles
+    internal const float UnseenSkirtScale = 1.2f;                         // => [MixedReality] UnseenSkirtScale  (INFERRED margin for the fog-of-war shaders' animated fringe — no asset-side amplitude readable offline; the UNSEEN-SHADER PROPERTIES log line exists to replace this guess with an asset-derived value)
 
     // ---- Core/PerfConfig.cs --------------------------------------------------------
     internal const bool Perf_Enabled = true;                 // => [Perf] Enabled
