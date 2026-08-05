@@ -75,5 +75,4 @@ internal static partial class Defaults
     internal const float ExitDwellMovedSeconds = 2.5f;       // => [WallFade] ExitDwellMovedSeconds
     internal const float ExitDwellStationarySeconds = 3.6f;  // => [WallFade] ExitDwellStationarySeconds
     internal const bool StackedShellFade = true;             // => [WallFade] StackedShellFade
-    internal const bool CrossRoomCoverage = true;            // => [WallFade] CrossRoomCoverage
 }
