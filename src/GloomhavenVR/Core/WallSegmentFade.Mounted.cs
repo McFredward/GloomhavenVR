@@ -395,6 +395,7 @@ internal static partial class WallSegmentFade
             {
                 seg.MountedState = 0;
                 seg.StackedState = 0; // stacked pieces share the ledger just emptied
+                seg.BodyState = 0;    // …as do the plain wall-body meshes
             }
         }
 
@@ -482,6 +483,13 @@ internal static partial class WallSegmentFade
                         continue;
                     _mountedOwned.Add(p.Renderer);
                     _attachmentOwned[p.Renderer] = new OwnerRef(seg, "stacked shell piece");
+                }
+                foreach (MountedProp p in seg.Body)
+                {
+                    if (p.Renderer == null)
+                        continue;
+                    _mountedOwned.Add(p.Renderer);
+                    _attachmentOwned[p.Renderer] = new OwnerRef(seg, "wall body mesh");
                 }
             }
 

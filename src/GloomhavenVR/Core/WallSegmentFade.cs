@@ -787,6 +787,7 @@ internal static partial class WallSegmentFade
                 LogMountedCensus();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
                 int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0, stacked = 0;
+                int bodyWalls = 0, bodyMeshes = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
@@ -797,13 +798,20 @@ internal static partial class WallSegmentFade
                     siblings += s.Siblings.Count;
                     mounted += s.Mounted.Count;
                     stacked += s.Stacked.Count;
+                    if (s.Body.Count > 0)
+                    {
+                        bodyWalls++;
+                        bodyMeshes += s.Body.Count;
+                    }
                     if (!RoomDecisionValid(s.RoomIndex)) failSafeSegs++;
                     if (s.DoorRoot != null)
                         doorways++;
                 }
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
-                      + $"renderer — their shaders: {string.Join(", ", _unfadeableWallShaders)}"
+                      + $"renderer — their shaders: {string.Join(", ", _unfadeableWallShaders)} "
+                      + $"— now fading as {bodyWalls} plain-mesh BODY column(s) "
+                      + $"({bodyMeshes} mesh(es), renderer.enabled delivery [round 6])"
                     : string.Empty;
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
@@ -1088,7 +1096,8 @@ internal static partial class WallSegmentFade
                     $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage, " +
                     $"+{seg.Siblings.Count} asset-sibling(s), +{seg.Mounted.Count} mounted " +
                     $"prop(s) [{MountedNames(seg)}], +{seg.Stacked.Count} stacked shell " +
-                    $"piece(s)) — held state: " +
+                    $"piece(s), +{seg.Body.Count} plain body mesh(es) [enabled-only]) — " +
+                    $"held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
                         ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
@@ -1150,11 +1159,15 @@ internal static partial class WallSegmentFade
                    .Append(" wy[").Append(b.min.y.ToString("F2")).Append("..")
                    .Append(b.max.y.ToString("F2")).Append(']')
                    .Append(" e").Append(seg.BlockEps.ToString("F2"))
-                   .Append(seg.VariantHigh ? (seg.VariantLow ? " vH+L" : " vHIGH") : " vLOW");
+                   .Append(seg.VariantHigh ? (seg.VariantLow ? " vH+L" : " vHIGH")
+                       : (seg.VariantLow ? " vLOW" : seg.Body.Count > 0 ? " vBODY" : " vLOW"));
             // Stacked shell pieces riding this wall (keep stories) — only printed when any
             // exist, so scenes without superstructures keep their diag lines unchanged.
             if (seg.Stacked.Count > 0)
                 _diagSb.Append(" S").Append(seg.Stacked.Count);
+            // Plain-mesh wall body (round 6): masonry without a fade shader, enabled-only.
+            if (seg.Body.Count > 0)
+                _diagSb.Append(" B").Append(seg.Body.Count);
             // Tripwire: this wall's own room's sample plane sits above the wall AABB top —
             // the exact frame-mismatch class the round-6 hardware log caught (sampY 9.05 vs
             // wall tops ≤3.67: bounds-derived plane, occlusion-proxy meshes).
@@ -1309,6 +1322,7 @@ internal static partial class WallSegmentFade
             ApplySiblings(seg);
             ApplyMounted(seg);
             ApplyStacked(seg);
+            ApplyBody(seg);
             if (seg.Fade <= 0f)
             {
                 if (seg.HasBlock)
@@ -1555,6 +1569,7 @@ internal static partial class WallSegmentFade
                     RestoreSegmentSiblings(kv.Value);
                     RestoreSegmentMounted(kv.Value);
                     RestoreSegmentStacked(kv.Value);
+                    RestoreSegmentBody(kv.Value);
                     _deadKeys.Add(kv.Key!); // destroyed Unity object — reference still hashes
                 }
             }
@@ -1683,19 +1698,32 @@ internal static partial class WallSegmentFade
                         RestoreFoliageRenderer(f);
                     seg.Foliage.RemoveAt(i);
                 }
+                // BODY meshes obey the same ground rule (round 6): the foundation course
+                // stays solid — the flat game's own band behaviour, kept for plain walls.
+                for (int i = seg.Body.Count - 1; i >= 0; i--)
+                {
+                    Renderer br = seg.Body[i].Renderer;
+                    if (br == null || br.bounds.max.y > ceiling)
+                        continue;
+                    if (seg.BodyState != 0)
+                        RestoreProp(seg.Body[i]);
+                    seg.Body.RemoveAt(i);
+                    changed = true;
+                }
                 if (!changed)
                     continue;
-                if (seg.Renderers.Count == 0)
+                if (seg.Renderers.Count == 0 && seg.Body.Count == 0)
                 {
                     // Segment leaves the table — free ALL its attachments (bushes, doors, dressing).
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
                     RestoreSegmentMounted(seg);
                     RestoreSegmentStacked(seg);
+                    RestoreSegmentBody(seg);
                     _deadKeys.Add(kv.Key);
                     continue;
                 }
-                // Recompute the AABB from the surviving (actual wall) renderers.
+                // Recompute the AABB from the surviving (actual wall) renderers + body.
                 seg.HasBounds = false;
                 foreach (MeshRenderer r in seg.Renderers)
                 {
@@ -1709,6 +1737,20 @@ internal static partial class WallSegmentFade
                     else
                     {
                         seg.Bounds.Encapsulate(r.bounds);
+                    }
+                }
+                foreach (MountedProp p in seg.Body)
+                {
+                    if (p.Renderer == null)
+                        continue;
+                    if (!seg.HasBounds)
+                    {
+                        seg.Bounds = p.Renderer.bounds;
+                        seg.HasBounds = true;
+                    }
+                    else
+                    {
+                        seg.Bounds.Encapsulate(p.Renderer.bounds);
                     }
                 }
                 if (seg.HasBounds)
@@ -1775,6 +1817,7 @@ internal static partial class WallSegmentFade
                 RestoreSegmentSiblings(group); // ditto for asset siblings (doors/trim)
                 RestoreSegmentMounted(group);  // …and for the wall-mounted dressing (torches)
                 RestoreSegmentStacked(group);  // …and for stacked shell pieces (keep stories)
+                RestoreSegmentBody(group);     // …and for plain wall-body meshes (masonry)
                 if (group.HasBlock)
                 {
                     foreach (MeshRenderer r in group.Renderers)
@@ -2538,11 +2581,27 @@ internal static partial class WallSegmentFade
             return false;
         }
 
+        /// <summary>ADJACENT RE-ANCHOR reach (round 6, wu): a wall whose nearest room is
+        /// unanchorable re-anchors to an anchored logical room only when it PHYSICALLY
+        /// borders it — XZ gap at most this. A bordering wall touches its room (gap ≈ 0);
+        /// 2.0 covers door frames and corner slack while a genuinely interior wall of a
+        /// distant unrevealed room (other map tiles ≥ ~11 wu away) can never reach.</summary>
+        private const float AdjacentReanchorMaxGapWU = 2.0f;
+
         /// <summary>
         /// Bind every wall segment to the ONE room whose AABB it borders: smallest XZ gap
         /// between wall AABB and room AABB (a wall bordering its room touches it → gap 0;
         /// Y is ignored — room-bounds Y is the untrusted proxy axis). Near-ties (a door
         /// wall between two rooms) go to the room whose center is nearer to the wall.
+        ///
+        /// ROUND-6 ADJACENT RE-ANCHOR: when the nearest room is NOT decision-valid
+        /// (unanchored / no grid — the keep log: 23 perimeter walls stuck fail-safe on
+        /// never-anchoring neighbor entries) but the wall PHYSICALLY borders an anchored
+        /// logical room (gap ≤ <see cref="AdjacentReanchorMaxGapWU"/>), the wall is
+        /// assigned to THAT room. This is still strict own-room accounting — the wall is
+        /// simply bound to the room it actually encloses; an unanchorable sliver between
+        /// the wall and the real room no longer steals the assignment. Walls bordering NO
+        /// anchored room keep the fail-safe (solid).
         /// </summary>
         private void AssociateRooms()
         {
@@ -2570,6 +2629,39 @@ internal static partial class WallSegmentFade
                         bestCenter = center;
                         seg.RoomIndex = r;
                     }
+                }
+
+                if (seg.RoomIndex >= 0 && !RoomDecisionValid(seg.RoomIndex))
+                {
+                    // Adjacent re-anchor (see the method doc): nearest DECISION-VALID room
+                    // the wall actually borders, if any.
+                    float maxGapSq = AdjacentReanchorMaxGapWU * AdjacentReanchorMaxGapWU;
+                    float altGap = float.PositiveInfinity;
+                    float altCenter = float.PositiveInfinity;
+                    int alt = -1;
+                    for (int r = 0; r < _roomBounds.Count; r++)
+                    {
+                        if (!RoomDecisionValid(r))
+                            continue;
+                        Bounds room = _roomBounds[r];
+                        float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
+                        float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
+                        float gap = gx * gx + gz * gz;
+                        if (gap > maxGapSq)
+                            continue;
+                        float cx = room.center.x - w.center.x;
+                        float cz = room.center.z - w.center.z;
+                        float center = cx * cx + cz * cz;
+                        if (gap < altGap - 0.0001f
+                            || (gap <= altGap + 0.0001f && center < altCenter))
+                        {
+                            altGap = gap;
+                            altCenter = center;
+                            alt = r;
+                        }
+                    }
+                    if (alt >= 0)
+                        seg.RoomIndex = alt;
                 }
             }
         }
@@ -2688,6 +2780,17 @@ internal static partial class WallSegmentFade
                         }
                     }
                 }
+                // ROUND 6: the tripwire case is no longer diagnose-only — these plain
+                // meshes ARE the visible wall (the keep masonry); collect them as the
+                // segment's BODY (bounds + enabled-only delivery, WallSegmentFade.Body.cs).
+                CollectPlainWallBody(seg, all);
+            }
+            else if (seg.Body.Count > 0)
+            {
+                // The wall (re)gained real fade renderers — the game's own shader path
+                // wins; release the body takeover cleanly.
+                RestoreSegmentBody(seg);
+                seg.Body.Clear();
             }
         }
 
@@ -2861,6 +2964,7 @@ internal static partial class WallSegmentFade
                 RestoreSegmentSiblings(seg);
                 RestoreSegmentMounted(seg);
                 RestoreSegmentStacked(seg);
+                RestoreSegmentBody(seg);
                 if (!seg.HasBlock)
                     continue;
                 seg.HasBlock = false;
