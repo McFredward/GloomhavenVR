@@ -135,6 +135,16 @@ internal static partial class WallSegmentFade
         /// bounds are a smoke plume, not an object size (it was rejecting the torches' own heat
         /// haze at y[1.2..4.7]).</summary>
         private const float MountedMaxSpanWU = 3.0f;
+        /// <summary>MESHES only, second architecture guard (stacked-shell hardware round 2):
+        /// the two-fat-axes span test deliberately admits long+thin dressing (banners, hanging
+        /// bars) — but a battlement run is long+thin TOO, and once the stacked pass had raised
+        /// a wall's AABB top, the fort's rejected superstructure meshes slipped in here as
+        /// "dressing" (fade ON 'Wall 2': +22 mounted props incl. TO_Fort_WallTop02/polySurface1)
+        /// — riding the fade while contributing ZERO occlusion, silently starving the coverage
+        /// trigger. AABB VOLUME separates them: sconces/candles ≪ 0.5 wu³, a big banner with
+        /// its bar ≈ 0.5–1 wu³, the smallest fort course ≥ ~2 wu³. Anything above this cap is
+        /// architecture — stacked-shell territory or nothing, never sconce dressing.</summary>
+        private const float MountedMaxMeshVolumeWU3 = 1.5f;
         /// <summary>Runaway guard — no wall run carries more dressing than this.</summary>
         private const int MountedMaxPerSegment = 32;
         /// <summary>Diagnostic radius (wu): an airborne renderer this close to a wall but NOT
@@ -610,6 +620,17 @@ internal static partial class WallSegmentFade
                     if (!particles && fatAxes >= 2)
                     {
                         NoteMountedReject(c, anchorY, bestGap, "too big for dressing (architecture)");
+                        continue;
+                    }
+                    // Architecture-scale VOLUME guard (stacked-shell round 2): long+thin passes
+                    // the span test, but a wall course is long+thin too — see the constant.
+                    float volume = b.size.x * b.size.y * b.size.z;
+                    if (!particles && volume > MountedMaxMeshVolumeWU3)
+                    {
+                        NoteMountedReject(c, anchorY, bestGap,
+                            $"architecture-scale (AABB volume {volume:F1} wu³ > "
+                            + $"{MountedMaxMeshVolumeWU3:F1}) — stacked-shell territory, "
+                            + "never sconce dressing");
                         continue;
                     }
                     if (c.GetComponentInParent<ActorBehaviour>() != null

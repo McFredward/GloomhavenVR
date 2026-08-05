@@ -66,6 +66,27 @@ namespace GloomhavenVR.Core;
 ///
 /// MULTIPLAYER: local rendering only (property blocks + renderer.enabled on local scenery),
 /// nothing synced, peers unaffected — same contract as every other WallSegmentFade attachment.
+///
+/// HARDWARE ROUND 2 (2026-08-05 log — keep still solid, three findings, all fixed here):
+/// <list type="bullet">
+/// <item>BAND ANCHOR: the fixpoint adopted only the TALLEST piece per wall ('polySurface2',
+///   top ~5.0) — raising the live AABB top made every sibling with base 3.3–3.5 read as
+///   "inside/below the wall body" (&gt; StackMaxOverlapDownWU under the RAISED top). The
+///   band's lower bound now anchors on the wall's ORIGINAL course top
+///   (<c>Segment.StackOrigTop</c>, snapshotted before any extension); only the upper bound
+///   tracks the grown column.</item>
+/// <item>DOORWAY MASKING: adoption always fell back to the nearest NON-doorway wall in range
+///   (doorways are skipped in the search), but the near-miss classifier reported the
+///   geometrically nearest wall of ANY kind — gate-top pieces failing the (buggy) band test
+///   against their flanking wall were logged as "nearest wall is a DOORWAY", masking the real
+///   reason. The classifier now grades against the nearest ELIGIBLE wall and mentions a
+///   doorway only when no fadeable wall is in reach at all.</item>
+/// <item>MOUNTED STEAL: the pieces this pass rejected were then accepted by the LATER mounted
+///   pass against the extended AABB (fade ON 'Wall 2' carried the fort as "+22 mounted
+///   prop(s)") — riding the fade while contributing ZERO occlusion, so the trigger kept
+///   starving. The mounted pass now has an architecture-scale mesh guard
+///   (<see cref="FadeDriver.MountedMaxMeshVolumeWU3"/>) so this class cannot recur.</item>
+/// </list>
 /// </summary>
 internal static partial class WallSegmentFade
 {
@@ -78,6 +99,15 @@ internal static partial class WallSegmentFade
         public readonly List<MountedProp> PrevStacked = new();
         /// <summary>0 = restored/untouched, 1 = dissolving, 2 = hidden.</summary>
         public int StackedState;
+        /// <summary>The wall's ORIGINAL course top (AABB max.y BEFORE any stacked piece
+        /// extended it this rescan) — the anchor of the stack band's LOWER bound. Hardware
+        /// round 2 proved the live top is the wrong anchor: the fixpoint adopted the tallest
+        /// piece first (top 2.75 → ~5.0), and every sibling whose base (3.3–3.5) then sat
+        /// &gt; StackMaxOverlapDownWU below the RAISED top was rejected as "inside/below the
+        /// wall body" — the fort's real mass stayed solid. A piece is a continuation iff its
+        /// base clears the original masonry course; how far the column has already grown is
+        /// irrelevant to that question.</summary>
+        public float StackOrigTop = float.NegativeInfinity;
     }
 
     private sealed partial class FadeDriver
@@ -201,6 +231,9 @@ internal static partial class WallSegmentFade
                 seg.PrevStacked.Clear();
                 seg.PrevStacked.AddRange(seg.Stacked);
                 seg.Stacked.Clear();
+                // Snapshot the ORIGINAL course top before sticky pieces or adoptions extend
+                // the AABB — the stack band's lower bound anchors here (see StackOrigTop).
+                seg.StackOrigTop = seg.HasBounds ? seg.Bounds.max.y : float.NegativeInfinity;
             }
 
             bool enabled = WallFadeTuning.StackedShells;
@@ -340,10 +373,13 @@ internal static partial class WallSegmentFade
                         float gap = HorizontalGap(seg.Bounds, b);
                         if (gap > StackLinkMaxXZ || gap >= bestGap)
                             continue;
-                        float top = seg.Bounds.max.y;
-                        if (b.min.y < top - StackMaxOverlapDownWU
-                            || b.min.y > top + StackMaxRiseWU)
-                            continue; // not the next course of THIS column
+                        // STACK BAND (hardware round 2 fix): the LOWER bound anchors on the
+                        // wall's ORIGINAL course top — whether the column already grew past
+                        // the piece is irrelevant to "does it continue the masonry". Only
+                        // the UPPER bound tracks the live top, so chained stories connect.
+                        if (b.min.y < seg.StackOrigTop - StackMaxOverlapDownWU
+                            || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
+                            continue; // not a course of THIS column
                         if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
                             continue; // ground band of the wall's own room never fades
                         bestGap = gap;
@@ -402,6 +438,14 @@ internal static partial class WallSegmentFade
         /// One pass over the leftovers: every unadopted candidate near a wall gets its exact
         /// rejection reason into the census — the line that answers "why is THAT keep story
         /// still solid" from the log alone (the mounted near-miss discipline).
+        ///
+        /// Round-2 lesson: classification runs against the nearest ELIGIBLE (fadeable) wall,
+        /// not the nearest wall of any kind. The adoption loop always considered every
+        /// non-doorway wall in range (nearest ELIGIBLE wins — the doorway "fallback" was
+        /// built in from the start), but the old classifier reported whatever was
+        /// geometrically closest, so a gate-top piece rejected on the band test against its
+        /// FLANKING wall was logged as "nearest wall is a DOORWAY" — masking the real reason
+        /// and reading as if doorway proximity chained the piece to permanent solidity.
         /// </summary>
         private void ClassifyStackNearMisses()
         {
@@ -410,39 +454,58 @@ internal static partial class WallSegmentFade
                 if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                     continue;
                 Bounds b = c.bounds;
-                Segment? near = null;
+                Segment? near = null;              // nearest ELIGIBLE wall — the one adoption tried
                 float nearGap = float.PositiveInfinity;
+                Segment? nearAny = null;           // nearest wall of any kind (diag anchor)
+                float nearAnyGap = float.PositiveInfinity;
                 foreach (Segment seg in _segments.Values)
                 {
                     if (!seg.HasBounds)
                         continue;
                     float gap = HorizontalGap(seg.Bounds, b);
-                    if (gap < nearGap)
+                    if (gap < nearAnyGap)
+                    {
+                        nearAnyGap = gap;
+                        nearAny = seg;
+                    }
+                    if (StackEligible(seg) && gap < nearGap)
                     {
                         nearGap = gap;
                         near = seg;
                     }
                 }
-                if (near == null || nearGap > StackNearMissXZ)
+                if (nearAny == null || nearAnyGap > StackNearMissXZ)
                     continue; // not near any wall — not a shell candidate at all
                 string why;
-                if (near.DoorRoot != null)
-                    why = "nearest wall is a DOORWAY (permanently solid — user ruling 2026-08-02)";
-                else if (near.Engulfing)
-                    why = "nearest wall is held solid (engulfing)";
-                else if (!RoomDecisionValid(near.RoomIndex))
-                    why = "nearest wall is FAIL-SAFE solid (room unanchored/no floor grid)";
+                if (near == null || nearGap > StackNearMissXZ)
+                {
+                    why = nearAny.DoorRoot != null
+                        ? "only a DOORWAY nearby (permanently solid — user ruling 2026-08-02); "
+                          + "no fadeable wall within reach to fall back to"
+                        : nearAny.Engulfing
+                            ? "only a held-solid (engulfing) wall nearby"
+                            : "only a FAIL-SAFE-solid wall nearby (room unanchored/no floor grid)";
+                }
                 else if (nearGap > StackLinkMaxXZ)
-                    why = $"gap {nearGap:F2} beyond the stack link range {StackLinkMaxXZ:F2}";
+                {
+                    why = $"gap {nearGap:F2} to the nearest fadeable wall is beyond the stack "
+                        + $"link range {StackLinkMaxXZ:F2}";
+                }
                 else if (b.min.y > near.Bounds.max.y + StackMaxRiseWU)
-                    why = $"base {b.min.y:F1} floats {b.min.y - near.Bounds.max.y:F1} over the "
-                        + "wall top — outside the stack band";
-                else if (b.min.y < near.Bounds.max.y - StackMaxOverlapDownWU)
-                    why = $"base {b.min.y:F1} sits inside/below the wall body — parallel "
-                        + "geometry, not a continuation";
+                {
+                    why = $"base floats {b.min.y - near.Bounds.max.y:F1} over the fadeable "
+                        + "wall's column top — outside the stack band";
+                }
+                else if (b.min.y < near.StackOrigTop - StackMaxOverlapDownWU)
+                {
+                    why = $"base sits below the fadeable wall's ORIGINAL course top "
+                        + $"{near.StackOrigTop:F1} — parallel geometry, not a continuation";
+                }
                 else
-                    why = "wall at capacity or ground-band check failed";
-                NoteStackReject(c, nearGap, why);
+                {
+                    why = "fadeable wall at capacity or ground-band check failed";
+                }
+                NoteStackReject(c, near != null && nearGap <= StackNearMissXZ ? nearGap : nearAnyGap, why);
             }
         }
 
@@ -450,7 +513,14 @@ internal static partial class WallSegmentFade
         {
             _censusStackedRejected++;
             if (_stackRejects.Count < StackRejectCap)
-                _stackRejects.Add($"'{c.name}' gap {gap:F2}: {why}");
+            {
+                Bounds b = c.bounds;
+                // Full y-band on every reject (round 2): the piece TOPS are what decide
+                // whether the trigger geometry can ever work — they must be readable from
+                // the log without another blind hardware round.
+                _stackRejects.Add(
+                    $"'{c.name}' y[{b.min.y:F1}..{b.max.y:F1}] gap {gap:F2}: {why}");
+            }
         }
 
         /// <summary>
@@ -472,9 +542,11 @@ internal static partial class WallSegmentFade
             VRLog.Info(Name,
                 $"STACKED SHELL: {_censusStacked} superstructure piece(s) extend their wall's "
                 + $"occlusion AABB and dissolve WITH it (plain meshes continuing a wall column "
-                + $"upward — XZ gap ≤{StackLinkMaxXZ:0.00} wu, base within "
-                + $"−{StackMaxOverlapDownWU:0.0}..+{StackMaxRiseWU:0.00} wu of the wall top, "
-                + $"chained over ≤{StackMaxRounds} stories; engulf-guarded; ownership sticky "
+                + $"upward — XZ gap ≤{StackLinkMaxXZ:0.00} wu, base ≥ ORIGINAL course top "
+                + $"−{StackMaxOverlapDownWU:0.0} wu and ≤ grown column top "
+                + $"+{StackMaxRiseWU:0.00} wu, chained over ≤{StackMaxRounds} stories; "
+                + $"doorways skipped in favor of the nearest fadeable wall; "
+                + $"engulf-guarded; ownership sticky "
                 + $"while faded; Lights are NEVER written to; live config [WallFade] "
                 + $"StackedShellFade): {riding}{misses} ({_censusStackedRejected} near-miss "
                 + "total).");
