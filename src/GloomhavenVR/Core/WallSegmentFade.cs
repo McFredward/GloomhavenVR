@@ -571,6 +571,7 @@ internal static partial class WallSegmentFade
             _fastReclaimTotal = 0;
             _nextFastReclaimLog = 0f;
             _heartbeatFadeRenderers = -1;
+            _lastLoggedFigureGuarded = -1;   // re-print the figure-guard proof line
         }
 
         /// <summary>
@@ -1392,8 +1393,46 @@ internal static partial class WallSegmentFade
         /// are matched by shader name ("WallFade") so props/doors under the same entity are
         /// never touched.
         /// </summary>
+        /// <summary>
+        /// FIGURE RESTITUTION (round 7): sweep the shared hidden/ramped ledger against
+        /// <see cref="IsFigureOrActorRenderer"/> and restore every violator NOW — a figure
+        /// renderer adopted before the guard existed (or through any future gap) must come
+        /// back the moment the guard classifies it, and the guarded collectors + sticky
+        /// loops will not re-take it. Runs first in every rescan; logs once per incident.
+        /// </summary>
+        private readonly List<MountedProp> _figurePurgeScratch = new();
+
+        private void PurgeFigureRenderers()
+        {
+            if (_mountedTouched.Count == 0)
+                return;
+            _figurePurgeScratch.Clear();
+            foreach (MountedProp p in _mountedTouched.Values)
+            {
+                if (p.Renderer != null && IsFigureOrActorRenderer(p.Renderer))
+                    _figurePurgeScratch.Add(p);
+            }
+            if (_figurePurgeScratch.Count == 0)
+                return;
+            var names = new System.Text.StringBuilder();
+            foreach (MountedProp p in _figurePurgeScratch)
+            {
+                if (names.Length > 0)
+                    names.Append(", ");
+                names.Append('\'').Append(p.Renderer.name).Append('\'');
+                RestoreProp(p);
+            }
+            VRLog.Warn(Name,
+                $"FIGURE RESTITUTION: restored {_figurePurgeScratch.Count} previously-adopted "
+                + $"FIGURE renderer(s) ({names}) — figures are NEVER touched by any wall "
+                + "system (round-7 ruling, same severity as the Lights rule).");
+            _figurePurgeScratch.Clear();
+        }
+
         private void Rescan(TilesOcclusionGenerator gen)
         {
+            // Figures first (round 7): nothing below may keep or re-take an actor renderer.
+            PurgeFigureRenderers();
             // Tile-plane anchors (round 7): each TilesOcclusionVolume knows its room's
             // renderers AND its CentralTile, whose transform sits ON the tile plane. The
             // renderer bounds are only trusted for the XZ footprint — their Y is the
@@ -2534,6 +2573,33 @@ internal static partial class WallSegmentFade
         private static bool IsModObject(Renderer r) =>
             r.gameObject.layer == VRLayers.ModLayer
             || r.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal);
+
+        /// <summary>
+        /// FIGURES ARE NEVER TOUCHED — round-7 ruling, same severity as the Lights rule
+        /// (mauern_problem_neu.png: the BRUTE's horned back-of-head was PERMANENTLY hidden —
+        /// an accessory mesh adopted by a wall sweep inside a faded wall's ring-spanning
+        /// AABB). Airtight, deliberately over-broad (fail-open = the renderer stays visible):
+        /// <list type="bullet">
+        /// <item>every <see cref="SkinnedMeshRenderer"/>, outright — characters are skinned,
+        ///   scenery is not; the banner case loses skinned support, accepted;</item>
+        /// <item>anything under an <c>ActorBehaviour</c> ancestor (the game's board actor);</item>
+        /// <item>anything under a <c>CInteractableActor</c> ancestor (the game's interactable
+        ///   figure root — the same component FigureGrab picks by);</item>
+        /// <item>anything under an <c>Animator</c> ancestor — a horn/head accessory hangs off
+        ///   a BONE, and whatever the actor component layout, the animation rig root is
+        ///   always above it. Also excludes animated props (chests…), which no wall system
+        ///   should ever hide anyway.</item>
+        /// </list>
+        /// Checked by EVERY adoption sweep (stack candidates + adoption + fast reclaim, wall
+        /// body, mounted dressing, corner pieces) and enforced retroactively by
+        /// <see cref="PurgeFigureRenderers"/> each rescan (restitution: a previously-adopted
+        /// figure renderer is restored the moment this guard classifies it).
+        /// </summary>
+        private static bool IsFigureOrActorRenderer(Renderer r) =>
+            r is SkinnedMeshRenderer
+            || r.GetComponentInParent<ActorBehaviour>() != null
+            || r.GetComponentInParent<CInteractableActor>() != null
+            || r.GetComponentInParent<Animator>() != null;
 
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
         private bool RendererUsesFoliage(MeshRenderer r)

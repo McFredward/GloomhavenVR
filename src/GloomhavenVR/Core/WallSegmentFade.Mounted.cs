@@ -401,15 +401,15 @@ internal static partial class WallSegmentFade
 
         // ---- collection ---------------------------------------------------------------------
 
-        /// <summary>Renderer families that can be wall dressing. SkinnedMeshRenderer is IN since
-        /// round 3: hanging cloth (banners, flags and their hardware) is routinely authored as a
-        /// skinned mesh, and characters — the reason it was excluded — are already caught by the
-        /// ActorBehaviour guard, our own hands by the mod-layer guard, and anything standing on
-        /// the floor by the airborne bar. Line/Trail renderers stay out: they are effects, never
+        /// <summary>Renderer families that can be wall dressing. SkinnedMeshRenderer was IN
+        /// from round 3 (skinned banners) until ROUND 7 REVOKED it: the BRUTE's horned head
+        /// accessory was adopted by a wall sweep and permanently hidden (mauern_problem_neu
+        /// .png) — figures are NEVER touched (Lights-rule severity), and "skinned = possibly
+        /// a character" is exactly the ambiguity the airtight guard forbids. Skinned banners
+        /// stay visible (fail-open, accepted). Line/Trail renderers stay out: effects, never
         /// scenery.</summary>
         private static bool IsMountableRendererType(Renderer r) =>
-            r is MeshRenderer || r is ParticleSystemRenderer || r is SpriteRenderer
-            || r is SkinnedMeshRenderer;
+            r is MeshRenderer || r is ParticleSystemRenderer || r is SpriteRenderer;
 
         /// <summary>
         /// Log a renderer that left the sweep BEFORE any geometric test (wrong renderer family,
@@ -507,6 +507,9 @@ internal static partial class WallSegmentFade
                     foreach (MountedProp p in seg.PrevMounted)
                     {
                         if (p.Renderer == null || !_mountedOwned.Add(p.Renderer))
+                            continue;
+                        // Figures are NEVER carried, sticky or not (round-7 ruling).
+                        if (IsFigureOrActorRenderer(p.Renderer))
                             continue;
                         seg.Mounted.Add(p);
                         _censusMounted++;
@@ -655,8 +658,13 @@ internal static partial class WallSegmentFade
                             + "never sconce dressing");
                         continue;
                     }
-                    if (c.GetComponentInParent<ActorBehaviour>() != null
-                        || c.GetComponentInParent<TileBehaviour>() != null
+                    if (IsFigureOrActorRenderer(c))
+                    {
+                        NoteMountedReject(c, anchorY, bestGap,
+                            "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
+                        continue;
+                    }
+                    if (c.GetComponentInParent<TileBehaviour>() != null
                         || c.GetComponentInParent<Canvas>() != null
                         || c.GetComponent<TMPro.TMP_Text>() != null)
                     {

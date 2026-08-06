@@ -174,6 +174,11 @@ internal static partial class WallSegmentFade
         private readonly List<string> _stackRejects = new();
         private int _censusStacked;
         private int _censusStackedRejected;
+        /// <summary>Round-7 figure guard census: candidates excluded because they belong to a
+        /// FIGURE (never touched — Lights-rule severity), with a few names for the log.</summary>
+        private int _censusFigureGuarded;
+        private int _lastLoggedFigureGuarded = -1;
+        private readonly List<string> _figureGuardNames = new();
         private int _lastLoggedStackedCount = -1;
         private int _lastLoggedStackedRejected = -1;
 
@@ -318,8 +323,9 @@ internal static partial class WallSegmentFade
                     continue;
                 if (RendererUsesWallFade(r) || RendererUsesFoliage(r))
                     continue; // cached shader verdicts — cheap
-                if (r.GetComponentInParent<ActorBehaviour>() != null
-                    || r.GetComponentInParent<TileBehaviour>() != null
+                if (IsFigureOrActorRenderer(r))
+                    continue; // FIGURES are never touched (round-7 ruling)
+                if (r.GetComponentInParent<TileBehaviour>() != null
                     || r.GetComponentInParent<Canvas>() != null
                     || r.GetComponent<TMPro.TMP_Text>() != null)
                     continue;
@@ -376,6 +382,8 @@ internal static partial class WallSegmentFade
             _stackRejects.Clear();
             _censusStacked = 0;
             _censusStackedRejected = 0;
+            _censusFigureGuarded = 0;
+            _figureGuardNames.Clear();
 
             foreach (Segment seg in _segments.Values)
             {
@@ -405,6 +413,9 @@ internal static partial class WallSegmentFade
                         // A fast-reclaimed mesh that the body collection has since taken
                         // over (round 6) belongs to the BODY now — do not double-own it.
                         if (p.Renderer is MeshRenderer bm && IsSegmentListedRenderer(bm))
+                            continue;
+                        // Figures are NEVER carried, sticky or not (round-7 ruling).
+                        if (IsFigureOrActorRenderer(p.Renderer))
                             continue;
                         seg.Stacked.Add(p);
                         _censusStacked++;
@@ -438,6 +449,19 @@ internal static partial class WallSegmentFade
             if (_censusStacked != _lastLoggedStackedCount
                 || _censusStackedRejected != _lastLoggedStackedRejected)
                 LogStackedCensus();
+
+            // Round-7 figure-guard proof line: the next hardware log must show the guard
+            // FIRING, not just existing. Logged whenever the count is nonzero and changed.
+            if (_censusFigureGuarded > 0 && _censusFigureGuarded != _lastLoggedFigureGuarded)
+            {
+                _lastLoggedFigureGuarded = _censusFigureGuarded;
+                VRLog.Info(Name,
+                    $"FIGURE-GUARD: {_censusFigureGuarded} adoption candidate(s) excluded as "
+                    + $"figure/actor renderers (skinned OR under ActorBehaviour/"
+                    + $"CInteractableActor/Animator) — figures are NEVER touched by any wall "
+                    + $"system (round-7 ruling, Lights-rule severity): "
+                    + $"{string.Join(", ", _figureGuardNames)}.");
+            }
         }
 
         /// <summary>
@@ -465,6 +489,15 @@ internal static partial class WallSegmentFade
                 if (IsModObject(r))
                     continue; // mod-owned visual (layer OR 'GloomhavenVR.' name — round 3:
                               // the MR backing plate leaked into the near-miss census)
+                if (IsFigureOrActorRenderer(r))
+                {
+                    // FIGURES ARE NEVER TOUCHED (round-7 ruling, Lights-rule severity):
+                    // excluded before any geometric test, counted for the census.
+                    _censusFigureGuarded++;
+                    if (_figureGuardNames.Count < 6 && !_figureGuardNames.Contains(r.name))
+                        _figureGuardNames.Add(r.name);
+                    continue;
+                }
                 if (r.bounds.min.y < bar)
                     continue; // touches the ground band — not a stacked story
                 if (_stackedOwned.Contains(r))
@@ -564,9 +597,18 @@ internal static partial class WallSegmentFade
                     ext.Encapsulate(b);
                     bool extend = !(InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
                         && InsideOwnRoomFraction(best) < EngulfSampleFraction);
-                    // Live game logic / worldspace UI is never scenery (mounted-pass rule).
-                    if (c.GetComponentInParent<ActorBehaviour>() != null
-                        || c.GetComponentInParent<TileBehaviour>() != null
+                    // Live game logic / worldspace UI is never scenery (mounted-pass rule);
+                    // the figure guard re-checks here too (belt over the prefilter — an
+                    // actor can be re-parented between candidate collection and adoption).
+                    if (IsFigureOrActorRenderer(c))
+                    {
+                        _stackDead.Add(c);
+                        _censusFigureGuarded++;
+                        NoteStackReject(c, bestGap,
+                            "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
+                        continue;
+                    }
+                    if (c.GetComponentInParent<TileBehaviour>() != null
                         || c.GetComponentInParent<Canvas>() != null
                         || c.GetComponent<TMPro.TMP_Text>() != null)
                     {

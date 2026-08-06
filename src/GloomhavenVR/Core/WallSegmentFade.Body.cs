@@ -73,6 +73,8 @@ internal static partial class WallSegmentFade
             {
                 if (r == null || IsModObject(r))
                     continue;
+                if (IsFigureOrActorRenderer(r))
+                    continue; // FIGURES are never touched (round-7 ruling, Lights severity)
                 if (RendererUsesFoliage(r))
                     continue; // rides the wall as a foliage attachment already
                 if (!r.enabled && !_mountedTouched.ContainsKey(r))
