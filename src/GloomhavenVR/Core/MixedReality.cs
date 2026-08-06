@@ -82,13 +82,19 @@ internal static class MixedReality
     /// name from the preview-stack-only round; its scope has grown, its cfg identity has not.</summary>
     internal static ConfigEntry<bool> OpaquePreviewTiles = null!;
 
-    /// <summary>Uniform scale of each unseen underlay beyond its source's rest-pose silhouette
-    /// (round 4, the skirt): the family shaders animate their surface past the static mesh, so a
-    /// 1:1 underlay leaves the moving fringe blending against the passthrough. Tunable so one
-    /// hardware round can dial the margin without a rebuild; applied live (a change rebuilds the
-    /// underlays on the next sweep). Too small = fringe still transparent at the silhouette edge;
-    /// too big = dark apron visibly overlapping the revealed floor next to the unseen region.</summary>
+    /// <summary>XZ widening of each piece's GROOVE FILL copy (round 7 semantics — the round-4
+    /// "skirt on the underlay itself" is gone: round 5 proved the animation is UV-scroll, which
+    /// cannot leave the mesh silhouette, and a DISPLACED primary copy stops sitting coplanar
+    /// behind the beveled groove faces, which round 7's screenshot exposed as green channels.
+    /// The primary underlay is exact 1:1 again; this factor widens only the lowered fill copy so
+    /// neighboring fills overlap under the groove line). Tunable live (a change rebuilds).</summary>
     internal static ConfigEntry<float> UnseenSkirtScale = null!;
+
+    /// <summary>World-units drop of each piece's groove-fill copy below its authored pose
+    /// (round 7): the fill's top surfaces must sit BELOW the beveled V-channel floors between
+    /// neighboring hexes so a ray through a groove lands on dark. Tunable live. Too small = deep
+    /// grooves still glow; too large = the fill peeks out below the outer rim pieces.</summary>
+    internal static ConfigEntry<float> UnseenFillDrop = null!;
 
     /// <summary>
     /// Key-colour presets offered by the settings UI.
@@ -163,11 +169,13 @@ internal static class MixedReality
         public int SourceId;          // GetInstanceID at build time (fast dedup-set removal)
         public Renderer Plate = null!; // the underlay's own MeshRenderer, child of Source
 
-        /// <summary>Round 5: the piece's flat BASE quad under the scene-root holder (world-space,
-        /// so the source's arbitrary rotation/scale never distorts it — NOT a child of the
-        /// source, hence pruned/destroyed explicitly, see <see cref="SyncUnseenUnderlays"/>).
-        /// Null when the piece's XZ bounds were degenerate.</summary>
-        public Renderer? Base;
+        /// <summary>Round 7: the piece's GROOVE FILL — a second same-mesh copy, mildly XZ-widened
+        /// and dropped by <see cref="UnseenFillDrop"/>, whose top surfaces sit UNDER the beveled
+        /// V-channels between neighboring hexes so a ray through a groove lands on dark instead
+        /// of the key. A child of the source like the plate (structural lifecycle); its union
+        /// follows the hex silhouettes — the round-5/6 rectangular base quads it replaces were
+        /// visible as an alien slab at the region rim (user ruling: removed).</summary>
+        public Renderer? Fill;
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -194,22 +202,9 @@ internal static class MixedReality
     /// them (restore + immediate resweep) so tuning needs no MR toggle, let alone a rebuild.</summary>
     private static float _appliedSkirtScale = -1f;
 
-    /// <summary>Scene-root holder for the per-piece base quads (round 5) — world-space parent at
-    /// identity, so a quad's localScale IS its world size whatever the source's transform does.
-    /// Created lazily, destroyed with the underlays; a scene unload takes it (Unity-null here).</summary>
-    private static Transform? _unseenBaseRoot;
-
-    /// <summary>How far below a piece's lowest world Y its base quad sits (world units). Small
-    /// enough to hug the geometry, big enough to clear z-precision at HMD depth.</summary>
-    private const float UnseenBaseDropWu = 0.02f;
-
-    /// <summary>Base-quad footprint relative to the piece's world AABB in XZ. Slightly INSIDE
-    /// (0.98) on purpose: the user explicitly accepts a thin transparency at the region's OUTER
-    /// frame ("zwischen den hexagons oder dem rahmen ist immer noch transparenz (was ok ist)"),
-    /// while a quad poking dark past the outermost hex edge onto void/floor is the visible
-    /// failure. Interior grout stays covered because ADJACENT pieces' AABBs overlap far more
-    /// than 2 % — hex AABBs are wider than the hexes they bound.</summary>
-    private const float UnseenBaseFit = 0.98f;
+    /// <summary>The fill drop the live underlays were built with — tracked beside
+    /// <see cref="_appliedSkirtScale"/> so a config change rebuilds live (round 7).</summary>
+    private static float _appliedFillDrop = -1f;
 
     /// <summary>Shader names whose float/vector properties were already dumped this session
     /// (<see cref="DumpUnseenShaderProperties"/> — the margin-derivation instrument).</summary>
@@ -364,14 +359,20 @@ internal static class MixedReality
             "backings are destroyed when MR turns off — normal mode is never touched. Turn OFF " +
             "only if a run shows it darkening wanted geometry — the log names what it backed.");
         UnseenSkirtScale = _file.Bind("MixedReality", "UnseenSkirtScale", Defaults.UnseenSkirtScale,
-            "Size of each unseen-geometry dark backing relative to its geometry (1 = exact " +
-            "silhouette). The fog-of-war shaders ANIMATE their surface slightly past the static " +
-            "mesh, so an exact-size backing leaves the moving fringe blending against the " +
-            "passthrough room — the backing is therefore scaled up around the piece's center by " +
-            "this factor so the animation always lands on dark. Applies while MR is on, live " +
-            "(backings rebuild on change). Raise if an animated rim still shimmers transparent; " +
-            "lower if a dark apron visibly overlaps the revealed floor next to the unseen area. " +
-            "Clamped to 1..2.");
+            "Widening of each unseen piece's GROOVE-FILL copy relative to its geometry (1 = " +
+            "exact silhouette). Every fog-of-war piece gets TWO dark backings in MR: an exact " +
+            "copy directly behind its surfaces, and a lowered fill copy that plugs the beveled " +
+            "channels BETWEEN neighboring hexes — this factor widens only that fill so " +
+            "neighboring fills overlap under the groove line. Applies while MR is on, live " +
+            "(backings rebuild on change). Raise if grooves between hexes still glow; lower if " +
+            "dark peeks out past the outermost hex edges. Clamped to 1..2.");
+        UnseenFillDrop = _file.Bind("MixedReality", "UnseenFillDrop", Defaults.UnseenFillDrop,
+            "How far (world units) each unseen piece's groove-fill copy sits BELOW its authored " +
+            "pose in MR. The fill's surfaces must lie under the beveled V-channels between " +
+            "neighboring hexes so looking into a groove lands on dark instead of the " +
+            "passthrough room. Applies while MR is on, live (backings rebuild on change). Raise " +
+            "if deep grooves still glow green; lower if dark peeks out below the outer rim " +
+            "pieces. Clamped to 0..2.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -720,23 +721,37 @@ internal static class MixedReality
     /// dump would have fired for it), so by elimination the remaining "green glass BETWEEN the
     /// hexagons" is family geometry scrolling its pattern over the GROUT GAPS between pieces,
     /// where no piece — and therefore no per-piece underlay — has anything dark behind the
-    /// blend. Fix: the per-piece REGION BASE quads (<see cref="BuildUnseenBase"/>) that tile
-    /// the region floor under and between the pieces; the user-accepted residual is a thin
-    /// transparency at the region's OUTER frame (<see cref="UnseenBaseFit"/>).
+    /// blend. Fix at the time: per-piece rectangular REGION BASE quads under each piece's AABB —
+    /// REMOVED again in round 7 (user ruling, see below); the round-7 groove FILL is their
+    /// hex-silhouette successor.
     ///
-    /// ROUND 6 (hardware 2026-08-05 #4, ModBuild 62): the base quads seal the region from BELOW
-    /// but not from ABOVE ("falsch rum — es soll von BEIDEN Seiten dicht sein"). Two candidate
-    /// mechanisms, both closed: (a) CULLING — a single quad is one-sided under any cull-back
-    /// shader, and the dark material's Shader.Find chain can silently fall back from
-    /// Sprites/Default (Cull Off) to Legacy Diffuse (Cull Back); every base is now a TWIN
-    /// back-to-back quad pair (<see cref="BuildUnseenBase"/>), double-sided whatever the shader,
-    /// and the material-creation log names the shader actually found. (b) DEPTH — if the family
-    /// drew AT/below the backings' queue with its pass-0 hardcoded ZWrite On, a later backing
-    /// would fail LEqual behind it from above; the evidence says the family sits above 2500
-    /// (the ModBuild-57 IsTranslucent match could only have passed on the queue), but the
-    /// backings' queue now ADAPTS to observedFamilyMin−1 (<see cref="_familyMinQueue"/>) the
-    /// moment a family material contradicts that, and the property dump prints queue +
-    /// depth/blend state so the next log settles it as fact, not inference.
+    /// ROUND 6 (hardware 2026-08-05 #4, ModBuild 62): the base quads sealed the region from
+    /// BELOW but not from ABOVE ("falsch rum — es soll von BEIDEN Seiten dicht sein"). Two
+    /// candidate mechanisms were closed blind (twin back-to-back quads against cull-back
+    /// shaders; the adaptive backing queue in <see cref="EnsureUnseenMaterials"/> against a
+    /// family depth-write at/below the backings' queue) plus the render-state dump to settle
+    /// them. The ModBuild-63 log then settled BOTH as non-causes: the dark material really is
+    /// 'Sprites/Default' (Cull Off) and the family queue really is 3000 (all pass state
+    /// hardcoded; RenderType tag 'Overlay') — the backings draw first and cull nothing. The
+    /// adaptive queue + dump stay (cheap, and they are the proof for the next anomaly); the
+    /// quads themselves are gone (round 7).
+    ///
+    /// ROUND 7 (hardware 2026-08-06, ModBuild 63, screenshot mixed_reality_transparenz.png):
+    /// two user rulings. (1) The rectangular base plate is VISIBLE at the region rim as an
+    /// alien dark slab — removed entirely, twins included. (2) The hex TOPS read correctly
+    /// dark, but the beveled V-CHANNELS between neighboring hexes glow bright green. Root
+    /// cause READ FROM THE CODE against the screenshot: round 4 did not ADD a skirt copy, it
+    /// SCALED THE ONLY dark copy — and a copy displaced about the mesh center no longer sits
+    /// coplanar behind the piece's beveled groove faces, so a grazing ray slips through the
+    /// parallax gap between the translucent bevel and its shifted backing, into the channel,
+    /// onto the key (round 5 had already proven the scale bought nothing: UV-scroll cannot
+    /// leave the silhouette). Fix: the PRIMARY underlay is exact 1:1 again — every surface
+    /// backed coplanar from every direction — and each piece additionally gets the GROOVE
+    /// FILL, a second same-mesh copy, XZ-widened by <see cref="UnseenSkirtScale"/> and dropped
+    /// <see cref="UnseenFillDrop"/> wu straight down, whose hex-shaped top surfaces lie under
+    /// the groove floors; neighboring fills overlap under the groove line, so the union
+    /// follows the hex silhouettes everywhere — nothing rectangular from any angle, nothing
+    /// past the outer hex edges except the long-accepted thin rim.
     ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
@@ -771,18 +786,23 @@ internal static class MixedReality
         EnsureUnseenMaterials();
         SyncUnseenUnderlays();
 
-        // Live skirt tuning (round 4): a changed [MixedReality] UnseenSkirtScale tears every
-        // underlay down and falls through to an immediate resweep, so a hardware round can dial
-        // the margin in without a rebuild or an MR toggle. Restore resets the scan throttle.
+        // Live fill tuning (rounds 4+7): a changed [MixedReality] UnseenSkirtScale or
+        // UnseenFillDrop tears every underlay down and falls through to an immediate resweep,
+        // so a hardware round can dial the groove fill in without a rebuild or an MR toggle.
+        // Restore resets the scan throttle.
         float skirt = Mathf.Clamp(UnseenSkirtScale.Value, 1f, 2f);
-        if (_appliedSkirtScale > 0f && !Mathf.Approximately(skirt, _appliedSkirtScale)
-            && UnseenUnderlays.Count > 0)
+        float drop = Mathf.Clamp(UnseenFillDrop.Value, 0f, 2f);
+        if (_appliedSkirtScale > 0f && UnseenUnderlays.Count > 0
+            && (!Mathf.Approximately(skirt, _appliedSkirtScale)
+                || !Mathf.Approximately(drop, _appliedFillDrop)))
         {
-            VRLog.Info("Core", $"MR: unseen skirt scale changed {_appliedSkirtScale:0.###} → " +
-                               $"{skirt:0.###} — rebuilding every underlay at the new margin.");
+            VRLog.Info("Core", $"MR: unseen fill tuning changed (scale {_appliedSkirtScale:0.###} → " +
+                               $"{skirt:0.###}, drop {_appliedFillDrop:0.###} → {drop:0.###} wu) — " +
+                               "rebuilding every underlay + fill.");
             RestoreUnseenUnderlays();
         }
         _appliedSkirtScale = skirt;
+        _appliedFillDrop = drop;
 
         if (Time.frameCount < _previewScanNextFrame)
             return;
@@ -1049,28 +1069,20 @@ internal static class MixedReality
         if (backed == 0)
             return; // GO-name family with all-opaque, non-family slots: nothing to back
 
+        // THE PRIMARY UNDERLAY — exact 1:1 again (round 7). Round 4 scaled THIS copy as the
+        // "skirt"; round 5 proved the animation is UV-scroll (cannot leave the silhouette, so
+        // the margin bought nothing), and the round-7 screenshot exposed what it cost: a copy
+        // displaced about the mesh center no longer sits coplanar behind the beveled groove
+        // faces, so a grazing ray slips through the parallax gap between the translucent bevel
+        // and its shifted backing, into the V-channel, onto the key — the glowing green grooves.
+        // Coplanar means every surface pixel of the piece is backed from EVERY view direction.
         var go = new GameObject("GloomhavenVR.MrUnseenUnderlay");
         go.transform.SetParent(source.transform, worldPositionStays: false);
+        go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
+        go.transform.localScale = Vector3.one;
         go.layer = source.gameObject.layer;
         go.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
-
-        // THE SKIRT (round 4, confirmed by census elimination — every uncovered candidate near
-        // the region was ambient FX, so the remaining transparent "Animation drumrum" is the
-        // family's OWN animated pass reaching past the rest-pose mesh). The underlay is scaled
-        // uniformly about the MESH-LOCAL bounds center — child scale composes with the source's
-        // transform, so the margin stays proportional per axis whatever the piece's world scale.
-        // Uniform on purpose: the wave is 3D (the pieces have real height — census region height
-        // 2.32 wu — and the same-mesh underlay already backs the vertical faces 1:1, so the Y
-        // margin extends that cover to fringe rising past the top). The scaled copy stays ZTest
-        // LEqual with no depth write: real geometry occludes it normally, the part sunk below a
-        // revealed floor simply fails the depth test, and the accepted failure mode is a small
-        // dark apron at the region border (see the UnseenSkirtScale doc for both directions).
-        float skirt = _appliedSkirtScale > 0f ? _appliedSkirtScale : 1f;
-        Vector3 meshCenter = filter.sharedMesh.bounds.center;
-        go.transform.localScale = new Vector3(skirt, skirt, skirt);
-        go.transform.localPosition = meshCenter * (1f - skirt); // keeps the bounds center fixed
-
         var plate = go.AddComponent<MeshRenderer>();
         plate.sharedMaterials = plateMats;
         plate.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -1078,13 +1090,43 @@ internal static class MixedReality
         plate.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         plate.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
+        // THE GROOVE FILL (round 7, replaces the round-5/6 rectangular base quads the user
+        // rejected on sight — "diese viereckige Platte unten, entferne die wieder"). The beveled
+        // V-channels BETWEEN neighboring hexes have no geometry of their own: the coplanar
+        // underlay backs the pieces' surfaces, but a ray INTO a channel passes between pieces and
+        // lands on the key. The fill is a second same-mesh copy, XZ-widened by the (tunable)
+        // skirt factor about the mesh-local bounds center and DROPPED straight down in WORLD
+        // space by UnseenFillDrop — its hex-shaped top surfaces lie under the groove floors, and
+        // neighboring fills overlap under the groove line, so the union follows the hex
+        // silhouettes everywhere: nothing can read as a rectangle from any angle, and nothing
+        // reaches past the outer hex edges except the accepted thin rim. ZTest LEqual, no depth
+        // write — revealed geometry occludes the fill exactly like the plate.
+        float skirt = _appliedSkirtScale > 0f ? _appliedSkirtScale : 1f;
+        float drop = _appliedFillDrop >= 0f ? _appliedFillDrop : Defaults.UnseenFillDrop;
+        Vector3 meshCenter = filter.sharedMesh.bounds.center;
+        var fillGo = new GameObject("GloomhavenVR.MrUnseenFill");
+        fillGo.transform.SetParent(source.transform, worldPositionStays: false);
+        fillGo.transform.localRotation = Quaternion.identity;
+        fillGo.transform.localScale = new Vector3(skirt, 1f, skirt);
+        fillGo.transform.localPosition = new Vector3(
+            meshCenter.x * (1f - skirt), 0f, meshCenter.z * (1f - skirt)); // XZ center fixed
+        fillGo.transform.position += Vector3.down * drop; // WORLD drop, whatever the parent pose
+        fillGo.layer = source.gameObject.layer;
+        fillGo.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
+        var fill = fillGo.AddComponent<MeshRenderer>();
+        fill.sharedMaterials = plateMats;
+        fill.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        fill.receiveShadows = false;
+        fill.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        fill.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
         int id = source.GetInstanceID();
         UnseenUnderlays.Add(new UnseenUnderlay
         {
             Source = source,
             SourceId = id,
             Plate = plate,
-            Base = BuildUnseenBase(source),
+            Fill = fill,
         });
         UnseenSources.Add(id);
         for (int i = 0; i < mats.Length; i++)
@@ -1103,77 +1145,6 @@ internal static class MixedReality
                                    ? " (Further builds counted, not listed — tile regen churn.)"
                                    : string.Empty));
         }
-    }
-
-    /// <summary>
-    /// Round 5 — THE REGION BASE, built per piece (user: the tiles read right, but BETWEEN the
-    /// hexagons an animated layer still shows green glass; ruling "Ich will Animationen und
-    /// Bewegung haben, aber ich will jegliche Transparenz an den Tiles im Mixed-Reality-Modus
-    /// entfernen"). In the grout gaps between unseen pieces the family's UV-scrolled pattern
-    /// (read from the round-5 UNSEEN-SHADER PROPERTIES line: _UV_Offset/_UVTiling — scroll, no
-    /// vertex amplitude) draws with NOTHING dark behind it — straight onto the chroma key. The
-    /// per-piece underlay+skirt can never fill the space between meshes, so each matched piece
-    /// gets a flat opaque dark QUAD hugging the underside of its own world AABB
-    /// (<see cref="UnseenBaseDropWu"/> below min-Y, XZ footprint <see cref="UnseenBaseFit"/> of
-    /// the AABB): adjacent pieces' AABBs overlap, so the union of quads tiles the whole region
-    /// floor including the gaps — while no quad can reach farther than its own piece's bounds,
-    /// which is what a single rectangular cluster plate would get wrong on an L-shaped region
-    /// (its AABB corner would hang far over the void as a floating dark slab). Depth does the
-    /// masking for free: the quads are ZTest LEqual with no depth write at queue 2500, so
-    /// revealed floor and every real surface above them occludes them and they become visible
-    /// ONLY through the gaps — exactly where the glass is. World-space under a scene-root
-    /// holder (a child quad under an arbitrarily rotated/scaled Apparance piece cannot be kept
-    /// axis-aligned); per-tick lifecycle mirrors the underlay's.
-    /// </summary>
-    private static Renderer? BuildUnseenBase(MeshRenderer source)
-    {
-        Bounds wb = source.bounds;
-        if (wb.size.x < 0.05f || wb.size.z < 0.05f)
-            return null; // degenerate footprint — nothing to tile
-
-        if (_unseenBaseRoot == null)
-            _unseenBaseRoot = new GameObject("GloomhavenVR.MrUnseenBasePlates").transform;
-
-        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        go.name = "GloomhavenVR.MrUnseenBase";
-        UnityEngine.Object.Destroy(go.GetComponent<Collider>()); // never a poke/laser target
-        go.transform.SetParent(_unseenBaseRoot, worldPositionStays: false);
-        go.transform.position = new Vector3(wb.center.x, wb.min.y - UnseenBaseDropWu, wb.center.z);
-        go.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // unit quad XY → lying flat, +Y normal
-        go.transform.localScale = new Vector3(wb.size.x * UnseenBaseFit, wb.size.z * UnseenBaseFit, 1f);
-        go.layer = source.gameObject.layer;
-        var quad = go.GetComponent<MeshRenderer>();
-        quad.sharedMaterial = _unseenDarkMat;
-        quad.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        quad.receiveShadows = false;
-        quad.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-        quad.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-
-        // ROUND 6 (hardware: "von unten dicht, von oben nicht — es soll von BEIDEN Seiten dicht
-        // sein"): a single quad is one-sided the moment the dark material's shader culls back
-        // faces — Sprites/Default is Cull Off, but the Shader.Find chain can fall back to
-        // Legacy Diffuse (Cull Back), and the observed asymmetry is exactly a base plate whose
-        // face points down. Shader-agnostic double-siding: a TWIN quad, child of the first
-        // (SetActive/Destroy cascade keeps the lifecycle single-headed), rotated 180° so the
-        // pair faces up AND down whatever the primitive's winding or the shader's cull mode.
-        // Same material: with a Cull Off shader the twin is pure (cheap) overdraw of the same
-        // flat colour; with a Cull Back shader exactly one of the two renders per view side.
-        GameObject twin = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        twin.name = "GloomhavenVR.MrUnseenBase.Back";
-        UnityEngine.Object.Destroy(twin.GetComponent<Collider>());
-        twin.transform.SetParent(go.transform, worldPositionStays: false);
-        twin.transform.localPosition = Vector3.zero;
-        twin.transform.localRotation = Quaternion.Euler(0f, 180f, 0f); // flip the face
-        twin.transform.localScale = Vector3.one;
-        twin.layer = go.layer;
-        var back = twin.GetComponent<MeshRenderer>();
-        back.sharedMaterial = _unseenDarkMat;
-        back.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        back.receiveShadows = false;
-        back.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-        back.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-
-        return quad;
     }
 
     /// <summary>
@@ -1264,25 +1235,19 @@ internal static class MixedReality
                 // The base quad lives under the scene-root holder, NOT under the source — it
                 // never dies structurally with the piece and must go explicitly (Apparance regen
                 // would otherwise strand a dark quad under a piece that no longer exists).
-                if (e.Base != null)
-                    UnityEngine.Object.Destroy(e.Base.gameObject);
+                if (e.Fill != null) // like the plate: source died alone — clean up the children
+                    UnityEngine.Object.Destroy(e.Fill.gameObject);
                 UnseenSources.Remove(e.SourceId);
                 UnseenUnderlays.RemoveAt(i);
                 continue;
             }
             if (e.Plate.enabled != e.Source.enabled)
                 e.Plate.enabled = e.Source.enabled;
-            // The base follows BOTH switches of its piece: the renderer flag (mirrored above for
-            // the child plate too) and the hierarchy state, which the child plate gets for free
-            // but the scene-root quad does not (ProceduralMapTile.ShowContent deactivates whole
-            // subtrees on reveal — the quad must vanish with its piece, not linger over the
-            // freshly revealed room's floor).
-            if (e.Base != null)
-            {
-                bool want = e.Source.enabled && e.Source.gameObject.activeInHierarchy;
-                if (e.Base.gameObject.activeSelf != want)
-                    e.Base.gameObject.SetActive(want);
-            }
+            // The fill is a child of the source like the plate, so hierarchy deactivation
+            // (ProceduralMapTile.ShowContent on reveal) covers it for free — only the renderer
+            // flag needs mirroring.
+            if (e.Fill != null && e.Fill.enabled != e.Source.enabled)
+                e.Fill.enabled = e.Source.enabled;
         }
     }
 
@@ -1337,8 +1302,8 @@ internal static class MixedReality
             // dark material actually got — the from-above/from-below asymmetry hypotheses hinge
             // on its cull/depth state, and Shader.Find fallbacks are invisible without this.
             VRLog.Info("Core", $"MR: unseen dark material created — shader '{shader.name}', " +
-                               $"queue {wantedQueue}, twin back-to-back base quads (double-sided " +
-                               "regardless of the shader's cull mode).");
+                               $"queue {wantedQueue} (per-piece coplanar underlay + groove fill; " +
+                               "ModBuild-63 log confirmed Sprites/Default + family queue 3000).");
             return;
         }
         if (_unseenDarkMat.renderQueue != wantedQueue)
@@ -1411,17 +1376,12 @@ internal static class MixedReality
             Renderer plate = UnseenUnderlays[i].Plate;
             if (plate != null)
                 UnityEngine.Object.Destroy(plate.gameObject);
-            Renderer? baseQuad = UnseenUnderlays[i].Base;
-            if (baseQuad != null)
-                UnityEngine.Object.Destroy(baseQuad.gameObject);
+            Renderer? fill = UnseenUnderlays[i].Fill;
+            if (fill != null)
+                UnityEngine.Object.Destroy(fill.gameObject);
         }
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
-        if (_unseenBaseRoot != null)
-        {
-            UnityEngine.Object.Destroy(_unseenBaseRoot.gameObject);
-            _unseenBaseRoot = null;
-        }
         if (_unseenDarkMat != null)
         {
             UnityEngine.Object.Destroy(_unseenDarkMat);
@@ -1544,8 +1504,6 @@ internal static class MixedReality
         {
             if (UnseenUnderlays[i].Source == null)
             {
-                if (UnseenUnderlays[i].Base != null) // normally died with the scene; belt+braces
-                    UnityEngine.Object.Destroy(UnseenUnderlays[i].Base!.gameObject);
                 UnseenSources.Remove(UnseenUnderlays[i].SourceId);
                 UnseenUnderlays.RemoveAt(i);
             }

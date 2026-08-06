@@ -37,7 +37,8 @@ internal static partial class Defaults
     internal static readonly Color KeyColor = new Color(0f, 1f, 0f, 1f);  // => [MixedReality] KeyColor
     internal const bool HideSkyMeshes = true;                             // => [MixedReality] HideSkyMeshes
     internal const bool OpaquePreviewTiles = true;                        // => [MixedReality] OpaquePreviewTiles
-    internal const float UnseenSkirtScale = 1.2f;                         // => [MixedReality] UnseenSkirtScale  (INFERRED margin for the fog-of-war shaders' animated fringe — no asset-side amplitude readable offline; the UNSEEN-SHADER PROPERTIES log line exists to replace this guess with an asset-derived value)
+    internal const float UnseenSkirtScale = 1.2f;                         // => [MixedReality] UnseenSkirtScale  (round 7: XZ widening of the GROOVE-FILL copy so neighboring fills overlap under the bevel channels; the primary underlay is exact 1:1)
+    internal const float UnseenFillDrop = 0.35f;                          // => [MixedReality] UnseenFillDrop  (world-units drop of the groove-fill copy — INFERRED from the round-7 screenshot's bevel depth (~10-20 % of a ~2 wu hex); tunable live for one-round calibration)
 
     // ---- Core/PerfConfig.cs --------------------------------------------------------
     internal const bool Perf_Enabled = true;                 // => [Perf] Enabled
