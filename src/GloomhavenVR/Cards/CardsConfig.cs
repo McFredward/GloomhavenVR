@@ -727,9 +727,11 @@ internal static class CardsConfig
             "met or the flow ends. false = no wanted-slot hint.");
         PileViewer = _file.Bind("Cards", "PileViewer", Defaults.PileViewer,
             "Discard/burnt pile stacks on the control board's right edge (hardware test #21 " +
-            "wish): each pile shows as a small physical card stack with a count; poking or " +
-            "pinch-grabbing a stack raises a readable browse fan of that pile's cards " +
-            "(informational — release/poke again to dismiss). false = no pile furniture at all.");
+            "wish): each pile shows as a small physical card stack with a count; poking a " +
+            "stack (finger or board laser) toggles a readable browse fan of that pile's cards " +
+            "(informational — poke again or click away to dismiss; stacks are deliberately " +
+            "not grabbable, so the trigger can never pick a pile up). " +
+            "false = no pile furniture at all.");
         ActivePile = _file.Bind("Cards", "ActivePile", Defaults.ActivePile,
             "ACTIVE CARDS area (feature 6): the character's currently-active ability cards " +
             "(round-long or persistent) shown PERMANENTLY as a small column just to the RIGHT " +
