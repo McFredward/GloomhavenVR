@@ -359,6 +359,9 @@ internal static partial class WallSegmentFade
         public bool VariantLow;
         /// <summary>Distinct fade-shader name(s) seen on the renderers ("+"-joined).</summary>
         public string ShaderNames = "?";
+        /// <summary>How many renderers joined via the round-8 TOGGLE-NATIVE path (materials
+        /// with _Cutoff + _WallFade_On/_ToggleWallfade — the masonry) — diag/fade-ON label.</summary>
+        public int ToggleNative;
         /// <summary>Authored "Mask Clip Value" (<c>_Cutoff</c>) of the wall's fade material,
         /// clamped to (0,1) — the held state drives exactly this value like the flat game
         /// (which never writes _Cutoff at all). 0.5 fallback when unreadable.</summary>
@@ -410,6 +413,11 @@ internal static partial class WallSegmentFade
         private static readonly int ToggleWallFadeId = Shader.PropertyToID("ToggleWallFade");
         private static readonly int ToggleWallfadeMatId = Shader.PropertyToID("_ToggleWallfade");
         private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
+        /// <summary>Round-8 (BODY SHADER PROPERTIES dump, ModBuild 64): the keep masonry's
+        /// <c>Amp_Basic_N_MRAO</c> exposes <c>_Cutoff</c> + <c>_WallFade_On</c> — the Amp
+        /// family compiles the wall-fade subgraph into "plain" shaders behind this material
+        /// toggle. Our MPB opens it per renderer alongside the standard fade set.</summary>
+        private static readonly int WallFadeOnMatId = Shader.PropertyToID("_WallFade_On");
 
         private readonly Dictionary<Component, Segment> _segments = new();
         private readonly List<Component> _deadKeys = new();
@@ -575,6 +583,7 @@ internal static partial class WallSegmentFade
             _cornerPieces.Clear();           // corner ownership dies with the scene
             _lastLoggedCornerCount = -1;
             _dumpedBodyShaders.Clear();      // re-dump body shader properties per scene
+            _loggedToggleMats.Clear();       // …and the toggle-native material lines
         }
 
         /// <summary>
@@ -816,11 +825,10 @@ internal static partial class WallSegmentFade
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
                       + $"renderer — their shaders: {string.Join(", ", _unfadeableWallShaders)} "
-                      + $"— now fading as {bodyWalls} plain-mesh BODY column(s) "
-                      + $"({bodyMeshes} mesh(es), renderer.enabled delivery [round 6]; "
-                      + $"foundation: {_bodyFoundationKept} spanning course(s) kept solid, "
-                      + $"{_bodyFullSlabFallback} full-height slab(s) hide entirely — mesh "
-                      + $"granularity [round 7])"
+                      + $"— {bodyWalls} plain-mesh BODY column(s) ({bodyMeshes} mesh(es), "
+                      + $"renderer.enabled fallback for materials WITHOUT native fade "
+                      + $"controls; spanning courses hide, only fully-in-band courses stay "
+                      + $"solid [round 8])"
                     : string.Empty;
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
@@ -1102,7 +1110,8 @@ internal static partial class WallSegmentFade
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
                     $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
-                    $"({seg.Renderers.Count} renderer(s): {rl}; +{seg.Foliage.Count} foliage, " +
+                    $"({seg.Renderers.Count} renderer(s), {seg.ToggleNative} toggle-native: " +
+                    $"{rl}; +{seg.Foliage.Count} foliage, " +
                     $"+{seg.Siblings.Count} asset-sibling(s), +{seg.Mounted.Count} mounted " +
                     $"prop(s) [{MountedNames(seg)}], +{seg.Stacked.Count} stacked shell " +
                     $"piece(s), +{seg.Body.Count} plain body mesh(es) [enabled-only]) — " +
@@ -1355,6 +1364,14 @@ internal static partial class WallSegmentFade
             // math below holds regardless of the material's authored value; the LOW shader
             // has no such property (MPB entry simply unused there).
             _mpb.SetFloat(ToggleWallfadeMatId, 1f);
+            // TOGGLE-NATIVE materials (round 8, Amp_Basic_N_MRAO masonry): open their gate
+            // too — the same fade subgraph behind a differently-named material switch.
+            // Unused entry on the classic WallFade shaders, exactly like _ToggleWallfade on
+            // LOW. KNOWN RISK (logged per material by LogToggleNativeMaterialOnce): if
+            // Amplify compiled the switch as a compile-time keyword, this float is inert and
+            // the material becomes the shader-swap candidate — the toggle diag line plus the
+            // next hardware round adjudicate.
+            _mpb.SetFloat(WallFadeOnMatId, 1f);
             if (seg.Fade >= 1f)
             {
                 // Held fully faded (R3, foundation-band fix): constant r=1,a=0 map → map
@@ -1441,10 +1458,6 @@ internal static partial class WallSegmentFade
         {
             // Figures first (round 7): nothing below may keep or re-take an actor renderer.
             PurgeFigureRenderers();
-            // Foundation census (round 7): fresh per rescan, deduped across the two strips.
-            _bodyFoundationKept = 0;
-            _bodyFullSlabFallback = 0;
-            _bodySlabCounted.Clear();
             // Tile-plane anchors (round 7): each TilesOcclusionVolume knows its room's
             // renderers AND its CentralTile, whose transform sits ON the tile plane. The
             // renderer bounds are only trusted for the XZ footprint — their Y is the
@@ -1718,13 +1731,6 @@ internal static partial class WallSegmentFade
         /// from the segment (clearing our block off it if one is applied), recompute the
         /// segment's AABB from what remains, and drop segments with nothing left.
         /// </summary>
-        /// <summary>Round-7 foundation census (reset per RESCAN — the strip runs twice and
-        /// must not double-count): spanning body courses kept solid vs full-height slabs
-        /// that hide entirely (mesh-granularity fallback; deduped via the counted set).</summary>
-        private int _bodyFoundationKept;
-        private int _bodyFullSlabFallback;
-        private readonly HashSet<Renderer> _bodySlabCounted = new();
-
         private void StripGroundRenderers()
         {
             _deadKeys.Clear();
@@ -1756,38 +1762,19 @@ internal static partial class WallSegmentFade
                         RestoreFoliageRenderer(f);
                     seg.Foliage.RemoveAt(i);
                 }
-                // BODY ground rule (round 7, defect a — foundation preserved at whatever the
-                // mesh granularity allows): fully-in-band courses stay solid (as before), and
-                // SPANNING courses (base in the band, top above it) stay solid TOO whenever
-                // the wall has at least one base-above-band course to hide — the flat game's
-                // foundation-band look. A wall built as ONE full-height slab falls back to
-                // hiding the slab (the view into the room beats the foundation — that IS the
-                // feature); the heartbeat reports both counts.
-                int aboveBand = 0;
-                foreach (MountedProp bp in seg.Body)
-                {
-                    Renderer br0 = bp.Renderer;
-                    if (br0 != null && br0.bounds.min.y >= ceiling)
-                        aboveBand++;
-                }
+                // BODY ground rule (round 8 — REVERT of the round-7 spanning-course rule,
+                // which froze this keep solid: ALL 31 masonry courses span from the ground
+                // band upward, so "spanning stays solid" classified the entire visible wall
+                // as foundation and only the top assets flickered). Only courses ENTIRELY
+                // inside the band stay solid; spanning courses hide with the wall —
+                // visibility beats foundation on this enabled-only fallback, and foundation
+                // preservation is the NATIVE path's job now (toggle-capable masonry fades
+                // through its own shader incl. the world-Y gradient).
                 for (int i = seg.Body.Count - 1; i >= 0; i--)
                 {
                     Renderer br = seg.Body[i].Renderer;
-                    if (br == null)
+                    if (br == null || br.bounds.max.y > ceiling)
                         continue;
-                    Bounds bb = br.bounds;
-                    bool fullyInBand = bb.max.y <= ceiling;
-                    bool spanning = !fullyInBand && bb.min.y < ceiling;
-                    if (spanning && aboveBand == 0)
-                    {
-                        if (_bodySlabCounted.Add(br))
-                            _bodyFullSlabFallback++; // stays in Body — hides entirely
-                        continue;
-                    }
-                    if (!fullyInBand && !spanning)
-                        continue; // base above the band — the hideable wall proper
-                    if (spanning)
-                        _bodyFoundationKept++;
                     if (seg.BodyState != 0)
                         RestoreProp(seg.Body[i]);
                     seg.Body.RemoveAt(i);
@@ -2698,6 +2685,34 @@ internal static partial class WallSegmentFade
         /// distant unrevealed room (other map tiles ≥ ~11 wu away) can never reach.</summary>
         private const float AdjacentReanchorMaxGapWU = 2.0f;
 
+        /// <summary>Toggle-native materials already logged (round 8, cap 6): one line per
+        /// material with its authored gate/cutoff values and shader keywords — the datum
+        /// that adjudicates the keyword risk (see the Apply comment) from the next log.</summary>
+        private readonly HashSet<string> _loggedToggleMats = new();
+
+        private void LogToggleNativeMaterialOnce(Material m)
+        {
+            if (_loggedToggleMats.Count >= 6
+                || !_loggedToggleMats.Add(m.shader.name + "/" + m.name))
+                return;
+            string wallFadeOn = m.HasProperty(WallFadeOnMatId)
+                ? m.GetFloat(WallFadeOnMatId).ToString("0.##") : "n/a";
+            string toggleWallfade = m.HasProperty(ToggleWallfadeMatId)
+                ? m.GetFloat(ToggleWallfadeMatId).ToString("0.##") : "n/a";
+            string cutoff = m.HasProperty(CutoffId)
+                ? m.GetFloat(CutoffId).ToString("0.##") : "n/a";
+            string keywords;
+            try { keywords = string.Join(",", m.shaderKeywords); }
+            catch { keywords = "?"; }
+            VRLog.Info(Name,
+                $"TOGGLE-NATIVE MATERIAL '{m.name}' (shader '{m.shader.name}'): authored "
+                + $"_WallFade_On={wallFadeOn}, _ToggleWallfade={toggleWallfade}, "
+                + $"_Cutoff={cutoff}, keywords=[{keywords}] — native MPB fade path engaged "
+                + "(round 8). If the gate is a compile-time keyword (fade branch absent from "
+                + "this variant), the MPB float is inert and this material is the "
+                + "shader-swap candidate.");
+        }
+
         /// <summary>
         /// Bind every wall segment to the ONE room whose AABB it borders: smallest XZ gap
         /// between wall AABB and room AABB (a wall bordering its room touches it → gap 0;
@@ -2917,6 +2932,7 @@ internal static partial class WallSegmentFade
             seg.HasBounds = false;
             seg.VariantHigh = false;
             seg.VariantLow = false;
+            seg.ToggleNative = 0;
             seg.ShaderNames = "?";
             seg.HeldCutoff = 0.5f;
             seg.CutoffAuthored = false;
@@ -2959,9 +2975,15 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
-        /// Does any shared material use one of the wall-fade shaders? Also records the
-        /// shader name(s) and LOW/HIGH variant flags on the segment (rescan-time only —
-        /// the string concat below runs once per distinct shader name per rescan).
+        /// Does any shared material use one of the wall-fade shaders — by NAME (the
+        /// WallFade family) or by TOGGLE (round 8: materials exposing <c>_Cutoff</c> plus
+        /// <c>_WallFade_On</c>/<c>_ToggleWallfade</c>, i.e. the same Amp fade subgraph
+        /// behind a material switch; the keep's masonry Amp_Basic_N_MRAO is one)? Also
+        /// records the shader name(s) and LOW/HIGH variant flags on the segment
+        /// (rescan-time only). Deliberately NOT part of <see cref="RendererUsesWallFade"/>:
+        /// the toggle test only runs for renderers that are already wall geometry by
+        /// construction (children of cache walls) — N_MRAO dresses half the scenery, and a
+        /// scene-wide toggle-based adoption would claim all of it as walls.
         /// </summary>
         private bool CollectWallFadeInfo(MeshRenderer r, Segment seg)
         {
@@ -2973,9 +2995,18 @@ internal static partial class WallSegmentFade
                 if (m == null || m.shader == null)
                     continue;
                 string shaderName = m.shader.name;
-                if (!shaderName.Contains("WallFade"))
+                bool byName = shaderName.Contains("WallFade");
+                bool byToggle = !byName && m.HasProperty(CutoffId)
+                    && (m.HasProperty(WallFadeOnMatId) || m.HasProperty(ToggleWallfadeMatId));
+                if (!byName && !byToggle)
                     continue;
                 any = true;
+                if (byToggle)
+                {
+                    seg.ToggleNative++;
+                    LogToggleNativeMaterialOnce(m);
+                    shaderName += "(toggle-native)";
+                }
                 // Held-state cutoff = the material's authored "Mask Clip Value" — the flat
                 // game never writes _Cutoff, so this IS the value its fade runs with.
                 // Clamped away from 0/1: with the held map's m = 0 any 0<c<1 produces the
