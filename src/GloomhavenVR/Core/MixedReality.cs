@@ -96,6 +96,14 @@ internal static class MixedReality
     /// grooves still glow; too large = the fill peeks out below the outer rim pieces.</summary>
     internal static ConfigEntry<float> UnseenFillDrop = null!;
 
+    /// <summary>Round 8 — the KEY DODGE: multiplier (0..1) on the unseen glow's key-matching
+    /// color channels while MR is on. The family's rendered glow is near-PURE GREEN (screenshot
+    /// pixel sampling: brightest grout pixels within ~2 % of the default green key), so the
+    /// compositor chroma-keys the animation itself to passthrough — no backing can prevent that,
+    /// only moving the PIXELS out of the similarity window can. 1 = off. Tunable live
+    /// (per-renderer MPB rewrite, no rebuild).</summary>
+    internal static ConfigEntry<float> UnseenKeyDodge = null!;
+
     /// <summary>
     /// Key-colour presets offered by the settings UI.
     ///
@@ -176,6 +184,27 @@ internal static class MixedReality
         /// follows the hex silhouettes — the round-5/6 rectangular base quads it replaces were
         /// visible as an alien slab at the region rim (user ruling: removed).</summary>
         public Renderer? Fill;
+
+        // ---- round 8, the key dodge (see UnseenKeyDodge): per-renderer MPB tint state --------
+
+        /// <summary>The color property the dodge writes on this source ('_Tint'/'_TintColor'/
+        /// '_Color'), or null when the float fallback / nothing was found.</summary>
+        public string? DodgeProp;
+
+        /// <summary>Authored value of <see cref="DodgeProp"/> read from the shared material at
+        /// build time — the restore target and the base the dodge multiplies.</summary>
+        public Color DodgeAuthored;
+
+        /// <summary>Float fallback: '_Diffuse_Boost' authored value when no color property
+        /// exists on any family slot (then <see cref="DodgeProp"/> is that float's name and
+        /// <see cref="DodgeIsFloat"/> is set).</summary>
+        public float DodgeAuthoredF;
+        public bool DodgeIsFloat;
+
+        /// <summary>Whether the source renderer carried a MaterialPropertyBlock BEFORE the dodge
+        /// wrote one — restore clears ours entirely when it did not (bit-identical), and writes
+        /// the authored value back into the existing block when it did.</summary>
+        public bool HadBlock;
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -206,9 +235,34 @@ internal static class MixedReality
     /// <see cref="_appliedSkirtScale"/> so a config change rebuilds live (round 7).</summary>
     private static float _appliedFillDrop = -1f;
 
-    /// <summary>Shader names whose float/vector properties were already dumped this session
-    /// (<see cref="DumpUnseenShaderProperties"/> — the margin-derivation instrument).</summary>
-    private static readonly HashSet<string> DumpedUnseenShaders = new(4);
+    /// <summary>The key-dodge channel-multiplier vector currently written into the family MPBs
+    /// (round 8): (1,dodge,1) under a green key, white = dodge inactive. A change (key preset
+    /// cycled, config tuned) rewrites every entry's MPB — no rebuild needed.</summary>
+    private static Color _appliedDodgeMask = Color.white;
+
+    /// <summary>Shared scratch MPB for the key dodge (never stored on a renderer).</summary>
+    private static MaterialPropertyBlock? _dodgeMpb;
+
+    /// <summary>Per-session cap counter for the per-renderer dodge-write log lines.</summary>
+    private static int _dodgeVerboseLogs;
+
+    /// <summary>One-shot latch: a family renderer without ANY known dodge property was seen —
+    /// its material/shader got named once so the next round can find the real color lever.</summary>
+    private static bool _dodgeNoPropLogged;
+
+    /// <summary>Color properties the dodge probes, in priority order. '_Tint' is the one the
+    /// known family materials expose (round-5 dump); the others cover edge-material variants.</summary>
+    private static readonly string[] DodgeColorProps = { "_Tint", "_TintColor", "_Color" };
+
+    /// <summary>Float fallback lever: the family's brightness knob (round-5 dump, authored 1).
+    /// Used only when no color property exists on any family slot — and it is also the
+    /// promotion target if a hardware round proves '_Tint' inert in the compiled variant.</summary>
+    private const string DodgeFloatProp = "_Diffuse_Boost";
+
+    /// <summary>MATERIAL names whose properties were already dumped this session (round 8: was
+    /// shader names — the edge materials share the hex shader and stayed undumped;
+    /// <see cref="DumpUnseenShaderProperties"/>).</summary>
+    private static readonly HashSet<string> DumpedUnseenShaders = new(8);
 
     /// <summary>Lowest renderQueue observed on any matched family MATERIAL this session (round
     /// 6): the base quads/underlays must composite BEFORE the family draws, against a depth
@@ -373,6 +427,17 @@ internal static class MixedReality
             "passthrough room. Applies while MR is on, live (backings rebuild on change). Raise " +
             "if deep grooves still glow green; lower if dark peeks out below the outer rim " +
             "pieces. Clamped to 0..2.");
+        UnseenKeyDodge = _file.Bind("MixedReality", "UnseenKeyDodge", Defaults.UnseenKeyDodge,
+            "Brightness multiplier (0..1) for the unseen fog-of-war glow's KEY-MATCHING color " +
+            "channels while MR is on. The game's animated 'unseen' glow is nearly pure green — " +
+            "the same color as the default chroma key — so the compositor keys the animation " +
+            "itself out to passthrough no matter what is rendered behind it. This dims exactly " +
+            "the channels the active key is strong in (green key: the G channel; magenta/blue " +
+            "keys: R/B, which the green glow does not use, so nothing visibly changes; black " +
+            "key: no channel, dodge off), moving the glow out of the key's similarity window " +
+            "while hue, pattern and animation stay authored. Written per renderer via " +
+            "MaterialPropertyBlock — shared materials are never touched; restored exactly on MR " +
+            "off. 1 = off. Applies live. Clamped to 0..1.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -753,6 +818,24 @@ internal static class MixedReality
     /// follows the hex silhouettes everywhere — nothing rectangular from any angle, nothing
     /// past the outer hex edges except the long-accepted thin rim.
     ///
+    /// ROUND 8 (hardware 2026-08-06 #2, ModBuild 65): the rectangle is gone, the grout STILL
+    /// reads transparent — because it was never (only) a backing problem: THE ANIMATION IS
+    /// BEING CHROMA-KEYED AWAY. Verified from data: the round-7 screenshot's brightest grout
+    /// pixels sample at (1,250,0)…(3,232,2) — within ~2 % of the live key (log: "keyed to
+    /// Green (RGBA 0,1,0,1)") — and the compositor keys FINAL pixels, so the family's own
+    /// near-pure-green glow is replaced by passthrough regardless of what is rendered behind
+    /// it. Dark hex tops survived every round because their final pixels are dark; the bright
+    /// animated grout could never survive. Fix: the KEY DODGE (<see cref="UnseenKeyDodge"/>) —
+    /// per-renderer MaterialPropertyBlocks dim the key-strong channels of the family's exposed
+    /// color property ('_Tint' per the dump; '_Diffuse_Boost' float as fallback lever), moving
+    /// the glow out of the similarity window while hue family, pattern and animation stay
+    /// authored. A true hue SHIFT (green→teal/amber) is impossible with the levers that exist:
+    /// the glow's green is baked into the pattern texture and '_Tint' multiplies it, so R/B
+    /// can only be removed, never added — dimming is the one reachable direction, and it is
+    /// what the similarity window responds to. Self-gating for other presets (magenta/blue
+    /// masks touch only channels the green texture does not use; black produces no mask).
+    /// Everything restored exactly on MR off (no stray MPB on a renderer that had none).
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -803,6 +886,27 @@ internal static class MixedReality
         }
         _appliedSkirtScale = skirt;
         _appliedFillDrop = drop;
+
+        // Round 8, the KEY DODGE: recompute the channel mask (live key + live config) and
+        // rewrite the family MPBs only when it changes — key preset cycles and config tuning
+        // apply immediately, a steady scene costs one Color compare per frame.
+        Color mask = ComputeDodgeMask();
+        if (mask != _appliedDodgeMask)
+        {
+            _appliedDodgeMask = mask;
+            int written = 0;
+            for (int i = 0; i < UnseenUnderlays.Count; i++)
+            {
+                ApplyKeyDodge(UnseenUnderlays[i]);
+                if (UnseenUnderlays[i].DodgeProp != null)
+                    written++;
+            }
+            VRLog.Info("Core", $"MR: unseen key-dodge mask now " +
+                               $"({mask.r:0.##},{mask.g:0.##},{mask.b:0.##}) for key " +
+                               $"{KeyColorName} — {written} family renderer(s) rewritten via MPB " +
+                               "(the authored glow is near-pure green; the key-strong channels " +
+                               "are dimmed so the compositor cannot key the animation away).");
+        }
 
         if (Time.frameCount < _previewScanNextFrame)
             return;
@@ -1121,13 +1225,69 @@ internal static class MixedReality
         fill.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
         int id = source.GetInstanceID();
-        UnseenUnderlays.Add(new UnseenUnderlay
+        var entry = new UnseenUnderlay
         {
             Source = source,
             SourceId = id,
             Plate = plate,
             Fill = fill,
-        });
+        };
+
+        // Round 8: discover this piece's key-dodge lever — the first family slot exposing a
+        // known color property (priority '_Tint', the one the round-5 dump proved present),
+        // else the '_Diffuse_Boost' float, else nothing (named once in the log so the next
+        // round can find the real lever). Authored values recorded for exact restore.
+        entry.HadBlock = source.HasPropertyBlock();
+        for (int i = 0; i < mats.Length && entry.DodgeProp == null; i++)
+        {
+            Material? m = mats[i];
+            if (m == null || !IsUnseenFamilyMaterial(m))
+                continue;
+            for (int p = 0; p < DodgeColorProps.Length; p++)
+            {
+                if (m.HasProperty(DodgeColorProps[p]))
+                {
+                    entry.DodgeProp = DodgeColorProps[p];
+                    entry.DodgeAuthored = m.GetColor(DodgeColorProps[p]);
+                    break;
+                }
+            }
+            if (entry.DodgeProp == null && m.HasProperty(DodgeFloatProp))
+            {
+                entry.DodgeProp = DodgeFloatProp;
+                entry.DodgeIsFloat = true;
+                entry.DodgeAuthoredF = m.GetFloat(DodgeFloatProp);
+            }
+        }
+        if (entry.DodgeProp == null && !_dodgeNoPropLogged)
+        {
+            bool anyFamilySlot = false;
+            for (int i = 0; i < mats.Length && !anyFamilySlot; i++)
+                anyFamilySlot = IsUnseenFamilyMaterial(mats[i]);
+            if (anyFamilySlot)
+            {
+                _dodgeNoPropLogged = true;
+                VRLog.Info("Core", $"MR: key-dodge found NO known color/boost property on family " +
+                                   $"renderer '{source.gameObject.name}' (shader " +
+                                   $"'{ShaderName(source)}') — its glow cannot be dodged yet; " +
+                                   "this line names the shader whose real color lever is missing.");
+            }
+        }
+        ApplyKeyDodge(entry);
+        if (entry.DodgeProp != null && !Mathf.Approximately(_appliedDodgeMask.g + _appliedDodgeMask.r
+                + _appliedDodgeMask.b, 3f) && _dodgeVerboseLogs < 6)
+        {
+            _dodgeVerboseLogs++;
+            string authored = entry.DodgeIsFloat
+                ? entry.DodgeAuthoredF.ToString("0.###")
+                : $"rgba({entry.DodgeAuthored.r:0.##},{entry.DodgeAuthored.g:0.##}," +
+                  $"{entry.DodgeAuthored.b:0.##},{entry.DodgeAuthored.a:0.##})";
+            VRLog.Info("Core", $"MR: key-dodge '{entry.DodgeProp}' on '{source.gameObject.name}' " +
+                               $"authored {authored}, mask ({_appliedDodgeMask.r:0.##}," +
+                               $"{_appliedDodgeMask.g:0.##},{_appliedDodgeMask.b:0.##}) via MPB.");
+        }
+
+        UnseenUnderlays.Add(entry);
         UnseenSources.Add(id);
         for (int i = 0; i < mats.Length; i++)
         {
@@ -1147,6 +1307,77 @@ internal static class MixedReality
         }
     }
 
+    /// <summary>The key-dodge channel mask for the LIVE key + config (round 8): each channel the
+    /// key is strong in (≥0.5) carries the dodge factor, the rest stay 1. Self-gating by pixel
+    /// math: the family glow is pure green in TEXTURE, so a magenta/blue key's mask (dimming
+    /// R/B) cannot change the glow at all, and the black key produces the white mask (off).
+    /// White is also returned at dodge ≈ 1 (config off).</summary>
+    private static Color ComputeDodgeMask()
+    {
+        float dodge = Mathf.Clamp(UnseenKeyDodge.Value, 0f, 1f);
+        if (dodge >= 0.999f)
+            return Color.white;
+        Color key = KeyColor.Value;
+        return new Color(
+            key.r >= 0.5f ? dodge : 1f,
+            key.g >= 0.5f ? dodge : 1f,
+            key.b >= 0.5f ? dodge : 1f,
+            1f);
+    }
+
+    /// <summary>
+    /// Write one entry's key-dodge value (authored × mask) into its source's
+    /// MaterialPropertyBlock — never the shared material. A white mask restores instead
+    /// (<see cref="RestoreKeyDodge"/>): no stray MPB is left on a renderer that never had one.
+    /// </summary>
+    private static void ApplyKeyDodge(UnseenUnderlay e)
+    {
+        if (e.DodgeProp == null || e.Source == null)
+            return;
+        Color mask = _appliedDodgeMask;
+        if (mask == Color.white)
+        {
+            RestoreKeyDodge(e);
+            return;
+        }
+        _dodgeMpb ??= new MaterialPropertyBlock();
+        e.Source.GetPropertyBlock(_dodgeMpb);
+        if (e.DodgeIsFloat)
+        {
+            float factor = Mathf.Min(mask.r, Mathf.Min(mask.g, mask.b));
+            _dodgeMpb.SetFloat(e.DodgeProp, e.DodgeAuthoredF * factor);
+        }
+        else
+        {
+            _dodgeMpb.SetColor(e.DodgeProp, new Color(
+                e.DodgeAuthored.r * mask.r,
+                e.DodgeAuthored.g * mask.g,
+                e.DodgeAuthored.b * mask.b,
+                e.DodgeAuthored.a)); // alpha stays authored — only the key-near hue moves
+        }
+        e.Source.SetPropertyBlock(_dodgeMpb);
+    }
+
+    /// <summary>Exact per-renderer restore: a source that never carried an MPB gets it cleared
+    /// outright (bit-identical); one that did gets the authored value written back into it.</summary>
+    private static void RestoreKeyDodge(UnseenUnderlay e)
+    {
+        if (e.DodgeProp == null || e.Source == null)
+            return;
+        if (!e.HadBlock)
+        {
+            e.Source.SetPropertyBlock(null);
+            return;
+        }
+        _dodgeMpb ??= new MaterialPropertyBlock();
+        e.Source.GetPropertyBlock(_dodgeMpb);
+        if (e.DodgeIsFloat)
+            _dodgeMpb.SetFloat(e.DodgeProp, e.DodgeAuthoredF);
+        else
+            _dodgeMpb.SetColor(e.DodgeProp, e.DodgeAuthored);
+        e.Source.SetPropertyBlock(_dodgeMpb);
+    }
+
     /// <summary>
     /// Margin-derivation instrument (once per shader name per session): the skirt's default
     /// factor is INFERRED — the game bundles are not readable offline (ressources/ carries only
@@ -1158,7 +1389,10 @@ internal static class MixedReality
     /// </summary>
     private static void DumpUnseenShaderProperties(Material m)
     {
-        if (m.shader == null || DumpedUnseenShaders.Count >= 4 || !DumpedUnseenShaders.Add(m.shader.name))
+        // Round 8: dedup by MATERIAL name (was shader name) — the edge pieces' materials share
+        // the hex shader and never got their color properties dumped; the key-dodge needs every
+        // family material's authored colors on record.
+        if (m.shader == null || DumpedUnseenShaders.Count >= 8 || !DumpedUnseenShaders.Add(m.name))
             return;
 
         var sb = new System.Text.StringBuilder(256);
@@ -1373,6 +1607,7 @@ internal static class MixedReality
     {
         for (int i = 0; i < UnseenUnderlays.Count; i++)
         {
+            RestoreKeyDodge(UnseenUnderlays[i]); // MPB back to authored before anything else
             Renderer plate = UnseenUnderlays[i].Plate;
             if (plate != null)
                 UnityEngine.Object.Destroy(plate.gameObject);
@@ -1382,6 +1617,9 @@ internal static class MixedReality
         }
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
+        _appliedDodgeMask = Color.white;
+        _dodgeVerboseLogs = 0;
+        _dodgeNoPropLogged = false;
         if (_unseenDarkMat != null)
         {
             UnityEngine.Object.Destroy(_unseenDarkMat);

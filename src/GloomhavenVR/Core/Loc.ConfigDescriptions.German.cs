@@ -269,6 +269,17 @@ internal static partial class Loc
                 + "Rillenlinie überlappen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung "
                 + "neu gebaut). Erhöhen, wenn Rillen zwischen den Hexfeldern weiter leuchten; "
                 + "verringern, wenn Dunkel über die äußersten Hexkanten hinausragt. Begrenzt auf 1..2.",
+            ["MixedReality/UnseenKeyDodge"] =
+                "Helligkeitsfaktor (0..1) für die KEY-NAHEN Farbkanäle des animierten "
+                + "'Unseen'-Leuchtens bei aktivem MR. Das Fog-of-War-Leuchten des Spiels ist nahezu "
+                + "reines Grün — dieselbe Farbe wie der Standard-Chroma-Key —, deshalb stanzt der "
+                + "Compositor die Animation selbst zum Passthrough aus, egal was dahinter gerendert "
+                + "wird. Dieser Faktor dunkelt genau die Kanäle ab, in denen der aktive Key stark ist "
+                + "(grüner Key: G; Magenta/Blau: R/B, die das grüne Leuchten nicht nutzt — sichtbar "
+                + "ändert sich nichts; schwarzer Key: kein Kanal, Dodge aus). Farbton, Muster und "
+                + "Animation bleiben wie gestaltet; geschrieben wird pro Renderer per "
+                + "MaterialPropertyBlock — geteilte Materialien werden nie angefasst, beim Ausschalten "
+                + "von MR exakt wiederhergestellt. 1 = aus. Wirkt live. Begrenzt auf 0..1.",
             ["MixedReality/UnseenFillDrop"] =
                 "Wie weit (Welteinheiten) die Rillen-Füllung jedes 'Unseen'-Stücks in MR UNTER ihrer "
                 + "gestalteten Pose sitzt. Die Flächen der Füllung müssen unter den abgeschrägten "
