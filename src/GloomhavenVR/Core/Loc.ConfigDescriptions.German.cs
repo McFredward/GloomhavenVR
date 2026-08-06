@@ -261,15 +261,22 @@ internal static partial class Loc
                 + "wenn ein Durchlauf zeigt, dass gewollte Geometrie verdunkelt wird — das Log nennt, was "
                 + "hinterlegt wurde.",
             ["MixedReality/UnseenSkirtScale"] =
-                "Größe jeder dunklen Rückplatte der 'Unseen'-Geometrie relativ zu ihrer Geometrie (1 = "
-                + "exakte Silhouette). Die Fog-of-War-Shader ANIMIEREN ihre Oberfläche leicht über das "
-                + "statische Mesh hinaus; eine exakt gleich große Rückplatte lässt den bewegten Saum "
-                + "gegen das durchscheinende Zimmer mischen — die Platte wird deshalb um diesen Faktor um "
-                + "den Mittelpunkt des Stücks vergrößert, damit die Animation immer auf Dunkel landet. "
-                + "Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu gebaut). Erhöhen, wenn "
-                + "ein animierter Rand weiter transparent schimmert; verringern, wenn ein dunkler Saum "
-                + "sichtbar über den aufgedeckten Boden neben dem unentdeckten Gebiet ragt. Begrenzt auf "
-                + "1..2.",
+                "Verbreiterung der RILLEN-FÜLLUNG jedes 'Unseen'-Stücks relativ zu seiner Geometrie (1 = "
+                + "exakte Silhouette). Jedes Fog-of-War-Stück bekommt in MR ZWEI dunkle Rückplatten: eine "
+                + "exakte Kopie direkt hinter seinen Flächen und eine abgesenkte Füll-Kopie, die die "
+                + "abgeschrägten Rillen ZWISCHEN benachbarten Hexfeldern verschließt — dieser Faktor "
+                + "verbreitert nur diese Füllung, damit sich die Füllungen der Nachbarn unter der "
+                + "Rillenlinie überlappen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung "
+                + "neu gebaut). Erhöhen, wenn Rillen zwischen den Hexfeldern weiter leuchten; "
+                + "verringern, wenn Dunkel über die äußersten Hexkanten hinausragt. Begrenzt auf 1..2.",
+            ["MixedReality/UnseenFillDrop"] =
+                "Wie weit (Welteinheiten) die Rillen-Füllung jedes 'Unseen'-Stücks in MR UNTER ihrer "
+                + "gestalteten Pose sitzt. Die Flächen der Füllung müssen unter den abgeschrägten "
+                + "V-Rillen zwischen benachbarten Hexfeldern liegen, damit der Blick in eine Rille auf "
+                + "Dunkel trifft statt auf das durchscheinende Zimmer. Wirkt bei aktivem MR, live "
+                + "(Rückplatten werden bei Änderung neu gebaut). Erhöhen, wenn tiefe Rillen weiter grün "
+                + "leuchten; verringern, wenn Dunkel unter den äußeren Randstücken hervorschaut. "
+                + "Begrenzt auf 0..2.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
