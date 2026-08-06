@@ -572,6 +572,8 @@ internal static partial class WallSegmentFade
             _nextFastReclaimLog = 0f;
             _heartbeatFadeRenderers = -1;
             _lastLoggedFigureGuarded = -1;   // re-print the figure-guard proof line
+            _cornerPieces.Clear();           // corner ownership dies with the scene
+            _lastLoggedCornerCount = -1;
         }
 
         /// <summary>
@@ -762,6 +764,8 @@ internal static partial class WallSegmentFade
                 LogDiagnostic(headPos, visibleCount);
             }
 
+            // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
+            ApplyCornerPieces();
             // Regenerated shell pieces (Apparance churn) must be re-hidden faster than the
             // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
             FastReclaimRegeneratedShell(now);
@@ -3073,6 +3077,7 @@ internal static partial class WallSegmentFade
             _roomSampleCount.Clear();
             _allSamples.Clear();
             _floorYByRenderer.Clear();
+            _cornerPieces.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }

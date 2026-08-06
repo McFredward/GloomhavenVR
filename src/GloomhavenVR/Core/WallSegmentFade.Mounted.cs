@@ -492,6 +492,9 @@ internal static partial class WallSegmentFade
                     _attachmentOwned[p.Renderer] = new OwnerRef(seg, "wall body mesh");
                 }
             }
+            // Shared corner pieces (round 7) are spoken for too — never sconce dressing,
+            // and the orphan guard must not release them while their neighbors are faded.
+            RegisterCornerOwnership();
 
             // Park the previous lists and record who is already spoken for. STICKY OWNERSHIP: a
             // segment that is mid-fade or held faded keeps every prop it already owns — releasing

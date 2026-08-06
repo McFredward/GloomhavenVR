@@ -123,6 +123,17 @@ internal static partial class WallSegmentFade
         public readonly List<MountedProp> PrevStacked = new();
         /// <summary>0 = restored/untouched, 1 = dissolving, 2 = hidden.</summary>
         public int StackedState;
+        /// <summary>FACE DOMAIN (round 7, defect c — far-wall merlons flickered): the wall's
+        /// ORIGINAL pre-stack XZ footprint expanded by <see cref="FadeDriver.FaceMarginWU"/>.
+        /// A piece may only join this wall if its XZ center lies inside this rect or its AABB
+        /// overlaps it, and the decision AABB is CLAMPED to it — chaining grows the column in
+        /// Y, never around corners. Merlon→merlon gaps along a parapet are always within the
+        /// link range, so an unclamped chain walked the whole ring from the faded face onto
+        /// the opposite wall (hidden there while that wall blocked nothing, flickering under
+        /// regen churn).</summary>
+        public float FaceMinX = float.PositiveInfinity, FaceMaxX = float.NegativeInfinity;
+        public float FaceMinZ = float.PositiveInfinity, FaceMaxZ = float.NegativeInfinity;
+
         /// <summary>The wall's ORIGINAL course top (AABB max.y BEFORE any stacked piece
         /// extended it this rescan) — the anchor of the stack band's LOWER bound. Hardware
         /// round 2 proved the live top is the wrong anchor: the fixpoint adopted the tallest
@@ -163,6 +174,62 @@ internal static partial class WallSegmentFade
         /// <summary>Diagnostic radius (wu): an unadopted candidate this close to a wall is
         /// logged with its rejection reason (mirrors the mounted near-miss discipline).</summary>
         private const float StackNearMissXZ = 2.5f;
+        /// <summary>FACE DOMAIN margin (wu, round 7): how far beyond the wall's original XZ
+        /// footprint its adoption domain and decision AABB may reach. Covers corbel overhang
+        /// (observed adoption gaps ≤ 0.47) without letting a parapet chain turn a corner.</summary>
+        private const float FaceMarginWU = 1.5f;
+
+        /// <summary>Is the piece within this wall's OWN FACE (round 7, defect c)? Center
+        /// inside the face rect, or AABB overlapping it.</summary>
+        private static bool InFaceDomain(Segment seg, Bounds b)
+        {
+            Vector3 c = b.center;
+            if (c.x >= seg.FaceMinX && c.x <= seg.FaceMaxX
+                && c.z >= seg.FaceMinZ && c.z <= seg.FaceMaxZ)
+                return true;
+            return b.max.x >= seg.FaceMinX && b.min.x <= seg.FaceMaxX
+                && b.max.z >= seg.FaceMinZ && b.min.z <= seg.FaceMaxZ;
+        }
+
+        /// <summary>Union of a bounds and another AABB, without mutating either.</summary>
+        private static Bounds EncapsulateCopy(Bounds a, Bounds b)
+        {
+            a.Encapsulate(b);
+            return a;
+        }
+
+        /// <summary>Clamp an extended decision AABB's XZ to the wall's face domain (round 7):
+        /// the column may grow in Y without limit, but never around a corner — the !FAT ring
+        /// boxes both mis-adopted (chain reach) and mis-triggered (coverage from geometry on
+        /// other faces).</summary>
+        private static Bounds ClampExtensionToFace(Segment seg, Bounds ext)
+        {
+            Vector3 min = ext.min, max = ext.max;
+            min.x = Mathf.Max(min.x, seg.FaceMinX);
+            max.x = Mathf.Min(max.x, seg.FaceMaxX);
+            min.z = Mathf.Max(min.z, seg.FaceMinZ);
+            max.z = Mathf.Min(max.z, seg.FaceMaxZ);
+            var clamped = new Bounds();
+            clamped.SetMinMax(min, max);
+            return clamped;
+        }
+
+        /// <summary>SHARED CORNER PIECE (round 7, defect b — the two isolated towers): a
+        /// piece within stack reach of one or two walls but outside every wall's face domain
+        /// (it sits BETWEEN faces). It hides only when ALL its adjacent walls are faded —
+        /// the tower between two open faces opens too, but stands while either neighbor
+        /// stands; with a single neighbor it simply rides that wall.</summary>
+        private sealed class CornerPiece
+        {
+            public MountedProp Prop = null!;
+            public Segment A = null!;
+            public Segment? B;
+        }
+
+        private readonly List<CornerPiece> _cornerPieces = new();
+        private readonly List<CornerPiece> _prevCorners = new();
+        private readonly List<string> _cornerCensus = new();
+        private int _lastLoggedCornerCount = -1;
 
         /// <summary>Renderers owned by a stacked list THIS rescan (one owner per renderer).</summary>
         private readonly HashSet<Renderer> _stackedOwned = new();
@@ -300,6 +367,8 @@ internal static partial class WallSegmentFade
                 Bounds b = r.bounds;
                 Segment? best = null;
                 float bestGap = float.PositiveInfinity;
+                Segment? corner = null, cornerB = null;
+                float cornerGap = float.PositiveInfinity;
                 foreach (Segment seg in _fastSegScratch)
                 {
                     float gap = HorizontalGap(seg.Bounds, b);
@@ -316,8 +385,38 @@ internal static partial class WallSegmentFade
                         continue;
                     if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
                         continue;
+                    if (!InFaceDomain(seg, b))
+                    {
+                        // Round 7: outside every face domain but within stack reach of a
+                        // FADED wall — a regenerated corner piece. All segments in this
+                        // sweep are held faded, so the corner hide condition already holds.
+                        if (corner == null || gap < cornerGap)
+                        {
+                            cornerB = corner;
+                            corner = seg;
+                            cornerGap = gap;
+                        }
+                        continue;
+                    }
                     best = seg;
                     bestGap = gap;
+                }
+                if (best == null && corner != null)
+                {
+                    if (RendererUsesWallFade(r) || RendererUsesFoliage(r)
+                        || IsFigureOrActorRenderer(r)
+                        || r.GetComponentInParent<TileBehaviour>() != null
+                        || r.GetComponentInParent<Canvas>() != null
+                        || r.GetComponent<TMPro.TMP_Text>() != null)
+                        continue;
+                    MountedProp cprop = ClassifyProp(r);
+                    _cornerPieces.Add(new CornerPiece { Prop = cprop, A = corner, B = cornerB });
+                    _stackedOwned.Add(r);
+                    _mountedTouched[r] = cprop;
+                    DriveProp(cprop, 1f);
+                    r.enabled = false;
+                    claimed++;
+                    continue;
                 }
                 if (best == null)
                     continue;
@@ -329,8 +428,7 @@ internal static partial class WallSegmentFade
                     || r.GetComponentInParent<Canvas>() != null
                     || r.GetComponent<TMPro.TMP_Text>() != null)
                     continue;
-                Bounds ext = best.Bounds;
-                ext.Encapsulate(b);
+                Bounds ext = ClampExtensionToFace(best, EncapsulateCopy(best.Bounds, b));
                 bool extend = !(InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
                     && InsideOwnRoomFraction(best) < EngulfSampleFraction);
                 MountedProp prop = ClassifyProp(r);
@@ -391,8 +489,22 @@ internal static partial class WallSegmentFade
                 seg.PrevStacked.AddRange(seg.Stacked);
                 seg.Stacked.Clear();
                 // Snapshot the ORIGINAL course top before sticky pieces or adoptions extend
-                // the AABB — the stack band's lower bound anchors here (see StackOrigTop).
+                // the AABB — the stack band's lower bound anchors here (see StackOrigTop) —
+                // and the FACE DOMAIN rect (round 7): the pre-stack XZ footprint + margin
+                // that clamps both adoption and the decision AABB to this wall's own face.
                 seg.StackOrigTop = seg.HasBounds ? seg.Bounds.max.y : float.NegativeInfinity;
+                if (seg.HasBounds)
+                {
+                    seg.FaceMinX = seg.Bounds.min.x - FaceMarginWU;
+                    seg.FaceMaxX = seg.Bounds.max.x + FaceMarginWU;
+                    seg.FaceMinZ = seg.Bounds.min.z - FaceMarginWU;
+                    seg.FaceMaxZ = seg.Bounds.max.z + FaceMarginWU;
+                }
+                else
+                {
+                    seg.FaceMinX = seg.FaceMinZ = float.PositiveInfinity;
+                    seg.FaceMaxX = seg.FaceMaxZ = float.NegativeInfinity;
+                }
             }
 
             bool enabled = WallFadeTuning.StackedShells;
@@ -420,12 +532,35 @@ internal static partial class WallSegmentFade
                         seg.Stacked.Add(p);
                         _censusStacked++;
                         if (seg.HasBounds)
-                            seg.Bounds.Encapsulate(p.Renderer.bounds);
+                        {
+                            Bounds ext = seg.Bounds;
+                            ext.Encapsulate(p.Renderer.bounds);
+                            seg.Bounds = ClampExtensionToFace(seg, ext); // Y grows, XZ face-clamped
+                        }
                     }
                 }
 
+                // Corner stickiness (round 7): while a hidden corner piece's neighbors are
+                // still faded, carry it — its renderer is DISABLED and would otherwise miss
+                // the candidate prefilter, get orphan-restored and flicker (the merlon bug).
+                _prevCorners.Clear();
+                _prevCorners.AddRange(_cornerPieces);
+                _cornerPieces.Clear();
+                foreach (CornerPiece cp in _prevCorners)
+                {
+                    if (cp.Prop.Renderer == null
+                        || !_mountedTouched.ContainsKey(cp.Prop.Renderer)
+                        || cp.A.Anchor == null
+                        || IsFigureOrActorRenderer(cp.Prop.Renderer))
+                        continue;
+                    if (_stackedOwned.Add(cp.Prop.Renderer))
+                        _cornerPieces.Add(cp);
+                }
+                _prevCorners.Clear();
+
                 CollectStackCandidates(sceneRenderers);
                 RunStackAdoptionRounds();
+                CollectCornerPieces();
                 ClassifyStackNearMisses();
             }
 
@@ -577,6 +712,8 @@ internal static partial class WallSegmentFade
                             continue; // not a course of THIS column
                         if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
                             continue; // ground band of the wall's own room never fades
+                        if (!InFaceDomain(seg, b))
+                            continue; // round 7: chain in Y, never around corners
                         bestGap = gap;
                         best = seg;
                     }
@@ -593,8 +730,7 @@ internal static partial class WallSegmentFade
                     // dozens of 'adoption would engulf' near-misses on true fort courses
                     // while the user saw a solid keep in a faded state). The coverage slab
                     // stays decidable; the shell still opens.
-                    Bounds ext = best.Bounds;
-                    ext.Encapsulate(b);
+                    Bounds ext = ClampExtensionToFace(best, EncapsulateCopy(best.Bounds, b));
                     bool extend = !(InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
                         && InsideOwnRoomFraction(best) < EngulfSampleFraction);
                     // Live game logic / worldspace UI is never scenery (mounted-pass rule);
@@ -639,6 +775,137 @@ internal static partial class WallSegmentFade
                 if (!adoptedAny)
                     break;
             }
+        }
+
+        /// <summary>
+        /// CORNER COLLECTION (round 7, defect b): after the face-clamped adoption rounds,
+        /// every leftover candidate that is within stack reach (gap/band/ground) of one or
+        /// two walls yet inside NO wall's face domain becomes a shared corner piece of its
+        /// (up to two) nearest such walls — hidden only when all of them are faded.
+        /// </summary>
+        private void CollectCornerPieces()
+        {
+            foreach (MeshRenderer c in _stackCandidates)
+            {
+                if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
+                    continue;
+                Bounds b = c.bounds;
+                Segment? a = null, second = null;
+                float aGap = float.PositiveInfinity, secondGap = float.PositiveInfinity;
+                foreach (Segment seg in _segments.Values)
+                {
+                    if (!StackEligible(seg) || seg.Stacked.Count >= StackMaxPerSegment)
+                        continue;
+                    float gap = HorizontalGap(seg.Bounds, b);
+                    if (gap > StackLinkMaxXZ)
+                        continue;
+                    float lower = seg.Renderers.Count == 0 && seg.Body.Count > 0
+                        ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                        : seg.StackOrigTop - StackMaxOverlapDownWU;
+                    if (b.min.y < lower || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
+                        continue;
+                    if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
+                        continue;
+                    if (InFaceDomain(seg, b))
+                        continue; // face pieces were adoption's business, not a corner
+                    if (gap < aGap)
+                    {
+                        second = a;
+                        secondGap = aGap;
+                        a = seg;
+                        aGap = gap;
+                    }
+                    else if (gap < secondGap)
+                    {
+                        second = seg;
+                        secondGap = gap;
+                    }
+                }
+                if (a == null)
+                    continue;
+                if (c.GetComponentInParent<TileBehaviour>() != null
+                    || c.GetComponentInParent<Canvas>() != null
+                    || c.GetComponent<TMPro.TMP_Text>() != null)
+                    continue;
+                if (!_mountedTouched.TryGetValue(c, out MountedProp? prop))
+                    prop = ClassifyProp(c);
+                _cornerPieces.Add(new CornerPiece { Prop = prop, A = a, B = second });
+                _stackedOwned.Add(c);
+                if (_cornerCensus.Count < 8)
+                {
+                    string an = a.Anchor != null ? a.Anchor.name : "<dead>";
+                    string bn = second == null ? "-"
+                        : second.Anchor != null ? second.Anchor.name : "<dead>";
+                    _cornerCensus.Add($"'{c.name}' y[{b.min.y:F1}..{b.max.y:F1}] ↔ '{an}'/'{bn}'");
+                }
+            }
+
+            if (_cornerPieces.Count != _lastLoggedCornerCount)
+            {
+                _lastLoggedCornerCount = _cornerPieces.Count;
+                if (_cornerPieces.Count > 0)
+                    VRLog.Info(Name,
+                        $"CORNER PIECES: {_cornerPieces.Count} shared corner piece(s) between "
+                        + $"wall faces (hidden only while ALL adjacent walls are faded — the "
+                        + $"tower between two open faces opens too; single-neighbor pieces "
+                        + $"ride that wall): {string.Join("; ", _cornerCensus)}.");
+                _cornerCensus.Clear();
+            }
+        }
+
+        /// <summary>Mark every corner piece as owned for the mounted pass's bookkeeping
+        /// (called from CollectWallMountedProps — one owner per renderer, orphan-guard
+        /// coverage while hidden).</summary>
+        private void RegisterCornerOwnership()
+        {
+            foreach (CornerPiece cp in _cornerPieces)
+            {
+                if (cp.Prop.Renderer == null)
+                    continue;
+                _mountedOwned.Add(cp.Prop.Renderer);
+                _attachmentOwned[cp.Prop.Renderer] = new OwnerRef(cp.A, "shared corner piece");
+            }
+        }
+
+        /// <summary>
+        /// Per-frame corner delivery (called from Tick): ramp/hide with the MIN fade of the
+        /// adjacent walls — held-state enforced per frame like every attachment (regen
+        /// churn), restored the moment any neighbor returns.
+        /// </summary>
+        private void ApplyCornerPieces()
+        {
+            if (_cornerPieces.Count == 0)
+                return;
+            bool lost = false;
+            foreach (CornerPiece cp in _cornerPieces)
+            {
+                Renderer r = cp.Prop.Renderer;
+                if (r == null)
+                {
+                    lost = true;
+                    continue;
+                }
+                float fade = cp.B == null ? cp.A.Fade : Mathf.Min(cp.A.Fade, cp.B.Fade);
+                if (fade <= 0f)
+                {
+                    if (_mountedTouched.ContainsKey(r))
+                        RestoreProp(cp.Prop);
+                    continue;
+                }
+                _mountedTouched[r] = cp.Prop;
+                DriveProp(cp.Prop, fade);
+                if (fade >= FoliageHideFade)
+                {
+                    if (r.enabled)
+                        r.enabled = false;
+                }
+                else if (!r.enabled)
+                {
+                    r.enabled = true;
+                }
+            }
+            if (lost)
+                _nextRescan = 0f;
         }
 
         /// <summary>
