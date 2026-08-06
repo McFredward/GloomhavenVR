@@ -8,13 +8,15 @@ namespace GloomhavenVR.Cards;
 
 /// <summary>
 /// The pile browse fan (hardware test #21): a readable arc of one pile's cards,
-/// raised by poking or pinch-grabbing a <see cref="PileViewer"/> stack. Simplified
-/// <see cref="CardFan"/>-style arc, cards slightly enlarged. The POKE-TOGGLE fan now
+/// raised by poking (finger or board laser) a <see cref="PileViewer"/> stack — the ONLY
+/// way it opens since the stack pinch-grab was removed for every pile kind (user report
+/// 2026-08-06, ruling chain on <c>PileViewer.PileStack.CanGrab</c>; the hand-held
+/// "reading fan pinned to the grabbing hand" mode died with it). Simplified
+/// <see cref="CardFan"/>-style arc, cards slightly enlarged. The fan
 /// floats at a fixed spot ABOVE the control board (<see cref="PlaceAboveBoard"/>): its
 /// root is parented under the board root (<see cref="PlayTray.Current"/>.<see cref="PlayTray.Root"/>)
 /// so it INHERITS the board's live scale and pose — the fan tracks a two-hand board
-/// resize and a board switch. The pinch-GRAB fan stays a reading fan pinned to the
-/// grabbing hand (item 5). Either way the arc BILLBOARDS to face the head every frame in
+/// resize and a board switch. The arc BILLBOARDS to face the head every frame in
 /// <see cref="Tick"/> so the cards always face the player (ISSUE #7) — only the ANCHOR
 /// position + scale come from the board, not the head. Purely informational: the cards
 /// are adopted read-only (never grabbable, never poke-selectable — CardsDriver clears
@@ -31,11 +33,6 @@ internal sealed class PileBrowser
     private const float MaxStepDegrees = 10f;
     private const float CardScale = 1.3f;
     private const float ZStagger = 0.004f; // render-order stagger, same as CardFan
-
-    // Hand-held reading pose (test #22, item 5): float the arc above the holding
-    // palm and tilt it back toward the head — the "take the pile INTO my hand"
-    // placement, so each card is at reading distance and pinch/laser-reachable.
-    private const float HandPalmOffset = 0.16f;
 
     /// <summary>
     /// Poke-toggle float height: how far the fan's ROOT pivot sits ABOVE the board's top
@@ -69,8 +66,7 @@ internal sealed class PileBrowser
     private readonly List<VRCard> _cards = new(16);
     private Transform? _root;
     private TextMeshPro? _title;
-    private VRHand? _followHand;
-    private bool _boardAnchored; // poke-toggle fan parented under the board root (not held, not head-fallback)
+    private bool _boardAnchored; // fan parented under the board root (not the head-fallback)
 
     // Hand-sweep state: the single browse card the physical hand is currently lifting (null =
     // none) and the set of cards this tick pop-suppressed so nothing else can lift with it.
@@ -105,17 +101,25 @@ internal sealed class PileBrowser
     /// <summary>The pile currently browsed (null while closed).</summary>
     internal PileKind? Kind { get; private set; }
 
-    /// <summary>Held-fan mode (grabbed a pile): the arc follows the grabbing hand.</summary>
-    internal bool IsHandHeld => _followHand != null;
+    /// <summary>
+    /// ALWAYS FALSE since the stack pinch-grab was removed for every pile kind (user report
+    /// 2026-08-06 — ruling chain on <c>PileViewer.PileStack.CanGrab</c>): the browse fan has
+    /// exactly one anchoring, board-anchored (head-relative only when no board exists). Kept as
+    /// a property, not deleted, for the same reason as <see cref="ItemsPile.IsHandHeld"/>: it is
+    /// a WIRE seam — <c>NetAvatarDriver</c> fills the <c>PileBrowseHeld</c>/<c>PileBrowseLeftHand</c>
+    /// extras fields from it, and the packet layout must not shift (no ModBuild bump for a
+    /// local-only interaction change). Peers therefore always draw the ghost browse fan
+    /// board-anchored, which is now the only state that exists.
+    /// </summary>
+    internal bool IsHandHeld => false;
 
-    /// <summary>Which hand a HELD reading fan is pinned to — the receiver cannot guess it (either
-    /// hand may pinch-grab a stack) so it rides the wire. Mirrors <see cref="ItemsPile.IsHeldByLeftHand"/>.</summary>
-    internal bool IsHeldByLeftHand => _followHand != null && _followHand.Side == HandSide.Left;
+    /// <inheritdoc cref="IsHandHeld"/>
+    internal bool IsHeldByLeftHand => false;
 
     /// <summary>
     /// The open BOARD-ANCHORED browse fan's board-local anchor position (the root is a child of
     /// the board root, so <c>localPosition</c> IS the board frame), or null while closed /
-    /// hand-held / head-fallback. Multiplayer read seam for the fan-anchor wire record — carries
+    /// head-fallback. Multiplayer read seam for the fan-anchor wire record — carries
     /// the owner's live <c>[Cards] BrowseFanOffset</c> tuning that a receiver cannot derive.
     /// Mirrors <see cref="ItemsPile.BoardLocalAnchor"/>.
     /// </summary>
@@ -168,21 +172,19 @@ internal sealed class PileBrowser
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>
-    /// Open (or switch) the browser for one pile. With <paramref name="followHand"/>
-    /// the arc is a HELD reading fan pinned to that hand (test #22 item 5, grabbed a
-    /// pile); without it the arc floats at a fixed spot ABOVE the control board
-    /// (<see cref="PlaceAboveBoard"/>), inheriting the board's live scale/pose, and falls
-    /// back to a head-relative pose only if no board exists. Either way the cards are
-    /// readable, individually grabbable and laser-hoverable — the driver owns those flags
-    /// and the open/close policy. <paramref name="anchorParent"/> is the head-relative
-    /// fallback parent (the hands root) when no control board is present.
+    /// Open (or switch) the browser for one pile. The arc floats at a fixed spot ABOVE the
+    /// control board (<see cref="PlaceAboveBoard"/>), inheriting the board's live scale/pose,
+    /// and falls back to a head-relative pose only if no board exists. (The former
+    /// <c>followHand</c> parameter — the HELD reading fan pinned to the pinch-grabbing hand,
+    /// test #22 item 5 — died with the stack grab; see <c>PileViewer.PileStack.CanGrab</c>.)
+    /// The cards are readable, individually grabbable and laser-hoverable — the driver owns
+    /// those flags and the open/close policy. <paramref name="anchorParent"/> is the
+    /// head-relative fallback parent (the hands root) when no control board is present.
     /// </summary>
-    internal void Open(PileKind kind, Transform anchorParent, VRHand? followHand = null,
-        Vector3? emergeFromWorld = null)
+    internal void Open(PileKind kind, Transform anchorParent, Vector3? emergeFromWorld = null)
     {
         // Requirement 5: remember the pile-stack world anchor so the first content layout emerges
-        // the cards out of the stack (cleared once consumed). A held fan (followHand) still emerges
-        // from the pile the same way — the cards fly from the stack up to the reading fan.
+        // the cards out of the stack (cleared once consumed).
         _emergePending = emergeFromWorld.HasValue;
         _emergeWorld = emergeFromWorld ?? default;
         if (_root == null)
@@ -201,23 +203,18 @@ internal sealed class PileBrowser
             Core.TmpFit.Fit(_title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
             WorldUI.MrBacking.Label(_title); // browser title floats over the room in MR
         }
-        _followHand = followHand;
-        // Poke-toggle: anchor under the board root so the fan inherits the board's live
-        // scale + pose (tracks a resize + a board switch). No board → head-relative fallback.
-        Transform? boardRoot = followHand == null ? PlayTray.Current?.Root : null;
+        // Anchor under the board root so the fan inherits the board's live scale + pose
+        // (tracks a resize + a board switch). No board → head-relative fallback.
+        Transform? boardRoot = PlayTray.Current?.Root;
         _boardAnchored = boardRoot != null;
-        Transform parent = followHand != null ? followHand.Rig.PalmCenter
-                         : boardRoot != null ? boardRoot
-                         : anchorParent;
+        Transform parent = boardRoot != null ? boardRoot : anchorParent;
         if (_root.parent != parent)
             _root.SetParent(parent, worldPositionStays: false);
         _root.gameObject.SetActive(true);
         Kind = kind;
         IsOpen = true;
         Current = this; // publish to the multiplayer extras sender (see Current's doc comment)
-        if (followHand != null)
-            Tick(); // place immediately near the holding hand
-        else if (boardRoot != null)
+        if (boardRoot != null)
             PlaceAboveBoard(); // float above the board, inherit its scale (tracks resize/switch)
         else
             PlaceAtHead(); // no board — head-relative fallback
@@ -231,7 +228,6 @@ internal sealed class PileBrowser
         Kind = null;
         if (ReferenceEquals(Current, this))
             Current = null; // unpublish: the extras sender stops advertising the fan this frame
-        _followHand = null;
         _boardAnchored = false;
         ClearHandSweep(); // drop any hand-sweep lift + suppression before the cards are released
         _cards.Clear();
@@ -247,7 +243,6 @@ internal sealed class PileBrowser
         Kind = null;
         if (ReferenceEquals(Current, this))
             Current = null;
-        _followHand = null;
         _boardAnchored = false;
         if (_root != null)
         {
@@ -345,9 +340,8 @@ internal sealed class PileBrowser
     }
 
     /// <summary>
-    /// Per-frame facing update while the browse is open (ISSUE #7). In HELD mode (item 5)
-    /// the arc also floats above the grabbing palm and moves with the controller. In BOTH
-    /// modes the arc BILLBOARDS to face the head every frame — exactly like
+    /// Per-frame facing update while the browse is open (ISSUE #7): the arc
+    /// BILLBOARDS to face the head every frame — exactly like
     /// <see cref="CardFan.Tick"/> — so the browsed cards always face the player, even the
     /// poke-toggled fan that is board-anchored (<see cref="PlaceAboveBoard"/>): its local
     /// position stays put under the board (so it rides the board's pose + scale), only its
@@ -361,13 +355,10 @@ internal sealed class PileBrowser
         // Physical hand sweep (user issue): move the free hand THROUGH the arc to highlight the
         // card nearest the fingertip, exactly one at a time — same feel as the palm fan.
         UpdateHandSweep();
-        // Held mode: the pivot floats above the palm along the palm normal (+Y of PalmCenter).
-        // Board-anchored mode: re-read the base + [Cards] BrowseFanOffset every frame — a cheap
+        // Board-anchored: re-read the base + [Cards] BrowseFanOffset every frame — a cheap
         // Vector3 config read — so the debug menu's Piles 'Browse X/Y/Z' steppers move an OPEN
         // fan live; the board-LOCAL anchor still rides its parent's pose/scale for free.
-        if (_followHand != null)
-            _root.localPosition = new Vector3(0f, HandPalmOffset, 0f);
-        else if (_boardAnchored)
+        if (_boardAnchored)
             _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head == null)
@@ -498,15 +489,13 @@ internal sealed class PileBrowser
         VRHand? missHand = null;
         float winnerScale = 1f, missScale = 1f;
 
-        // A hand qualifies while it is tracked and NOT busy holding something. In HELD mode the
-        // pinch that opened the browse holds via _followHand, whose Grabber.Held != null then
-        // naturally excludes it (a held hand is not a sweeping hand); the explicit identity test
-        // keeps it out even in the frame before the hold registers.
+        // A hand qualifies while it is tracked and NOT busy holding something (a held hand is
+        // not a sweeping hand). The extra _followHand identity test that used to sit here died
+        // with the held-fan mode — no pinch pins the fan to a hand any more.
         for (int h = 0; h < 2; h++)
         {
             VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
-            if (hand == null || ReferenceEquals(hand, _followHand) || !hand.HasPose
-                || hand.Grabber.Held != null)
+            if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
                 continue;
 
             Vector3 tip = hand.Rig.IndexTip.position;

@@ -12,9 +12,11 @@ namespace GloomhavenVR.Cards;
 /// (<see cref="PlayTray.PileMount"/> — the only free edge, see the BuildMounts
 /// collision math), each rendered as a stack of card slabs with a live count and a
 /// localized caption. Poking a stack (finger or board laser) TOGGLES the pile
-/// browse fan; pinch-grabbing it raises the browse while held and dismisses on
-/// release (<see cref="PileBrowser"/>; open/close policy and content live in
-/// CardsDriver). Purely informational — counts are read straight from the
+/// browse fan (<see cref="PileBrowser"/>; open/close policy and content live in
+/// CardsDriver) — poke/laser is the ONLY way a stack opens: no stack is grabbable
+/// any more (user report 2026-08-06, see <see cref="PileStack.CanGrab"/>), so a bare
+/// trigger press near a pile can never pick it up. Purely informational — counts are
+/// read straight from the
 /// authoritative piles (<see cref="CardsGameApi.DiscardedCount"/> /
 /// <see cref="CardsGameApi.BurntCount"/>, plus the inventory for the items stack — no
 /// game state is ever written) and logged change-deduped. The items stack (item 4) is
@@ -47,14 +49,11 @@ internal sealed class PileViewer
     /// <summary>The active hand last seen in <see cref="TickStatus"/> — the items pile's inventory source.</summary>
     private CardsHandUI? _hand;
 
-    /// <summary>Stack poked (finger/laser) — CardsDriver toggles the browse fan.</summary>
+    /// <summary>Stack poked (finger/laser) — CardsDriver toggles the browse fan. The
+    /// <c>GrabOpened</c>/<c>GrabReleased</c> siblings that used to sit here died with the
+    /// stack pinch-grab (user report 2026-08-06, see <see cref="PileStack.CanGrab"/>): the
+    /// poke/laser toggle is now the only stack interaction there is.</summary>
     internal System.Action<PileKind, VRHand>? PokeToggled;
-
-    /// <summary>Stack pinch-grabbed — CardsDriver opens the browse fan (held mode).</summary>
-    internal System.Action<PileKind, VRHand>? GrabOpened;
-
-    /// <summary>Grabbed stack released — CardsDriver dismisses a held browse.</summary>
-    internal System.Action<PileKind, VRHand>? GrabReleased;
 
     /// <summary>The items browse is being opened — CardsDriver closes the discard/burnt ability browser so
     /// only ONE pile fan is ever up (the discard/burnt→items direction already closes the items fan; this
@@ -398,41 +397,21 @@ internal sealed class PileViewer
         PokeToggled?.Invoke(kind, hand);
     }
 
-    /// <summary>
-    /// Route a stack GRAB (pinch-to-browse-while-held). The ITEMS stack is deliberately absent:
-    /// its whole-fan grab was removed on the user's ruling (2026-08-02, see
-    /// <see cref="ItemsPile.TogglePoke"/>) and <see cref="PileStack.CanGrab"/> now refuses that
-    /// kind outright, so this can only ever be reached for discard/burnt. The early return is a
-    /// belt-and-braces guard: a stray Items grab must NOT fall through to
-    /// <see cref="GrabOpened"/>, which would open the ABILITY browser on an item stack.
-    /// </summary>
-    internal void DispatchGrabOpen(PileKind kind, VRHand hand)
-    {
-        if (kind == PileKind.Items)
-            return;
-        _itemsBrowse.Close();
-        GrabOpened?.Invoke(kind, hand);
-    }
-
-    /// <inheritdoc cref="DispatchGrabOpen"/>
-    internal void DispatchGrabRelease(PileKind kind, VRHand hand)
-    {
-        if (kind == PileKind.Items)
-            return;
-        GrabReleased?.Invoke(kind, hand);
-    }
+    // NOTE: the DispatchGrabOpen/DispatchGrabRelease pair that used to live here (the
+    // pinch-to-browse-while-held route for discard/burnt) is GONE with the stack grab itself —
+    // see PileStack.CanGrab for the full ruling chain. DispatchPoke above is the only route left.
 
     // ------------------------------------------------------------------ stack --
 
     /// <summary>
     /// One physical pile stack: a few offset card slabs + count + caption. Pokeable
-    /// (finger via <see cref="OnPoke"/>, board laser via <see cref="LaserToggle"/> —
+    /// ONLY (finger via <see cref="OnPoke"/>, board laser via <see cref="LaserToggle"/> —
     /// CardsDriver routes laser clicks there so the finger's edge gate never eats a
-    /// deliberate second laser click) AND grabbable (pinch, like cards —
-    /// <c>snapToHand</c> off: the pile stays on the board, the grip only holds the
-    /// browse open). VRCard's dual-registration pattern: GrabbableBehaviour base +
-    /// manual pokeable registration. Internal (not private) so CardsDriver's laser
-    /// dispatch can type-test it.
+    /// deliberate second laser click). It is deliberately NOT grabbable — the class still
+    /// derives from GrabbableBehaviour (VRCard's dual-registration pattern), but
+    /// <see cref="CanGrab"/> refuses every kind, so the ProximityGrabber never candidates
+    /// a stack and the trigger can never pick a pile up (see CanGrab for the ruling
+    /// chain). Internal (not private) so CardsDriver's laser dispatch can type-test it.
     /// </summary>
     internal sealed class PileStack : GrabbableBehaviour, IPokeable
     {
@@ -522,7 +501,7 @@ internal sealed class PileViewer
             box.isTrigger = true;
 
             var stack = go.AddComponent<PileStack>();
-            stack.snapToHand = false; // the pile never leaves the board — the grip holds the browse open
+            stack.snapToHand = false; // defensive only — CanGrab refuses every kind, the pile never leaves the board
             stack._owner = owner;
             stack._kind = kind;
             stack._count = count;
@@ -714,34 +693,30 @@ internal sealed class PileViewer
         /// gradient above never lets a mote reach it for long.</summary>
         private static readonly Color EmberColor = new Color(1f, 0.80f, 0.36f, 0.45f);
 
-        // ---- grab (pinch-to-browse) ------------------------------------------------
+        // ---- grab (refused) --------------------------------------------------------
 
         /// <summary>
-        /// Grabbable only for the discard/burnt stacks. The ITEMS stack is NOT grabbable any
-        /// more (user ruling 2026-08-02: "Das Greifen des GANZEN Fächers mit dem Trigger war
-        /// möglich — das komplett entfernen, das war nie gewollt"). Refusing it HERE — at the
-        /// registration gate <c>ProximityGrabber.UpdateHighlight</c> consults — is what makes
-        /// the removal complete: the stack no longer becomes a grab candidate at all, so the
-        /// trigger falls straight through to the laser/poke toggle instead of being claimed.
-        /// Removing it also un-breaks the other two item interactions, which were both early-out
-        /// on the grabbing hand's <c>Grabber.Held</c> / <c>_followHand</c> for as long as the fan
-        /// was held (no laser hover/pluck, no hand-sweep highlight — see <see cref="ItemsPile.TogglePoke"/>).
+        /// NO stack is grabbable — for ANY pile kind. This is the one gate that makes a bare
+        /// trigger press unable to pick a pile up: <c>ProximityGrabber.UpdateHighlight</c>
+        /// consults it before a collider can even become a grab candidate, so a refusing stack
+        /// is simply invisible to the trigger and the press falls straight through to the
+        /// laser/poke toggle instead of being claimed.
+        ///
+        /// RULING CHAIN. The ITEMS stack was de-grabbed first (user ruling 2026-08-02: "Das
+        /// Greifen des GANZEN Fächers mit dem Trigger war möglich — das komplett entfernen,
+        /// das war nie gewollt" — full context on <see cref="ItemsPile.TogglePoke"/>). The
+        /// DISCARD and BURNT stacks kept their pinch-grab (grip = browse-while-held) until the
+        /// user report 2026-08-06: "Der BURNT Stapel und der DISCARDED Stapel dürfen nicht
+        /// direkt mit dem Trigger nehmbar sein" — the held-browse gesture read as an ACCIDENTAL
+        /// pile pickup, exactly the failure the items ruling removed. All three stacks now share
+        /// the identical policy: poke (finger) or laser click toggles the browse; nothing else.
+        /// The whole grab route died with this gate — <c>OnGrab</c>/<c>OnRelease</c> overrides,
+        /// <c>PileViewer.DispatchGrabOpen/Release</c>, CardsDriver's held-browse mode and
+        /// <c>PileBrowser</c>'s follow-hand pose are all removed; peers keep receiving
+        /// <c>PileBrowseHeld=false</c> through the unchanged wire seam
+        /// (<see cref="PileBrowser.IsHandHeld"/>), which is now the only state that exists.
         /// </summary>
-        public override bool CanGrab => base.CanGrab && _hasCards && _kind != PileKind.Items;
-
-        public override void OnGrab(VRHand hand)
-        {
-            base.OnGrab(hand); // Holder bookkeeping only (snapToHand off)
-            hand.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("Cards", $"Board: {name} pinch-grabbed ({hand.Side}) — browse while held.");
-            _owner.DispatchGrabOpen(_kind, hand);
-        }
-
-        public override void OnRelease(VRHand hand, Vector3 velocity)
-        {
-            base.OnRelease(hand, velocity);
-            _owner.DispatchGrabRelease(_kind, hand);
-        }
+        public override bool CanGrab => false;
 
         // ---- poke (toggle browse) --------------------------------------------------
 
