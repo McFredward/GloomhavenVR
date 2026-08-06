@@ -418,6 +418,18 @@ internal static partial class WallSegmentFade
         /// family compiles the wall-fade subgraph into "plain" shaders behind this material
         /// toggle. Our MPB opens it per renderer alongside the standard fade set.</summary>
         private static readonly int WallFadeOnMatId = Shader.PropertyToID("_WallFade_On");
+        /// <summary>Round-9 game-wide audit: the third toggle spelling. The game's own
+        /// <c>ToggleWallFadeScript</c> writes this int per renderer at Start — an authored
+        /// per-asset OPT-OUT (0 = never fade). Honored: a material whose only gate is this
+        /// and reads 0 is authored always-solid and left alone (the doorway-ruling spirit);
+        /// it is never pinned to 1 in the MPB.</summary>
+        private static readonly int ToggleWallFadeLocalMatId =
+            Shader.PropertyToID("_ToggleWallFadeLocal");
+        /// <summary>The compile-time keyword behind <c>_WallFade_On</c> (ModBuild-65
+        /// adjudication: wall materials ship authored 1 + keyword <c>_WALLFADE_ON_ON</c> —
+        /// fade branch present, MPB driveable; floor materials ship 0 + no keyword — branch
+        /// absent, MPB inert).</summary>
+        private const string WallFadeOnKeyword = "_WALLFADE_ON_ON";
 
         private readonly Dictionary<Component, Segment> _segments = new();
         private readonly List<Component> _deadKeys = new();
@@ -800,6 +812,7 @@ internal static partial class WallSegmentFade
                 _heartbeatFadeRenderers = _censusFadeRenderers;
                 LogFloorColumnCensus();
                 LogMountedCensus();
+                LogWallPathAudit();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
                 int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0, stacked = 0;
                 int bodyWalls = 0, bodyMeshes = 0;
@@ -2685,6 +2698,141 @@ internal static partial class WallSegmentFade
         /// distant unrevealed room (other map tiles ≥ ~11 wu away) can never reach.</summary>
         private const float AdjacentReanchorMaxGapWU = 2.0f;
 
+        /// <summary>
+        /// Is this material's wall-fade subgraph PRESENT AND DRIVEABLE (round-9 game-wide
+        /// audit — all known gate spellings, each with its liveness rule)? Requires
+        /// <c>_Cutoff</c> (the clip the fade sweeps), then:
+        /// <list type="bullet">
+        /// <item><c>_ToggleWallfade</c> — a runtime float uniform (DXBC-verified on the HIGH
+        ///   variant + ParticleMaster): always driveable → native.</item>
+        /// <item><c>_WallFade_On</c> — a compile-time switch (keyword
+        ///   <c>_WALLFADE_ON_ON</c>; ModBuild-65 adjudication): native only when the
+        ///   authored value is 1 or the keyword is enabled — otherwise the fade branch is
+        ///   absent from the compiled variant and the MPB float is inert (the round-8
+        ///   floors), so the renderer belongs to the enabled fallback instead.</item>
+        /// <item><c>_ToggleWallFadeLocal</c> — the game's authored per-asset opt-out
+        ///   (<c>ToggleWallFadeScript</c> writes it at Start): native only when it reads
+        ///   nonzero. An opted-out asset is authored ALWAYS-SOLID and is honored (never
+        ///   pinned to 1 — the doorway-ruling spirit).</item>
+        /// </list>
+        /// </summary>
+        private static bool HasLiveWallFadeToggle(Material m)
+        {
+            if (!m.HasProperty(CutoffId))
+                return false;
+            if (m.HasProperty(ToggleWallfadeMatId))
+                return true;
+            if (m.HasProperty(WallFadeOnMatId))
+                return m.GetFloat(WallFadeOnMatId) != 0f || m.IsKeywordEnabled(WallFadeOnKeyword);
+            if (m.HasProperty(ToggleWallFadeLocalMatId))
+                return Mathf.Abs(m.GetFloat(ToggleWallFadeLocalMatId)) > 0.5f;
+            return false;
+        }
+
+        /// <summary>A wall-fade gate EXISTS on some material but is not live (authored off /
+        /// keyword-absent variant) — the audit line's 'gated-off' class: authored to stay
+        /// solid, deliberately untouched.</summary>
+        private bool HasGatedOffWallFadeToggle(MeshRenderer r)
+        {
+            _matScratch.Clear();
+            r.GetSharedMaterials(_matScratch);
+            foreach (Material m in _matScratch)
+            {
+                if (m == null || m.shader == null || !m.HasProperty(CutoffId))
+                    continue;
+                bool hasGate = m.HasProperty(WallFadeOnMatId)
+                    || m.HasProperty(ToggleWallfadeMatId)
+                    || m.HasProperty(ToggleWallFadeLocalMatId);
+                if (hasGate && !HasLiveWallFadeToggle(m))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// WALL-PATH AUDIT (round-9 game-wide generalization; user: "wende das mit ALLEN
+        /// Mauer-Assets aus ALLEN Levels genauso an"): one heartbeat line that classifies
+        /// EVERY cache wall's child renderers by the discovery/delivery path that owns them —
+        /// the self-audit that lets every future hardware log prove a new tileset is covered
+        /// without another blind round. Classes: native-name (WallFade shader family),
+        /// toggle-native (live gate — round 8), attachment-claimed (body/stacked/mounted/
+        /// corner via the ownership table), foliage, ground-band (solid by design),
+        /// figure-guarded, gated-off (authored always-solid — honored), and UNCLAIMED.
+        /// UNCLAIMED &gt; 0 is the alarm: an asset family fell through every path.
+        /// </summary>
+        private void LogWallPathAudit()
+        {
+            int walls = 0, nameN = 0, toggleN = 0, attach = 0, foliage = 0;
+            int ground = 0, figures = 0, gatedOff = 0, unclaimed = 0;
+            var unNames = new System.Text.StringBuilder();
+            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            {
+                Segment seg = kv.Value;
+                if (!seg.FromWallCache || seg.Anchor == null)
+                    continue;
+                walls++;
+                int segToggle = Mathf.Min(seg.ToggleNative, seg.Renderers.Count);
+                toggleN += segToggle;
+                nameN += seg.Renderers.Count - segToggle;
+                float ceiling = RoomDecisionValid(seg.RoomIndex)
+                    ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                    : float.NegativeInfinity;
+                MeshRenderer[] all =
+                    seg.Anchor.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
+                foreach (MeshRenderer r in all)
+                {
+                    if (r == null || seg.Renderers.Contains(r))
+                        continue; // counted above (native/toggle split)
+                    if (seg.Foliage.Contains(r))
+                    {
+                        foliage++;
+                    }
+                    else if (_attachmentOwned.ContainsKey(r))
+                    {
+                        attach++; // body/stacked/mounted/corner — all fade-delivered
+                    }
+                    else if (IsModObject(r) || !r.enabled)
+                    {
+                        // not scenery / game-disabled — no path applies, not an alarm
+                    }
+                    else if (IsFigureOrActorRenderer(r))
+                    {
+                        figures++;
+                    }
+                    else if (r.bounds.max.y <= ceiling)
+                    {
+                        ground++;
+                    }
+                    else if (HasGatedOffWallFadeToggle(r))
+                    {
+                        gatedOff++;
+                    }
+                    else
+                    {
+                        unclaimed++;
+                        if (unNames.Length < 160)
+                        {
+                            if (unNames.Length > 0)
+                                unNames.Append(", ");
+                            unNames.Append('\'').Append(r.name).Append('\'');
+                        }
+                    }
+                }
+            }
+            if (walls == 0)
+                return;
+            VRLog.Info(Name,
+                $"WALL-PATH AUDIT scene='{SceneManager.GetActiveScene().name}': {walls} cache "
+                + $"wall(s) — renderers: {nameN} native-name + {toggleN} toggle-native (MPB "
+                + $"fade), {attach} attachment-claimed (body/stacked/mounted/corner), "
+                + $"{foliage} foliage, {ground} ground-band (solid by design), {figures} "
+                + $"figure-guarded, {gatedOff} gated-off (authored always-solid — honored), "
+                + $"{unclaimed} UNCLAIMED"
+                + (unclaimed > 0
+                    ? $" [ALARM — fell through every path: {unNames}]"
+                    : " — every wall renderer is owned by a path."));
+        }
+
         /// <summary>Toggle-native materials already logged (round 8, cap 6): one line per
         /// material with its authored gate/cutoff values and shader keywords — the datum
         /// that adjudicates the keyword risk (see the Apply comment) from the next log.</summary>
@@ -2701,16 +2849,18 @@ internal static partial class WallSegmentFade
                 ? m.GetFloat(ToggleWallfadeMatId).ToString("0.##") : "n/a";
             string cutoff = m.HasProperty(CutoffId)
                 ? m.GetFloat(CutoffId).ToString("0.##") : "n/a";
+            string local = m.HasProperty(ToggleWallFadeLocalMatId)
+                ? m.GetFloat(ToggleWallFadeLocalMatId).ToString("0.##") : "n/a";
             string keywords;
             try { keywords = string.Join(",", m.shaderKeywords); }
             catch { keywords = "?"; }
             VRLog.Info(Name,
                 $"TOGGLE-NATIVE MATERIAL '{m.name}' (shader '{m.shader.name}'): authored "
                 + $"_WallFade_On={wallFadeOn}, _ToggleWallfade={toggleWallfade}, "
-                + $"_Cutoff={cutoff}, keywords=[{keywords}] — native MPB fade path engaged "
-                + "(round 8). If the gate is a compile-time keyword (fade branch absent from "
-                + "this variant), the MPB float is inert and this material is the "
-                + "shader-swap candidate.");
+                + $"_ToggleWallFadeLocal={local}, _Cutoff={cutoff}, keywords=[{keywords}] — "
+                + "native MPB fade path engaged (round 8; round-9 liveness rules: keyword-off "
+                + "_WallFade_On variants and _ToggleWallFadeLocal opt-outs are NOT routed "
+                + "here).");
         }
 
         /// <summary>
@@ -2996,8 +3146,7 @@ internal static partial class WallSegmentFade
                     continue;
                 string shaderName = m.shader.name;
                 bool byName = shaderName.Contains("WallFade");
-                bool byToggle = !byName && m.HasProperty(CutoffId)
-                    && (m.HasProperty(WallFadeOnMatId) || m.HasProperty(ToggleWallfadeMatId));
+                bool byToggle = !byName && HasLiveWallFadeToggle(m);
                 if (!byName && !byToggle)
                     continue;
                 any = true;
