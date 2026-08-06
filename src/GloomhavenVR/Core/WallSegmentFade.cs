@@ -571,6 +571,10 @@ internal static partial class WallSegmentFade
             _fastReclaimTotal = 0;
             _nextFastReclaimLog = 0f;
             _heartbeatFadeRenderers = -1;
+            _lastLoggedFigureGuarded = -1;   // re-print the figure-guard proof line
+            _cornerPieces.Clear();           // corner ownership dies with the scene
+            _lastLoggedCornerCount = -1;
+            _dumpedBodyShaders.Clear();      // re-dump body shader properties per scene
         }
 
         /// <summary>
@@ -761,6 +765,8 @@ internal static partial class WallSegmentFade
                 LogDiagnostic(headPos, visibleCount);
             }
 
+            // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
+            ApplyCornerPieces();
             // Regenerated shell pieces (Apparance churn) must be re-hidden faster than the
             // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
             FastReclaimRegeneratedShell(now);
@@ -811,7 +817,10 @@ internal static partial class WallSegmentFade
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
                       + $"renderer — their shaders: {string.Join(", ", _unfadeableWallShaders)} "
                       + $"— now fading as {bodyWalls} plain-mesh BODY column(s) "
-                      + $"({bodyMeshes} mesh(es), renderer.enabled delivery [round 6])"
+                      + $"({bodyMeshes} mesh(es), renderer.enabled delivery [round 6]; "
+                      + $"foundation: {_bodyFoundationKept} spanning course(s) kept solid, "
+                      + $"{_bodyFullSlabFallback} full-height slab(s) hide entirely — mesh "
+                      + $"granularity [round 7])"
                     : string.Empty;
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
@@ -1392,8 +1401,50 @@ internal static partial class WallSegmentFade
         /// are matched by shader name ("WallFade") so props/doors under the same entity are
         /// never touched.
         /// </summary>
+        /// <summary>
+        /// FIGURE RESTITUTION (round 7): sweep the shared hidden/ramped ledger against
+        /// <see cref="IsFigureOrActorRenderer"/> and restore every violator NOW — a figure
+        /// renderer adopted before the guard existed (or through any future gap) must come
+        /// back the moment the guard classifies it, and the guarded collectors + sticky
+        /// loops will not re-take it. Runs first in every rescan; logs once per incident.
+        /// </summary>
+        private readonly List<MountedProp> _figurePurgeScratch = new();
+
+        private void PurgeFigureRenderers()
+        {
+            if (_mountedTouched.Count == 0)
+                return;
+            _figurePurgeScratch.Clear();
+            foreach (MountedProp p in _mountedTouched.Values)
+            {
+                if (p.Renderer != null && IsFigureOrActorRenderer(p.Renderer))
+                    _figurePurgeScratch.Add(p);
+            }
+            if (_figurePurgeScratch.Count == 0)
+                return;
+            var names = new System.Text.StringBuilder();
+            foreach (MountedProp p in _figurePurgeScratch)
+            {
+                if (names.Length > 0)
+                    names.Append(", ");
+                names.Append('\'').Append(p.Renderer.name).Append('\'');
+                RestoreProp(p);
+            }
+            VRLog.Warn(Name,
+                $"FIGURE RESTITUTION: restored {_figurePurgeScratch.Count} previously-adopted "
+                + $"FIGURE renderer(s) ({names}) — figures are NEVER touched by any wall "
+                + "system (round-7 ruling, same severity as the Lights rule).");
+            _figurePurgeScratch.Clear();
+        }
+
         private void Rescan(TilesOcclusionGenerator gen)
         {
+            // Figures first (round 7): nothing below may keep or re-take an actor renderer.
+            PurgeFigureRenderers();
+            // Foundation census (round 7): fresh per rescan, deduped across the two strips.
+            _bodyFoundationKept = 0;
+            _bodyFullSlabFallback = 0;
+            _bodySlabCounted.Clear();
             // Tile-plane anchors (round 7): each TilesOcclusionVolume knows its room's
             // renderers AND its CentralTile, whose transform sits ON the tile plane. The
             // renderer bounds are only trusted for the XZ footprint — their Y is the
@@ -1667,6 +1718,13 @@ internal static partial class WallSegmentFade
         /// from the segment (clearing our block off it if one is applied), recompute the
         /// segment's AABB from what remains, and drop segments with nothing left.
         /// </summary>
+        /// <summary>Round-7 foundation census (reset per RESCAN — the strip runs twice and
+        /// must not double-count): spanning body courses kept solid vs full-height slabs
+        /// that hide entirely (mesh-granularity fallback; deduped via the counted set).</summary>
+        private int _bodyFoundationKept;
+        private int _bodyFullSlabFallback;
+        private readonly HashSet<Renderer> _bodySlabCounted = new();
+
         private void StripGroundRenderers()
         {
             _deadKeys.Clear();
@@ -1698,13 +1756,38 @@ internal static partial class WallSegmentFade
                         RestoreFoliageRenderer(f);
                     seg.Foliage.RemoveAt(i);
                 }
-                // BODY meshes obey the same ground rule (round 6): the foundation course
-                // stays solid — the flat game's own band behaviour, kept for plain walls.
+                // BODY ground rule (round 7, defect a — foundation preserved at whatever the
+                // mesh granularity allows): fully-in-band courses stay solid (as before), and
+                // SPANNING courses (base in the band, top above it) stay solid TOO whenever
+                // the wall has at least one base-above-band course to hide — the flat game's
+                // foundation-band look. A wall built as ONE full-height slab falls back to
+                // hiding the slab (the view into the room beats the foundation — that IS the
+                // feature); the heartbeat reports both counts.
+                int aboveBand = 0;
+                foreach (MountedProp bp in seg.Body)
+                {
+                    Renderer br0 = bp.Renderer;
+                    if (br0 != null && br0.bounds.min.y >= ceiling)
+                        aboveBand++;
+                }
                 for (int i = seg.Body.Count - 1; i >= 0; i--)
                 {
                     Renderer br = seg.Body[i].Renderer;
-                    if (br == null || br.bounds.max.y > ceiling)
+                    if (br == null)
                         continue;
+                    Bounds bb = br.bounds;
+                    bool fullyInBand = bb.max.y <= ceiling;
+                    bool spanning = !fullyInBand && bb.min.y < ceiling;
+                    if (spanning && aboveBand == 0)
+                    {
+                        if (_bodySlabCounted.Add(br))
+                            _bodyFullSlabFallback++; // stays in Body — hides entirely
+                        continue;
+                    }
+                    if (!fullyInBand && !spanning)
+                        continue; // base above the band — the hideable wall proper
+                    if (spanning)
+                        _bodyFoundationKept++;
                     if (seg.BodyState != 0)
                         RestoreProp(seg.Body[i]);
                     seg.Body.RemoveAt(i);
@@ -2535,6 +2618,33 @@ internal static partial class WallSegmentFade
             r.gameObject.layer == VRLayers.ModLayer
             || r.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal);
 
+        /// <summary>
+        /// FIGURES ARE NEVER TOUCHED — round-7 ruling, same severity as the Lights rule
+        /// (mauern_problem_neu.png: the BRUTE's horned back-of-head was PERMANENTLY hidden —
+        /// an accessory mesh adopted by a wall sweep inside a faded wall's ring-spanning
+        /// AABB). Airtight, deliberately over-broad (fail-open = the renderer stays visible):
+        /// <list type="bullet">
+        /// <item>every <see cref="SkinnedMeshRenderer"/>, outright — characters are skinned,
+        ///   scenery is not; the banner case loses skinned support, accepted;</item>
+        /// <item>anything under an <c>ActorBehaviour</c> ancestor (the game's board actor);</item>
+        /// <item>anything under a <c>CInteractableActor</c> ancestor (the game's interactable
+        ///   figure root — the same component FigureGrab picks by);</item>
+        /// <item>anything under an <c>Animator</c> ancestor — a horn/head accessory hangs off
+        ///   a BONE, and whatever the actor component layout, the animation rig root is
+        ///   always above it. Also excludes animated props (chests…), which no wall system
+        ///   should ever hide anyway.</item>
+        /// </list>
+        /// Checked by EVERY adoption sweep (stack candidates + adoption + fast reclaim, wall
+        /// body, mounted dressing, corner pieces) and enforced retroactively by
+        /// <see cref="PurgeFigureRenderers"/> each rescan (restitution: a previously-adopted
+        /// figure renderer is restored the moment this guard classifies it).
+        /// </summary>
+        private static bool IsFigureOrActorRenderer(Renderer r) =>
+            r is SkinnedMeshRenderer
+            || r.GetComponentInParent<ActorBehaviour>() != null
+            || r.GetComponentInParent<CInteractableActor>() != null
+            || r.GetComponentInParent<Animator>() != null;
+
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
         private bool RendererUsesFoliage(MeshRenderer r)
         {
@@ -3007,6 +3117,7 @@ internal static partial class WallSegmentFade
             _roomSampleCount.Clear();
             _allSamples.Clear();
             _floorYByRenderer.Clear();
+            _cornerPieces.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }
