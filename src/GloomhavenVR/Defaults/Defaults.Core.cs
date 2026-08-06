@@ -39,6 +39,7 @@ internal static partial class Defaults
     internal const bool OpaquePreviewTiles = true;                        // => [MixedReality] OpaquePreviewTiles
     internal const float UnseenSkirtScale = 1.2f;                         // => [MixedReality] UnseenSkirtScale  (round 7: XZ widening of the GROOVE-FILL copy so neighboring fills overlap under the bevel channels; the primary underlay is exact 1:1)
     internal const float UnseenFillDrop = 0.35f;                          // => [MixedReality] UnseenFillDrop  (world-units drop of the groove-fill copy — INFERRED from the round-7 screenshot's bevel depth (~10-20 % of a ~2 wu hex); tunable live for one-round calibration)
+    internal const float UnseenKeyDodge = 0.35f;                          // => [MixedReality] UnseenKeyDodge  (round 8: multiplier on the unseen glow's key-strong channels — screenshot sampling puts the authored glow within ~2 % of the pure-green key, so 0.35 moves the brightest pixels ~0.65 out of any plausible similarity window while the animation stays visible as darker green)
 
     // ---- Core/PerfConfig.cs --------------------------------------------------------
     internal const bool Perf_Enabled = true;                 // => [Perf] Enabled
