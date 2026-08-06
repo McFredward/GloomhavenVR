@@ -574,6 +574,7 @@ internal static partial class WallSegmentFade
             _lastLoggedFigureGuarded = -1;   // re-print the figure-guard proof line
             _cornerPieces.Clear();           // corner ownership dies with the scene
             _lastLoggedCornerCount = -1;
+            _dumpedBodyShaders.Clear();      // re-dump body shader properties per scene
         }
 
         /// <summary>
@@ -816,7 +817,10 @@ internal static partial class WallSegmentFade
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
                       + $"renderer — their shaders: {string.Join(", ", _unfadeableWallShaders)} "
                       + $"— now fading as {bodyWalls} plain-mesh BODY column(s) "
-                      + $"({bodyMeshes} mesh(es), renderer.enabled delivery [round 6])"
+                      + $"({bodyMeshes} mesh(es), renderer.enabled delivery [round 6]; "
+                      + $"foundation: {_bodyFoundationKept} spanning course(s) kept solid, "
+                      + $"{_bodyFullSlabFallback} full-height slab(s) hide entirely — mesh "
+                      + $"granularity [round 7])"
                     : string.Empty;
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
@@ -1437,6 +1441,10 @@ internal static partial class WallSegmentFade
         {
             // Figures first (round 7): nothing below may keep or re-take an actor renderer.
             PurgeFigureRenderers();
+            // Foundation census (round 7): fresh per rescan, deduped across the two strips.
+            _bodyFoundationKept = 0;
+            _bodyFullSlabFallback = 0;
+            _bodySlabCounted.Clear();
             // Tile-plane anchors (round 7): each TilesOcclusionVolume knows its room's
             // renderers AND its CentralTile, whose transform sits ON the tile plane. The
             // renderer bounds are only trusted for the XZ footprint — their Y is the
@@ -1710,6 +1718,13 @@ internal static partial class WallSegmentFade
         /// from the segment (clearing our block off it if one is applied), recompute the
         /// segment's AABB from what remains, and drop segments with nothing left.
         /// </summary>
+        /// <summary>Round-7 foundation census (reset per RESCAN — the strip runs twice and
+        /// must not double-count): spanning body courses kept solid vs full-height slabs
+        /// that hide entirely (mesh-granularity fallback; deduped via the counted set).</summary>
+        private int _bodyFoundationKept;
+        private int _bodyFullSlabFallback;
+        private readonly HashSet<Renderer> _bodySlabCounted = new();
+
         private void StripGroundRenderers()
         {
             _deadKeys.Clear();
@@ -1741,13 +1756,38 @@ internal static partial class WallSegmentFade
                         RestoreFoliageRenderer(f);
                     seg.Foliage.RemoveAt(i);
                 }
-                // BODY meshes obey the same ground rule (round 6): the foundation course
-                // stays solid — the flat game's own band behaviour, kept for plain walls.
+                // BODY ground rule (round 7, defect a — foundation preserved at whatever the
+                // mesh granularity allows): fully-in-band courses stay solid (as before), and
+                // SPANNING courses (base in the band, top above it) stay solid TOO whenever
+                // the wall has at least one base-above-band course to hide — the flat game's
+                // foundation-band look. A wall built as ONE full-height slab falls back to
+                // hiding the slab (the view into the room beats the foundation — that IS the
+                // feature); the heartbeat reports both counts.
+                int aboveBand = 0;
+                foreach (MountedProp bp in seg.Body)
+                {
+                    Renderer br0 = bp.Renderer;
+                    if (br0 != null && br0.bounds.min.y >= ceiling)
+                        aboveBand++;
+                }
                 for (int i = seg.Body.Count - 1; i >= 0; i--)
                 {
                     Renderer br = seg.Body[i].Renderer;
-                    if (br == null || br.bounds.max.y > ceiling)
+                    if (br == null)
                         continue;
+                    Bounds bb = br.bounds;
+                    bool fullyInBand = bb.max.y <= ceiling;
+                    bool spanning = !fullyInBand && bb.min.y < ceiling;
+                    if (spanning && aboveBand == 0)
+                    {
+                        if (_bodySlabCounted.Add(br))
+                            _bodyFullSlabFallback++; // stays in Body — hides entirely
+                        continue;
+                    }
+                    if (!fullyInBand && !spanning)
+                        continue; // base above the band — the hideable wall proper
+                    if (spanning)
+                        _bodyFoundationKept++;
                     if (seg.BodyState != 0)
                         RestoreProp(seg.Body[i]);
                     seg.Body.RemoveAt(i);

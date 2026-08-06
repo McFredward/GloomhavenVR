@@ -107,6 +107,16 @@ internal static partial class WallSegmentFade
         public int CutoffId = -1;
         /// <summary>Authored "Mask Clip Value" the cutoff ramp starts from.</summary>
         public float BaseCutoff = 0.35f;
+        /// <summary>Amp dissolve pair (round 7, defect a — the figure shaders expose
+        /// <c>_Toggle_Dissolve</c>/<c>_InvisibilityControl</c>, family siblings may too):
+        /// when BOTH exist, the ramp drives a real dissolve (toggle=1, control authored→1;
+        /// assumption: 1 = invisible, per the property's figure-invisibility semantics — if
+        /// a shader inverts it, the ramp is a no-op and the guaranteed end-of-ramp disable
+        /// still lands, no worse than the plain pop). -1 when absent.</summary>
+        public int DissolveToggleId = -1;
+        public int DissolveControlId = -1;
+        /// <summary>Authored <c>_InvisibilityControl</c> the dissolve ramp starts from.</summary>
+        public float BaseDissolveControl;
         // Particle-module snapshot (restored bit-for-bit on unfade).
         public ParticleSystem.MinMaxGradient StartColor;
         public bool HasStartColor;
@@ -169,6 +179,9 @@ internal static partial class WallSegmentFade
         private static readonly int TintColorId = Shader.PropertyToID("_TintColor");
         private static readonly int ColorPropId = Shader.PropertyToID("_Color");
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+        private static readonly int ToggleDissolvePropId = Shader.PropertyToID("_Toggle_Dissolve");
+        private static readonly int InvisibilityControlPropId =
+            Shader.PropertyToID("_InvisibilityControl");
 
         /// <summary>Renderers owned by a mounted list THIS rescan (one owner per renderer).</summary>
         private readonly HashSet<Renderer> _mountedOwned = new();
@@ -223,6 +236,14 @@ internal static partial class WallSegmentFade
                     p.CutoffId = CutoffId;
                     p.BaseCutoff = Mathf.Clamp01(mat.GetFloat(CutoffId));
                 }
+                // Amp dissolve pair (round 7): a REAL dissolve where the shader offers one.
+                if (mat.HasProperty(ToggleDissolvePropId)
+                    && mat.HasProperty(InvisibilityControlPropId))
+                {
+                    p.DissolveToggleId = ToggleDissolvePropId;
+                    p.DissolveControlId = InvisibilityControlPropId;
+                    p.BaseDissolveControl = Mathf.Clamp01(mat.GetFloat(InvisibilityControlPropId));
+                }
             }
             if (r is ParticleSystemRenderer)
             {
@@ -238,7 +259,8 @@ internal static partial class WallSegmentFade
                     p.EmissionRate = ps.emission.rateOverTimeMultiplier;
                 }
             }
-            p.Tier = (p.ColorId >= 0 ? "alpha" : p.CutoffId >= 0 ? "cutoff" : "no-material-channel")
+            p.Tier = (p.DissolveControlId >= 0 ? "dissolve+" : string.Empty)
+                + (p.ColorId >= 0 ? "alpha" : p.CutoffId >= 0 ? "cutoff" : "no-material-channel")
                 + (p.System != null ? "+particles" : string.Empty);
             return p;
         }
@@ -267,20 +289,29 @@ internal static partial class WallSegmentFade
             if (r == null)
                 return;
             float visible = Mathf.Clamp01(1f - fade);
-            if (p.ColorId >= 0)
+            if (p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0)
             {
                 _mountedMpb ??= new MaterialPropertyBlock();
                 _mountedMpb.Clear();
-                Color c = p.BaseColor;
-                c.a *= visible;
-                _mountedMpb.SetColor(p.ColorId, c);
-                r.SetPropertyBlock(_mountedMpb);
-            }
-            else if (p.CutoffId >= 0)
-            {
-                _mountedMpb ??= new MaterialPropertyBlock();
-                _mountedMpb.Clear();
-                _mountedMpb.SetFloat(p.CutoffId, Mathf.Lerp(p.BaseCutoff, FoliageCutoffEnd, fade));
+                if (p.ColorId >= 0)
+                {
+                    Color c = p.BaseColor;
+                    c.a *= visible;
+                    _mountedMpb.SetColor(p.ColorId, c);
+                }
+                else if (p.CutoffId >= 0)
+                {
+                    _mountedMpb.SetFloat(p.CutoffId,
+                        Mathf.Lerp(p.BaseCutoff, FoliageCutoffEnd, fade));
+                }
+                if (p.DissolveControlId >= 0)
+                {
+                    // Real Amp dissolve (round 7): open the gate, sweep the control toward
+                    // fully invisible. Per-renderer MPB — the shared material is untouched.
+                    _mountedMpb.SetFloat(p.DissolveToggleId, 1f);
+                    _mountedMpb.SetFloat(p.DissolveControlId,
+                        Mathf.Lerp(p.BaseDissolveControl, 1f, fade));
+                }
                 r.SetPropertyBlock(_mountedMpb);
             }
             if (p.System != null)
@@ -302,7 +333,7 @@ internal static partial class WallSegmentFade
             Renderer r = p.Renderer;
             if (r == null)
                 return;
-            if (p.ColorId >= 0 || p.CutoffId >= 0)
+            if (p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0)
                 r.SetPropertyBlock(null);
             if (p.System != null)
             {

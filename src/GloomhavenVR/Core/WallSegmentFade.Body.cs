@@ -46,6 +46,45 @@ internal static partial class WallSegmentFade
 
     private sealed partial class FadeDriver
     {
+        /// <summary>Shaders already property-dumped this scene (one line each, cap 4) — the
+        /// round-7 datum for a possible future WallFade-shader swap on body materials.</summary>
+        private readonly HashSet<string> _dumpedBodyShaders = new();
+
+        /// <summary>
+        /// ONE-SHOT SHADER PROPERTY DUMP (round 7, defect a): name every property of a body
+        /// wall's shader so the NEXT log decides, from data instead of another blind round,
+        /// (a) whether the Amp masonry shaders expose the dissolve pair
+        /// (_Toggle_Dissolve/_InvisibilityControl — then the ramp above is already a real
+        /// dissolve) and (b) whether a material COPY could be swapped to Amp_Basic_WallFade
+        /// (property compatibility: _MainTex/_BumpMap/… overlap) for the native fade path
+        /// including the world-Y foundation gradient.
+        /// </summary>
+        private void DumpBodyShaderOnce(Material? mat)
+        {
+            if (mat == null || mat.shader == null || _dumpedBodyShaders.Count >= 4
+                || !_dumpedBodyShaders.Add(mat.shader.name))
+                return;
+            var sb = new System.Text.StringBuilder();
+            sb.Append("BODY SHADER PROPERTIES '").Append(mat.shader.name).Append("': ");
+            try
+            {
+                Shader sh = mat.shader;
+                int n = sh.GetPropertyCount();
+                for (int i = 0; i < n; i++)
+                {
+                    if (i > 0)
+                        sb.Append(", ");
+                    sb.Append(sh.GetPropertyName(i)).Append('(')
+                      .Append(sh.GetPropertyType(i)).Append(')');
+                }
+            }
+            catch (System.Exception e)
+            {
+                sb.Append("unreadable: ").Append(e.GetType().Name);
+            }
+            VRLog.Info(Name, sb.ToString());
+        }
+
         /// <summary>Restore ALL of a segment's body meshes — called on every path where the
         /// segment stops owning them, so no wall course can stay hidden without an owner.</summary>
         private void RestoreSegmentBody(Segment seg)
@@ -79,6 +118,7 @@ internal static partial class WallSegmentFade
                     continue; // rides the wall as a foliage attachment already
                 if (!r.enabled && !_mountedTouched.ContainsKey(r))
                     continue; // the GAME disabled it — not ours to manage
+                DumpBodyShaderOnce(r.sharedMaterial); // round 7: one line per shader, cap 4
                 if (!_mountedTouched.TryGetValue(r, out MountedProp? prop))
                     prop = ClassifyProp(r);
                 seg.Body.Add(prop);
