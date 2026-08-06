@@ -1057,8 +1057,9 @@ internal sealed partial class CardsDriver
     // ------------------------------------------------------------------ pile browse --
 
     // Browse state (test #21): what was open when, so any mode/hand change closes
-    // it deterministically (C: browse fans never survive a context switch).
-    private bool _browseHeld;
+    // it deterministically (C: browse fans never survive a context switch). The _browseHeld
+    // flag that used to sit here died with the stack pinch-grab (PileStack.CanGrab,
+    // 2026-08-06) — every browse fan is poke/laser-toggled and board-anchored now.
     private CardsHandUI? _browseHand;
     private CardHandMode _browseMode;
 
@@ -1077,18 +1078,14 @@ internal sealed partial class CardsDriver
             CloseBrowser("poked again");
             return;
         }
-        OpenBrowser(kind, held: false, hand);
+        OpenBrowser(kind);
     }
 
-    private void OnPileGrabOpened(PileKind kind, VRHand hand) => OpenBrowser(kind, held: true, hand);
+    // NOTE: OnPileGrabOpened/OnPileGrabReleased (pinch-to-browse-while-held) are gone — the
+    // stack grab that raised them was removed for ALL pile kinds (PileStack.CanGrab, user
+    // report 2026-08-06). The poke/laser toggle above is the only way a browse fan opens.
 
-    private void OnPileGrabReleased(PileKind kind, VRHand hand)
-    {
-        if (_browseHeld)
-            CloseBrowser("grip released");
-    }
-
-    private void OpenBrowser(PileKind kind, bool held, VRHand? hand)
+    private void OpenBrowser(PileKind kind)
     {
         CardsHandUI? gameHand = CurrentHand();
         Transform? anchor = AnchorParent();
@@ -1097,20 +1094,17 @@ internal sealed partial class CardsDriver
         CardHandMode mode = CardsGameApi.Mode(gameHand);
         if (IsPickMode(mode) || VRModeStateMachine.CurrentMode == VRMode.ModalUI)
             return; // modal pick flows / dialogs own the scene — browsing is non-modal only
-        _browseHeld = held;
         _browseHand = gameHand;
         _browseMode = mode;
-        // Held grab (item 5): the arc becomes a reading fan pinned to the grabbing
-        // hand — "the pile in my hand". Poke-toggle stays a fixed head-relative wall.
         // Requirement 5 (emerge): pass the pile stack's world position so the arc's cards
         // fly OUT of the stack instead of popping in (existing home-lerp does the easing).
         Vector3? emergeFrom = _piles.TryGetPileWorld(kind, out Vector3 pileWorld, out _)
             ? pileWorld : (Vector3?)null;
-        _browser.Open(kind, anchor, held ? hand : null, emergeFrom);
+        _browser.Open(kind, anchor, emergeFrom);
         // Fresh fan → fresh borrow ledger (the -1 sentinel makes the first refresh always log).
         _browseBorrowed = -1;
         _browseLeftOnBoard = 0;
-        VRLog.Info("Cards", $"Pile browse OPEN: {kind} ({(held ? "held in hand" : "toggled")}, mode={mode}).");
+        VRLog.Info("Cards", $"Pile browse OPEN: {kind} (toggled, mode={mode}).");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
     }
 
@@ -1178,7 +1172,6 @@ internal sealed partial class CardsDriver
         if (!_browser.IsOpen)
             return;
         VRLog.Info("Cards", $"Pile browse CLOSE ({reason}).");
-        _browseHeld = false;
         _browseHand = null;
         ClearBrowseHover();
         // Requirement 2 (collapse-into-stack for discard/burnt): before the browser closes + the

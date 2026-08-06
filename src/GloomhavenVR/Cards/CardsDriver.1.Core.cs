@@ -214,9 +214,9 @@ internal sealed partial class CardsDriver : MonoBehaviour
         _rest.ShortRestRequested += OnShortRestRequested;
         _rest.LongRestRequested += OnLongRestRequested;
         _half.PlayRequested += OnPlayRequested;
+        // Poke/laser toggle is the ONLY stack seam left: the GrabOpened/GrabReleased pair
+        // (pinch-to-browse-while-held) died with the stack grab (PileStack.CanGrab, 2026-08-06).
         _piles.PokeToggled += OnPileTogglePoked;
-        _piles.GrabOpened += OnPileGrabOpened;
-        _piles.GrabReleased += OnPileGrabReleased;
         _piles.ItemsOpening += () => CloseBrowser("items browse opened"); // one pile fan at a time (#6)
 
         _dirty = true;
