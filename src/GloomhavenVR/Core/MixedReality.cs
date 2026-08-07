@@ -96,13 +96,6 @@ internal static class MixedReality
     /// grooves still glow; too large = the fill peeks out below the outer rim pieces.</summary>
     internal static ConfigEntry<float> UnseenFillDrop = null!;
 
-    /// <summary>Round 8 — the KEY DODGE: multiplier (0..1) on the unseen glow's key-matching
-    /// color channels while MR is on. The family's rendered glow is near-PURE GREEN (screenshot
-    /// pixel sampling: brightest grout pixels within ~2 % of the default green key), so the
-    /// compositor chroma-keys the animation itself to passthrough — no backing can prevent that,
-    /// only moving the PIXELS out of the similarity window can. 1 = off. Tunable live
-    /// (per-renderer MPB rewrite, no rebuild).</summary>
-    internal static ConfigEntry<float> UnseenKeyDodge = null!;
 
     /// <summary>
     /// Key-colour presets offered by the settings UI.
@@ -185,26 +178,11 @@ internal static class MixedReality
         /// visible as an alien slab at the region rim (user ruling: removed).</summary>
         public Renderer? Fill;
 
-        // ---- round 8, the key dodge (see UnseenKeyDodge): per-renderer MPB tint state --------
-
-        /// <summary>The color property the dodge writes on this source ('_Tint'/'_TintColor'/
-        /// '_Color'), or null when the float fallback / nothing was found.</summary>
-        public string? DodgeProp;
-
-        /// <summary>Authored value of <see cref="DodgeProp"/> read from the shared material at
-        /// build time — the restore target and the base the dodge multiplies.</summary>
-        public Color DodgeAuthored;
-
-        /// <summary>Float fallback: '_Diffuse_Boost' authored value when no color property
-        /// exists on any family slot (then <see cref="DodgeProp"/> is that float's name and
-        /// <see cref="DodgeIsFloat"/> is set).</summary>
-        public float DodgeAuthoredF;
-        public bool DodgeIsFloat;
-
-        /// <summary>Whether the source renderer carried a MaterialPropertyBlock BEFORE the dodge
-        /// wrote one — restore clears ours entirely when it did not (bit-identical), and writes
-        /// the authored value back into the existing block when it did.</summary>
-        public bool HadBlock;
+        /// <summary>Round 10: the source's AUTHORED sharedMaterials array, recorded when family
+        /// slots were swapped onto the mod's opaque scroll material (<see cref="SwapCopyOf"/>) —
+        /// the restore target. Null when nothing was swapped (no family slot, or the bundled
+        /// Overlay shader is unavailable).</summary>
+        public Material[]? SwapOriginals;
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -235,37 +213,32 @@ internal static class MixedReality
     /// <see cref="_appliedSkirtScale"/> so a config change rebuilds live (round 7).</summary>
     private static float _appliedFillDrop = -1f;
 
-    /// <summary>The key-dodge channel-multiplier vector currently written into the family MPBs
-    /// (round 8): (1,dodge,1) under a green key, white = dodge inactive. A change (key preset
-    /// cycled, config tuned) rewrites every entry's MPB — no rebuild needed.</summary>
-    private static Color _appliedDodgeMask = Color.white;
+    // ---- round 10, the opaque scroll swap (see BuildUnseenUnderlay / SwapCopyOf) -------------
 
-    /// <summary>Shared scratch MPB for the key dodge (never stored on a renderer).</summary>
-    private static MaterialPropertyBlock? _dodgeMpb;
+    /// <summary>source family material instance id → its opaque scroll swap copy (session
+    /// cache: pieces sharing one authored material keep sharing the swap, and the per-frame
+    /// scroll write stays one-per-material). Copies are mod-owned; destroyed on restore.</summary>
+    private static readonly Dictionary<int, Material> SwapBySourceMat = new(8);
 
-    /// <summary>Per-session cap counter for the per-renderer dodge-write log lines.</summary>
-    private static int _dodgeVerboseLogs;
+    /// <summary>The live swap copies, for the per-tick scroll write (mirror of the cache's
+    /// values — a list iterates without allocator noise).</summary>
+    private static readonly List<Material> SwapMats = new(8);
 
-    /// <summary>One-shot latch: a family renderer without ANY known dodge property was seen —
-    /// its material/shader got named once so the next round can find the real color lever.</summary>
-    private static bool _dodgeNoPropLogged;
+    /// <summary>The bundled 'GloomhavenVR/Overlay' shader, resolved lazily — the same
+    /// find-then-scan seam as <c>Cards.PlayTray.OverlayShader</c> (a bundled shader is not
+    /// discoverable via Shader.Find until something loads it; the hands/tray bundle is loaded
+    /// long before a scenario generates unseen tiles). Kept Core-local so Core keeps zero
+    /// references into the Cards module.</summary>
+    private static Shader? _swapShader;
+    private static bool _swapMissLogged;
+    private static bool _swapStateLogged;
 
-    /// <summary>Color properties the dodge probes, in priority order. '_Tint' is DELIBERATELY
-    /// ABSENT: round 9's hardware log convicted it — the MPB write is on record
-    /// ("key-dodge '_Tint' … mask (1,0.35,1) via MPB") with ZERO visual effect, so the compiled
-    /// variant never samples it (its authored alpha 0 under a visible glow was the tell). The
-    /// two remaining names cover family variants that might expose a REAL color lever; none of
-    /// the three dumped family materials has either, so in practice discovery falls through to
-    /// <see cref="DodgeFloatProp"/>.</summary>
-    private static readonly string[] DodgeColorProps = { "_TintColor", "_Color" };
-
-    /// <summary>The PROMOTED lever (round 9): the family's brightness knob (all three dumped
-    /// materials carry it, authored 1). Shader-internal — no decompiled C# usage — so its
-    /// semantics are inferred from the name (a diffuse/brightness multiplier); the per-write
-    /// instrumentation stays so a no-effect round would convict it exactly like '_Tint'. Scalar,
-    /// hence gated on the GLOW's channel: the family glow is verified green (round-8 pixel
-    /// sampling), so the boost dims only when the live key is strong in G.</summary>
-    private const string DodgeFloatProp = "_Diffuse_Boost";
+    /// <summary>UV scroll speed of the opaque swap (uv/second, X and Y). The authored scroll is
+    /// SHADER-TIME-DRIVEN (no decompiled writer of '_UV_Offset' exists; the dumps show it
+    /// constant 0), so the authored speed is unreadable — this is an INFERRED slow drift that
+    /// keeps the fog visibly alive. The offset wraps at 1 (tiled sampling) for precision.</summary>
+    private const float SwapScrollX = 0.05f;
+    private const float SwapScrollY = 0.02f;
 
     /// <summary>MATERIAL names whose properties were already dumped this session (round 8: was
     /// shader names — the edge materials share the hex shader and stayed undumped;
@@ -435,17 +408,6 @@ internal static class MixedReality
             "passthrough room. Applies while MR is on, live (backings rebuild on change). Raise " +
             "if deep grooves still glow green; lower if dark peeks out below the outer rim " +
             "pieces. Clamped to 0..2.");
-        UnseenKeyDodge = _file.Bind("MixedReality", "UnseenKeyDodge", Defaults.UnseenKeyDodge,
-            "Brightness multiplier (0..1) for the unseen fog-of-war glow's KEY-MATCHING color " +
-            "channels while MR is on. The game's animated 'unseen' glow is nearly pure green — " +
-            "the same color as the default chroma key — so the compositor keys the animation " +
-            "itself out to passthrough no matter what is rendered behind it. This dims exactly " +
-            "the channels the active key is strong in (green key: the G channel; magenta/blue " +
-            "keys: R/B, which the green glow does not use, so nothing visibly changes; black " +
-            "key: no channel, dodge off), moving the glow out of the key's similarity window " +
-            "while hue, pattern and animation stay authored. Written per renderer via " +
-            "MaterialPropertyBlock — shared materials are never touched; restored exactly on MR " +
-            "off. 1 = off. Applies live. Clamped to 0..1.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -833,28 +795,39 @@ internal static class MixedReality
     /// Green (RGBA 0,1,0,1)") — and the compositor keys FINAL pixels, so the family's own
     /// near-pure-green glow is replaced by passthrough regardless of what is rendered behind
     /// it. Dark hex tops survived every round because their final pixels are dark; the bright
-    /// animated grout could never survive. Fix: the KEY DODGE (<see cref="UnseenKeyDodge"/>) —
-    /// per-renderer MaterialPropertyBlocks dim the key-strong channels of the family's exposed
-    /// color property ('_Tint' per the dump; '_Diffuse_Boost' float as fallback lever), moving
-    /// the glow out of the similarity window while hue family, pattern and animation stay
-    /// authored. A true hue SHIFT (green→teal/amber) is impossible with the levers that exist:
-    /// the glow's green is baked into the pattern texture and '_Tint' multiplies it, so R/B
-    /// can only be removed, never added — dimming is the one reachable direction, and it is
-    /// what the similarity window responds to. Self-gating for other presets (magenta/blue
-    /// masks touch only channels the green texture does not use; black produces no mask).
-    /// Everything restored exactly on MR off (no stray MPB on a renderer that had none).
+    /// animated grout could never survive. The fix of the round — a per-renderer MPB "key
+    /// dodge" dimming the family's exposed color/boost properties — is GONE (round 10): its
+    /// premise ("the authored glow is green") was corrected by the user, and its own
+    /// instrumentation had already convicted '_Tint' as inert.
     ///
-    /// ROUND 9 (hardware 2026-08-06 #3, ModBuild 66): the instrumentation delivered its
-    /// conviction — the log shows the '_Tint' MPB writes on both piece kinds with ZERO visual
-    /// effect (mixed_reality_tiles1.png: from above the grout is still pure bright green;
-    /// tiles2.png: from below fully opaque — the fills' side of the job is done). '_Tint' is
-    /// INERT in the compiled variant. The per-material dumps (all three family materials:
-    /// Unseen_Floor_Hex/Plain/Blocks_Mat) show NO other color property — no emissive, nothing —
-    /// so the promoted lever is the float '_Diffuse_Boost' (authored 1 everywhere): written as
-    /// authored × dodge via the same MPB path, gated on the key's G strength because a scalar
-    /// cannot pick channels and the glow is verified green. Same instrumentation; if the boost
-    /// also proves inert, the next mechanism is a mod-owned material copy with dimmed sampling
-    /// (per-renderer swap, originals restored) — decided then, not built speculatively.
+    /// ROUND 9 (hardware 2026-08-06 #3, ModBuild 66): the round-8 instrumentation delivered a
+    /// conviction — the '_Tint' MPB writes are on record with ZERO visual effect
+    /// (mixed_reality_tiles1.png: from above the grout still pure bright green; tiles2.png:
+    /// from below fully opaque — the fills' side of the job is DONE). The per-material dumps
+    /// (all three family materials: Unseen_Floor_Hex/Plain/Blocks_Mat) show NO other color
+    /// property. The '_Diffuse_Boost' promotion this round shipped never got a hardware verdict
+    /// — it was overtaken by the round-10 user correction and removed with the whole dodge.
+    ///
+    /// ROUND 10 (user correction 2026-08-07, verbatim premise): "Virtual Desktop replaces the
+    /// green BACKGROUND with reality … The problem with SEMI-TRANSPARENT surfaces: they ALTER
+    /// the green tone and VD can no longer key it properly … The green comes SOLELY from the
+    /// background, not from the tiles themselves." So the grout pixels are the KEY BLENDED
+    /// THROUGH the family's translucent surfaces — which also closes the above/below asymmetry
+    /// for good: from above, grazing rays through the raised translucent rim edges exit
+    /// SIDEWAYS past the diorama into the key background, where no backing can ever be behind
+    /// them; from below every ray terminates on the fills. Backing = structurally complete
+    /// below, structurally insufficient above. Ruling: REBUILD the surfaces ("umbauen" — a look
+    /// change is accepted). Mechanism adjudication with the data on record: (a) opaque copies
+    /// of the AUTHORED material cannot work — the round-9 dump proves all blend/depth state
+    /// hardcoded in the pass, so a copy can only move renderQueue and keeps blending (the
+    /// ModBuild-57 'forced OPAQUE' lines were HasProperty-guarded no-ops plus a queue move;
+    /// its improvement came from stacks sitting over the opaque board). (b) a swap must bring
+    /// its own motion — no decompiled writer of '_UV_Offset' exists, the scroll is shader-time.
+    /// SHIPPED: family slots swap onto the mod's own bundled 'GloomhavenVR/Overlay' shader
+    /// (<see cref="SwapCopyOf"/> — same _MainTex, Blend One Zero, ZWrite On, queue 2600, every
+    /// state genuinely material-controllable there) with the scroll re-created by the per-tick
+    /// mainTextureOffset drive. No family surface blends against the key any more, from any
+    /// angle; authored arrays restored verbatim on MR off.
     ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
@@ -907,25 +880,20 @@ internal static class MixedReality
         _appliedSkirtScale = skirt;
         _appliedFillDrop = drop;
 
-        // Round 8, the KEY DODGE: recompute the channel mask (live key + live config) and
-        // rewrite the family MPBs only when it changes — key preset cycles and config tuning
-        // apply immediately, a steady scene costs one Color compare per frame.
-        Color mask = ComputeDodgeMask();
-        if (mask != _appliedDodgeMask)
+        // Round 10, the OPAQUE SCROLL: keep the swapped family surfaces visibly alive. The
+        // authored UV scroll lived in shader time and is gone with the swap; the mod drives the
+        // swap materials' _MainTex_ST offset instead — one Vector2 write per swap material per
+        // frame (a handful of materials, not per renderer).
+        if (SwapMats.Count > 0)
         {
-            _appliedDodgeMask = mask;
-            int written = 0;
-            for (int i = 0; i < UnseenUnderlays.Count; i++)
+            var scroll = new Vector2(
+                Mathf.Repeat(Time.unscaledTime * SwapScrollX, 1f),
+                Mathf.Repeat(Time.unscaledTime * SwapScrollY, 1f));
+            for (int i = 0; i < SwapMats.Count; i++)
             {
-                ApplyKeyDodge(UnseenUnderlays[i]);
-                if (UnseenUnderlays[i].DodgeProp != null)
-                    written++;
+                if (SwapMats[i] != null)
+                    SwapMats[i].mainTextureOffset = scroll;
             }
-            VRLog.Info("Core", $"MR: unseen key-dodge mask now " +
-                               $"({mask.r:0.##},{mask.g:0.##},{mask.b:0.##}) for key " +
-                               $"{KeyColorName} — {written} family renderer(s) rewritten via MPB " +
-                               "(the authored glow is near-pure green; the key-strong channels " +
-                               "are dimmed so the compositor cannot key the animation away).");
         }
 
         if (Time.frameCount < _previewScanNextFrame)
@@ -1253,69 +1221,35 @@ internal static class MixedReality
             Fill = fill,
         };
 
-        // Round 8: discover this piece's key-dodge lever — the first family slot exposing a
-        // known color property (priority '_Tint', the one the round-5 dump proved present),
-        // else the '_Diffuse_Boost' float, else nothing (named once in the log so the next
-        // round can find the real lever). Authored values recorded for exact restore.
-        entry.HadBlock = source.HasPropertyBlock();
-        for (int i = 0; i < mats.Length && entry.DodgeProp == null; i++)
+        // Round 10, the OPAQUE SCROLL SWAP (user correction 2026-08-07: "the green comes SOLELY
+        // from the background" — the grout pixels are the KEY blended through the family's
+        // semi-transparent surfaces, so no backing and no tint/boost lever can ever fix the
+        // grazing rays that exit sideways past the diorama; the surfaces themselves must stop
+        // blending). Every FAMILY slot is swapped onto a mod-owned copy of the bundled
+        // GloomhavenVR/Overlay shader: same _MainTex, forced Blend One Zero + ZWrite — a look
+        // change the user explicitly accepted ("umbauen"). Non-family slots keep their authored
+        // materials; the authored array is recorded verbatim and restored on MR off.
+        var swapped = new Material[mats.Length];
+        int swappedCount = 0;
+        for (int i = 0; i < mats.Length; i++)
         {
             Material? m = mats[i];
-            if (m == null || !IsUnseenFamilyMaterial(m))
-                continue;
-            for (int p = 0; p < DodgeColorProps.Length; p++)
+            if (m != null && IsUnseenFamilyMaterial(m))
             {
-                if (m.HasProperty(DodgeColorProps[p]))
-                {
-                    entry.DodgeProp = DodgeColorProps[p];
-                    entry.DodgeAuthored = m.GetColor(DodgeColorProps[p]);
-                    break;
-                }
-            }
-            if (entry.DodgeProp == null && m.HasProperty(DodgeFloatProp))
-            {
-                entry.DodgeProp = DodgeFloatProp;
-                entry.DodgeIsFloat = true;
-                entry.DodgeAuthoredF = m.GetFloat(DodgeFloatProp);
-            }
-        }
-        if (entry.DodgeProp == null && !_dodgeNoPropLogged)
-        {
-            bool anyFamilySlot = false;
-            for (int i = 0; i < mats.Length && !anyFamilySlot; i++)
-                anyFamilySlot = IsUnseenFamilyMaterial(mats[i]);
-            if (anyFamilySlot)
-            {
-                _dodgeNoPropLogged = true;
-                VRLog.Info("Core", $"MR: key-dodge found NO known color/boost property on family " +
-                                   $"renderer '{source.gameObject.name}' (shader " +
-                                   $"'{ShaderName(source)}') — its glow cannot be dodged yet; " +
-                                   "this line names the shader whose real color lever is missing.");
-            }
-        }
-        ApplyKeyDodge(entry);
-        if (entry.DodgeProp != null && !Mathf.Approximately(_appliedDodgeMask.g + _appliedDodgeMask.r
-                + _appliedDodgeMask.b, 3f) && _dodgeVerboseLogs < 6)
-        {
-            _dodgeVerboseLogs++;
-            string authored;
-            string written;
-            if (entry.DodgeIsFloat)
-            {
-                authored = entry.DodgeAuthoredF.ToString("0.###");
-                written = (entry.DodgeAuthoredF * _appliedDodgeMask.g).ToString("0.###");
+                Material copy = SwapCopyOf(m);
+                swapped[i] = copy;
+                if (!ReferenceEquals(copy, m))
+                    swappedCount++;
             }
             else
             {
-                Color a = entry.DodgeAuthored;
-                Color m2 = _appliedDodgeMask;
-                authored = $"rgba({a.r:0.##},{a.g:0.##},{a.b:0.##},{a.a:0.##})";
-                written = $"rgba({a.r * m2.r:0.##},{a.g * m2.g:0.##},{a.b * m2.b:0.##},{a.a:0.##})";
+                swapped[i] = m!;
             }
-            VRLog.Info("Core", $"MR: key-dodge '{entry.DodgeProp}' on '{source.gameObject.name}' " +
-                               $"authored {authored} → written {written} (mask " +
-                               $"({_appliedDodgeMask.r:0.##},{_appliedDodgeMask.g:0.##}," +
-                               $"{_appliedDodgeMask.b:0.##})) via MPB.");
+        }
+        if (swappedCount > 0)
+        {
+            entry.SwapOriginals = mats;
+            source.sharedMaterials = swapped;
         }
 
         UnseenUnderlays.Add(entry);
@@ -1338,82 +1272,82 @@ internal static class MixedReality
         }
     }
 
-    /// <summary>The key-dodge channel mask for the LIVE key + config (round 8): each channel the
-    /// key is strong in (≥0.5) carries the dodge factor, the rest stay 1. Self-gating by pixel
-    /// math: the family glow is pure green in TEXTURE, so a magenta/blue key's mask (dimming
-    /// R/B) cannot change the glow at all, and the black key produces the white mask (off).
-    /// White is also returned at dodge ≈ 1 (config off).</summary>
-    private static Color ComputeDodgeMask()
-    {
-        float dodge = Mathf.Clamp(UnseenKeyDodge.Value, 0f, 1f);
-        if (dodge >= 0.999f)
-            return Color.white;
-        Color key = KeyColor.Value;
-        return new Color(
-            key.r >= 0.5f ? dodge : 1f,
-            key.g >= 0.5f ? dodge : 1f,
-            key.b >= 0.5f ? dodge : 1f,
-            1f);
-    }
-
     /// <summary>
-    /// Write one entry's key-dodge value (authored × mask) into its source's
-    /// MaterialPropertyBlock — never the shared material. A white mask restores instead
-    /// (<see cref="RestoreKeyDodge"/>): no stray MPB is left on a renderer that never had one.
+    /// The session-cached OPAQUE SCROLL swap for one authored family material (round 10): a
+    /// mod-owned material on the bundled 'GloomhavenVR/Overlay' shader sampling the SAME
+    /// _MainTex, forced Blend One Zero + ZWrite On. Why this shader: the family's own pass
+    /// state is HARDCODED (round-9 dump: _ZWrite/_SrcBlend/_DstBlend all 'hardcoded'), so a
+    /// copy of the AUTHORED material can only move its renderQueue and keeps blending — against
+    /// the key, wherever a grazing ray has no backing behind it. Overlay exposes every needed
+    /// state as material properties, so on it the opacity genuinely sticks. Queue 2600: after
+    /// the mod's dark backings at 2500 (they write no depth and must never paint over the now
+    /// opaque surfaces), before every authored transparent. The authored SHADER-TIME scroll
+    /// cannot survive any swap (no '_UV_Offset' writer exists to mirror); the per-tick
+    /// mainTextureOffset drive in <see cref="ForceUnseenOpaque"/> re-creates the motion.
+    /// Returns the source unchanged when the bundled shader is unavailable (logged once) —
+    /// the backings still cover everything they always covered.
     /// </summary>
-    private static void ApplyKeyDodge(UnseenUnderlay e)
+    private static Material SwapCopyOf(Material src)
     {
-        if (e.DodgeProp == null || e.Source == null)
-            return;
-        Color mask = _appliedDodgeMask;
-        if (mask == Color.white)
-        {
-            RestoreKeyDodge(e);
-            return;
-        }
-        if (e.DodgeIsFloat && mask.g >= 0.999f)
-        {
-            // Scalar lever, green glow (verified by pixel sampling): a key that is not strong
-            // in G cannot collide with the glow, and a scalar dim would change the look for
-            // nothing — restore instead of writing a no-op block.
-            RestoreKeyDodge(e);
-            return;
-        }
-        _dodgeMpb ??= new MaterialPropertyBlock();
-        e.Source.GetPropertyBlock(_dodgeMpb);
-        if (e.DodgeIsFloat)
-        {
-            _dodgeMpb.SetFloat(e.DodgeProp, e.DodgeAuthoredF * mask.g);
-        }
-        else
-        {
-            _dodgeMpb.SetColor(e.DodgeProp, new Color(
-                e.DodgeAuthored.r * mask.r,
-                e.DodgeAuthored.g * mask.g,
-                e.DodgeAuthored.b * mask.b,
-                e.DodgeAuthored.a)); // alpha stays authored — only the key-near hue moves
-        }
-        e.Source.SetPropertyBlock(_dodgeMpb);
-    }
+        int id = src.GetInstanceID();
+        if (SwapBySourceMat.TryGetValue(id, out Material cached) && cached != null)
+            return cached;
 
-    /// <summary>Exact per-renderer restore: a source that never carried an MPB gets it cleared
-    /// outright (bit-identical); one that did gets the authored value written back into it.</summary>
-    private static void RestoreKeyDodge(UnseenUnderlay e)
-    {
-        if (e.DodgeProp == null || e.Source == null)
-            return;
-        if (!e.HadBlock)
+        if (_swapShader == null)
         {
-            e.Source.SetPropertyBlock(null);
-            return;
+            // Same find-then-scan seam as Cards.PlayTray.OverlayShader (kept Core-local): a
+            // bundled shader is not discoverable via Shader.Find until something loads it.
+            _swapShader = Shader.Find("GloomhavenVR/Overlay");
+            if (_swapShader == null)
+            {
+                foreach (AssetBundle b in AssetBundle.GetAllLoadedAssetBundles())
+                {
+                    if (b == null)
+                        continue;
+                    Shader s = b.LoadAsset<Shader>("Assets/Bundle/Table/Overlay.shader");
+                    if (s != null)
+                    {
+                        _swapShader = s;
+                        break;
+                    }
+                }
+            }
         }
-        _dodgeMpb ??= new MaterialPropertyBlock();
-        e.Source.GetPropertyBlock(_dodgeMpb);
-        if (e.DodgeIsFloat)
-            _dodgeMpb.SetFloat(e.DodgeProp, e.DodgeAuthoredF);
-        else
-            _dodgeMpb.SetColor(e.DodgeProp, e.DodgeAuthored);
-        e.Source.SetPropertyBlock(_dodgeMpb);
+        if (_swapShader == null)
+        {
+            if (!_swapMissLogged)
+            {
+                _swapMissLogged = true;
+                VRLog.Warn("Core", "MR: opaque-scroll swap unavailable — bundled shader " +
+                                   "'GloomhavenVR/Overlay' not found in any loaded bundle; the " +
+                                   "unseen family keeps its authored translucent materials " +
+                                   "(backings still apply).");
+            }
+            return src;
+        }
+
+        var copy = new Material(_swapShader) { name = src.name + " (GloomhavenVR.MrUnseenOpaque)" };
+        copy.mainTexture = src.mainTexture; // the authored pattern, full intensity
+        copy.mainTextureScale = src.mainTextureScale;
+        copy.SetFloat("_SrcBlend", 1f);  // One  ┐ opaque — the whole point
+        copy.SetFloat("_DstBlend", 0f);  // Zero ┘
+        copy.SetFloat("_ZWrite", 1f);    // a real surface: grazing rays terminate here
+        copy.SetFloat("_ZTest", 4f);     // LEqual — revealed geometry still occludes it
+        copy.renderQueue = 2600;         // after the dark backings (2500), before transparents
+        SwapBySourceMat[id] = copy;
+        SwapMats.Add(copy);
+        if (!_swapStateLogged)
+        {
+            _swapStateLogged = true;
+            Texture? tex = src.mainTexture;
+            VRLog.Info("Core", $"MR: unseen OPAQUE-SCROLL SWAP active — family slots re-render on " +
+                               $"'GloomhavenVR/Overlay' (Blend One Zero, ZWrite On, ZTest LEqual, " +
+                               $"queue 2600; every state IS material-controllable on this shader, " +
+                               $"so all of it sticks), texture '{(tex != null ? tex.name : "<none>")}' " +
+                               $"from '{src.name}', mod-driven scroll ({SwapScrollX:0.###},{SwapScrollY:0.###}) uv/s. " +
+                               "No semi-transparent family surface blends against the key any more.");
+        }
+        return copy;
     }
 
     /// <summary>
@@ -1645,19 +1579,29 @@ internal static class MixedReality
     {
         for (int i = 0; i < UnseenUnderlays.Count; i++)
         {
-            RestoreKeyDodge(UnseenUnderlays[i]); // MPB back to authored before anything else
-            Renderer plate = UnseenUnderlays[i].Plate;
+            UnseenUnderlay e = UnseenUnderlays[i];
+            // Swap restore FIRST: the authored material array goes back verbatim while the
+            // source still exists (a dead source took the swap assignment with it).
+            if (e.SwapOriginals != null && e.Source != null)
+                e.Source.sharedMaterials = e.SwapOriginals;
+            Renderer plate = e.Plate;
             if (plate != null)
                 UnityEngine.Object.Destroy(plate.gameObject);
-            Renderer? fill = UnseenUnderlays[i].Fill;
+            Renderer? fill = e.Fill;
             if (fill != null)
                 UnityEngine.Object.Destroy(fill.gameObject);
         }
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
-        _appliedDodgeMask = Color.white;
-        _dodgeVerboseLogs = 0;
-        _dodgeNoPropLogged = false;
+        foreach (KeyValuePair<int, Material> pair in SwapBySourceMat)
+        {
+            if (pair.Value != null)
+                UnityEngine.Object.Destroy(pair.Value);
+        }
+        SwapBySourceMat.Clear();
+        SwapMats.Clear();
+        _swapMissLogged = false;
+        _swapStateLogged = false;
         if (_unseenDarkMat != null)
         {
             UnityEngine.Object.Destroy(_unseenDarkMat);
