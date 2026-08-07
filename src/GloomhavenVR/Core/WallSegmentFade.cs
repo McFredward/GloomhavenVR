@@ -815,7 +815,7 @@ internal static partial class WallSegmentFade
                 LogWallPathAudit();
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
                 int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0, stacked = 0;
-                int bodyWalls = 0, bodyMeshes = 0;
+                int bodyWalls = 0, bodyMeshes = 0, gates = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
@@ -834,6 +834,8 @@ internal static partial class WallSegmentFade
                     if (!RoomDecisionValid(s.RoomIndex)) failSafeSegs++;
                     if (s.DoorRoot != null)
                         doorways++;
+                    if (s.IsGateColumn)
+                        gates++;
                 }
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
@@ -856,7 +858,9 @@ internal static partial class WallSegmentFade
                     + $"superstructure meshes — extend their wall's occlusion AABB, dissolve "
                     + $"with it; [WallFade] StackedShellFade) ride their wall column; "
                     + $"{doorways} DOORWAY segment(s) held permanently solid (doorway fade "
-                    + $"disabled — user ruling 2026-08-02); "
+                    + $"disabled — user ruling 2026-08-02); {gates} GATE column(s) (the wall "
+                    + $"EMBEDDING a doorway — fades like any wall, only the arch rect stays "
+                    + $"solid — user ruling 2026-08-07); "
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
                     + $"{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
@@ -1225,6 +1229,9 @@ internal static partial class WallSegmentFade
             // Doorway recognition (user ruling 2026-08-02): held permanently solid.
             if (seg.DoorRoot != null)
                 _diagSb.Append(" DOORWAY");
+            // Gate column (user ruling 2026-08-07): the doorway-EMBEDDING wall — fades.
+            if (seg.IsGateColumn)
+                _diagSb.Append(" GATE");
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -1689,6 +1696,10 @@ internal static partial class WallSegmentFade
                 if (dp != null)
                     _doorRoots.Add(dp.transform);
             }
+            // GATE COLUMNS (user ruling 2026-08-07): the wall EMBEDDING each doorway fades
+            // like any wall — only the arch rect stays solid. Seeded before the adoption/
+            // stacked passes so they see the gate's bounds and face domain.
+            SeedGateColumns(doorProps);
 
             // Second discovery source: ADOPT every other fade-capable renderer in the scene.
             // The user report behind this ("fortgeschritteneres Szenario mit ganz anderen
@@ -1977,7 +1988,9 @@ internal static partial class WallSegmentFade
             // anchor, so a stable group keeps its EMA and dwell across rescans).
             foreach (KeyValuePair<Component, Segment> kv in _segments)
             {
-                if (!kv.Value.FromWallCache)
+                // Gate columns are seeded by SeedGateColumns (already refreshed this rescan)
+                // and own no wall renderers — the shader sweep must not reset them.
+                if (!kv.Value.FromWallCache && !kv.Value.IsGateColumn)
                     BeginRefresh(kv.Value);
             }
 
@@ -2046,8 +2059,8 @@ internal static partial class WallSegmentFade
             foreach (KeyValuePair<Component, Segment> kv in _segments)
             {
                 Segment seg = kv.Value;
-                if (seg.FromWallCache)
-                    continue;
+                if (seg.FromWallCache || seg.IsGateColumn)
+                    continue; // gate columns legitimately own zero renderers — kept alive
                 FinishRefresh(seg);
                 if (seg.Renderers.Count == 0)
                 {

@@ -137,6 +137,14 @@ internal static partial class WallSegmentFade
         /// touches its wall (gap ≈ 0); the next parallel wall run is ≥ a hex (~1.72 wu) of clear
         /// floor away, so this cannot reach across a room.</summary>
         private const float MountedLinkMaxXZ = 0.9f;
+        /// <summary>Widened link for TINY emissive FX meshes (round-9 audit alarm: 26
+        /// 'CandleFlame'/'Glow' quads at gap 0.97–1.63 fell through every path and floated
+        /// when their wall opened). A mesh whose AABB fits within
+        /// <see cref="MountedTinyFxSpanWU"/> in every axis is dressing-FX by construction —
+        /// too small to be architecture — and may ride its wall from farther out. Lights
+        /// themselves stay untouched, as always.</summary>
+        private const float MountedTinyFxLinkMaxXZ = 1.8f;
+        private const float MountedTinyFxSpanWU = 0.7f;
         /// <summary>How far (wu) above the wall's own AABB top a prop may still start — cap-mounted
         /// dressing sits slightly proud of the wall top.</summary>
         private const float MountedLinkMaxAboveTopWU = 0.6f;
@@ -617,8 +625,17 @@ internal static partial class WallSegmentFade
                     // drift every frame, which is what made the candles blink.
                     bool particles = c is ParticleSystemRenderer;
                     Bounds b = c.bounds;
+                    if (IsArchProtected(b, c.name))
+                        continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                     float anchorY = particles ? c.transform.position.y : b.min.y;
                     float topY = particles ? c.transform.position.y : b.max.y;
+                    // Tiny emissive FX quads (candle flames, glows) may ride from farther out
+                    // (round-9 audit alarm — they float when their wall opens).
+                    bool tinyFx = !particles
+                        && b.size.x <= MountedTinyFxSpanWU
+                        && b.size.y <= MountedTinyFxSpanWU
+                        && b.size.z <= MountedTinyFxSpanWU;
+                    float linkMax = tinyFx ? MountedTinyFxLinkMaxXZ : MountedLinkMaxXZ;
 
                     // Anything sitting essentially ON the floor is not a candidate at all and is
                     // dropped here (the cheap bulk filter). Between that and the airborne bar lies
@@ -644,7 +661,7 @@ internal static partial class WallSegmentFade
                             : HorizontalGap(seg.Bounds, b);
                         if (gap < nearestAny)
                             nearestAny = gap;
-                        if (belowBar || gap > MountedLinkMaxXZ || gap >= bestGap)
+                        if (belowBar || gap > linkMax || gap >= bestGap)
                             continue;
                         if (anchorY < _roomFloorY[seg.RoomIndex] + MountedClearanceWU)
                             continue; // airborne against THIS room's plane, not just the lowest

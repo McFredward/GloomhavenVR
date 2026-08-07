@@ -365,6 +365,8 @@ internal static partial class WallSegmentFade
                 if (_mountedTouched.ContainsKey(r))
                     continue; // already ours (hidden or ramped)
                 Bounds b = r.bounds;
+                if (IsArchProtected(b, r.name))
+                    continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                 Segment? best = null;
                 float bestGap = float.PositiveInfinity;
                 Segment? corner = null, cornerB = null;
@@ -693,6 +695,15 @@ internal static partial class WallSegmentFade
                     if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                         continue;
                     Bounds b = c.bounds;
+                    // ARCH PROTECTION (user ruling 2026-08-07): the rectangular arch around
+                    // a door is the doorway ruling's permanently-solid remainder.
+                    if (IsArchProtected(b, c.name))
+                    {
+                        _stackDead.Add(c);
+                        NoteStackReject(c, 0f,
+                            "ARCH of a doorway (permanently solid — user ruling 2026-08-07)");
+                        continue;
+                    }
 
                     Segment? best = null;
                     float bestGap = float.PositiveInfinity;
@@ -790,6 +801,8 @@ internal static partial class WallSegmentFade
                 if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                     continue;
                 Bounds b = c.bounds;
+                if (IsArchProtected(b, c.name))
+                    continue; // arch stays solid (already rejected+logged by the adoption pass)
                 Segment? a = null, second = null;
                 float aGap = float.PositiveInfinity, secondGap = float.PositiveInfinity;
                 foreach (Segment seg in _segments.Values)
