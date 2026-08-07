@@ -619,6 +619,12 @@ internal static partial class Loc
         // Cap label while a placed item still owes its element choice (the picker is docked in
         // the decision area under the board); pressing USE afterwards confirms it.
         ["item_choose_element"] = Pair("CHOOSE ELEMENT", "ELEMENT WÄHLEN"),
+        // FREE CHARACTER FOCUS (user feature 2026-08-08): the player may look at any character
+        // in the action phase; a character they do not control is strictly view-only.
+        ["VR_FOCUS_VIEWING"] = Pair("Viewing: {0}", "Ansicht: {0}"),
+        ["VR_FOCUS_READONLY"] = Pair("(view only)", "(nur Ansicht)"),
+        ["VR_FOCUS_AT_TURN"] = Pair("At turn: {0}", "Am Zug: {0}"),
+        ["VR_FOCUS_WRONG_CHARACTER"] = Pair("{0} is at turn", "{0} ist am Zug"),
         // Banner hint shown when a flow WANTS an item but the fan is closed. The fan never opens
         // itself any more (user ruling 2026-08-07: "Weder soll es sich automatisch öffnen, noch
         // soll es jemals die Situation geben, dass man es nicht schließen kann"), so the prompt

@@ -597,6 +597,13 @@ internal sealed class WristHud
 
     private static CPlayerActor? ResolveActor()
     {
+        // FREE CHARACTER FOCUS (user feature 2026-08-08): the watch face names the character the
+        // player is LOOKING at. No focus falls straight through to the unchanged resolution
+        // below, so a player who never uses the feature sees exactly what they saw before.
+        CPlayerActor? focus = Board.CharacterFocus.Focused;
+        if (focus != null)
+            return focus;
+
         Choreographer choreographer = Choreographer.s_Choreographer;
         if (choreographer == null)
             return null;
