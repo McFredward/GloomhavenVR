@@ -250,13 +250,21 @@ internal static class MixedReality
     /// its material/shader got named once so the next round can find the real color lever.</summary>
     private static bool _dodgeNoPropLogged;
 
-    /// <summary>Color properties the dodge probes, in priority order. '_Tint' is the one the
-    /// known family materials expose (round-5 dump); the others cover edge-material variants.</summary>
-    private static readonly string[] DodgeColorProps = { "_Tint", "_TintColor", "_Color" };
+    /// <summary>Color properties the dodge probes, in priority order. '_Tint' is DELIBERATELY
+    /// ABSENT: round 9's hardware log convicted it — the MPB write is on record
+    /// ("key-dodge '_Tint' … mask (1,0.35,1) via MPB") with ZERO visual effect, so the compiled
+    /// variant never samples it (its authored alpha 0 under a visible glow was the tell). The
+    /// two remaining names cover family variants that might expose a REAL color lever; none of
+    /// the three dumped family materials has either, so in practice discovery falls through to
+    /// <see cref="DodgeFloatProp"/>.</summary>
+    private static readonly string[] DodgeColorProps = { "_TintColor", "_Color" };
 
-    /// <summary>Float fallback lever: the family's brightness knob (round-5 dump, authored 1).
-    /// Used only when no color property exists on any family slot — and it is also the
-    /// promotion target if a hardware round proves '_Tint' inert in the compiled variant.</summary>
+    /// <summary>The PROMOTED lever (round 9): the family's brightness knob (all three dumped
+    /// materials carry it, authored 1). Shader-internal — no decompiled C# usage — so its
+    /// semantics are inferred from the name (a diffuse/brightness multiplier); the per-write
+    /// instrumentation stays so a no-effect round would convict it exactly like '_Tint'. Scalar,
+    /// hence gated on the GLOW's channel: the family glow is verified green (round-8 pixel
+    /// sampling), so the boost dims only when the live key is strong in G.</summary>
     private const string DodgeFloatProp = "_Diffuse_Boost";
 
     /// <summary>MATERIAL names whose properties were already dumped this session (round 8: was
@@ -836,6 +844,18 @@ internal static class MixedReality
     /// masks touch only channels the green texture does not use; black produces no mask).
     /// Everything restored exactly on MR off (no stray MPB on a renderer that had none).
     ///
+    /// ROUND 9 (hardware 2026-08-06 #3, ModBuild 66): the instrumentation delivered its
+    /// conviction — the log shows the '_Tint' MPB writes on both piece kinds with ZERO visual
+    /// effect (mixed_reality_tiles1.png: from above the grout is still pure bright green;
+    /// tiles2.png: from below fully opaque — the fills' side of the job is done). '_Tint' is
+    /// INERT in the compiled variant. The per-material dumps (all three family materials:
+    /// Unseen_Floor_Hex/Plain/Blocks_Mat) show NO other color property — no emissive, nothing —
+    /// so the promoted lever is the float '_Diffuse_Boost' (authored 1 everywhere): written as
+    /// authored × dodge via the same MPB path, gated on the key's G strength because a scalar
+    /// cannot pick channels and the glow is verified green. Same instrumentation; if the boost
+    /// also proves inert, the next mechanism is a mod-owned material copy with dimmed sampling
+    /// (per-renderer swap, originals restored) — decided then, not built speculatively.
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -1278,13 +1298,24 @@ internal static class MixedReality
                 + _appliedDodgeMask.b, 3f) && _dodgeVerboseLogs < 6)
         {
             _dodgeVerboseLogs++;
-            string authored = entry.DodgeIsFloat
-                ? entry.DodgeAuthoredF.ToString("0.###")
-                : $"rgba({entry.DodgeAuthored.r:0.##},{entry.DodgeAuthored.g:0.##}," +
-                  $"{entry.DodgeAuthored.b:0.##},{entry.DodgeAuthored.a:0.##})";
+            string authored;
+            string written;
+            if (entry.DodgeIsFloat)
+            {
+                authored = entry.DodgeAuthoredF.ToString("0.###");
+                written = (entry.DodgeAuthoredF * _appliedDodgeMask.g).ToString("0.###");
+            }
+            else
+            {
+                Color a = entry.DodgeAuthored;
+                Color m2 = _appliedDodgeMask;
+                authored = $"rgba({a.r:0.##},{a.g:0.##},{a.b:0.##},{a.a:0.##})";
+                written = $"rgba({a.r * m2.r:0.##},{a.g * m2.g:0.##},{a.b * m2.b:0.##},{a.a:0.##})";
+            }
             VRLog.Info("Core", $"MR: key-dodge '{entry.DodgeProp}' on '{source.gameObject.name}' " +
-                               $"authored {authored}, mask ({_appliedDodgeMask.r:0.##}," +
-                               $"{_appliedDodgeMask.g:0.##},{_appliedDodgeMask.b:0.##}) via MPB.");
+                               $"authored {authored} → written {written} (mask " +
+                               $"({_appliedDodgeMask.r:0.##},{_appliedDodgeMask.g:0.##}," +
+                               $"{_appliedDodgeMask.b:0.##})) via MPB.");
         }
 
         UnseenUnderlays.Add(entry);
@@ -1340,12 +1371,19 @@ internal static class MixedReality
             RestoreKeyDodge(e);
             return;
         }
+        if (e.DodgeIsFloat && mask.g >= 0.999f)
+        {
+            // Scalar lever, green glow (verified by pixel sampling): a key that is not strong
+            // in G cannot collide with the glow, and a scalar dim would change the look for
+            // nothing — restore instead of writing a no-op block.
+            RestoreKeyDodge(e);
+            return;
+        }
         _dodgeMpb ??= new MaterialPropertyBlock();
         e.Source.GetPropertyBlock(_dodgeMpb);
         if (e.DodgeIsFloat)
         {
-            float factor = Mathf.Min(mask.r, Mathf.Min(mask.g, mask.b));
-            _dodgeMpb.SetFloat(e.DodgeProp, e.DodgeAuthoredF * factor);
+            _dodgeMpb.SetFloat(e.DodgeProp, e.DodgeAuthoredF * mask.g);
         }
         else
         {
