@@ -164,17 +164,7 @@ internal static class WallFadeTuning
 ///   HIGH deliveries are m=1 constants (clip = 1-c everywhere: whole wall visible, or
 ///   with c&gt;1 the R2 TOTAL discard that erased the foundation). Every fade logs the
 ///   wall's shader variant + applied cutoff so a hardware log pins down which math
-///   applied. ROUND 14 CLOSES THIS QUESTION: in VR the residual is not cosmetic,
-///   because the vignette is centred on each EYE's own screen — the asymmetric OpenXR
-///   frusta put the two rings ~15% of a screen width apart, which is wider than the
-///   whole span between "fully discarded" and "fully solid", so one wall can be gone
-///   in one eye and standing in the other. And it cannot be removed on this shader
-///   without giving up the per-pixel dissolve with it: the masonry variant
-///   (<c>Amp_Basic_N_MRAO</c>) ends in <c>mad_sat</c>, so the one state that takes the
-///   vignette out of the compare (M ≥ 1, reachable through the undeclared global
-///   <c>_EnableOcclusionMap</c>) also clamps the discard to a single per-renderer
-///   comparison — the binary pop. Proof, algebra and the per-eye MEASUREMENT that
-///   reports it from the live stereo matrices: WallSegmentFade.Stereo.cs.</item>
+///   applied.</item>
 /// <item>SOLID (fade=0): the MPB is REMOVED — with <see cref="Compat.WallFadeDisable"/> now
 ///   pinning the GLOBAL <c>ToggleWallFade</c> to 0 unconditionally (the game-camera
 ///   TilesOcclusionGenerator still publishes a head-viewpoint-invalid map; globally-open
@@ -860,11 +850,6 @@ internal static partial class WallSegmentFade
                 _nextDiagTime = now + DiagIntervalSeconds;
                 LogDiagnostic(headPos, visibleCount);
             }
-            // ROUND-14 MEASUREMENT (diagnostics only — nothing rendered differs): evaluate the
-            // game shader's own discard scalar for BOTH eyes over every fading wall, so the
-            // next hardware log says whether the eyes can currently disagree and by how much.
-            // See WallSegmentFade.Stereo.cs for why this is a measurement and not a fix.
-            SweepEyeStraddle(head!, now);
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
             ApplyCornerPieces();
