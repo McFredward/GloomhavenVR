@@ -635,11 +635,27 @@ internal static partial class WallSegmentFade
                     }
                     if (c is MeshRenderer mr && RendererUsesWallFade(mr))
                     {
-                        // A wall in its own right — it has its own fade decision. If it belongs to
-                        // a segment that is NOT fading while its neighbour is, that is exactly how
-                        // a piece of wall trim survives; the owner label above says which.
-                        NoteStructuralSkip(c, "carries a WallFade shader — no segment claimed it");
-                        continue;
+                        // ROUND-11 SCONCE EXCEPTION: torch-fire bowls carry the WallFade
+                        // shader too, and the narrowed doorway grouping now leaves the
+                        // non-arch ones UNCLAIMED — a SMALL unclaimed fade-shader mesh is
+                        // sconce dressing and proceeds into the geometric tests below so it
+                        // rides its wall (gate columns included). Wall-sized fade meshes
+                        // keep the old skip: they are walls, not dressing.
+                        Bounds fb = mr.bounds;
+                        bool sconceScale = fb.size.x <= MountedMaxSpanWU
+                            && fb.size.y <= MountedMaxSpanWU
+                            && fb.size.z <= MountedMaxSpanWU
+                            && fb.size.x * fb.size.y * fb.size.z <= MountedMaxMeshVolumeWU3;
+                        if (!sconceScale)
+                        {
+                            // A wall in its own right — it has its own fade decision. If it
+                            // belongs to a segment that is NOT fading while its neighbour
+                            // is, that is exactly how a piece of wall trim survives; the
+                            // owner label above says which.
+                            NoteStructuralSkip(c,
+                                "carries a WallFade shader — no segment claimed it");
+                            continue;
+                        }
                     }
 
                     // WHICH GEOMETRY DECIDES (see the file header): a mesh is judged by its AABB,

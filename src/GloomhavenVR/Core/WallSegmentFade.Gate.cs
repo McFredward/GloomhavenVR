@@ -263,6 +263,15 @@ internal static partial class WallSegmentFade
                 && b.size.z <= (gate.ArchMaxZ - gate.ArchMinZ) + 2f * ArchOverhangWU;
         }
 
+        /// <summary>Does this door root have a LIVE gate column (an arch rect exists)?
+        /// Round-11 torch fix: only then can the doorway grouping be narrowed to the arch —
+        /// sliver-skipped doors keep the old full-radius grouping.</summary>
+        private bool HasGateColumnFor(Transform doorRoot)
+        {
+            UnityGameEditorDoorProp? dp = doorRoot.GetComponent<UnityGameEditorDoorProp>();
+            return dp != null && _segments.TryGetValue(dp, out Segment? g) && g.IsGateColumn;
+        }
+
         /// <summary>Piece inside ANY gate's arch — excluded from EVERY adopter (stack,
         /// corner, fast reclaim, mounted): the arch is the doorway ruling's permanently
         /// solid remainder, refined 2026-08-07 to exactly this rectangle.</summary>

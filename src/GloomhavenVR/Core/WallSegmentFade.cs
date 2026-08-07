@@ -2049,7 +2049,20 @@ internal static partial class WallSegmentFade
                 // split routing (a doorway is archway-sized, never a room-engulfing slab).
                 Transform? doorRoot = FindDoorwayRoot(r);
                 if (doorRoot != null)
+                {
+                    // ROUND-11 TORCH FIX (ModBuild-69 census: 'CR_St_WallTorch_Fire …
+                    // already the wall renderer of ThickDoor (that wall's fade 0.00)'):
+                    // the permanently-solid DOORWAY segment holds ONLY the arch. A
+                    // door-hugging fade renderer OUTSIDE the arch rect — the torch fire on
+                    // the embedding/inner gate face — must not be chained to it: it is left
+                    // UNCLAIMED here, and the mounted sweep's new sconce-scale exception
+                    // adopts it to ride its nearest fading wall (gate column included).
+                    // Applies only when the door has a live gate column (an arch rect
+                    // exists); sliver-skipped doors keep the old full-radius grouping.
+                    if (HasGateColumnFor(doorRoot) && !IsArchProtected(r.bounds, r.name))
+                        continue;
                     anchor = doorRoot;
+                }
                 // A group that proved too fat to be a slab is tracked per renderer instead
                 // (see _splitAnchors) — route straight to the per-renderer segment so its
                 // smoothing state survives every rescan.
