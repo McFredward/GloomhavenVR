@@ -895,9 +895,43 @@ internal sealed class ItemsPile
     /// position from the pile BROWSER only — so a player sweeping their item fan lifted a chip
     /// that no peer ever saw move. This is the missing source; at most one board fan is open at a
     /// time, so it feeds the very same wire field.</para>
+    ///
+    /// <para>LASER PARITY (user report 2026-08-07: "Beim Hovern mit dem Laser über eine
+    /// Pile/Item-Karte wird das Highlight nicht synchronisiert; mit der Hand schon"). This used to
+    /// return <c>_handWinnerIndex</c> and nothing else, i.e. the HAND SWEEP only. The laser hover
+    /// path (<c>CardsDriver.UpdateItemFanLaser</c> → <c>ItemChip.OnPokeEnter</c>) sets a SEPARATE
+    /// flag that <c>ItemChip.Tick</c> pops on but that nothing here could read — so a beam hover
+    /// lifted a chip locally and reached no peer. It now scans for
+    /// <see cref="ItemChip.IsHighlighted"/>, which covers BOTH pop flags — the exact shape
+    /// <c>PileBrowser.HighlightedIndex</c> / <c>CardFan.HighlightedIndex</c> already use through
+    /// <c>VRCard.IsHighlighted</c>, which is why those two synced on the laser from the start.
+    /// NO WIRE CHANGE: this is still the same bare fan POSITION on extension record 6, and
+    /// <c>NetAvatarDriver</c> still dedups it against the last value it sent.</para>
+    ///
+    /// <para>DEDUP / SINGLE OWNER: the hand sweep wins whenever it has a winner. That is the same
+    /// arbitration <c>CardsDriver.UpdateItemFanLaser</c> already applies locally (it yields hover
+    /// AND trigger to the hand whenever <see cref="HandOwnedChip"/> disagrees with the ray chip),
+    /// so the transmitted index is by construction the ONE chip the owner sees popped — hand and
+    /// laser can never contribute two different indices, and a hover held across a hand→laser
+    /// handover emits no packet at all while the chip is unchanged.</para>
     /// </summary>
-    internal int HighlightedIndex =>
-        IsOpen && _handWinnerIndex >= 0 && _handWinnerIndex < _chips.Count ? _handWinnerIndex : -1;
+    internal int HighlightedIndex
+    {
+        get
+        {
+            if (!IsOpen)
+                return -1;
+            if (_handWinnerIndex >= 0 && _handWinnerIndex < _chips.Count)
+                return _handWinnerIndex;
+            for (int i = 0; i < _chips.Count; i++)
+            {
+                ItemChip c = _chips[i];
+                if (c != null && c.IsHighlighted)
+                    return i;
+            }
+            return -1;
+        }
+    }
 
     internal ItemChip? HandOwnedChip(VRHand? hand)
     {
@@ -3081,6 +3115,23 @@ internal sealed class ItemsPile
 
         /// <summary>Fingertip hand-sweep pop (set by the owner's single-winner sweep).</summary>
         internal void SetFingertipPop(bool on) => _fingerPopped = on;
+
+        /// <summary>
+        /// True while this chip is the one singled out in the fan — the ITEM-fan counterpart of
+        /// <c>VRCard.IsHighlighted</c>, and the predicate the MULTIPLAYER hover channel reads
+        /// through <see cref="ItemsPile.HighlightedIndex"/>.
+        ///
+        /// <para>MP test 2026-08-07 ("Beim Hovern mit dem Laser über eine Pile/Item-Karte wird das
+        /// Highlight nicht synchronisiert; mit der Hand schon"). Both pop paths write the same
+        /// visual state — <c>Tick</c> tweens on <c>_fingerPopped || _laserPopped</c> — but only the
+        /// FINGERTIP one had a public reader, so extension record 6 carried the hand sweep and
+        /// nothing else. Covering both here is exactly what <c>VRCard.IsHighlighted</c> already
+        /// does for the pile browser and the hand fan, which is why THOSE synced on the laser.</para>
+        ///
+        /// <para>A held chip and a chip clipped into the use slot are excluded: neither is at a fan
+        /// position any more, so neither has an index a peer could mirror.</para>
+        /// </summary>
+        internal bool IsHighlighted => Holder == null && !PendingUse && (_fingerPopped || _laserPopped);
 
         /// <summary>True while the dominant index tip / palm is within this chip's collider reach.</summary>
         internal bool TryFingertipDistance(Vector3 worldPoint, out float distance)

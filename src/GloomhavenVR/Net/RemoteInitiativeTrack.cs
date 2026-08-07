@@ -151,6 +151,20 @@ internal sealed class RemoteInitiativeTrack
     //     pointing at X" is always readable.
     //   • the ENEMY entry's WIDTH under track minimization (NeedMinimizeEnemyInitiativeTrackAvatars):
     //     minimized unless the peer's hover has it maximized — undoing the local Maximize leak.
+    //   • the entry's HOVER SCALE (and hoverMovement offset) — the FOURTH artefact of the same
+    //     family, added after the MP hardware test 2026-08-07 ("wenn ich über meine eigene
+    //     Initiativleiste hovere, wachsen die Initiative-Bilder auf dem Brett des Mitspielers
+    //     mit"). Each entry's clickable avatarButton is an ExtendedButton whose ToggleHighlight
+    //     (decompiled GH.Runtime/ExtendedButton.cs:445-478, reached from OnPointerEnter →
+    //     OnHighlight) LeanTween.scales `overridedTargetRectScale ?? TargetRect` to
+    //     highlightScaleFactor and back to Vector3.one on exit, plus an optional hoverMovement
+    //     nudge on TargetRect.anchoredPosition; OnPointerDown/Up (ExtendedButton.cs:215/233) write
+    //     further scales onto the same rect. Those are PLAIN TRANSFORM values, so
+    //     RemoteWidgetMirror.Pair.Apply copied them like any other localScale/localPosition — the
+    //     VR laser driving the LOCAL track's pointer events therefore grew the PEER's mirrored
+    //     portraits too. The override forces the clone rect to the un-hovered rest pose and
+    //     re-applies the grow only for the entry the PEER hovers (record 16), so the remote board
+    //     grows exactly the portrait its own owner is pointing at and never the one I am.
     // KNOWN LIMIT, stated honestly: the entry's Mask.enabled flip that rides vanilla's
     // Maximize/Minimize is not re-driven (component enabled flags are not mirrored), so a
     // clipped avatar edge can differ by a few px while widths swap under minimization.
@@ -195,12 +209,26 @@ internal sealed class RemoteInitiativeTrack
         public float FullWidth;        // vanilla _startWidth
         public float MinWidth;         // _startWidth × config.MinimalEnemyAvatarDesiredWidth
         public bool HasWidths;
+
+        // ---- hover GROW (ExtendedButton.ToggleHighlight) ----
+        public RectTransform? ScaleClone;   // clone of `overridedTargetRectScale ?? TargetRect`
+        public float HighlightScale;        // vanilla highlightScaleFactor (<= 1 ⇒ no grow at all)
+        // hoverMovement nudge: null MoveClone ⇒ this button has none (the common case).
+        public RectTransform? MoveClone;    // clone of TargetRect
+        public RectTransform? MoveSource;   // the LIVE TargetRect, read for its current pose
+        public ExtendedButton? MoveButton;  // the LIVE button, read for its isMoved latch
+        public Vector2 HoverMove;           // vanilla hoverMovement.xy
     }
 
     private readonly List<HoverNode> _hoverNodes = new(MaxChips);
 
     /// <summary>The mirror rebuild the cache was resolved against (-1 = never).</summary>
     private int _hoverCacheStamp = -1;
+
+    /// <summary>One-shot: the hover-GROW override coverage line (how many entries got a scale
+    /// clone resolved). Log anchor for the 2026-08-07 "local hover grew the peer's portraits"
+    /// defect — zero coverage would mean the leak is still open.</summary>
+    private bool _loggedGrowCoverage;
 
     /// <summary>Drop the cache so the next apply re-resolves (content tick / clone rebuild).</summary>
     private void InvalidateHoverCache() => _hoverCacheStamp = -1;
@@ -234,6 +262,26 @@ internal sealed class RemoteInitiativeTrack
                 Transform? nameClone = name != null ? _mirror.CloneOf(name.transform) : null;
                 node.Name = nameClone != null ? nameClone.GetComponent<Graphic>() : null;
 
+                // Hover GROW: the exact rect ExtendedButton tweens (see the override note above).
+                ExtendedButton? btn = beh.avatarButton;
+                if (btn != null)
+                {
+                    RectTransform? scaleSrc = btn.overridedTargetRectScale != null
+                        ? btn.overridedTargetRectScale
+                        : btn.TargetRect;
+                    node.ScaleClone = scaleSrc != null
+                        ? _mirror.CloneOf(scaleSrc) as RectTransform
+                        : null;
+                    node.HighlightScale = btn.highlightScaleFactor;
+                    if (btn.hoverMovement != Vector3.zero && btn.TargetRect != null)
+                    {
+                        node.MoveClone = _mirror.CloneOf(btn.TargetRect) as RectTransform;
+                        node.MoveSource = btn.TargetRect;
+                        node.MoveButton = btn;
+                        node.HoverMove = new Vector2(btn.hoverMovement.x, btn.hoverMovement.y);
+                    }
+                }
+
                 if (beh is InitiativeTrackEnemyBehaviour enemy)
                 {
                     MonsterBaseUI? popup = enemy.monsterBaseUI;
@@ -250,6 +298,22 @@ internal sealed class RemoteInitiativeTrack
                     }
                 }
                 _hoverNodes.Add(node);
+            }
+
+            if (!_loggedGrowCoverage && _hoverNodes.Count > 0)
+            {
+                _loggedGrowCoverage = true;
+                int grow = 0, move = 0;
+                for (int i = 0; i < _hoverNodes.Count; i++)
+                {
+                    if (_hoverNodes[i].ScaleClone != null) grow++;
+                    if (_hoverNodes[i].MoveClone != null) move++;
+                }
+                VRLog.Info("Net", $"Remote initiative track hover-grow override: {grow}/{_hoverNodes.Count} " +
+                                  $"entr(y/ies) resolved their ExtendedButton scale rect ({move} with a " +
+                                  "hoverMovement nudge). The LOCAL pointer's LeanTween grow is forced back " +
+                                  "to Vector3.one on this mirror and re-applied only for the entry the PEER " +
+                                  "hovers (record 16) — my own hover can no longer grow a peer's portraits.");
             }
         }
         catch
@@ -292,6 +356,35 @@ internal sealed class RemoteInitiativeTrack
                 bool wantPopup = hovered && _peerHoverPopup;
                 if (node.Popup.activeSelf != wantPopup)
                     node.Popup.SetActive(wantPopup);
+            }
+
+            // HOVER GROW — re-decided from the PEER's hover, never copied.
+            //
+            // Vanilla's rest value is literally Vector3.one (ExtendedButton.ToggleHighlight's
+            // inactive branch), so "not hovered by the peer" is a constant, not something read
+            // back off the source: that is what makes this immune to the LOCAL pointer's
+            // in-flight LeanTween AND to the extra OnPointerDown/Up scales, which all land on the
+            // same rect. Z stays 1 exactly as vanilla writes it.
+            if (node.ScaleClone != null)
+            {
+                float s = node.HighlightScale > 1f && hovered ? node.HighlightScale : 1f;
+                Vector3 want = new(s, s, 1f);
+                if (node.ScaleClone.localScale != want)
+                    node.ScaleClone.localScale = want;
+            }
+
+            // The optional hoverMovement nudge on the SAME family of buttons. Its rest pose is
+            // NOT a constant (the track relayouts every round), so it is derived from the live
+            // source: strip vanilla's own offset while the LOCAL hover has it latched, then
+            // re-add it only for the peer-hovered entry.
+            if (node.MoveClone != null && node.MoveSource != null)
+            {
+                Vector2 rest = node.MoveSource.anchoredPosition;
+                if (node.MoveButton != null && node.MoveButton.isMoved)
+                    rest -= node.HoverMove;
+                Vector2 want = hovered ? rest + node.HoverMove : rest;
+                if (node.MoveClone.anchoredPosition != want)
+                    node.MoveClone.anchoredPosition = want;
             }
 
             if (node.HasWidths && node.Entry != null)
