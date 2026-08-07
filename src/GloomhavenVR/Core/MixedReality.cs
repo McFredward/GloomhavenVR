@@ -183,11 +183,6 @@ internal static class MixedReality
         /// rim (user ruling: removed).</summary>
         public Renderer? Fill;
 
-        /// <summary>Round 14: the SIDE SKIRT — a full-height dark same-mesh copy XZ-inset a
-        /// hair (<see cref="SideInsetScale"/>) inside the authored side faces, so a ray through
-        /// a translucent side hits dark deterministically. Child of the source like the others.</summary>
-        public Renderer? Side;
-
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -229,34 +224,6 @@ internal static class MixedReality
     /// log PROVES the copies cover every submesh (an uncovered bevel submesh renders the
     /// authored translucency over raw key — wide green bands). Reset with the underlays.</summary>
     private static bool _submeshDiagLogged;
-
-    /// <summary>Base render queue of the dark backings (round 14: 2450, was 2500) — late in the
-    /// opaque range, after real geometry, before every authored transparent. With the bundled
-    /// Overlay shader the backings are genuinely opaque and depth-writing here.</summary>
-    private const int BackingQueue = 2450;
-
-    /// <summary>XZ inset of the SIDE skirt copy (round 14): a full-height dark copy a hair
-    /// INSIDE the authored side faces, so any ray through a translucent side hits dark
-    /// deterministically — independent of coplanar z-order subtleties.</summary>
-    private const float SideInsetScale = 0.99f;
-
-    /// <summary>The backing shader actually in use + whether it is the bundled Overlay
-    /// (opaque-capable). Feeds the BACKING TRUTH log line.</summary>
-    private static Shader? _backingShader;
-    private static bool _backingIsOverlay;
-
-    /// <summary>source mesh instance id → its vertex-color-STRIPPED copy (round 14): both
-    /// candidate backing shaders multiply vertex color, and the authored tile meshes plausibly
-    /// carry near-zero vertex alpha on their side/rim vertices (the falloff authoring trick —
-    /// consistent with dark tops and see-through sides). A mesh with no color channel samples
-    /// white — the backing renders its material color everywhere, provably. Cache is mod-owned;
-    /// copies destroyed on restore. Unreadable meshes fall back to the original (logged).</summary>
-    private static readonly Dictionary<int, Mesh> StrippedMeshBySource = new(8);
-    private static bool _meshStripFailLogged;
-
-    /// <summary>Whether the LAST stripped-copy request actually stripped (false = unreadable
-    /// mesh, original used). Feeds the BACKING TRUTH sample line.</summary>
-    private static bool _lastStripWorked;
 
     /// <summary>Y-squash of the gap-backing wafer (round 11): the fill copy's local Y scale.
     /// Squashing the same-mesh copy to 2 % collapses all of its relief into a flat
@@ -897,25 +864,6 @@ internal static class MixedReality
     /// change-gated; the goal state ("none") is logged too. If 'Simple Tile' still appears
     /// there, its line carries exactly the signal the next round must add.
     ///
-    /// ROUND 14 (hardware 2026-08-07 #5, ModBuild 71): the instrument reported the goal state
-    /// ("UNBACKED — none") yet the sides were UNCHANGED — matching works, the backing produces
-    /// NO PIXELS on the side faces; "coplanar copy ⇒ covered" is empirically false. Prime
-    /// suspect (coordinator): VERTEX-COLOR ALPHA — both candidate backing shaders multiply
-    /// vertex color into the output (read from source: Sprites/Default by design, and the
-    /// bundled Overlay's frag is '_MainTex × _Color × i.color'), so authored near-zero vertex
-    /// alpha on side/rim vertices (the falloff authoring trick — consistent with tops working
-    /// and sides not) makes the dark copy invisible exactly there. THREE changes, each
-    /// sufficient alone where it applies: (a) backing meshes are session-cached copies with
-    /// the vertex-color channel STRIPPED (<see cref="StrippedCopyOf"/> — no attribute ⇒ white
-    /// ⇒ the material color renders everywhere; no shader swap can achieve this, the
-    /// dependence is in both shaders' code); (b) the backing material prefers the bundled
-    /// Overlay with REAL opaque state (Blend One Zero, ZWrite On, queue 2450) over the
-    /// alpha-blended Sprites/Default fallback; (c) the deferred SIDE SKIRT ships — a
-    /// full-height dark copy XZ-inset ×0.99 inside the authored sides, deterministic coverage
-    /// independent of coplanar z-order subtleties, hex-silhouette by construction. The
-    /// BACKING TRUTH sample line states shader/opacity/queue/strip status so the next log
-    /// verifies RENDERING, not just matching.
-    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -1304,6 +1252,15 @@ internal static class MixedReality
         }
         if (backed == 0)
             return; // GO-name family with all-opaque, non-family slots: nothing to back
+        if (!_submeshDiagLogged)
+        {
+            _submeshDiagLogged = true;
+            VRLog.Info("Core", $"MR: unseen backing sample '{source.gameObject.name}' — mesh " +
+                               $"submeshes {filter.sharedMesh.subMeshCount}, source mats " +
+                               $"{mats.Length}, backing mats {slots} (padded " +
+                               $"{slots - mats.Length} with dark) — the copies must cover every " +
+                               "submesh or the uncovered ones read as key-colored bands.");
+        }
 
         // THE PRIMARY UNDERLAY — exact 1:1 again (round 7). Round 4 scaled THIS copy as the
         // "skirt"; round 5 proved the animation is UV-scroll (cannot leave the silhouette, so
@@ -1312,14 +1269,13 @@ internal static class MixedReality
         // faces, so a grazing ray slips through the parallax gap between the translucent bevel
         // and its shifted backing, into the V-channel, onto the key — the glowing green grooves.
         // Coplanar means every surface pixel of the piece is backed from EVERY view direction.
-        Mesh backingMesh = StrippedCopyOf(filter.sharedMesh); // round 14: no vertex colors
         var go = new GameObject("GloomhavenVR.MrUnseenUnderlay");
         go.transform.SetParent(source.transform, worldPositionStays: false);
         go.transform.localPosition = Vector3.zero;
         go.transform.localRotation = Quaternion.identity;
         go.transform.localScale = Vector3.one;
         go.layer = source.gameObject.layer;
-        go.AddComponent<MeshFilter>().sharedMesh = backingMesh;
+        go.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
         var plate = go.AddComponent<MeshRenderer>();
         plate.sharedMaterials = plateMats;
         plate.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -1359,35 +1315,13 @@ internal static class MixedReality
             meshCenter.z * (1f - skirt));
         fillGo.transform.position += Vector3.down * drop; // WORLD drop, whatever the parent pose
         fillGo.layer = source.gameObject.layer;
-        fillGo.AddComponent<MeshFilter>().sharedMesh = backingMesh;
+        fillGo.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
         var fill = fillGo.AddComponent<MeshRenderer>();
         fill.sharedMaterials = plateMats;
         fill.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         fill.receiveShadows = false;
         fill.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         fill.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-
-        // THE SIDE SKIRT (round 14): the coplanar underlay SHOULD back the side faces, but the
-        // ModBuild-71 round proved empirically that it produces no pixels there (prime suspect:
-        // authored vertex alpha ~0 on side/rim vertices — now neutralized by the stripped mesh,
-        // but belt-and-braces coverage is cheap and deterministic). A full-height copy XZ-inset
-        // a hair inside the authored sides: any ray through a translucent side face crosses
-        // into the piece and hits this dark shell immediately, independent of coplanar z-order
-        // subtleties. Follows the hex silhouette (same mesh) — no rectangles at the rim.
-        var sideGo = new GameObject("GloomhavenVR.MrUnseenSide");
-        sideGo.transform.SetParent(source.transform, worldPositionStays: false);
-        sideGo.transform.localRotation = Quaternion.identity;
-        sideGo.transform.localScale = new Vector3(SideInsetScale, 1f, SideInsetScale);
-        sideGo.transform.localPosition = new Vector3(
-            meshCenter.x * (1f - SideInsetScale), 0f, meshCenter.z * (1f - SideInsetScale));
-        sideGo.layer = source.gameObject.layer;
-        sideGo.AddComponent<MeshFilter>().sharedMesh = backingMesh;
-        var side = sideGo.AddComponent<MeshRenderer>();
-        side.sharedMaterials = plateMats;
-        side.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        side.receiveShadows = false;
-        side.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-        side.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
         int id = source.GetInstanceID();
         var entry = new UnseenUnderlay
@@ -1396,28 +1330,10 @@ internal static class MixedReality
             SourceId = id,
             Plate = plate,
             Fill = fill,
-            Side = side,
         };
 
         UnseenUnderlays.Add(entry);
         UnseenSources.Add(id);
-
-        // BACKING TRUTH (rounds 12+14, one-shot): the round-13 instrument verified MATCHING but
-        // not RENDERING — this line states what the backing actually is, so the next hardware
-        // log can verify the sides are covered by a vertex-color-independent, opaque backing.
-        if (!_submeshDiagLogged)
-        {
-            _submeshDiagLogged = true;
-            VRLog.Info("Core", $"MR: unseen BACKING TRUTH sample '{source.gameObject.name}' — mesh " +
-                               $"submeshes {filter.sharedMesh.subMeshCount}, source mats {mats.Length}, " +
-                               $"backing mats {slots} (padded {slots - mats.Length}); backing shader " +
-                               $"'{(_backingShader != null ? _backingShader.name : "<none>")}' " +
-                               $"{(_backingIsOverlay ? "OPAQUE One/Zero + ZWrite On" : "alpha-blended fallback")}, " +
-                               $"queue {(_unseenDarkMat != null ? _unseenDarkMat.renderQueue : -1)}; vertex colors " +
-                               $"{(_lastStripWorked ? "STRIPPED from the backing mesh (shader vcolor multiply neutralized)" : "NOT strippable (mesh unreadable) — authored vertex alpha still applies")}; " +
-                               "copies: coplanar underlay + top wafer + side skirt (XZ ×" +
-                               $"{SideInsetScale:0.###}).");
-        }
         for (int i = 0; i < mats.Length; i++)
         {
             if (IsUnseenFamilyMaterial(mats[i]))
@@ -1524,10 +1440,11 @@ internal static class MixedReality
             {
                 if (e.Plate != null) // source renderer died alone (component removal) — clean up
                     UnityEngine.Object.Destroy(e.Plate.gameObject);
+                // The base quad lives under the scene-root holder, NOT under the source — it
+                // never dies structurally with the piece and must go explicitly (Apparance regen
+                // would otherwise strand a dark quad under a piece that no longer exists).
                 if (e.Fill != null) // like the plate: source died alone — clean up the children
                     UnityEngine.Object.Destroy(e.Fill.gameObject);
-                if (e.Side != null)
-                    UnityEngine.Object.Destroy(e.Side.gameObject);
                 UnseenSources.Remove(e.SourceId);
                 UnseenUnderlays.RemoveAt(i);
                 continue;
@@ -1539,8 +1456,6 @@ internal static class MixedReality
             // flag needs mirroring.
             if (e.Fill != null && e.Fill.enabled != e.Source.enabled)
                 e.Fill.enabled = e.Source.enabled;
-            if (e.Side != null && e.Side.enabled != e.Source.enabled)
-                e.Side.enabled = e.Source.enabled;
         }
     }
 
@@ -1571,72 +1486,32 @@ internal static class MixedReality
         // draws at the geometry queue (~2000) with depth, and a backing drawn later either
         // fails LEqual below it or — where the floor is behind — is painted over by nothing,
         // because the backing writes no depth and the floor already won the pixel.
-        int wantedQueue = _familyMinQueue <= BackingQueue
-            ? Mathf.Max(2000, _familyMinQueue - 1)
-            : BackingQueue;
+        int wantedQueue = _familyMinQueue <= 2500 ? Mathf.Max(2000, _familyMinQueue - 1) : 2500;
 
         if (_unseenDarkMat == null)
         {
-            // Round 14: prefer the mod's bundled Overlay shader — it exposes _SrcBlend/
-            // _DstBlend/_ZWrite as REAL properties, so the backing can be genuinely OPAQUE
-            // (Blend One Zero, depth-writing) instead of alpha-blended. Same find-then-scan
-            // seam as Cards.PlayTray.OverlayShader, kept Core-local. NOTE (read from the
-            // shader source, Assets/Bundle/Table/Overlay.shader): Overlay ALSO multiplies
-            // vertex color (frag = _MainTex × _Color × i.color) — as does Sprites/Default —
-            // so NO shader choice removes the vertex-color dependence; that is eliminated at
-            // the MESH instead (StrippedCopyOf: backing meshes carry no color channel, the
-            // attribute defaults to white). The shader upgrade buys real opacity; the mesh
-            // strip buys vertex-color independence; both are logged in the BACKING TRUTH line.
-            _backingShader = Shader.Find("GloomhavenVR/Overlay");
-            if (_backingShader == null)
-            {
-                foreach (AssetBundle b in AssetBundle.GetAllLoadedAssetBundles())
-                {
-                    if (b == null)
-                        continue;
-                    Shader s = b.LoadAsset<Shader>("Assets/Bundle/Table/Overlay.shader");
-                    if (s != null)
-                    {
-                        _backingShader = s;
-                        break;
-                    }
-                }
-            }
-            _backingIsOverlay = _backingShader != null;
-            _backingShader ??= Shader.Find("Sprites/Default")
-                               ?? Shader.Find("Legacy Shaders/Diffuse")
-                               ?? Shader.Find("Hidden/InternalErrorShader");
-
-            _unseenDarkMat = new Material(_backingShader)
+            Shader shader = Shader.Find("Sprites/Default")
+                            ?? Shader.Find("Legacy Shaders/Diffuse")
+                            ?? Shader.Find("Hidden/InternalErrorShader");
+            _unseenDarkMat = new Material(shader)
             {
                 name = "GloomhavenVR.MrUnseenDark",
                 color = wanted,
                 renderQueue = wantedQueue,
             };
-            _unseenSkipMat = new Material(_backingShader)
+            _unseenSkipMat = new Material(shader)
             {
                 name = "GloomhavenVR.MrUnseenSkip",
                 color = new Color(0f, 0f, 0f, 0f), // alpha 0: rasterized to nothing, writes nothing
                 renderQueue = wantedQueue,
             };
-            if (_backingIsOverlay)
-            {
-                _unseenDarkMat.SetFloat("_SrcBlend", 1f);  // One  ┐ genuinely opaque
-                _unseenDarkMat.SetFloat("_DstBlend", 0f);  // Zero ┘
-                _unseenDarkMat.SetFloat("_ZWrite", 1f);    // a real surface
-                _unseenDarkMat.SetFloat("_ZTest", 4f);     // LEqual — real geometry still wins
-                _unseenSkipMat.SetFloat("_SrcBlend", 0f);  // Zero ┐ draws nothing
-                _unseenSkipMat.SetFloat("_DstBlend", 1f);  // One  ┘
-                _unseenSkipMat.SetFloat("_ZWrite", 0f);
-            }
             _unseenDarkColor = wanted;
-            // One-shot state line (rounds 6+14): the next hardware log must show WHICH shader
-            // the dark material actually got and whether the opaque state stuck.
-            VRLog.Info("Core", $"MR: unseen dark material created — shader '{_backingShader.name}'" +
-                               $"{(_backingIsOverlay ? " (opaque One/Zero, ZWrite On)" : " (alpha-blended fallback)")}, " +
-                               $"queue {wantedQueue}; backing meshes get their vertex-color channel " +
-                               "stripped (both candidate shaders multiply vertex color — a mesh " +
-                               "with no color attribute samples white).");
+            // One-shot state line (round 6): the next hardware log must show WHICH shader the
+            // dark material actually got — the from-above/from-below asymmetry hypotheses hinge
+            // on its cull/depth state, and Shader.Find fallbacks are invisible without this.
+            VRLog.Info("Core", $"MR: unseen dark material created — shader '{shader.name}', " +
+                               $"queue {wantedQueue} (per-piece coplanar underlay + groove fill; " +
+                               "ModBuild-63 log confirmed Sprites/Default + family queue 3000).");
             return;
         }
         if (_unseenDarkMat.renderQueue != wantedQueue)
@@ -1656,39 +1531,6 @@ internal static class MixedReality
                                $"re-tinted to RGBA {wanted.r:0.##},{wanted.g:0.##},{wanted.b:0.##},1 " +
                                "so it can never be chroma-keyed away.");
         }
-    }
-
-    /// <summary>The vertex-color-stripped copy of <paramref name="src"/> (round 14, see
-    /// <see cref="StrippedMeshBySource"/>). Falls back to the ORIGINAL when the mesh is not
-    /// CPU-readable (then stripping is impossible; logged once) — the backing still renders,
-    /// just with whatever vertex alpha the authored mesh carries.</summary>
-    private static Mesh StrippedCopyOf(Mesh src)
-    {
-        int id = src.GetInstanceID();
-        if (StrippedMeshBySource.TryGetValue(id, out Mesh cached) && cached != null)
-        {
-            _lastStripWorked = true;
-            return cached;
-        }
-        if (!src.isReadable)
-        {
-            _lastStripWorked = false;
-            if (!_meshStripFailLogged)
-            {
-                _meshStripFailLogged = true;
-                VRLog.Warn("Core", $"MR: unseen backing mesh '{src.name}' is not CPU-readable — " +
-                                   "its vertex-color channel cannot be stripped; the backing " +
-                                   "inherits the authored vertex alpha (a possible see-through " +
-                                   "cause the BACKING TRUTH line will show).");
-            }
-            return src;
-        }
-        Mesh copy = UnityEngine.Object.Instantiate(src);
-        copy.name = src.name + " (GloomhavenVR.NoVColor)";
-        copy.colors32 = null; // drop the attribute entirely — shaders then sample white
-        StrippedMeshBySource[id] = copy;
-        _lastStripWorked = true;
-        return copy;
     }
 
     /// <summary>True when an ACTIVE ancestor named 'Preview' sits above <paramref name="t"/> —
@@ -1754,19 +1596,9 @@ internal static class MixedReality
             Renderer? fill = UnseenUnderlays[i].Fill;
             if (fill != null)
                 UnityEngine.Object.Destroy(fill.gameObject);
-            Renderer? side = UnseenUnderlays[i].Side;
-            if (side != null)
-                UnityEngine.Object.Destroy(side.gameObject);
         }
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
-        foreach (KeyValuePair<int, Mesh> pair in StrippedMeshBySource)
-        {
-            if (pair.Value != null)
-                UnityEngine.Object.Destroy(pair.Value);
-        }
-        StrippedMeshBySource.Clear();
-        _meshStripFailLogged = false;
         if (_unseenDarkMat != null)
         {
             UnityEngine.Object.Destroy(_unseenDarkMat);
