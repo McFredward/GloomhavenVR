@@ -43,14 +43,21 @@ namespace GloomhavenVR.Cards;
 /// game's own items-bar slot click when a live slot exists (the exact 2D/proxy seam),
 /// falling back to <c>new UseItemService(hand.PlayerActor).UseItem(cItem)</c> (which owns
 /// ALL multiplayer sync + re-validates the item).</item>
-/// <item>ACTIVATION SPLIT (requirement C): PLAIN use/toggle items activate EXCLUSIVELY by
-/// this place-into-slot flow — their symbols are filtered out of the docked
-/// <c>UIUseItemsBar</c> (WorldUI <c>UseBarsSurface</c>); items whose activation opens an
-/// element SUB-CHOICE at the slot (<see cref="CardsGameApi.ItemNeedsSubChoice"/>) keep
-/// their bar symbol instead and never clip into the slot. The split also covers the
-/// TAKE-DAMAGE decision: placing an OnAttacked shield/retaliate card toggles it through
-/// the panel's own slot seam (<see cref="TickTakeDamagePick"/>), the panel's confirm
-/// commits.</item>
+/// <item>EVERY item is PLAYED PHYSICALLY (user ruling 2026-08-08: "der Trank soll genauso
+/// wie alle anderen Karten wirklich physisch hingelegt werden"). The earlier split kept
+/// element-CHOICE items (the mana potions) on their docked <c>UIUseItemsBar</c> symbol —
+/// a button, the one item flow that was not a card placement. Now the card is the ONLY
+/// entry for those too: placing it clips it in exactly like a plain item and then drives
+/// the game's own slot click, which raises the element picker. Because that picker is a
+/// serialized child of the slot prefab, it surfaces in the DECISION AREA under the control
+/// board (the items bar docks below the decision row, <c>UseBarsSurface</c>) — the same
+/// surface every other game decision docks into. No item symbol is ever clickable on its
+/// own any more: <see cref="EnforceChoiceSlotSplit"/> keeps every choice slot deactivated
+/// until its card is in the slot, and <c>UseBarsSurface.EnforceItemsSplit</c> keeps the
+/// plain ones hidden, so the bar docks ONLY to carry the placed card's element choice.
+/// The split also covers the TAKE-DAMAGE decision: placing an OnAttacked shield/retaliate
+/// card toggles it through the panel's own slot seam (<see cref="TickTakeDamagePick"/>),
+/// the panel's confirm commits.</item>
 /// </list>
 /// State → look: CONSUMED → ashen + the hosted card's OWN consumed FX (the game's separate
 /// CardSmoke plume is deliberately NOT spawned here — see the note in ItemChip.Create);
@@ -138,6 +145,31 @@ internal sealed class ItemsPile
     // Confirm/cancel decision (null = none). While set, the fan never live-rebuilds (so the decision
     // chip is never yanked), the chip is driven to the slot pose each tick, and a Confirm button shows.
     private ItemChip? _pendingUseChip;
+
+    // ---- element-CHOICE placement (items 2026-08-08) ------------------------------------------
+    // Set together with _pendingUseChip when the placed card's item needs an element sub-choice
+    // (CardsGameApi.ItemNeedsSubChoice). While set, the flow runs the game's OWN two-step:
+    //   place → (next tick) slot click → element picker opens in the decision area → pick →
+    //   UIUseItemsBar.useItem == item → the USE cap confirms via UIUseItemsBar.UseItem().
+    // The bar slot is the game's; the mod only decides WHEN it is visible/clicked.
+    private bool _pendingSubChoice;
+    private UIUseItemScenario? _pendingChoiceSlot;
+    // The slot click is deferred by one tick after the slot is re-activated: SetActive is immediate
+    // but the docking surface polls per tick, and firing the click in the same frame the slot
+    // appears would open the picker before UseBarsSurface has ever seen the bar populated.
+    private bool _choiceClickArmed;
+    // Cap-label state, so the cluster is only rebuilt on an actual wording change (a rebuild
+    // re-lays out the whole Confirm/Undo/Use stack — see PlayTray.SetItemUseConfirmVisible).
+    private bool _choiceCapReady;
+    private bool _choiceCapShown;
+
+    // Choice slots this pile deactivated so that NO item symbol is clickable without its card
+    // being placed (the pending item's own slot is the single exception). Restored on teardown /
+    // when the pending decision ends, but only where the bar still maps the same item to the same
+    // slot — never re-activating a slot the game itself has since pooled (mirrors the
+    // UseBarsSurface plain-slot split's restore rule).
+    private readonly List<KeyValuePair<CItem, UIUseItemScenario>> _choiceHidden = new(4);
+    private readonly List<KeyValuePair<CItem, UIUseItemScenario>> _slotScratch = new(8);
 
     // Requirement 8 (drop preview): a translucent GHOST duplicate shown at the use-slot pose while a held
     // usable item card comes NEAR the slot — a preview of where it will land if released. Parented under
@@ -317,6 +349,13 @@ internal sealed class ItemsPile
             Current = null; // unpublish (mirror + net extras stop showing the fan this frame)
         _boardAnchored = false;
         ClearHandSweep();
+        if (_pendingSubChoice)
+            AbandonChoice(_pendingUseChip?.Item); // never leave the game holding a half-answered pick
+        _pendingSubChoice = false;
+        _pendingChoiceSlot = null;
+        _choiceClickArmed = false;
+        _choiceCapShown = false;
+        _choiceCapReady = false;
         _pendingUseChip = null; // #6: drop any pending decision on close
         _demandChip = null;     // surrender pick: the chip dies with the fan; the game selection
                                 // survives in the picker and the pump re-opens the fan next tick
@@ -342,6 +381,16 @@ internal sealed class ItemsPile
     {
         ClearHandSweep();
         ClearChips();
+        if (_pendingSubChoice)
+            AbandonChoice(_pendingUseChip?.Item);
+        _pendingSubChoice = false;
+        _pendingChoiceSlot = null;
+        _choiceClickArmed = false;
+        _choiceCapShown = false;
+        _choiceCapReady = false;
+        // Hand every suppressed item symbol back to the game (the split is a pure, reversible
+        // visibility policy — teardown must leave the bar exactly as the game left it).
+        RestoreChoiceHidden();
         _pendingUseChip = null; // #6
         _demandChip = null;     // surrender pick
         _demandActive = false;
@@ -1165,22 +1214,38 @@ internal sealed class ItemsPile
     /// The single held chip that can actually be USED right now (requirement 3): non-passive AND
     /// in a Useable/Selected slot state — the EXACT predicate <c>UseItemService.UseItem</c>
     /// enforces (evaluated LIVE via <see cref="ItemChip.IsActivatable"/>), so the slot never
-    /// appears for an item the service would reject. Requirement C (activation split): items
-    /// whose activation needs a further SUB-CHOICE (element consume/infuse "Any" —
-    /// <see cref="CardsGameApi.ItemNeedsSubChoice"/>) are excluded — their activation lives
-    /// EXCLUSIVELY on their docked bar symbol (the choice UI is there); plain items conversely
-    /// activate exclusively by the place-into-slot flow (their symbols never dock).
+    /// appears for an item the service would reject. Element-CHOICE items are NO LONGER excluded
+    /// (user ruling 2026-08-08 — every item is played by placing its card): they are placed like
+    /// any other card and answer their element choice afterwards in the decision area. They are
+    /// excluded only when the game has built no bar slot for them at all
+    /// (<see cref="CanPlaceChoiceItem"/>) — without that slot there is no picker to raise, so
+    /// promising the recess would be a dead end.
     /// </summary>
     private ItemChip? HeldActivatableChip()
     {
         for (int i = 0; i < _chips.Count; i++)
         {
             ItemChip c = _chips[i];
-            if (c != null && c.Holder != null && c.IsActivatable
-                && !CardsGameApi.ItemNeedsSubChoice(c.Item!, _hand))
+            if (c != null && c.Holder != null && c.IsActivatable && CanPlaceChoiceItem(c.Item))
                 return c;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Placement gate for the element-CHOICE half: such an item can only be placed while the game
+    /// HAS a bar slot for it (active or mod-suppressed — <see cref="CardsGameApi.ItemsBarSlot"/>
+    /// with <c>requireActive:false</c>), because the whole choice UI (the element picker, the
+    /// element holders, the pending-confirm state) is serialized ON that slot prefab. Plain items
+    /// never need one (they fall back to <c>UseItemService</c> directly), so they always pass.
+    /// </summary>
+    private bool CanPlaceChoiceItem(CItem? item)
+    {
+        if (item == null)
+            return false;
+        if (!CardsGameApi.ItemNeedsSubChoice(item, _hand))
+            return true;
+        return CardsGameApi.ItemsBarSlot(item, requireActive: false) != null;
     }
 
     /// <summary>
@@ -1316,14 +1381,15 @@ internal sealed class ItemsPile
 
         if (!chip.IsActivatable)
             return;
-        // Requirement C (activation split): a CHOICE item (element sub-pick) never clips into
-        // the use slot — its bar symbol carries the choice UI. Mirrors HeldActivatableChip, so
-        // the slot was never shown for this chip anyway; this is the belt-and-braces on the
-        // drop itself.
-        if (CardsGameApi.ItemNeedsSubChoice(chip.Item!, _hand))
+        // Element-CHOICE items are placed like every other card (2026-08-08). The ONE case that
+        // still bounces is "the choice UI does not exist": no bar slot ⇒ no picker to raise ⇒ the
+        // placement could never be answered. Mirrors HeldActivatableChip's gate, so the recess was
+        // not shown for this chip anyway; this is the belt-and-braces on the drop itself.
+        if (!CanPlaceChoiceItem(chip.Item))
         {
-            VRLog.Info("Cards", $"ITEM place: '{chip.name}' needs an element sub-choice — its docked bar " +
-                                "symbol carries that choice; the card returns to the fan.");
+            VRLog.Info("Cards", $"ITEM place: '{chip.name}' needs an element choice but the game has built " +
+                                "no items-bar slot for it (bar not shown / item filtered out) — there is no " +
+                                "picker to raise, so the card returns to the fan.");
             return;
         }
 
@@ -1347,12 +1413,38 @@ internal sealed class ItemsPile
         if (_root != null)
             chip.ClipIntoSlot(slot, _root, ChipScale);
         PlayTray.Current?.SetItemUseSlotVisible(true);
-        PlayTray.Current?.SetItemUseConfirmVisible(true, ConfirmPendingUse);
+
+        // Does the placed card owe an element choice? Classify ONCE, here, from the item data —
+        // the live slot's own predicate is only valid after the slot has been built and fed.
+        _pendingSubChoice = CardsGameApi.ItemNeedsSubChoice(chip.Item!, _hand);
+        _pendingChoiceSlot = _pendingSubChoice
+            ? CardsGameApi.ItemsBarSlot(chip.Item!, requireActive: false) : null;
+        _choiceClickArmed = false;
+        _choiceCapReady = false;
+        _choiceCapShown = false;
+        if (_pendingSubChoice)
+        {
+            // The cap says CHOOSE, not USE: nothing is confirmable until the element is picked.
+            // Poking it re-raises the picker (the player may close it and come back).
+            ShowChoiceCap(ready: false);
+            // Re-activate this ONE slot; the next tick fires its click, which opens the element
+            // picker. The items bar then docks under the decision row (UseBarsSurface) — that is
+            // where the element choice appears, exactly like every other game decision.
+            _choiceClickArmed = true;
+        }
+        else
+        {
+            PlayTray.Current?.SetItemUseConfirmVisible(true, ConfirmPendingUse);
+        }
+
         vrHand.SendHaptic(HapticPreset.HoverTick);
         // ITEM 4 (card sounds): the place "thunk" the ability cards play when a card drops into a slot.
         CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
         VRLog.Info("Cards", $"ITEM clip-in: '{chip.name}' held in the use slot ({vrHand.Side}) — " +
-                            "poke USE to confirm, or grab it back out to cancel.");
+                            (_pendingSubChoice
+                                ? "it owes an ELEMENT choice; raising the game's picker in the decision "
+                                  + "area under the board. Pick, then poke USE — or grab it back out to cancel."
+                                : "poke USE to confirm, or grab it back out to cancel."));
     }
 
     /// <summary>
@@ -1373,6 +1465,17 @@ internal sealed class ItemsPile
             CancelPendingUse("grabbed back out of the slot");
             return;
         }
+        // The element pick itself can CONSUME the placed card: a consume-"Any" item auto-uses the
+        // moment its picker closes (UIUseConsumeInfuseSlot.Select re-enters and falls through to
+        // base.Select → the bar's onSelect → UseItemService). Check that BEFORE the usability
+        // invalidation below, or a legitimately used card would be filed as "no longer usable" and
+        // slink back to the fan without its burn/tap flourish.
+        if (_pendingSubChoice && chip.Item != null && WasUsed(chip.Item))
+        {
+            FinishUsedChip(chip, chip.Item, "auto-used when the element pick completed");
+            return;
+        }
+
         // Invalidated: no longer this hand's action turn, or the item is no longer usable.
         if (!CardsGameApi.IsActionTurn(hand) || !chip.IsActivatable)
         {
@@ -1382,6 +1485,9 @@ internal sealed class ItemsPile
             return;
         }
 
+        if (_pendingSubChoice)
+            TickChoiceDecision(chip);
+
         PlayTray.Current?.SetItemUseSlotVisible(true);
         // No per-frame pose work: the chip is a CHILD of the slot while clipped (ClipIntoSlot), so
         // the hierarchy holds it exactly, whatever the head and the board do. Re-assert the parent
@@ -1389,6 +1495,234 @@ internal sealed class ItemsPile
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
         if (slot != null && _root != null && chip.transform.parent != slot)
             chip.ClipIntoSlot(slot, _root, ChipScale);
+    }
+
+    // ----------------------------------------- the element choice, in the decision area --
+
+    /// <summary>
+    /// Per-tick service of a PLACED card that owes an element choice. Three jobs, in order:
+    /// <list type="number">
+    /// <item>RAISE the choice — one tick after the card clipped in, click the item's own bar slot
+    /// (<c>UIUseItemScenario.OnPointerDown</c>, the game's 2D/proxy seam). That is what opens the
+    /// element picker; because the picker is a serialized child of the slot prefab and
+    /// <see cref="EnforceChoiceSlotSplit"/> has just made this the bar's ONLY visible slot, it
+    /// surfaces in the decision area under the control board and nowhere else. The one-tick delay
+    /// exists because the docking surface polls: firing in the same frame the slot is re-activated
+    /// would open the picker before the bar had ever been seen populated.</item>
+    /// <item>TRACK readiness — the game sets <c>UIUseItemsBar.useItem</c> exactly when every "Any"
+    /// has been picked (<c>onPickedAll</c> → <c>SetUseItem</c>). That, and nothing else, is the
+    /// signal that a CONFIRM is now legal (<c>UseItem()</c> guards on it).</item>
+    /// <item>LABEL the cap accordingly — "CHOOSE ELEMENT" (poke re-toggles the picker) until then,
+    /// the ordinary USE afterwards. Change-gated: a label change rebuilds the whole board button
+    /// cluster.</item>
+    /// </list>
+    /// </summary>
+    private void TickChoiceDecision(ItemChip chip)
+    {
+        CItem? item = chip.Item;
+        if (item == null)
+            return;
+
+        // The slot may be rebuilt/repooled by the game (AddItem/RefreshItem) — re-resolve it live.
+        UIUseItemScenario? slot = CardsGameApi.ItemsBarSlot(item, requireActive: false);
+        _pendingChoiceSlot = slot;
+        if (slot == null)
+        {
+            // The choice UI vanished under us; do not strand the card on the board.
+            UnclipChip(chip);
+            chip.ReturnToFan();
+            CancelPendingUse("the game withdrew this item's bar slot (no picker to answer)");
+            return;
+        }
+
+        if (_choiceClickArmed)
+        {
+            if (!slot.gameObject.activeSelf)
+                return; // EnforceChoiceSlotSplit re-activates it; click on the NEXT tick
+            _choiceClickArmed = false;
+            bool clicked = CardsGameApi.ClickItemsBarSlot(slot);
+            VRLog.Info("Cards", $"ITEM choice: raised the element picker for '{chip.name}' via the game's own " +
+                                $"items-bar slot click (accepted={clicked}, pickerOpen=" +
+                                $"{CardsGameApi.ItemsBarSlotPickerOpen(slot)}) — it docks in the decision " +
+                                "area under the control board.");
+            if (!clicked)
+            {
+                UnclipChip(chip);
+                chip.ReturnToFan();
+                CancelPendingUse("the items-bar slot refused the click (state gate)");
+            }
+            return;
+        }
+
+        // A consume-"Any" item uses ITSELF the moment its picker closes: the pick re-enters
+        // UIUseConsumeInfuseSlot.Select, the consume controller now reports "all picked", and the
+        // call falls through to base.Select() — which both sets the slot SELECTED and fires the
+        // bar's use callback. The infuse path (mana potions) never reaches base.Select(), so a
+        // selected slot is an unambiguous "already used" edge, and a faster one than waiting for
+        // the SlotState round trip (online it lands a frame or more later).
+        if (CardsGameApi.ItemsBarSlotSelected(slot))
+        {
+            FinishUsedChip(chip, item, "auto-used when the element pick completed");
+            return;
+        }
+
+        bool ready = ReferenceEquals(CardsGameApi.ItemsBarPendingItem(), item);
+        ShowChoiceCap(ready);
+    }
+
+    /// <summary>Show the item-use cap in its CHOOSE (poke = re-open the picker) or USE (poke =
+    /// confirm) wording. Change-gated: <c>SetItemUseConfirmVisible</c> rebuilds the Confirm/Undo/Use
+    /// cluster on a label change, which must not happen every frame.</summary>
+    private void ShowChoiceCap(bool ready)
+    {
+        if (_choiceCapShown && _choiceCapReady == ready)
+            return;
+        _choiceCapShown = true;
+        _choiceCapReady = ready;
+        PlayTray.Current?.SetItemUseConfirmVisible(
+            true,
+            ready ? ConfirmPendingUse : ReopenChoicePicker,
+            ready ? null : ChooseElementLabel);
+        VRLog.Info("Cards", $"ITEM choice cap → {(ready ? "USE (element picked; poke to confirm)" : "CHOOSE ELEMENT (poke re-opens the picker)")}.");
+    }
+
+    /// <summary>Cap action while the element is still unpicked: re-toggle the game's own picker.
+    /// <c>UIUseSlot.Toggle</c> closes it if it is open and opens it if it is not
+    /// (<c>UIUseConsumeInfuseSlot.Select</c> → <c>controller.IsSelecting() ? ClosePicker() :
+    /// Pick()</c>), so ONE cap covers "I dismissed it, bring it back" and "hide it a second".</summary>
+    private void ReopenChoicePicker()
+    {
+        UIUseItemScenario? slot = _pendingChoiceSlot;
+        if (slot == null || _pendingUseChip == null)
+            return;
+        bool wasOpen = CardsGameApi.ItemsBarSlotPickerOpen(slot);
+        CardsGameApi.ClickItemsBarSlot(slot);
+        VRLog.Info("Cards", $"ITEM choice: CHOOSE cap toggled the element picker ({(wasOpen ? "open→close" : "closed→open")}).");
+    }
+
+    /// <summary>Has this item already left the usable states — i.e. the game applied it? Used to tell
+    /// "the element pick auto-used the card" apart from "the turn moved on". Mirrors the states
+    /// <c>CInventory.HandleUsedItem</c> writes (Spent/Consumed) plus the commit-side Locked/Active.</summary>
+    private static bool WasUsed(CItem item) =>
+        item.SlotState == CItem.EItemSlotState.Spent
+        || item.SlotState == CItem.EItemSlotState.Consumed
+        || item.SlotState == CItem.EItemSlotState.Locked
+        || item.SlotState == CItem.EItemSlotState.Active;
+
+    /// <summary>
+    /// The item-use cap wording while the placed card still owes its element choice. Local fallback
+    /// until <c>Core/Loc.cs</c> carries the key (that file is owned elsewhere) — <c>Loc.Mod</c>
+    /// returns the id itself when a key is missing, which would put "item_choose_element" on a
+    /// board cap.
+    /// </summary>
+    private static string ChooseElementLabel
+    {
+        get
+        {
+            const string id = "item_choose_element";
+            string s = Core.Loc.Mod(id);
+            return string.IsNullOrEmpty(s) || s == id ? "CHOOSE ELEMENT" : s;
+        }
+    }
+
+    /// <summary>
+    /// EVERY item is played by placing its card, so no item symbol on the docked
+    /// <c>UIUseItemsBar</c> may be clickable on its own. <c>UseBarsSurface</c> already suppresses
+    /// the PLAIN symbols; this suppresses the element-CHOICE ones — all of them except the single
+    /// slot whose card is currently in the board's item-use slot, which is deliberately re-activated
+    /// so its picker can dock. Net effect: the items bar docks ONLY to carry a placed card's element
+    /// choice, and the bar's own <c>ItemsPopulated</c> gate (it counts ACTIVE choice slots) turns the
+    /// dock on and off for free.
+    ///
+    /// Level-triggered every tick, fan open or closed — the game re-activates pooled slots at will
+    /// (<c>AddItem</c>/<c>RefreshItem</c>/<c>OnUnreservedElement</c>). Restores only where the bar
+    /// still maps the same item to the same slot (never resurrecting a slot the game itself pooled),
+    /// the same rule <c>UseBarsSurface.RestorePlainHidden</c> uses.
+    /// </summary>
+    internal void TickItemSymbolSplit() => EnforceChoiceSlotSplit();
+
+    private void EnforceChoiceSlotSplit()
+    {
+        // HANDS OFF during the take-damage decision: TakeDamagePanel.Show repopulates the SAME bar
+        // with the attacked actor's OnAttacked candidates, and that flow's own place seam resolves
+        // slots through LiveItemsBarSlot (active-only). Suppressing anything there would make a
+        // shield card undroppable. Same for the item-surrender demand, which is picker-driven.
+        if (_tdActive || _demandActive)
+        {
+            RestoreChoiceHidden();
+            return;
+        }
+
+        CItem? keep = _pendingSubChoice && _pendingUseChip != null ? _pendingUseChip.Item : null;
+        CardsGameApi.ItemsBarSlotsSnapshot(_slotScratch);
+
+        if (_slotScratch.Count == 0)
+        {
+            RestoreChoiceHidden();
+            return;
+        }
+
+        for (int i = 0; i < _slotScratch.Count; i++)
+        {
+            CItem item = _slotScratch[i].Key;
+            UIUseItemScenario slot = _slotScratch[i].Value;
+            if (slot == null)
+                continue;
+            bool isKeep = keep != null && ReferenceEquals(item, keep);
+            if (isKeep)
+            {
+                if (!slot.gameObject.activeSelf)
+                    slot.gameObject.SetActive(true);
+                DropChoiceHidden(slot);
+                continue;
+            }
+            if (!CardsGameApi.SlotNeedsSubChoice(slot) || !slot.gameObject.activeSelf)
+                continue; // plain slots belong to UseBarsSurface's half of the split
+            slot.gameObject.SetActive(false);
+            bool known = false;
+            for (int j = 0; j < _choiceHidden.Count; j++)
+                if (ReferenceEquals(_choiceHidden[j].Value, slot))
+                {
+                    known = true;
+                    break;
+                }
+            if (!known)
+            {
+                _choiceHidden.Add(_slotScratch[i]);
+                VRLog.Info("Cards", $"ITEM symbol split: hid the choice symbol for '{item.Name}' — it is used by " +
+                                    "PLACING its card in the board's item slot; the element choice then opens " +
+                                    "in the decision area.");
+            }
+        }
+        _slotScratch.Clear();
+    }
+
+    /// <summary>Forget one slot from the suppression ledger (it is the pending card's own slot now).</summary>
+    private void DropChoiceHidden(UIUseItemScenario slot)
+    {
+        for (int i = _choiceHidden.Count - 1; i >= 0; i--)
+            if (ReferenceEquals(_choiceHidden[i].Value, slot))
+                _choiceHidden.RemoveAt(i);
+    }
+
+    /// <summary>Re-activate every choice symbol this pile suppressed, but only where the bar still
+    /// maps the same item to the same slot — otherwise the game has pooled it and re-activating
+    /// would corrupt its pooling. Called when the bar empties and on teardown.</summary>
+    private void RestoreChoiceHidden()
+    {
+        if (_choiceHidden.Count == 0)
+            return;
+        for (int i = 0; i < _choiceHidden.Count; i++)
+        {
+            UIUseItemScenario slot = _choiceHidden[i].Value;
+            CItem item = _choiceHidden[i].Key;
+            if (slot == null)
+                continue;
+            UIUseItemScenario? live = CardsGameApi.ItemsBarSlot(item, requireActive: false);
+            if (ReferenceEquals(live, slot) && !slot.gameObject.activeSelf)
+                slot.gameObject.SetActive(true);
+        }
+        _choiceHidden.Clear();
     }
 
     /// <summary>
@@ -1416,6 +1750,18 @@ internal sealed class ItemsPile
     {
         ItemChip? chip = _pendingUseChip;
         _pendingUseChip = null;
+        // Back the GAME out of the element choice first (while _pendingChoiceSlot is still valid):
+        // an open picker is closed by re-toggling the slot, and a completed pick is released by the
+        // bar's own OnItemBackClick — which clears the slot's element holders, clears the pending
+        // item, re-arms the native buttons and resets the phase for the two mana potions. Doing this
+        // by hand would drop that last part on the floor.
+        if (_pendingSubChoice)
+            AbandonChoice(chip?.Item);
+        _pendingSubChoice = false;
+        _pendingChoiceSlot = null;
+        _choiceClickArmed = false;
+        _choiceCapShown = false;
+        _choiceCapReady = false;
         if (chip != null)
         {
             UnclipChip(chip); // no-op when a grab already took it out of the slot hierarchy
@@ -1427,6 +1773,27 @@ internal sealed class ItemsPile
         VRLog.Info("Cards", $"ITEM clip-in CANCEL ({why}) — card returns to the deck, NOT used.");
     }
 
+    /// <summary>Release the game's half of an element choice: close an open picker (a second slot
+    /// toggle — <c>UIUseConsumeInfuseSlot.Select</c> routes that to <c>ClosePicker</c>, whose
+    /// close handler cancels partial selections), then run the bar's own back-out if the pick had
+    /// already completed. Every step is a game seam; the mod invents no cancel of its own.</summary>
+    private void AbandonChoice(CItem? item)
+    {
+        UIUseItemScenario? slot = _pendingChoiceSlot;
+        try
+        {
+            if (slot != null && CardsGameApi.ItemsBarSlotPickerOpen(slot))
+                CardsGameApi.ClickItemsBarSlot(slot);
+            if (CardsGameApi.ItemsBarBackOut(item))
+                VRLog.Info("Cards", "ITEM choice: released through the bar's own back-out " +
+                                    "(element selections cleared; mana potions re-enter ActionSelection).");
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Cards", $"ITEM choice: back-out threw ({e.Message}); the card still returns to the fan.");
+        }
+    }
+
     /// <summary>
     /// Requirement 6 — CONFIRM: use the pending item through the game's own <c>UseItemService</c>
     /// (which owns ALL multiplayer sync + re-validates), then reflect the result with an animation ON
@@ -1436,7 +1803,13 @@ internal sealed class ItemsPile
     private void ConfirmPendingUse()
     {
         ItemChip? chip = _pendingUseChip;
+        bool subChoice = _pendingSubChoice;
         _pendingUseChip = null;
+        _pendingSubChoice = false;
+        _pendingChoiceSlot = null;
+        _choiceClickArmed = false;
+        _choiceCapShown = false;
+        _choiceCapReady = false;
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         if (chip == null)
             return;
@@ -1452,20 +1825,45 @@ internal sealed class ItemsPile
         string itemName = chip.name;
         try
         {
-            // Requirement C: prefer the game's OWN items-bar slot click when a live slot exists
-            // (ShowUsableItems keeps the hidden 2D bar populated during the turn) — byte-identical
-            // to the 2D click AND to the game's own MP replay seam (ProxyUseItemBonus →
-            // slot.OnPointerDown, UIUseItemsBar.cs:618). Unlike the direct service call it also
-            // auto-resolves FIXED-element consumes (MultiElementPickController.Pick) before the
-            // wired UseItemService runs. Only PLAIN slots reach here (the sub-choice gate is on
-            // the drop), so the click can never open a picker. Fallback: the direct service call
-            // (owns the online GameAction send + local execution + re-validation), as before.
-            UIUseItemScenario? slot = CardsGameApi.LiveItemsBarSlot(item);
-            bool viaSlot = slot != null && !CardsGameApi.SlotNeedsSubChoice(slot)
-                           && CardsGameApi.ClickItemsBarSlot(slot);
-            if (!viaSlot)
-                new UseItemService(actor).UseItem(item);
-            VRLog.Info("Cards", $"ITEM USE seam: {(viaSlot ? "items-bar slot click (game's own 2D/proxy seam)" : "UseItemService direct (no live bar slot)")} for '{itemName}'.");
+            string seam;
+            if (subChoice)
+            {
+                // ELEMENT-CHOICE item: the ONLY correct confirm is the bar's own UseItem() — it
+                // ships the chosen elements to peers (ClickItemBonusSlot + ItemToken), APPLIES them
+                // (ConsumeOrInfuseIfPossible → ElementInfusionBoardManager.Infuse/Consume) and only
+                // then calls UseItemService. A bare service call would spend the potion and create
+                // nothing (CAbilityInfuse.DoInfuse filters "Any" out for player actors).
+                if (!CardsGameApi.ItemsBarConfirmUse())
+                {
+                    // Nothing pending: the pick was cancelled/incomplete under us. Do NOT fall back
+                    // to a bare use — that is the "spends the potion, creates nothing" trap.
+                    VRLog.Info("Cards", $"ITEM USE refused for '{itemName}': the element choice is not complete " +
+                                        "(the bar holds no pending item) — the card returns to the fan.");
+                    chip.ReturnToFan();
+                    return;
+                }
+                seam = "items-bar UseItem() (element choice confirmed; elements shipped + applied)";
+            }
+            else
+            {
+                // Prefer the game's OWN items-bar slot click when a live slot exists (ShowUsableItems
+                // keeps the hidden 2D bar populated during the turn) — byte-identical to the 2D click
+                // AND to the game's own MP replay seam (ProxyUseItemBonus → slot.OnPointerDown,
+                // UIUseItemsBar.cs:618). Unlike the direct service call it also auto-resolves
+                // FIXED-element consumes (MultiElementPickController.Pick) before the wired
+                // UseItemService runs. Only PLAIN slots reach here (a choice item takes the branch
+                // above), so the click can never open a picker. Fallback: the direct service call
+                // (owns the online GameAction send + local execution + re-validation), as before.
+                UIUseItemScenario? slot = CardsGameApi.LiveItemsBarSlot(item);
+                bool viaSlot = slot != null && !CardsGameApi.SlotNeedsSubChoice(slot)
+                               && CardsGameApi.ClickItemsBarSlot(slot);
+                if (!viaSlot)
+                    new UseItemService(actor).UseItem(item);
+                seam = viaSlot
+                    ? "items-bar slot click (game's own 2D/proxy seam)"
+                    : "UseItemService direct (no live bar slot)";
+            }
+            VRLog.Info("Cards", $"ITEM USE seam: {seam} for '{itemName}'.");
         }
         catch (System.Exception e)
         {
@@ -1474,14 +1872,31 @@ internal sealed class ItemsPile
             return;
         }
 
-        // Reflect the RESULT with an FX on the clipped card, then it collapses back into the deck.
-        // Detach it from the fan root + drop it from the live list so the flourish/collapse runs to
-        // completion even as the fan live-rebuilds to show the item's new (Spent/Consumed) state.
-        // Requirement 9b FIX: read the intended flourish from the item's STATIC usage TYPE
-        // (YMLData.Usage), NOT the live SlotState — online, UseItemService.UseItem sends the state
-        // change as a GameAction that resolves a frame or more LATER, so SlotState is still
-        // Useable/Selected the instant we return here and the old "spent = SlotState==Spent" read was
-        // false → no tap animation ever played. The usage type is authored config, stable pre/post use.
+        FinishUsedChip(chip, item, "CONFIRM");
+    }
+
+    /// <summary>
+    /// Reflect the RESULT of a use with an FX on the clipped card, then let it collapse back into the
+    /// deck. Detaches it from the fan root + drops it from the live list so the flourish/collapse runs
+    /// to completion even as the fan live-rebuilds to show the item's new (Spent/Consumed) state.
+    /// Shared by the CONFIRM path and by the element pick that auto-uses its own card.
+    ///
+    /// Requirement 9b: the intended flourish is read from the item's STATIC usage TYPE
+    /// (<c>YMLData.Usage</c>), NOT the live <c>SlotState</c> — online, the state change ships as a
+    /// GameAction that resolves a frame or more LATER, so <c>SlotState</c> is still Useable/Selected
+    /// the instant we return here and the old "spent = SlotState==Spent" read was false ⇒ no tap
+    /// animation ever played. The usage type is authored config, stable pre/post use.
+    /// </summary>
+    private void FinishUsedChip(ItemChip chip, CItem item, string why)
+    {
+        _pendingUseChip = null;
+        _pendingSubChoice = false;
+        _pendingChoiceSlot = null;
+        _choiceClickArmed = false;
+        _choiceCapShown = false;
+        _choiceCapReady = false;
+        chip.PendingUse = false;
+
         CItem.EUsageType usage = item.YMLData != null ? item.YMLData.Usage : CItem.EUsageType.None;
         bool consumed = usage == CItem.EUsageType.Consumed
                         || item.SlotState == CItem.EItemSlotState.Consumed;
@@ -1497,9 +1912,10 @@ internal sealed class ItemsPile
             _handWinner = null;
         chip.PlayUseThenCollapse(consumed, spent, converge);
 
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseSlotVisible(false);
         _useSlotShownLogged = false;
-        VRLog.Info("Cards", $"ITEM USED {itemName} (CONFIRM; state now {item.SlotState}) — playing " +
+        VRLog.Info("Cards", $"ITEM USED {chip.name} ({why}; state now {item.SlotState}) — playing " +
                             $"{(consumed ? "burn" : spent ? "tap" : "use")} FX, then it returns to the deck.");
     }
 

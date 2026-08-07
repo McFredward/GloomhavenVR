@@ -688,16 +688,47 @@ internal static class CardsGameApi
     /// (TakeDamagePanel.cs:249-264). Verified: <c>public Dictionary&lt;CItem, UIUseItemScenario&gt;
     /// ItemSlots</c> (UIUseItemsBar.cs:57), <c>public bool IsShown</c> (:53).
     /// </summary>
-    internal static UIUseItemScenario? LiveItemsBarSlot(CItem item)
+    internal static UIUseItemScenario? LiveItemsBarSlot(CItem item) =>
+        ItemsBarSlot(item, requireActive: true);
+
+    /// <summary>
+    /// <see cref="LiveItemsBarSlot"/> with the ACTIVE-object requirement made explicit. The mod
+    /// itself deactivates bar slots as a pure visibility split (the items-bar dock only ever shows
+    /// the ONE slot whose card is currently placed in the board's item-use slot — see
+    /// <c>ItemsPile.EnforceChoiceSlotSplit</c> and <c>UseBarsSurface.EnforceItemsSplit</c>), so
+    /// "the slot the game built for this item" and "the slot the player can currently see" are two
+    /// different questions. The placement flow asks the first (it re-activates the slot itself);
+    /// everything else keeps asking the second.
+    /// </summary>
+    internal static UIUseItemScenario? ItemsBarSlot(CItem item, bool requireActive)
     {
         UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
             ? Singleton<UIUseItemsBar>.Instance : null;
         if (bar == null || !bar.IsShown || item == null)
             return null;
-        if (!bar.ItemSlots.TryGetValue(item, out UIUseItemScenario slot) || slot == null
-            || !slot.gameObject.activeSelf)
+        if (!bar.ItemSlots.TryGetValue(item, out UIUseItemScenario slot) || slot == null)
+            return null;
+        if (requireActive && !slot.gameObject.activeSelf)
             return null;
         return slot;
+    }
+
+    /// <summary>
+    /// Snapshot of the items bar's live (item, slot) registry into a caller-owned scratch list —
+    /// iterating <c>bar.ItemSlots</c> directly while activating/deactivating slots is safe today
+    /// (SetActive does not touch the dictionary) but the snapshot keeps the split loop honest if
+    /// the game ever repools inside a slot callback. Clears <paramref name="into"/> first; leaves
+    /// it empty when there is no bar.
+    /// </summary>
+    internal static void ItemsBarSlotsSnapshot(List<KeyValuePair<CItem, UIUseItemScenario>> into)
+    {
+        into.Clear();
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+        if (bar == null || !bar.IsShown)
+            return;
+        foreach (KeyValuePair<CItem, UIUseItemScenario> kv in bar.ItemSlots)
+            into.Add(kv);
     }
 
     /// <summary>
@@ -730,6 +761,87 @@ internal static class CardsGameApi
     /// <summary>Is this items-bar slot currently SELECTED (toggled on)? <c>UIUseSlot.IsSelected()</c>, public.</summary>
     internal static bool ItemsBarSlotSelected(UIUseItemScenario slot) =>
         slot != null && slot.IsSelected();
+
+    // ---------------------------------------- the SUB-CHOICE half of the placement flow (items 2026-08-08) --
+
+    /// <summary>
+    /// Is this slot's element sub-picker currently OPEN — i.e. the game is waiting for the player
+    /// to answer "which element?" on this very slot? Both pickers of a
+    /// <c>UIUseConsumeInfuseSlot</c> drive the SAME serialized <c>elementPicker</c>
+    /// (UIUseConsumeInfuseSlot.Awake), and <c>ElementPickController.IsSelecting()</c> is literally
+    /// <c>picker.IsOpen</c> (ElementPickController.cs:22-25) — so either controller answers for
+    /// the slot. Used to tell "the decision is up in the decision area" apart from "the player
+    /// closed it again", and to route the CANCEL through the game's own close.
+    /// </summary>
+    internal static bool ItemsBarSlotPickerOpen(UIUseItemScenario? slot)
+    {
+        if (slot == null)
+            return false;
+        try
+        {
+            return (slot.consumePickerController != null && slot.consumePickerController.IsSelecting())
+                   || (slot.infusePickerController != null && slot.infusePickerController.IsSelecting());
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The item the bar currently holds PENDING a confirm (<c>UIUseItemsBar.useItem</c>,
+    /// publicized). It is set exactly once per flow, by <c>SetUseItem</c> wired as the slot's
+    /// <c>onPickedAll</c> (UIUseItemsBar.cs:85/181) — i.e. "every 'Any' infusion of this item has
+    /// been picked, the game now wants Confirm". <c>null</c> means either nothing is pending or
+    /// the pick was cancelled (<c>ClearUseItem</c> as <c>onPickerCancel</c>).
+    /// </summary>
+    internal static CItem? ItemsBarPendingItem()
+    {
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+        return bar != null ? bar.useItem : null;
+    }
+
+    /// <summary>
+    /// CONFIRM the bar's pending item through the game's OWN confirm — <c>UIUseItemsBar.UseItem()</c>
+    /// (private, publicized), the exact method its ReadyButton alternative action runs
+    /// (<c>SetActiveItemButtons</c> → <c>QueueAlternativeAction(UseItem)</c>, UIUseItemsBar.cs:129).
+    /// It is the ONLY correct confirm for an element-choice item, because it does three things the
+    /// bare <c>UseItemService</c> call does not: it ships the chosen elements to peers
+    /// (<c>ClickItemBonusSlot</c> + <c>ItemToken(…, ChosenElement, GetSelectedInfusions())</c>),
+    /// it actually APPLIES them (<c>ConsumeOrInfuseIfPossible</c> → <c>ElementInfusionBoardManager.
+    /// Infuse/Consume</c>), and only then calls the service. Returns false when the bar has nothing
+    /// pending (caller keeps the card in the slot).
+    /// </summary>
+    internal static bool ItemsBarConfirmUse()
+    {
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+        if (bar == null || bar.useItem == null)
+            return false;
+        bar.UseItem();
+        return true;
+    }
+
+    /// <summary>
+    /// CANCEL an element-choice item the game is holding pending, through the game's own back-out
+    /// (<c>UIUseItemsBar.OnItemBackClick</c>, private/publicized — what the 2D UndoButton overrider
+    /// runs, UIUseItemsBar.cs:139-142). It clears the slot's element selections
+    /// (<c>ClearSelectionNew</c>), clears <c>useItem</c>, re-arms the native buttons AND — the part
+    /// no hand-rolled cancel would get right — resets the phase to <c>ActionSelection</c> for the
+    /// two mana potions, the only hardcoded item names in the game (UIUseItemsBar.cs:98-117).
+    /// No-op unless the bar's pending item is exactly <paramref name="item"/> (OnItemBackClick
+    /// dereferences <c>useItem</c> unguarded).
+    /// </summary>
+    internal static bool ItemsBarBackOut(CItem? item)
+    {
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+        if (bar == null || item == null || !ReferenceEquals(bar.useItem, item))
+            return false;
+        bar.OnItemBackClick();
+        return true;
+    }
 
     /// <summary>
     /// Requirement C (take-damage place context): is the game's items bar currently presenting
