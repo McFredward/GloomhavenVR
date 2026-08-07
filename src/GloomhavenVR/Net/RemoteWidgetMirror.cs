@@ -75,11 +75,25 @@ namespace GloomhavenVR.Net;
 /// a peer's board pose reveals exactly nothing new, which is why this class carries no gate: it
 /// mirrors what the local client is already allowed to see, including vanilla's own "?" for a
 /// foreign player's hidden initiative. It never reads a card identity and never touches the wire.
+///
+/// ─── MIXED REALITY (user report 2026-08-08) ────────────────────────────────────────────────────
+/// "Die Mixed-Reality-Hintergründe sollen auch für das Remote-Board genauso angezeigt werden, wenn
+/// Mixed Reality eingeschaltet ist — aktuell sind die Hintergründe nur auf meinem eigenen Board
+/// sichtbar." The asymmetry was structural. On the OWNER's board these two panels are CONVERTED
+/// panels, so <c>WorldUI.MrBacking</c>'s panel sweep (which enumerates
+/// <c>CanvasConversion.ActivePanels</c>) puts an opaque plate behind them the moment MR turns on.
+/// A peer's copy is this clone on OUR OWN world canvas — never a <c>ConvertedPanel</c>, never in
+/// that list — so the identical pixels floated bare over the passthrough room while the owner's
+/// copy sat on a solid plate. The mirror therefore registers itself as an
+/// <c>MrBacking.IBackedSurface</c> and reports the geometry its own fit pass already measures
+/// (<see cref="Fit"/> caches <c>_backingSizePx</c>); MrBacking builds, sizes, orders, shows and
+/// tears down the very same plate it gives a converted panel. NON-MR RENDERING IS UNCHANGED: no
+/// plate object is ever created while MR is off.
 /// </summary>
 /// <remarks>CLASSIFICATION: GLOBAL — ZERO wire. It renders a CLONE of a game-owned, scenario-wide
 /// canvas that the local client already displays. No packet, no per-actor read, no gate of its own.
 /// See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
-internal sealed class RemoteWidgetMirror
+internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 {
     /// <summary>Which mechanism a mirrored section is currently drawing with — reported per section
     /// in the <c>Remote board content</c> diagnostic so a hardware log PROVES parity instead of
@@ -219,7 +233,44 @@ internal sealed class RemoteWidgetMirror
         _grow = grow;
         _fitWidth = fitWidth;
         _densityScale = densityScale > 0f ? densityScale : 1f;
+        // MR readability: claim the converted-panel treatment the owner's own copy of this panel
+        // gets for free (see the class doc's MIXED REALITY block). Registration is MR-agnostic and
+        // costs one list entry — no plate exists until MR is actually on.
+        WorldUI.MrBacking.Surface(this);
     }
+
+    // ------------------------------------------------- MrBacking.IBackedSurface --
+
+    /// <summary>Content extent of the last applied fit, in HOST-LOCAL units (uGUI pixels — the host's
+    /// own <c>metersPerPx</c> scale carries them into board metres, exactly as a converted panel's
+    /// host rect does). Zero until the first successful fit, which reads as "nothing to back".</summary>
+    private Vector2 _backingSizePx;
+
+    /// <summary>Set by <see cref="Destroy"/> — the ONLY prune signal MrBacking honours, because a
+    /// null host legitimately means "not built yet" for a mirror registered in its constructor.</summary>
+    private bool _destroyed;
+
+    bool WorldUI.MrBacking.IBackedSurface.BackingAlive => !_destroyed;
+
+    Transform? WorldUI.MrBacking.IBackedSurface.BackingAnchor
+        => _host != null ? _host.transform : null;
+
+    /// <summary>Backed only while the clone is genuinely on screen: the caller hides the mirror
+    /// (<see cref="SetShown"/>) whenever it falls back to its mod-drawn stand-in, and THAT surface
+    /// carries its own MR treatment. An opaque plate left standing behind a hidden mirror would be
+    /// a dark rectangle floating on the peer's board.</summary>
+    bool WorldUI.MrBacking.IBackedSurface.BackingVisible
+        => _host != null && _host.activeInHierarchy && _clone != null;
+
+    Vector2 WorldUI.MrBacking.IBackedSurface.BackingSize => _backingSizePx;
+
+    /// <summary>Zero by construction: <see cref="Fit"/> re-centres the measured content on the host
+    /// origin by moving the pivot, so the host origin IS the content centre.</summary>
+    Vector2 WorldUI.MrBacking.IBackedSurface.BackingCenter => Vector2.zero;
+
+    /// <summary>The plate shares the mirror canvas's own ladder slot; MrBacking's earlier
+    /// renderQueue is what keeps it under this content and above everything farther back.</summary>
+    int WorldUI.MrBacking.IBackedSurface.BackingOrder => BoardVisual.OrderDockedWidget;
 
     /// <summary>
     /// Content-cadence entry point: (re)build the clone when <paramref name="source"/> changed
@@ -283,6 +334,8 @@ internal sealed class RemoteWidgetMirror
 
     public void Destroy()
     {
+        _destroyed = true;   // MrBacking prunes its plate on the next tick / next registration
+        _backingSizePx = Vector2.zero;
         DestroyClone();
         if (_host != null)
         {
@@ -594,6 +647,11 @@ internal sealed class RemoteWidgetMirror
         // Centre the measured content on the host origin — by moving the PIVOT, never the clone
         // (see EnsureHost for why touching the clone root's anchors would rewrite its layout).
         _pivot.anchoredPosition = new Vector2(-centerPx.x, -centerPx.y);
+
+        // The MR backing rides THIS measure, not a second one: whatever rect the mirror decided to
+        // present is exactly the rect the plate must cover (see the class doc's MIXED REALITY
+        // block). Host-local px — the host scale above carries them into board metres.
+        _backingSizePx = sizePx;
 
         LogFit(w, h, fit, metersPerPx);
     }

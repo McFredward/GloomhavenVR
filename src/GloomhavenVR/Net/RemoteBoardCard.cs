@@ -291,39 +291,282 @@ internal sealed class RemoteBoardCard
     private int _shownHalfSelected = -1;
 
     /// <summary>
-    /// Drive the two-state half glow (extras extension record 14 — "worüber hovert mein
+    /// Drive the two-state half highlight (extras extension record 14 — "worüber hovert mein
     /// Mitspieler" + the follow-up "welche Hälfte hat er GEKLICKT"). Called every frame by the
     /// owning board. <paramref name="hoverHalf"/> / <paramref name="selectedHalf"/>:
     /// -1 none, 0 bottom, 1 top.
     ///
-    /// LOOK — the owner's own presentation split, reproduced: locally a HOVERED half runs the
-    /// game's PULSING overlay (<c>CardActionHighlight.ShowHover</c>: alpha looping 1↔0.3 over
-    /// 0.5 s per leg) and a CLICKED half latches the STEADY full-strength overlay
-    /// (<c>ShowSelected</c>, cleared by undo). The quads here do the same on the shared
-    /// telegraph gold (<see cref="CardGlow.CreateGlowQuad"/> — the helper every board glow
-    /// uses): hover = breathing brightness on the game's own 1 s cycle, selection = steady
-    /// full brightness, selection wins when both land on one half. Sized and seated on
-    /// <c>HalfSelection</c>'s OWN zone fractions, so the glowed region on this mirrored card
-    /// is by construction the region the owner's pointer/click is in. Rendered a hair in front
-    /// of the hosted face art on the docked-widget sorting tier. POSITIONS only — no card data
-    /// is read.
+    /// ─── THE GAME'S OWN HIGHLIGHT, NOT A MOD RECTANGLE (user report 2026-08-08) ────────────────
+    /// "Das Synchronisieren des Mouseovers über eine Action einer Karte in der Aktionsauswahlphase
+    /// highlighted ein ganzes Rechteck der Hälfte der Karte bei dem Remote-Spieler. Es soll so
+    /// angezeigt werden, wie der Spieler selbst es auch sieht, also das Highlighting vom Spiel
+    /// selbst auf der jeweiligen Karte."
+    ///
+    /// The first revision drew two additive gold QUADS sized off <c>HalfSelection</c>'s zone
+    /// fractions — 96 % × 42 % of the card, i.e. literally "ein ganzes Rechteck der Hälfte der
+    /// Karte". Nothing about that is what the owner sees: the game frames the action REGION with
+    /// <c>CardActionHighlight</c>, a 9-sliced highlight <c>Image</c> authored into the card prefab
+    /// with an angular shine sweep, pulsing (alpha 1↔0.3 over 0.5 s legs) for a hover and steady
+    /// at full alpha for a click.
+    ///
+    /// It does not have to be imitated, because IT IS ALREADY HERE. A face-up slot on a remote
+    /// board hosts a real <c>Object.Instantiate</c> clone of the game's own <c>FullAbilityCard</c>
+    /// widget (<see cref="RemoteCardArt"/>), and that clone keeps its <c>FullAbilityCardAction</c>
+    /// and <c>CardActionHighlight</c> components — only the raycasters and <c>CardEffects</c> are
+    /// stripped. So the mirror now calls the GAME's own <c>ShowHover</c> / <c>ShowSelected</c> /
+    /// <c>Hide</c> on the clone's own highlight objects: same sprite, same shader, same shine
+    /// sweep, same LeanTween cadence, same rect, frame for frame the owner's picture. This is the
+    /// remote twin of the LOCAL fix (<c>CardsDriver.SetActiveHighlight</c> →
+    /// <c>FullAbilityCard.ToggleHighlightHover</c>), which retired the same overlay quads on the
+    /// player's own cards for the same complaint.
+    ///
+    /// FALLBACK, and only there: a slot that is NOT showing a real card face (a card back, an
+    /// anonymous back, or the last-resort parchment name panel) has no <c>CardActionHighlight</c>
+    /// to drive — there is no game card in the scene to highlight. Those keep the mod quads, so
+    /// "the owner is pointing at the top half of this slot" stays visible rather than silently
+    /// disappearing. <see cref="HighlightPath"/> reports which of the two is live, per slot.
+    ///
+    /// POSITIONS only — no card data is read, and the clone is never told which card it is.
     /// </summary>
     public void SetHalfStates(int hoverHalf, int selectedHalf)
     {
-        if ((hoverHalf >= 0 || selectedHalf >= 0) && _halfGlowTop == null)
-            BuildHalfGlows();
-        if (_halfGlowTop == null || _halfGlowBottom == null)
-            return;
         _shownHalfHover = hoverHalf;
         _shownHalfSelected = selectedHalf;
 
+        if (TryDriveGameHighlight(hoverHalf, selectedHalf))
+        {
+            // Never both: a slot that upgraded from a back to a real face must not keep the quad
+            // it lit while it was a back.
+            HideModGlows();
+            LogHighlightPathIfChanged();
+            return;
+        }
+
+        if ((hoverHalf >= 0 || selectedHalf >= 0) && _halfGlowTop == null)
+            BuildHalfGlows();
+        if (_halfGlowTop == null || _halfGlowBottom == null)
+        {
+            LogHighlightPathIfChanged();
+            return;
+        }
+
         DriveHalf(_halfGlowBottom, 0, hoverHalf, selectedHalf);
         DriveHalf(_halfGlowTop, 1, hoverHalf, selectedHalf);
+        LogHighlightPathIfChanged();
     }
 
-    /// <summary>Per-half state resolve + write: selected → steady, hovered → pulse, else off.
-    /// Active flips are change-gated; the colour write runs only while a pulse is showing (at
-    /// most one half per card) or on the steady half's first frame.</summary>
+    /// <summary>Last logged (path, hover, selected) triple — the change gate for the line below.</summary>
+    private string _loggedHighlight = string.Empty;
+
+    /// <summary>
+    /// State ONCE per real change which mechanism lit this slot. The regression this guards is
+    /// exactly the reported one: "the peer sees a big rectangle" is `mod-quad` on a slot whose
+    /// `face=` says a real card is up — a contradiction a grep for `Remote board card highlight`
+    /// finds in the hardware log without a screenshot.
+    /// </summary>
+    private void LogHighlightPathIfChanged()
+    {
+        string now = $"{HighlightPath}|{_shownHalfHover}|{_shownHalfSelected}|{Path}";
+        if (now == _loggedHighlight)
+            return;
+        _loggedHighlight = now;
+        if (HighlightPath == "none")
+            return; // "nothing is lit" is the resting state, not news
+        string half(int v) => v == 1 ? "TOP" : v == 0 ? "BOTTOM" : "none";
+        VRLog.Info("Net", $"Remote board card highlight: path={HighlightPath} " +
+                          $"(hover {half(_shownHalfHover)}, clicked {half(_shownHalfSelected)}) " +
+                          $"on a slot whose face={Path} — 'game' means the owner's own " +
+                          "CardActionHighlight on the mirrored widget (record 14); 'mod-quad' is " +
+                          "the back/fallback stand-in and is only correct while face=None.");
+    }
+
+    // ------------------------------------------------ the game's own action highlight --
+
+    /// <summary>Which mechanism lit this slot's last half state — surfaced so a hardware log
+    /// PROVES the owner's own highlight is what a peer sees, instead of merely proving something
+    /// glowed. "game" = the clone's <c>CardActionHighlight</c>, "mod-quad" = the back/fallback
+    /// stand-in, "none" = nothing lit.</summary>
+    public string HighlightPath { get; private set; } = "none";
+
+    /// <summary>The clone's own card widget, re-resolved whenever the hosted face is rebuilt.
+    /// Unity-null aware: a destroyed clone must re-resolve, never be dereferenced.</summary>
+    private FullAbilityCard? _faceCard;
+
+    /// <summary>Instance id of the widget <see cref="_faceCard"/> was resolved from — the
+    /// change key that survives a same-card rebuild.</summary>
+    private int _faceCardKey;
+
+    /// <summary>Last frame the clone was searched for — one probe per frame, at most.</summary>
+    private int _faceProbeFrame = -1;
+
+    /// <summary>Highlight materials we minted for the clone (index 0 = bottom, 1 = top), so the
+    /// game's own shine-width write can never reach a SHARED material. See
+    /// <see cref="IsolateHighlightMaterials"/>.</summary>
+    private readonly Material?[] _highlightMats = new Material?[2];
+
+    /// <summary>Last state pushed per half (index 0 = bottom, 1 = top): -1 nothing, 0 hover,
+    /// 1 selected. Re-asserted whenever it disagrees with the highlight object's ACTUAL active
+    /// flag, which is what makes this self-healing against the clone's own
+    /// <c>FullAbilityCardAction.OnEnable → Show() → highlight.Hide()</c>.</summary>
+    private readonly int[] _appliedHighlight = { -1, -1 };
+
+    /// <summary>
+    /// Drive the clone's own <c>CardActionHighlight</c> pair. Returns false when this slot has no
+    /// real card face (back / anonymous back / parchment fallback), which is the ONLY case the mod
+    /// quads still serve.
+    ///
+    /// Wrapped whole: a clone caught mid-rebuild, a card prefab variant without one of the two
+    /// highlights, a widget the pool reclaimed — all degrade to "no game highlight", never take
+    /// down the per-frame board tick this runs inside.
+    /// </summary>
+    private bool TryDriveGameHighlight(int hoverHalf, int selectedHalf)
+    {
+        try
+        {
+            if (Path == RemoteAbilityCardSource.FacePath.None)
+            {
+                ForgetGameHighlight();
+                return false;
+            }
+            if (_faceCard == null)
+            {
+                // The clone lives under _root (slot → RemoteCardArt host → clone); one per slot.
+                // Probed at most once a frame: a face path that somehow has no card widget must
+                // not turn this per-frame drive into a per-frame hierarchy search.
+                if (_faceProbeFrame == Time.frameCount)
+                    return false;
+                _faceProbeFrame = Time.frameCount;
+                _faceCard = _root.GetComponentInChildren<FullAbilityCard>(includeInactive: true);
+                if (_faceCard == null)
+                    return false;
+                int key = _faceCard.GetInstanceID();
+                if (key != _faceCardKey)
+                {
+                    _faceCardKey = key;
+                    ReleaseHighlightMaterials();
+                    IsolateHighlightMaterials(_faceCard);
+                    _appliedHighlight[0] = _appliedHighlight[1] = -1; // a fresh clone starts dark
+                }
+            }
+
+            bool bottom = ApplyHalf(_faceCard.bottomActionButton, 0, hoverHalf, selectedHalf);
+            bool top = ApplyHalf(_faceCard.topActionButton, 1, hoverHalf, selectedHalf);
+            if (!bottom && !top)
+                return false; // widget without highlights: let the quads speak rather than nothing
+
+            HighlightPath = hoverHalf < 0 && selectedHalf < 0 ? "none" : "game";
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Net", $"Remote board card: the game's own action highlight could not be " +
+                              $"driven ({ex.Message}) — this slot falls back to the mod half quad.");
+            ForgetGameHighlight();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Push one half's wanted state onto the clone's highlight, using the GAME's own methods so
+    /// the pulse, the shine width and the alpha curve are the owner's and not an imitation.
+    /// Returns false when this half has no highlight object at all.
+    ///
+    /// SELF-HEALING re-assert: the write is gated on the last pushed state AND on the highlight
+    /// object's real <c>activeSelf</c>. That second term matters — the clone's own
+    /// <c>FullAbilityCardAction.OnEnable</c> calls <c>Show()</c>, which hides both highlights, so
+    /// a purely state-gated driver would go dark for good the first time the face host re-enabled.
+    /// A hover that is already running is left alone, so the game's LeanTween loop is never
+    /// restarted mid-cycle (which would visibly re-snap the alpha to 1 every frame).
+    /// </summary>
+    private bool ApplyHalf(FullAbilityCardAction? action, int half, int hoverHalf, int selectedHalf)
+    {
+        CardActionHighlight? hl = action != null ? action.highlightAction : null;
+        if (hl == null)
+            return false;
+
+        int want = selectedHalf == half ? 1 : hoverHalf == half ? 0 : -1;
+        bool wantOn = want >= 0;
+        bool isOn = hl.gameObject.activeSelf;
+        if (want == _appliedHighlight[half] && wantOn == isOn)
+            return true;
+
+        _appliedHighlight[half] = want;
+        if (want == 1)
+            hl.ShowSelected();     // steady, selectedShineWidth — the owner's committed half
+        else if (want == 0)
+            hl.ShowHover();        // the game's own 1↔0.3 LeanTween loop, hoverShineWidth
+        else
+            hl.Hide();
+        return true;
+    }
+
+    /// <summary>
+    /// Give the clone's two highlight <c>Image</c>s their OWN material instance.
+    ///
+    /// WHY THIS IS NOT OPTIONAL: <c>CardActionHighlight.ShowHover/ShowSelected</c> write
+    /// <c>imageHighlight.material.SetFloat("_AngularHighlightWidth", …)</c>, and
+    /// <c>Graphic.material</c> is the SHARED asset (unlike <c>Renderer.material</c>, it does not
+    /// instantiate). Driving a peer's mirrored card would therefore reach through the shared
+    /// material and re-write the shine width on the LOCAL player's own cards — a peer's hover
+    /// silently restyling your hand. One instance per clone closes that: identical pixels,
+    /// private state. The instances are ours and are destroyed with the face.
+    /// </summary>
+    private void IsolateHighlightMaterials(FullAbilityCard card)
+    {
+        _highlightMats[0] = IsolateOne(card.bottomActionButton);
+        _highlightMats[1] = IsolateOne(card.topActionButton);
+
+        static Material? IsolateOne(FullAbilityCardAction? action)
+        {
+            CardActionHighlight? hl = action != null ? action.highlightAction : null;
+            UnityEngine.UI.Image? img = hl != null ? hl.imageHighlight : null;
+            Material? shared = img != null ? img.material : null;
+            if (img == null || shared == null)
+                return null;
+            var owned = new Material(shared) { name = shared.name + " (RemoteBoardCard)" };
+            img.material = owned;
+            return owned;
+        }
+    }
+
+    /// <summary>Destroy the material instances minted for the previous clone.</summary>
+    private void ReleaseHighlightMaterials()
+    {
+        for (int i = 0; i < _highlightMats.Length; i++)
+        {
+            if (_highlightMats[i] != null)
+                Object.Destroy(_highlightMats[i]);
+            _highlightMats[i] = null;
+        }
+    }
+
+    /// <summary>Drop every reference into a face that is gone (or never was), so the next call
+    /// re-resolves from scratch instead of touching a destroyed clone.</summary>
+    private void ForgetGameHighlight()
+    {
+        if (_faceCard == null && _faceCardKey == 0)
+            return;
+        ReleaseHighlightMaterials();
+        _faceCard = null;
+        _faceCardKey = 0;
+        _appliedHighlight[0] = _appliedHighlight[1] = -1;
+        HighlightPath = "none";
+    }
+
+    /// <summary>Park both mod quads (they exist only on slots that once had no real face).</summary>
+    private void HideModGlows()
+    {
+        if (_halfGlowTop != null && _halfGlowTop.activeSelf)
+            _halfGlowTop.SetActive(false);
+        if (_halfGlowBottom != null && _halfGlowBottom.activeSelf)
+            _halfGlowBottom.SetActive(false);
+    }
+
+    /// <summary>Per-half state resolve + write for the BACK/FALLBACK stand-in only (a slot showing
+    /// a real card face drives the game's own highlight instead — see
+    /// <see cref="TryDriveGameHighlight"/>): selected → steady, hovered → pulse, else off. Active
+    /// flips are change-gated; the colour write runs only while a pulse is showing (at most one
+    /// half per card) or on the steady half's first frame.</summary>
     private void DriveHalf(GameObject glow, int half, int hoverHalf, int selectedHalf)
     {
         bool selected = selectedHalf == half;
@@ -331,6 +574,10 @@ internal sealed class RemoteBoardCard
         bool on = selected || hovered;
         if (glow.activeSelf != on)
             glow.SetActive(on);
+        if (on)
+            HighlightPath = "mod-quad";
+        else if (half == 1 && hoverHalf < 0 && selectedHalf < 0)
+            HighlightPath = "none";
         if (!on)
             return;
         Material? mat = half < _halfGlowMats.Length ? _halfGlowMats[half] : null;
@@ -390,6 +637,10 @@ internal sealed class RemoteBoardCard
     /// never report a fidelity path they are not showing).</summary>
     private void ClearFace()
     {
+        // The clone (and its CardActionHighlight objects, and the material instances we minted for
+        // them) dies with the face — every reference into it must go FIRST, or the next
+        // SetHalfStates would drive a destroyed widget.
+        ForgetGameHighlight();
         _art?.HideFront();
         Path = RemoteAbilityCardSource.FacePath.None;
     }
@@ -400,6 +651,7 @@ internal sealed class RemoteBoardCard
     /// contract explicit rather than relying on hierarchy destruction order.</summary>
     public void Destroy()
     {
+        ForgetGameHighlight(); // drops the highlight material instances we minted for the clone
         _art?.Destroy();
         _art = null;
         Path = RemoteAbilityCardSource.FacePath.None;

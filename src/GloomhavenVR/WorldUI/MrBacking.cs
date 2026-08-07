@@ -15,13 +15,25 @@ namespace GloomhavenVR.WorldUI;
 /// regression bar is bit-identical rendering, so plates are DEACTIVATED (mod-owned objects,
 /// never a game material touched) and every opacified alpha is restored to its recorded value.
 ///
-/// One central owner, three one-liner registration surfaces:
+/// One central owner, four one-liner registration surfaces:
 /// - <see cref="Label"/> — a fitted dark plate behind a free-floating world TMP label. Sizing
 ///   rides the <see cref="TmpFit"/> contract (rect.sizeDelta is the label's box in LOCAL
 ///   METERS), refreshed every tick so text/box changes track live.
 /// - <see cref="Opacify(Graphic)"/> / <see cref="Opacify(Material)"/> — a MOD-OWNED translucent
 ///   backing (wrist-HUD backdrop, pick-banner parchment, remote plates) is driven to alpha 1
 ///   while MR is on and restored exactly on off. Only mod-owned objects are ever registered.
+/// - <see cref="Surface"/> — a MOD-OWNED world CANVAS that is not a <see cref="ConvertedPanel"/>
+///   and therefore invisible to the panel sweep below. The shipped case is a REMOTE board's
+///   <c>Net.RemoteWidgetMirror</c> clones (user report 2026-08-08: "die Mixed-Reality-Hintergründe
+///   sollen auch für das Remote-Board genauso angezeigt werden — aktuell sind die Hintergründe
+///   nur auf meinem eigenen Board sichtbar"). The asymmetry was structural, not cosmetic: on the
+///   OWNER's board the objectives panel and the initiative track are converted panels, so
+///   <see cref="TickPanels"/> plates them; on a PEER's mirrored board the very same two widgets
+///   are live CLONES hosted on our own world canvas, which <c>ActivePanels</c> never lists — so
+///   they floated bare over the passthrough room while the owner's copy sat on a solid plate.
+///   The registrant reports its own anchor/size/centre/order each tick (the mirror already
+///   measures all four in its fit pass), and gets the SAME plate, the SAME material, the SAME
+///   ladder contract and the SAME bit-identical OFF path as a converted panel.
 /// - Converted panels need no registration: <see cref="Tick"/> sweeps
 ///   <see cref="CanvasConversion.ActivePanels"/> and keeps a host-rect plate behind EVERY live
 ///   converted panel. That deliberately includes the ModalFallback float families whose native
@@ -70,6 +82,42 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static class MrBacking
 {
+    /// <summary>
+    /// A MOD-OWNED world surface that wants the converted-panel treatment WITHOUT being a
+    /// <see cref="ConvertedPanel"/> — see the class doc's <c>Surface</c> bullet. Everything the
+    /// plate needs is polled off the implementer each tick, so the registrant stays the single
+    /// source of truth for its own geometry and this class never reaches into it.
+    ///
+    /// CONTRACT: all four geometry members are expressed in <see cref="BackingAnchor"/>-LOCAL
+    /// units (whatever the anchor's own scale carries into world — px for a world-space canvas
+    /// host, metres for a bare transform), exactly like the panel sweep's host-rect units. The
+    /// implementer must report a size of 0 while it has nothing to back rather than guessing.
+    /// </summary>
+    internal interface IBackedSurface
+    {
+        /// <summary>False once the registrant is torn down — the ONLY prune signal. (A null
+        /// anchor is "not built yet", which is a normal state for a surface registered in its
+        /// constructor, so it must never be read as death.)</summary>
+        bool BackingAlive { get; }
+
+        /// <summary>Parent for the plate; null until the surface has built its host.</summary>
+        Transform? BackingAnchor { get; }
+
+        /// <summary>Whether the backed content is on screen this frame.</summary>
+        bool BackingVisible { get; }
+
+        /// <summary>Content extent in anchor-local units.</summary>
+        Vector2 BackingSize { get; }
+
+        /// <summary>Content centre in anchor-local units.</summary>
+        Vector2 BackingCenter { get; }
+
+        /// <summary>The sortingOrder the plate must SHARE with the content it backs — the plate's
+        /// earlier renderQueue (<see cref="PlateQueue"/>) is what draws it first inside that
+        /// shared slot, the same tie-break the panel plates ride (see the class doc).</summary>
+        int BackingOrder { get; }
+    }
+
     /// <summary>World gap between a plate and the content it backs (meters). Big enough to
     /// clear z-fighting at HMD depth precision, small enough to read as one surface.</summary>
     private const float PlateGapMeters = 0.002f;
@@ -121,6 +169,13 @@ internal static class MrBacking
         public Transform? Plate;
     }
 
+    private sealed class SurfaceEntry
+    {
+        public IBackedSurface Surface = null!;
+        public Transform? Plate;
+        public Renderer? PlateRenderer;
+    }
+
     private sealed class GraphicEntry
     {
         public Graphic Graphic = null!;
@@ -137,6 +192,7 @@ internal static class MrBacking
 
     private static readonly List<LabelEntry> Labels = new(24);
     private static readonly List<PanelEntry> Panels = new(8);
+    private static readonly List<SurfaceEntry> Surfaces = new(8);
     private static readonly List<GraphicEntry> Graphics = new(8);
     private static readonly List<MaterialEntry> Materials = new(8);
 
@@ -178,6 +234,38 @@ internal static class MrBacking
         Graphics.Add(new GraphicEntry { Graphic = backing, OriginalAlpha = backing.color.a });
     }
 
+    /// <summary>
+    /// Register a MOD-OWNED world surface that is not a converted panel for the SAME opaque host
+    /// plate the panel sweep builds (idempotent — a surface that re-registers is a no-op). See
+    /// <see cref="IBackedSurface"/> and the class doc's <c>Surface</c> bullet: this is what closes
+    /// the "my own board has MR backings, the remote board does not" asymmetry for the mirrored
+    /// widget canvases. Registration is MR-AGNOSTIC and costs one list entry: no plate exists, and
+    /// nothing is polled, until MR is actually on.
+    /// </summary>
+    internal static void Surface(IBackedSurface? surface)
+    {
+        if (surface == null)
+            return;
+        // Prune dead registrants HERE rather than on the (deliberately single-bool-check) MR-off
+        // frame: remote boards come and go with peers, so a session that never turns MR on would
+        // otherwise grow this list without bound. Registration is once per mirror, so the scan is
+        // the same one the idempotence check already walks.
+        for (int i = Surfaces.Count - 1; i >= 0; i--)
+        {
+            if (Surfaces[i].Surface.BackingAlive)
+                continue;
+            if (Surfaces[i].Plate != null)
+                Object.Destroy(Surfaces[i].Plate!.gameObject);
+            Surfaces.RemoveAt(i);
+        }
+        for (int i = 0; i < Surfaces.Count; i++)
+        {
+            if (ReferenceEquals(Surfaces[i].Surface, surface))
+                return;
+        }
+        Surfaces.Add(new SurfaceEntry { Surface = surface });
+    }
+
     /// <summary>Register a MOD-OWNED translucent plate material: alpha 1 while MR, restored off.</summary>
     internal static void Opacify(Material? backing)
     {
@@ -210,13 +298,16 @@ internal static class MrBacking
         EnsurePlateMaterial();
         TickLabels();
         TickPanels();
+        TickSurfaces();
         TickAlphas();
         _applied = true;
         if (!_loggedOn)
         {
             _loggedOn = true;
             VRLog.Info("WorldUI", $"MR backings ON — {Labels.Count} label plate(s), " +
-                                  $"{Panels.Count} panel plate(s), {Graphics.Count + Materials.Count} " +
+                                  $"{Panels.Count} panel plate(s), {Surfaces.Count} registered " +
+                                  $"non-panel surface(s) (remote-board mirror canvases), " +
+                                  $"{Graphics.Count + Materials.Count} " +
                                   $"opacified backing(s); plate color RGBA {_plateColor.r:0.##}," +
                                   $"{_plateColor.g:0.##},{_plateColor.b:0.##},1 (key-color-safe).");
         }
@@ -236,8 +327,14 @@ internal static class MrBacking
             if (Panels[i].Plate != null)
                 Object.Destroy(Panels[i].Plate!.gameObject);
         }
+        for (int i = 0; i < Surfaces.Count; i++)
+        {
+            if (Surfaces[i].Plate != null)
+                Object.Destroy(Surfaces[i].Plate!.gameObject);
+        }
         Labels.Clear();
         Panels.Clear();
+        Surfaces.Clear();
         Graphics.Clear();
         Materials.Clear();
         if (_plateMat != null)
@@ -396,6 +493,70 @@ internal static class MrBacking
         }
     }
 
+    /// <summary>
+    /// The non-panel sweep (see the class doc's <c>Surface</c> bullet): the same build → size →
+    /// order → show pass <see cref="TickPanels"/> runs, driven off <see cref="IBackedSurface"/>
+    /// instead of off <c>CanvasConversion.ActivePanels</c>. Deliberately a SEPARATE loop rather
+    /// than a shim that fakes a ConvertedPanel: a mirror clone has no host rect, no reveal gate
+    /// and no ladder slot to follow, and pretending otherwise is how the panel sweep would start
+    /// growing special cases.
+    ///
+    /// ORDER: the surface reports the sortingOrder its own content renders at and the plate is
+    /// stamped with exactly that, every tick (a mirror's canvas order is a fixed board sub-ladder
+    /// slot today, but re-stamping costs one int compare and survives a future re-rank). Inside
+    /// that shared slot the plate's earlier renderQueue keeps it UNDER its own content while the
+    /// slot itself keeps it OVER everything the board draws further back — the identical contract
+    /// the panel plates document.
+    /// </summary>
+    private static void TickSurfaces()
+    {
+        for (int i = Surfaces.Count - 1; i >= 0; i--)
+        {
+            SurfaceEntry e = Surfaces[i];
+            IBackedSurface s = e.Surface;
+            if (!s.BackingAlive)
+            {
+                // The registrant is gone. Its plate is a child of the host it destroyed (already
+                // Unity-null) OR still ours to drop — going through Destroy covers both.
+                if (e.Plate != null)
+                    Object.Destroy(e.Plate!.gameObject);
+                Surfaces.RemoveAt(i);
+                continue;
+            }
+
+            Transform? anchor = s.BackingAnchor;
+            Vector2 size = anchor != null ? s.BackingSize : Vector2.zero;
+            // Degenerate sizes read as "nothing to back": a mirror mid-rebuild reports zero, and an
+            // opaque plate at a guessed rect is exactly the pop-in the panel sweep refuses too.
+            bool visible = anchor != null && s.BackingVisible
+                           && size.x > 0.0001f && size.y > 0.0001f;
+            if (e.Plate == null)
+            {
+                if (!visible)
+                    continue; // built lazily on the first tick that has real geometry
+                e.Plate = CreatePlate(anchor!);
+                e.PlateRenderer = e.Plate.GetComponent<MeshRenderer>();
+            }
+            else if (anchor != null && e.Plate.parent != anchor)
+            {
+                // The surface rebuilt its host under us (a mirror rebuilds its clone on any
+                // structure change). Re-seat rather than orphan the plate behind the new canvas.
+                e.Plate.SetParent(anchor, worldPositionStays: false);
+            }
+
+            if (e.Plate.gameObject.activeSelf != visible)
+                e.Plate.gameObject.SetActive(visible);
+            if (!visible || anchor == null)
+                continue;
+
+            int order = s.BackingOrder;
+            if (e.PlateRenderer != null && e.PlateRenderer.sortingOrder != order)
+                e.PlateRenderer.sortingOrder = order;
+
+            Fit(e.Plate, anchor, size, s.BackingCenter);
+        }
+    }
+
     private static void TickAlphas()
     {
         for (int i = Graphics.Count - 1; i >= 0; i--)
@@ -460,6 +621,22 @@ internal static class MrBacking
             if (Panels[i].Plate != null)
                 Panels[i].Plate!.gameObject.SetActive(false);
         }
+        // Non-panel surfaces: same rule, same reason — the plate is mod-owned, so deactivating it
+        // returns the remote board to bit-identical non-MR rendering. Dead registrants are pruned
+        // here too, so an MR off/on cycle never resurrects a plate for a torn-down mirror.
+        for (int i = Surfaces.Count - 1; i >= 0; i--)
+        {
+            SurfaceEntry e = Surfaces[i];
+            if (!e.Surface.BackingAlive)
+            {
+                if (e.Plate != null)
+                    Object.Destroy(e.Plate!.gameObject);
+                Surfaces.RemoveAt(i);
+                continue;
+            }
+            if (e.Plate != null)
+                e.Plate!.gameObject.SetActive(false);
+        }
         for (int i = Graphics.Count - 1; i >= 0; i--)
         {
             GraphicEntry e = Graphics[i];
@@ -504,7 +681,11 @@ internal static class MrBacking
 
     // ---- plate plumbing -----------------------------------------------------------------------
 
-    private static void Fit(Transform plate, RectTransform anchor, Vector2 size, Vector2 center)
+    /// <summary><paramref name="anchor"/> is a plain <see cref="Transform"/>, not a
+    /// <see cref="RectTransform"/>: the label and panel sweeps pass rects, the non-panel sweep
+    /// passes a world-canvas HOST (whose own scale carries px→m the same way a host rect's does).
+    /// Nothing here ever needed the rect API — only the layer and the Z lossy scale.</summary>
+    private static void Fit(Transform plate, Transform anchor, Vector2 size, Vector2 center)
     {
         // The parent may be re-layered AFTER registration (VRLayers.Apply runs post-build,
         // CanvasConversion re-layers hosts) — sync every tick so the plate always renders
