@@ -522,6 +522,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             _fitSignature = -1;     // …and a fresh settle window for the new host
             _fitArmedUntil = 0f;
             RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
+            RestoreEnemyInfoFlatten(); // …and the hover popup its authored rotation/z
             UnregisterDepthPick();
             // Full-restore contract: the 2D track gets its authored sprites/textures back the
             // moment the canvas returns to the game (baked copies are a VR presentation detail).
@@ -545,9 +546,210 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     {
         base.LateTick();
         if (Panel != null)
+        {
             _slide.Tick(InitiativeTrack.Instance);
+            FlattenEnemyInfo();
+        }
         else
+        {
             _slide.Abort("panel not converted");
+        }
+    }
+
+    // ---- enemy-info popup coplanarity (user item 5) --------------------------------------
+    /// <summary>
+    /// ROOT CAUSE of "Der Text auf der Gegnerinfo beim Hovern über das Bild in der
+    /// Initiativreihenfolge ist 3D schief aus der Karte rausgeragt" (user, MP hardware test) — and
+    /// of why it kept coming back after being "fixed" more than once.
+    ///
+    /// WHAT THE POPUP IS AND WHERE IT LIVES (read from source): hovering an enemy portrait opens
+    /// that entry's <c>MonsterBaseUI</c>. It is NOT a child of the portrait: every
+    /// <c>InitiativeTrackEnemyBehaviour</c> is handed the track's serialized
+    /// <c>enemyCardsHolder</c> (InitiativeTrack.cs:652 → <c>Init</c>), whose
+    /// <c>SetCardHolder</c> (InitiativeTrackEnemyBehaviour.cs:188-195) REPARENTS the popup into it
+    /// with <c>SetParent(monsterBaseHolder, worldPositionStays: false)</c>. <c>enemyCardsHolder</c>
+    /// is a SIBLING of <c>initiativeTrackHolder</c>, so <see cref="NormalizeDepth"/> — which walks
+    /// the row holder — has never reached the popup at all. And even where it does reach, it only
+    /// ever writes <c>localPosition.z</c>; the "schief" part is a local ROTATION, which no pass on
+    /// this surface touched.
+    ///
+    /// WHY THE EARLIER FIXES DID NOT COVER IT: they landed on OTHER surfaces.
+    /// <see cref="EnemyRevealSurface"/> adopts the very same <c>enemyCardsHolder</c> during the
+    /// reveal PHASE and converts it with <c>Flatten2D</c> — but the HOVER path leaves the holder
+    /// where it is, under this surface's own converted target, where nothing was flattening it.
+    ///
+    /// WHY A ONE-SHOT FLATTEN CANNOT HOLD (all read from source): <c>MonsterRoundCardUI</c> writes
+    /// <c>transform.localRotation = Quaternion.Euler(0, -360·n + 90, 0)</c> and then
+    /// <c>LeanTween.rotateAround(rect, Vector3.up, …)</c> (MonsterRoundCardUI.cs:42-44) — a live
+    /// Y-axis card flip, which on a world-space canvas is literal geometry; <c>MonsterBaseUI</c>
+    /// respawns its round card from the pool with <c>resetLocalRotation: false</c>
+    /// (MonsterBaseUI.cs:140), so a recycled card arrives carrying a stale mid-flip rotation; and
+    /// every card generation destroys and re-instantiates <c>contentHolder</c>'s children
+    /// (MonsterBaseUI.cs:293/304), so the nodes themselves are new objects. Hence a per-frame late
+    /// pass, exactly like <c>CanvasConversion.FlattenSubtree</c> and with its epsilons.
+    ///
+    /// WHY NOT SIMPLY <c>Flatten2D =&gt; true</c> ON THIS SURFACE: that pass zeroes local z across
+    /// the WHOLE target subtree in LateUpdate — i.e. after <see cref="NormalizeDepth"/> — and would
+    /// destroy the row's deliberately kept portrait recession (user ruling #3). This is scoped to
+    /// <c>enemyCardsHolder</c> and never touches the row.
+    ///
+    /// REVERSIBILITY WITHOUT AN OWNERSHIP FIGHT: a node is recorded ONLY on the tick it is found
+    /// DEVIATING. A node that <see cref="EnemyRevealSurface"/>'s own flatten already holds at
+    /// identity is therefore never claimed here, so the two passes can never disagree about what
+    /// "the original" was. The stand-down is explicit as well: while the reveal surface has
+    /// reparented the holder off this target, <c>IsChildOf</c> fails and this pass does nothing.
+    ///
+    /// COVERAGE: driven from <see cref="LateTick"/> rather than from a hover hook, so it also
+    /// covers <c>FigureIntentPeek</c> opening the same popup via <c>SetHilighted(true)</c> when a
+    /// mini is picked up — and any future opener — for free.
+    /// </summary>
+    private const float EnemyInfoAngleEpsilon = 0.05f; // degrees, CanvasConversion.FlattenAngleEpsilon
+    private const float EnemyInfoZEpsilon = 0.01f;     // uGUI px, CanvasConversion.FlattenZEpsilon
+
+    /// <summary>At most one coplanarity log per this many seconds (this is per-frame code).</summary>
+    private const float EnemyInfoLogInterval = 5f;
+
+    /// <summary>A node's authored pose, captured the first tick this pass found it deviating.</summary>
+    private struct FlatRecord
+    {
+        public Quaternion Rotation;
+        public float Z;
+    }
+
+    /// <summary>
+    /// Above this many claimed nodes the record is pruned of Unity-destroyed keys.
+    /// <c>MonsterBaseUI.GenerateCard</c> destroys and re-instantiates <c>contentHolder</c>'s
+    /// children on EVERY generation (MonsterBaseUI.cs:293/304), so without a prune a long session
+    /// would accumulate one dead key per node per card — a slow leak in a per-frame structure.
+    /// </summary>
+    private const int EnemyInfoRecordCap = 512;
+
+    private readonly Dictionary<Transform, FlatRecord> _enemyInfoFlat = new(64);
+    private readonly List<RectTransform> _enemyInfoScratch = new(128);
+    private readonly List<Transform> _enemyInfoDead = new(64);
+    private int _enemyInfoLogged;
+    private float _enemyInfoLogNext;
+
+    /// <summary>Force every node of a SHOWN enemy-info popup coplanar with the panel: identity
+    /// local rotation, zero local z. X/Y are never touched, so the card's own slide/fade-in
+    /// animations keep playing — flat. See the doc block above for the full derivation.</summary>
+    private void FlattenEnemyInfo()
+    {
+        InitiativeTrack track = InitiativeTrack.Instance;
+        Transform? holder = track != null ? track.enemyCardsHolder : null;
+        RectTransform? target = Panel != null ? Panel.Target : null;
+        if (holder == null || target == null || !holder.IsChildOf(target))
+            return; // no track, or EnemyRevealSurface has adopted the holder — not ours this tick
+
+        int flattenedRot = 0;
+        int flattenedZ = 0;
+        float worstAngle = 0f;
+        float worstZ = 0f;
+        string worstNode = string.Empty;
+
+        // Only SHOWN popups. Their roots are the holder's direct children, and a hidden one cannot
+        // be seen tilted; walking just the active ones keeps this off the per-frame budget on a
+        // panel that already carries a live mirror. The popup is switched on in the Update phase
+        // (pointer enter / SetHilighted), so this LateUpdate still catches its very first frame.
+        for (int c = 0; c < holder.childCount; c++)
+        {
+            Transform popup = holder.GetChild(c);
+            if (!popup.gameObject.activeSelf)
+                continue;
+
+            _enemyInfoScratch.Clear();
+            popup.GetComponentsInChildren(includeInactive: true, _enemyInfoScratch);
+            for (int i = 0; i < _enemyInfoScratch.Count; i++)
+            {
+                RectTransform rect = _enemyInfoScratch[i];
+                if (rect == null)
+                    continue;
+
+                Vector3 lp = rect.localPosition;
+                Quaternion rot = rect.localRotation;
+                float angle = Quaternion.Angle(rot, Quaternion.identity);
+                bool tiltedRot = angle > EnemyInfoAngleEpsilon;
+                bool tiltedZ = Mathf.Abs(lp.z) > EnemyInfoZEpsilon;
+                if (!tiltedRot && !tiltedZ)
+                    continue;
+
+                // Recorded ONLY while deviating — that is what keeps this pass and
+                // EnemyRevealSurface's from ever claiming the same node's "original".
+                if (!_enemyInfoFlat.ContainsKey(rect))
+                    _enemyInfoFlat[rect] = new FlatRecord { Rotation = rot, Z = lp.z };
+
+                if (tiltedRot)
+                {
+                    rect.localRotation = Quaternion.identity;
+                    flattenedRot++;
+                    if (angle > worstAngle)
+                    {
+                        worstAngle = angle;
+                        worstNode = rect.name;
+                    }
+                }
+                if (tiltedZ)
+                {
+                    rect.localPosition = new Vector3(lp.x, lp.y, 0f);
+                    flattenedZ++;
+                    if (Mathf.Abs(lp.z) > Mathf.Abs(worstZ))
+                        worstZ = lp.z;
+                }
+            }
+        }
+        _enemyInfoScratch.Clear();
+
+        // Bounded record: drop keys the game has since destroyed (see EnemyInfoRecordCap). A dead
+        // key has nothing left to restore, so pruning it is loss-free.
+        if (_enemyInfoFlat.Count > EnemyInfoRecordCap)
+        {
+            _enemyInfoDead.Clear();
+            foreach (KeyValuePair<Transform, FlatRecord> kv in _enemyInfoFlat)
+            {
+                if (kv.Key == null) // Unity fake-null: destroyed, but still a real dictionary key
+                    _enemyInfoDead.Add(kv.Key!);
+            }
+            for (int i = 0; i < _enemyInfoDead.Count; i++)
+                _enemyInfoFlat.Remove(_enemyInfoDead[i]);
+            _enemyInfoDead.Clear();
+            _enemyInfoLogged = Mathf.Min(_enemyInfoLogged, _enemyInfoFlat.Count);
+        }
+
+        // Change-gated + throttled: one line when the claimed set grows (a fresh card generation
+        // brings new nodes), never one per frame and never one per node.
+        if (_enemyInfoFlat.Count <= _enemyInfoLogged || Time.unscaledTime < _enemyInfoLogNext)
+            return;
+        _enemyInfoLogged = _enemyInfoFlat.Count;
+        _enemyInfoLogNext = Time.unscaledTime + EnemyInfoLogInterval;
+        VRLog.Info("WorldUI",
+            $"Enemy-info coplanarity: forced {flattenedRot} node(s) to identity local rotation " +
+            $"(worst {worstAngle:F1}° on '{(worstNode.Length == 0 ? "-" : worstNode)}') and " +
+            $"{flattenedZ} node(s) to local z 0 (worst {worstZ:F1} px) under the track's " +
+            $"enemyCardsHolder; {_enemyInfoLogged} node(s) recorded for restore. The hover popup " +
+            "is reparented OUT of the row into that holder (InitiativeTrackEnemyBehaviour." +
+            "SetCardHolder), so the row's depth pass never saw it, and MonsterRoundCardUI keeps " +
+            "writing a Y-axis flip rotation (plus a pooled respawn with resetLocalRotation:false) " +
+            "— which is why this is a per-frame late pass and not a one-shot. The row's own " +
+            "portrait recession is untouched: this is scoped to the popup subtree.");
+    }
+
+    /// <summary>Give every node this pass claimed its authored rotation/z back (un-convert /
+    /// shutdown) — the same full-restore contract the depth pass honours.</summary>
+    private void RestoreEnemyInfoFlatten()
+    {
+        if (_enemyInfoFlat.Count == 0)
+            return;
+        foreach (KeyValuePair<Transform, FlatRecord> kv in _enemyInfoFlat)
+        {
+            Transform t = kv.Key;
+            if (t == null)
+                continue;
+            t.localRotation = kv.Value.Rotation;
+            Vector3 lp = t.localPosition;
+            t.localPosition = new Vector3(lp.x, lp.y, kv.Value.Z);
+        }
+        _enemyInfoFlat.Clear();
+        _enemyInfoLogged = 0;
     }
 
     /// <summary>
@@ -659,6 +861,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         _fitSignature = -1;     // …and let the next conversion measure the row from scratch
         _fitArmedUntil = 0f;
         RestoreDepth(); // before base releases the panel (holder still alive here)
+        RestoreEnemyInfoFlatten(); // …same window for the hover popup's authored rotation/z
         UnregisterDepthPick();
         PanelMipBake.Restore(InitiativeTrack.Instance); // originals back before the release
         base.Shutdown();
@@ -707,7 +910,21 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         {
             if (!rootChild.gameObject.activeSelf)
                 continue;
-            _depthStack.Add(rootChild);
+            // The ENTRY ROOTS themselves are deliberately NOT candidates (round 2). Their authored
+            // z are ~equal and flat — remapping only them was tried and did nothing — but they ARE
+            // the transforms vanilla's world-x writes leak an out-of-plane offset onto (see
+            // InitiativeReorderSlide's round-2 note). Left in the candidate set, the FIRST frame
+            // that carried such a leak would be recorded here as that entry's "authored" depth and
+            // then re-asserted forever, which both cements the leak and turns the row's real
+            // recession into noise (the remap factor is cap / spread). The row's axis guard owns
+            // an entry root's z; this pass owns the depth NESTED inside each portrait, which is
+            // where the game actually authored it.
+            for (int k = 0; k < rootChild.childCount; k++)
+            {
+                Transform seed = rootChild.GetChild(k);
+                if (seed.gameObject.activeSelf)
+                    _depthStack.Add(seed);
+            }
             while (_depthStack.Count > 0)
             {
                 int last = _depthStack.Count - 1;

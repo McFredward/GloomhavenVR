@@ -20,8 +20,9 @@ internal sealed partial class PlayTray
     // text assignment — every rewrite re-triggers TMP's auto-size layout (test #13).
     private int _roundShown = int.MinValue;
 
-    // Confirmed-state label ("✓ <GUI_READY>"), built once — TickStatus runs per
-    // frame and the concat would allocate every tick (badge/round lesson, test #13).
+    // Confirmed-state label, built once — TickStatus runs per frame and the lookup would
+    // allocate every tick (badge/round lesson, test #13). See <see cref="UnreadyLabel"/>
+    // for what it says and why it is no longer the game's own string.
     private string? _confirmedLabel;
 
     // Language the follow/gear labels + cached round/confirmed strings were built in.
@@ -169,7 +170,7 @@ internal sealed partial class PlayTray
                 _confirm.SetState(true,
                     accent: (ready || _pickActive) && canConfirm && !confirmed, confirmed: confirmed);
                 _confirm.SetLabel(confirmed
-                    ? _confirmedLabel ??= "✓ " + Core.Loc.Game("GUI_READY", "READY")
+                    ? _confirmedLabel ??= UnreadyLabel()
                     : CardsGameApi.ReadyToggleAvailable() && !CardsGameApi.CanConfirm()
                         ? Core.Loc.Game("GUI_END_SELECTION", "END SELECTION")
                         : CardsGameApi.ConfirmLabel());
@@ -200,6 +201,52 @@ internal sealed partial class PlayTray
                 _undo.SetLabel(CardsGameApi.UndoLabel());
             }
         }
+    }
+
+    /// <summary>
+    /// The CONFIRM keycap's label while THIS hand's player has already confirmed — i.e. the state
+    /// in which pressing it REVOKES the ready status (<c>CardsGameApi.SetReady(false)</c> →
+    /// <c>UIReadyToggle.ReadyUp(false)</c> → the game's <c>UnreadyPlayer</c> action).
+    ///
+    /// ROOT CAUSE OF THE REPORT (user, MP hardware test: "Im Multiplayer steht nach 'Auswahl
+    /// beenden' → 'Mach dich bereit!' — das ist nicht klar, was der Knopf aussagt. Wenn man ihn
+    /// drückt, kehrt man zurück zu 'Auswahl beenden', also eigentlich entfernt er doch wieder den
+    /// Ready-Status."): this keycap used to show the GAME's <c>GUI_READY</c> string, which is DE
+    /// "Mach dich bereit!" / EN "Get ready!". That string is vanilla's label for the OPPOSITE
+    /// action — it is what the out-of-scenario lobby toggles show while you are NOT ready
+    /// (<c>UIReadyToggle.Initialize</c>'s default <c>readyTextLoc</c>, used by the loadout,
+    /// retirement and map screens). Vanilla's SCENARIO card-selection toggle never shows it at
+    /// all: <c>UIScenarioMultiplayerController.InitializeReadyToggleForCardSelection</c> passes
+    /// <c>GUI_END_SELECTION</c> for the not-ready state and <c>GUI_CANCEL</c> for the ready state,
+    /// and <c>UIReadyToggle</c> picks between them at <c>_buttonText.SetTextKey(isOn ?
+    /// unreadyTextLoc : readyTextLoc)</c>. So the keycap was showing a command to do the thing it
+    /// actually undoes.
+    ///
+    /// WHY A MOD STRING RATHER THAN VANILLA'S <c>GUI_CANCEL</c>: on a tray keycap the label is the
+    /// only context there is. Bare "Abbrechen"/"Cancel" next to a card selection reads as "abort
+    /// the whole thing", and this keycap's OTHER state already says "Auswahl beenden" — so the
+    /// pair is written as one toggle on the same noun: end the selection ⇄ change the selection.
+    /// That names the effect (the press puts you back in front of your cards, and the keycap
+    /// itself flips back to "Auswahl beenden"), keeps the game's short imperative-noun tone, and
+    /// fits the keycap, which "Bereit-Status aufheben" does not. The "you ARE ready" readout is
+    /// carried by the keycap's own gold CONFIRMED state (<c>SetState(confirmed: true)</c>) — the
+    /// old "✓ " prefix never reached the player anyway: the tray font has no U+2713 and
+    /// <c>PhysicalButton.SetLabel</c> strips it ("BUTTON LABEL: stripped un-renderable glyph(s)
+    /// [U+2713]" in every hardware log), so it is gone from the string too.
+    ///
+    /// Loc key <c>confirm_unready</c> — probed through <see cref="Core.Loc.Mod"/> (which returns
+    /// the id itself for a key that is not in the table yet) with an inline EN/DE fallback, the
+    /// same shape <c>DecisionDockSurface.ItemFanOpenHint</c> uses. The peers' mirrored control
+    /// caps show whatever this returns: the wording is shipped as text on the existing
+    /// <c>ConfirmControlLabel</c> extension, so nothing new goes on the wire.
+    /// </summary>
+    private static string UnreadyLabel()
+    {
+        const string key = "confirm_unready";
+        string localized = Core.Loc.Mod(key);
+        if (!string.Equals(localized, key, System.StringComparison.Ordinal))
+            return localized;
+        return Core.Loc.CurrentLanguage == "German" ? "Auswahl ändern" : "Change selection";
     }
 
     // -------------------------------------------------- pick banner + keycap overrides --
