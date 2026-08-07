@@ -306,6 +306,14 @@ internal static partial class MixedReality
     private static readonly List<Bounds> RegionBoundsScratch = new(256);
     private static readonly List<float> RegionTopScratch = new(256);
 
+    /// <summary>Each host piece's own BOTTOM plane — the round-17 rail needs it to tell a block that
+    /// FORMS the tile (bottom at the tile's underside) from a prop STANDING ON it (bottom at the
+    /// tile's top).</summary>
+    private static readonly List<float> RegionBottomScratch = new(256);
+
+    /// <summary>Union of <see cref="RegionBoundsScratch"/> — the coarse gate.</summary>
+    private static Bounds _regionUnion;
+
     /// <summary>Slack (world units) added around each family/tag source's AABB when testing region
     /// membership. Small on purpose: a co-located piece of the SAME hex must pass, a neighbouring
     /// tile's revealed dressing must not.</summary>
@@ -315,6 +323,19 @@ internal static partial class MixedReality
     /// region route refuses it. This is the rail that keeps revealed PROPS standing on the tiles
     /// (chests, clutter, roots — all of which start at the tile top and go UP) out of the backing.</summary>
     private const float RegionTopToleranceWu = 0.02f;
+
+    /// <summary>Round-17 SPANNING clause: how far a candidate's BOTTOM may sit above its host's
+    /// bottom and still count as part of the tile block rather than as something standing on it. A
+    /// prop's bottom sits ~0.3 wu higher than this (at the tile's TOP plane), so 2 cm separates the
+    /// two cases with a wide margin on both sides.</summary>
+    private const float RegionBottomToleranceWu = 0.02f;
+
+    /// <summary>Round-17 SPANNING clause: how far a spanning block's TOP may exceed its host's top
+    /// plane. Larger than <see cref="RegionTopToleranceWu"/> because the pieces that make up one hex
+    /// are authored to slightly different heights and the cliff block is the tallest of them; still
+    /// far too small for anything that stands on the tiles, and only reachable at all by a candidate
+    /// that already reaches down to the tile's underside.</summary>
+    private const float RegionLevelToleranceWu = 0.06f;
 
     /// <summary>Footprint ceiling for a region candidate, as a multiple of its host piece's XZ
     /// size. A per-hex tile block is comparable in size to the hex; a room-spanning floor, an FX
@@ -1109,6 +1130,32 @@ internal static partial class MixedReality
     /// config-gated debug tint, the rim-population dump and the camera-setup dump), so a rim that
     /// still glows is one config flip away from a decision, not another blind round.
     ///
+    /// ROUND 17 (hardware 2026-08-07 #7, ModBuild 75): two verdicts.
+    /// (a) THE WAFER "FIX" WAS A REGRESSION — "die Lücken sind nun wieder vollständig da wie
+    /// zuvor". The seam coverage approved in ModBuild 70 IS the widened slab riding above the hex
+    /// tops; the round-16 geometric correction removed exactly the thing that was working.
+    /// Reverted, with a standing DO-NOT-FIX note at the offset. Standing lesson for this whole
+    /// system: geometric correctness is not the goal, the approved look is — a "defect" that the
+    /// user has already blessed is a FEATURE, and any future change to the seam coverage must be
+    /// additive.
+    /// (b) THE RIM IS STILL OPEN AND BOTH ROUND-16 ROUTES MISSED THE CLIFF. The accounting says it
+    /// plainly: 226 by family/tag — EXACTLY the pre-round-16 number, so raising the Preview scan
+    /// from 12 to 40 levels added nothing and the depth cap was never the blocker — plus 16 by
+    /// region membership, and those 16 are all 'CV_Floor_Scatter' LODs, floor clutter. No
+    /// 'Simple Tile' line anywhere, and the MAPTILE dumps still show 603/225/171 = 9 renderers per
+    /// hex with the backing triple hanging off 'EN_Unseen_FloorHex_Edge_Damage_03_PR' and nothing
+    /// under 'Simple Tile'. The refusal counters point at one rail — 57 "above the host piece's
+    /// top plane" — which is plausible for a block whose top is LEVEL with its host's, but the
+    /// arithmetic does not close (111 hexes, 57 refusals), so it stays a hypothesis until measured.
+    /// This round therefore does two things: it MEASURES (the REGION NAME CENSUS in
+    /// MixedReality.Diag.cs classifies every renderer by the live rule and aggregates by distinct
+    /// name, with every instance landing in exactly one bucket — no gap for a piece to hide in),
+    /// and it fixes the rail the measurement suspects, correctly: see <see cref="ClassifyRegion"/>,
+    /// where a candidate now passes either by staying under its host's top plane OR by SPANNING the
+    /// host (bottom at the tile's underside, top level with the tile's top). A prop standing ON a
+    /// tile has its bottom at the tile's TOP and can satisfy neither clause; the block that FORMS
+    /// the tile satisfies the second by construction.
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -1583,31 +1630,7 @@ internal static partial class MixedReality
         _regionRejectNonMesh = 0;
         _regionRejectNoBacking = 0;
 
-        // Seed the region from the FAMILY/TAG sources only (anti-creep, above).
-        RegionBoundsScratch.Clear();
-        RegionTopScratch.Clear();
-        Bounds union = default;
-        bool first = true;
-        for (int i = 0; i < UnseenUnderlays.Count; i++)
-        {
-            UnseenUnderlay e = UnseenUnderlays[i];
-            if (e.ViaRegion || e.Source == null)
-                continue;
-            Bounds b = e.Source.bounds;
-            RegionTopScratch.Add(b.max.y);
-            b.Expand(RegionMembershipSlackWu * 2f);
-            RegionBoundsScratch.Add(b);
-            if (first)
-            {
-                union = b;
-                first = false;
-            }
-            else
-            {
-                union.Encapsulate(b);
-            }
-        }
-        if (first)
+        if (!SeedRegionBounds())
             return;
 
         for (int i = 0; i < all.Length; i++)
@@ -1624,7 +1647,7 @@ internal static partial class MixedReality
                 continue; // already backed by either route
 
             Bounds rb = r.bounds;
-            if (!union.Intersects(rb)) // coarse gate: nearly every scene renderer dies here
+            if (!_regionUnion.Intersects(rb)) // coarse gate: nearly every scene renderer dies here
                 continue;
 
             if (!(r is MeshRenderer mesh))
@@ -1635,33 +1658,12 @@ internal static partial class MixedReality
                 continue;
             }
 
-            bool inside = false;
-            bool aboveTop = false;
-            bool oversize = false;
-            for (int b = 0; b < RegionBoundsScratch.Count; b++)
+            RegionVerdict verdict = ClassifyRegion(rb, out _, out _, out _);
+            if (verdict != RegionVerdict.Inside)
             {
-                if (!RegionBoundsScratch[b].Intersects(rb))
-                    continue;
-                if (rb.max.y > RegionTopScratch[b] + RegionTopToleranceWu)
-                {
-                    aboveTop = true; // stands ON the tiles (or pokes through) — never adopted
-                    continue;
-                }
-                Vector3 hostSize = RegionBoundsScratch[b].size;
-                if (rb.size.x > hostSize.x * RegionMaxFootprintFactor
-                    || rb.size.z > hostSize.z * RegionMaxFootprintFactor)
-                {
-                    oversize = true;
-                    continue;
-                }
-                inside = true;
-                break;
-            }
-            if (!inside)
-            {
-                if (aboveTop)
+                if (verdict == RegionVerdict.AboveTop)
                     _regionRejectAboveTop++;
-                else if (oversize)
+                else if (verdict == RegionVerdict.Oversize)
                     _regionRejectOversize++;
                 continue;
             }
@@ -1707,6 +1709,142 @@ internal static partial class MixedReality
                 _regionRejectNoBacking++;
             }
         }
+    }
+
+    /// <summary>Verdict of <see cref="ClassifyRegion"/> — shared by the region route and the
+    /// round-17 name census, so the census can never report a rail the route does not apply.</summary>
+    private enum RegionVerdict
+    {
+        /// <summary>Overlaps no host piece at all.</summary>
+        Outside,
+
+        /// <summary>Stands ON/above the tiles rather than being part of the block.</summary>
+        AboveTop,
+
+        /// <summary>Footprint far larger than its host hex.</summary>
+        Oversize,
+
+        /// <summary>A member of the region — gets the backing.</summary>
+        Inside,
+    }
+
+    /// <summary>Rebuild <see cref="RegionBoundsScratch"/> / <see cref="RegionTopScratch"/> /
+    /// <see cref="RegionBottomScratch"/> and <see cref="_regionUnion"/> from the FAMILY/TAG sources
+    /// only (anti-creep — see <see cref="RegionMembershipPass"/>). Returns false when the region is
+    /// empty. Cheap and idempotent within a sweep, so the census can call it too.</summary>
+    private static bool SeedRegionBounds()
+    {
+        RegionBoundsScratch.Clear();
+        RegionTopScratch.Clear();
+        RegionBottomScratch.Clear();
+        bool first = true;
+        for (int i = 0; i < UnseenUnderlays.Count; i++)
+        {
+            UnseenUnderlay e = UnseenUnderlays[i];
+            if (e.ViaRegion || e.Source == null)
+                continue;
+            Bounds b = e.Source.bounds;
+            RegionTopScratch.Add(b.max.y);
+            RegionBottomScratch.Add(b.min.y);
+            b.Expand(RegionMembershipSlackWu * 2f);
+            RegionBoundsScratch.Add(b);
+            if (first)
+            {
+                _regionUnion = b;
+                first = false;
+            }
+            else
+            {
+                _regionUnion.Encapsulate(b);
+            }
+        }
+        return !first;
+    }
+
+    /// <summary>
+    /// THE REGION RULE, in one place (round 17). Returns the verdict for <paramref name="rb"/> plus,
+    /// for the best-fitting host, how far the candidate's top overshoots that host's top plane
+    /// (<paramref name="overshoot"/>) and how its bottom compares to the host's bottom
+    /// (<paramref name="bottomDelta"/>) — the two numbers the census prints, so the next rail change
+    /// is designed from measurements instead of from a guess.
+    ///
+    /// <para>THE VERTICAL RAIL (round 17, replacing a single top-plane test). The rail exists to
+    /// keep things that STAND ON the tiles — chests, clutter, roots, walls — from being darkened,
+    /// and the round-16 version did that with one clause: the candidate's top may not rise above
+    /// its host's top plane. That also refuses the very piece the route was written for, because
+    /// the CLIFF BLOCK's top is level with the hex it belongs to and a hair of it may round either
+    /// way. The rule now separates the two cases by what they do at the BOTTOM, which is where they
+    /// genuinely differ:</para>
+    /// <list type="bullet">
+    /// <item>a prop STANDING ON the tile has its bottom AT the host's TOP plane and its top well
+    ///   above it → refused;</item>
+    /// <item>the block that FORMS the tile spans the host: bottom at or below the host's bottom,
+    ///   top level with the host's top (not above it) → accepted.</item>
+    /// </list>
+    /// <para>So: accept when the candidate stays under the host's top plane
+    /// (<see cref="RegionTopToleranceWu"/>) OR when it spans the host — bottom within
+    /// <see cref="RegionBottomToleranceWu"/> of the host's bottom AND top within
+    /// <see cref="RegionLevelToleranceWu"/> of the host's top. A prop can satisfy neither: to pass
+    /// the second clause it would have to reach down to the tile's underside, at which point it is
+    /// part of the tile block by any reasonable reading.</para>
+    /// </summary>
+    private static RegionVerdict ClassifyRegion(Bounds rb, out int hostIndex, out float overshoot,
+                                                out float bottomDelta)
+    {
+        hostIndex = -1;
+        overshoot = 0f;
+        bottomDelta = 0f;
+        bool anyOverlap = false;
+        bool aboveTop = false;
+        bool oversize = false;
+        float bestOvershoot = float.MaxValue;
+
+        for (int b = 0; b < RegionBoundsScratch.Count; b++)
+        {
+            if (!RegionBoundsScratch[b].Intersects(rb))
+                continue;
+            anyOverlap = true;
+            float over = rb.max.y - RegionTopScratch[b];
+            float below = rb.min.y - RegionBottomScratch[b];
+
+            bool underTop = over <= RegionTopToleranceWu;
+            bool spansHost = below <= RegionBottomToleranceWu && over <= RegionLevelToleranceWu;
+            if (!underTop && !spansHost)
+            {
+                aboveTop = true;
+                if (over < bestOvershoot) // remember the least-bad host for the census
+                {
+                    bestOvershoot = over;
+                    hostIndex = b;
+                    overshoot = over;
+                    bottomDelta = below;
+                }
+                continue;
+            }
+
+            Vector3 hostSize = RegionBoundsScratch[b].size;
+            if (rb.size.x > hostSize.x * RegionMaxFootprintFactor
+                || rb.size.z > hostSize.z * RegionMaxFootprintFactor)
+            {
+                oversize = true;
+                if (hostIndex < 0)
+                {
+                    hostIndex = b;
+                    overshoot = over;
+                    bottomDelta = below;
+                }
+                continue;
+            }
+
+            hostIndex = b;
+            overshoot = over;
+            bottomDelta = below;
+            return RegionVerdict.Inside;
+        }
+
+        if (!anyOverlap)
+            return RegionVerdict.Outside;
+        return aboveTop ? RegionVerdict.AboveTop : oversize ? RegionVerdict.Oversize : RegionVerdict.Outside;
     }
 
     /// <summary>
@@ -1847,20 +1985,20 @@ internal static partial class MixedReality
         fillGo.transform.SetParent(source.transform, worldPositionStays: false);
         fillGo.transform.localRotation = Quaternion.identity;
         fillGo.transform.localScale = new Vector3(skirt, FillSquashY, skirt);
-        // SEATING — ROUND 16 CORRECTION (the wafer was FLOATING ABOVE the tiles for a whole
-        // piece class). A child transform scales its mesh about the OBJECT ORIGIN, not about the
-        // mesh's bounds centre: a vertex y maps to localPosition.y + squash·y. The old offset
-        // (top − centre)(1 − squash) assumed a pivot at the bounds CENTRE, so the wafer landed
-        // (top − centre·(1 − squash))·… — i.e. −centre.y·0.98 too HIGH — and was correct only for
-        // meshes whose bounds centre happens to sit at y = 0. Proof from the ModBuild-74 MAPTILE
-        // dump: 'EN_Unseen_FloorHex_Edge_Damage_03_PR' (world y −0.4..−0.1, mesh height 0.318 ⇒
-        // centre.y ≈ −0.159) carried 'GloomhavenVR.MrUnseenFill'[y0.1..0.1] — a flat dark slab
-        // hovering ~0.16 wu ABOVE the hex tops, XZ-widened ×1.2, i.e. covering the authored
-        // animated top instead of flooring the seams under it; the sibling class
-        // 'EN_CR_FloorTiles_Damaged_03' (centre.y ≈ 0) sat correctly at y−0.1. The right offset
-        // for a pivot at the origin is top·(1 − squash): top·squash + top·(1 − squash) = top.
-        // XZ was always right — keeping the mesh CENTRE fixed under the widening is
-        // centre·(1 − skirt) for a pivot at the origin too.
+        // SEATING — WHAT THIS OFFSET ACTUALLY DOES (round-16 analysis, kept because it explains the
+        // geometry; its CONCLUSION was overruled by hardware — see the ROUND 17 note below, which
+        // is the binding one). A child transform scales its mesh about the OBJECT ORIGIN, not about
+        // the mesh's bounds centre: a vertex y maps to localPosition.y + squash·y. The offset
+        // (top − centre)(1 − squash) assumes a pivot at the bounds CENTRE, so it seats the wafer
+        // −centre.y·0.98 HIGHER than the mesh top, and lands ON the top plane only for meshes whose
+        // bounds centre sits at y = 0. Measured in the ModBuild-74 MAPTILE dump:
+        // 'EN_Unseen_FloorHex_Edge_Damage_03_PR' (world y −0.4..−0.1, mesh height 0.318 ⇒
+        // centre.y ≈ −0.159) carries 'GloomhavenVR.MrUnseenFill'[y0.1..0.1] — the ×1.2-widened dark
+        // slab sits ~0.16 wu ABOVE the hex tops — while the sibling class
+        // 'EN_CR_FloorTiles_Damaged_03' (centre.y ≈ 0) sits at y−0.1, on its own top plane. That
+        // RAISED slab is not a defect: it is what closes the seams from above, and it is the look
+        // the user approved. XZ needs no such note — keeping the mesh CENTRE fixed under the
+        // widening is centre·(1 − skirt) for a pivot at the origin too.
         fillGo.transform.localPosition = new Vector3(
             meshCenter.x * (1f - skirt),
             // ROUND 17 — DO NOT "FIX" THIS AGAIN. Round 16 called this offset mis-seated
@@ -2320,9 +2458,10 @@ internal static partial class MixedReality
             DestroyMat(ref _dbgWaferMat);
             DestroyMat(ref _dbgRimMat);
         }
-        _rimPopLogged = false;   // round-16 one-shot dumps re-arm for the rebuilt region
-        _camDumpLogged = false;
+        _camDumpLogged = false;  // round-16/17 dumps re-arm for the rebuilt region
         _diagPrevBackingCount = -1;
+        _diagDumps = 0;
+        _diagDumpedAtCount = 0;
         _matchFamilyCount = 0;   // round-16 match accounting is per MR session
         _matchRegionCount = 0;
         _regionRejectAboveTop = 0;
@@ -2333,6 +2472,7 @@ internal static partial class MixedReality
         RegionAdoptedNames.Clear();
         RegionBoundsScratch.Clear();
         RegionTopScratch.Clear();
+        RegionBottomScratch.Clear();
         _previewScanNextFrame = 0;
         _loggedPreviewCount = -1;
         _loggedRimCount = -1;
@@ -2459,8 +2599,9 @@ internal static partial class MixedReality
         _unbackedNextAllowed = 0f;
         // A scene load means a NEW unseen region — re-arm the round-16 one-shot dumps so they
         // describe the region that is actually on screen.
-        _rimPopLogged = false;
         _camDumpLogged = false;
         _diagPrevBackingCount = -1;
+        _diagDumps = 0;
+        _diagDumpedAtCount = 0;
     }
 }

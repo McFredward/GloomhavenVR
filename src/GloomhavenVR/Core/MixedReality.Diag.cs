@@ -53,15 +53,41 @@ namespace GloomhavenVR.Core;
 ///    none of the three colours appears anywhere, the backing strategy is provably dead — which is
 ///    the single most valuable thing this round can learn.
 ///
-/// Everything here is ONE-SHOT per MR session, gated on a SETTLED backing count (Apparance
-/// regenerates tile content constantly; a dump taken mid-regen would describe a half-built region),
-/// and reset with the underlays.
+/// 4. REGION NAME CENSUS (<see cref="LogRegionNameCensus"/>, ROUND 17) — the one that settles what
+///    is and is not covered. Every renderer in the scene, classified through the LIVE rule
+///    (<see cref="ClassifyRegion"/>, the very method the region route calls) and aggregated by
+///    DISTINCT NAME: instances, how many are backed and by which route, and for the rest exactly
+///    which rail refused them — with the numbers a rail change needs (top overshoot over the host's
+///    top plane, bottom relative to the host's bottom). Every in-region renderer lands in exactly
+///    one bucket, so the buckets sum to the instance count and nothing can hide in a gap between
+///    them. That gap is what let one piece stay invisible to three separate instruments at once.
+///
+/// Gated on a SETTLED backing count (Apparance regenerates tile content constantly; a dump taken
+/// mid-regen describes a half-built region) AND re-armed when the region grows — the ModBuild-75
+/// log is the cautionary tale: the dumps fired at four pre-load renderers and never described the
+/// real 242-piece region at all. Capped at <see cref="DiagMaxDumps"/> rounds per MR session, and
+/// reset with the underlays.
 /// </summary>
 internal static partial class MixedReality
 {
-    /// <summary>One-shot latches (reset in <see cref="RestoreUnseenUnderlays"/>).</summary>
-    private static bool _rimPopLogged;
+    /// <summary>One-shot latch for the camera dump (reset in <see cref="RestoreUnseenUnderlays"/>).
+    /// The region/rim dumps are gated by the re-fire counter below instead, so they can describe the
+    /// region again once it has actually grown.</summary>
     private static bool _camDumpLogged;
+
+    /// <summary>How many dump rounds have fired this MR session, and at which backing count the
+    /// last one fired — the round-17 re-fire gate (see <see cref="TickUnseenDiagnostics"/>).</summary>
+    private static int _diagDumps;
+    private static int _diagDumpedAtCount;
+
+    /// <summary>Growth factor that re-arms the dumps: the region must have grown this much since
+    /// the last dump. 3× means a dump taken on a handful of pre-load renderers is superseded the
+    /// moment the real region exists, without re-printing on every regen wobble.</summary>
+    private const float DiagRefireGrowth = 3f;
+
+    /// <summary>Hard cap on dump rounds per MR session — the log stays readable however much
+    /// Apparance churns.</summary>
+    private const int DiagMaxDumps = 3;
 
     /// <summary>Backing count seen by the previous sweep — the dumps fire only when it is UNCHANGED,
     /// i.e. the region has finished regenerating. -1 = no sweep with backings yet.</summary>
@@ -94,9 +120,19 @@ internal static partial class MixedReality
     private static readonly List<Renderer> DiagPopulation = new(32);
 
     /// <summary>
-    /// Called at the end of every unseen sweep. Fires the two one-shot dumps once the backing
-    /// population has stopped changing, so both describe a settled region rather than a
-    /// mid-regeneration snapshot.
+    /// Called at the end of every unseen sweep. Fires the dumps once the backing population has
+    /// stopped changing, so each describes a settled region rather than a mid-regeneration
+    /// snapshot.
+    ///
+    /// <para>ROUND 17 — RE-FIRE ON GROWTH. "Settled" alone was not enough: in the ModBuild-75 log
+    /// the region was momentarily stable at FOUR backed sources (two consecutive sweeps while the
+    /// scenario was still loading), the dumps fired there, and the real region — 242 sources —
+    /// was never described at all. The RIM POPULATION dump duly reported four disabled
+    /// 'Editor_Grey' hex markers and an occlusion volume: a perfectly accurate answer to a
+    /// question nobody asked. The dumps now re-arm whenever the population has grown by
+    /// <see cref="DiagRefireGrowth"/>× since the last one, capped at
+    /// <see cref="DiagMaxDumps"/> firings per MR session so a churning scene cannot flood the
+    /// log.</para>
     /// </summary>
     private static void TickUnseenDiagnostics(Renderer[] all)
     {
@@ -111,17 +147,218 @@ internal static partial class MixedReality
         if (!settled)
             return;
 
+        bool grown = _diagDumps > 0 && _diagDumps < DiagMaxDumps
+                     && count >= Mathf.CeilToInt(_diagDumpedAtCount * DiagRefireGrowth);
+        bool firstTime = _diagDumps == 0;
+        if (!firstTime && !grown)
+            return;
+        _diagDumps++;
+        _diagDumpedAtCount = count;
+
         if (!_camDumpLogged)
         {
             _camDumpLogged = true;
             LogCameraSetup();
         }
-        if (!_rimPopLogged)
+        LogRegionNameCensus(all);
+        LogRimPopulation(all);
+    }
+
+    /// <summary>
+    /// ROUND 17 — THE CENSUS THAT ENDS THE SPECULATION: every renderer in the scene, classified by
+    /// the EXACT rules the two backing routes apply, aggregated by DISTINCT NAME.
+    ///
+    /// <para>WHY IT EXISTS. Three rounds have now argued about whether 'Simple Tile' — the
+    /// full-height block that forms the region's outer cliff — is backed, from arithmetic on
+    /// renderer counts and from the ordering of a sampled child list. Both readings said "not
+    /// backed"; the ModBuild-75 accounting then showed the family count unchanged at 226 and the
+    /// sixteen region hits all floor scatter, which says the routes did not catch it but not WHY.
+    /// This line answers name by name: how many instances exist, how many are backed and by which
+    /// route, and for the unbacked ones exactly which rail refused them — with the two numbers a
+    /// rail change needs (how far the piece's top overshoots its host's top plane, and where its
+    /// bottom sits relative to the host's bottom).</para>
+    ///
+    /// <para>It classifies through <see cref="ClassifyRegion"/>, the same method the live route
+    /// uses, so the census cannot drift from the rule it audits. Bounded output: the busiest
+    /// <see cref="NameCensusMaxListed"/> in-region names, one line each.</para>
+    /// </summary>
+    private static void LogRegionNameCensus(Renderer[] all)
+    {
+        if (!SeedRegionBounds())
+            return;
+
+        NameStats.Clear();
+        int scanned = 0;
+        int inRegion = 0;
+        for (int i = 0; i < all.Length; i++)
         {
-            _rimPopLogged = true;
-            LogRimPopulation(all);
+            Renderer r = all[i];
+            if (r == null)
+                continue;
+            scanned++;
+            GameObject go = r.gameObject;
+            if (go.layer == VRLayers.ModLayer
+                || go.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal))
+                continue; // our own backings — never candidates, never interesting here
+
+            Bounds rb = r.bounds;
+            if (!_regionUnion.Intersects(rb))
+                continue; // not anywhere near the fog-of-war region
+
+            if (!NameStats.TryGetValue(go.name, out NameStat? s))
+            {
+                s = new NameStat();
+                NameStats[go.name] = s;
+            }
+            s.Count++;
+            inRegion++;
+            if (s.Sample == null)
+                s.Sample = r;
+
+            int id = r.GetInstanceID();
+            if (UnseenSources.Contains(id))
+            {
+                if (BackedViaRegion(id))
+                    s.Region++;
+                else
+                    s.Family++;
+                continue;
+            }
+            if (!r.enabled)
+            {
+                s.Disabled++;
+                continue;
+            }
+            if (go.layer == 5)
+            {
+                s.UiLayer++;
+                continue;
+            }
+            if (!(r is MeshRenderer))
+            {
+                s.NonMesh++;
+                continue;
+            }
+
+            RegionVerdict verdict = ClassifyRegion(rb, out _, out float overshoot,
+                                                   out float bottomDelta);
+            switch (verdict)
+            {
+                case RegionVerdict.Inside:
+                    // Passed every geometric rail yet is not backed: either the figure guard
+                    // refused it or BuildUnseenUnderlay found nothing to build on.
+                    if (IsFigureOrActorRenderer(r))
+                        s.Figure++;
+                    else
+                        s.InsideUnbacked++;
+                    break;
+                case RegionVerdict.AboveTop:
+                    s.AboveTop++;
+                    s.NoteRail(overshoot, bottomDelta);
+                    break;
+                case RegionVerdict.Oversize:
+                    s.Oversize++;
+                    s.NoteRail(overshoot, bottomDelta);
+                    break;
+                default:
+                    s.Outside++;
+                    break;
+            }
+        }
+
+        VRLog.Info("Core", $"MR: REGION NAME CENSUS — {scanned} renderer(s) scanned, {inRegion} " +
+                           $"inside the fog-of-war region's union AABB, {NameStats.Count} distinct " +
+                           $"name(s) there, {UnseenUnderlays.Count} backed source(s) live. Each line " +
+                           "below is ONE distinct name: how many instances, how many are backed and " +
+                           "by which route, and which rail refused the rest. Classified through the " +
+                           "live rule (ClassifyRegion), so a rail named here is the rail that ran:");
+
+        NameOrder.Clear();
+        foreach (KeyValuePair<string, NameStat> kv in NameStats)
+            NameOrder.Add(kv.Key);
+        NameOrder.Sort((a, b) => NameStats[b].Count.CompareTo(NameStats[a].Count));
+
+        int listed = Mathf.Min(NameOrder.Count, NameCensusMaxListed);
+        for (int i = 0; i < listed; i++)
+        {
+            NameStat s = NameStats[NameOrder[i]];
+            Renderer? sample = s.Sample;
+            Material? m = sample != null ? sample.sharedMaterial : null;
+            Bounds sb = sample != null ? sample.bounds : default;
+            VRLog.Info("Core", $"MR:   name '{NameOrder[i]}' ×{s.Count} — backed {s.Family + s.Region} " +
+                               $"(family/tag {s.Family}, region {s.Region}); refused: aboveTop " +
+                               $"{s.AboveTop}, oversize {s.Oversize}, nonMesh {s.NonMesh}, figure " +
+                               $"{s.Figure}, disabled {s.Disabled}, uiLayer {s.UiLayer}, outside " +
+                               $"{s.Outside}, insideButUnbacked {s.InsideUnbacked}" +
+                               (s.RailSeen
+                                   ? $"; rail numbers: top overshoot {s.MinOvershoot:0.###}…" +
+                                     $"{s.MaxOvershoot:0.###} wu over the host's top, bottom " +
+                                     $"{s.MinBottomDelta:0.###}…{s.MaxBottomDelta:0.###} wu " +
+                                     "relative to the host's bottom (≤0 = spans the tile block, " +
+                                     "≫0 = stands on it)"
+                                   : string.Empty) +
+                               $"; sample layer {(sample != null ? LayerName(sample.gameObject.layer) : "<none>")} " +
+                               $"[{(sample != null ? sample.GetType().Name : "<none>")}] shader " +
+                               $"'{(sample != null ? ShaderName(sample) : "<none>")}' queue " +
+                               $"{(m != null ? m.renderQueue : -1)} tag " +
+                               $"'{(m != null ? m.GetTag("RenderType", false, "<none>") : "<none>")}' " +
+                               $"slots {(sample != null && sample.sharedMaterials != null ? sample.sharedMaterials.Length : 0)} " +
+                               $"y[{sb.min.y:0.##}..{sb.max.y:0.##}] size {Fmt(sb.size)} " +
+                               $"previewDepth {(sample != null ? PreviewAncestorDepth(sample.transform) : -1)}.");
+        }
+        if (NameOrder.Count > listed)
+            VRLog.Info("Core", $"MR:   name … +{NameOrder.Count - listed} more distinct name(s) in " +
+                               "the region (busiest listed first).");
+
+        NameStats.Clear();
+        NameOrder.Clear();
+    }
+
+    /// <summary>Was the source with this instance id adopted by the REGION route? (Linear over the
+    /// underlay list — this runs a handful of times per MR session, never per frame.)</summary>
+    private static bool BackedViaRegion(int id)
+    {
+        for (int i = 0; i < UnseenUnderlays.Count; i++)
+        {
+            if (UnseenUnderlays[i].SourceId == id)
+                return UnseenUnderlays[i].ViaRegion;
+        }
+        return false;
+    }
+
+    /// <summary>Per-name tally for <see cref="LogRegionNameCensus"/>. Every in-region renderer lands
+    /// in exactly one bucket, so the buckets sum to <see cref="Count"/> and nothing can hide in a
+    /// gap between them — the failure mode that let 'Simple Tile' be invisible to three separate
+    /// instruments.</summary>
+    private sealed class NameStat
+    {
+        public int Count, Family, Region, AboveTop, Oversize, NonMesh, Figure, Disabled, UiLayer,
+                   Outside, InsideUnbacked;
+        public Renderer? Sample;
+        public bool RailSeen;
+        public float MinOvershoot, MaxOvershoot, MinBottomDelta, MaxBottomDelta;
+
+        public void NoteRail(float overshoot, float bottomDelta)
+        {
+            if (!RailSeen)
+            {
+                RailSeen = true;
+                MinOvershoot = MaxOvershoot = overshoot;
+                MinBottomDelta = MaxBottomDelta = bottomDelta;
+                return;
+            }
+            if (overshoot < MinOvershoot) MinOvershoot = overshoot;
+            if (overshoot > MaxOvershoot) MaxOvershoot = overshoot;
+            if (bottomDelta < MinBottomDelta) MinBottomDelta = bottomDelta;
+            if (bottomDelta > MaxBottomDelta) MaxBottomDelta = bottomDelta;
         }
     }
+
+    private static readonly Dictionary<string, NameStat> NameStats = new(64);
+    private static readonly List<string> NameOrder = new(64);
+
+    /// <summary>Distinct in-region names printed by the census, busiest first.</summary>
+    private const int NameCensusMaxListed = 14;
 
     /// <summary>
     /// THE dump this round exists for: the population standing on the unseen region's OUTER
