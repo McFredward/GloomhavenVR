@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace GloomhavenVR.Core;
@@ -87,6 +88,11 @@ internal static partial class WallSegmentFade
         /// authored arch scale: door 2.2 + trims/sign to ~3.4). The gate log line marks the
         /// fallback so the next hardware round shows which path ran.</summary>
         private const float FallbackArchHeightWU = 3.5f;
+        /// <summary>Minimum plausible arch-seed height (wu, round-11 sliver guard): a real
+        /// door leaf is ≥ ~2 wu; a sub-0.8 seed is a floor marker, not an arch.</summary>
+        private const float MinArchSeedHeightWU = 0.8f;
+        /// <summary>Sliver-skipped door props already logged (once per scene).</summary>
+        private readonly HashSet<string> _gateSliverLogged = new();
 
         /// <summary>
         /// Create/refresh one fadeable GATE COLUMN per live door prop (called from Rescan
@@ -159,6 +165,27 @@ internal static partial class WallSegmentFade
                     max.y = Mathf.Min(max.y, all.min.y + FallbackArchHeightWU);
                     seed = default;
                     seed.SetMinMax(all.min, max);
+                }
+                // ROUND-11 SLIVER GUARD (ModBuild-69 log: two FALLBACK gates seeded from
+                // floor-level slivers, seed wy[-0.40..-0.05], arch topY 1.2 — a rect at
+                // ground height is no arch and its column/protection only destabilizes
+                // nearby ownership): a door prop whose seed has no plausible arch height
+                // seeds NO gate column at all. The DOORWAY segment ruling is unaffected.
+                if (seed.size.y < MinArchSeedHeightWU)
+                {
+                    if (_segments.TryGetValue(dp, out Segment? stale) && stale.IsGateColumn)
+                    {
+                        RestoreSegmentStacked(stale);
+                        RestoreSegmentMounted(stale);
+                        _segments.Remove(dp);
+                    }
+                    if (_gateSliverLogged.Add(dp.name))
+                        VRLog.Info(Name,
+                            $"GATE COLUMN '{dp.name}': SKIPPED — seed is a floor-level "
+                            + $"sliver (wy[{seed.min.y:F2}..{seed.max.y:F2}], height "
+                            + $"{seed.size.y:F2} < {MinArchSeedHeightWU:0.0} wu), no "
+                            + "plausible arch; no column, no protection rect.");
+                    continue;
                 }
                 if (!_segments.TryGetValue(dp, out Segment? gate))
                 {
@@ -234,6 +261,15 @@ internal static partial class WallSegmentFade
             return centerIn
                 && b.size.x <= (gate.ArchMaxX - gate.ArchMinX) + 2f * ArchOverhangWU
                 && b.size.z <= (gate.ArchMaxZ - gate.ArchMinZ) + 2f * ArchOverhangWU;
+        }
+
+        /// <summary>Does this door root have a LIVE gate column (an arch rect exists)?
+        /// Round-11 torch fix: only then can the doorway grouping be narrowed to the arch —
+        /// sliver-skipped doors keep the old full-radius grouping.</summary>
+        private bool HasGateColumnFor(Transform doorRoot)
+        {
+            UnityGameEditorDoorProp? dp = doorRoot.GetComponent<UnityGameEditorDoorProp>();
+            return dp != null && _segments.TryGetValue(dp, out Segment? g) && g.IsGateColumn;
         }
 
         /// <summary>Piece inside ANY gate's arch — excluded from EVERY adopter (stack,

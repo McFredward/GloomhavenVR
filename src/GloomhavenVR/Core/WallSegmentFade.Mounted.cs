@@ -124,6 +124,17 @@ internal static partial class WallSegmentFade
         public float EmissionRate;
         /// <summary>Which channel(s) this prop dissolves through — for the census line.</summary>
         public string Tier = "none";
+        // ---- round-11 dissolve swap (user: "ALLE assets die faden sollen das immer mit
+        // der Animation tun") — plain meshes whose material has no working fade channel get
+        // their materials swapped onto COPIES on the game's own masonry fade shader for the
+        // dissolve; restored bit-for-bit (and the copies destroyed) on restore.
+        /// <summary>The renderer's authored sharedMaterials array (restored on unfade).</summary>
+        public Material[]? SwapOriginals;
+        /// <summary>Our fade-shader material copies currently assigned (owned; destroyed on
+        /// restore/teardown). Non-null = the piece dissolves on the native wall ramp.</summary>
+        public Material[]? SwapCopies;
+        /// <summary>The swap decision was evaluated once (cheap re-entry guard).</summary>
+        public bool SwapChecked;
     }
 
     private sealed partial class FadeDriver
@@ -296,6 +307,14 @@ internal static partial class WallSegmentFade
             Renderer r = p.Renderer;
             if (r == null)
                 return;
+            if (p.SwapCopies != null)
+            {
+                // Round-11 dissolve swap: the piece now runs the game's own masonry fade
+                // shader — drive the SAME map/cutoff ramp the wall renderers get (opaque
+                // per-pixel clip, no alpha blending — MR chroma-key ruling).
+                DriveSwappedProp(p, fade);
+                return;
+            }
             float visible = Mathf.Clamp01(1f - fade);
             if (p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0)
             {
@@ -339,8 +358,10 @@ internal static partial class WallSegmentFade
         {
             _mountedTouched.Remove(p.Renderer);
             Renderer r = p.Renderer;
+            RestorePropSwap(p, r); // round 11: authored materials back, our copies destroyed
             if (r == null)
                 return;
+            NoteOwnershipChange(r, "released"); // churn tripwire (round 11)
             if (p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0)
                 r.SetPropertyBlock(null);
             if (p.System != null)
@@ -408,6 +429,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
+                    TryBeginSwap(p); // round 11: mesh dressing without a channel animates too
                     DriveProp(p, ramp);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
@@ -613,11 +635,27 @@ internal static partial class WallSegmentFade
                     }
                     if (c is MeshRenderer mr && RendererUsesWallFade(mr))
                     {
-                        // A wall in its own right — it has its own fade decision. If it belongs to
-                        // a segment that is NOT fading while its neighbour is, that is exactly how
-                        // a piece of wall trim survives; the owner label above says which.
-                        NoteStructuralSkip(c, "carries a WallFade shader — no segment claimed it");
-                        continue;
+                        // ROUND-11 SCONCE EXCEPTION: torch-fire bowls carry the WallFade
+                        // shader too, and the narrowed doorway grouping now leaves the
+                        // non-arch ones UNCLAIMED — a SMALL unclaimed fade-shader mesh is
+                        // sconce dressing and proceeds into the geometric tests below so it
+                        // rides its wall (gate columns included). Wall-sized fade meshes
+                        // keep the old skip: they are walls, not dressing.
+                        Bounds fb = mr.bounds;
+                        bool sconceScale = fb.size.x <= MountedMaxSpanWU
+                            && fb.size.y <= MountedMaxSpanWU
+                            && fb.size.z <= MountedMaxSpanWU
+                            && fb.size.x * fb.size.y * fb.size.z <= MountedMaxMeshVolumeWU3;
+                        if (!sconceScale)
+                        {
+                            // A wall in its own right — it has its own fade decision. If it
+                            // belongs to a segment that is NOT fading while its neighbour
+                            // is, that is exactly how a piece of wall trim survives; the
+                            // owner label above says which.
+                            NoteStructuralSkip(c,
+                                "carries a WallFade shader — no segment claimed it");
+                            continue;
+                        }
                     }
 
                     // WHICH GEOMETRY DECIDES (see the file header): a mesh is judged by its AABB,
@@ -733,6 +771,8 @@ internal static partial class WallSegmentFade
                         prop = ClassifyProp(c);
                     best.Mounted.Add(prop);
                     _mountedOwned.Add(c);
+                    NoteOwnershipChange(c,
+                        $"mounted:'{(best.Anchor != null ? best.Anchor.name : "?")}'");
                     _censusMounted++;
                     if (_mountedCensus.Count < MountedCensusCap)
                     {

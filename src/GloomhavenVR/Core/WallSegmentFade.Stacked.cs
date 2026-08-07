@@ -228,8 +228,63 @@ internal static partial class WallSegmentFade
 
         private readonly List<CornerPiece> _cornerPieces = new();
         private readonly List<CornerPiece> _prevCorners = new();
-        private readonly List<string> _cornerCensus = new();
         private int _lastLoggedCornerCount = -1;
+
+        // ---- ownership-churn tracker (round 11 — the "mal ist es da, mal ist es weg"
+        // neighbor asset): any renderer whose owner/protection changes more than
+        // OwnershipChurnMax times inside OwnershipChurnWindowSeconds is named in a WARN,
+        // so the next log identifies WHAT flaps and BETWEEN WHICH owners.
+        private const int OwnershipChurnMax = 2;
+        private const float OwnershipChurnWindowSeconds = 60f;
+
+        private sealed class OwnershipRecord
+        {
+            public float WindowStart;
+            public int Changes;
+            public string LastOwner = "";
+            public string History = "";
+            public bool Warned;
+        }
+
+        private readonly Dictionary<Renderer, OwnershipRecord> _ownershipChanges = new();
+
+        /// <summary>Record an ownership transition for a renderer (adoption by a named owner
+        /// or "released"); WARNs once per window when a piece flaps.</summary>
+        private void NoteOwnershipChange(Renderer r, string owner)
+        {
+            if (r == null)
+                return;
+            float now = Time.unscaledTime;
+            if (!_ownershipChanges.TryGetValue(r, out OwnershipRecord? rec))
+            {
+                if (_ownershipChanges.Count >= 96)
+                    _ownershipChanges.Clear(); // bounded scratch — worst case a fresh window
+                rec = new OwnershipRecord { WindowStart = now, LastOwner = owner, History = owner };
+                _ownershipChanges[r] = rec;
+                return;
+            }
+            if (owner == rec.LastOwner)
+                return; // steady ownership is not churn
+            if (now - rec.WindowStart > OwnershipChurnWindowSeconds)
+            {
+                rec.WindowStart = now;
+                rec.Changes = 0;
+                rec.History = rec.LastOwner;
+                rec.Warned = false;
+            }
+            rec.Changes++;
+            if (rec.History.Length < 160)
+                rec.History += " → " + owner;
+            rec.LastOwner = owner;
+            if (rec.Changes > OwnershipChurnMax && !rec.Warned)
+            {
+                rec.Warned = true;
+                VRLog.Warn(Name,
+                    $"OWNERSHIP CHURN: '{r.name}' changed owner {rec.Changes} times in "
+                    + $"{OwnershipChurnWindowSeconds:0}s ({rec.History}) — this is the "
+                    + "flapping-asset tripwire (round 11).");
+            }
+        }
 
         /// <summary>Renderers owned by a stacked list THIS rescan (one owner per renderer).</summary>
         private readonly HashSet<Renderer> _stackedOwned = new();
@@ -306,6 +361,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
+                    TryBeginSwap(p); // round 11: everything that fades animates
                     DriveProp(p, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
@@ -414,6 +470,8 @@ internal static partial class WallSegmentFade
                     MountedProp cprop = ClassifyProp(r);
                     _cornerPieces.Add(new CornerPiece { Prop = cprop, A = corner, B = cornerB });
                     _stackedOwned.Add(r);
+                    NoteOwnershipChange(r,
+                        $"corner-fast:'{(corner.Anchor != null ? corner.Anchor.name : "?")}'");
                     _mountedTouched[r] = cprop;
                     DriveProp(cprop, 1f);
                     r.enabled = false;
@@ -438,6 +496,8 @@ internal static partial class WallSegmentFade
                 if (extend)
                     best.Bounds = ext;
                 _stackedOwned.Add(r);
+                NoteOwnershipChange(r,
+                    $"stacked-fast:'{(best.Anchor != null ? best.Anchor.name : "?")}'");
                 _mountedTouched[r] = prop;
                 DriveProp(prop, 1f);
                 r.enabled = false;
@@ -775,6 +835,8 @@ internal static partial class WallSegmentFade
                     if (extend)
                         best.Bounds = ext;
                     _stackedOwned.Add(c);
+                    NoteOwnershipChange(c,
+                        $"stacked:'{(best.Anchor != null ? best.Anchor.name : "?")}'");
                     _censusStacked++;
                     adoptedAny = true;
                     if (_stackCensus.Count < StackCensusCap)
@@ -847,25 +909,40 @@ internal static partial class WallSegmentFade
                     prop = ClassifyProp(c);
                 _cornerPieces.Add(new CornerPiece { Prop = prop, A = a, B = second });
                 _stackedOwned.Add(c);
-                if (_cornerCensus.Count < 8)
-                {
-                    string an = a.Anchor != null ? a.Anchor.name : "<dead>";
-                    string bn = second == null ? "-"
-                        : second.Anchor != null ? second.Anchor.name : "<dead>";
-                    _cornerCensus.Add($"'{c.name}' y[{b.min.y:F1}..{b.max.y:F1}] ↔ '{an}'/'{bn}'");
-                }
+                NoteOwnershipChange(c,
+                    $"corner:'{(a.Anchor != null ? a.Anchor.name : "?")}'");
             }
 
             if (_cornerPieces.Count != _lastLoggedCornerCount)
             {
                 _lastLoggedCornerCount = _cornerPieces.Count;
                 if (_cornerPieces.Count > 0)
+                {
+                    // Round-11 census fix: the names come from the LIVE list at log time —
+                    // the old add-at-collection buffer was empty whenever sticky carry-over
+                    // skipped fresh collection, which printed "6 corner piece(s): ." with no
+                    // names and left round-11's tower question unanswerable from the log.
+                    var sb = new System.Text.StringBuilder();
+                    int listed = 0;
+                    foreach (CornerPiece cp in _cornerPieces)
+                    {
+                        Renderer r = cp.Prop.Renderer;
+                        if (r == null)
+                            continue;
+                        if (listed++ >= 8) { sb.Append("; …"); break; }
+                        if (sb.Length > 0) sb.Append("; ");
+                        Bounds cb = r.bounds;
+                        string an = cp.A.Anchor != null ? cp.A.Anchor.name : "<dead>";
+                        string bn = cp.B == null ? "-"
+                            : cp.B.Anchor != null ? cp.B.Anchor.name : "<dead>";
+                        sb.Append($"'{r.name}' y[{cb.min.y:F1}..{cb.max.y:F1}] ↔ '{an}'/'{bn}'");
+                    }
                     VRLog.Info(Name,
                         $"CORNER PIECES: {_cornerPieces.Count} shared corner piece(s) between "
                         + $"wall faces (hidden only while ALL adjacent walls are faded — the "
                         + $"tower between two open faces opens too; single-neighbor pieces "
-                        + $"ride that wall): {string.Join("; ", _cornerCensus)}.");
-                _cornerCensus.Clear();
+                        + $"ride that wall): {sb}.");
+                }
             }
         }
 
@@ -909,6 +986,8 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 _mountedTouched[r] = cp.Prop;
+                if (fade < FoliageHideFade)
+                    TryBeginSwap(cp.Prop); // round 11: corner pieces animate too
                 DriveProp(cp.Prop, fade);
                 if (fade >= FoliageHideFade)
                 {

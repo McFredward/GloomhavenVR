@@ -604,6 +604,12 @@ internal static partial class WallSegmentFade
             _cornerPieces.Clear();           // corner ownership dies with the scene
             _lastLoggedCornerCount = -1;
             _dumpedBodyShaders.Clear();      // re-dump body shader properties per scene
+            _gateSliverLogged.Clear();       // re-log sliver-skipped gates per scene
+            _ownershipChanges.Clear();       // fresh churn ledger per scene
+            _masonryFadeShader = null;       // re-capture the dissolve-swap template
+            _swapTotal = 0;
+            _nextSwapLog = 0f;
+            _lastLoggedReanchorCount = -1;   // re-print the re-anchor census
             _peerFades.Clear();              // peers re-state their fades for the new scene
             _loggedToggleMats.Clear();       // …and the toggle-native material lines
         }
@@ -2043,7 +2049,20 @@ internal static partial class WallSegmentFade
                 // split routing (a doorway is archway-sized, never a room-engulfing slab).
                 Transform? doorRoot = FindDoorwayRoot(r);
                 if (doorRoot != null)
+                {
+                    // ROUND-11 TORCH FIX (ModBuild-69 census: 'CR_St_WallTorch_Fire …
+                    // already the wall renderer of ThickDoor (that wall's fade 0.00)'):
+                    // the permanently-solid DOORWAY segment holds ONLY the arch. A
+                    // door-hugging fade renderer OUTSIDE the arch rect — the torch fire on
+                    // the embedding/inner gate face — must not be chained to it: it is left
+                    // UNCLAIMED here, and the mounted sweep's new sconce-scale exception
+                    // adopts it to ride its nearest fading wall (gate column included).
+                    // Applies only when the door has a live gate column (an arch rect
+                    // exists); sliver-skipped doors keep the old full-radius grouping.
+                    if (HasGateColumnFor(doorRoot) && !IsArchProtected(r.bounds, r.name))
+                        continue;
                     anchor = doorRoot;
+                }
                 // A group that proved too fat to be a slab is tracked per renderer instead
                 // (see _splitAnchors) — route straight to the per-renderer segment so its
                 // smoothing state survives every rescan.
@@ -2727,12 +2746,20 @@ internal static partial class WallSegmentFade
             return false;
         }
 
-        /// <summary>ADJACENT RE-ANCHOR reach (round 6, wu): a wall whose nearest room is
-        /// unanchorable re-anchors to an anchored logical room only when it PHYSICALLY
-        /// borders it — XZ gap at most this. A bordering wall touches its room (gap ≈ 0);
-        /// 2.0 covers door frames and corner slack while a genuinely interior wall of a
-        /// distant unrevealed room (other map tiles ≥ ~11 wu away) can never reach.</summary>
-        private const float AdjacentReanchorMaxGapWU = 2.0f;
+        /// <summary>ADJACENT RE-ANCHOR reach (round 6, wu; round 11 raised 2.0 → 4.0): a
+        /// wall whose nearest room is unanchorable re-anchors to an anchored logical room
+        /// only when it PHYSICALLY borders it — XZ gap at most this. Round-11 hardware: the
+        /// two gate-flanking TOWERS stood permanently solid among 18 fail-safe walls — they
+        /// PROTRUDE outward from the gate face on the rock base, beyond the old 2.0-wu
+        /// reach of the room footprint. 4.0 covers tower/buttress protrusion while distant
+        /// unrevealed rooms (other map tiles ≥ ~11 wu away) still can never reach. Every
+        /// re-anchored wall is named in the census line below.</summary>
+        private const float AdjacentReanchorMaxGapWU = 4.0f;
+
+        /// <summary>Round-11 census: which walls the adjacent re-anchor rescued this rescan
+        /// (name + XZ gap) — the log line that shows the towers joining the fade.</summary>
+        private readonly List<string> _reanchorCensus = new();
+        private int _lastLoggedReanchorCount = -1;
 
         /// <summary>
         /// Is this material's wall-fade subgraph PRESENT AND DRIVEABLE (round-9 game-wide
@@ -2916,6 +2943,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void AssociateRooms()
         {
+            _reanchorCensus.Clear();
             foreach (Segment seg in _segments.Values)
             {
                 seg.RoomIndex = -1;
@@ -2972,8 +3000,25 @@ internal static partial class WallSegmentFade
                         }
                     }
                     if (alt >= 0)
+                    {
                         seg.RoomIndex = alt;
+                        if (_reanchorCensus.Count < 12)
+                        {
+                            string n = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                            _reanchorCensus.Add($"'{n}' gap {Mathf.Sqrt(altGap):F1}");
+                        }
+                    }
                 }
+            }
+            if (_reanchorCensus.Count != _lastLoggedReanchorCount)
+            {
+                _lastLoggedReanchorCount = _reanchorCensus.Count;
+                if (_reanchorCensus.Count > 0)
+                    VRLog.Info(Name,
+                        $"ADJACENT RE-ANCHOR: {_reanchorCensus.Count} wall(s) bound to the "
+                        + $"anchored room they border (reach ≤{AdjacentReanchorMaxGapWU:0.0} wu "
+                        + $"— round 11: gate towers protrude on the rock base): "
+                        + $"{string.Join(", ", _reanchorCensus)}.");
             }
         }
 
@@ -3190,6 +3235,7 @@ internal static partial class WallSegmentFade
                 {
                     seg.ToggleNative++;
                     LogToggleNativeMaterialOnce(m);
+                    CaptureMasonryTemplate(m); // round-11 dissolve-swap template donor
                     shaderName += "(toggle-native)";
                 }
                 // Held-state cutoff = the material's authored "Mask Clip Value" — the flat

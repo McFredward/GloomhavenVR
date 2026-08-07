@@ -192,6 +192,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
+                    TryBeginSwap(p); // round 11: everything that fades animates
                     DriveProp(p, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
