@@ -320,6 +320,7 @@ internal static partial class Loc
             ["WallFade/ExitDwellMovedSeconds"] = Pair("Unfade dwell, moved (s)", "Einblende-Wartezeit (s)"),
             ["WallFade/ExitDwellStationarySeconds"] = Pair("Unfade dwell, still (s)", "Wartezeit, ruhig (s)"),
             ["WallFade/StackedShellFade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
+            ["WallFade/SyncPeerFades"] = Pair("Sync teammates' wall fades", "Wand-Fades der Mitspieler"),
 
             // ---- [Perf] / [Optimize] — measurement & optimizations --------------------------
             ["Perf/Enabled"] = Pair("Enable measurement", "Messung aktivieren"),

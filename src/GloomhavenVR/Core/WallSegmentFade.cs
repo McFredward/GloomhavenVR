@@ -31,6 +31,9 @@ internal static class WallFadeTuning
     /// <summary>Fort/keep superstructures: adopt plain meshes stacked on a tracked wall into that
     /// wall's fade (occlusion AABB + dissolve ride-along — see WallSegmentFade.Stacked.cs).</summary>
     internal static ConfigEntry<bool>? StackedShellFade;
+    /// <summary>MP: also fade the walls a TEAMMATE's wall fade currently hides (wire record 17;
+    /// receiver-side gate — own fades are always broadcast, see WallSegmentFade.Net.cs).</summary>
+    internal static ConfigEntry<bool>? SyncPeerFades;
 
     internal static void Bind()
     {
@@ -56,6 +59,11 @@ internal static class WallFadeTuning
             "occlusion box and dissolve/reappear with its fade — without this, a multi-story keep " +
             "stays fully solid because only its bottom course is real wall geometry. OFF = vanilla " +
             "look for such shells. Live (applies at the next 2s rescan).");
+        SyncPeerFades = config.Bind("WallFade", "SyncPeerFades", Defaults.SyncPeerFades,
+            "Multiplayer: walls that fade for a TEAMMATE also fade for you (and reappear when " +
+            "they do for them) — same animation as your own wall fades. Receiver-side setting: " +
+            "your own fades are always broadcast (bytes are cheap), each player's toggle decides " +
+            "only what THEY see, so toggling mid-session needs no renegotiation. Live.");
     }
 
     // Clamped live accessors — safe before Bind() (fall back to the shipped defaults).
@@ -65,6 +73,7 @@ internal static class WallFadeTuning
     internal static float DwellStationary =>
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
     internal static bool StackedShells => StackedShellFade == null || StackedShellFade.Value;
+    internal static bool SyncPeer => SyncPeerFades == null || SyncPeerFades.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -595,6 +604,7 @@ internal static partial class WallSegmentFade
             _cornerPieces.Clear();           // corner ownership dies with the scene
             _lastLoggedCornerCount = -1;
             _dumpedBodyShaders.Clear();      // re-dump body shader properties per scene
+            _peerFades.Clear();              // peers re-state their fades for the new scene
             _loggedToggleMats.Clear();       // …and the toggle-native material lines
         }
 
@@ -766,8 +776,18 @@ internal static partial class WallSegmentFade
                     }
                 }
 
-                // Critically-damped-style exponential fade toward the debounced state.
-                float target = seg.State ? 1f : 0f;
+                // Critically-damped-style exponential fade toward the debounced state — OR a
+                // PEER's synced fade (MP sync, wire record 17): effective target =
+                // max(local decision, any live peer set containing this wall's key). Composed
+                // at the TARGET so the identical ramp, delivery and restore machinery runs
+                // and a synced fade is visually indistinguishable from a local one;
+                // dwell-free by design (the deciding peer already dwelled). Doorway segments
+                // stay exempt here too — they never fade anywhere, on any machine.
+                int peerFadeId = 0;
+                bool remoteFade = seg.DoorRoot == null
+                    && RemoteWantsFade(seg, now, out peerFadeId);
+                LogRemoteFadeEdge(seg, remoteFade, peerFadeId);
+                float target = (seg.State || remoteFade) ? 1f : 0f;
                 seg.Fade += (target - seg.Fade) * fadeStep;
                 if (Mathf.Abs(target - seg.Fade) < 0.005f)
                     seg.Fade = target;
@@ -1735,6 +1755,9 @@ internal static partial class WallSegmentFade
             // plane + hugging the wall slab), so it needs the FINAL segment table, their room
             // association and their ground-stripped (now shell-extended) AABBs.
             CollectWallMountedProps(sceneRenderers);
+            // MP sync (record 17): refresh every segment's cross-machine wire key — needs the
+            // final table and the room labels (part of the key derivation).
+            ComputeWireKeys();
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
@@ -3311,6 +3334,7 @@ internal static partial class WallSegmentFade
             _allSamples.Clear();
             _floorYByRenderer.Clear();
             _cornerPieces.Clear();
+            _peerFades.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }

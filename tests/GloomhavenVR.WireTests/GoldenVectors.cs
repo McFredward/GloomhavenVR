@@ -1509,6 +1509,68 @@ internal static class GoldenVectors
                "a hand-built zero-actor record still parses the packet");
         t.True(!thZero.HasTrackHover, "and is simply not delivered");
 
+        // -- 7o. WALL FADES (extension record 17) ------------------------------------------
+        // The sender's currently-faded wall set by cross-machine stable key (FNV-1a over
+        // anchor name + CMap room label + quantized anchor XZ — see the record doc). Sorted,
+        // capped at 24; the receiver's [WallFade] SyncPeerFades decides application.
+        t.Case("7o. extras, wall-fades record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasWallFades = true, WallFadesCount = 2,
+            WallFadesKeys = new uint[] { 0x01020304u, 0xA1B2C3D4u },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            11 09            // id 17 (wall fades), len 1+4n = 9
+            02               // count 2
+            04 03 02 01      // key 0 LE
+            D4 C3 B2 A1      // key 1 LE
+            "), ext, m, "the wall-fades record is [id 17][len 1+4n][count][n x u32 key LE]");
+        t.Equal(22, m, "header 7 + count 1 + block 2 + tail 1 + 11 = 22 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState wf), "and it parses");
+        t.True(wf.HasWallFades, "the wall-fade set is delivered");
+        t.Equal(2, wf.WallFadesCount, "with both keys");
+        t.True(wf.WallFadesKeys != null && wf.WallFadesKeys.Length == 2
+               && wf.WallFadesKeys[0] == 0x01020304u && wf.WallFadesKeys[1] == 0xA1B2C3D4u,
+               "and the key values intact");
+
+        // An EMPTY set writes no record: byte-identical to a pre-record-17 sender.
+        m = PresenceSerializer.Write(new PresenceState { HasWallFades = true }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "an empty wall-fade set is never written — the packet stays the idle packet");
+
+        // NEVER TRUST THE WIRE: a count byte claiming more keys than the record LENGTH holds
+        // is clamped to what actually fits — here count says 5 but len 5 fits exactly one key.
+        byte[] overCount = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 11 05 05 AA BB CC DD");
+        t.True(PresenceSerializer.TryRead(overCount, overCount.Length, out PresenceState wfOver),
+               "a hand-built over-count record still parses the packet");
+        t.True(wfOver.HasWallFades && wfOver.WallFadesCount == 1
+               && wfOver.WallFadesKeys != null && wfOver.WallFadesKeys[0] == 0xDDCCBBAAu,
+               "and delivers exactly the keys the length can hold");
+
+        // A zero-count record degrades to "record absent" — no peer wall fades.
+        byte[] zeroWalls = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 11 01 00");
+        t.True(PresenceSerializer.TryRead(zeroWalls, zeroWalls.Length, out PresenceState wfZero),
+               "a hand-built zero-count record still parses the packet");
+        t.True(!wfZero.HasWallFades, "and is simply not delivered");
+
+        // The WRITER cap: more keys than WallFadesMaxKeys are truncated to the cap (the
+        // sender logs the truncation; the first 24 sorted keys still ride).
+        var manyKeys = new uint[30];
+        for (int k = 0; k < manyKeys.Length; k++)
+            manyKeys[k] = (uint)(k + 1);
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasWallFades = true, WallFadesCount = 30, WallFadesKeys = manyKeys,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState wfCap), "a capped set parses");
+        t.Equal(NetProtocol.WallFadesMaxKeys, wfCap.WallFadesCount,
+                "and delivers exactly the 24-key cap");
+
         // ID ORDER of the new tail region: records 10, 14, 15, 16 in that order — a reorder in
         // Write shows up right here, and this is also the OLD-READER vector (to a pre-batch
         // peer, ids 14/15/16 are unknown records it steps over by length).

@@ -141,6 +141,9 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Compat", "WallFade", "wall_see_through"),
+                        // MP wall-fade sync (wire record 17): receiver-side toggle — it must
+                        // be reachable in-headset next to the feature it extends.
+                        new("WallFade", "SyncPeerFades", "wallfade_sync"),
                     },
                 },
                 new()

@@ -591,6 +591,10 @@ internal static partial class Loc
         // between tabs in this restructure, so they are localized on the way (the whole mod is
         // localized — a moved row must not arrive as a hardcoded string).
         ["wall_see_through"] = Pair("See-through walls", "Wände durchsichtig"),
+        ["wallfade_sync"] = Pair("Sync teammates' wall fades", "Wand-Fades der Mitspieler"),
+        ["h_wallfade_sync"] = Pair(
+            "Walls that fade for a teammate also fade for you — same animation as your own.",
+            "Wände, die bei einem Mitspieler ausgeblendet sind, verschwinden auch bei dir — mit derselben Animation wie deine eigenen."),
         ["element_hints"] = Pair("Element hints", "Element-Hinweise"),
 
         ["show_combat_log"] = Pair("Show combat log", "Kampflog anzeigen"),

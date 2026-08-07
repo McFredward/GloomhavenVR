@@ -391,6 +391,21 @@ internal struct PresenceState
     /// when <see cref="HasTrackHover"/>.</summary>
     public bool TrackHoverPopup;
 
+    /// <summary>The sender's currently-faded wall set rides this packet (extension record
+    /// <see cref="NetProtocol.ExtIdWallFades"/> — MP wall-fade sync). Written only while the
+    /// set is non-empty, so an idle packet stays byte-identical to the previous build's.</summary>
+    public bool HasWallFades;
+
+    /// <summary>Number of valid entries in <see cref="WallFadesKeys"/> (≤
+    /// <see cref="NetProtocol.WallFadesMaxKeys"/> after clamping on both ends).</summary>
+    public int WallFadesCount;
+
+    /// <summary>The faded walls' cross-machine stable keys (see the record doc for the
+    /// derivation), sorted ascending. May be longer than <see cref="WallFadesCount"/> (the
+    /// sender passes its persistent sample buffer); only the first count entries go on the
+    /// wire.</summary>
+    public uint[]? WallFadesKeys;
+
     /// <summary>
     /// True when this packet carries the BUTTON LABELS of the sender's docked decision row
     /// (extension record <see cref="NetProtocol.ExtIdDecisionLines"/>). Written only while a
@@ -498,7 +513,11 @@ internal struct PresenceState
 ///                        16 TRACK HOVER ([flags][int32 actorId LE] — the initiative-track entry
 ///                        the sender hovers, by the stable ActorGuid hash (NetFigures.StableActorId;
 ///                        display order is per-client); flags bit0 = info popup open; only while
-///                        hovering, see NetProtocol.ExtIdTrackHover)
+///                        hovering, see NetProtocol.ExtIdTrackHover),
+///                        17 WALL FADES ([count][count × u32 wall key LE] — the sender's
+///                        currently-faded wall set by cross-machine stable key, ≤24, sorted;
+///                        only while non-empty; receiver-gated by [WallFade] SyncPeerFades,
+///                        see NetProtocol.ExtIdWallFades)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -535,10 +554,11 @@ internal static class PresenceSerializer
     /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
     /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 4 (half hover+select: 2 + 2)
-    /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5) = 718, still inside the 736 headroom.
-    /// Local buffer bound only — nothing on the wire depends on it, and every variable-length
-    /// record still bounds-checks against the real buffer before writing.</summary>
-    public const int MaxSize = 736;
+    /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5)
+    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap) = 817, still inside the 848
+    /// headroom. Local buffer bound only — nothing on the wire depends on it, and every
+    /// variable-length record still bounds-checks against the real buffer before writing.</summary>
+    public const int MaxSize = 848;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -574,6 +594,10 @@ internal static class PresenceSerializer
                           // A zero actor id writes no record (0 = "none" everywhere), so it must
                           // not open the tail either — same rule as the empty pick-banner line.
                           || (state.HasTrackHover && state.TrackHoverActorId != 0)
+                          // An EMPTY wall-fade set writes no record, so it must not open the
+                          // tail either (idle packets stay byte-identical to the last build's).
+                          || (state.HasWallFades && state.WallFadesCount > 0
+                              && state.WallFadesKeys != null)
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
@@ -908,6 +932,27 @@ internal static class PresenceSerializer
                     buffer[i++] = (byte)(thFlags & NetProtocol.TrackHoverDefinedMask);
                     AvatarSerializer.WriteI32(buffer, ref i, state.TrackHoverActorId);
                     records++;
+                }
+                if (state.HasWallFades && state.WallFadesKeys != null
+                    && state.WallFadesCount > 0)
+                {
+                    // WALL FADES (17): [count][count × u32 key LE], keys pre-sorted by the
+                    // sender. Count is clamped to the cap AND the caller's buffer before a
+                    // single byte goes out; an empty set was already excluded above.
+                    int n = state.WallFadesCount;
+                    if (n > NetProtocol.WallFadesMaxKeys)
+                        n = NetProtocol.WallFadesMaxKeys;
+                    if (n > state.WallFadesKeys.Length)
+                        n = state.WallFadesKeys.Length;
+                    if (n > 0 && i + 2 + 1 + 4 * n <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdWallFades;
+                        buffer[i++] = (byte)(1 + 4 * n);
+                        buffer[i++] = (byte)n;
+                        for (int k = 0; k < n; k++)
+                            AvatarSerializer.WriteU32(buffer, ref i, state.WallFadesKeys[k]);
+                        records++;
+                    }
                 }
                 buffer[countAt] = records;
             }
@@ -1431,6 +1476,30 @@ internal static class PresenceSerializer
                         state.PileDiscardCount = buffer[i];
                         state.PileBurntCount = buffer[i + 1];
                         state.PileItemsCount = buffer[i + 2];
+                    }
+                    else if (id == NetProtocol.ExtIdWallFades
+                             && len >= NetProtocol.WallFadesMinRecordBytes)
+                    {
+                        // WALL FADES: [count][count × u32 key LE]. The count is re-clamped
+                        // against the record LENGTH and the cap (never trust the wire); zero
+                        // surviving keys degrade to "record absent" — no peer wall fades,
+                        // exactly what a pre-record sender produces.
+                        int n = buffer[i];
+                        int fit = (len - 1) / 4;
+                        if (n > fit)
+                            n = fit;
+                        if (n > NetProtocol.WallFadesMaxKeys)
+                            n = NetProtocol.WallFadesMaxKeys;
+                        if (n > 0)
+                        {
+                            var keys = new uint[n];
+                            int j = i + 1;
+                            for (int k = 0; k < n; k++)
+                                keys[k] = AvatarSerializer.ReadU32(buffer, ref j);
+                            state.HasWallFades = true;
+                            state.WallFadesCount = n;
+                            state.WallFadesKeys = keys;
+                        }
                     }
                     else if (id == NetProtocol.ExtIdTrackHover
                              && len >= NetProtocol.TrackHoverRecordBytes)

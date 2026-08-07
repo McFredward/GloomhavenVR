@@ -313,6 +313,12 @@ internal static partial class Loc
                 + "ohne diese Option bleibt eine mehrstöckige Festung komplett massiv, weil nur ihr unterstes "
                 + "Geschoss echte Mauer-Geometrie ist. AUS = Originalanblick solcher Aufbauten. Live (greift "
                 + "beim nächsten 2-Sekunden-Rescan).",
+            ["WallFade/SyncPeerFades"] =
+                "Mehrspieler: Wände, die bei einem MITSPIELER ausgeblendet sind, verschwinden auch bei dir "
+                + "(und kehren zurück, wenn sie es bei ihm tun) — mit derselben Animation wie deine eigenen "
+                + "Wand-Ausblendungen. Empfänger-Einstellung: Die eigenen Ausblendungen werden immer "
+                + "gesendet; jeder Spieler entscheidet mit diesem Schalter nur, was ER sieht — Umschalten "
+                + "mitten in der Sitzung braucht keine Neuverhandlung. Live änderbar.",
             // ---- [Comfort] ----
             ["Comfort/WorldGrabEnabled"] =
                 "Tisch-Manipulation über den Griff: ein Griff (abseits greifbarer Objekte) zieht den Tisch, "
