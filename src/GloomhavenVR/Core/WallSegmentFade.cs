@@ -164,7 +164,17 @@ internal static class WallFadeTuning
 ///   HIGH deliveries are m=1 constants (clip = 1-c everywhere: whole wall visible, or
 ///   with c&gt;1 the R2 TOTAL discard that erased the foundation). Every fade logs the
 ///   wall's shader variant + applied cutoff so a hardware log pins down which math
-///   applied.</item>
+///   applied. ROUND 14 CLOSES THIS QUESTION: in VR the residual is not cosmetic,
+///   because the vignette is centred on each EYE's own screen — the asymmetric OpenXR
+///   frusta put the two rings ~15% of a screen width apart, which is wider than the
+///   whole span between "fully discarded" and "fully solid", so one wall can be gone
+///   in one eye and standing in the other. And it cannot be removed on this shader
+///   without giving up the per-pixel dissolve with it: the masonry variant
+///   (<c>Amp_Basic_N_MRAO</c>) ends in <c>mad_sat</c>, so the one state that takes the
+///   vignette out of the compare (M ≥ 1, reachable through the undeclared global
+///   <c>_EnableOcclusionMap</c>) also clamps the discard to a single per-renderer
+///   comparison — the binary pop. Proof, algebra and the per-eye MEASUREMENT that
+///   reports it from the live stereo matrices: WallSegmentFade.Stereo.cs.</item>
 /// <item>SOLID (fade=0): the MPB is REMOVED — with <see cref="Compat.WallFadeDisable"/> now
 ///   pinning the GLOBAL <c>ToggleWallFade</c> to 0 unconditionally (the game-camera
 ///   TilesOcclusionGenerator still publishes a head-viewpoint-invalid map; globally-open
@@ -727,9 +737,26 @@ internal static partial class WallSegmentFade
             float exitDwellStationary = WallFadeTuning.DwellStationary;
             foreach (Segment seg in _segments.Values)
             {
+                // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
+                // des Torbogens ist nun dauerhaft ausgeblendet und kommt auch nicht wieder,
+                // obwohl es den Raum nicht verdeckt"). A segment without a decision AABB cannot
+                // be judged, and the old `continue` skipped its ENTIRE tick — decision, fade
+                // ramp AND Apply — so everything it had hidden stayed hidden with no path back:
+                // a permanent latch, invisible in the diag (which skips boundless segments too)
+                // and silent in the log (no state flip can happen if the state machine never
+                // runs). That is the one thing the wall system may never do. A boundless
+                // segment is now forced OFF and still runs the ramp + Apply below, so its
+                // renderers, foliage, siblings, mounted props, stacked shell and body meshes
+                // come back through the NORMAL animated un-fade. GATE COLUMNS are the class
+                // that reaches this state (they legitimately own zero wall renderers, so every
+                // pass that rebuilds an AABB from the renderer union can strip their bounds);
+                // EnsureGateBounds re-anchors them from the arch seed at the next rescan, and
+                // WatchLatch names anything that still disagrees.
                 if (!seg.HasBounds)
-                    continue;
-
+                {
+                    seg.State = false;
+                    seg.PendingRaw = false;
+                }
                 // Undecidable-as-one-unit segments (see NeutralizeEngulfingSegments) are held
                 // solid: state forced off, the fade below decays any residual block away.
                 // DOORWAY segments (user ruling 2026-08-02): archways/doorways NEVER fade —
@@ -743,7 +770,8 @@ internal static partial class WallSegmentFade
                 // (the mid-scenario reveal case), and a wrong fade deletes geometry. Solid is
                 // the vanilla look, strictly safe; the wall joins the fade the moment its room
                 // is anchored (next 2s rescan / reveal-triggered rescan).
-                if (seg.Engulfing || seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
+                else if (seg.Engulfing || seg.DoorRoot != null
+                    || !RoomDecisionValid(seg.RoomIndex))
                 {
                     seg.State = false;
                     seg.PendingRaw = false;
@@ -810,6 +838,14 @@ internal static partial class WallSegmentFade
                 seg.Fade += (target - seg.Fade) * fadeStep;
                 if (Mathf.Abs(target - seg.Fade) < 0.005f)
                     seg.Fade = target;
+                // Round-14 watchdog: a fade the live coverage no longer supports must be
+                // impossible to miss in the next hardware log (see WatchLatch).
+                WatchLatch(seg, now, reevalArmed ? exitDwellMoved : exitDwellStationary,
+                    remoteFade, gateLift);
+                // A gate column's decision state must survive the door prop's death WITHOUT
+                // outliving the evidence for it — snapshot it live, not once per rescan.
+                if (seg.IsGateColumn)
+                    WriteGateMemory(seg);
 
                 Apply(seg);
             }
@@ -824,6 +860,11 @@ internal static partial class WallSegmentFade
                 _nextDiagTime = now + DiagIntervalSeconds;
                 LogDiagnostic(headPos, visibleCount);
             }
+            // ROUND-14 MEASUREMENT (diagnostics only — nothing rendered differs): evaluate the
+            // game shader's own discard scalar for BOTH eyes over every fading wall, so the
+            // next hardware log says whether the eyes can currently disagree and by how much.
+            // See WallSegmentFade.Stereo.cs for why this is a measurement and not a fix.
+            SweepEyeStraddle(head!, now);
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
             ApplyCornerPieces();
@@ -1819,6 +1860,10 @@ internal static partial class WallSegmentFade
             ComputeWireKeys();
             // Gate-lift links (round 12): bind embedding walls to their gate columns.
             LinkGateLifts();
+            // ROUND-14 BOUNDS GUARANTEE, deliberately LAST: no gate column may leave a rescan
+            // without a decision AABB — a boundless segment is one the coverage decision cannot
+            // reach, and an unreachable segment can hold its pieces hidden forever.
+            EnsureGateBounds();
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
@@ -1902,6 +1947,14 @@ internal static partial class WallSegmentFade
                     _deadKeys.Add(kv.Key);
                     continue;
                 }
+                // ROUND 14: a GATE COLUMN's decision AABB is its ARCH SEED (plus the stacked /
+                // pillar extensions), never a renderer union — it legitimately owns zero wall
+                // renderers, so rebuilding its bounds here would leave it BOUNDLESS, i.e.
+                // unevaluated, i.e. latched in whatever fade state it held (the "masonry above
+                // the arch never comes back" report). Ground-stripping its adopted pillars is
+                // still correct; its bounds are not this pass's to rebuild.
+                if (seg.IsGateColumn)
+                    continue;
                 // Recompute the AABB from the surviving (actual wall) renderers + body.
                 seg.HasBounds = false;
                 foreach (MeshRenderer r in seg.Renderers)
@@ -3458,6 +3511,11 @@ internal static partial class WallSegmentFade
             _floorYByRenderer.Clear();
             _cornerPieces.Clear();
             _peerFades.Clear();
+            // Round 14: gate lifecycle state is per-scenario — a stale arch rect or a
+            // remembered fade from the previous table must never seed the next one.
+            _archRects.Clear();
+            _gateMemory.Clear();
+            _gateSliverLogged.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }
