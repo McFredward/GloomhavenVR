@@ -150,6 +150,25 @@ internal sealed partial class CardsDriver : MonoBehaviour
     /// Null while no cards driver exists (outside VR / before the module builds it).</summary>
     private static CardsDriver? Instance;
 
+    /// <summary>
+    /// Ask for a card REBUILD on the next update (feature "free character focus").
+    ///
+    /// <para>WHY IT EXISTS: <c>Rebuild</c> runs on an EDGE — <c>_dirty</c>, set by the game-driven
+    /// events the driver subscribes to (mode change, card-selection change, hand shown, …). A
+    /// character focus is a MOD-side change the game emits no event for, so without this the board
+    /// would keep showing the previous character until the game happened to raise an unrelated
+    /// event. It is also how a live read-only focus view stays current: the watched character's
+    /// hand changes as THEY play, and none of those changes raise a local event either.</para>
+    ///
+    /// <para>No-op when no driver exists (flat / pre-build). Setting a flag is the whole body —
+    /// the rebuild itself happens on the driver's own tick, on the main thread, in frame order.</para>
+    /// </summary>
+    internal static void RequestRebuild()
+    {
+        if (Instance != null)
+            Instance._dirty = true;
+    }
+
     private void OnEnable()
     {
         Instance = this;

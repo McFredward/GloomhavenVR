@@ -1168,6 +1168,64 @@ internal static class NetProtocol
     /// never trust the wire.</summary>
     public const int WallFadesMinRecordBytes = 1;
 
+    // ---- record 22: CHARACTER FOCUS ---------------------------------------------------------
+    // Ids 18..21 are DELIBERATELY SKIPPED here: they are reserved for records developed in
+    // parallel with this one (a record id, once shipped, can never be renumbered, so two workers
+    // must not both take "the next free id"). This record therefore starts at 22 rather than 18.
+
+    /// <summary>
+    /// Extension record id: WHICH CHARACTER THE SENDER IS CURRENTLY LOOKING AT — their EFFECTIVE
+    /// character focus — plus the one fact only they can know, namely whether the character
+    /// currently AT TURN is one of theirs.
+    ///
+    /// <para>WHY IT RIDES THE WIRE (feature "free character focus"): in VR a player may focus any
+    /// character during the action phase to read that character's hand, piles and played cards.
+    /// The rest of the table must be able to see (a) WHO owns the character whose turn it is and
+    /// (b) whether that player is actually LOOKING at the character they have to play — the green
+    /// / red control-board and Steam-avatar outlines. (a) is derivable from the replicated model on
+    /// every client only via the FFSNet controllable registry, which is <em>reflection</em> and
+    /// only authoritative on the owning client (<c>CActor.IsUnderMyControl</c> is a LOCAL flag —
+    /// it is false on every other machine); (b) is a purely local VR presentation choice the game
+    /// model knows nothing about. So exactly those two facts travel, and nothing else.</para>
+    ///
+    /// <para>LAYOUT — <see cref="CharFocusRecordBytes"/> = 5 bytes:
+    /// <c>[flags][int32 focusActorId LE]</c>.
+    /// <list type="bullet">
+    /// <item><c>flags</c> bit0 = <see cref="CharFocusOwnsTurnBit"/>: the sender OWNS the actor that
+    ///   is currently at turn (<c>Choreographer.CurrentActor</c> is under their control). Masked to
+    ///   <see cref="CharFocusDefinedMask"/> on write AND on read.</item>
+    /// <item><c>focusActorId</c> = <c>NetFigures.StableActorId</c> of the focused character — the
+    ///   FNV-1a-32 hash of the replicated <c>CActor.ActorGuid</c>, the one id space that agrees
+    ///   across machines (the per-class <c>CActor.ID</c> collides and must never be used). It is
+    ///   the SAME id space records 8 (second figure) and 16 (track hover) already ride.</item>
+    /// </list></para>
+    ///
+    /// <para>NO CARD IDENTITY, BY CONSTRUCTION: the payload names a CHARACTER, never a card. What a
+    /// receiver draws from it is an outline colour. A peer that wants to render the focused
+    /// character's cards reads them from the host-replicated <c>CPlayerActor.CharacterClass</c>
+    /// through <see cref="RevealGate"/>, exactly as <c>RemoteAbilityCardSource</c> already does —
+    /// this record adds no new disclosure channel of any kind.</para>
+    ///
+    /// <para>Written ONLY when the focus is known (a non-zero actor id); an actor id of 0 is
+    /// "none" everywhere in this system and is never emitted, so a client with no scenario — or a
+    /// player who is merely spectating — emits a packet byte-identical to the previous build's.
+    /// Absence means "no focus known", which renders as no outline at all: the pre-record
+    /// behaviour.</para>
+    /// </summary>
+    public const byte ExtIdCharFocus = 22;
+
+    /// <summary>Flags bit 0 of <see cref="ExtIdCharFocus"/>: the SENDER owns the character that is
+    /// currently at turn. Only the owning client can evaluate this (<c>IsUnderMyControl</c> is a
+    /// local flag), which is precisely why it travels.</summary>
+    public const byte CharFocusOwnsTurnBit = 1 << 0;
+
+    /// <summary>Every flag bit <see cref="ExtIdCharFocus"/> defines today. Writer and reader both
+    /// mask with it, so a future sender's extra bits can never light a meaning here.</summary>
+    public const byte CharFocusDefinedMask = CharFocusOwnsTurnBit;
+
+    /// <summary>Payload size of <see cref="ExtIdCharFocus"/>: 1 flags byte + 4 actor-id bytes.</summary>
+    public const int CharFocusRecordBytes = 5;
+
     /// <summary>
     /// Extension record id: the BUTTON LABELS of the sender's DOCKED DECISION ROW — the real game
     /// widgets their <c>WorldUI.Surfaces.DecisionDockSurface</c> currently docks below their

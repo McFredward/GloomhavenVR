@@ -1803,6 +1803,101 @@ internal static class GoldenVectors
             0D 04 01 02 4F 4B// id 13 cap labels, confirm 'OK'
             "), ext, m, "records 12 and 13 ride the tail behind record 9 (id order 9, 12, 13)");
 
+        // -- 7q. CHARACTER FOCUS (extension record 22) --------------------------------------
+        // Which character the sender is LOOKING at (free character focus), by the stable
+        // ActorGuid hash, plus the one fact only they can know: whether the character at turn is
+        // theirs. Ids 18..21 are deliberately skipped — reserved for records developed in
+        // parallel, and a shipped id can never be renumbered.
+        t.Case("7q. extras, character-focus record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCharFocus = true, CharFocusActorId = 0x0A0B0C0D, CharFocusOwnsTurn = true,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only (bit 7)
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            16 05            // id 22 (character focus), len 5
+            01               // flags: bit0 the sender owns the actor at turn
+            0D 0C 0B 0A      // focus actor id LE
+            "), ext, m, "the character-focus record is [id 22][len 5][flags][focus actorId LE]");
+        t.Equal(18, m, "header 7 + count 1 + block 2 + tail 1 + 7 = 18 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cf), "and it parses");
+        t.True(cf.HasCharFocus, "the focus is delivered");
+        t.Equal(0x0A0B0C0D, cf.CharFocusActorId, "with the stable actor id intact");
+        t.True(cf.CharFocusOwnsTurn, "and the owns-the-turn flag set");
+
+        // The flag is genuinely independent of the id (a player focusing a character while
+        // somebody ELSE is at turn — the common case for a spectating focus).
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCharFocus = true, CharFocusActorId = 0x00000011, CharFocusOwnsTurn = false,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            01
+            16 05
+            00               // flags: the sender does NOT own the actor at turn
+            11 00 00 00
+            "), ext, m, "a focus without the turn writes flags 0");
+
+        // IDLE IDENTITY: no focus -> no record, and the packet is byte-identical to what a
+        // sender predating record 22 produces for the same state.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 2 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 02"), ext, m,
+               "no focus -> no record: byte-identical to a pre-record-22 sender");
+
+        // SENTINEL CLAMP, both ends: actor id 0 is "none" everywhere in this system. The writer
+        // never emits it (the tail does not even open), and a hand-built record carrying it is
+        // not delivered.
+        m = PresenceSerializer.Write(new PresenceState { HasCharFocus = true }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "a zero focus actor id is never written — the packet stays the idle packet");
+        byte[] zeroFocus = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 05 01 00 00 00 00");
+        t.True(PresenceSerializer.TryRead(zeroFocus, zeroFocus.Length, out PresenceState cfZero),
+               "a hand-built zero-id focus record still parses the packet");
+        t.True(!cfZero.HasCharFocus, "and is simply not delivered");
+
+        // FLAG CLAMP: a future sender's undefined flag bits are masked off on read, so they can
+        // never light a meaning this build does not define.
+        byte[] wildFlags = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 05 FE 11 00 00 00");
+        t.True(PresenceSerializer.TryRead(wildFlags, wildFlags.Length, out PresenceState cfWild),
+               "undefined focus flag bits still parse");
+        t.True(cfWild.HasCharFocus && cfWild.CharFocusActorId == 0x11, "the id survives");
+        t.True(!cfWild.CharFocusOwnsTurn, "and every undefined bit is masked away");
+
+        // TRUNCATED record (claims 5 payload bytes, delivers 2): tail abandoned, nothing throws.
+        byte[] cutFocus = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 05 01 11");
+        t.True(PresenceSerializer.TryRead(cutFocus, cutFocus.Length, out PresenceState cutFocusS),
+               "a truncated focus record still parses the packet");
+        t.True(!cutFocusS.HasCharFocus, "and the incomplete record is simply not delivered");
+
+        // ID ORDER: record 22 rides LAST, behind every record that already existed — and to a
+        // peer predating it, id 22 is an unknown record it steps over by length.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPileCounts = true, PileDiscardCount = 1,
+            HasTrackHover = true, TrackHoverActorId = 0x11,
+            HasCharFocus = true, CharFocusActorId = 0x22, CharFocusOwnsTurn = true,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            03                   // tail: 3 records, in id order
+            0F 03 01 00 00       // id 15 pile counts: 1/0/0
+            10 05 00 11 00 00 00 // id 16 track hover: no popup, actor 0x11
+            16 05 01 22 00 00 00 // id 22 character focus: owns turn, actor 0x22
+            "), ext, m, "record 22 rides the tail behind records 15 and 16 (id order 15, 16, 22)");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cfCombo), "and the combo parses");
+        t.True(cfCombo.HasPileCounts && cfCombo.HasTrackHover && cfCombo.HasCharFocus,
+               "with all three records delivered");
+        t.Equal(0x22, cfCombo.CharFocusActorId, "and the focus id is not confused with the hover id");
+
 
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
@@ -1964,5 +2059,8 @@ internal static class GoldenVectors
         && x.HasConfirmCapLabel == y.HasConfirmCapLabel
         && x.ConfirmCapLabel == y.ConfirmCapLabel
         && x.HasSkipCapLabel == y.HasSkipCapLabel
-        && x.SkipCapLabel == y.SkipCapLabel;
+        && x.SkipCapLabel == y.SkipCapLabel
+        && x.HasCharFocus == y.HasCharFocus
+        && x.CharFocusActorId == y.CharFocusActorId
+        && x.CharFocusOwnsTurn == y.CharFocusOwnsTurn;
 }

@@ -195,6 +195,46 @@ internal sealed class CardFan
 
     // ------------------------------------------------------------------ content --
 
+    /// <summary>
+    /// READ-ONLY MODE (feature "free character focus"): the fan is showing a character the player
+    /// may NOT drive — a teammate's hand, or one of their own characters that is not the one
+    /// acting. It is a picture, not a control.
+    ///
+    /// <para>WHY THE FAN ITSELF CARRIES THE FLAG rather than trusting the driver to hand it inert
+    /// cards: the fan owns the ONE laser path into a hand card (<see cref="TryRaycast"/> — the
+    /// laser driver asks the fan, it does not raycast colliders), and it owns
+    /// <see cref="Remove"/>, the seam a grab uses to pull a card out. Vetoing both HERE means the
+    /// read-only guarantee survives every route a card can take into this list, including the
+    /// between-rebuild seams (<see cref="Add"/> on a released card) where the driver's per-card
+    /// stamp has not run yet. Together with the driver forcing <c>VRCard.Grabbable</c> and
+    /// <c>PokeSelectEnabled</c> false, no interactor can find one of these cards at all.</para>
+    /// </summary>
+    internal bool ReadOnly { get; private set; }
+
+    /// <summary>Set the read-only mode. Called by the driver BEFORE <see cref="SetCards"/> so the
+    /// first frame of a focus view is already inert.</summary>
+    internal void SetReadOnly(bool readOnly)
+    {
+        if (ReadOnly == readOnly)
+            return;
+        ReadOnly = readOnly;
+        // A read-only fan must not keep a live hover/highlight from the interactive fan it
+        // replaced — the laser can no longer clear it, because the laser can no longer see it.
+        if (readOnly)
+        {
+            ClearFingertipHover();
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard c = _cards[i];
+                if (c == null)
+                    continue;
+                c.Grabbable = false;
+                c.PokeSelectEnabled = false;
+                c.SetLaserHover(false);
+            }
+        }
+    }
+
     /// <summary>Replace the fan's card set (called on rebuilds; cards fly to their arc slots).</summary>
     internal void SetCards(List<VRCard> cards)
     {
@@ -221,7 +261,16 @@ internal sealed class CardFan
             // hand the fan hangs off. The ONE interaction fact this layout class writes, because
             // fan membership is decided exactly here.
             if (cards[i] != null)
+            {
                 cards[i].AllowsGateHand = false;
+                // READ-ONLY: re-assert inertness at the same seam that decides fan membership, so
+                // a card that entered the fan between rebuilds is never grabbable for a frame.
+                if (ReadOnly)
+                {
+                    cards[i].Grabbable = false;
+                    cards[i].PokeSelectEnabled = false;
+                }
+            }
         }
         if (IsOpen)
         {
@@ -247,9 +296,12 @@ internal sealed class CardFan
         }
     }
 
-    /// <summary>Remove a card (grabbed away); remaining cards close the gap.</summary>
+    /// <summary>Remove a card (grabbed away); remaining cards close the gap. A READ-ONLY fan
+    /// refuses: nothing may be pulled out of a character's hand the player is only watching.</summary>
     internal void Remove(VRCard card)
     {
+        if (ReadOnly)
+            return;
         if (_cards.Remove(card))
         {
             if (ReferenceEquals(card, _pokeHoverCard))
@@ -1702,7 +1754,11 @@ internal sealed class CardFan
         point = default;
         distance = float.PositiveInfinity;
 
-        if (!IsOpen || _root == null)
+        // READ-ONLY: the fan is the ONLY laser path into a hand card (the laser driver asks the
+        // fan rather than raycasting colliders), so refusing here removes the whole route — the
+        // laser reports no hit and falls through to whatever is behind the fan, exactly as it does
+        // when the fan is closed.
+        if (!IsOpen || ReadOnly || _root == null)
             return false;
 
         // T2 (fan grab misses): a MODEST accept margin around each card's rect so a ray

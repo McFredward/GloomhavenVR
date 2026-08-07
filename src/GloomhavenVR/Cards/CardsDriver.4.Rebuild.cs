@@ -232,11 +232,20 @@ internal sealed partial class CardsDriver
 
     private void Rebuild(Transform anchor)
     {
-        CardsHandUI? hand = CurrentHand();
+        // FREE CHARACTER FOCUS: the game's own presented hand goes in, and the hand the player
+        // asked to LOOK at comes out. With no focus this is the identity function, so every path
+        // below is byte-for-byte the pre-feature one. With a focus it is an OVERRIDE, and
+        // CharacterFocus.ReadOnlyView is latched for the whole rebuild — see the read-only
+        // handling below and at the per-card zone stamp, which together make "you cannot act on a
+        // character you are only looking at" a property of the objects rather than a convention.
+        CardsHandUI? hand = Board.CharacterFocus.ResolveHand(CurrentHand());
 
         if (hand == null)
         {
             _hasSwitchPose = false; // no board to re-pose without a hand
+            // A focus view that ends with no hand at all (scenario teardown, hand mid-rebuild)
+            // must not leave the fan latched read-only: the next interactive fan would be inert.
+            _fan.SetReadOnly(false);
             RebuildFakeOrClear(anchor);
             return;
         }
@@ -314,6 +323,41 @@ internal sealed partial class CardsDriver
         bool halfVisible = false;
         bool grabbable = false;
 
+        // READ-ONLY FOCUS VIEW (feature "free character focus"). The player is looking at a
+        // character the game is not presenting to them — a teammate, or one of their own that is
+        // not the one acting. What they asked to see is exactly three things, and this branch
+        // builds all three and nothing else:
+        //   (c) that character's HAND cards in the fan — CardPileType.Hand off the character's own
+        //       widget list. NOTE the vanilla branches below would show nothing here: the hand fan
+        //       is gated on CardsGameApi.IsSelectionPhase, which is false during a turn. Hand
+        //       cards are not secret in Gloomhaven (CCharacterClass.HandAbilityCards is
+        //       host-replicated with no visibility gate, CCharacterClass.cs:91) — only the two
+        //       CHOSEN round cards are, and only during SelectAbilityCardsOrLongRest, which
+        //       CharacterFocus.Open refuses outright and RevealGate independently re-refuses.
+        //   (a) the cards that character PLAYED, docked on the board — but only while it is
+        //       genuinely their turn (CharacterFocus.ViewActionTurn), i.e. only while the game
+        //       itself has those cards on the table.
+        //   (b) their piles — the discard/burnt/items stacks and the browse arc follow `hand`
+        //       automatically, further down; nothing extra is needed for them here.
+        // grabbable stays FALSE, so the per-card stamp near the end of this method builds every
+        // one of these cards non-grabbable and non-pokeable, and CardFan refuses the laser.
+        bool readOnly = Board.CharacterFocus.ReadOnlyView;
+        if (readOnly)
+        {
+            for (int i = 0; i < _widgetBuffer.Count; i++)
+            {
+                AbilityCardUI widget = _widgetBuffer[i];
+                if (widget == null || widget.AbilityCard == null || widget.IsLongRest)
+                    continue;
+                if (widget.CardType == CardPileType.Hand)
+                    _fanBuffer.Add(AdoptedCard(widget));
+            }
+            halfVisible = Board.CharacterFocus.ViewActionTurn(hand);
+            if (halfVisible)
+                CollectRoundCards(hand, _halfBuffer);
+            _tray.ClearSlots(); // no slot occupancy belongs to a character we are only watching
+        }
+        else
         switch (mode)
         {
             case CardHandMode.CardsSelection:
@@ -463,7 +507,11 @@ internal sealed partial class CardsDriver
 
         // Drop field (test #21 B): exists ONLY during a pick mode (C); leaving the
         // mode clears its occupants — the zone loop below parks them.
-        bool pick = IsPickMode(mode);
+        // READ-ONLY FOCUS: a pick flow belongs to the character the GAME presents, never to one we
+        // are merely watching — the watched character's stale CardsHandUI.currentMode could still
+        // read LoseCard from its own last decision. Forcing `pick` false keeps the drop field, the
+        // pick-confirm mirror and the short-rest overlay out of a focus view entirely.
+        bool pick = !readOnly && IsPickMode(mode);
 
         // Short-rest sacrifice overlay (test #25, item 1d; test #28 seating): while the
         // game presents the randomly lost card's burn/redraw choice (ShortRestedCard !=
@@ -474,7 +522,7 @@ internal sealed partial class CardsDriver
         // The short-rest random path stays in CardHandMode.CardsSelection, so this
         // simply overlays the unchanged hand fan. Rebuild is the sole executor;
         // PollShortRest keeps it live on redraw.
-        CAbilityCard? shortRested = pick ? null : CardsGameApi.ShortRestedCard(hand);
+        CAbilityCard? shortRested = pick || readOnly ? null : CardsGameApi.ShortRestedCard(hand);
         bool shortRest = shortRested != null && trayVisible;
 
         // Slots stay physically visible (fixed asset, test #28) — no field to toggle;
@@ -573,7 +621,16 @@ internal sealed partial class CardsDriver
             // read it; the release routes back to the arc, never to a game seam.
             // Active cards (feature 6) are grabbable for the same read-only reason:
             // pluck one to read it, release returns it to the column, never a game seam.
-            card.Grabbable = (inFan && grabbable) || (inTray && grabbable) || inField || inBrowse || inActive;
+            // READ-ONLY FOCUS (structural, not a convention): while the mod presents a character
+            // the player may not drive, NOTHING it built is grabbable. Together with the
+            // unconditional PokeSelectEnabled = false above and CardFan's read-only raycast veto,
+            // there is no interactor left that can even FIND one of these cards — so there is no
+            // path from a VR input to a game call for a character we are only looking at. This is
+            // the single funnel every card in every zone passes through on every rebuild, so it
+            // cannot be bypassed by a card that changed zone between frames.
+            card.Grabbable = !readOnly
+                             && ((inFan && grabbable) || (inTray && grabbable)
+                                 || inField || inBrowse || inActive);
             // BOTH HANDS ON EVERY CARD (user ruling 2026-08-04: "Alle Karten sollen allgemein auch
             // mit der nicht-dominanten Hand aufgenommen werden koennen ... Das soll fuer alle
             // Karten gelten - ausser den Faecherkarten selber"). This is the GENERAL rule that
@@ -655,6 +712,10 @@ internal sealed partial class CardsDriver
         // and keep game order.
         if (mode == CardHandMode.CardsSelection)
             ReorderFanBuffer();
+        // READ-ONLY FOCUS: tell the fan before its content, so the very first frame of a focus
+        // view is already laser-inert (a fan that learned it was read-only one frame late would be
+        // clickable for exactly that frame).
+        _fan.SetReadOnly(readOnly);
         _fan.SetCards(_fanBuffer);
         _tray.SetVisible(trayVisible);
         _half.SetVisible(halfVisible);

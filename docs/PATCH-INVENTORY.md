@@ -54,8 +54,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `Placement_UpdateGate_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:98</sub> | `WorldspaceStarHexDisplay.Update()` | prefix | `BoardModule`:127 |
 | `Placement_Click_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:155</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:128 |
 | `InitiativeTrackPlayerAvatar_OnClick_Guard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:56</sub> | `InitiativeTrackPlayerAvatar.OnClick()` | prefix | `BoardModule`:106 |
-| `Choreographer_TileHandler_OwnershipGuard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:113</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:111 |
-| `CharacterManager_OnControlReleased_Fallback`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:168</sub> | `CharacterManager.OnControlReleased()` | prefix | `BoardModule`:121 |
+| `Choreographer_TileHandler_OwnershipGuard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:133</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:111 |
+| `CharacterManager_OnControlReleased_Fallback`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:188</sub> | `CharacterManager.OnControlReleased()` | prefix | `BoardModule`:121 |
 | &nbsp; | `CharacterManager.OnControlReleased()` | postfix | &nbsp; |
 
 ## Cards

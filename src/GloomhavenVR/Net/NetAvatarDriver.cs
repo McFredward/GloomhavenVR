@@ -135,6 +135,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentTrackHoverActor = int.MinValue;
     private bool _lastSentTrackHoverPopup;
 
+    /// <summary>Last sent CHARACTER FOCUS (extension record 22): the stable id of the character
+    /// we are looking at, and whether the character at turn is ours. int.MinValue = never sent, so
+    /// the first real focus of a session is always an edge.</summary>
+    private int _lastSentFocusActor = int.MinValue;
+    private bool _lastSentFocusOwnsTurn;
+
     // WALL FADES (extension record 17, MP wall-fade sync): the set of walls the LOCAL fade
     // decision currently hides, as sorted cross-machine keys. A set CHANGE is an edge with
     // the capped pre-emption (fade flips are dwell-paced — a few per minute, never a
@@ -323,6 +329,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentHalfSelect = int.MinValue;   // …the clicked halves…
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
         _lastSentWallFadeCount = -1;             // …and the synced wall-fade set
+        _lastSentFocusActor = int.MinValue;       // …and the character focus (record 22)
+        Board.CharacterFocus.Reset();             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentConfirmLabel = null;  // and the live cap labels
         _lastSentSkipLabel = null;
@@ -725,6 +733,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                  || (trackHover && trackPopup != _lastSentTrackHoverPopup);
         bool trackHoverDue = trackHoverChanged && _extrasAccumulator >= fastInterval;
 
+        // CHARACTER FOCUS (extension record 22, feature "free character focus"): which character
+        // we are LOOKING at, plus the one fact no receiver can derive — whether the character at
+        // turn is ours (IsUnderMyControl is a local flag). Both change on human timescales (a
+        // portrait click, a turn hand-off), so a plain change edge is enough; no pre-emption.
+        Board.CharacterFocus.Sample(out int focusActorNow, out bool focusOwnsTurnNow);
+        bool focusChanged = focusActorNow != _lastSentFocusActor
+                            || focusOwnsTurnNow != _lastSentFocusOwnsTurn;
+
         // WALL FADES (extension record 17): sample the local fade decision's ON set as
         // sorted keys and diff against the last sent set — see the field block's doc.
         int wallFadeCount = Core.WallSegmentFade.SampleFadedWallKeys(_wallFadeSample);
@@ -834,7 +850,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
-            && !decisionChanged && !capLabelsChanged)
+            && !decisionChanged && !capLabelsChanged && !focusChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1162,6 +1178,28 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "copy of the public track widget). Peers show this hover on OUR mirrored " +
                   "track only."
                 : "Track hover SENT: none — record omitted (peers render our track un-hovered).");
+        }
+
+        // CHARACTER FOCUS (extension record 22): written only while a focus is actually known.
+        // Actor id 0 is "none" everywhere, so a scenario-less / spectating client emits a packet
+        // byte-identical to a pre-record sender.
+        if (focusActorNow != 0)
+        {
+            extras.HasCharFocus = true;
+            extras.CharFocusActorId = focusActorNow;
+            extras.CharFocusOwnsTurn = focusOwnsTurnNow;
+        }
+        if (focusChanged)
+        {
+            _lastSentFocusActor = focusActorNow;
+            _lastSentFocusOwnsTurn = focusOwnsTurnNow;
+            VRLog.Info("Net", focusActorNow != 0
+                ? $"Character focus SENT: actor {focusActorNow}, ownsTurn={focusOwnsTurnNow} — " +
+                  "extension record 22 (5 B: the stable ActorGuid hash of the character we are " +
+                  "LOOKING at, plus the local-only 'the actor at turn is mine' bit). NO card " +
+                  "identity: peers colour an outline from this and read any card they draw from " +
+                  "the host-replicated model through RevealGate, exactly as before."
+                : "Character focus SENT: none — record omitted (peers show us no turn outline).");
         }
 
         // WALL FADES (extension record 17): written only while the local decision fades at
@@ -1494,6 +1532,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     {
                         NetFigures.ReleaseRemoteSlot(kv.Key, NetFigures.SlotSecondary);
                     }
+
+                    // CHARACTER FOCUS (extension record 22): which character this peer is looking
+                    // at, plus their local-only "the actor at turn is mine" bit. Applied HERE
+                    // rather than through RemoteAvatar because the consumer is a static cue table
+                    // (CharacterFocus) that several renderers read — the peer's board frame, their
+                    // Steam-avatar ring — and not a property of the avatar itself. A packet
+                    // WITHOUT the record clears the peer's entry, which is exactly what an older
+                    // build transmits and what "no outline" must mean.
+                    Board.CharacterFocus.ApplyPeer(kv.Key, p.HasCharFocus, p.CharFocusActorId,
+                                                   p.CharFocusOwnsTurn);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
@@ -1566,6 +1614,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 _avatars.Remove(id);
                 NetFigures.ReleaseRemote(id); // drop any figure this peer was holding
                 NetPlayerActors.ForgetAvatarFetch(id); // a rejoin gets a fresh attempt budget
+                Board.CharacterFocus.ForgetPeer(id);   // …and their focus outline goes with them
             }
         }
     }
@@ -1582,6 +1631,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             _avatars.Remove(playerId);
             NetFigures.ReleaseRemote(playerId);
             NetPlayerActors.ForgetAvatarFetch(playerId);
+            Board.CharacterFocus.ForgetPeer(playerId);
         }
     }
 

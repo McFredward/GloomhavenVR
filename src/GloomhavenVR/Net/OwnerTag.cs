@@ -46,6 +46,15 @@ internal sealed class OwnerTag
     private int _tagRenderersRefreshAt;
     private const int TagRenderersRefreshFrames = 90; // ~1 s at 90 Hz, see RemoteNameTag
 
+    /// <summary>The live Steam-avatar quad, or null while this owner has no picture yet (non-Steam
+    /// platform, fetch still in flight). Exposed so <see cref="RemoteFocusOutline"/> can seat the
+    /// "this player owns the character at turn" ring around the picture — the ring is a SIBLING of
+    /// the quad, so it is not squashed by the quad's non-uniform stretch scale.</summary>
+    internal Transform? AvatarQuad => _avatarQuad != null ? _avatarQuad.transform : null;
+
+    /// <summary>The avatar quad's authored size in tag-local metres (square), for the ring around it.</summary>
+    internal static Vector2 AvatarQuadSize => new(AvatarSize, AvatarSize);
+
     /// <summary>Build the tag under <paramref name="boardRoot"/> at the given board-LOCAL corner
     /// (so it inherits the board's world pose + scale for positioning). Facing is re-solved each
     /// <see cref="Tick"/> in world space, independent of the board's rotation.</summary>

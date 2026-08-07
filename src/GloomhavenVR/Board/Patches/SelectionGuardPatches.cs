@@ -60,19 +60,39 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
         if (clicked == null)
             return true; // vanilla
 
+        // FREE CHARACTER FOCUS (feature): during a TURN phase a portrait click is a VIEW
+        // request — "show me that character's hand, piles and played cards". CharacterFocus
+        // records it and the card pipeline presents that character READ-ONLY; the phase gate
+        // lives in CharacterFocus.CanFocus, so this call is simply false during card selection
+        // and every path below then behaves exactly as it did before the feature.
+        //
+        // WHAT IS DELIBERATELY *NOT* RELAXED: the two `return false`s stay. Vanilla's OnClick has
+        // two halves (InitiativeTrackPlayerAvatar.cs:30-44) — the select, and an unconditional
+        // CardsHandManager.ToggleViewAllCards that latches IsFullCardPreviewShowing and, in VR,
+        // deadlocks every subsequent card action (see Board/Patches/AllCardsViewerBlock.cs, which
+        // blocks that latch independently). Suppressing the whole original is therefore both the
+        // safe answer AND the correct one: the focus is a MOD-side view, so none of vanilla's
+        // click side effects — SwitchHand, ClearHilightedActors, ActorBehaviour.SetHilighted,
+        // CameraController.SmartFocus, the All-Cards viewer — must fire for a character the
+        // player is merely LOOKING at. Focusing writes no game state at all.
+        bool focused = CharacterFocus.TryFocus(clicked);
+
         // MP test item #8a: a portrait of a character ASSIGNED TO ANOTHER PLAYER —
-        // refuse the whole click (select AND ToggleViewAllCards) with the game's own
-        // denied SFX. Only active online with >1 participant (OwnershipGuardActive).
+        // refuse the whole click (select AND ToggleViewAllCards). Only active online with
+        // >1 participant (OwnershipGuardActive). With the focus taken the click is no longer a
+        // denial, so the denied SFX is skipped: something DID happen, it just was not a select.
         if (CardsGameApi.IsForeignControlledSelect(clicked))
         {
-            CardsGameApi.RejectForeignSelect(clicked);
+            if (!focused)
+                CardsGameApi.RejectForeignSelect(clicked);
             return false;
         }
 
         if (!CardsGameApi.IsActionPhaseNonCurrentPlayerSelect(clicked))
-            return true; // vanilla — run the original select
+            return true; // vanilla — run the original select (this is the ACTING character)
 
-        CardsGameApi.RejectActionPhaseSelect(clicked);
+        if (!focused)
+            CardsGameApi.RejectActionPhaseSelect(clicked);
         return false; // reject like an enemy click — keep the current actor selected
     }
 }
