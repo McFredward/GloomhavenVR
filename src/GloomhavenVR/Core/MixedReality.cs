@@ -90,12 +90,15 @@ internal static class MixedReality
     /// neighboring fills overlap under the groove line). Tunable live (a change rebuilds).</summary>
     internal static ConfigEntry<float> UnseenSkirtScale = null!;
 
-    /// <summary>World-units the gap-backing WAFER sits below each piece's mesh-top plane
-    /// (round 11 semantics — the round-7 "deep groove fill" drop measured from the authored
-    /// pose and left an open canyon between hex top and fill, which is where the green seams
-    /// lived). Tunable live. Too small = z-fighting with the hex tops; too large = seams
-    /// reopen at shallow view angles.</summary>
-    internal static ConfigEntry<float> UnseenFillDrop = null!;
+    /// <summary>World-units the gap-backing WAFER sits below each piece's mesh-top plane.
+    /// FRESH KEY (round 12): this was '[MixedReality] UnseenFillDrop' until ModBuild 69 — that
+    /// key's persisted value (0.35, from the round-7 "deep groove fill" semantics) survived the
+    /// round-11 default change and re-opened the canyon the wafer exists to close (log:
+    /// "wafer = mesh-top − 0.35 wu"; MAPTILE dumps: fills at y−0.3 under tops at −0.1).
+    /// Renaming is the established clean path when a key's SEMANTICS change: the new key binds
+    /// fresh at 0.02, the orphaned old entry is harmless and never read. Tunable live. Too
+    /// small = z-fighting with the hex tops; too large = seams reopen at shallow angles.</summary>
+    internal static ConfigEntry<float> UnseenWaferDrop = null!;
 
 
     /// <summary>
@@ -173,7 +176,7 @@ internal static class MixedReality
 
         /// <summary>The piece's GAP BACKING WAFER (round 11 shape; born round 7 as the deep
         /// groove fill): a second same-mesh copy, mildly XZ-widened, Y-squashed flat and seated
-        /// at the piece's mesh-top plane minus <see cref="UnseenFillDrop"/>, so a ray into a
+        /// at the piece's mesh-top plane minus <see cref="UnseenWaferDrop"/>, so a ray into a
         /// seam between neighboring hexes lands on dark instead of the key. A child of the
         /// source like the plate (structural lifecycle); its union follows the hex silhouettes
         /// — the round-5/6 rectangular base quads were visible as an alien slab at the region
@@ -208,7 +211,13 @@ internal static class MixedReality
 
     /// <summary>The fill drop the live underlays were built with — tracked beside
     /// <see cref="_appliedSkirtScale"/> so a config change rebuilds live (round 7).</summary>
-    private static float _appliedFillDrop = -1f;
+    private static float _appliedWaferDrop = -1f;
+
+    /// <summary>One-shot latch for the submesh-coverage sample line (round 12): the first built
+    /// backing logs mesh subMeshCount vs source/backing material counts, so the next hardware
+    /// log PROVES the copies cover every submesh (an uncovered bevel submesh renders the
+    /// authored translucency over raw key — wide green bands). Reset with the underlays.</summary>
+    private static bool _submeshDiagLogged;
 
     /// <summary>Y-squash of the gap-backing wafer (round 11): the fill copy's local Y scale.
     /// Squashing the same-mesh copy to 2 % collapses all of its relief into a flat
@@ -378,14 +387,15 @@ internal static class MixedReality
             "neighboring fills overlap under the groove line. Applies while MR is on, live " +
             "(backings rebuild on change). Raise if grooves between hexes still glow; lower if " +
             "dark peeks out past the outermost hex edges. Clamped to 1..2.");
-        UnseenFillDrop = _file.Bind("MixedReality", "UnseenFillDrop", Defaults.UnseenFillDrop,
+        UnseenWaferDrop = _file.Bind("MixedReality", "UnseenWaferDrop", Defaults.UnseenWaferDrop,
             "How far (world units) each unseen piece's flat gap-backing WAFER sits below the " +
             "piece's TOP plane in MR. The wafer is a squashed, slightly widened dark copy of " +
             "the piece that floors the gaps BETWEEN neighboring hexes just under their tops, so " +
             "looking into a seam lands on dark instead of the passthrough room while the " +
-            "animated rim above it keeps playing. Applies while MR is on, live (backings " +
-            "rebuild on change). Raise if the wafer z-fights the hex tops; lower toward 0.01 " +
-            "if green seams still show at shallow angles. Clamped to 0..2.");
+            "animated rim above it keeps playing. (Successor of the retired UnseenFillDrop key, " +
+            "whose persisted deep-fill value no longer matched these semantics.) Applies while " +
+            "MR is on, live (backings rebuild on change). Raise if the wafer z-fights the hex " +
+            "tops; lower toward 0.01 if green seams still show at shallow angles. Clamped to 0..2.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -761,7 +771,7 @@ internal static class MixedReality
     /// leave the silhouette). Fix: the PRIMARY underlay is exact 1:1 again — every surface
     /// backed coplanar from every direction — and each piece additionally gets the GROOVE
     /// FILL, a second same-mesh copy, XZ-widened by <see cref="UnseenSkirtScale"/> and dropped
-    /// <see cref="UnseenFillDrop"/> wu straight down, whose hex-shaped top surfaces lie under
+    /// <see cref="UnseenWaferDrop"/> wu straight down, whose hex-shaped top surfaces lie under
     /// the groove floors; neighboring fills overlap under the groove line, so the union
     /// follows the hex silhouettes everywhere — nothing rectangular from any angle, nothing
     /// past the outer hex edges except the long-accepted thin rim.
@@ -813,10 +823,22 @@ internal static class MixedReality
     /// through the open canyon BETWEEN adjacent hex pieces. The swap is fully reverted (the
     /// authored dark look is back), and the fix moved to where the geometry says it belongs:
     /// the fill became the flat GAP BACKING WAFER seated at each piece's own top plane minus
-    /// <see cref="UnseenFillDrop"/> (~2 cm) — see the wafer block in
+    /// <see cref="UnseenWaferDrop"/> (~2 cm) — see the wafer block in
     /// <see cref="BuildUnseenUnderlay"/>. The census keeps running after each sweep; with the
     /// wafers in place it must list NO un-backed tile-geometry translucent (the remaining
     /// candidates are floating particle FX, which are deliberately left authored).
+    ///
+    /// ROUND 12 (hardware 2026-08-07 #3, ModBuild 69): tiles dark again (revert correct), seams
+    /// still green — the GAP BACKING log line convicted the cause itself: "wafer = mesh-top −
+    /// 0.35 wu". The user's persisted cfg still carried UnseenFillDrop=0.35 from the deep-fill
+    /// rounds; round 11 changed the DEFAULT but a persisted value survives a default change, so
+    /// the wafer sat 0.25 wu below the top plane and the canyon was back. Fix one: the key is
+    /// RENAMED (fresh bind '[MixedReality] UnseenWaferDrop' at 0.02; the orphaned old entry is
+    /// never read). Fix two, checked rather than trusted: the copies' material arrays are now
+    /// sized to the MESH's subMeshCount (short arrays make Unity skip the extra submeshes — an
+    /// unbacked bevel submesh would render its translucency over raw key as the wide green
+    /// bands in mixed_reality_tiles3.png); extras are padded with dark, and a one-shot sample
+    /// line prints subMeshCount vs material counts so the next log proves the coverage.
     ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
@@ -852,22 +874,22 @@ internal static class MixedReality
         SyncUnseenUnderlays();
 
         // Live fill tuning (rounds 4+7): a changed [MixedReality] UnseenSkirtScale or
-        // UnseenFillDrop tears every underlay down and falls through to an immediate resweep,
+        // UnseenWaferDrop tears every underlay down and falls through to an immediate resweep,
         // so a hardware round can dial the groove fill in without a rebuild or an MR toggle.
         // Restore resets the scan throttle.
         float skirt = Mathf.Clamp(UnseenSkirtScale.Value, 1f, 2f);
-        float drop = Mathf.Clamp(UnseenFillDrop.Value, 0f, 2f);
+        float drop = Mathf.Clamp(UnseenWaferDrop.Value, 0f, 2f);
         if (_appliedSkirtScale > 0f && UnseenUnderlays.Count > 0
             && (!Mathf.Approximately(skirt, _appliedSkirtScale)
-                || !Mathf.Approximately(drop, _appliedFillDrop)))
+                || !Mathf.Approximately(drop, _appliedWaferDrop)))
         {
             VRLog.Info("Core", $"MR: unseen fill tuning changed (scale {_appliedSkirtScale:0.###} → " +
-                               $"{skirt:0.###}, drop {_appliedFillDrop:0.###} → {drop:0.###} wu) — " +
+                               $"{skirt:0.###}, drop {_appliedWaferDrop:0.###} → {drop:0.###} wu) — " +
                                "rebuilding every underlay + fill.");
             RestoreUnseenUnderlays();
         }
         _appliedSkirtScale = skirt;
-        _appliedFillDrop = drop;
+        _appliedWaferDrop = drop;
 
 
         if (Time.frameCount < _previewScanNextFrame)
@@ -933,7 +955,7 @@ internal static class MixedReality
             _loggedPreviewCount = UnseenUnderlays.Count;
             VRLog.Info("Core", $"MR: unseen GAP BACKING — {UnseenUnderlays.Count} renderer(s) carry " +
                                $"a coplanar dark underlay + a top-plane wafer (wafer = mesh-top − " +
-                               $"{(_appliedFillDrop >= 0f ? _appliedFillDrop : Defaults.UnseenFillDrop):0.###} wu, " +
+                               $"{(_appliedWaferDrop >= 0f ? _appliedWaferDrop : Defaults.UnseenWaferDrop):0.###} wu, " +
                                $"XZ ×{(_appliedSkirtScale > 0f ? _appliedSkirtScale : 1f):0.###}, Y squash " +
                                $"{FillSquashY:0.###}; authored materials untouched; everything " +
                                "destroyed when MR turns off).");
@@ -1126,17 +1148,36 @@ internal static class MixedReality
         // materials render at ≥ our 2500) — harmless; a SKIPPED see-through slot is the reported
         // bug. Slots that are neither stay on the draws-nothing filler (their opaque submesh
         // already occludes; a coplanar dark copy would z-fight it).
-        var plateMats = new Material[mats.Length];
+        //
+        // SUBMESH COVERAGE (round 12): the copy's material array is sized to the MESH's
+        // subMeshCount, not just the source's material count. With fewer materials than
+        // submeshes Unity renders only the first N submeshes — a copy inheriting a short array
+        // would leave the extra submeshes (bevels/rims) UNBACKED, semi-transparent over raw
+        // key: exactly the wide green bands the round-12 screenshot showed on the hex bevels.
+        // Extra slots get the DARK plate (they belong to see-through family geometry); the
+        // one-shot sample line below proves the counts in the next hardware log.
+        int slots = Mathf.Max(filter.sharedMesh.subMeshCount, mats.Length);
+        var plateMats = new Material[slots];
         int backed = 0;
-        for (int i = 0; i < mats.Length; i++)
+        for (int i = 0; i < slots; i++)
         {
-            bool dark = IsTranslucent(mats[i]) || IsUnseenFamilyMaterial(mats[i]);
+            bool dark = i >= mats.Length
+                        || IsTranslucent(mats[i]) || IsUnseenFamilyMaterial(mats[i]);
             plateMats[i] = dark ? _unseenDarkMat! : _unseenSkipMat!;
             if (dark)
                 backed++;
         }
         if (backed == 0)
             return; // GO-name family with all-opaque, non-family slots: nothing to back
+        if (!_submeshDiagLogged)
+        {
+            _submeshDiagLogged = true;
+            VRLog.Info("Core", $"MR: unseen backing sample '{source.gameObject.name}' — mesh " +
+                               $"submeshes {filter.sharedMesh.subMeshCount}, source mats " +
+                               $"{mats.Length}, backing mats {slots} (padded " +
+                               $"{slots - mats.Length} with dark) — the copies must cover every " +
+                               "submesh or the uncovered ones read as key-colored bands.");
+        }
 
         // THE PRIMARY UNDERLAY — exact 1:1 again (round 7). Round 4 scaled THIS copy as the
         // "skirt"; round 5 proved the animation is UV-scroll (cannot leave the silhouette, so
@@ -1167,7 +1208,7 @@ internal static class MixedReality
         // is now a WAFER: the same mesh XZ-widened by the (tunable) skirt factor, Y-SQUASHED to
         // FillSquashY (all relief collapsed — a flat, hex-silhouette slab; no rectangle, per
         // the standing user ruling, and no squashed bevel can poke past the authored top), and
-        // seated at the piece's OWN mesh-top plane minus UnseenFillDrop (now ~2 cm, not 0.35):
+        // seated at the piece's OWN mesh-top plane minus UnseenWaferDrop (~2 cm):
         // every gap pixel from above hits dark within millimetres, at any angle, while the
         // authored translucent rim animation above it blends against dark instead of key —
         // exactly the user-approved model ("the green comes only from the background"). The
@@ -1176,7 +1217,7 @@ internal static class MixedReality
         // revealed geometry occludes the wafer exactly like the plate; strictly below the
         // authored top surface, never coplanar (no z-fighting).
         float skirt = _appliedSkirtScale > 0f ? _appliedSkirtScale : 1f;
-        float drop = _appliedFillDrop >= 0f ? _appliedFillDrop : Defaults.UnseenFillDrop;
+        float drop = _appliedWaferDrop >= 0f ? _appliedWaferDrop : Defaults.UnseenWaferDrop;
         Bounds mb = filter.sharedMesh.bounds;
         Vector3 meshCenter = mb.center;
         var fillGo = new GameObject("GloomhavenVR.MrUnseenFill");
@@ -1480,6 +1521,7 @@ internal static class MixedReality
         _loggedPreviewCount = -1;
         _previewDiagLogged = false;
         _unseenVerboseLogs = 0;
+        _submeshDiagLogged = false;
         _censusLastHash = 0;
         _censusNextAllowed = 0f;
         _familyMinQueue = int.MaxValue; // re-observe per session (round 6 adaptive queue)
