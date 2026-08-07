@@ -117,6 +117,11 @@ internal sealed class PileViewer
     {
         _itemsBrowse.TickDemandPick(hand);
         _itemsBrowse.TickTakeDamagePick(hand); // req C: take-damage shield place (no-op outside the decision)
+        // Every item is played by PLACING its card (user ruling 2026-08-08) — so no item symbol may
+        // be clickable on the docked items bar unless its card is already in the board's item slot.
+        // Driven from HERE, not from ItemsPile.Tick, because the bar exists (and would dock) whether
+        // or not the item FAN is open, and ItemsPile.Tick early-returns on a closed fan.
+        _itemsBrowse.TickItemSymbolSplit();
     }
 
     /// <summary>
