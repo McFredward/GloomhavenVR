@@ -240,6 +240,11 @@ internal sealed partial class CardsDriver
         // character you are only looking at" a property of the objects rather than a convention.
         CardsHandUI? hand = Board.CharacterFocus.ResolveHand(CurrentHand());
 
+        // Give a previously focused character its faces back BEFORE this rebuild adopts anything —
+        // and say so in the log. Runs first because it destroys VR cards, which must not happen
+        // once this pass has started filling its buffers.
+        ReleaseStaleFocusHand(hand);
+
         if (hand == null)
         {
             _hasSwitchPose = false; // no board to re-pose without a hand
@@ -766,6 +771,109 @@ internal sealed partial class CardsDriver
         _dockAnimSuppressed = false;
 
         VRLog.Debug("Cards", $"Rebuild: mode={mode} fan={_fanBuffer.Count} tray={trayVisible} half={_halfBuffer.Count}.");
+    }
+
+    /// <summary>
+    /// FOREIGN-FACE ADOPTION LEDGER for the character-focus feature, and the hand-back that goes
+    /// with it.
+    ///
+    /// <para>WHY THIS EXISTS. A read-only focus view renders ANOTHER character's real
+    /// <c>AbilityCardUI</c> widgets: <c>AdoptedCard</c> → <c>VRCard.AttachGameCard</c> →
+    /// <c>CardFace.Adopt</c> REPARENTS the live <c>fullAbilityCard</c> into a VR card and records
+    /// its original parent/sibling/anchors/pose for a full restore. That is the same path the local
+    /// fan has always used across a multi-merc hand switch, and the clone-based readers
+    /// (<c>RemoteAbilityCardSource</c> / <c>RemoteCardArt</c>, which <c>Instantiate</c> and then
+    /// explicitly reset the clone's rotation and scale) are provably unaffected by it. But it is
+    /// still the part of this feature with the least hardware evidence, so:</para>
+    /// <list type="bullet">
+    /// <item>the faces are handed back the moment the focus LEAVES a character —
+    ///   <c>VRCardFactory.ReleaseHand</c> restores every one of that hand's widgets — rather than
+    ///   left adopted until the scenario ends;</item>
+    /// <item>and each switch logs WHAT was adopted and WHETHER the restore landed: the character,
+    ///   how many widgets the mod still held, and how many faces are still parented under a VR
+    ///   card afterwards. A healthy switch reads "restored N/N, 0 still held". Anything else names
+    ///   the character and the count, which is what a log has to do for a screenshot report.</item>
+    /// </list>
+    /// </summary>
+    private void ReleaseStaleFocusHand(CardsHandUI? nowHand)
+    {
+        CardsHandUI? nowFocusHand = Board.CharacterFocus.ReadOnlyView ? nowHand : null;
+        if (ReferenceEquals(_focusAdoptedHand, nowFocusHand))
+            return;
+
+        CardsHandUI? was = _focusAdoptedHand;
+        _focusAdoptedHand = nowFocusHand;
+
+        if (was != null)
+        {
+            string wasName = Board.CharacterFocus.Describe(was.PlayerActor);
+            int held = CountFocusAdopted(was);
+            _factory.ReleaseHand(was);
+            int stillHeld = CountFocusAdopted(was);
+            int stillParented = CountFacesUnderVrCards(was);
+            VRLog.Info("Cards", $"[Focus] RESTORED '{wasName}': handed {held} adopted card face(s) back " +
+                                $"to the game (VR cards still held afterwards: {stillHeld}; faces still " +
+                                $"parented under a VR card: {stillParented} — both MUST be 0). " +
+                                "CardFace.Restore replays the recorded parent, sibling index, anchors, " +
+                                "pose and active flag, so the character's 2D hand is the object it was " +
+                                "before we borrowed it.");
+        }
+
+        if (nowFocusHand != null)
+        {
+            VRLog.Info("Cards", $"[Focus] ADOPTING '{Board.CharacterFocus.Describe(nowFocusHand.PlayerActor)}': " +
+                                $"{CountHandWidgets(nowFocusHand)} live card widget(s) available on this " +
+                                "client (the game builds a populated CardsHandUI per player actor on every " +
+                                "client — Choreographer.cs:925/1112). Their faces are BORROWED, never " +
+                                "copied and never mutated; the matching [Focus] RESTORED line reports the " +
+                                "hand-back.");
+        }
+    }
+
+    /// <summary>How many of <paramref name="hand"/>'s widgets the mod currently holds a VR card
+    /// for. 0 after a clean release.</summary>
+    private int CountFocusAdopted(CardsHandUI hand)
+    {
+        int n = 0;
+        try
+        {
+            List<AbilityCardUI> cards = hand.cardsUI;
+            for (int i = 0; i < cards.Count; i++)
+            {
+                if (cards[i] != null && _factory.Find(cards[i]) != null)
+                    n++;
+            }
+        }
+        catch { /* half-torn hand — the count is diagnostic, never a gate */ }
+        return n;
+    }
+
+    /// <summary>How many of <paramref name="hand"/>'s faces are still parented under a mod VR card
+    /// — the direct evidence that a restore did NOT land. 0 after a clean release.</summary>
+    private static int CountFacesUnderVrCards(CardsHandUI hand)
+    {
+        int n = 0;
+        try
+        {
+            List<AbilityCardUI> cards = hand.cardsUI;
+            for (int i = 0; i < cards.Count; i++)
+            {
+                AbilityCardUI c = cards[i];
+                if (c == null || c.fullAbilityCard == null)
+                    continue;
+                if (c.fullAbilityCard.GetComponentInParent<VRCard>() != null)
+                    n++;
+            }
+        }
+        catch { /* diagnostic only */ }
+        return n;
+    }
+
+    /// <summary>Live widget count of a hand (diagnostic; 0 while the hand is mid-build).</summary>
+    private static int CountHandWidgets(CardsHandUI hand)
+    {
+        try { return hand.cardsUI != null ? hand.cardsUI.Count : 0; }
+        catch { return 0; }
     }
 
     private VRCard AdoptedCard(AbilityCardUI widget)

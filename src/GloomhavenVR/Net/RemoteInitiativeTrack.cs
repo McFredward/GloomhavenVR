@@ -129,6 +129,8 @@ internal sealed class RemoteInitiativeTrack
     {
         _mirror.TickLive();
         ApplyHoverOverrides();
+        ApplyFocusRings();
+        ApplyFallbackFocusTint();
     }
 
     // ------------------------------------------------------------------ peer hover --
@@ -198,11 +200,148 @@ internal sealed class RemoteInitiativeTrack
                               : "none (mirror renders the un-hovered base track)."));
     }
 
+    // ------------------------------------------------------------------- peer focus --
+    // User, verbatim: "Diese rötliche Farbe soll auch synchronisiert werden, wenn ein Mitspieler
+    // gerade einen Character ausgewählt hat der nicht am Zug ist" and "Genauso in der
+    // Initiativreihenfolge soll sichtbar sein wer gerade ausgewählt ist."
+    //
+    // The peer's CONTROL BOARD already wears the green/red turn frame (Net/RemoteFocusOutline);
+    // this is the same state on their MIRRORED initiative track, so the two halves of one board
+    // never tell different stories. Both are driven from extras record 22 through the SAME
+    // Board.FocusCue palette the LOCAL track uses (Board/FocusDriver) — one blink clock, one pair
+    // of colours, no divergence possible.
+    //
+    // WHAT IS DRAWN, and where:
+    //   • MIRRORED path — a Board.UiRing (the shared SoftCueArt frame sprite, the same recipe the
+    //     local track and the selection-phase cue use) parented under the CLONE of each entry's
+    //     avatar portrait. Steady blue-white on the entry the peer is LOOKING at; green/red blink
+    //     on the entry AT TURN when the peer owns it, steady gold otherwise.
+    //   • FALLBACK path (mirror down, mod-drawn chips) — the chip PLATE is lerped toward the same
+    //     colour by the same blink alpha. Tint only: chip transforms are written exclusively by
+    //     the signature-gated repaint, never here.
+    //
+    // TRANSFORM DISCIPLINE (initiative row Y/Z leak, ModBuild 80): nothing in this block writes a
+    // transform of a MIRRORED node or of a fallback chip. The rings are NEW GameObjects the mirror
+    // knows nothing about — they are not in RemoteWidgetMirror's Pair table (which is index-paired
+    // at clone-build time and only ever walks the SOURCE to validate), so Pair.Apply cannot touch
+    // them and they cannot perturb it. They die with the clone on a rebuild and are re-resolved on
+    // the very same RebuildStamp key the hover cache already uses.
+
+    /// <summary>Stable actor id of the character the PEER is looking at (0 = none), record 22.</summary>
+    private int _peerFocusActorId;
+
+    /// <summary>How the peer's focus relates to the character at turn — the colour of their board
+    /// frame, and of the ring this track puts on the at-turn entry.</summary>
+    private Board.FocusTurnMark _peerFocusMark;
+
+    /// <summary>Change-gate for the focus log (actorId | mark; int.MinValue = never).</summary>
+    private int _loggedFocus = int.MinValue;
+
+    /// <summary>Hand the owner's synced character focus in (called per frame by the board next to
+    /// <see cref="SetPeerHover"/>). Cheap: two field writes + a change-gated log.</summary>
+    public void SetPeerFocus(int focusActorId, Board.FocusTurnMark mark)
+    {
+        _peerFocusActorId = focusActorId;
+        _peerFocusMark = mark;
+        int key = focusActorId != 0 ? focusActorId * 4 + (int)mark : -1;
+        if (key == _loggedFocus)
+            return;
+        _loggedFocus = key;
+        VRLog.Info("Net", "Remote initiative track focus: " +
+                          (focusActorId != 0
+                              ? $"actor {focusActorId}, turn mark {mark} (extension record 22 — the " +
+                                "stable actor id of the character THIS peer is looking at, plus their " +
+                                "local-only 'the actor at turn is mine' bit; whose turn it is, this " +
+                                "client reads for itself). Same FocusCue colours and blink phase as " +
+                                "the local track — one palette, two surfaces."
+                              : "none (no record 22 from this peer — the mirror rings nothing, which " +
+                                "is exactly what a pre-record build shows)."));
+    }
+
+    /// <summary>
+    /// Drive the focus/turn rings on the MIRRORED entries. Runs every frame (the blink is a
+    /// continuous alpha), after <see cref="ApplyHoverOverrides"/> so a ring is never applied to a
+    /// node the hover pass is still re-seating this frame. No-op on the fallback path.
+    /// </summary>
+    private void ApplyFocusRings()
+    {
+        if (Source != RemoteWidgetMirror.Fidelity.MirroredWidget)
+            return;
+        EnsureHoverCache();
+        if (_hoverNodes.Count == 0)
+            return;
+
+        int turnId = Board.CharacterFocus.TurnActorId;
+        // Two rings never stack on one portrait: when the peer's focus IS the actor at turn the
+        // TURN ring (which carries the urgent colour) wins — the same rule the local track uses.
+        Color? turnTint = _peerFocusMark != Board.FocusTurnMark.None
+            ? Board.FocusCue.Tint(_peerFocusMark)
+            : (turnId != 0 ? Board.FocusCue.AtTurnRingTint() : (Color?)null);
+        bool turnBreathes = _peerFocusMark != Board.FocusTurnMark.None;
+
+        for (int i = 0; i < _hoverNodes.Count; i++)
+        {
+            HoverNode node = _hoverNodes[i];
+            if (node.FocusRing == null || node.ActorId == 0)
+                continue;
+            bool isTurn = turnId != 0 && node.ActorId == turnId;
+            bool isFocus = _peerFocusActorId != 0 && node.ActorId == _peerFocusActorId;
+
+            if (isTurn && turnTint != null)
+                node.FocusRing.Apply(turnTint, turnBreathes);
+            else if (isFocus)
+                node.FocusRing.Apply(Board.FocusCue.SelectionRingTint(), breathe: false);
+            else
+                node.FocusRing.Apply(null, false);
+        }
+    }
+
+    /// <summary>
+    /// The FALLBACK strip's rendering of the same state: the chip plate lerped toward the focus /
+    /// turn colour by the shared blink alpha. TINT ONLY — position, scale and text belong to the
+    /// signature-gated repaint in <see cref="RefreshFallback"/> and are not touched here (the
+    /// blink would otherwise repaint the whole strip every frame, and a per-frame transform write
+    /// on this row is exactly what the ModBuild-80 Y/Z leak fix exists to prevent).
+    /// </summary>
+    private void ApplyFallbackFocusTint()
+    {
+        if (Source != RemoteWidgetMirror.Fidelity.ModDrawn || _entries.Count == 0)
+            return;
+
+        int turnId = Board.CharacterFocus.TurnActorId;
+        Color? turnTint = _peerFocusMark != Board.FocusTurnMark.None
+            ? Board.FocusCue.Tint(_peerFocusMark)
+            : (turnId != 0 ? Board.FocusCue.AtTurnRingTint() : (Color?)null);
+
+        int n = Mathf.Min(_entries.Count, MaxChips);
+        for (int i = 0; i < n; i++)
+        {
+            CActor a = _entries[i];
+            int id = a != null ? ActorIdOf(a) : 0;
+            if (id == 0)
+            {
+                _chips[i].SetFocusTint(null);
+                continue;
+            }
+            if (turnId != 0 && id == turnId && turnTint != null)
+                _chips[i].SetFocusTint(turnTint);
+            else if (_peerFocusActorId != 0 && id == _peerFocusActorId)
+                _chips[i].SetFocusTint(Board.FocusCue.SelectionRingTint());
+            else
+                _chips[i].SetFocusTint(null);
+        }
+    }
+
     /// <summary>One override target: the clone-side nodes of one track entry whose state is
     /// hover-derived, resolved once per clone rebuild / content tick.</summary>
     private struct HoverNode
     {
         public int ActorId;
+
+        /// <summary>Mod-owned focus/turn ring seated on the CLONE of this entry's avatar portrait
+        /// (null while the portrait is not resolvable yet). Not a mirrored node — see the peer-focus
+        /// block header for why the mirror cannot touch it and it cannot touch the mirror.</summary>
+        public Board.UiRing? FocusRing;
         public GameObject? Popup;      // clone of the entry's MonsterBaseUI root (enemies only)
         public Graphic? Name;          // clone of the entry's name label
         public RectTransform? Entry;   // clone of the entry root (width override, enemies only)
@@ -262,6 +401,17 @@ internal sealed class RemoteInitiativeTrack
                 Transform? nameClone = name != null ? _mirror.CloneOf(name.transform) : null;
                 node.Name = nameClone != null ? nameClone.GetComponent<Graphic>() : null;
 
+                // Focus / turn ring on the CLONE of the visible portrait — the avatar's only
+                // RawImage, exactly the rect the LOCAL track's rings and the selection-phase cue
+                // frame (the character face; every other graphic under the avatar is a TMP or an
+                // Image). Rebuilt here rather than kept alive across rebuilds because the ring is
+                // a CHILD of the clone and dies with it; RebuildStamp is the one key that knows.
+                RectTransform? portrait = PortraitRectOf(beh);
+                RectTransform? portraitClone = portrait != null
+                    ? _mirror.CloneOf(portrait) as RectTransform
+                    : null;
+                node.FocusRing = Board.UiRing.Build(portraitClone, "GloomhavenVR.RemoteFocusRing");
+
                 // Hover GROW: the exact rect ExtendedButton tweens (see the override note above).
                 ExtendedButton? btn = beh.avatarButton;
                 if (btn != null)
@@ -320,6 +470,23 @@ internal sealed class RemoteInitiativeTrack
         {
             _hoverNodes.Clear(); // no overrides this frame; the next tick re-resolves
         }
+    }
+
+    /// <summary>The VISIBLE portrait rect of a LIVE track entry — the avatar face, which is the
+    /// avatar's only <c>RawImage</c>. Identical resolution to the local track's rings, so the two
+    /// surfaces frame the same thing. Null while the avatar has not been pooled in yet.</summary>
+    private static RectTransform? PortraitRectOf(InitiativeTrackActorBehaviour entry)
+    {
+        InitiativeTrackActorAvatar avatar = entry.Avatar;
+        if (avatar == null)
+            return null;
+        RawImage[] raws = avatar.GetComponentsInChildren<RawImage>(includeInactive: false);
+        for (int i = 0; i < raws.Length; i++)
+        {
+            if (raws[i] != null && raws[i].transform is RectTransform rt)
+                return rt;
+        }
+        return null;
     }
 
     /// <summary>
@@ -664,6 +831,14 @@ internal sealed class RemoteInitiativeTrack
         /// widget's own hover artefacts instead).</summary>
         private static readonly Color HoverTint = new(1f, 0.85f, 0.3f, 0.95f);
 
+        /// <summary>The plate colour the signature-gated repaint last decided (base ± peer hover).
+        /// <see cref="SetFocusTint"/> always lerps from THIS, never from the live material colour,
+        /// so a per-frame blink can never compound into a washed-out plate.</summary>
+        private Color _restColor = PlayerTint;
+
+        /// <summary>The focus tint currently applied (change-gated: an idle chip costs one compare).</summary>
+        private Color? _focusTint;
+
         public void Set(Vector3 localPos, float chipW, string name, string initiative, bool player,
             bool hovered = false)
         {
@@ -671,9 +846,41 @@ internal sealed class RemoteInitiativeTrack
             _root.localPosition = localPos;
             _plate.transform.localScale = new Vector3(chipW * 0.94f, ChipH, 1f);
             Color baseTint = player ? PlayerTint : EnemyTint;
-            _plateMat.color = hovered ? Color.Lerp(baseTint, HoverTint, 0.45f) : baseTint;
+            _restColor = hovered ? Color.Lerp(baseTint, HoverTint, 0.45f) : baseTint;
+            _plateMat.color = _restColor;
+            _focusTint = null; // the repaint just wrote the rest colour; the next tick re-applies
             RemoteBoardContent.SetText(_name, name);
             RemoteBoardContent.SetText(_initiative, initiative);
+        }
+
+        /// <summary>
+        /// Peer character-focus / turn tint (extras record 22) — the FALLBACK strip's rendering of
+        /// the ring the mirrored path draws. The tint's ALPHA is the shared
+        /// <c>Board.FocusCue</c> blink, used here as the LERP AMOUNT, so a fallback chip pulses in
+        /// the same phase and the same two colours as every other outline in the feature. Null
+        /// restores the repaint's own colour.
+        ///
+        /// <para>TINT ONLY: this writes a material colour and nothing else. The chip's transform
+        /// belongs to <c>RefreshFallback</c>'s signature-gated repaint — a per-frame transform
+        /// write on this row is precisely what the ModBuild-80 initiative-row Y/Z leak fix
+        /// exists to prevent.</para>
+        /// </summary>
+        public void SetFocusTint(Color? tint)
+        {
+            if (_focusTint == null && tint == null)
+                return;
+            if (_focusTint != null && tint != null && _focusTint.Value == tint.Value)
+                return;
+            _focusTint = tint;
+            if (tint == null)
+            {
+                _plateMat.color = _restColor;
+                return;
+            }
+            Color c = Color.Lerp(_restColor, new Color(tint.Value.r, tint.Value.g, tint.Value.b, _restColor.a),
+                                 Mathf.Clamp01(tint.Value.a));
+            c.a = _restColor.a; // the plate's own opacity is MrBacking's business, not the cue's
+            _plateMat.color = c;
         }
     }
 }

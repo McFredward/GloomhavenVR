@@ -560,6 +560,14 @@ internal sealed class RemoteControlBoard
         // the same frame that copies the source also applies the PEER's hover on top (and strips
         // the LOCAL player's — defect (b) of the initiative-mouseover report).
         _track?.SetPeerHover(_owner.TrackHoverActorId, _owner.TrackHoverPopup);
+        // CHARACTER FOCUS (extension record 22) — handed in on the same seam and for the same
+        // reason: which entry this peer is LOOKING at, and how that relates to the character at
+        // turn. The board's own green/red frame (RemoteFocusOutline) and these track rings are two
+        // renderings of ONE state, from one palette, so a peer's board can never say "wrong
+        // character" while their track says nothing. The mark is re-derived locally every frame
+        // from THIS client's read of who is at turn; only their focus comes off the wire.
+        _track?.SetPeerFocus(Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId),
+                             Board.CharacterFocus.MarkForPeer(_owner.PlayerId));
         _track?.TickLive();
         _objectives?.TickLive();
     }

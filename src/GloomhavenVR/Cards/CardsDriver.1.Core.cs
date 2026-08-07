@@ -141,6 +141,18 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private bool _gateWasRevealed;
     private CardsHandUI? _boundHand;
 
+    /// <summary>
+    /// The hand whose live <c>AbilityCardUI</c> faces are currently ADOPTED for a READ-ONLY focus
+    /// view (null = none). The highest-uncertainty part of the character-focus feature: a focused
+    /// view reparents ANOTHER character's real widgets into VR cards, exactly as the local fan has
+    /// always done for a hand switch, and hands them back on release. Tracking the hand here is
+    /// what lets <c>ReleaseStaleFocusHand</c> give a character's faces back the moment the focus
+    /// leaves it — and log what was adopted and whether the restore actually landed, so a
+    /// "somebody's hand came back wrong" report is answerable from the log rather than from a
+    /// screenshot.
+    /// </summary>
+    private CardsHandUI? _focusAdoptedHand;
+
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>One-shot guard for the BoardTargeting Grab-policy grant (survives driver rebuilds).</summary>
