@@ -5,7 +5,12 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// ROUND 16 — THE DIAGNOSTIC ROUND. Not a fix: fifteen rounds of "put opaque dark geometry behind
+/// ROUND 16 — THE INSTRUMENTS. The round also ships a FIX (region membership + the wafer seating +
+/// the Preview depth cap, all in MixedReality.cs); everything in THIS file is the instrumentation
+/// that was built first, kept deliberately, and left in place whatever the fix does — if the rim
+/// still glows, one config flip decides the next step instead of another blind round.
+///
+/// Fifteen rounds of "put opaque dark geometry behind
 /// the translucent surface" produced zero change at the tile rim, and round 15's own instruments
 /// proved the geometry EXISTS (ModBuild-74 log: 226 prisms built, 226 renderers carrying underlay +
 /// wafer, "UNBACKED PREVIEW RENDERERS — none"). Round 14 (opaque + ZWrite) and its revert (round 15)

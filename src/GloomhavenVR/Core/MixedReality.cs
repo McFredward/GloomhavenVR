@@ -127,6 +127,19 @@ internal static partial class MixedReality
     /// sweep never matched. Live (a change rebuilds every backing).</summary>
     internal static ConfigEntry<bool> UnseenBackingDebugColors = null!;
 
+    /// <summary>ROUND 16 — the REGION-MEMBERSHIP route (default on, safety valve in the shape of
+    /// <see cref="HideSkyMeshes"/> / <see cref="OpaquePreviewTiles"/>). After the family/tag sweep
+    /// has produced its matched set, every OTHER mesh renderer standing inside one of those pieces'
+    /// AABBs — below the piece's own top plane, not a figure, not mod-owned, not oversized — is
+    /// backed too, regardless of shader, name, queue, RenderType tag or Preview depth. It exists
+    /// because sixteen rounds of widening MATERIAL predicates never caught 'Simple Tile', the one
+    /// authored piece per hex that spans the block's full height (the cliff the user photographs);
+    /// asking "does this renderer stand inside the fog-of-war region" is a question the geometry can
+    /// answer, where "does this material look see-through" is one a hardcoded-blend pass answers
+    /// wrongly. Turn OFF if a run shows it darkening wanted geometry — the log names everything it
+    /// adopted.</summary>
+    internal static ConfigEntry<bool> UnseenRegionMembership = null!;
+
 
     /// <summary>
     /// Key-colour presets offered by the settings UI.
@@ -216,6 +229,13 @@ internal static partial class MixedReality
         /// of on the key. Built geometry — not a mesh copy — because the tile meshes are not
         /// CPU-readable (see <see cref="MrRimCurtain"/>). Child of the source like the others.</summary>
         public Renderer? Rim;
+
+        /// <summary>TRUE when this source was adopted by the ROUND-16 region-membership route
+        /// rather than by the family/tag sweep. Load-bearing, not just bookkeeping: the region is
+        /// seeded ONLY from family/tag sources, so a region-adopted piece can never seed further
+        /// adoption. Without that, each sweep would grow the region by one adopted piece's AABB and
+        /// the backing would creep outward across the whole board.</summary>
+        public bool ViaRegion;
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -265,6 +285,45 @@ internal static partial class MixedReality
     /// <summary>Change-dedup for the RIM CURTAIN census line.</summary>
     private static int _loggedRimCount = -1;
 
+    // ---- ROUND-16 MATCH ACCOUNTING (cumulative per MR session, reset with the underlays) --------
+    // Every backed piece is attributed to the RULE that caught it, and every region candidate the
+    // rails threw out is counted by REASON — so the next hardware log answers "which route fixed
+    // the rim / what did the new route swallow" without another build.
+    private static int _matchFamilyCount;      // backed by the family/tag/Preview sweep
+    private static int _matchRegionCount;      // backed by region membership (round 16)
+    private static int _regionRejectAboveTop;  // stands above its host piece's top plane (props)
+    private static int _regionRejectFigure;    // figure guard (skinned / actor / animator ancestor)
+    private static int _regionRejectOversize;  // footprint far larger than the host piece
+    private static int _regionRejectNonMesh;   // particles/trails/lines/skinned — never touched
+    private static int _regionRejectNoBacking; // matched but BuildUnseenUnderlay found nothing to back
+
+    /// <summary>Names already reported by the region route (one line each, capped) — the answer to
+    /// "which rule caught the cliff piece" in the next log.</summary>
+    private static readonly HashSet<string> RegionAdoptedNames = new(8);
+
+    /// <summary>Per-source AABBs (expanded) that define the region, plus each one's own top plane —
+    /// rebuilt per sweep from the FAMILY/TAG sources only (see <see cref="UnseenUnderlay.ViaRegion"/>).</summary>
+    private static readonly List<Bounds> RegionBoundsScratch = new(256);
+    private static readonly List<float> RegionTopScratch = new(256);
+
+    /// <summary>Slack (world units) added around each family/tag source's AABB when testing region
+    /// membership. Small on purpose: a co-located piece of the SAME hex must pass, a neighbouring
+    /// tile's revealed dressing must not.</summary>
+    private const float RegionMembershipSlackWu = 0.05f;
+
+    /// <summary>How far above its host piece's top plane a candidate's bounds may reach before the
+    /// region route refuses it. This is the rail that keeps revealed PROPS standing on the tiles
+    /// (chests, clutter, roots — all of which start at the tile top and go UP) out of the backing.</summary>
+    private const float RegionTopToleranceWu = 0.02f;
+
+    /// <summary>Footprint ceiling for a region candidate, as a multiple of its host piece's XZ
+    /// size. A per-hex tile block is comparable in size to the hex; a room-spanning floor, an FX
+    /// volume or a whole-tile mesh is not, and adopting one would darken far more than the region.</summary>
+    private const float RegionMaxFootprintFactor = 3f;
+
+    /// <summary>Cap on the per-name "region membership backed X" lines per MR session.</summary>
+    private const int RegionAdoptedNameCap = 8;
+
     // Round-13 unbacked-preview instrument state (RecordUnbacked / LogUnbackedPreview):
     // per-sweep scratch (cleared after every dump decision) + change gate.
     private static readonly List<Renderer> UnbackedScratch = new(16);
@@ -310,6 +369,11 @@ internal static partial class MixedReality
     /// <c>Defaults.UnseenBackingDebugColors</c> then. OFF: it is a diagnostic, and it deliberately
     /// makes the fog-of-war region look wrong.</summary>
     private const bool UnseenBackingDebugColorsDefault = false;
+
+    /// <summary>Default for '[MixedReality] UnseenRegionMembership'. LOCAL FALLBACK, as above. ON:
+    /// it is the round-16 fix for the outer rim, and it is the route that does not depend on the
+    /// game advertising its fog-of-war geometry through a material.</summary>
+    private const bool UnseenRegionMembershipDefault = true;
 
     /// <summary>The three debug tints (round 16). Unmistakable and mutually unambiguous, and none of
     /// them is a chroma-key preset EXACTLY (the Magenta/Blue presets exist): a debug round must run
@@ -508,6 +572,19 @@ internal static partial class MixedReality
             "any dark ever shows on a hex top; lower toward the wafer drop if the very top of the " +
             "outer edge still glows. Forced to at least UnseenWaferDrop + 0.005. Applies while MR " +
             "is on, live (backings rebuild on change). Clamped to 0.005..0.5.");
+        UnseenRegionMembership = _file.Bind("MixedReality", "UnseenRegionMembership",
+            UnseenRegionMembershipDefault,
+            "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
+            "VR menu). Also give a dark backing to every piece that merely STANDS INSIDE the " +
+            "fog-of-war region — below the unseen tiles' own top plane — even when its material " +
+            "does not look see-through to the mod. The undiscovered-area tiles are built from " +
+            "several meshes per hex, and the tallest one (the block that forms the region's outer " +
+            "CLIFF) advertises nothing the mod could recognise: no 'Unseen' in its name, no " +
+            "transparent blend it exposes, no transparent render queue. It is the piece whose " +
+            "vertical faces kept showing the room through them. Instead of guessing from materials, " +
+            "this asks where the piece stands. Figures are never touched, nothing standing ON the " +
+            "tiles is touched, and anything much larger than a single hex is refused. Turn OFF only " +
+            "if a run shows it darkening wanted geometry — the log names everything it backed.");
         UnseenBackingDebugColors = _file.Bind("MixedReality", "UnseenBackingDebugColors",
             UnseenBackingDebugColorsDefault,
             "DIAGNOSTIC, default off — turn this on only when asked for a screenshot. In MR every " +
@@ -1008,6 +1085,39 @@ internal static partial class MixedReality
     /// construction, and the inset guarantees no dark ever protrudes past the outer silhouette
     /// (the standing anti-"alien dark slab" ruling).
     ///
+    /// ROUND 16 (hardware 2026-08-07 #6, ModBuild 74 — "Immer noch exakt das selbe Problem, ich
+    /// sehe ÜBERHAUPT KEINEN Unterschied"): round 14 and its revert are OPPOSITE changes with the
+    /// SAME result, which says the glowing pixels were never produced by anything these rounds
+    /// touched. Three facts, all READ FROM THE ModBuild-74 LOG, closed the case without new
+    /// hardware:
+    /// (a) THE COUNT. The WallSegmentFade MAPTILE dumps give preview subtrees WITH backings of 603
+    /// / 225 / 171 renderers — every one exactly divisible by 9 — and one with content but no
+    /// backings of 66 = 22×3. So the kit is THREE authored renderers per hex ('Simple Tile',
+    /// 'EN_Unseen_FloorHex_Edge_Damage_03_PR', 'EN_CR_FloorTiles_Damaged_03') and the mod backs
+    /// exactly TWO of them, 6 = 2×3 backings per hex. The unbacked third is 'Simple Tile' — bounds
+    /// y−0.4..−0.1, the block's FULL HEIGHT, i.e. the outer CLIFF the user photographs. Sixteen
+    /// rounds of widening MATERIAL predicates never touched the piece that glows.
+    /// (b) THE FALSE ALL-CLEAR. "UNBACKED PREVIEW RENDERERS — none" never covered it twice over:
+    /// its change gate hashed only the (empty) list, so all six occurrences were printed while the
+    /// region was still empty ("GAP BACKING — 0 renderer(s)" beside each), and the instrument
+    /// records ONLY renderers that pass <see cref="UnderPreviewNode"/> — whose 12-level cap the
+    /// Apparance nesting may well exceed. Both are fixed: the gate folds in the live backing count,
+    /// and the cap is <see cref="PreviewAncestorScanDepth"/> = 40.
+    /// (c) THE FLOATING WAFER. A child transform scales its mesh about the OBJECT ORIGIN, not the
+    /// mesh's bounds centre, so the wafer's seating offset was wrong by −centre.y·(1−squash) for
+    /// every mesh whose bounds centre is not at y = 0: the log shows
+    /// 'GloomhavenVR.MrUnseenFill'[y0.1..0.1] under a source at y−0.4..−0.1 — a widened dark slab
+    /// hovering ~0.16 wu ABOVE the hex tops, covering the authored animation instead of flooring
+    /// the seams beneath it. Corrected in <see cref="BuildUnseenUnderlay"/>.
+    /// THE FIX itself is the route that does not ask the material anything:
+    /// <see cref="RegionMembershipPass"/> backs every mesh renderer that merely STANDS INSIDE a
+    /// family piece's AABB, below that piece's own top plane, with figures, mod objects, non-meshes
+    /// and oversized footprints refused and every refusal counted. Round 15's rim curtain is not
+    /// wasted by this — it is finally BUILT ON THE CLIFF PIECE, which is where it was always aimed.
+    /// The diagnostics of the round survive whatever the outcome (MixedReality.Diag.cs: the
+    /// config-gated debug tint, the rim-population dump and the camera-setup dump), so a rim that
+    /// still glows is one config flip away from a decision, not another blind round.
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -1149,12 +1259,18 @@ internal static partial class MixedReality
                 BuildUnseenUnderlay(mesh, mats);
                 if (!UnseenSources.Contains(r.GetInstanceID()))
                     RecordUnbacked(r, "matched but no dark slot / no mesh filter");
+                else
+                    _matchFamilyCount++;
             }
             else if (!(r is ParticleSystemRenderer) && !(r is TrailRenderer))
             {
                 RecordUnbacked(r, "matched but not a MeshRenderer");
             }
         }
+
+        // ROUND 16 — THE REGION-MEMBERSHIP ROUTE. Runs after the family/tag sweep so it can seed
+        // itself from this sweep's matched set (see RegionMembershipPass for the anti-creep rule).
+        RegionMembershipPass(all);
 
         if (UnseenUnderlays.Count != _loggedPreviewCount)
         {
@@ -1165,6 +1281,22 @@ internal static partial class MixedReality
                                $"XZ ×{(_appliedSkirtScale > 0f ? _appliedSkirtScale : 1f):0.###}, Y squash " +
                                $"{FillSquashY:0.###}; authored materials untouched; everything " +
                                "destroyed when MR turns off).");
+            VRLog.Info("Core", $"MR: unseen MATCH ACCOUNTING (this MR session) — " +
+                               $"{_matchFamilyCount} backed by FAMILY/TAG/PREVIEW (shader-, " +
+                               $"material- or GO-name 'Unseen', a transparent-family RenderType " +
+                               $"tag, or an active 'Preview' ancestor within " +
+                               $"{PreviewAncestorScanDepth} levels), {_matchRegionCount} backed by " +
+                               "REGION MEMBERSHIP (round 16: stands inside a family piece's AABB, " +
+                               "below its top plane — the route that does not ask the material " +
+                               "anything). Region candidates refused ON THE LAST SWEEP: " +
+                               $"{_regionRejectAboveTop} " +
+                               $"above the host piece's top plane (props standing ON the tiles), " +
+                               $"{_regionRejectFigure} figures/actors (never touched), " +
+                               $"{_regionRejectOversize} oversized (> ×{RegionMaxFootprintFactor:0.#} " +
+                               $"the host footprint), {_regionRejectNonMesh} non-mesh " +
+                               $"(particles/trails/lines/skinned), {_regionRejectNoBacking} with no " +
+                               "backable slot. Mod-owned objects and the mod layer are excluded " +
+                               "before any of these counters.");
         }
 
         // Round-15 rim instrument: how many curtains were built, how their silhouette was DERIVED
@@ -1415,12 +1547,216 @@ internal static partial class MixedReality
     }
 
     /// <summary>
+    /// ROUND 16 — THE REGION-MEMBERSHIP ROUTE: back every mesh renderer that merely STANDS INSIDE
+    /// the fog-of-war region, whatever its material says.
+    ///
+    /// <para>WHY. Sixteen rounds widened MATERIAL predicates — shader name, material name, GO name,
+    /// blend probe, render queue, RenderType tag — and none of them ever caught the piece the user
+    /// photographs. The ModBuild-74 MAPTILE dumps settle what that piece is by arithmetic: a
+    /// preview subtree WITH backings holds 603 / 225 / 171 renderers (all exactly 9 per hex) while
+    /// one with content but no backings holds 66 = 22×3, so the kit is THREE authored renderers per
+    /// hex and the mod backs TWO of them. The unbacked third is 'Simple Tile', whose bounds span
+    /// the block's full height (y −0.4..−0.1) — the region's outer CLIFF. It advertises nothing:
+    /// not family-named, opaque to the blend probe, opaque-range queue, no transparent tag. Asking
+    /// "what does this material look like" cannot find it; asking "does this renderer stand inside
+    /// the unseen region" can, and the answer comes from geometry the game cannot hide.</para>
+    ///
+    /// <para>ANTI-CREEP (the one rule that makes this safe to iterate). The region is seeded ONLY
+    /// from FAMILY/TAG sources (<see cref="UnseenUnderlay.ViaRegion"/> == false). If adopted pieces
+    /// could seed further adoption, every sweep would grow the region by one AABB and the backing
+    /// would walk across the board. Seeded this way the region's extent is fixed by the game's own
+    /// fog-of-war geometry and cannot expand, no matter how many sweeps run.</para>
+    ///
+    /// <para>RAILS, each counted by reason so the next log can audit them: never a figure (mirrors
+    /// the wall system's guard — skinned outright, plus ActorBehaviour / CInteractableActor /
+    /// Animator ancestors), never mod-owned (name prefix or mod layer), never a
+    /// particle/trail/line, never something reaching above its host piece's own top plane (that is
+    /// what keeps chests, clutter and roots STANDING ON the tiles out of it), and never a footprint
+    /// more than <see cref="RegionMaxFootprintFactor"/>× the host hex (no room-spanning floor, no FX
+    /// volume). Adopted pieces get the same underlay + wafer + rim curtain as everyone else, the
+    /// same enabled-mirroring in <see cref="SyncUnseenUnderlays"/>, and the same destruction on MR
+    /// off; no authored material is touched here either.</para>
+    /// </summary>
+    private static void RegionMembershipPass(Renderer[] all)
+    {
+        if (!UnseenRegionMembership.Value || UnseenUnderlays.Count == 0)
+            return;
+
+        // The REFUSAL counters are per-sweep: the same particle system or prop is re-examined every
+        // sweep, so a cumulative count would inflate by a factor of the session length and say
+        // nothing. The two MATCH counters stay cumulative — they count real builds, and Apparance
+        // regen genuinely rebuilds pieces.
+        _regionRejectAboveTop = 0;
+        _regionRejectFigure = 0;
+        _regionRejectOversize = 0;
+        _regionRejectNonMesh = 0;
+        _regionRejectNoBacking = 0;
+
+        // Seed the region from the FAMILY/TAG sources only (anti-creep, above).
+        RegionBoundsScratch.Clear();
+        RegionTopScratch.Clear();
+        Bounds union = default;
+        bool first = true;
+        for (int i = 0; i < UnseenUnderlays.Count; i++)
+        {
+            UnseenUnderlay e = UnseenUnderlays[i];
+            if (e.ViaRegion || e.Source == null)
+                continue;
+            Bounds b = e.Source.bounds;
+            RegionTopScratch.Add(b.max.y);
+            b.Expand(RegionMembershipSlackWu * 2f);
+            RegionBoundsScratch.Add(b);
+            if (first)
+            {
+                union = b;
+                first = false;
+            }
+            else
+            {
+                union.Encapsulate(b);
+            }
+        }
+        if (first)
+            return;
+
+        for (int i = 0; i < all.Length; i++)
+        {
+            Renderer r = all[i];
+            if (r == null || !r.enabled)
+                continue;
+            int layer = r.gameObject.layer;
+            if (layer == VRLayers.ModLayer || layer == 5)
+                continue;
+            if (r.gameObject.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal))
+                continue;
+            if (UnseenSources.Contains(r.GetInstanceID()))
+                continue; // already backed by either route
+
+            Bounds rb = r.bounds;
+            if (!union.Intersects(rb)) // coarse gate: nearly every scene renderer dies here
+                continue;
+
+            if (!(r is MeshRenderer mesh))
+            {
+                // Particles/trails/lines stay authored (standing instruction); a SkinnedMeshRenderer
+                // is a figure by the guard's own first clause. Counted, never touched.
+                _regionRejectNonMesh++;
+                continue;
+            }
+
+            bool inside = false;
+            bool aboveTop = false;
+            bool oversize = false;
+            for (int b = 0; b < RegionBoundsScratch.Count; b++)
+            {
+                if (!RegionBoundsScratch[b].Intersects(rb))
+                    continue;
+                if (rb.max.y > RegionTopScratch[b] + RegionTopToleranceWu)
+                {
+                    aboveTop = true; // stands ON the tiles (or pokes through) — never adopted
+                    continue;
+                }
+                Vector3 hostSize = RegionBoundsScratch[b].size;
+                if (rb.size.x > hostSize.x * RegionMaxFootprintFactor
+                    || rb.size.z > hostSize.z * RegionMaxFootprintFactor)
+                {
+                    oversize = true;
+                    continue;
+                }
+                inside = true;
+                break;
+            }
+            if (!inside)
+            {
+                if (aboveTop)
+                    _regionRejectAboveTop++;
+                else if (oversize)
+                    _regionRejectOversize++;
+                continue;
+            }
+
+            // FIGURE GUARD LAST of the rails, deliberately: it is the only expensive test here
+            // (three ancestor walks) and this is the point where the candidate would otherwise be
+            // adopted — so it runs a few times per sweep instead of a few hundred, and its counter
+            // means "figures we refused to swallow", not "figures that happened to be nearby".
+            if (IsFigureOrActorRenderer(r))
+            {
+                _regionRejectFigure++;
+                continue;
+            }
+
+            Material[] mats = r.sharedMaterials;
+            if (mats == null)
+                mats = System.Array.Empty<Material>();
+            // FORCE DARK: the whole point is that this piece's slots do NOT read see-through to the
+            // probe — the per-slot rule would find nothing to back and skip it, which is exactly
+            // how it stayed green for sixteen rounds. Inside the region, below the top plane, past
+            // every rail above, dark IS the authored look (outside MR the same geometry blends
+            // against the unrendered near-black void).
+            BuildUnseenUnderlay(mesh, mats, viaRegion: true, forceDark: true);
+            if (UnseenSources.Contains(r.GetInstanceID()))
+            {
+                _matchRegionCount++;
+                if (RegionAdoptedNames.Count < RegionAdoptedNameCap
+                    && RegionAdoptedNames.Add(r.gameObject.name))
+                {
+                    Material? m = r.sharedMaterial;
+                    VRLog.Info("Core", $"MR: REGION MEMBERSHIP backed '{r.gameObject.name}' — " +
+                                       $"shader '{ShaderName(r)}' mat " +
+                                       $"'{(m != null ? m.name : "<none>")}' queue " +
+                                       $"{(m != null ? m.renderQueue : -1)} renderTypeTag " +
+                                       $"'{(m != null ? m.GetTag("RenderType", false, "<none>") : "<none>")}' " +
+                                       $"bounds s{r.bounds.size} @ {r.bounds.center}. This piece " +
+                                       "advertises nothing the material predicates could match; it " +
+                                       "was caught because it STANDS in the unseen region.");
+                }
+            }
+            else
+            {
+                _regionRejectNoBacking++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// FIGURES ARE NEVER TOUCHED. Deliberate MIRROR of the wall system's guard
+    /// (<c>WallSegmentFade.IsFigureOrActorRenderer</c>, round-7 ruling: a Brute's horned head was
+    /// permanently hidden by an adoption sweep) — that one is private to a nested type in a file
+    /// this change does not own, and the rule is severe enough to be re-stated at every sweep that
+    /// adopts renderers rather than shared by a refactor across module boundaries. Keep the two in
+    /// step. Over-broad on purpose (fail-open = the renderer keeps rendering normally):
+    /// <list type="bullet">
+    /// <item>every <see cref="SkinnedMeshRenderer"/> outright — characters are skinned, scenery is
+    ///   not;</item>
+    /// <item>anything under an <c>ActorBehaviour</c> ancestor (the game's board actor);</item>
+    /// <item>anything under a <c>CInteractableActor</c> ancestor (the figure root FigureGrab picks
+    ///   by);</item>
+    /// <item>anything under an <c>Animator</c> ancestor — an accessory hangs off a BONE, and the
+    ///   rig root always sits above it; this also spares animated props.</item>
+    /// </list>
+    /// An actor standing in an unexplored room therefore cannot get a dark backing, whatever its
+    /// bounds overlap.
+    /// </summary>
+    private static bool IsFigureOrActorRenderer(Renderer r) =>
+        r is SkinnedMeshRenderer
+        || r.GetComponentInParent<ActorBehaviour>() != null
+        || r.GetComponentInParent<CInteractableActor>() != null
+        || r.GetComponentInParent<Animator>() != null;
+
+    /// <summary>
     /// Build the opaque dark underlay for one matched source renderer: a mod-owned CHILD sharing
     /// the source's mesh and full transform, dark plate material on the translucent slots,
     /// draws-nothing filler on the rest (see <see cref="ForceUnseenOpaque"/> for why). Skipped
     /// silently when the source has no MeshFilter mesh to clone.
+    ///
+    /// <para><paramref name="viaRegion"/> records WHICH route caught this source (round 16) — the
+    /// region is seeded only from the family/tag route, see <see cref="RegionMembershipPass"/>.
+    /// <paramref name="forceDark"/> gives every slot the dark plate instead of consulting the
+    /// per-slot probe: a region-adopted piece is here precisely BECAUSE its material tells the mod
+    /// nothing, so the probe would find no backable slot and skip it.</para>
     /// </summary>
-    private static void BuildUnseenUnderlay(MeshRenderer source, Material[] mats)
+    private static void BuildUnseenUnderlay(MeshRenderer source, Material[] mats,
+                                            bool viaRegion = false, bool forceDark = false)
     {
         MeshFilter? filter = source.GetComponent<MeshFilter>();
         if (filter == null || filter.sharedMesh == null)
@@ -1456,7 +1792,7 @@ internal static partial class MixedReality
         int backed = 0;
         for (int i = 0; i < slots; i++)
         {
-            bool dark = i >= mats.Length
+            bool dark = forceDark || i >= mats.Length
                         || IsTranslucent(mats[i]) || IsUnseenFamilyMaterial(mats[i]);
             plateMats[i] = dark ? underlayMat : _unseenSkipMat!;
             fillMats[i] = dark ? waferMat : _unseenSkipMat!;
@@ -1520,11 +1856,23 @@ internal static partial class MixedReality
         fillGo.transform.SetParent(source.transform, worldPositionStays: false);
         fillGo.transform.localRotation = Quaternion.identity;
         fillGo.transform.localScale = new Vector3(skirt, FillSquashY, skirt);
-        // Mapping y → c + (y−c)·squash + t: t = (top−c)(1−squash) seats the wafer at the mesh
-        // top; the world-space drop below then puts it just under the authored top surface.
+        // SEATING — ROUND 16 CORRECTION (the wafer was FLOATING ABOVE the tiles for a whole
+        // piece class). A child transform scales its mesh about the OBJECT ORIGIN, not about the
+        // mesh's bounds centre: a vertex y maps to localPosition.y + squash·y. The old offset
+        // (top − centre)(1 − squash) assumed a pivot at the bounds CENTRE, so the wafer landed
+        // (top − centre·(1 − squash))·… — i.e. −centre.y·0.98 too HIGH — and was correct only for
+        // meshes whose bounds centre happens to sit at y = 0. Proof from the ModBuild-74 MAPTILE
+        // dump: 'EN_Unseen_FloorHex_Edge_Damage_03_PR' (world y −0.4..−0.1, mesh height 0.318 ⇒
+        // centre.y ≈ −0.159) carried 'GloomhavenVR.MrUnseenFill'[y0.1..0.1] — a flat dark slab
+        // hovering ~0.16 wu ABOVE the hex tops, XZ-widened ×1.2, i.e. covering the authored
+        // animated top instead of flooring the seams under it; the sibling class
+        // 'EN_CR_FloorTiles_Damaged_03' (centre.y ≈ 0) sat correctly at y−0.1. The right offset
+        // for a pivot at the origin is top·(1 − squash): top·squash + top·(1 − squash) = top.
+        // XZ was always right — keeping the mesh CENTRE fixed under the widening is
+        // centre·(1 − skirt) for a pivot at the origin too.
         fillGo.transform.localPosition = new Vector3(
             meshCenter.x * (1f - skirt),
-            (mb.max.y - meshCenter.y) * (1f - FillSquashY),
+            mb.max.y * (1f - FillSquashY),
             meshCenter.z * (1f - skirt));
         fillGo.transform.position += Vector3.down * drop; // WORLD drop, whatever the parent pose
         fillGo.layer = source.gameObject.layer;
@@ -1562,6 +1910,7 @@ internal static partial class MixedReality
             Plate = plate,
             Fill = fill,
             Rim = rim,
+            ViaRegion = viaRegion,
         };
 
         UnseenUnderlays.Add(entry);
@@ -1865,15 +2214,31 @@ internal static partial class MixedReality
         m = null;
     }
 
+    /// <summary>Ancestor levels <see cref="UnderPreviewNode"/> walks before giving up.
+    ///
+    /// <para>ROUND 16: was 12, on the assumption that "the preview content is generated a handful
+    /// of levels under the tile". Apparance nests its generated content far deeper than that, and
+    /// the cap is a prime suspect for the rim: a renderer BELOW the cap is matched by nothing AND
+    /// recorded by nothing — <see cref="RecordUnbacked"/> only fires for renderers this same capped
+    /// test accepts — which is how "UNBACKED PREVIEW RENDERERS — none" could stay green while the
+    /// cliff glowed. 40 clears any plausible Apparance nesting.</para>
+    ///
+    /// <para>WHY A CAP AT ALL (it is not paranoia about cycles — a Transform chain cannot loop):
+    /// this walk runs per RENDERER inside a sweep over every renderer in the scene (thousands), so
+    /// the cap bounds the worst case to a fixed number of parent hops per candidate. It is a cost
+    /// bound, which is why raising it is safe: it costs at most 28 extra reference reads on the
+    /// renderers that have no 'Preview' ancestor at all.</para></summary>
+    private const int PreviewAncestorScanDepth = 40;
+
     /// <summary>True when an ACTIVE ancestor named 'Preview' sits above <paramref name="t"/> —
     /// the node <c>ProceduralMapTile.ShowContent</c> toggles for a hidden room's stand-in stack.
     /// One of the two match signals of <see cref="ForceUnseenOpaque"/> (the other is the 'Unseen'
     /// shader family); kept so a translucent stack renderer outside the family stays covered.
-    /// Depth-capped: the preview content is generated a handful of levels under the tile.</summary>
+    /// Depth-capped at <see cref="PreviewAncestorScanDepth"/> (a cost bound — see there).</summary>
     private static bool UnderPreviewNode(Transform t)
     {
         Transform? p = t;
-        for (int depth = 0; p != null && depth < 12; depth++)
+        for (int depth = 0; p != null && depth < PreviewAncestorScanDepth; depth++)
         {
             if (p.name == "Preview")
                 return true;
@@ -1956,6 +2321,16 @@ internal static partial class MixedReality
         _rimPopLogged = false;   // round-16 one-shot dumps re-arm for the rebuilt region
         _camDumpLogged = false;
         _diagPrevBackingCount = -1;
+        _matchFamilyCount = 0;   // round-16 match accounting is per MR session
+        _matchRegionCount = 0;
+        _regionRejectAboveTop = 0;
+        _regionRejectFigure = 0;
+        _regionRejectOversize = 0;
+        _regionRejectNonMesh = 0;
+        _regionRejectNoBacking = 0;
+        RegionAdoptedNames.Clear();
+        RegionBoundsScratch.Clear();
+        RegionTopScratch.Clear();
         _previewScanNextFrame = 0;
         _loggedPreviewCount = -1;
         _loggedRimCount = -1;
