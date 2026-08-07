@@ -429,7 +429,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
-                    TryBeginSwap(p); // round-11 swap: retired by EYE-LOCK, revival hook
+                    TryBeginSwap(p); // round 11: mesh dressing without a channel animates too
                     DriveProp(p, ramp);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;

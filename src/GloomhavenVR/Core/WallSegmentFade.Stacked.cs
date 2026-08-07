@@ -347,10 +347,7 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
-                // EYE-LOCK stagger (round 14): each shell piece leaves at its own fade rather
-                // than the whole storey popping at FoliageHideFade — one CPU decision per
-                // piece per frame, therefore identical in both eye passes.
-                if (seg.Fade >= PieceHideThreshold(seg, p.Renderer))
+                if (want == 2)
                 {
                     if (p.Renderer.enabled)
                     {
@@ -364,7 +361,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
-                    TryBeginSwap(p); // round-11 swap: retired by EYE-LOCK, revival hook
+                    TryBeginSwap(p); // round 11: everything that fades animates
                     DriveProp(p, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
@@ -1017,13 +1014,10 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 _mountedTouched[r] = cp.Prop;
-                // EYE-LOCK stagger (round 14): the corner piece leaves at its own fade,
-                // computed against the wall that owns it — CPU state, both eyes alike.
-                float cornerHide = PieceHideThreshold(cp.A, r);
-                if (fade < cornerHide)
-                    TryBeginSwap(cp.Prop); // round-11 swap: retired by EYE-LOCK (revival hook)
+                if (fade < FoliageHideFade)
+                    TryBeginSwap(cp.Prop); // round 11: corner pieces animate too
                 DriveProp(cp.Prop, fade);
-                if (fade >= cornerHide)
+                if (fade >= FoliageHideFade)
                 {
                     if (r.enabled)
                         r.enabled = false;

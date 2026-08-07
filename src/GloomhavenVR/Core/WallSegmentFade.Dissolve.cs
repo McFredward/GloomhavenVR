@@ -23,12 +23,11 @@ namespace GloomhavenVR.Core;
 ///   template defaults for what it lacks, which the swap census makes visible). The copy
 ///   enables the fade keyword and gate. NEVER a shared game material — only our copies are
 ///   written, and they are destroyed on restore/teardown.</item>
-/// <item>DRIVE: the swapped piece got the SAME per-renderer MPB ramp the wall renderers ran
-///   — noise map + _Cutoff sweep. RETIRED by the EYE-LOCK ruling (round 14, see
-///   <see cref="FadeDriver.TryBeginSwap"/>): that ramp decided each pixel through the
-///   shader's SCREEN-UV map sample and its screen-radial/0.02·dist terms, i.e. per-eye
-///   inputs under MultiPass. The swap no longer engages; if one ever does (switch off
-///   <c>EyeLockRetiresSwap</c>), it is driven to the eye-locked binary instead.</item>
+/// <item>DRIVE: the swapped piece gets the SAME per-renderer MPB ramp the wall renderers
+///   run — noise map + _Cutoff sweep during the transition, held map at fade 1 — an OPAQUE
+///   per-pixel clip dissolve (no alpha blending: the MR chroma-key ruling forbids
+///   semi-transparent surfaces). renderer.enabled=false remains the final state at fade
+///   1.0, exactly as before.</item>
 /// <item>RESTORE: authored sharedMaterials reassigned bit-for-bit, our copies destroyed,
 ///   MPB cleared — on unfade, ownership release, toggle-off and teardown (the shared
 ///   ledger's restore path, so no piece can stay swapped without an owner).</item>
@@ -44,12 +43,6 @@ internal static partial class WallSegmentFade
         /// <summary>Swap census: pieces currently dissolving on swapped materials.</summary>
         private int _swapTotal;
         private float _nextSwapLog;
-        /// <summary>The retirement notice is a one-shot (it is a ruling, not a heartbeat).</summary>
-        private bool _swapRetiredLogged;
-        /// <summary>EYE-LOCK ruling switch. <c>static readonly</c> on purpose: it must gate the
-        /// swap at RUNTIME (so the machinery below stays compiled, reviewable and one edit away
-        /// from revival) rather than compile it out.</summary>
-        private static readonly bool EyeLockRetiresSwap = true;
 
         /// <summary>Capture the swap template from a LIVE toggle-native material (called
         /// from CollectWallFadeInfo — the material already proved its fade branch).</summary>
@@ -60,44 +53,19 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
-        /// EYE-LOCK (round 14, user rule "either it fades in BOTH eyes or not at all"): the
-        /// swap is RETIRED as a dissolve channel. It delivered its ramp through exactly the
-        /// per-eye path the wall renderers just lost — the masonry shader's screen-UV
-        /// occlusion-map sample plus the S term (screen-radial vignette + 0.02·dist, 8th
-        /// power). On a swapped prop that produced the same rivalry as on a wall, only on a
-        /// smaller surface: a torch or shell piece half-there in one eye. The algebra in the
-        /// <see cref="WallSegmentFade"/> header shows the shader has no eye-identical PARTIAL
-        /// state, so there is no way to keep this animation and the rule at the same time.
-        /// Swapped pieces now fall back to the eye-identical channels the ledger already
-        /// owns: their own object-UV cutoff/alpha ramp where the material has one, and
-        /// <c>renderer.enabled</c> (a per-frame renderer state — inherently identical in
-        /// both eyes) at the hide threshold. The machinery below stays intact and reversible
-        /// so the next round can revive it the moment a view-independent dissolve channel
-        /// exists (a mod-supplied shader, or an Amp dissolve pair on the template).
+        /// Decide ONCE whether this prop should dissolve on a swapped material, and perform
+        /// the swap. Scope: plain MESH pieces without a particle system, without an alpha
+        /// channel (those animate already) and without a live native toggle (those dissolve
+        /// natively) — exactly the pop class. Figures can never get here (every collector
+        /// guards), and the arch/doorway never fades at all.
         /// </summary>
         private void TryBeginSwap(MountedProp p)
         {
             if (p.SwapChecked || p.SwapCopies != null)
                 return;
             p.SwapChecked = true;
-            if (_masonryFadeShader != null && !_swapRetiredLogged)
-            {
-                _swapRetiredLogged = true;
-                VRLog.Info(Name,
-                    "DISSOLVE-SWAP RETIRED (EYE-LOCK): the round-11 swap dissolved plain "
-                    + $"pieces on '{_masonryFadeShader.name}' via the SCREEN-UV occlusion map "
-                    + "and the shader's screen-radial vignette / 0.02·dist terms — per-eye "
-                    + "inputs under MultiPass, i.e. the same rivalry the wall fade just "
-                    + "removed. No eye-identical PARTIAL state exists on that shader (header "
-                    + "algebra), so these pieces animate through their own object-UV cutoff/"
-                    + "alpha ramp and disable at the hide threshold instead. Machinery kept "
-                    + "for a future view-independent dissolve channel.");
-            }
-            if (EyeLockRetiresSwap || _masonryFadeShader == null || p.System != null
-                || p.ColorId >= 0)
-            {
+            if (_masonryFadeShader == null || p.System != null || p.ColorId >= 0)
                 return;
-            }
             if (p.Renderer is not MeshRenderer mr || mr == null)
                 return;
             Material[] src = mr.sharedMaterials;
@@ -178,27 +146,27 @@ internal static partial class WallSegmentFade
             return mat;
         }
 
-        /// <summary>Drive a swapped piece (only reachable while <see cref="EyeLockRetiresSwap"/>
-        /// is off, or for a piece swapped before the ruling): the SAME eye-locked binary the
-        /// wall renderers get — map r=0,a=0 ⇒ m ≡ 1 ⇒ clip = 1 − _Cutoff, so the piece is
-        /// either untouched-solid or wholly discarded, never a per-eye partial. The swept
-        /// screen-UV ramp this method used to run is exactly what the rule forbids.</summary>
+        /// <summary>Drive a swapped piece with the wall renderers' own map/cutoff ramp
+        /// (called from DriveProp when <see cref="MountedProp.SwapCopies"/> is set).</summary>
         private void DriveSwappedProp(MountedProp p, float fade)
         {
             if (!EnsureTextures())
                 return;
-            if (fade < StaggerLastFade)
-            {
-                p.Renderer.SetPropertyBlock(null); // still vanilla-solid
-                return;
-            }
             _mountedMpb ??= new MaterialPropertyBlock();
             _mountedMpb.Clear();
             _mountedMpb.SetInteger(ToggleWallFadeId, 1);
             _mountedMpb.SetFloat(ToggleWallfadeMatId, 1f);
             _mountedMpb.SetFloat(WallFadeOnMatId, 1f);
-            _mountedMpb.SetTexture(TilesOcclusionMapId, _hideMapTex!);
-            _mountedMpb.SetFloat(CutoffId, HiddenCutoff);
+            if (fade >= 1f)
+            {
+                _mountedMpb.SetTexture(TilesOcclusionMapId, _occludedTex!);
+                _mountedMpb.SetFloat(CutoffId, 0.5f);
+            }
+            else
+            {
+                _mountedMpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
+                _mountedMpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, 1f, fade));
+            }
             p.Renderer.SetPropertyBlock(_mountedMpb);
         }
 

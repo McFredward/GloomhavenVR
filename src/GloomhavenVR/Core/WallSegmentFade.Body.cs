@@ -180,10 +180,7 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
-                // EYE-LOCK stagger (round 14): each course leaves at its own fade instead of
-                // the whole body popping at FoliageHideFade — the group's animation, decided
-                // once per frame on the CPU, hence identical in both eyes.
-                if (seg.Fade >= PieceHideThreshold(seg, p.Renderer))
+                if (want == 2)
                 {
                     if (p.Renderer.enabled)
                     {
@@ -195,7 +192,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
-                    TryBeginSwap(p); // round-11 swap: retired by EYE-LOCK, revival hook
+                    TryBeginSwap(p); // round 11: everything that fades animates
                     DriveProp(p, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;

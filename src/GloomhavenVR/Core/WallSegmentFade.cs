@@ -120,68 +120,55 @@ internal static class WallFadeTuning
 /// Unity property precedence is MPB &gt; material &gt; global, so a per-renderer
 /// MaterialPropertyBlock can open the gate (<c>ToggleWallFade=1</c>), substitute the map
 /// (<c>_TilesOcclusionMap</c> = a small CONSTANT texture) and set <c>_Cutoff</c> /
-/// <c>_ToggleWallfade</c>.
-///
-/// EYE-IDENTITY RULE (user, 2026-08-07 — same severity as "Lights are never touched" and
-/// "figures are never touched"; verbatim intent: "Entweder faded es auf beiden Augen oder
-/// gar nicht"): a wall's fade state must be IDENTICAL in both eyes. The rig renders
-/// MULTIPASS — each eye is its own pass with its own view matrix, its own screen
-/// coordinates and its own camera position — so every discard term derived from screen
-/// position or camera position evaluates DIFFERENTLY per eye, and at the threshold one eye
-/// discards a fragment the other keeps (binocular rivalry: physically uncomfortable, and
-/// the reported bug). The HIGH branch carries exactly such terms, both inside <c>S</c>:
-/// the screen-radial vignette and <c>0.02·dist</c>, summed and raised to the EIGHTH power,
-/// which amplifies a few percent of inter-eye screen disparity into a full 0/1 flip near
-/// the crossover — the reported symptom is its signature (upper wall solid in one eye,
-/// gone in the other, at a particular distance/angle, i.e. out in the periphery where the
-/// radial term crosses).
-///
-/// ALGEBRA OF THE ONLY EYE-SAFE STATES (HIGH, from the disassembly above —
-/// <c>clip = 1 + T·(A·B − 1) − c</c>, <c>A = max(M,S) + 42n·(1−max(M,S))</c>,
-/// <c>B = (M&gt;0) ? 1 : S</c>):
+/// <c>_ToggleWallfade</c>. Concretely:
 /// <list type="bullet">
-/// <item><c>m ≡ 1</c> ⇒ <c>M ≡ 1</c> ⇒ <c>max(M,S) ≡ 1</c> ⇒ <c>A ≡ 1</c> (the noise is
-///   multiplied by <c>1−1 = 0</c>) and <c>B ≡ 1</c> ⇒ <c>clip = 1 − c</c>. S — and with it
-///   the vignette, the distance term and the noise — is ALGEBRAICALLY GONE: the outcome is
-///   a pure function of the scalar <c>c</c> we write per renderer per frame.</item>
-/// <item>any other <c>m</c> lets <c>max(M,S)</c> read S wherever <c>S &gt; m</c>, so the
-///   outcome depends on a per-eye term. THEREFORE a PARTIALLY discarded wall cannot be
-///   eye-identical on this shader: the flat game's per-pixel dissolve look and eye-identity
-///   are mutually exclusive, and the user's rule decides. This retires the R3 held state,
-///   whose world-Y foundation gradient lived inside that same S, and the screen-space noise
-///   map that drove the R3 transition (sampled at per-eye screen UV by construction).</item>
-/// </list>
-///
-/// DELIVERY (round 14, EYE-LOCK — every state below is decided on the CPU once per frame,
-/// hence identical in both eye passes):
-/// <list type="bullet">
-/// <item>SOLID (fade=0, and every not-yet-flipped renderer mid-transition): NO MPB at all —
-///   bit-for-bit the vanilla wall. With <see cref="Compat.WallFadeDisable"/> pinning the
-///   GLOBAL <c>ToggleWallFade</c> to 0 (the game-camera TilesOcclusionGenerator still
-///   publishes a head-viewpoint-invalid map), an untouched renderer cannot fade at all.</item>
-/// <item>HIDDEN: <c>_TilesOcclusionMap</c> = constant <b>r=0, a=0</b>. BOTH sides of the
-///   shader's depth compare then yield <c>m = 1</c> (<c>1</c> or <c>1−r = 1</c>), so the
-///   state no longer rests on any Z convention either; plus <c>ToggleWallFade=1</c>,
-///   <c>_ToggleWallfade = _WallFade_On = 1</c>, <c>_Cutoff = </c>
-///   <see cref="FadeDriver.HiddenCutoff"/>. HIGH: <c>clip = 1 − 2 = −1</c> for EVERY
-///   fragment. LOW (<c>clip = m − c</c>): <c>1 − 2 = −1</c> above its hard OBJECT-space
-///   Y ≥ 0.4 gate, and the base course below that gate stays solid view-independently.
-///   A cutoff of 2 also sits above every alpha-test range, so a material whose fade branch
-///   did not compile still discards instead of staying solid.</item>
-/// <item>TRANSITION (0&lt;fade&lt;1): the per-pixel dissolve is replaced by a per-RENDERER
-///   STAGGER — each renderer flips SOLID→HIDDEN when the segment's damped fade passes ITS
-///   OWN threshold, spread over [<see cref="FadeDriver.StaggerFirstFade"/>,
-///   <see cref="FadeDriver.StaggerLastFade"/>] by the piece's height inside the wall (top
-///   courses first, base course last — the same reading order the game's world-Y gradient
-///   had) plus a stable per-renderer jitter. The wall dissolves course by course, opaque
-///   per-pixel clip only (no alpha blending — MR chroma-key ruling), and every flip is one
-///   CPU compare per frame shared by both eyes.</item>
-/// <item>FOUNDATION: the shader's world-Y band went with S. Its view-independent
-///   replacement is the mod's OWN ground band (<see cref="FadeDriver.GroundExclusionHeightWU"/>:
-///   a renderer whose AABB top sits within 1 wu of the room's tile-anchored floor is never
-///   part of a fade at all). The EYE-LOCK log line counts how many of a wall's fading
-///   renderers SPAN that band, so a missing base course can be attributed from the log
-///   instead of another blind round.</item>
+/// <item>TRANSITION (0&lt;fade&lt;1): map = low-frequency VALUE-NOISE texture (r in [0.06,1],
+///   a=0 — fails the reversed-Z depth compare, so <c>m = 1-noise</c>),
+///   <c>_Cutoff = lerp(-0.05, 1, fade)</c> → progressive dissolve; the high variant
+///   additionally dithers/vignettes with its own view terms. The noise is sampled at SCREEN
+///   UV by the shader itself, so the pattern slides under head motion — confined to the
+///   ~0.35s dissolve, cosmetic (under conventional-Z it would degrade to an end-of-sweep
+///   pop; the rig is D3D11 reversed-Z).</item>
+/// <item>HELD FADED (fade=1) — R3 (foundation-band fix; the R2 held state below deleted
+///   the base course, the user's bug): drive EXACTLY the value the flat game's own
+///   occlusion map delivers over a revealed room. The game never touches <c>_Cutoff</c>
+///   at all — it only sets the global <c>ToggleWallFade=1</c> (ActivateWallFadeInGame
+///   .Start, Main.Awake) and rasterizes the revealed-room footprints into the
+///   screen-space RT <c>_TilesOcclusionMap</c> (TilesOcclusionGenerator
+///   .UpdateCommandBuffers: rooms drawn on a (0,0,0,1)-cleared target, blurred, bound
+///   globally); over a room interior the blurred map reads occ.r≈1, so the wall shader
+///   computes <c>m = 1-occ.r ≈ 0</c> and its OWN foundation terms do the rest. Held MPB
+///   on BOTH variants: map = constant r=1 <b>a=0</b> texture → <c>m = 0</c>
+///   view-independently (a=0 fails the depth compare for every visible fragment under
+///   either Z convention — reversed-Z and conventional fragDepth are both &gt; 0 except
+///   the degenerate exact far/near-plane pixel), <c>_Cutoff</c> = the material's
+///   AUTHORED "Mask Clip Value" (clamped 0.05–0.95; with m = 0 any 0&lt;c&lt;1 yields
+///   the same held geometry — the authored value only shapes the HIGH dither density,
+///   matching the flat game exactly), <c>_ToggleWallfade=1</c>. LOW (blob264 lines
+///   46-49, 69-71): <c>clip = 0 - c &lt; 0</c> → constant discard wherever objY ≥ 0.4;
+///   the base course below the shader's hard object-Y gate stays solid. HIGH (blob216
+///   lines 216-229): <c>M = 0</c> → <c>B = S</c>, <c>A = S + 42n(1-S)</c>, so at the
+///   foundation the world-Y ramp (1-worldY)/3 saturates S to 1 → <c>A·B = 1</c>,
+///   <c>clip = 1-c &gt; 0</c> — solid base band, noise MULTIPLIED BY ZERO, worldY-only
+///   (view-independent); up the wall S → 0 → <c>clip = -c &lt; 0</c> — constant
+///   discard; between (worldY ≈ 0.4..1) the game's own noise-dithered band edge.
+///   RESIDUAL VIEW COUPLING (HIGH only, game-native, accepted because the spec is
+///   "exactly the flat game's faded wall"): S also sums the screen-radial vignette
+///   (0.02·dist+screenRadial)^8, so peripheral pixels — and whole walls beyond
+///   ~45 wu from the head, where min(0.02·dist,1)+radial ≥ 1 — keep the upper wall
+///   partially visible exactly as the flat game does near screen edges / zoomed out.
+///   The per-wall fade DECISION stays CPU-side and view-independent. IMPOSSIBILITY
+///   NOTE (why the vignette cannot be stripped while keeping the band): band term and
+///   vignette are summed inside S BEFORE the single cutoff compare, and every vignette
+///   coefficient is an immediate DXBC literal — the only strictly view-independent
+///   HIGH deliveries are m=1 constants (clip = 1-c everywhere: whole wall visible, or
+///   with c&gt;1 the R2 TOTAL discard that erased the foundation). Every fade logs the
+///   wall's shader variant + applied cutoff so a hardware log pins down which math
+///   applied.</item>
+/// <item>SOLID (fade=0): the MPB is REMOVED — with <see cref="Compat.WallFadeDisable"/> now
+///   pinning the GLOBAL <c>ToggleWallFade</c> to 0 unconditionally (the game-camera
+///   TilesOcclusionGenerator still publishes a head-viewpoint-invalid map; globally-open
+///   fade would sample garbage), an untouched renderer is bit-for-bit today's solid wall.</item>
 /// </list>
 ///
 /// OCCLUSION DECISION (per segment, VR-stable — round 7, PER-WALL ROOM COVERAGE; user
@@ -385,21 +372,11 @@ internal static partial class WallSegmentFade
         /// with _Cutoff + _WallFade_On/_ToggleWallfade — the masonry) — diag/fade-ON label.</summary>
         public int ToggleNative;
         /// <summary>Authored "Mask Clip Value" (<c>_Cutoff</c>) of the wall's fade material,
-        /// clamped to (0,1). DIAGNOSTIC ONLY since the EYE-LOCK round: the delivered states
-        /// are SOLID (no MPB) and HIDDEN (<see cref="FadeDriver.HiddenCutoff"/>), because a
-        /// cutoff inside (0,1) leaves the discard depending on the shader's per-eye S term.
-        /// 0.5 fallback when unreadable.</summary>
+        /// clamped to (0,1) — the held state drives exactly this value like the flat game
+        /// (which never writes _Cutoff at all). 0.5 fallback when unreadable.</summary>
         public float HeldCutoff = 0.5f;
         /// <summary>Whether <see cref="HeldCutoff"/> came from the material (diag).</summary>
         public bool CutoffAuthored;
-        /// <summary>Per-eye-term census of this segment's fade shader(s) — which properties
-        /// the material exposes that could carry a screen/camera-derived term (EYE-LOCK log).
-        /// "none exposed" = the terms are DXBC immediates and can only be neutralised by the
-        /// algebraic route (map r=0 ⇒ m ≡ 1 ⇒ S multiplied out).</summary>
-        public string EyeTermProbe = "n/a";
-        /// <summary>The EYE-LOCK audit line was already emitted for this wall (once per wall
-        /// per scene — it is a guard, not a heartbeat).</summary>
-        public bool EyeLockLogged;
         /// <summary>True when this segment's AABB engulfs its own room's floor samples AND it
         /// cannot be split further (single renderer): the coverage metric is meaningless for it,
         /// so it is held permanently SOLID (vanilla look). Re-derived every rescan.</summary>
@@ -414,10 +391,6 @@ internal static partial class WallSegmentFade
         public int LastRoomVisible;
         /// <summary>Total floor-grid points of this wall's room (the fraction denominator).</summary>
         public int LastRoomTotal;
-        /// <summary>EYE-LOCK stagger census (diag): renderers currently carrying the HIDDEN
-        /// block vs. renderers still vanilla-solid. Both eyes always see these exact counts.</summary>
-        public int HiddenRenderers;
-        public int SolidRenderers;
     }
 
     private sealed partial class FadeDriver : MonoBehaviour
@@ -488,24 +461,6 @@ internal static partial class WallSegmentFade
         /// <summary>Above this fade the foliage renderer is DISABLED outright — the cutoff ramp
         /// only removes cutout texels, and any opaque twig material would otherwise survive.</summary>
         private const float FoliageHideFade = 0.99f;
-
-        // --- EYE-LOCK delivery (round 14; see class header "EYE-IDENTITY RULE") -------------
-        /// <summary>The ONE cutoff the fade ever writes. With the map pinned to r=0 (map term
-        /// m ≡ 1) the HIGH branch collapses to <c>clip = 1 − c</c> and the LOW branch to
-        /// <c>clip = m − c = 1 − c</c>, so any c &gt; 1 discards every fragment with no
-        /// screen-space or camera-space term left in the expression — the whole point. 2
-        /// (not 1.01) also clears every alpha-test range, so a material whose fade branch did
-        /// not compile discards through its plain cutout test instead of staying solid.</summary>
-        private const float HiddenCutoff = 2f;
-        /// <summary>Fade at which the FIRST (topmost) renderer of a wall flips to HIDDEN.</summary>
-        private const float StaggerFirstFade = 0.10f;
-        /// <summary>Fade at which the LAST (lowest) renderer of a wall flips to HIDDEN. Below
-        /// 1 by a clear margin so the held state is unambiguously "everything hidden".</summary>
-        private const float StaggerLastFade = 0.90f;
-        /// <summary>Stable per-renderer jitter on the stagger position, so a whole course does
-        /// not flip in lockstep (reads as a dissolve rather than a slab pop). Derived from the
-        /// renderer's instance id — no RNG state, hence identical in every frame and eye.</summary>
-        private const float StaggerJitter = 0.12f;
         // Rescan census (heartbeat diagnostics): how many fade-capable renderers exist, how many
         // the wall cache claimed, how many the shader sweep adopted — and the shader names seen on
         // cache walls that carry NO fade-capable renderer at all (the tripwire for a tileset whose
@@ -597,11 +552,8 @@ internal static partial class WallSegmentFade
         private int _lastVisibleCount;
         private MaterialPropertyBlock? _mpb;
 
-        // EYE-LOCK: ONE constant map texture, r=0 a=0 → the shader's map term m ≡ 1 on BOTH
-        // sides of its depth compare. That is what multiplies the per-eye S term out of the
-        // discard (class header). The round-13 screen-UV noise texture is GONE: it was the
-        // mod's own per-eye input (a screen-space pattern sampled once per eye).
-        private Texture2D? _hideMapTex;
+        private Texture2D? _noiseTex;    // transition dissolve pattern (r in [0.06,1], a=0)
+        private Texture2D? _occludedTex; // held-faded constant (r=1, a=0 → map term m = 0)
 
         private float _nextRescan;
         private int _builtRoomCount = -1;
@@ -1229,7 +1181,7 @@ internal static partial class WallSegmentFade
         /// name(s) + variant and which held-state math therefore applies (rare event —
         /// unthrottled on purpose so hardware logs pin each fade to its variant).
         /// </summary>
-        private void LogStateFlip(Segment seg)
+        private static void LogStateFlip(Segment seg)
         {
             string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
             if (!seg.FromWallCache)
@@ -1250,10 +1202,8 @@ internal static partial class WallSegmentFade
                     if (rl.Length > 0) rl.Append(", ");
                     rl.Append(r.name).Append('@').Append(r.bounds.max.y.ToString("F1"));
                 }
-                string cutoff = $"map r=0,a=0→m≡1, _Cutoff={HiddenCutoff:0.00} (EYE-LOCK; " +
-                    $"authored {seg.HeldCutoff:0.00} " +
-                    (seg.CutoffAuthored ? "read from material" : "unreadable/fallback") +
-                    " — no longer delivered, see EYE-LOCK line)";
+                string cutoff = $"map occ(r=1,a=0)→m=0, _Cutoff={seg.HeldCutoff:0.00} " +
+                    (seg.CutoffAuthored ? "(authored)" : "(fallback)");
                 VRLog.Info(Name,
                     $"fade ON '{wall}' shader '{seg.ShaderNames}' [{variant}] " +
                     $"({seg.Renderers.Count} renderer(s), {seg.ToggleNative} toggle-native: " +
@@ -1261,125 +1211,19 @@ internal static partial class WallSegmentFade
                     $"+{seg.Siblings.Count} asset-sibling(s), +{seg.Mounted.Count} mounted " +
                     $"prop(s) [{MountedNames(seg)}], +{seg.Stacked.Count} stacked shell " +
                     $"piece(s), +{seg.Body.Count} plain body mesh(es) [enabled-only]) — " +
-                    $"hidden state: " +
+                    $"held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
-                        ? "clip = 1-c = -1 for EVERY fragment (S multiplied out) — whole " +
-                          "renderer discarded, both eyes bit-identical"
-                        : "clip = m-c = -1 above the hard OBJECT-space Y≥0.4 gate — base " +
-                          "course below it stays solid (object space ⇒ view-independent)"));
-                LogEyeLockOnce(seg);
+                        ? "world-Y foundation gradient solid (S=1 ⇒ clip=1-c), upper wall " +
+                          "discarded (clip=-c); game-native screen vignette/0.02·dist terms " +
+                          "remain inside S — flat-game faded look"
+                        : "discard above object-Y 0.4 only — base course below the hard " +
+                          "shader gate stays solid (flat-game faded look, view-independent)"));
             }
             else
             {
                 VRLog.Info(Name, $"fade OFF '{wall}' [{variant}] — MPB removed, solid.");
             }
-        }
-
-        /// <summary>
-        /// EYE-LOCK GUARD (round 14, user rule "either it fades in BOTH eyes or not at all",
-        /// Lights/figures severity): once per fading wall, name every input that can differ
-        /// between the two eye passes and state exactly how this wall's delivery removed it.
-        /// If something could NOT be neutralised it is spelled out as such, so a residual
-        /// rivalry report from the next hardware round can be attributed instead of guessed.
-        /// </summary>
-        private void LogEyeLockOnce(Segment seg)
-        {
-            if (seg.EyeLockLogged)
-                return;
-            seg.EyeLockLogged = true;
-            // How much of this wall reaches INTO the mod's own (view-independent) ground band
-            // — those renderers lose their base course when they flip, which is the one
-            // cosmetic price of dropping the shader's world-Y gradient. Named here so a
-            // "the wall's foot disappeared" report has a number to land on.
-            int spanning = 0;
-            float bandTop = float.NaN;
-            if (seg.RoomIndex >= 0 && seg.RoomIndex < _roomFloorY.Count)
-            {
-                bandTop = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
-                foreach (MeshRenderer r in seg.Renderers)
-                {
-                    if (r != null && r.bounds.min.y <= bandTop)
-                        spanning++;
-                }
-            }
-            VRLog.Info(Name,
-                $"EYE-LOCK '{(seg.Anchor != null ? seg.Anchor.name : "<dead>")}' "
-                + $"[{(seg.VariantHigh ? "HIGH" : "LOW")}] — MultiPass per-eye terms and their "
-                + "disposition: "
-                // 1. the two shader-internal, screen/camera-derived terms
-                + "(1) screen-radial vignette + 0.02·dist, summed inside S and raised to the "
-                + "8th power [per-eye: own screen coords + own camera pos] — NOT exposed as a "
-                + $"material property (shader property probe: {seg.EyeTermProbe}); neutralised "
-                + "ALGEBRAICALLY: _TilesOcclusionMap := constant r=0,a=0 ⇒ map term m ≡ 1 on "
-                + "BOTH depth-compare branches ⇒ M ≡ 1 ⇒ max(M,S) ≡ 1 ⇒ A ≡ 1 and B ≡ 1 ⇒ "
-                + $"clip = 1 − _Cutoff. _Cutoff := {HiddenCutoff:0.00} (CPU, one value per "
-                + "frame for both eyes) ⇒ clip ≡ −1 < 0. S never reaches the compare, so "
-                + "neither does the vignette, the distance term or the shader's noise. "
-                // 2. the mod's own former per-eye input
-                + "(2) screen-UV noise map (the mod's round-13 dissolve pattern, sampled once "
-                + "per eye) — REMOVED, not reduced: the transition is now a per-renderer CPU "
-                + $"stagger over fade {StaggerFirstFade:0.00}..{StaggerLastFade:0.00} "
-                + $"(height-ordered, ±{StaggerJitter:0.00} stable jitter; this wall: "
-                + $"{seg.Renderers.Count} renderer(s)), one compare per renderer per FRAME. "
-                // 3. everything else that touches this wall
-                + "(3) attachments (foliage, siblings, mounted props, stacked shell, body "
-                + "meshes, corner pieces) fade through renderer.enabled and object-UV cutoff/"
-                + "alpha ramps — renderer state and UV-space alpha tests are per-FRAME/per-"
-                + "SURFACE, never per-eye. (4) the fade DECISION (room coverage, EMA, Schmitt, "
-                + "dwell) runs once per frame on the head pose in LateUpdate — one verdict "
-                + "feeds both passes; peer-synced fades compose at the same target, so a "
-                + "remote fade is delivered by this identical path. "
-                // 5. the cost, stated plainly
-                + "COST: the HIGH world-Y foundation gradient is gone with S (it lived inside "
-                + "the same saturate) — the view-independent replacement is the mod's ground "
-                + $"band (AABB top ≤ floor+{GroundExclusionHeightWU:0.0} wu, never faded); "
-                + (float.IsNaN(bandTop)
-                    ? "this wall has no room anchor, so no band census."
-                    : $"{spanning}/{seg.Renderers.Count} of this wall's fading renderer(s) "
-                      + $"reach into that band (top {bandTop:0.00}) and take their base course "
-                      + "with them when they flip. NOTHING here can differ between eyes."));
-        }
-
-        /// <summary>Per-shader probe (cached): does this fade shader EXPOSE any property that
-        /// could carry a screen/camera-derived term, i.e. one the MPB could neutralise
-        /// directly? Reported verbatim in the EYE-LOCK line — "none exposed" is the finding
-        /// that forces the algebraic route (the DXBC coefficients are immediates).</summary>
-        private readonly Dictionary<Shader, string> _eyeTermProbe = new();
-
-        private string ProbeEyeTerms(Shader sh)
-        {
-            if (_eyeTermProbe.TryGetValue(sh, out string? cached))
-                return cached;
-            string result;
-            try
-            {
-                var hits = new System.Text.StringBuilder();
-                int n = sh.GetPropertyCount();
-                for (int i = 0; i < n; i++)
-                {
-                    string p = sh.GetPropertyName(i);
-                    string l = p.ToLowerInvariant();
-                    if (!l.Contains("vignette") && !l.Contains("screen") && !l.Contains("radial")
-                        && !l.Contains("fresnel") && !l.Contains("view") && !l.Contains("camera")
-                        && !l.Contains("dist") && !l.Contains("parallax"))
-                    {
-                        continue;
-                    }
-                    if (hits.Length > 0)
-                        hits.Append(", ");
-                    hits.Append(p).Append('(').Append(sh.GetPropertyType(i)).Append(')');
-                }
-                result = hits.Length == 0
-                    ? "none exposed — the vignette/distance coefficients are DXBC immediates"
-                    : "EXPOSED: " + hits + " — next round may neutralise these via the MPB";
-            }
-            catch (System.Exception e)
-            {
-                result = "unreadable: " + e.GetType().Name;
-            }
-            _eyeTermProbe[sh] = result;
-            return result;
         }
 
         private void LogDiagnostic(Vector3 headPos, int visibleCount)
@@ -1431,12 +1275,6 @@ internal static partial class WallSegmentFade
                    .Append(" e").Append(seg.BlockEps.ToString("F2"))
                    .Append(seg.VariantHigh ? (seg.VariantLow ? " vH+L" : " vHIGH")
                        : (seg.VariantLow ? " vLOW" : seg.Body.Count > 0 ? " vBODY" : " vLOW"));
-            // EYE-LOCK stagger census: hidden vs still-solid renderers of this wall. Printed
-            // only while our block is live, and identical for both eyes by construction —
-            // the anchor a rivalry report is checked against.
-            if (seg.HasBlock)
-                _diagSb.Append(" hid").Append(seg.HiddenRenderers).Append('/')
-                       .Append(seg.HiddenRenderers + seg.SolidRenderers);
             // Stacked shell pieces riding this wall (keep stories) — only printed when any
             // exist, so scenes without superstructures keep their diag lines unchanged.
             if (seg.Stacked.Count > 0)
@@ -1618,33 +1456,46 @@ internal static partial class WallSegmentFade
 
             if (!EnsureTextures())
                 return;
-            // THE ONE BLOCK we ever write (EYE-LOCK): identical content every frame, so it is
-            // built once and simply (re)assigned. Nothing in it varies with the view.
             _mpb ??= new MaterialPropertyBlock();
             _mpb.Clear();
             _mpb.SetInteger(ToggleWallFadeId, 1);
-            // HIGH-variant map scale M = m·_ToggleWallfade (cb0[6].x) — pin to 1 so M ≡ m ≡ 1
-            // and max(M,S) ≡ 1 regardless of the material's authored value; the LOW shader
+            // HIGH-variant map scale M = m·_ToggleWallfade (cb0[6].x) — pin to 1 so the held
+            // math below holds regardless of the material's authored value; the LOW shader
             // has no such property (MPB entry simply unused there).
             _mpb.SetFloat(ToggleWallfadeMatId, 1f);
             // TOGGLE-NATIVE materials (round 8, Amp_Basic_N_MRAO masonry): open their gate
             // too — the same fade subgraph behind a differently-named material switch.
             // Unused entry on the classic WallFade shaders, exactly like _ToggleWallfade on
             // LOW. KNOWN RISK (logged per material by LogToggleNativeMaterialOnce): if
-            // Amplify compiled the switch as a compile-time keyword, this float is inert —
-            // but HiddenCutoff = 2 then still discards through the material's plain cutout
-            // test, so the failure mode is "hidden anyway", never "half-hidden".
+            // Amplify compiled the switch as a compile-time keyword, this float is inert and
+            // the material becomes the shader-swap candidate — the toggle diag line plus the
+            // next hardware round adjudicate.
             _mpb.SetFloat(WallFadeOnMatId, 1f);
-            // Map r=0,a=0 → m ≡ 1 on BOTH branches of the shader's depth compare ⇒ A ≡ B ≡ 1
-            // ⇒ clip = 1 − c. With c = 2 every fragment discards, and NO screen-space or
-            // camera-space term (vignette, 0.02·dist, screen-UV noise) survives in the
-            // expression at all — the eye-identity proof lives in the class header.
-            _mpb.SetTexture(TilesOcclusionMapId, _hideMapTex!);
-            _mpb.SetFloat(CutoffId, HiddenCutoff);
+            if (seg.Fade >= 1f)
+            {
+                // Held fully faded (R3, foundation-band fix): constant r=1,a=0 map → map
+                // term m = 1-r = 0 view-independently (a=0 fails the depth compare for
+                // every visible fragment under either Z convention), _Cutoff = the
+                // material's own authored Mask Clip Value — exactly the state the flat
+                // game's occlusion map produces over a revealed room. LOW: clip = -c < 0
+                // discards everything ABOVE the shader's hard objY-0.4 gate, base course
+                // solid. HIGH: M=0 → the shader's own world-Y ramp keeps the foundation
+                // gradient solid (S=1 → A·B=1, noise ×0) and discards the upper wall
+                // (S=0 → clip = -c). Full math + residual game-native vignette terms in
+                // the class header.
+                _mpb.SetTexture(TilesOcclusionMapId, _occludedTex!);
+                _mpb.SetFloat(CutoffId, seg.HeldCutoff);
+            }
+            else
+            {
+                // Dissolve: sweep the clip threshold across the noise texture's value range
+                // (screen-space pattern — cosmetic, confined to the ~0.35s transition).
+                _mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
+                _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, 1f, seg.Fade));
+            }
 
             seg.HasBlock = true;
             bool lostRenderer = false;
-            int hiddenNow = 0, solidNow = 0;
             foreach (MeshRenderer r in seg.Renderers)
             {
                 if (r == null)
@@ -1652,63 +1503,10 @@ internal static partial class WallSegmentFade
                     lostRenderer = true;
                     continue;
                 }
-                // STAGGER: one CPU compare per renderer per FRAME (not per eye) — the whole
-                // transition is a sequence of eye-identical binary flips.
-                if (seg.Fade >= HideThreshold(seg, r))
-                {
-                    r.SetPropertyBlock(_mpb);
-                    hiddenNow++;
-                }
-                else
-                {
-                    r.SetPropertyBlock(null); // still vanilla-solid — nothing of ours on it
-                    solidNow++;
-                }
+                r.SetPropertyBlock(_mpb);
             }
-            seg.HiddenRenderers = hiddenNow;
-            seg.SolidRenderers = solidNow;
             if (lostRenderer)
                 _nextRescan = 0f; // wall regenerated mid-fade — re-collect promptly
-        }
-
-        /// <summary>
-        /// EYE-LOCK stagger: the fade value at which THIS renderer flips SOLID→HIDDEN.
-        /// Height-ordered inside its wall (top courses first, base course last — the reading
-        /// order the retired world-Y gradient had) plus a stable per-renderer jitter so a
-        /// whole course does not flip in lockstep. Pure function of CPU-side state: it
-        /// contains no camera, no screen and no time term, so both eye passes of a frame see
-        /// the same verdict for the same renderer — that is the eye-identity guarantee at the
-        /// transition, exactly as the map/cutoff pair is at the endpoints.
-        /// </summary>
-        /// <summary>Same stagger for the enabled-toggle pieces (stacked shell, wall body,
-        /// corner pieces, mounted props): with the round-11 dissolve swap retired by the
-        /// EYE-LOCK ruling they would otherwise ALL pop at <see cref="FoliageHideFade"/> in
-        /// one frame. Staggered, the group crumbles piece by piece over the transition —
-        /// which is the user's "everything that fades animates" ruling honoured through a
-        /// channel that has no per-eye input at all (renderer.enabled is renderer STATE, one
-        /// value per frame for both passes). Never above <see cref="FoliageHideFade"/>, so
-        /// the held state still means "every piece gone".</summary>
-        private static float PieceHideThreshold(Segment seg, Renderer? r)
-        {
-            if (r == null)
-                return FoliageHideFade;
-            return Mathf.Min(HideThreshold(seg, r), FoliageHideFade);
-        }
-
-        private static float HideThreshold(Segment seg, Renderer r)
-        {
-            float span = seg.HasBounds ? seg.Bounds.size.y : 0f;
-            float h = span > 0.01f
-                ? Mathf.Clamp01((r.bounds.center.y - seg.Bounds.min.y) / span)
-                : 1f;
-            // Stable jitter in [-1,1] from the renderer identity: no RNG state, no allocation,
-            // and the same renderer always lands on the same offset (frame to frame AND eye
-            // to eye — a per-frame random would itself be a rivalry source).
-            uint hash = (uint)r.GetInstanceID() * 2654435761u;
-            hash ^= hash >> 15;
-            float jitter = ((hash & 0xFFFFu) / 65535f) * 2f - 1f;
-            float t = Mathf.Clamp01(1f - h + (jitter * StaggerJitter));
-            return Mathf.Lerp(StaggerFirstFade, StaggerLastFade, t);
         }
 
         // ---- segment / play-area bookkeeping ------------------------------------------------
@@ -3446,7 +3244,6 @@ internal static partial class WallSegmentFade
             seg.ShaderNames = "?";
             seg.HeldCutoff = 0.5f;
             seg.CutoffAuthored = false;
-            seg.EyeTermProbe = "n/a"; // re-probed from this rescan's materials (EYE-LOCK line)
             seg.Engulfing = false; // re-derived by NeutralizeEngulfingSegments after association
         }
 
@@ -3518,14 +3315,12 @@ internal static partial class WallSegmentFade
                     CaptureMasonryTemplate(m); // round-11 dissolve-swap template donor
                     shaderName += "(toggle-native)";
                 }
-                // Per-eye term census for the EYE-LOCK guard line (cached per shader).
-                if (seg.EyeTermProbe == "n/a")
-                    seg.EyeTermProbe = ProbeEyeTerms(m.shader);
-                // The material's authored "Mask Clip Value" — the value the FLAT game's fade
-                // runs with. DIAGNOSTIC ONLY since EYE-LOCK: any 0<c<1 leaves the discard
-                // depending on the shader's per-eye S term (class header, "ALGEBRA"), so the
-                // delivery writes HiddenCutoff and nothing else. Still read + logged so a
-                // hardware log can compare the flat game's parameters against ours.
+                // Held-state cutoff = the material's authored "Mask Clip Value" — the flat
+                // game never writes _Cutoff, so this IS the value its fade runs with.
+                // Clamped away from 0/1: with the held map's m = 0 any 0<c<1 produces the
+                // identical geometry (c only shapes the HIGH variant's dither density),
+                // while c = 0 would disable the LOW discard and c ≥ 1 would kill the HIGH
+                // foundation band (clip = 1-c).
                 if (!seg.CutoffAuthored && m.HasProperty(CutoffId))
                 {
                     seg.HeldCutoff = Mathf.Clamp(m.GetFloat(CutoffId), 0.05f, 0.95f);
@@ -3546,32 +3341,61 @@ internal static partial class WallSegmentFade
         // ---- textures / teardown ------------------------------------------------------------
 
         /// <summary>
-        /// Create the ONE delivery texture (EYE-LOCK). Constant r=0, a=0: whichever way the
-        /// shader's depth compare goes, the map term reads m = 1 (compare passes → 1;
-        /// compare fails → 1-r = 1). That constant is what collapses the HIGH branch to
-        /// <c>clip = 1 - _Cutoff</c> and the LOW branch to <c>clip = 1 - _Cutoff</c>,
-        /// leaving no screen-space or camera-space input in the discard at all.
-        /// The round-13 screen-UV noise texture is deliberately gone — a texture the shader
-        /// samples at SCREEN UV is per-eye by construction, and any m other than 1 lets the
-        /// per-eye S term back into the compare (class header, "ALGEBRA").
+        /// Create the two delivery textures. Noise: 64x64 value noise (Mathf.PerlinNoise),
+        /// rank-flattened to a uniform histogram over [0.06,1] so the _Cutoff sweep dissolves at
+        /// a constant area-rate; low frequency keeps the left/right-eye patterns correlated
+        /// (screen-space sampling differs per eye only by disparity); alpha 0 = "play area
+        /// behind every pixel" under the shader's reversed-Z compare, m = 1-noise. Occluded
+        /// (held) texture: r=1 AND a=0 — the depth compare fails for every visible fragment
+        /// under either Z convention, so the map term m = 1-r = 0 is a CONSTANT: exactly the
+        /// value the flat game's occlusion map yields over a revealed room, which lets each
+        /// shader variant's own foundation-band terms survive (see class header).
         /// </summary>
         private bool EnsureTextures()
         {
-            if (_hideMapTex != null)
+            if (_noiseTex != null && _occludedTex != null)
                 return true;
 
-            _hideMapTex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: false, linear: true)
+            const int size = 64;
+            _noiseTex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false, linear: true)
             {
-                name = "GloomhavenVR.WallFadeHideMap",
+                name = "GloomhavenVR.WallFadeNoise",
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            int n = size * size;
+            var values = new float[n];
+            var order = new int[n];
+            for (int i = 0; i < n; i++)
+            {
+                int x = i % size, y = i / size;
+                // ~5 noise cells across the texture (which spans the SCREEN when sampled).
+                values[i] = Mathf.PerlinNoise(x * (5f / size) + 11.31f, y * (5f / size) + 47.77f);
+                order[i] = i;
+            }
+            Array.Sort(order, (a, b) => values[a].CompareTo(values[b]));
+            var pixels = new Color32[n];
+            for (int rank = 0; rank < n; rank++)
+            {
+                byte r = (byte)Mathf.RoundToInt(Mathf.Lerp(0.06f, 1f, (rank + 0.5f) / n) * 255f);
+                pixels[order[rank]] = new Color32(r, 0, 0, 0);
+            }
+            _noiseTex.SetPixels32(pixels);
+            _noiseTex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+
+            _occludedTex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: false, linear: true)
+            {
+                name = "GloomhavenVR.WallFadeOccluded",
                 wrapMode = TextureWrapMode.Repeat,
                 filterMode = FilterMode.Point,
                 hideFlags = HideFlags.HideAndDontSave,
             };
-            var pixels = new Color32[4];
+            var occluded = new Color32[4];
             for (int i = 0; i < 4; i++)
-                pixels[i] = new Color32(0, 0, 0, 0); // r=0, a=0 → m ≡ 1 on BOTH compare branches
-            _hideMapTex.SetPixels32(pixels);
-            _hideMapTex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+                occluded[i] = new Color32(255, 0, 0, 0); // r=1, a=0 → m ≡ 1-r = 0 ("room behind")
+            _occludedTex.SetPixels32(occluded);
+            _occludedTex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
             return true;
         }
 
@@ -3634,10 +3458,15 @@ internal static partial class WallSegmentFade
             _floorYByRenderer.Clear();
             _cornerPieces.Clear();
             _peerFades.Clear();
-            if (_hideMapTex != null)
+            if (_noiseTex != null)
             {
-                try { Destroy(_hideMapTex); } catch { /* already gone */ }
-                _hideMapTex = null;
+                try { Destroy(_noiseTex); } catch { /* already gone */ }
+                _noiseTex = null;
+            }
+            if (_occludedTex != null)
+            {
+                try { Destroy(_occludedTex); } catch { /* already gone */ }
+                _occludedTex = null;
             }
         }
     }
