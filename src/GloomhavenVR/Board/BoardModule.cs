@@ -109,6 +109,12 @@ internal sealed class BoardModule : IVRModule
         // closes the board-miniature seam in Choreographer.TileHandler) with the game's own
         // denied SFX. Offline/solo: both guards bail before touching anything.
         VRSession.Harmony?.PatchAll(typeof(Patches.Choreographer_TileHandler_OwnershipGuard));
+        // USER-BUG (MP hardware 2026-08-07) — THE action deadlock. The OTHER half of the vanilla
+        // portrait click (InitiativeTrackPlayerAvatar.cs:40) opens the screen-space All-Cards
+        // viewer, which VR can neither show nor close, and its IsFullCardPreviewShowing latch
+        // then silently swallows EVERY card-action click (FullAbilityCard.cs:613) until a turn
+        // hand-off that can no longer happen. Refuse to open it while conversion is active.
+        VRSession.Harmony?.PatchAll(typeof(Patches.AllCardsViewerBlock));
         // MP test item #8b: when the host reassigns the locally SELECTED character to another
         // player, fall back to a still-owned character (or the game's own no-selection state).
         // The patch only arms SelectionOwnershipFallback; BoardDriver ticks it.
