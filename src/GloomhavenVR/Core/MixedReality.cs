@@ -100,6 +100,22 @@ internal static class MixedReality
     /// small = z-fighting with the hex tops; too large = seams reopen at shallow angles.</summary>
     internal static ConfigEntry<float> UnseenWaferDrop = null!;
 
+    /// <summary>World-units the RIM CURTAIN (round 15) sits INSIDE each unseen piece's authored
+    /// vertical side faces. The curtain is a mod-BUILT opaque dark prism — see
+    /// <see cref="MrRimCurtain"/> for why it cannot be another same-mesh copy. Too small = the
+    /// curtain can protrude through a concave/damaged authored side (a dark spike past the
+    /// silhouette); too large = the leak band at the very outer silhouette edge widens. It cannot
+    /// z-fight in either direction: the curtain writes no depth and draws at queue 2500, before
+    /// the family's own depth-writing pass at 3000. Tunable live (a change rebuilds every
+    /// backing).</summary>
+    internal static ConfigEntry<float> UnseenRimInset = null!;
+
+    /// <summary>World-units the RIM CURTAIN's top cap sits BELOW each piece's mesh-top plane.
+    /// INVARIANT (enforced in <see cref="BuildUnseenUnderlay"/>): strictly greater than
+    /// <see cref="UnseenWaferDrop"/>, so the curtain always hides behind the user-approved wafer
+    /// and can never paint over an authored top face. Tunable live.</summary>
+    internal static ConfigEntry<float> UnseenRimTopClearance = null!;
+
 
     /// <summary>
     /// Key-colour presets offered by the settings UI.
@@ -183,6 +199,12 @@ internal static class MixedReality
         /// rim (user ruling: removed).</summary>
         public Renderer? Fill;
 
+        /// <summary>The piece's RIM CURTAIN (round 15): a mod-BUILT opaque dark prism, XZ-inset
+        /// inside the authored side faces and spanning from just BELOW the top plane down past
+        /// the bottom, so a ray through a translucent OUTER SIDE face terminates on dark instead
+        /// of on the key. Built geometry — not a mesh copy — because the tile meshes are not
+        /// CPU-readable (see <see cref="MrRimCurtain"/>). Child of the source like the others.</summary>
+        public Renderer? Rim;
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -212,6 +234,14 @@ internal static class MixedReality
     /// <see cref="_appliedSkirtScale"/> so a config change rebuilds live (round 7).</summary>
     private static float _appliedWaferDrop = -1f;
 
+    /// <summary>The rim-curtain inset / top clearance the live backings were built with — tracked
+    /// beside the wafer values so a config change rebuilds live (round 15).</summary>
+    private static float _appliedRimInset = -1f;
+    private static float _appliedRimClearance = -1f;
+
+    /// <summary>Change-dedup for the RIM CURTAIN census line.</summary>
+    private static int _loggedRimCount = -1;
+
     // Round-13 unbacked-preview instrument state (RecordUnbacked / LogUnbackedPreview):
     // per-sweep scratch (cleared after every dump decision) + change gate.
     private static readonly List<Renderer> UnbackedScratch = new(16);
@@ -231,6 +261,26 @@ internal static class MixedReality
     /// rectangles (standing user ruling) and no poke-through of a scaled bevel past the
     /// authored top surface (the round-7 deep fill's residual risk).</summary>
     private const float FillSquashY = 0.02f;
+
+    /// <summary>Default for '[MixedReality] UnseenRimInset' (world units). LOCAL FALLBACK: this
+    /// branch does not own Defaults/Loc — the constant + description are reported for merge; swap
+    /// this for <c>Defaults.UnseenRimInset</c> then. 0.03 wu ≈ 3 cm on a piece whose whole height
+    /// is 0.3 wu (log: 'Simple Tile'[y−0.4..−0.1]) — deep enough that no z-fighting or authored
+    /// bevel can expose it, shallow enough that any ray entering a side face hits it at once.</summary>
+
+    /// <summary>Default for '[MixedReality] UnseenRimTopClearance' (world units). LOCAL FALLBACK,
+    /// as above. 0.025 &gt; the 0.02 wafer drop by design (and the invariant re-asserts
+    /// waferDrop + 0.005 whatever the cfg says): the curtain's cap stays under the XZ ×1.2 WIDER
+    /// wafer, so from above it is hidden behind a surface the user has already approved and the
+    /// round-13 tops/relief/animation are untouched by construction. Kept as SMALL as that
+    /// invariant allows, because the residual leak is the band between the authored top plane and
+    /// the cap, where a near-horizontal ray can still pass over the curtain.</summary>
+
+    /// <summary>How far (world units) the rim curtain's bottom cap reaches below the piece's mesh
+    /// bottom, so the prism closes under the piece instead of ending flush with it. Not a config
+    /// key: from below the region has read fully opaque since round 9 (mixed_reality_tiles2.png),
+    /// this is only the seal that makes the prism watertight.</summary>
+    private const float RimBottomDrop = 0.02f;
 
     /// <summary>MATERIAL names whose properties were already dumped this session (round 8: was
     /// shader names — the edge materials share the hex shader and stayed undumped;
@@ -402,6 +452,25 @@ internal static class MixedReality
             "whose persisted deep-fill value no longer matched these semantics.) Applies while " +
             "MR is on, live (backings rebuild on change). Raise if the wafer z-fights the hex " +
             "tops; lower toward 0.01 if green seams still show at shallow angles. Clamped to 0..2.");
+        UnseenRimInset = _file.Bind("MixedReality", "UnseenRimInset", Defaults.UnseenRimInset,
+            "How far (world units) the dark RIM CURTAIN sits INSIDE each unseen piece's vertical " +
+            "side faces in MR. The curtain is a mod-BUILT dark prism that follows the piece's hex " +
+            "outline and stands just behind its side faces (its HEIGHT — the outer 'cliff' of the " +
+            "fog-of-war region), so looking at the region edge lands on dark instead of on the " +
+            "passthrough room. It is built rather than copied because the game's tile meshes are " +
+            "not CPU-readable, so a copy would inherit whatever vertex alpha the artist put on " +
+            "those side vertices — the reason twelve rounds of same-mesh backings never covered " +
+            "them. Applies while MR is on, live (backings rebuild on change). Raise if any dark " +
+            "pokes out through a damaged/notched piece edge; lower toward 0.01 if the outer edges " +
+            "still glow. Clamped to 0.005..0.2.");
+        UnseenRimTopClearance = _file.Bind("MixedReality", "UnseenRimTopClearance", Defaults.UnseenRimTopClearance,
+            "How far (world units) the RIM CURTAIN's top stays BELOW each unseen piece's top " +
+            "plane in MR. This is the guarantee that the curtain can never paint over an authored " +
+            "hex top or its animation: it is always kept below the (wider) gap-backing wafer, so " +
+            "from above it is completely hidden behind a surface that is already dark. Raise if " +
+            "any dark ever shows on a hex top; lower toward the wafer drop if the very top of the " +
+            "outer edge still glows. Forced to at least UnseenWaferDrop + 0.005. Applies while MR " +
+            "is on, live (backings rebuild on change). Clamped to 0.005..0.5.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -864,6 +933,32 @@ internal static class MixedReality
     /// change-gated; the goal state ("none") is logged too. If 'Simple Tile' still appears
     /// there, its line carries exactly the signal the next round must add.
     ///
+    /// ROUND 14 (hardware 2026-08-07 #5, ModBuild 72) — REVERTED on the user's verdict: making
+    /// the backings opaque with ZWrite plus a full-height inset SIDE SKIRT turned the whole
+    /// region into one featureless dark plate (the skirt is a same-mesh copy, so it carries the
+    /// piece's own TOP surface a hair inside the authored one and simply covered it). Two facts
+    /// from that round survive and drive round 15, both READ FROM THE LOG: (a) the instrument
+    /// still reported "UNBACKED PREVIEW RENDERERS — none" while the rim stayed green — backing
+    /// present, no dark pixels on the side faces; (b) "MR: unseen backing mesh
+    /// 'EN_CR_FloorTiles_Damaged_03' is not CPU-readable — its vertex-color channel cannot be
+    /// stripped". The prime suspect for (a) — authored near-zero vertex alpha on the side/rim
+    /// vertices, which BOTH candidate backing shaders multiply into their output — is therefore
+    /// permanently unfixable on any copy of an authored mesh.
+    ///
+    /// ROUND 15 (this change): the ONE remaining defect is the OUTER RIM — the region reads as a
+    /// dark island whose vertical cliff faces glow key-green ("die Ränder … also die Höhe … sind
+    /// immer noch transparent", mixed_reality_tiles5.png). Fix: the RIM CURTAIN
+    /// (<see cref="MrRimCurtain"/>) — a mod-BUILT opaque dark prism per backed piece, hex-shaped
+    /// from the mesh-local bounds, XZ-inset <see cref="UnseenRimInset"/> inside the authored side
+    /// faces and spanning from mesh-top − <see cref="UnseenRimTopClearance"/> (forced strictly
+    /// below the wafer plane) down past the mesh bottom. Built geometry rather than another
+    /// same-mesh copy for exactly reason (b): a mesh the mod builds has no color channel, the
+    /// attribute defaults to white, and the dark material renders unconditionally — the one
+    /// construction that is immune to the authoring the game will not let us read. Nothing above
+    /// the wafer plane changes, so the approved round-13 tops/relief/animation are untouched by
+    /// construction, and the inset guarantees no dark ever protrudes past the outer silhouette
+    /// (the standing anti-"alien dark slab" ruling).
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -903,17 +998,27 @@ internal static class MixedReality
         // Restore resets the scan throttle.
         float skirt = Mathf.Clamp(UnseenSkirtScale.Value, 1f, 2f);
         float drop = Mathf.Clamp(UnseenWaferDrop.Value, 0f, 2f);
+        // Round 15: the rim curtain's two margins join the same live-retune gate — a hardware
+        // round can dial the rim in from the cfg without a rebuild or an MR toggle.
+        float rimInset = Mathf.Clamp(UnseenRimInset.Value, 0.005f, 0.2f);
+        float rimClear = Mathf.Clamp(UnseenRimTopClearance.Value, 0.005f, 0.5f);
         if (_appliedSkirtScale > 0f && UnseenUnderlays.Count > 0
             && (!Mathf.Approximately(skirt, _appliedSkirtScale)
-                || !Mathf.Approximately(drop, _appliedWaferDrop)))
+                || !Mathf.Approximately(drop, _appliedWaferDrop)
+                || !Mathf.Approximately(rimInset, _appliedRimInset)
+                || !Mathf.Approximately(rimClear, _appliedRimClearance)))
         {
             VRLog.Info("Core", $"MR: unseen fill tuning changed (scale {_appliedSkirtScale:0.###} → " +
-                               $"{skirt:0.###}, drop {_appliedWaferDrop:0.###} → {drop:0.###} wu) — " +
-                               "rebuilding every underlay + fill.");
+                               $"{skirt:0.###}, drop {_appliedWaferDrop:0.###} → {drop:0.###} wu, " +
+                               $"rim inset {_appliedRimInset:0.###} → {rimInset:0.###} wu, rim " +
+                               $"clearance {_appliedRimClearance:0.###} → {rimClear:0.###} wu) — " +
+                               "rebuilding every underlay + wafer + rim curtain.");
             RestoreUnseenUnderlays();
         }
         _appliedSkirtScale = skirt;
         _appliedWaferDrop = drop;
+        _appliedRimInset = rimInset;
+        _appliedRimClearance = rimClear;
 
 
         if (Time.frameCount < _previewScanNextFrame)
@@ -999,6 +1104,31 @@ internal static class MixedReality
                                $"XZ ×{(_appliedSkirtScale > 0f ? _appliedSkirtScale : 1f):0.###}, Y squash " +
                                $"{FillSquashY:0.###}; authored materials untouched; everything " +
                                "destroyed when MR turns off).");
+        }
+
+        // Round-15 rim instrument: how many curtains were built, how their silhouette was DERIVED
+        // (hex inscribed in the mesh-local bounds vs the box fallback) and with which margins.
+        // If the rim still glows with a healthy count here, the shape/margins are wrong; if the
+        // count is 0 or 'box' dominates, the bounds source is wrong — the line separates the two.
+        // Gated on the LIVE backing count (not the cumulative build count, which only grows under
+        // Apparance regen churn) so it fires exactly beside the GAP BACKING line above.
+        if (UnseenUnderlays.Count != _loggedRimCount)
+        {
+            _loggedRimCount = UnseenUnderlays.Count;
+            int rimTotal = MrRimCurtain.BuiltHex + MrRimCurtain.BuiltBox;
+            Vector3 sample = MrRimCurtain.LastMeshSize;
+            VRLog.Info("Core", $"MR: unseen RIM CURTAIN — {rimTotal} mod-built dark prism(s) built " +
+                               $"this MR session ({MrRimCurtain.BuiltHex} hex, {MrRimCurtain.BuiltBox} box " +
+                               $"fallback, {MrRimCurtain.Skipped} skipped as too thin) stand " +
+                               $"{(_appliedRimInset > 0f ? _appliedRimInset : Defaults.UnseenRimInset):0.###} wu " +
+                               "INSIDE the authored side faces, from mesh-top − " +
+                               $"{Mathf.Max(_appliedRimClearance > 0f ? _appliedRimClearance : Defaults.UnseenRimTopClearance, (_appliedWaferDrop >= 0f ? _appliedWaferDrop : Defaults.UnseenWaferDrop) + 0.005f):0.###} wu " +
+                               $"(strictly under the wafer — no top face is ever painted) down to " +
+                               $"mesh-bottom − {RimBottomDrop:0.###} wu. Bounds source: " +
+                               "MeshFilter.sharedMesh.bounds in the source's LOCAL space (works on " +
+                               "a non-CPU-readable mesh, immune to board rotation/scale); last " +
+                               $"sample {MrRimCurtain.LastShape}, mesh size " +
+                               $"({sample.x:0.###},{sample.y:0.###},{sample.z:0.###}).");
         }
 
         LogUnbackedPreview();
@@ -1323,6 +1453,24 @@ internal static class MixedReality
         fill.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         fill.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
+        // THE RIM CURTAIN (round 15) — the ONE defect round 13 left open: the region's outer
+        // VERTICAL side faces (the tile blocks' HEIGHT, log: 'Simple Tile'[y−0.4..−0.1]) still
+        // read translucent-over-key, while round 13's own instrument reported every one of those
+        // pieces BACKED ("UNBACKED PREVIEW RENDERERS — none"). Backing present + no dark pixels
+        // ⇒ the same-mesh copy cannot render there, and round 14 proved the suspected cause
+        // (authored vertex alpha, which both candidate shaders multiply) is UNTESTABLE and
+        // UNFIXABLE on these meshes: they are not CPU-readable. So the rim gets geometry the MOD
+        // builds — a mesh with no color channel samples white, and the dark material renders
+        // unconditionally. Shape and clearances are contracted in MrRimCurtain; the two that
+        // matter here: the curtain is XZ-INSET (never past the outer silhouette — the standing
+        // "no alien dark ledge" ruling) and its cap is forced BELOW the wafer plane, so the
+        // approved round-13 top look is provably untouched.
+        float rimInset = _appliedRimInset > 0f ? _appliedRimInset : Defaults.UnseenRimInset;
+        float rimClear = _appliedRimClearance > 0f ? _appliedRimClearance : Defaults.UnseenRimTopClearance;
+        rimClear = Mathf.Max(rimClear, drop + 0.005f); // INVARIANT: strictly under the wafer
+        Renderer? rim = MrRimCurtain.Build(
+            source, filter.sharedMesh, _unseenDarkMat!, rimInset, rimClear, RimBottomDrop);
+
         int id = source.GetInstanceID();
         var entry = new UnseenUnderlay
         {
@@ -1330,6 +1478,7 @@ internal static class MixedReality
             SourceId = id,
             Plate = plate,
             Fill = fill,
+            Rim = rim,
         };
 
         UnseenUnderlays.Add(entry);
@@ -1445,6 +1594,8 @@ internal static class MixedReality
                 // would otherwise strand a dark quad under a piece that no longer exists).
                 if (e.Fill != null) // like the plate: source died alone — clean up the children
                     UnityEngine.Object.Destroy(e.Fill.gameObject);
+                if (e.Rim != null)
+                    UnityEngine.Object.Destroy(e.Rim.gameObject);
                 UnseenSources.Remove(e.SourceId);
                 UnseenUnderlays.RemoveAt(i);
                 continue;
@@ -1456,6 +1607,8 @@ internal static class MixedReality
             // flag needs mirroring.
             if (e.Fill != null && e.Fill.enabled != e.Source.enabled)
                 e.Fill.enabled = e.Source.enabled;
+            if (e.Rim != null && e.Rim.enabled != e.Source.enabled)
+                e.Rim.enabled = e.Source.enabled;
         }
     }
 
@@ -1596,7 +1749,13 @@ internal static class MixedReality
             Renderer? fill = UnseenUnderlays[i].Fill;
             if (fill != null)
                 UnityEngine.Object.Destroy(fill.gameObject);
+            Renderer? rim = UnseenUnderlays[i].Rim;
+            if (rim != null)
+                UnityEngine.Object.Destroy(rim.gameObject);
         }
+        // The rim curtains' MESHES are mod-owned assets — a Mesh is not collected with the
+        // GameObject that referenced it, so the shared cache is released explicitly (round 15).
+        MrRimCurtain.ReleaseMeshes();
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
         if (_unseenDarkMat != null)
@@ -1611,6 +1770,7 @@ internal static class MixedReality
         }
         _previewScanNextFrame = 0;
         _loggedPreviewCount = -1;
+        _loggedRimCount = -1;
         _unseenVerboseLogs = 0;
         _unbackedLastHash = 0;
         _unbackedNextAllowed = 0f;
@@ -1729,6 +1889,7 @@ internal static class MixedReality
         }
         _previewScanNextFrame = 0;
         _loggedPreviewCount = -1;
+        _loggedRimCount = -1;
         _unbackedLastHash = 0;
         _unbackedNextAllowed = 0f;
     }

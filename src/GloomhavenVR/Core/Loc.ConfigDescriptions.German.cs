@@ -280,6 +280,28 @@ internal static partial class Loc
                 + "Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu gebaut). Erhöhen, "
                 + "wenn die Rückplatte mit den Hex-Oberseiten flimmert; Richtung 0.01 senken, wenn "
                 + "bei flachen Winkeln weiter grüne Fugen zu sehen sind. Begrenzt auf 0..2.",
+            ["MixedReality/UnseenRimInset"] =
+                "Wie weit (Welteinheiten) der dunkle RAND-VORHANG in MR INNERHALB der senkrechten "
+                + "Seitenflächen jedes 'Unseen'-Stücks sitzt. Der Vorhang ist ein vom Mod GEBAUTES "
+                + "dunkles Prisma, das der Hex-Kontur des Stücks folgt und direkt hinter dessen "
+                + "Seitenflächen steht (seiner HÖHE — der äußeren 'Kante' des Fog-of-War-Gebiets), "
+                + "damit der Blick auf den Gebietsrand auf Dunkel trifft statt auf das durchscheinende "
+                + "Zimmer. Gebaut statt kopiert, weil die Kachel-Meshes des Spiels nicht CPU-lesbar "
+                + "sind: eine Kopie würde das gestaltete Vertex-Alpha dieser Seitenflächen erben — "
+                + "genau der Grund, warum zwölf Runden gleich-Mesh-Rückplatten sie nie abgedeckt haben. "
+                + "Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu gebaut). Erhöhen, "
+                + "wenn an einer beschädigten/eingekerbten Kante Dunkel hervorsteht; Richtung 0.01 "
+                + "senken, wenn die Außenränder weiter leuchten. Begrenzt auf 0.005..0.2.",
+            ["MixedReality/UnseenRimTopClearance"] =
+                "Wie weit (Welteinheiten) die Oberkante des RAND-VORHANGS in MR UNTER der Oberkante "
+                + "jedes 'Unseen'-Stücks bleibt. Das ist die Garantie, dass der Vorhang niemals eine "
+                + "gestaltete Hex-Oberseite oder deren Animation übermalt: er wird immer unter der "
+                + "(breiteren) Fugen-Rückplatte gehalten und ist von oben vollständig hinter einer "
+                + "bereits dunklen Fläche verborgen. Erhöhen, falls jemals Dunkel auf einer "
+                + "Hex-Oberseite erscheint; Richtung Rückplatten-Abstand senken, wenn der oberste "
+                + "Saum des Außenrands noch leuchtet. Wird auf mindestens UnseenWaferDrop + 0.005 "
+                + "erzwungen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu "
+                + "gebaut). Begrenzt auf 0.005..0.5.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
