@@ -213,6 +213,15 @@ internal static class CharacterFocus
     /// focus (which is the one thing the wire actually carries). Unknown peer / no record /
     /// they do not own the turn ⇒ <see cref="FocusTurnMark.None"/>.
     /// </summary>
+    /// <summary>
+    /// The stable actor id of the character a PEER is looking at (0 = unknown / no record). The
+    /// companion of <see cref="MarkForPeer"/>: the mark says whether their focus is the RIGHT one,
+    /// this says WHICH one, so their mirrored initiative track can ring the same entry the local
+    /// track rings for the local player.
+    /// </summary>
+    internal static int FocusIdForPeer(int playerId) =>
+        Peers.TryGetValue(playerId, out PeerFocus peer) ? peer.ActorId : 0;
+
     internal static FocusTurnMark MarkForPeer(int playerId)
     {
         if (!Peers.TryGetValue(playerId, out PeerFocus peer) || !peer.OwnsTurn)
