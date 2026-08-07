@@ -125,7 +125,20 @@ internal static class FigureGrabConfig
     internal static float ActiveHeldFaceYaw => StyleOr(StyleHeldRotYaw, null, StyleOr(StyleHeldFaceYawDegrees, HeldFaceYawDegrees, 0f));
     internal static float ActiveHeldRoll => StyleOr(StyleHeldRotRoll, null, StyleOr(StyleHeldRollDegrees, null, 0f));
 
-    /// <summary>Active-style inspection zoom (what <see cref="FigureGrabbable"/> applies).</summary>
+    /// <summary>
+    /// RETIRED — the active-style inspection zoom, no longer read by anything.
+    ///
+    /// <para>Deliberately kept as a named accessor rather than deleted: it is the one place that
+    /// says WHY there is no held zoom any more, next to the entries that still exist for it. A
+    /// held mini is rendered at exactly its BOARD world size (FigureGrabbable.HeldLocalScale) —
+    /// user ruling after the 2026-08 MP hardware test, "Die Figuren-Größen ändern sich wenn man
+    /// sie in die Hand nimmt. Das soll nicht sein." Any multiplier here is also a MULTIPLAYER
+    /// defect and not merely a taste one: the held figure's wire record carries pose only, so a
+    /// peer renders the mini at its own board scale — a zoom applied on the holder's side alone
+    /// (and bound PER HAND STYLE, so not even the same number on two machines) is exactly the
+    /// "ich sehe beim Remote-Spieler eine andere Größe als er selbst" half of the report. Putting
+    /// it back therefore needs a scale on the wire, not a call site.</para>
+    /// </summary>
     internal static float ActiveHeldScale => StyleOr(StyleHeldScale, HeldScale, 1.5f);
 
     /// <summary>
@@ -327,7 +340,12 @@ internal static class FigureGrabConfig
                 "the seed for its successor.");
             StyleHeldScale[i] = config.Bind(
                 "FigureGrab", $"{s}HeldScale", HeldScale.Value,
-                $"Inspection zoom applied on top of the figure's board world-scale while held. {per}");
+                "LEGACY — no effect. A held figure now keeps EXACTLY its board size: picking a mini " +
+                "up must not resize it, and because only its POSE rides the wire, any zoom applied " +
+                "on the holder's side alone also made the mini look different in the holder's own " +
+                "hand than it did to everyone else. Kept bound so existing config files keep loading. " +
+                "Historical meaning: inspection zoom applied on top of the figure's board world-scale " +
+                "while held (1 = board size in your hand; higher enlarged it).");
             StyleHeldRollDegrees[i] = config.Bind(
                 "FigureGrab", $"{s}HeldRollDegrees", Defaults.HeldRollDegrees_ByStyle[i],
                 "LEGACY — no effect, superseded by [FigureGrab] " + s + "HeldRotRoll. Read once, as " +

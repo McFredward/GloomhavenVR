@@ -73,7 +73,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private void Update()
     {
-        // FRAME-ORDER FigureGrabDriver.Update [FigureGrab.Ghosts, FigureGrab.Glide, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
+        // FRAME-ORDER FigureGrabDriver.Update [FigureGrab.Ghosts, FigureGrab.Glide, FigureGrab.HeldSize, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
         //   The GATE token is load-bearing, not decoration: Ghosts and Glide must run BEFORE the
         //   config gate's early-out. Ghosts so REMOTE-held ghosts still appear and clear while
         //   local figure-grab is off, Glide so a release glide already in flight still lands when
@@ -89,6 +89,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // the config gate so a glide started just before GrabFigures was toggled off still lands
         // (the toggle's ReleaseAll → Restore also finishes glides instantly as a backstop).
         TickGuard.Run("FigureGrab.Glide", FigureGrabbable.TickGlides);
+
+        // SIZE PARITY — re-assert every held mini's BOARD world size. Above the config gate for the
+        // same reason as Glide: a mini still in the hand when GrabFigures is toggled off is released
+        // by the gate's ReleaseAll on THIS frame, and it must not be rendered at a zoom-drifted size
+        // for the frame in between. Cheap and a strict no-op when nothing is held.
+        TickGuard.Run("FigureGrab.HeldSize", FigureGrabbable.TickHeldScale);
 
         if (!FigureGrabConfig.GrabFigures.Value)
         {
