@@ -90,10 +90,11 @@ internal static class MixedReality
     /// neighboring fills overlap under the groove line). Tunable live (a change rebuilds).</summary>
     internal static ConfigEntry<float> UnseenSkirtScale = null!;
 
-    /// <summary>World-units drop of each piece's groove-fill copy below its authored pose
-    /// (round 7): the fill's top surfaces must sit BELOW the beveled V-channel floors between
-    /// neighboring hexes so a ray through a groove lands on dark. Tunable live. Too small = deep
-    /// grooves still glow; too large = the fill peeks out below the outer rim pieces.</summary>
+    /// <summary>World-units the gap-backing WAFER sits below each piece's mesh-top plane
+    /// (round 11 semantics — the round-7 "deep groove fill" drop measured from the authored
+    /// pose and left an open canyon between hex top and fill, which is where the green seams
+    /// lived). Tunable live. Too small = z-fighting with the hex tops; too large = seams
+    /// reopen at shallow view angles.</summary>
     internal static ConfigEntry<float> UnseenFillDrop = null!;
 
 
@@ -170,19 +171,15 @@ internal static class MixedReality
         public int SourceId;          // GetInstanceID at build time (fast dedup-set removal)
         public Renderer Plate = null!; // the underlay's own MeshRenderer, child of Source
 
-        /// <summary>Round 7: the piece's GROOVE FILL — a second same-mesh copy, mildly XZ-widened
-        /// and dropped by <see cref="UnseenFillDrop"/>, whose top surfaces sit UNDER the beveled
-        /// V-channels between neighboring hexes so a ray through a groove lands on dark instead
-        /// of the key. A child of the source like the plate (structural lifecycle); its union
-        /// follows the hex silhouettes — the round-5/6 rectangular base quads it replaces were
-        /// visible as an alien slab at the region rim (user ruling: removed).</summary>
+        /// <summary>The piece's GAP BACKING WAFER (round 11 shape; born round 7 as the deep
+        /// groove fill): a second same-mesh copy, mildly XZ-widened, Y-squashed flat and seated
+        /// at the piece's mesh-top plane minus <see cref="UnseenFillDrop"/>, so a ray into a
+        /// seam between neighboring hexes lands on dark instead of the key. A child of the
+        /// source like the plate (structural lifecycle); its union follows the hex silhouettes
+        /// — the round-5/6 rectangular base quads were visible as an alien slab at the region
+        /// rim (user ruling: removed).</summary>
         public Renderer? Fill;
 
-        /// <summary>Round 10: the source's AUTHORED sharedMaterials array, recorded when family
-        /// slots were swapped onto the mod's opaque scroll material (<see cref="SwapCopyOf"/>) —
-        /// the restore target. Null when nothing was swapped (no family slot, or the bundled
-        /// Overlay shader is unavailable).</summary>
-        public Material[]? SwapOriginals;
     }
 
     private static readonly List<UnseenUnderlay> UnseenUnderlays = new(64);
@@ -213,32 +210,12 @@ internal static class MixedReality
     /// <see cref="_appliedSkirtScale"/> so a config change rebuilds live (round 7).</summary>
     private static float _appliedFillDrop = -1f;
 
-    // ---- round 10, the opaque scroll swap (see BuildUnseenUnderlay / SwapCopyOf) -------------
-
-    /// <summary>source family material instance id → its opaque scroll swap copy (session
-    /// cache: pieces sharing one authored material keep sharing the swap, and the per-frame
-    /// scroll write stays one-per-material). Copies are mod-owned; destroyed on restore.</summary>
-    private static readonly Dictionary<int, Material> SwapBySourceMat = new(8);
-
-    /// <summary>The live swap copies, for the per-tick scroll write (mirror of the cache's
-    /// values — a list iterates without allocator noise).</summary>
-    private static readonly List<Material> SwapMats = new(8);
-
-    /// <summary>The bundled 'GloomhavenVR/Overlay' shader, resolved lazily — the same
-    /// find-then-scan seam as <c>Cards.PlayTray.OverlayShader</c> (a bundled shader is not
-    /// discoverable via Shader.Find until something loads it; the hands/tray bundle is loaded
-    /// long before a scenario generates unseen tiles). Kept Core-local so Core keeps zero
-    /// references into the Cards module.</summary>
-    private static Shader? _swapShader;
-    private static bool _swapMissLogged;
-    private static bool _swapStateLogged;
-
-    /// <summary>UV scroll speed of the opaque swap (uv/second, X and Y). The authored scroll is
-    /// SHADER-TIME-DRIVEN (no decompiled writer of '_UV_Offset' exists; the dumps show it
-    /// constant 0), so the authored speed is unreadable — this is an INFERRED slow drift that
-    /// keeps the fog visibly alive. The offset wraps at 1 (tiled sampling) for precision.</summary>
-    private const float SwapScrollX = 0.05f;
-    private const float SwapScrollY = 0.02f;
+    /// <summary>Y-squash of the gap-backing wafer (round 11): the fill copy's local Y scale.
+    /// Squashing the same-mesh copy to 2 % collapses all of its relief into a flat
+    /// hex-silhouette WAFER — a per-piece "region slab" with the piece's own outline, no
+    /// rectangles (standing user ruling) and no poke-through of a scaled bevel past the
+    /// authored top surface (the round-7 deep fill's residual risk).</summary>
+    private const float FillSquashY = 0.02f;
 
     /// <summary>MATERIAL names whose properties were already dumped this session (round 8: was
     /// shader names — the edge materials share the hex shader and stayed undumped;
@@ -402,12 +379,13 @@ internal static class MixedReality
             "(backings rebuild on change). Raise if grooves between hexes still glow; lower if " +
             "dark peeks out past the outermost hex edges. Clamped to 1..2.");
         UnseenFillDrop = _file.Bind("MixedReality", "UnseenFillDrop", Defaults.UnseenFillDrop,
-            "How far (world units) each unseen piece's groove-fill copy sits BELOW its authored " +
-            "pose in MR. The fill's surfaces must lie under the beveled V-channels between " +
-            "neighboring hexes so looking into a groove lands on dark instead of the " +
-            "passthrough room. Applies while MR is on, live (backings rebuild on change). Raise " +
-            "if deep grooves still glow green; lower if dark peeks out below the outer rim " +
-            "pieces. Clamped to 0..2.");
+            "How far (world units) each unseen piece's flat gap-backing WAFER sits below the " +
+            "piece's TOP plane in MR. The wafer is a squashed, slightly widened dark copy of " +
+            "the piece that floors the gaps BETWEEN neighboring hexes just under their tops, so " +
+            "looking into a seam lands on dark instead of the passthrough room while the " +
+            "animated rim above it keeps playing. Applies while MR is on, live (backings " +
+            "rebuild on change). Raise if the wafer z-fights the hex tops; lower toward 0.01 " +
+            "if green seams still show at shallow angles. Clamped to 0..2.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -823,11 +801,22 @@ internal static class MixedReality
     /// ModBuild-57 'forced OPAQUE' lines were HasProperty-guarded no-ops plus a queue move;
     /// its improvement came from stacks sitting over the opaque board). (b) a swap must bring
     /// its own motion — no decompiled writer of '_UV_Offset' exists, the scroll is shader-time.
-    /// SHIPPED: family slots swap onto the mod's own bundled 'GloomhavenVR/Overlay' shader
-    /// (<see cref="SwapCopyOf"/> — same _MainTex, Blend One Zero, ZWrite On, queue 2600, every
-    /// state genuinely material-controllable there) with the scroll re-created by the per-tick
-    /// mainTextureOffset drive. No family surface blends against the key any more, from any
-    /// angle; authored arrays restored verbatim on MR off.
+    /// Round 10 shipped a swap onto the mod's bundled 'GloomhavenVR/Overlay' shader (same
+    /// _MainTex, Blend One Zero) — REVERTED in round 11, see below.
+    ///
+    /// ROUND 11 (hardware 2026-08-07 #2, ModBuild 68, screenshot wall_und_mixed.png): the user
+    /// REJECTED the swap — raw '_MainTex x _Color' without the Amp shader's fog-of-war
+    /// treatment rendered a BRIGHT stone texture ("statt schwarze tiles ist da jetzt eine
+    /// merkwuerdige textur") — and the top-side green seams were UNCHANGED anyway, because the
+    /// seams are not a family SURFACE at all: the MAPTILE dumps pin hex tops at ~y-0.1 with the
+    /// round-7 fills a full 0.3+ wu lower (y-0.7..-0.4), so from above the raw key floor showed
+    /// through the open canyon BETWEEN adjacent hex pieces. The swap is fully reverted (the
+    /// authored dark look is back), and the fix moved to where the geometry says it belongs:
+    /// the fill became the flat GAP BACKING WAFER seated at each piece's own top plane minus
+    /// <see cref="UnseenFillDrop"/> (~2 cm) — see the wafer block in
+    /// <see cref="BuildUnseenUnderlay"/>. The census keeps running after each sweep; with the
+    /// wafers in place it must list NO un-backed tile-geometry translucent (the remaining
+    /// candidates are floating particle FX, which are deliberately left authored).
     ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
@@ -880,21 +869,6 @@ internal static class MixedReality
         _appliedSkirtScale = skirt;
         _appliedFillDrop = drop;
 
-        // Round 10, the OPAQUE SCROLL: keep the swapped family surfaces visibly alive. The
-        // authored UV scroll lived in shader time and is gone with the swap; the mod drives the
-        // swap materials' _MainTex_ST offset instead — one Vector2 write per swap material per
-        // frame (a handful of materials, not per renderer).
-        if (SwapMats.Count > 0)
-        {
-            var scroll = new Vector2(
-                Mathf.Repeat(Time.unscaledTime * SwapScrollX, 1f),
-                Mathf.Repeat(Time.unscaledTime * SwapScrollY, 1f));
-            for (int i = 0; i < SwapMats.Count; i++)
-            {
-                if (SwapMats[i] != null)
-                    SwapMats[i].mainTextureOffset = scroll;
-            }
-        }
 
         if (Time.frameCount < _previewScanNextFrame)
             return;
@@ -957,9 +931,12 @@ internal static class MixedReality
         if (UnseenUnderlays.Count != _loggedPreviewCount)
         {
             _loggedPreviewCount = UnseenUnderlays.Count;
-            VRLog.Info("Core", $"MR: {UnseenUnderlays.Count} unseen-geometry renderer(s) carry an " +
-                               "opaque dark underlay + region base quad (authored materials " +
-                               "untouched; everything destroyed when MR turns off).");
+            VRLog.Info("Core", $"MR: unseen GAP BACKING — {UnseenUnderlays.Count} renderer(s) carry " +
+                               $"a coplanar dark underlay + a top-plane wafer (wafer = mesh-top − " +
+                               $"{(_appliedFillDrop >= 0f ? _appliedFillDrop : Defaults.UnseenFillDrop):0.###} wu, " +
+                               $"XZ ×{(_appliedSkirtScale > 0f ? _appliedSkirtScale : 1f):0.###}, Y squash " +
+                               $"{FillSquashY:0.###}; authored materials untouched; everything " +
+                               "destroyed when MR turns off).");
         }
 
         // One-shot diagnostic for the next hardware run: unseen renderers exist but NONE was
@@ -1182,26 +1159,36 @@ internal static class MixedReality
         plate.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         plate.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
 
-        // THE GROOVE FILL (round 7, replaces the round-5/6 rectangular base quads the user
-        // rejected on sight — "diese viereckige Platte unten, entferne die wieder"). The beveled
-        // V-channels BETWEEN neighboring hexes have no geometry of their own: the coplanar
-        // underlay backs the pieces' surfaces, but a ray INTO a channel passes between pieces and
-        // lands on the key. The fill is a second same-mesh copy, XZ-widened by the (tunable)
-        // skirt factor about the mesh-local bounds center and DROPPED straight down in WORLD
-        // space by UnseenFillDrop — its hex-shaped top surfaces lie under the groove floors, and
-        // neighboring fills overlap under the groove line, so the union follows the hex
-        // silhouettes everywhere: nothing can read as a rectangle from any angle, and nothing
-        // reaches past the outer hex edges except the accepted thin rim. ZTest LEqual, no depth
-        // write — revealed geometry occludes the fill exactly like the plate.
+        // THE GAP BACKING WAFER (round 11, reshaped from the round-7 deep groove fill after the
+        // ModBuild-68 MAPTILE dumps pinned the geometry: hex tops at ~y−0.1, the fills a full
+        // 0.3–0.45 BELOW the top plane at y−0.7..−0.4 — so at viewing angles from above, rays
+        // through the inter-hex gaps crossed the deep canyon and reached the key before any
+        // fill: the bright green seams around every unseen hex in wall_und_mixed.png). The fill
+        // is now a WAFER: the same mesh XZ-widened by the (tunable) skirt factor, Y-SQUASHED to
+        // FillSquashY (all relief collapsed — a flat, hex-silhouette slab; no rectangle, per
+        // the standing user ruling, and no squashed bevel can poke past the authored top), and
+        // seated at the piece's OWN mesh-top plane minus UnseenFillDrop (now ~2 cm, not 0.35):
+        // every gap pixel from above hits dark within millimetres, at any angle, while the
+        // authored translucent rim animation above it blends against dark instead of key —
+        // exactly the user-approved model ("the green comes only from the background"). The
+        // widened wafers of adjacent hexes overlap under the seam; the outer silhouette gains
+        // at most ~10 % of a hex (≤0.15 wu) of dark ledge. ZTest LEqual, no depth write —
+        // revealed geometry occludes the wafer exactly like the plate; strictly below the
+        // authored top surface, never coplanar (no z-fighting).
         float skirt = _appliedSkirtScale > 0f ? _appliedSkirtScale : 1f;
         float drop = _appliedFillDrop >= 0f ? _appliedFillDrop : Defaults.UnseenFillDrop;
-        Vector3 meshCenter = filter.sharedMesh.bounds.center;
+        Bounds mb = filter.sharedMesh.bounds;
+        Vector3 meshCenter = mb.center;
         var fillGo = new GameObject("GloomhavenVR.MrUnseenFill");
         fillGo.transform.SetParent(source.transform, worldPositionStays: false);
         fillGo.transform.localRotation = Quaternion.identity;
-        fillGo.transform.localScale = new Vector3(skirt, 1f, skirt);
+        fillGo.transform.localScale = new Vector3(skirt, FillSquashY, skirt);
+        // Mapping y → c + (y−c)·squash + t: t = (top−c)(1−squash) seats the wafer at the mesh
+        // top; the world-space drop below then puts it just under the authored top surface.
         fillGo.transform.localPosition = new Vector3(
-            meshCenter.x * (1f - skirt), 0f, meshCenter.z * (1f - skirt)); // XZ center fixed
+            meshCenter.x * (1f - skirt),
+            (mb.max.y - meshCenter.y) * (1f - FillSquashY),
+            meshCenter.z * (1f - skirt));
         fillGo.transform.position += Vector3.down * drop; // WORLD drop, whatever the parent pose
         fillGo.layer = source.gameObject.layer;
         fillGo.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
@@ -1221,37 +1208,6 @@ internal static class MixedReality
             Fill = fill,
         };
 
-        // Round 10, the OPAQUE SCROLL SWAP (user correction 2026-08-07: "the green comes SOLELY
-        // from the background" — the grout pixels are the KEY blended through the family's
-        // semi-transparent surfaces, so no backing and no tint/boost lever can ever fix the
-        // grazing rays that exit sideways past the diorama; the surfaces themselves must stop
-        // blending). Every FAMILY slot is swapped onto a mod-owned copy of the bundled
-        // GloomhavenVR/Overlay shader: same _MainTex, forced Blend One Zero + ZWrite — a look
-        // change the user explicitly accepted ("umbauen"). Non-family slots keep their authored
-        // materials; the authored array is recorded verbatim and restored on MR off.
-        var swapped = new Material[mats.Length];
-        int swappedCount = 0;
-        for (int i = 0; i < mats.Length; i++)
-        {
-            Material? m = mats[i];
-            if (m != null && IsUnseenFamilyMaterial(m))
-            {
-                Material copy = SwapCopyOf(m);
-                swapped[i] = copy;
-                if (!ReferenceEquals(copy, m))
-                    swappedCount++;
-            }
-            else
-            {
-                swapped[i] = m!;
-            }
-        }
-        if (swappedCount > 0)
-        {
-            entry.SwapOriginals = mats;
-            source.sharedMaterials = swapped;
-        }
-
         UnseenUnderlays.Add(entry);
         UnseenSources.Add(id);
         for (int i = 0; i < mats.Length; i++)
@@ -1270,84 +1226,6 @@ internal static class MixedReality
                                    ? " (Further builds counted, not listed — tile regen churn.)"
                                    : string.Empty));
         }
-    }
-
-    /// <summary>
-    /// The session-cached OPAQUE SCROLL swap for one authored family material (round 10): a
-    /// mod-owned material on the bundled 'GloomhavenVR/Overlay' shader sampling the SAME
-    /// _MainTex, forced Blend One Zero + ZWrite On. Why this shader: the family's own pass
-    /// state is HARDCODED (round-9 dump: _ZWrite/_SrcBlend/_DstBlend all 'hardcoded'), so a
-    /// copy of the AUTHORED material can only move its renderQueue and keeps blending — against
-    /// the key, wherever a grazing ray has no backing behind it. Overlay exposes every needed
-    /// state as material properties, so on it the opacity genuinely sticks. Queue 2600: after
-    /// the mod's dark backings at 2500 (they write no depth and must never paint over the now
-    /// opaque surfaces), before every authored transparent. The authored SHADER-TIME scroll
-    /// cannot survive any swap (no '_UV_Offset' writer exists to mirror); the per-tick
-    /// mainTextureOffset drive in <see cref="ForceUnseenOpaque"/> re-creates the motion.
-    /// Returns the source unchanged when the bundled shader is unavailable (logged once) —
-    /// the backings still cover everything they always covered.
-    /// </summary>
-    private static Material SwapCopyOf(Material src)
-    {
-        int id = src.GetInstanceID();
-        if (SwapBySourceMat.TryGetValue(id, out Material cached) && cached != null)
-            return cached;
-
-        if (_swapShader == null)
-        {
-            // Same find-then-scan seam as Cards.PlayTray.OverlayShader (kept Core-local): a
-            // bundled shader is not discoverable via Shader.Find until something loads it.
-            _swapShader = Shader.Find("GloomhavenVR/Overlay");
-            if (_swapShader == null)
-            {
-                foreach (AssetBundle b in AssetBundle.GetAllLoadedAssetBundles())
-                {
-                    if (b == null)
-                        continue;
-                    Shader s = b.LoadAsset<Shader>("Assets/Bundle/Table/Overlay.shader");
-                    if (s != null)
-                    {
-                        _swapShader = s;
-                        break;
-                    }
-                }
-            }
-        }
-        if (_swapShader == null)
-        {
-            if (!_swapMissLogged)
-            {
-                _swapMissLogged = true;
-                VRLog.Warn("Core", "MR: opaque-scroll swap unavailable — bundled shader " +
-                                   "'GloomhavenVR/Overlay' not found in any loaded bundle; the " +
-                                   "unseen family keeps its authored translucent materials " +
-                                   "(backings still apply).");
-            }
-            return src;
-        }
-
-        var copy = new Material(_swapShader) { name = src.name + " (GloomhavenVR.MrUnseenOpaque)" };
-        copy.mainTexture = src.mainTexture; // the authored pattern, full intensity
-        copy.mainTextureScale = src.mainTextureScale;
-        copy.SetFloat("_SrcBlend", 1f);  // One  ┐ opaque — the whole point
-        copy.SetFloat("_DstBlend", 0f);  // Zero ┘
-        copy.SetFloat("_ZWrite", 1f);    // a real surface: grazing rays terminate here
-        copy.SetFloat("_ZTest", 4f);     // LEqual — revealed geometry still occludes it
-        copy.renderQueue = 2600;         // after the dark backings (2500), before transparents
-        SwapBySourceMat[id] = copy;
-        SwapMats.Add(copy);
-        if (!_swapStateLogged)
-        {
-            _swapStateLogged = true;
-            Texture? tex = src.mainTexture;
-            VRLog.Info("Core", $"MR: unseen OPAQUE-SCROLL SWAP active — family slots re-render on " +
-                               $"'GloomhavenVR/Overlay' (Blend One Zero, ZWrite On, ZTest LEqual, " +
-                               $"queue 2600; every state IS material-controllable on this shader, " +
-                               $"so all of it sticks), texture '{(tex != null ? tex.name : "<none>")}' " +
-                               $"from '{src.name}', mod-driven scroll ({SwapScrollX:0.###},{SwapScrollY:0.###}) uv/s. " +
-                               "No semi-transparent family surface blends against the key any more.");
-        }
-        return copy;
     }
 
     /// <summary>
@@ -1579,29 +1457,15 @@ internal static class MixedReality
     {
         for (int i = 0; i < UnseenUnderlays.Count; i++)
         {
-            UnseenUnderlay e = UnseenUnderlays[i];
-            // Swap restore FIRST: the authored material array goes back verbatim while the
-            // source still exists (a dead source took the swap assignment with it).
-            if (e.SwapOriginals != null && e.Source != null)
-                e.Source.sharedMaterials = e.SwapOriginals;
-            Renderer plate = e.Plate;
+            Renderer plate = UnseenUnderlays[i].Plate;
             if (plate != null)
                 UnityEngine.Object.Destroy(plate.gameObject);
-            Renderer? fill = e.Fill;
+            Renderer? fill = UnseenUnderlays[i].Fill;
             if (fill != null)
                 UnityEngine.Object.Destroy(fill.gameObject);
         }
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
-        foreach (KeyValuePair<int, Material> pair in SwapBySourceMat)
-        {
-            if (pair.Value != null)
-                UnityEngine.Object.Destroy(pair.Value);
-        }
-        SwapBySourceMat.Clear();
-        SwapMats.Clear();
-        _swapMissLogged = false;
-        _swapStateLogged = false;
         if (_unseenDarkMat != null)
         {
             UnityEngine.Object.Destroy(_unseenDarkMat);
