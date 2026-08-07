@@ -38,7 +38,7 @@ internal static partial class Defaults
     internal const bool HideSkyMeshes = true;                             // => [MixedReality] HideSkyMeshes
     internal const bool OpaquePreviewTiles = true;                        // => [MixedReality] OpaquePreviewTiles
     internal const float UnseenSkirtScale = 1.2f;                         // => [MixedReality] UnseenSkirtScale  (round 7: XZ widening of the GROOVE-FILL copy so neighboring fills overlap under the bevel channels; the primary underlay is exact 1:1)
-    internal const float UnseenFillDrop = 0.35f;                          // => [MixedReality] UnseenFillDrop  (world-units drop of the groove-fill copy — INFERRED from the round-7 screenshot's bevel depth (~10-20 % of a ~2 wu hex); tunable live for one-round calibration)
+    internal const float UnseenFillDrop = 0.02f;                          // => [MixedReality] UnseenFillDrop  (round 11: world-units the gap-backing WAFER sits below each piece's mesh-top plane — the ModBuild-68 MAPTILE dumps showed the old 0.35 drop left a 0.3+ wu open canyon between hex top and fill, which is exactly where the green seams lived; 0.02 hugs the top without z-fighting)
 
     // ---- Core/PerfConfig.cs --------------------------------------------------------
     internal const bool Perf_Enabled = true;                 // => [Perf] Enabled
