@@ -611,6 +611,12 @@ internal static partial class Loc
         // Caption of the (idle) shared decision drawer drawn on a REMOTE player's control board —
         // the reserved strip where their take-damage / dialog prompts dock on their own client.
         ["decision_dock"] = Pair("Decisions", "Entscheidungen"),
+        // Banner hint shown when a flow WANTS an item but the fan is closed. The fan never opens
+        // itself any more (user ruling 2026-08-07: "Weder soll es sich automatisch öffnen, noch
+        // soll es jemals die Situation geben, dass man es nicht schließen kann"), so the prompt
+        // has to say how to open it.
+        ["item_fan_open_hint"] = Pair("tap the items pile to open the fan",
+                                      "tippe den Gegenstände-Stapel an, um den Fächer zu öffnen"),
         // The two board DASHBOARD keys. Both name BUTTONS, and the 2026-07 restructure moved them
         // out of Debug ▸ "Board & Layout" into Debug ▸ "Tasten" — the user's literal complaint was
         // that buttons were not to be found under buttons. The captions say (position) because the
