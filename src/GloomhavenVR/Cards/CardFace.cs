@@ -139,6 +139,14 @@ internal sealed class CardFace
         CardFaceMipBake.Rescan(owner.fullAbilityCard);
         _nextMipRescan = Time.unscaledTime + MipRescanInterval;
 
+        // WHITE DECISION-PHASE FACES: from here on this face is re-activated by Maintain
+        // whenever the game's pick-mode UpdateView deactivates it, and every such cycle
+        // re-enters the game's addressable card-art loader. Register it so CardArtGuard can
+        // stop an in-flight load from being restarted (which nulls the action-half sprites)
+        // and can heal/replay afterwards — see CardArtGuard's class doc.
+        CardArtGuard.NoteAdopted(owner.fullAbilityCard);
+        _nextArtTick = Time.unscaledTime + CardArtGuard.TickIntervalSeconds;
+
         return true;
     }
 
@@ -147,6 +155,10 @@ internal sealed class CardFace
     /// original mipless sprites back on the Images. 1 s keeps the cost negligible.</summary>
     private const float MipRescanInterval = 1f;
     private float _nextMipRescan;
+
+    /// <summary>Next unscaled time <see cref="CardArtGuard.Tick"/> runs for this face (replay of a
+    /// suppressed ShowCard + heal of an action half left on a null sprite).</summary>
+    private float _nextArtTick;
 
     // ------------------------------------------------- rendered-texture diagnostics --
 
@@ -513,6 +525,15 @@ internal sealed class CardFace
             _nextMipRescan = Time.unscaledTime + MipRescanInterval;
             CardFaceMipBake.Rescan(_owner!.fullAbilityCard);
         }
+        // WHITE DECISION-PHASE FACES: replay any ShowCard the guard had to skip while the
+        // card art was mid-load, and heal an action half the game left on a null sprite
+        // (uGUI draws its built-in WHITE texture there). Both only fire when the addressable
+        // loader is quiet — see CardArtGuard.
+        if (Time.unscaledTime >= _nextArtTick)
+        {
+            _nextArtTick = Time.unscaledTime + CardArtGuard.TickIntervalSeconds;
+            CardArtGuard.Tick(_owner!.fullAbilityCard);
+        }
         // Re-assert the FULL anchor frame, not just the anchored position (test #19
         // x-offset): on ActionSelection entry the game re-anchors the face rect —
         // <c>AbilityCardUI.ToggleFullCard(active: true)</c> sets
@@ -559,7 +580,10 @@ internal sealed class CardFace
     {
         _reclaimedFromDialog = false;
         if (_owner != null)
+        {
+            CardArtGuard.NoteReleased(_owner.fullAbilityCard);
             _owner.LockFullCard = _origLock;
+        }
         _face = null;
         _host = null;
         _owner = null;
@@ -577,6 +601,10 @@ internal sealed class CardFace
 
         if (face == null)
             return;
+
+        // The face stops being ours here — the guard must not keep suppressing/healing a
+        // widget the game owns again (owner may already be gone during scene teardown).
+        CardArtGuard.NoteReleased(owner != null ? owner.fullAbilityCard : face.GetComponent<FullAbilityCard>());
 
         // T3 mip bake: hand the ORIGINAL sprites back before the widget returns to the
         // game's pool (full-restore contract; guarded inside).

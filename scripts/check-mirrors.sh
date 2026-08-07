@@ -93,7 +93,11 @@ MIRRORS=(
   # half is a derived expression the float extractor cannot read.) A drift here re-opens the
   # "detached ENTSCHEIDUNGEN plate" defect: the mirrored row stops hanging where the owner's
   # buttons really are.
-  "decision prompt bar clearance : WorldUI/Surfaces/DecisionDockSurface.cs:BarClearanceMeters Net/RemoteBoardFurniture.cs:BarClearanceMeters"
+  # (The bar clearance itself is no longer a MIRROR: the 1:1 decision-button round made
+  # DecisionDockSurface.BarClearanceMeters internal and Net/RemoteBoardFurniture now aliases it
+  # directly — `const float BarClearanceMeters = DecisionDockSurface.BarClearanceMeters` — so there
+  # is one value and nothing left to drift. Deleting the group is the fix the lint exists to
+  # provoke; the entry stayed listed only while two literals really existed.)
   "cluster proud seat : WorldUI/ButtonCluster.cs:ClusterProudOffset Net/RemoteBoardFurniture.cs:ClusterProudLift"
   "cluster dock scale : Cards/PlayTray.1.Core.cs:ButtonClusterMountScale Net/RemoteBoardFurniture.cs:ClusterDockScale"
 

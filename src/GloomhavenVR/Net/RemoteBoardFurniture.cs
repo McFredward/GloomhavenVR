@@ -149,10 +149,11 @@ internal sealed class RemoteBoardFurniture
     /// block from.</summary>
     private const float HandleZoneHalfY = 0.025f;
 
-    /// <summary>Mirror of <c>DecisionDockSurface.BarClearanceMeters</c> — the clearance between
-    /// the grab-bar bottom and the prompt reference the owner's dock anchors under (linted
-    /// against drift by <c>scripts/check-mirrors.sh</c>).</summary>
-    private const float BarClearanceMeters = 0.008f;
+    /// <summary>The clearance between the grab-bar bottom and the prompt reference the owner's
+    /// dock anchors under — read STRAIGHT from the local dock
+    /// (<see cref="WorldUI.Surfaces.DecisionDockSurface.BarClearanceMeters"/>) since the 1:1
+    /// mirror round, so it can no longer drift from the original it copies.</summary>
+    private const float BarClearanceMeters = WorldUI.Surfaces.DecisionDockSurface.BarClearanceMeters;
 
     // ---- authored widget sizes (Defaults — the shipped [ButtonTuning] values) ------------------
     // The live ButtonTuning entries are the LOCAL player's own config; a peer's caps are drawn at
@@ -342,6 +343,11 @@ internal sealed class RemoteBoardFurniture
     /// <summary>The SYNCED button row under <see cref="_decision"/> (wire record 12), rebuilt by
     /// <see cref="SetDecisionLines"/>; null while no labels are synced.</summary>
     private Transform? _decisionRow;
+
+    /// <summary>True when <see cref="_decisionRow"/> was built with the SAMPLED GAME BUTTON SPRITE
+    /// (the 1:1 look); false while it wears the pre-sample procedural fallback, which
+    /// <see cref="SetDecisionLines"/> upgrades as soon as a live button has been harvested.</summary>
+    private bool _decisionRowNative;
 
     /// <summary>Change gate for <see cref="SetDecisionLines"/> (the '\n'-joined labels last
     /// built; null = idle drawer).</summary>
@@ -924,16 +930,60 @@ internal sealed class RemoteBoardFurniture
     /// across the whole 0.42 budget the way an equal split would.</summary>
     private const float DecisionButtonMaxW = 0.20f;
 
+    /// <summary>Per-plate width FLOOR at scale 1 — a two-letter option ("Ja"/"Nein") must still
+    /// read as a button, not as a sliver, when it shares the row with a long burn wording.</summary>
+    private const float DecisionButtonMinW = 0.055f;
+
+    /// <summary>Padding added to a label's content share when the row is sized content-true (the
+    /// game's option buttons are a ContentSizeFitter around the wording plus a fixed inset, so a
+    /// short option is a SHORT button — the equal-slot split the first mirror used was the most
+    /// visible size difference against the owner's real row).</summary>
+    private const float DecisionButtonPadW = 0.030f;
+
     /// <summary>
     /// (Re)build the mirrored decision-button row from the owner's synced labels (wire record
     /// 12; null = none). Change-gated on the joined string — a rebuild is a handful of quads and
     /// labels, and it only happens when the owner's dock content really changed. The idle
     /// captioned drawer shows exactly while the decision bit is set WITHOUT labels, so a legacy
     /// sender keeps its familiar look.
+    ///
+    /// 1:1 WITH WHAT THE DECIDING PLAYER SEES (user 2026-08-07, verbatim: "Die
+    /// Entscheidungsbuttons sollen 1:1 genau so aussehen (Position und Größe und Erscheinungsbild)
+    /// und genau das beinhalten was der Spieler sieht"). The owner's dock does NOT build buttons —
+    /// <c>WorldUI.Surfaces.DecisionDockSurface</c> re-hosts the GAME's own prompt widgets on the
+    /// board and restyles them in <c>AdjustDockedRow</c>: the shared 9-sliced game button sprite
+    /// multiplied by <c>DecisionDockSurface.AntiqueTint</c>, labels recoloured to
+    /// <c>NativeButtonSkin.LabelColor</c> in the game's HUD font. The mirror therefore reproduces
+    /// that same look from the same sources instead of approximating it:
+    /// <list type="bullet">
+    ///   <item>FACE — <c>NativeButtonSkin.CreateFace</c>, i.e. a 9-sliced <c>SpriteRenderer</c>
+    ///     wearing the very sprite <c>NativeButtonSkin</c> harvested off the live game UI (every
+    ///     client owns the same assets, so nothing about the button art needs to ride the wire),
+    ///     tinted with the local dock's own <c>AntiqueTint</c> constant. The flat gold-rim/dark-body
+    ///     quads it replaces are kept only as the fallback for the window before a live button has
+    ///     been sampled.</item>
+    ///   <item>LABEL — the game HUD font (<c>NativeButtonSkin.ApplyFont</c>), the dock's
+    ///     <c>LabelColor</c>, and the shared un-renderable-glyph strip, so the wording reads
+    ///     identically to the owner's caption.</item>
+    ///   <item>SIZE — plates are CONTENT-TRUE (the game fits each option button to its wording),
+    ///     laid out inside the very envelope the owner's dock fits its row into
+    ///     (<c>PlayTray.DecisionMountWidth</c> × the authored dock scale), so a short "Schaden
+    ///     erhalten" is a short button next to a long burn wording.</item>
+    ///   <item>POSITION — unchanged: the row already hangs from the widget-block top edge the
+    ///     owner's own dock anchors at (bar bottom − <c>BarClearanceMeters</c> − the authored
+    ///     <c>DecisionGap</c>), centred on the dock axis.</item>
+    /// </list>
+    /// Display-only by construction: no collider, no <c>IPokeable</c>, registered with no laser or
+    /// poke router, and <see cref="StripColliders"/> sweeps the finished row.
     /// </summary>
     private void SetDecisionLines(string? lines)
     {
-        if (lines == _shownDecisionLines)
+        // Change gate, with ONE exception: a row that had to fall back to the procedural plate
+        // (no live game button sampled yet when it was built) is rebuilt as soon as
+        // NativeButtonSkin has one, so the first prompt of a session cannot get stuck on the
+        // approximate look the 1:1 rule replaced.
+        bool upgrade = _decisionRow != null && !_decisionRowNative && WorldUI.NativeButtonSkin.HasSprite;
+        if (lines == _shownDecisionLines && !upgrade)
             return;
         _shownDecisionLines = lines;
 
@@ -955,44 +1005,110 @@ internal sealed class RemoteBoardFurniture
         _decisionRow.SetParent(_decision, worldPositionStays: false);
         _decisionRow.localPosition = Vector3.zero;
 
-        // One horizontal row, centred on the dock axis like the game's own option rows: equal
-        // slots inside the owner's width budget, each plate capped at the content ceiling.
+        // One horizontal row, centred on the dock axis like the game's own option rows, inside the
+        // owner's own width budget — with CONTENT-TRUE plate widths (see the member doc).
         float budget = Cards.PlayTray.DecisionMountWidth * scale;
         float gap = DecisionButtonGap * scale;
         float h = DecisionButtonH * scale;
-        float w = Mathf.Min(DecisionButtonMaxW * scale, (budget - (n - 1) * gap) / n);
-        float rowW = n * w + (n - 1) * gap;
+        float[] widths = DecisionPlateWidths(labels, budget, gap, scale);
+        float rowW = (n - 1) * gap;
+        for (int i = 0; i < n; i++)
+            rowW += widths[i];
+
+        bool native = WorldUI.NativeButtonSkin.HasSprite;
+        _decisionRowNative = native;
+        Color gold = WorldUI.NativeButtonSkin.HasFont
+            ? WorldUI.NativeButtonSkin.LabelColor
+            : new Color(0.91f, 0.82f, 0.62f);
+        float x = -rowW * 0.5f;
         for (int i = 0; i < n; i++)
         {
+            float w = widths[i];
             var plate = new GameObject($"Button{i}").transform;
             plate.SetParent(_decisionRow, worldPositionStays: false);
-            plate.localPosition = new Vector3(-rowW * 0.5f + w * 0.5f + i * (w + gap),
-                                              -h * 0.5f, 0f);
-            // The local docked row's antique restyle, mirrored: the game's light-stone button
-            // sprite multiplied toward dark wood/aged brass (DecisionDockSurface.AntiqueTint)
-            // with parchment-gold labels — a gold rim + dark body reads as exactly that family.
-            BoardVisual.Quad(plate, "Rim", new Vector2(w, h),
-                BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f)))
-                .transform.localPosition = new Vector3(0f, 0f, 0.0015f);
-            BoardVisual.Quad(plate, "Face", new Vector2(w - 0.006f * scale, h - 0.006f * scale),
-                BoardVisual.Unlit(new Color(0.23f, 0.18f, 0.12f, 1f)))
-                .transform.localPosition = new Vector3(0f, 0f, 0.001f);
-            Color gold = WorldUI.NativeButtonSkin.HasFont
-                ? WorldUI.NativeButtonSkin.LabelColor
-                : new Color(0.91f, 0.82f, 0.62f);
-            RemoteBoardContent.Label(plate, "Label", new Vector3(0f, 0f, -0.001f),
-                new Vector2(w * 0.9f, h * 0.72f), 0.23f * scale, gold,
-                TextAlignmentOptions.Center, wrap: true)
-                .text = labels[i];
+            plate.localPosition = new Vector3(x + w * 0.5f, -h * 0.5f, 0f);
+            x += w + gap;
+
+            // The owner's docked widget IS the game's 9-sliced button sprite multiplied by
+            // AntiqueTint — so wear the same sprite and the same constant here.
+            SpriteRenderer? face = native
+                ? WorldUI.NativeButtonSkin.CreateFace(plate, new Vector2(w, h), localZ: 0.001f,
+                    sortingOrder: 0)
+                : null;
+            if (face != null)
+            {
+                face.color = WorldUI.Surfaces.DecisionDockSurface.AntiqueTint;
+            }
+            else
+            {
+                // Pre-sample fallback (no live button harvested yet): the flat gold-rim/dark-body
+                // plate of the first mirror, kept so an early prompt is never an empty hole.
+                BoardVisual.Quad(plate, "Rim", new Vector2(w, h),
+                    BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f)))
+                    .transform.localPosition = new Vector3(0f, 0f, 0.0015f);
+                BoardVisual.Quad(plate, "Face", new Vector2(w - 0.006f * scale, h - 0.006f * scale),
+                    BoardVisual.Unlit(new Color(0.23f, 0.18f, 0.12f, 1f)))
+                    .transform.localPosition = new Vector3(0f, 0f, 0.001f);
+            }
+
+            TextMeshPro label = RemoteBoardContent.Label(plate, "Label", new Vector3(0f, 0f, -0.001f),
+                new Vector2(w * 0.86f, h * 0.72f), 0.23f * scale, gold,
+                TextAlignmentOptions.Center, wrap: true);
+            WorldUI.NativeButtonSkin.ApplyFont(label); // game HUD font, depth-honest material
+            label.color = gold;                        // ApplyFont must not undo the dock colour
+            label.text = WorldUI.NativeButtonSkin.SanitizeLabel(label, labels[i]);
         }
         StripColliders(_decisionRow.gameObject, "RemoteBoardFurniture.SyncedRow");
 
         VRLog.Info("Net", $"Remote decision dock: {n} mirrored button(s) " +
-                          $"(\"{lines.Replace('\n', '|')}\") — row {rowW:F3} m wide, plates " +
-                          $"{w:F3}x{h:F3} m at the authored ×{scale:F2} dock scale, top edge at " +
-                          $"board-local y {_decision.localPosition.y:F3} (bar bottom − clearance − " +
-                          $"authored DecisionGap_{_decisionStyle}) — the seat the OWNER's own dock " +
-                          "hangs its widget block from.");
+                          $"(\"{lines.Replace('\n', '|')}\") — row {rowW:F3} m wide, content-true " +
+                          $"plate widths [{string.Join(", ", System.Array.ConvertAll(widths, v => v.ToString("F3")))}] " +
+                          $"× {h:F3} m at the authored ×{scale:F2} dock scale, face = " +
+                          $"{(native ? "the sampled GAME button sprite (9-sliced) × DecisionDockSurface.AntiqueTint" : "procedural fallback plate (no live button sampled yet)")}, " +
+                          $"top edge at board-local y {_decision.localPosition.y:F3} (bar bottom − " +
+                          $"clearance − authored DecisionGap_{_decisionStyle}) — the seat, look and " +
+                          "wording the OWNER's own docked row shows. Display-only: colliderless.");
+    }
+
+    /// <summary>
+    /// Content-true plate widths for one mirrored decision row. The game fits each option button to
+    /// its wording (ContentSizeFitter + inset), so an equal split is visibly wrong beside the
+    /// owner's real row; widths are shared out in proportion to the label lengths, each clamped to
+    /// [<see cref="DecisionButtonMinW"/>, <see cref="DecisionButtonMaxW"/>] and the whole row then
+    /// scaled to fit the owner's width budget. Never returns a non-positive width.
+    /// </summary>
+    private static float[] DecisionPlateWidths(string[] labels, float budget, float gap, float scale)
+    {
+        int n = labels.Length;
+        var widths = new float[n];
+        float minW = DecisionButtonMinW * scale;
+        float maxW = DecisionButtonMaxW * scale;
+        float padW = DecisionButtonPadW * scale;
+        float free = Mathf.Max(minW * n, budget - (n - 1) * gap);
+
+        // Share the content budget (what is left after each plate's fixed inset) by label length.
+        float contentBudget = Mathf.Max(0f, free - n * padW);
+        int totalChars = 0;
+        for (int i = 0; i < n; i++)
+            totalChars += Mathf.Max(1, labels[i].Length);
+
+        float sum = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float share = totalChars > 0 ? contentBudget * Mathf.Max(1, labels[i].Length) / totalChars : 0f;
+            widths[i] = Mathf.Clamp(padW + share, minW, maxW);
+            sum += widths[i];
+        }
+        // The clamps can push the row past the budget — shrink uniformly rather than overflow the
+        // owner's dock envelope (a mirror that is WIDER than the original is the one thing the 1:1
+        // rule cannot tolerate).
+        if (sum > free && sum > 0f)
+        {
+            float k = free / sum;
+            for (int i = 0; i < n; i++)
+                widths[i] = Mathf.Max(0.001f, widths[i] * k);
+        }
+        return widths;
     }
 
     /// <summary>A collider-free glow rim behind a round-card slot (the teal "wanted" pulse and the
