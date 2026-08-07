@@ -1853,6 +1853,11 @@ internal static class CardsGameApi
                $"currentActor={(cur != null ? ActorLabel(cur) : "null")} owner==current={match} " +
                $"valid={full.isValid} topInteractable={full.IsInteractable(CBaseCard.ActionType.TopAction, considerSelection: false)} " +
                $"bottomInteractable={full.IsInteractable(CBaseCard.ActionType.BottomAction, considerSelection: false)} " +
+               // The 2026-08-08 deadlock hid here for 12 000 log lines: this line read HEALTHY
+               // while every action click was refused, because FullAbilityCard.OnAbilityClick
+               // bails on IsFullCardPreviewShowing BEFORE any of the state above is consulted.
+               // A gate description that cannot see the first gate is worse than none.
+               $"fullCardPreview={(CardsHandManager.Instance != null && CardsHandManager.Instance.IsFullCardPreviewShowing)} " +
                $"pile={full.cardPile} phase={PhaseManager.PhaseType} actionPhase={ActionPhase()}";
     }
 

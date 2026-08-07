@@ -815,7 +815,8 @@ internal sealed partial class CardsDriver
 
     // Change-dedup for the ActionSelection click-gate diagnostic (second-character deadlock);
     // references (not strings) so the steady-state check is allocation-free.
-    private (object? owner, object? current, bool top, bool bottom, bool valid, int halves)? _lastActionGate;
+    private (object? owner, object? current, bool top, bool bottom, bool valid, int halves,
+        bool preview)? _lastActionGate;
 
     /// <summary>
     /// Second-character action-deadlock diagnostic (change-deduped): prove from LogOutput.log
@@ -853,7 +854,12 @@ internal sealed partial class CardsDriver
         bool top = probe != null && probe.IsInteractable(CBaseCard.ActionType.TopAction, considerSelection: false);
         bool bottom = probe != null && probe.IsInteractable(CBaseCard.ActionType.BottomAction, considerSelection: false);
 
-        var state = (owner, current, top, bottom, valid, halves: _halfBuffer.Count);
+        // The preview latch joins the dedup tuple (2026-08-08 deadlock): without it the gate
+        // line was deduped into silence exactly when it mattered, because every OTHER field
+        // stayed healthy while the All-Cards preview refused every click.
+        var state = (owner, current, top, bottom, valid, halves: _halfBuffer.Count,
+                     preview: CardsHandManager.Instance != null
+                              && CardsHandManager.Instance.IsFullCardPreviewShowing);
         if (_lastActionGate.HasValue && _lastActionGate.Value.Equals(state))
             return;
         _lastActionGate = state;

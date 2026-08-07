@@ -611,6 +611,14 @@ internal static partial class Loc
         // Caption of the (idle) shared decision drawer drawn on a REMOTE player's control board —
         // the reserved strip where their take-damage / dialog prompts dock on their own client.
         ["decision_dock"] = Pair("Decisions", "Entscheidungen"),
+        // The MP ready keycap's CONFIRMED state. Vanilla's own GUI_READY ("Mach dich bereit!")
+        // was showing here, which names the OPPOSITE action — pressing it revokes ready. The
+        // cap's other state reads "Auswahl beenden", so this wording keeps the pair one toggle
+        // on the same noun and names the effect (user report 2026-08-08).
+        ["confirm_unready"] = Pair("Change selection", "Auswahl ändern"),
+        // Cap label while a placed item still owes its element choice (the picker is docked in
+        // the decision area under the board); pressing USE afterwards confirms it.
+        ["item_choose_element"] = Pair("CHOOSE ELEMENT", "ELEMENT WÄHLEN"),
         // Banner hint shown when a flow WANTS an item but the fan is closed. The fan never opens
         // itself any more (user ruling 2026-08-07: "Weder soll es sich automatisch öffnen, noch
         // soll es jemals die Situation geben, dass man es nicht schließen kann"), so the prompt
