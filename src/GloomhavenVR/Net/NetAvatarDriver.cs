@@ -134,6 +134,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // never sent.
     private int _lastSentTrackHoverActor = int.MinValue;
     private bool _lastSentTrackHoverPopup;
+
+    // WALL FADES (extension record 17, MP wall-fade sync): the set of walls the LOCAL fade
+    // decision currently hides, as sorted cross-machine keys. A set CHANGE is an edge with
+    // the capped pre-emption (fade flips are dwell-paced — a few per minute, never a
+    // stream). ALWAYS broadcast regardless of the local [WallFade] SyncPeerFades toggle:
+    // bytes are cheap and the RECEIVER's setting decides application, so one player
+    // toggling mid-session needs no renegotiation (documented on the ExtId const).
+    private readonly uint[] _wallFadeSample = new uint[NetProtocol.WallFadesMaxKeys];
+    private readonly uint[] _lastSentWallFades = new uint[NetProtocol.WallFadesMaxKeys];
+    private int _lastSentWallFadeCount = -1;
     /// <summary>Last decision-button lines put on the wire (extension record 12; null = no row
     /// docked). Dock, undock and a re-label are EDGES that pre-empt the 5 Hz gate — a decision
     /// row that appears on the peer's copy 200 ms after the owner's reads as "not synced", the
@@ -312,6 +322,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentHalfHover = int.MinValue;    // …the half hover…
         _lastSentHalfSelect = int.MinValue;   // …the clicked halves…
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
+        _lastSentWallFadeCount = -1;             // …and the synced wall-fade set
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentConfirmLabel = null;  // and the live cap labels
         _lastSentSkipLabel = null;
@@ -700,6 +711,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                  || (trackHover && trackPopup != _lastSentTrackHoverPopup);
         bool trackHoverDue = trackHoverChanged && _extrasAccumulator >= fastInterval;
 
+        // WALL FADES (extension record 17): sample the local fade decision's ON set as
+        // sorted keys and diff against the last sent set — see the field block's doc.
+        int wallFadeCount = Core.WallSegmentFade.SampleFadedWallKeys(_wallFadeSample);
+        bool wallFadesChanged = wallFadeCount != _lastSentWallFadeCount;
+        if (!wallFadesChanged)
+        {
+            for (int k = 0; k < wallFadeCount; k++)
+            {
+                if (_wallFadeSample[k] != _lastSentWallFades[k])
+                {
+                    wallFadesChanged = true;
+                    break;
+                }
+            }
+        }
+        bool wallFadesDue = wallFadesChanged && _extrasAccumulator >= fastInterval;
+
         // SECOND HELD FIGURE (extension record 8): the mini in the player's OTHER hand. Sampled
         // BEFORE the rate gate so it can pre-empt it, and converted to the shared anchor frame here
         // (once) so the change test compares the very bytes that go on the wire.
@@ -791,6 +819,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
+            && !wallFadesDue
             && !decisionChanged && !capLabelsChanged)
             return;
         _extrasAccumulator = 0f;
@@ -1118,6 +1147,24 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "copy of the public track widget). Peers show this hover on OUR mirrored " +
                   "track only."
                 : "Track hover SENT: none — record omitted (peers render our track un-hovered).");
+        }
+
+        // WALL FADES (extension record 17): written only while the local decision fades at
+        // least one wall; the receiver's [WallFade] SyncPeerFades decides application.
+        if (wallFadeCount > 0)
+        {
+            extras.HasWallFades = true;
+            extras.WallFadesCount = wallFadeCount;
+            extras.WallFadesKeys = _wallFadeSample;
+        }
+        if (wallFadesChanged)
+        {
+            _lastSentWallFadeCount = wallFadeCount;
+            System.Array.Copy(_wallFadeSample, _lastSentWallFades, wallFadeCount);
+            VRLog.Info("Net",
+                $"Wall fades SENT: {wallFadeCount} faded wall(s) — extension record 17 " +
+                "(sorted cross-machine keys; peers with [WallFade] SyncPeerFades ON fade the " +
+                "same walls with the same animation, dwell-free).");
         }
 
         // HEAD-MASK SIZE, riding the SAME trailing block (byte A bit 4 + one trailing byte — the

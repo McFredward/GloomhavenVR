@@ -77,4 +77,7 @@ internal static partial class Defaults
     internal const float ExitDwellMovedSeconds = 2.5f;       // => [WallFade] ExitDwellMovedSeconds
     internal const float ExitDwellStationarySeconds = 3.6f;  // => [WallFade] ExitDwellStationarySeconds
     internal const bool StackedShellFade = true;             // => [WallFade] StackedShellFade
+    // Shipped ON so the next MP hardware test shows the peer-synced fades without cfg fiddling
+    // (receiver-side gate; own fades are always broadcast — WallSegmentFade.Net.cs).
+    internal const bool SyncPeerFades = true;                // => [WallFade] SyncPeerFades
 }

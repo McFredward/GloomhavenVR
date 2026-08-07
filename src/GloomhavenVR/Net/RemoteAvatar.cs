@@ -816,6 +816,16 @@ internal sealed class RemoteAvatar
         TrackHoverActorId = p.HasTrackHover ? p.TrackHoverActorId : 0;
         TrackHoverPopup = p.HasTrackHover && p.TrackHoverPopup;
 
+        // WALL FADES (extension record 17): the sender's currently-faded wall set by
+        // cross-machine stable key, forwarded to the wall-fade driver — which composes it as
+        // a remote fade source gated by the RECEIVER's [WallFade] SyncPeerFades. Absent ⇒
+        // the peer has no faded walls (or predates the record) ⇒ their set empties NOW;
+        // packet GAPS produce no SetExtras call at all and are bridged by the driver's ~1s
+        // linger, so loss can never flicker a wall back.
+        Core.WallSegmentFade.SetPeerFadedWalls(PlayerId,
+            p.HasWallFades ? p.WallFadesKeys : null,
+            p.HasWallFades ? p.WallFadesCount : 0);
+
         // Fan anchor (extension record 5): where the sender's open board-anchored fan really
         // sits, board-local. Reset when absent — "absent" must mean the authored default spot,
         // never a stale anchor from a fan that has since closed or moved.
