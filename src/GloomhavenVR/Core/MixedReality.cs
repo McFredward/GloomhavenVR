@@ -1863,7 +1863,18 @@ internal static partial class MixedReality
         // centre·(1 − skirt) for a pivot at the origin too.
         fillGo.transform.localPosition = new Vector3(
             meshCenter.x * (1f - skirt),
-            mb.max.y * (1f - FillSquashY),
+            // ROUND 17 — DO NOT "FIX" THIS AGAIN. Round 16 called this offset mis-seated
+            // (a child scales its mesh about the OBJECT ORIGIN, so the geometrically correct
+            // seating for a pivot at the origin is top·(1 − squash)) and corrected it. The
+            // hardware verdict was an immediate regression: "die Lücken sind nun wieder
+            // vollständig da wie zuvor". The seam coverage the user approved in ModBuild 70
+            // ("Die Lücken oben sind geschlossen und sieht gut aus top!") comes from THIS
+            // offset — for the 'EN_Unseen_FloorHex_Edge_Damage_03_PR' class it lifts the
+            // ×1.2-widened dark slab ABOVE the hex tops, and that is what actually closes
+            // the seams from above. Geometric correctness is not the goal here; the user's
+            // approved look is. Any future change to the seam coverage must be additive and
+            // must leave this value alone.
+            (mb.max.y - meshCenter.y) * (1f - FillSquashY),
             meshCenter.z * (1f - skirt));
         fillGo.transform.position += Vector3.down * drop; // WORLD drop, whatever the parent pose
         fillGo.layer = source.gameObject.layer;
