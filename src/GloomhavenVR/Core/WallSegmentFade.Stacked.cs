@@ -696,12 +696,15 @@ internal static partial class WallSegmentFade
                         continue;
                     Bounds b = c.bounds;
                     // ARCH PROTECTION (user ruling 2026-08-07): the rectangular arch around
-                    // a door is the doorway ruling's permanently-solid remainder.
-                    if (IsArchProtected(b, c.name))
+                    // a door is the doorway ruling's permanently-solid remainder. The reject
+                    // prints the XZ containment fraction (round 10) so a hardware log can
+                    // tell a tight rect from an over-broad one at a glance.
+                    if (IsArchProtected(b, c.name, out float archFrac))
                     {
                         _stackDead.Add(c);
                         NoteStackReject(c, 0f,
-                            "ARCH of a doorway (permanently solid — user ruling 2026-08-07)");
+                            $"ARCH of a doorway (XZ containment {archFrac:0.00} — permanently "
+                            + "solid, user ruling 2026-08-07)");
                         continue;
                     }
 
