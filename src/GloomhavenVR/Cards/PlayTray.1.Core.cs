@@ -985,6 +985,10 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             _pinRoot.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
             if (_root.parent != _pinRoot)
                 _root.SetParent(_pinRoot, worldPositionStays: true);
+            // Freeze-sentinel announcement: engaging the pin is world-pose-preserving
+            // (worldPositionStays), but the re-parent under the scaled holder can leave
+            // float-noise-sized deltas — name it so it never reads as an unknown writer.
+            NotePinnedWrite("pin engaged (ApplyFollowMode — world-pose-preserving re-parent)");
         }
         if (_followToggle != null)
         {
@@ -1058,6 +1062,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _pinPoseVersion = -1;
         _rigLocalPinValid = false;
         _pinHousekeepingMove = null;
+        _pinFreezeValid = false;   // freeze sentinel: never diff a new root against the old one's pose
+        _pinFreezeSource = null;
     }
 
     /// <summary>
@@ -1173,6 +1179,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _root.position = pos;
         _root.rotation = ComputeBoardRotation(flatForward, board);
         _root.localScale = Vector3.one * ComputeBoardScale(board);
+        NotePinnedWrite("head-relative placement (PlaceAtHead — first seat/recall/recovery)");
         _placed = true;
         _everPlaced = true;
         VRLog.Info("Cards", $"Control board placed ({board}: tilt {CardsConfig.BoardTilt(board).Value}°, " +

@@ -317,6 +317,10 @@ internal sealed partial class PlayTray
         ControlBoard board = CardsConfig.CurrentBoard;
         _root.rotation = ComputeBoardRotation(flatForward, board); // KEEP position (pinned)
         _root.localScale = Vector3.one * ComputeBoardScale(board);
+        // Freeze-sentinel announcement: this path only runs from the settings/debug-menu
+        // orientation tuning (CardsDriver._applyOrientation) — an EXPLICIT user action, which
+        // the FIXIERT ruling allows.
+        NotePinnedWrite("user settings live-apply (ReapplyOrientation — tilt/yaw/scale tuning)");
     }
 
     /// <summary>
@@ -422,6 +426,7 @@ internal sealed partial class PlayTray
         _root.position = position;
         _root.rotation = rotation;
         _root.localScale = localScale;
+        NotePinnedWrite("board-switch/rebuild pose restore (RestorePose — verbatim world pose)");
         _placed = true;
         _placementDeferLogged = false;
         if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)

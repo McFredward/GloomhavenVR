@@ -118,9 +118,15 @@ internal sealed partial class PlayTray
         // The old SyncWorldTiltComp counter-rotation visibly dragged the board through the
         // tilt tween ("nachziehen") and was removed outright.
 
-        // A gripped board is being deliberately placed — never touch it mid-carry.
+        // A gripped board is being deliberately placed — never touch it mid-carry. The pinned
+        // freeze sentinel drops its baseline too: a grab is the user's own hand, and the pose it
+        // leaves behind is by definition sanctioned (it re-baselines silently on release).
         if (_handle != null && _handle.IsGrabbed)
+        {
+            _pinFreezeValid = false;
+            _pinFreezeSource = null;
             return false;
+        }
 
         // APPARENT-SIZE LIMITS (user ruling 2026-08-03: "Wir brauchen ein Limit für eine
         // Maximalgröße des Boards und eine Minimalgröße"). Enforced on the FINAL, world-visible
@@ -131,7 +137,25 @@ internal sealed partial class PlayTray
         // exactly the "extrem winzig" the report describes, and no clamp on a factor can see it.
         // The board's apparent width IS visible here (BoardW × the root's lossy scale), so that is
         // what is clamped — every frame, so no gesture combination can slip past it.
-        ClampApparentSize();
+        //
+        // FOLLOW MODE ONLY (user ruling 2026-08-07: "Fixiert heißt: völlig unabhängig vom
+        // Character, bewegt sich in KEINSTER Weise, außer es wird aktiv verschoben oder
+        // skaliert"). The clamp measures in PLAYER units — world width ÷ LIVE rig scale — and
+        // for a PINNED board that measure is the bug, not the safeguard: the board's WORLD size
+        // is frozen, but a world-grab zoom rescales the PLAYER, so the apparent width drifts
+        // across the 18/140 cm limits without anyone touching the board, and the clamp then
+        // "corrected" the frozen world size frame after frame. That is precisely the 2026-08-07
+        // report ("beim Zoomen nach einer Weile wird das fixierte Board kleiner oder größer");
+        // the hardware log convicts it — 18× "Board size CLAMPED" with a CONSTANT parent chain
+        // ×40.10 (the pin-holder snapshot) against rig scales ×5.13–×137.19 (the zoom). A pinned
+        // board's apparent size changing with zoom is what pinning MEANS; the size was legal
+        // when the player set it (the two-hand gesture window GrabScaleLimits bounds every
+        // explicit resize live, in BOTH modes), so while pinned nothing may re-derive it.
+        if (CardsConfig.TrayFollow.Value)
+            ClampApparentSize();
+
+        // PINNED FREEZE SENTINEL: convict any remaining automatic writer instantly (see below).
+        TickPinnedFreezeSentinel();
 
         // NON-FINITE: the ONLY verdict left. A NaN/Inf transform is not a position — everything
         // parented to it (cards, docked game canvases) renders undefined and it can never heal by
@@ -167,6 +191,7 @@ internal sealed partial class PlayTray
         PlaceAtHead();     // defers safely when the head has no pose yet (TickPlacement retries)
         if (keepScaleValid)
             _root.localScale = keepScale;
+        NotePinnedWrite($"lost-board recovery ({why})"); // freeze sentinel: sanctioned re-seat
         if (_wantVisible)
             SetVisible(true); // a recovery must never leave the board hidden
         // Re-author the pinned world pose against the CURRENT tracking origin so the next
@@ -217,6 +242,7 @@ internal sealed partial class PlayTray
                 Vector3 before = _root.position;
                 _root.SetPositionAndRotation(pos, rot);
                 _pinHousekeepingMove = "pin carried through a tracking-origin change";
+                NotePinnedWrite("tracking-origin carry (SyncPinHolder — rig rebuild/recentre)");
                 VRLog.Info("Cards", $"Control board (PINNED) carried through a tracking-origin change " +
                                     $"(rig pose version {_pinPoseVersion} → {version}: rig rebuild or " +
                                     $"recentre): {before} → {pos}. A world-space pin would have been " +
@@ -261,6 +287,90 @@ internal sealed partial class PlayTray
     private Vector3 _rigLocalPinPos;
     private Quaternion _rigLocalPinRot = Quaternion.identity;
     private bool _rigLocalPinValid;
+
+    // ------------------------------------------------------------- PINNED FREEZE SENTINEL --
+    //
+    // User ruling 2026-08-07: a FIXIERT board is a world-frozen object — no position, rotation
+    // or scale change from ANY automatic source; only an explicit user grab/resize may move it.
+    // The sentinel is the enforcement's black box: every frame it compares the pinned tray's
+    // WORLD pose (position, rotation, LOSSY scale — world size, the quantity the ruling freezes;
+    // the CardsDriver issue-C watch compares parent-LOCAL and thus cannot see a holder rescale)
+    // against last frame's, and any change is logged WITH ITS SOURCE. Sanctioned writers
+    // announce themselves via NotePinnedWrite; a change with no announcement logs as a Warn —
+    // one grep ("PINNED tray transform WRITE") convicts a leftover writer in the next hardware
+    // log instantly. It never mutates anything; it only observes and re-baselines.
+
+    private Vector3 _pinFreezePos;
+    private Quaternion _pinFreezeRot = Quaternion.identity;
+    private float _pinFreezeWorldScale = -1f;
+    private bool _pinFreezeValid;
+    private string? _pinFreezeSource;
+    private float _nextPinFreezeLog;
+
+    /// <summary>
+    /// A transform/scale writer announces itself BEFORE/AS it writes a PINNED tray, so the
+    /// freeze sentinel can name it instead of warning about an unknown writer. No-op in FOLLOW
+    /// mode. Multiple writers in one frame are concatenated.
+    /// </summary>
+    private void NotePinnedWrite(string source)
+    {
+        if (CardsConfig.TrayFollow.Value)
+            return;
+        _pinFreezeSource = _pinFreezeSource == null ? source : _pinFreezeSource + " + " + source;
+    }
+
+    /// <summary>Per-frame world-pose diff of a PINNED tray — see the sentinel block above.</summary>
+    private void TickPinnedFreezeSentinel()
+    {
+        if (_root == null || CardsConfig.TrayFollow.Value)
+        {
+            _pinFreezeValid = false;
+            _pinFreezeSource = null;
+            return;
+        }
+        Vector3 pos = _root.position;
+        Quaternion rot = _root.rotation;
+        float worldScale = _root.lossyScale.x;
+        string? source = _pinFreezeSource;
+        _pinFreezeSource = null; // announcements are valid for exactly one sentinel pass
+
+        if (_pinFreezeValid && IsFinite(pos))
+        {
+            // Epsilons in PLAYER-perceivable terms: the parent chain (the pin holder carries the
+            // diorama scale) converts tray metres to world units, so 2 mm of perceived motion is
+            // 0.002 × that in world units. Scale compares relatively (0.2 % — one clamp frame in
+            // the 2026-08-07 log moved it ~1 %, comfortably above; float noise stays below).
+            float unit = Mathf.Max(worldScale / Mathf.Max(_root.localScale.x, 1e-4f), 1e-4f);
+            float posEps = 0.002f * unit;
+            bool moved = (pos - _pinFreezePos).sqrMagnitude > posEps * posEps
+                         || Quaternion.Angle(rot, _pinFreezeRot) > 0.25f
+                         || Mathf.Abs(worldScale - _pinFreezeWorldScale)
+                            > 0.002f * Mathf.Max(_pinFreezeWorldScale, 1e-4f);
+            if (moved)
+            {
+                float now = Time.unscaledTime;
+                if (now >= _nextPinFreezeLog) // an unknown per-frame writer must not flood the log
+                {
+                    _nextPinFreezeLog = now + 1f;
+                    string detail = $"world pos {_pinFreezePos} → {pos}, " +
+                                    $"rot Δ{Quaternion.Angle(rot, _pinFreezeRot):F1}°, " +
+                                    $"world scale {_pinFreezeWorldScale:F3} → {worldScale:F3} " +
+                                    $"(own localScale {_root.localScale.x:F3}).";
+                    if (source != null)
+                        VRLog.Info("Cards", $"PINNED tray transform WRITE [{source}]: {detail}");
+                    else
+                        VRLog.Warn("Cards", "PINNED tray transform WRITE [UNKNOWN WRITER — a " +
+                                            "FIXIERT board moved/rescaled with no writer announcing " +
+                                            "itself; report this line with the surrounding log]: " + detail);
+                }
+            }
+        }
+
+        _pinFreezePos = pos;
+        _pinFreezeRot = rot;
+        _pinFreezeWorldScale = worldScale;
+        _pinFreezeValid = IsFinite(pos);
+    }
 
     // IsInHeadView lived here and is GONE with the automatic recall (see the ruling block at the
     // top of this file): the board's visibility to the player is not a reason to move it, so
@@ -335,6 +445,10 @@ internal sealed partial class PlayTray
         float wanted = Mathf.Clamp(width, min, max);
         float factor = wanted / width;
         _root.localScale = local * factor;
+        // Defensive: the caller gates this to FOLLOW mode (pinned = world-frozen, ruling
+        // 2026-08-07); should any future path run it on a pinned tray, the freeze sentinel
+        // names it instead of warning about an unknown writer.
+        NotePinnedWrite("apparent-size clamp (ClampApparentSize)");
 
         // Sanctioned: the watchdog must be able to tell a clamp apart from a game event moving the
         // board behind our back. Without this the clamp's own write reads as an UNSANCTIONED
