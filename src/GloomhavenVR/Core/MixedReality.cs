@@ -62,7 +62,7 @@ namespace GloomhavenVR.Core;
 /// recorded on first force and RESTORED fully on MR-off, VR-stop, or hot reload
 /// (<see cref="RestoreAll"/>).
 /// </summary>
-internal static class MixedReality
+internal static partial class MixedReality
 {
     private static ConfigFile? _file;
 
@@ -115,6 +115,17 @@ internal static class MixedReality
     /// <see cref="UnseenWaferDrop"/>, so the curtain always hides behind the user-approved wafer
     /// and can never paint over an authored top face. Tunable live.</summary>
     internal static ConfigEntry<float> UnseenRimTopClearance = null!;
+
+    /// <summary>DIAGNOSTIC (round 16, default OFF): render each class of mod-built backing in a
+    /// distinct flat colour instead of the dark neutral — coplanar underlay BLUE, top wafer
+    /// MAGENTA, rim curtain RED. Same geometry, same render queue, same blend/depth state, same
+    /// layer: ONLY the colour changes, so the screenshot observes the real pipeline rather than a
+    /// special case. It exists because fifteen rounds of dark backings produced no change at the
+    /// rim while every instrument reported the geometry present — if none of the three colours
+    /// appears anywhere in MR, the backings provably do not reach the screen and the whole
+    /// strategy is dead; if they appear but not on the glowing cliff, the cliff is geometry the
+    /// sweep never matched. Live (a change rebuilds every backing).</summary>
+    internal static ConfigEntry<bool> UnseenBackingDebugColors = null!;
 
 
     /// <summary>
@@ -216,6 +227,13 @@ internal static class MixedReality
     private static Material? _unseenDarkMat;  // opaque dark plate — key-color-safe, retinted live
     private static Material? _unseenSkipMat;  // fully invisible — fills a source's opaque slots
     private static Color _unseenDarkColor;
+
+    // ROUND-16 DEBUG TINT (UnseenBackingDebugColors): one material per BACKING CLASS, identical to
+    // the dark plate in shader, queue and blend/depth state — only .color differs. Null unless the
+    // key is on; destroyed with the other underlay materials.
+    private static Material? _dbgUnderlayMat; // blue   — the coplanar 1:1 plate
+    private static Material? _dbgWaferMat;    // magenta— the flat top-plane gap wafer
+    private static Material? _dbgRimMat;      // red    — the mod-built rim-curtain prism
     private static int _previewScanNextFrame; // throttle (same cadence as the sky sweep)
     private static int _loggedPreviewCount = -1;
     private static int _unseenVerboseLogs;    // per-renderer build log cap (see the churn note)
@@ -238,6 +256,11 @@ internal static class MixedReality
     /// beside the wafer values so a config change rebuilds live (round 15).</summary>
     private static float _appliedRimInset = -1f;
     private static float _appliedRimClearance = -1f;
+
+    /// <summary>The debug-tint state the live backings were built with — flipping
+    /// <see cref="UnseenBackingDebugColors"/> rebuilds them exactly like a margin change, so the
+    /// hardware round can turn the instrument on from the cfg without a rebuild or an MR toggle.</summary>
+    private static bool _appliedDebugColors;
 
     /// <summary>Change-dedup for the RIM CURTAIN census line.</summary>
     private static int _loggedRimCount = -1;
@@ -281,6 +304,20 @@ internal static class MixedReality
     /// key: from below the region has read fully opaque since round 9 (mixed_reality_tiles2.png),
     /// this is only the seal that makes the prism watertight.</summary>
     private const float RimBottomDrop = 0.02f;
+
+    /// <summary>Default for '[MixedReality] UnseenBackingDebugColors'. LOCAL FALLBACK: this branch
+    /// does not own Defaults/Loc — the constant + descriptions are reported for merge; swap this for
+    /// <c>Defaults.UnseenBackingDebugColors</c> then. OFF: it is a diagnostic, and it deliberately
+    /// makes the fog-of-war region look wrong.</summary>
+    private const bool UnseenBackingDebugColorsDefault = false;
+
+    /// <summary>The three debug tints (round 16). Unmistakable and mutually unambiguous, and none of
+    /// them is a chroma-key preset EXACTLY (the Magenta/Blue presets exist): a debug round must run
+    /// on the GREEN key, and <see cref="EnsureDebugMaterials"/> logs a warning if the live key comes
+    /// close to any of them, so a "colour missing" reading can never be a keyed-away colour.</summary>
+    private static readonly Color DebugUnderlayColor = new(0.10f, 0.35f, 1f, 1f);   // blue
+    private static readonly Color DebugWaferColor = new(1f, 0.15f, 0.85f, 1f);      // magenta
+    private static readonly Color DebugRimColor = new(1f, 0.10f, 0.10f, 1f);        // red
 
     /// <summary>MATERIAL names whose properties were already dumped this session (round 8: was
     /// shader names — the edge materials share the hex shader and stayed undumped;
@@ -471,6 +508,18 @@ internal static class MixedReality
             "any dark ever shows on a hex top; lower toward the wafer drop if the very top of the " +
             "outer edge still glows. Forced to at least UnseenWaferDrop + 0.005. Applies while MR " +
             "is on, live (backings rebuild on change). Clamped to 0.005..0.5.");
+        UnseenBackingDebugColors = _file.Bind("MixedReality", "UnseenBackingDebugColors",
+            UnseenBackingDebugColorsDefault,
+            "DIAGNOSTIC, default off — turn this on only when asked for a screenshot. In MR every " +
+            "fog-of-war piece gets three mod-built dark backings (a copy right behind its surfaces, " +
+            "a flat wafer just under its top plane, and a prism behind its outer side faces). With " +
+            "this ON they are painted in flat signal colours instead of dark — copy BLUE, wafer " +
+            "MAGENTA, side prism RED — with everything else about them unchanged (same shape, same " +
+            "position, same draw order). One photo then shows which of the mod's surfaces actually " +
+            "reach your eyes and exactly where they sit, which is the one thing a dark backing can " +
+            "never show. Use the GREEN key colour while it is on, so no signal colour can be keyed " +
+            "away. Applies while MR is on, live (backings rebuild on change); turning it off " +
+            "restores the normal dark look immediately.");
         HideSkyMeshes = _file.Bind("MixedReality", "HideSkyMeshes", Defaults.HideSkyMeshes,
             "PART OF MIXED REALITY, not a choice beside it — turning MR on does this, and the key "
             + "is kept only as an escape hatch for a run where it hides wanted geometry. It is not "
@@ -1002,23 +1051,35 @@ internal static class MixedReality
         // round can dial the rim in from the cfg without a rebuild or an MR toggle.
         float rimInset = Mathf.Clamp(UnseenRimInset.Value, 0.005f, 0.2f);
         float rimClear = Mathf.Clamp(UnseenRimTopClearance.Value, 0.005f, 0.5f);
+        bool debugColors = UnseenBackingDebugColors.Value; // round 16: same live-retune gate
         if (_appliedSkirtScale > 0f && UnseenUnderlays.Count > 0
             && (!Mathf.Approximately(skirt, _appliedSkirtScale)
                 || !Mathf.Approximately(drop, _appliedWaferDrop)
                 || !Mathf.Approximately(rimInset, _appliedRimInset)
-                || !Mathf.Approximately(rimClear, _appliedRimClearance)))
+                || !Mathf.Approximately(rimClear, _appliedRimClearance)
+                || debugColors != _appliedDebugColors))
         {
             VRLog.Info("Core", $"MR: unseen fill tuning changed (scale {_appliedSkirtScale:0.###} → " +
                                $"{skirt:0.###}, drop {_appliedWaferDrop:0.###} → {drop:0.###} wu, " +
                                $"rim inset {_appliedRimInset:0.###} → {rimInset:0.###} wu, rim " +
-                               $"clearance {_appliedRimClearance:0.###} → {rimClear:0.###} wu) — " +
-                               "rebuilding every underlay + wafer + rim curtain.");
-            RestoreUnseenUnderlays();
+                               $"clearance {_appliedRimClearance:0.###} → {rimClear:0.###} wu, debug " +
+                               $"tint {_appliedDebugColors} → {debugColors}) — rebuilding every " +
+                               "underlay + wafer + rim curtain.");
+            // KEEP THE MATERIALS (round-16 bug fix). This path falls straight through into the
+            // sweep BELOW, in the SAME call: the plain Restore destroys the shared dark/skip
+            // materials and nulls the fields, so every backing rebuilt on this tick would have been
+            // assigned NULL materials and drawn NOTHING — silently, permanently (the rebuilt
+            // sources are back in UnseenSources, so no later sweep revisits them). Any live retune
+            // therefore blanked the whole backing system until the next MR toggle, and it would
+            // have blanked THIS round's debug tint the instant the key was flipped on — turning
+            // "the tint is nowhere" into an artefact of the instrument instead of a finding.
+            RestoreUnseenUnderlays(keepMaterials: true);
         }
         _appliedSkirtScale = skirt;
         _appliedWaferDrop = drop;
         _appliedRimInset = rimInset;
         _appliedRimClearance = rimClear;
+        _appliedDebugColors = debugColors;
 
 
         if (Time.frameCount < _previewScanNextFrame)
@@ -1133,6 +1194,7 @@ internal static class MixedReality
 
         LogUnbackedPreview();
         CensusUnseenBorder(all);
+        TickUnseenDiagnostics(all); // round 16: one-shot rim-population + camera dumps (MixedReality.Diag.cs)
     }
 
     /// <summary>Round-13 proof instrument: every Preview-descendant (or matched-but-skipped)
@@ -1157,9 +1219,16 @@ internal static class MixedReality
     /// cleared per sweep). An empty list logs once per change too — that IS the goal state.</summary>
     private static void LogUnbackedPreview()
     {
+        // ROUND 16 — the change gate now folds in the LIVE BACKING COUNT. Without it the empty
+        // list always hashed to 17, so the six "none. (goal state)" lines in the ModBuild-74 log
+        // were ALL emitted while the region was still empty (the GAP BACKING lines beside them
+        // read "0 renderer(s)"), and once 226 pieces existed the gate suppressed the instrument
+        // forever: a goal-state claim about a region that did not exist yet. The count makes the
+        // all-clear re-print for the populated region — the only state it is evidence about.
         int hash = 17;
         for (int i = 0; i < UnbackedScratch.Count; i++)
             hash = hash * 31 + UnbackedScratch[i].GetInstanceID();
+        hash = hash * 31 + UnseenUnderlays.Count;
         float now = Time.unscaledTime;
         if (hash == _unbackedLastHash || now < _unbackedNextAllowed)
         {
@@ -1172,9 +1241,13 @@ internal static class MixedReality
 
         if (UnbackedScratch.Count == 0)
         {
-            VRLog.Info("Core", "MR: UNBACKED PREVIEW RENDERERS — none. Every fog-of-war " +
-                               "stand-in renderer either carries a dark backing or is a " +
-                               "deliberately-authored particle/trail (goal state).");
+            VRLog.Info("Core", $"MR: UNBACKED PREVIEW RENDERERS — none, with " +
+                               $"{UnseenUnderlays.Count} backed source(s) live. Every fog-of-war " +
+                               "stand-in renderer THE SWEEP CAN SEE either carries a dark backing " +
+                               "or is a deliberately-authored particle/trail. NOTE (round 16): this " +
+                               "line only covers renderers with a 'Preview' ancestor within 12 " +
+                               "levels — a piece deeper than that is invisible to it; the RIM " +
+                               "POPULATION dump is the one that can see those.");
             return;
         }
 
@@ -1369,14 +1442,24 @@ internal static class MixedReality
         // key: exactly the wide green bands the round-12 screenshot showed on the hex bevels.
         // Extra slots get the DARK plate (they belong to see-through family geometry); the
         // one-shot sample line below proves the counts in the next hardware log.
+        // ROUND-16 DEBUG TINT: the plate and the wafer no longer share one material array — in
+        // debug mode each backing CLASS gets its own signal colour (blue plate / magenta wafer /
+        // red rim). Outside debug mode all three resolve to the same dark material and the arrays
+        // are element-wise identical, so the rendering is bit-identical to round 15.
+        Material underlayMat = _dbgUnderlayMat != null ? _dbgUnderlayMat : _unseenDarkMat!;
+        Material waferMat = _dbgWaferMat != null ? _dbgWaferMat : _unseenDarkMat!;
+        Material rimMat = _dbgRimMat != null ? _dbgRimMat : _unseenDarkMat!;
+
         int slots = Mathf.Max(filter.sharedMesh.subMeshCount, mats.Length);
         var plateMats = new Material[slots];
+        var fillMats = new Material[slots];
         int backed = 0;
         for (int i = 0; i < slots; i++)
         {
             bool dark = i >= mats.Length
                         || IsTranslucent(mats[i]) || IsUnseenFamilyMaterial(mats[i]);
-            plateMats[i] = dark ? _unseenDarkMat! : _unseenSkipMat!;
+            plateMats[i] = dark ? underlayMat : _unseenSkipMat!;
+            fillMats[i] = dark ? waferMat : _unseenSkipMat!;
             if (dark)
                 backed++;
         }
@@ -1447,7 +1530,7 @@ internal static class MixedReality
         fillGo.layer = source.gameObject.layer;
         fillGo.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
         var fill = fillGo.AddComponent<MeshRenderer>();
-        fill.sharedMaterials = plateMats;
+        fill.sharedMaterials = fillMats;
         fill.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         fill.receiveShadows = false;
         fill.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
@@ -1469,7 +1552,7 @@ internal static class MixedReality
         float rimClear = _appliedRimClearance > 0f ? _appliedRimClearance : Defaults.UnseenRimTopClearance;
         rimClear = Mathf.Max(rimClear, drop + 0.005f); // INVARIANT: strictly under the wafer
         Renderer? rim = MrRimCurtain.Build(
-            source, filter.sharedMesh, _unseenDarkMat!, rimInset, rimClear, RimBottomDrop);
+            source, filter.sharedMesh, rimMat, rimInset, rimClear, RimBottomDrop);
 
         int id = source.GetInstanceID();
         var entry = new UnseenUnderlay
@@ -1665,25 +1748,121 @@ internal static class MixedReality
             VRLog.Info("Core", $"MR: unseen dark material created — shader '{shader.name}', " +
                                $"queue {wantedQueue} (per-piece coplanar underlay + groove fill; " +
                                "ModBuild-63 log confirmed Sprites/Default + family queue 3000).");
+        }
+        else
+        {
+            if (_unseenDarkMat.renderQueue != wantedQueue)
+            {
+                _unseenDarkMat.renderQueue = wantedQueue;
+                if (_unseenSkipMat != null)
+                    _unseenSkipMat.renderQueue = wantedQueue;
+                VRLog.Info("Core", $"MR: unseen backings re-queued to {wantedQueue} — a family " +
+                                   $"material was observed at queue {_familyMinQueue}, and the " +
+                                   "backings must composite before the family's depth-writing pass.");
+            }
+            if (_unseenDarkColor != wanted)
+            {
+                _unseenDarkColor = wanted;
+                _unseenDarkMat.color = wanted;
+                VRLog.Info("Core", $"MR: key color moved near the unseen-underlay neutral — underlay " +
+                                   $"re-tinted to RGBA {wanted.r:0.##},{wanted.g:0.##},{wanted.b:0.##},1 " +
+                                   "so it can never be chroma-keyed away.");
+            }
+        }
+
+        EnsureDebugMaterials();
+    }
+
+    /// <summary>
+    /// ROUND-16 DEBUG TINT materials: one per backing CLASS, cloned from the dark plate's own shader
+    /// and render queue so the tinted run exercises the SAME pipeline (same queue, same hardcoded
+    /// blend/depth state of Sprites/Default, same layer, same geometry) and differs from the shipped
+    /// look in exactly one respect — <c>.color</c>. Created only while
+    /// <see cref="UnseenBackingDebugColors"/> is on and destroyed the moment it goes off, so nothing
+    /// of this exists in a normal session.
+    /// </summary>
+    private static void EnsureDebugMaterials()
+    {
+        bool want = UnseenBackingDebugColors != null && UnseenBackingDebugColors.Value;
+        if (!want)
+        {
+            if (_dbgUnderlayMat != null || _dbgWaferMat != null || _dbgRimMat != null)
+            {
+                DestroyMat(ref _dbgUnderlayMat);
+                DestroyMat(ref _dbgWaferMat);
+                DestroyMat(ref _dbgRimMat);
+                VRLog.Info("Core", "MR: unseen backing DEBUG TINT off — the backings are dark again " +
+                                   "(the tinted materials are destroyed; the geometry is unchanged).");
+            }
             return;
         }
-        if (_unseenDarkMat.renderQueue != wantedQueue)
+        if (_unseenDarkMat == null || _unseenDarkMat.shader == null)
+            return;
+
+        int queue = _unseenDarkMat.renderQueue;
+        if (_dbgUnderlayMat == null || _dbgWaferMat == null || _dbgRimMat == null)
         {
-            _unseenDarkMat.renderQueue = wantedQueue;
-            if (_unseenSkipMat != null)
-                _unseenSkipMat.renderQueue = wantedQueue;
-            VRLog.Info("Core", $"MR: unseen backings re-queued to {wantedQueue} — a family " +
-                               $"material was observed at queue {_familyMinQueue}, and the " +
-                               "backings must composite before the family's depth-writing pass.");
+            DestroyMat(ref _dbgUnderlayMat);
+            DestroyMat(ref _dbgWaferMat);
+            DestroyMat(ref _dbgRimMat);
+            Shader shader = _unseenDarkMat.shader;
+            _dbgUnderlayMat = new Material(shader)
+            {
+                name = "GloomhavenVR.MrUnseenDebugUnderlay",
+                color = DebugUnderlayColor,
+                renderQueue = queue,
+            };
+            _dbgWaferMat = new Material(shader)
+            {
+                name = "GloomhavenVR.MrUnseenDebugWafer",
+                color = DebugWaferColor,
+                renderQueue = queue,
+            };
+            _dbgRimMat = new Material(shader)
+            {
+                name = "GloomhavenVR.MrUnseenDebugRim",
+                color = DebugRimColor,
+                renderQueue = queue,
+            };
+
+            Color key = KeyColor.Value;
+            bool keyClash = NearKey(key, DebugUnderlayColor) || NearKey(key, DebugWaferColor)
+                            || NearKey(key, DebugRimColor);
+            VRLog.Info("Core", $"MR: unseen backing DEBUG TINT ON — shader '{shader.name}', queue " +
+                               $"{queue} (identical to the dark plate; only the colour differs). " +
+                               "Coplanar underlay = BLUE, top-plane wafer = MAGENTA, rim curtain = " +
+                               "RED. What the screenshot proves: NO tint anywhere in the fog-of-war " +
+                               "region ⇒ the mod's backings never reach the screen and the backing " +
+                               "strategy is dead; tints on the hex TOPS but the outer cliff still " +
+                               "green ⇒ the backings render fine and the glowing cliff is geometry " +
+                               "the sweep never matched (see the RIM POPULATION dump); RED visible " +
+                               "on the cliff yet green over it ⇒ the curtain draws but the authored " +
+                               "surface in front of it is not compositing against it." +
+                               (keyClash
+                                   ? " WARNING: the live key colour is close to one of the tints — " +
+                                     "switch the key to GREEN before judging a missing colour."
+                                   : string.Empty));
         }
-        if (_unseenDarkColor != wanted)
+        else if (_dbgUnderlayMat.renderQueue != queue)
         {
-            _unseenDarkColor = wanted;
-            _unseenDarkMat.color = wanted;
-            VRLog.Info("Core", $"MR: key color moved near the unseen-underlay neutral — underlay " +
-                               $"re-tinted to RGBA {wanted.r:0.##},{wanted.g:0.##},{wanted.b:0.##},1 " +
-                               "so it can never be chroma-keyed away.");
+            _dbgUnderlayMat.renderQueue = queue;
+            _dbgWaferMat.renderQueue = queue;
+            _dbgRimMat.renderQueue = queue;
         }
+    }
+
+    /// <summary>Per-channel proximity to the live chroma key (same rule as the underlay's own
+    /// key-avoidance lift) — a tint this close could be keyed away, which would read as "the
+    /// backing is not rendering" and poison the whole diagnostic.</summary>
+    private static bool NearKey(Color key, Color c) =>
+        Mathf.Abs(key.r - c.r) < UnseenKeyDistance && Mathf.Abs(key.g - c.g) < UnseenKeyDistance
+        && Mathf.Abs(key.b - c.b) < UnseenKeyDistance;
+
+    private static void DestroyMat(ref Material? m)
+    {
+        if (m != null)
+            UnityEngine.Object.Destroy(m);
+        m = null;
     }
 
     /// <summary>True when an ACTIVE ancestor named 'Preview' sits above <paramref name="t"/> —
@@ -1735,11 +1914,19 @@ internal static class MixedReality
         return tag == "Transparent" || tag == "Fade" || tag == "Overlay";
     }
 
-    /// <summary>Destroy every underlay child and the two shared materials — MR off / VR stop /
-    /// hot reload / the safety valve flipping off. The sources' own materials were never touched,
-    /// so there is nothing to reassign; underlays whose source a scene unload already destroyed
-    /// died with it (Unity fake-null) and are simply dropped.</summary>
-    private static void RestoreUnseenUnderlays()
+    /// <summary>Destroy every underlay child and (unless <paramref name="keepMaterials"/>) the
+    /// shared materials — MR off / VR stop / hot reload / the safety valve flipping off. The
+    /// sources' own materials were never touched, so there is nothing to reassign; underlays whose
+    /// source a scene unload already destroyed died with it (Unity fake-null) and are simply
+    /// dropped.
+    ///
+    /// <para><paramref name="keepMaterials"/> (round 16) is for the LIVE RETUNE path, which tears
+    /// the backings down and rebuilds them inside the SAME call: destroying the shared materials
+    /// there nulls the fields the rebuild is about to read, so every rebuilt backing gets a null
+    /// material array and draws nothing — permanently, because its source is back in
+    /// <see cref="UnseenSources"/>. Teardown paths that really end the session keep the default and
+    /// free everything.</para></summary>
+    private static void RestoreUnseenUnderlays(bool keepMaterials = false)
     {
         for (int i = 0; i < UnseenUnderlays.Count; i++)
         {
@@ -1758,16 +1945,17 @@ internal static class MixedReality
         MrRimCurtain.ReleaseMeshes();
         UnseenUnderlays.Clear();
         UnseenSources.Clear();
-        if (_unseenDarkMat != null)
+        if (!keepMaterials)
         {
-            UnityEngine.Object.Destroy(_unseenDarkMat);
-            _unseenDarkMat = null;
+            DestroyMat(ref _unseenDarkMat);
+            DestroyMat(ref _unseenSkipMat);
+            DestroyMat(ref _dbgUnderlayMat);
+            DestroyMat(ref _dbgWaferMat);
+            DestroyMat(ref _dbgRimMat);
         }
-        if (_unseenSkipMat != null)
-        {
-            UnityEngine.Object.Destroy(_unseenSkipMat);
-            _unseenSkipMat = null;
-        }
+        _rimPopLogged = false;   // round-16 one-shot dumps re-arm for the rebuilt region
+        _camDumpLogged = false;
+        _diagPrevBackingCount = -1;
         _previewScanNextFrame = 0;
         _loggedPreviewCount = -1;
         _loggedRimCount = -1;
@@ -1892,5 +2080,10 @@ internal static class MixedReality
         _loggedRimCount = -1;
         _unbackedLastHash = 0;
         _unbackedNextAllowed = 0f;
+        // A scene load means a NEW unseen region — re-arm the round-16 one-shot dumps so they
+        // describe the region that is actually on screen.
+        _rimPopLogged = false;
+        _camDumpLogged = false;
+        _diagPrevBackingCount = -1;
     }
 }
