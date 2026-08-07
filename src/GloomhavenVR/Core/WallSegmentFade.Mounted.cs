@@ -663,7 +663,13 @@ internal static partial class WallSegmentFade
                     // drift every frame, which is what made the candles blink.
                     bool particles = c is ParticleSystemRenderer;
                     Bounds b = c.bounds;
-                    if (IsArchProtected(b, c.name))
+                    // Round-13: particles are arch-tested by their EMITTER, not their live
+                    // particle bounds (which drift every frame and made the arch fires'
+                    // protection flicker) — the same anchor rule the mounting itself uses.
+                    Bounds archProbe = particles
+                        ? new Bounds(c.transform.position, Vector3.zero)
+                        : b;
+                    if (IsArchProtected(archProbe, c.name))
                         continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                     float anchorY = particles ? c.transform.position.y : b.min.y;
                     float topY = particles ? c.transform.position.y : b.max.y;

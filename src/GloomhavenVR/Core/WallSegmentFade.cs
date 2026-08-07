@@ -609,6 +609,8 @@ internal static partial class WallSegmentFade
             _masonryFadeShader = null;       // re-capture the dissolve-swap template
             _swapTotal = 0;
             _nextSwapLog = 0f;
+            _archRects.Clear();              // arch protection dies with the scene…
+            _gateMemory.Clear();             // …and so does the reborn-gate state memory
             _lastLoggedReanchorCount = -1;   // re-print the re-anchor census
             _peerFades.Clear();              // peers re-state their fades for the new scene
             _loggedToggleMats.Clear();       // …and the toggle-native material lines
@@ -795,8 +797,14 @@ internal static partial class WallSegmentFade
                 LogRemoteFadeEdge(seg, remoteFade, peerFadeId);
                 // GATE LIFT (round 12): the embedding wall fades with its gate column's
                 // decision — same max-composition as the peer sync, native delivery.
-                bool gateLift = seg.GateLift != null && seg.GateLift.State
-                    && seg.DoorRoot == null;
+                // Round-13 LINGER: the lift survives the gate segment's death (Apparance
+                // prop churn destroys/rebirths the door prop every few seconds) so the
+                // embedding wall does not flap with the prop lifecycle.
+                bool gateLift = seg.DoorRoot == null
+                    && ((seg.GateLift != null && seg.GateLift.State)
+                        || now < seg.GateLiftUntil);
+                if (seg.DoorRoot == null && seg.GateLift != null && seg.GateLift.State)
+                    seg.GateLiftUntil = now + GateLiftLingerSeconds;
                 LogGateLiftEdge(seg, gateLift);
                 float target = (seg.State || remoteFade || gateLift) ? 1f : 0f;
                 seg.Fade += (target - seg.Fade) * fadeStep;
@@ -1882,8 +1890,9 @@ internal static partial class WallSegmentFade
                 }
                 if (!changed)
                     continue;
-                if (seg.Renderers.Count == 0 && seg.Body.Count == 0)
+                if (seg.Renderers.Count == 0 && seg.Body.Count == 0 && !seg.IsGateColumn)
                 {
+                    // (gate columns legitimately survive empty — round-13 lifecycle rule)
                     // Segment leaves the table — free ALL its attachments (bushes, doors, dressing).
                     RestoreSegmentFoliage(seg);
                     RestoreSegmentSiblings(seg);
@@ -1964,6 +1973,9 @@ internal static partial class WallSegmentFade
                 if (seg.DoorRoot != null)
                     continue; // doorway: held permanently solid anyway — and a split would
                               // strip the DoorRoot off the pieces, making the archway fadeable
+                if (seg.IsGateColumn)
+                    continue; // gate columns are lifecycle-protected (round 13) — an engulf
+                              // split would destroy the segment the arch/lift depend on
                 if (Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z) <= GroupSlabMaxHorizontal)
                     continue; // thin slab — cannot contain a room
                 if (InsideOwnRoomFraction(seg) < EngulfSampleFraction)

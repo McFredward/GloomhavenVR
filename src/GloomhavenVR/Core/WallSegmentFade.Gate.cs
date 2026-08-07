@@ -71,6 +71,10 @@ internal static partial class WallSegmentFade
         public Segment? GateLift;
         /// <summary>Last gate-lift contribution (edge logging only).</summary>
         public bool GateLiftActive;
+        /// <summary>Round-13 lift LINGER: the lift holds until this time even if the gate
+        /// segment died (Apparance prop churn) — bridges the rebirth window so the
+        /// embedding wall does not flap with the prop lifecycle.</summary>
+        public float GateLiftUntil;
     }
 
     private sealed partial class FadeDriver
@@ -110,6 +114,69 @@ internal static partial class WallSegmentFade
         private const float MinArchSeedHeightWU = 0.8f;
         /// <summary>Sliver-skipped door props already logged (once per scene).</summary>
         private readonly HashSet<string> _gateSliverLogged = new();
+
+        // ---- ROUND-13 LIFECYCLE PROOFING --------------------------------------------------
+        // ModBuild-71 log: the GATE COLUMN rect was re-logged every rescan and the heartbeat
+        // said 0 GATE columns — Apparance regen churn DESTROYS the UnityGameEditorDoorProp,
+        // the dead-anchor sweep removes the gate keyed on it, and until the next rescan
+        // re-seeds a FRESH segment there is (a) no arch protection (the arch sign/trims/fire
+        // particles mounted on Wall 1 and went out with it — 51 churn WARNs) and (b) a
+        // decision reset (EMA/dwell restart from zero every ≤2s, so the gate never reached
+        // ON and zero GATE-LIFT lines exist). Three defenses:
+        //   1. ARCH RECTS PERSIST INDEPENDENTLY of segment liveness (_archRects, pruned only
+        //      after ArchRectRetainSeconds unseen / scene load) — protection can never gap.
+        //   2. GATE MEMORY transplants Fade/State/log-sig onto the reborn segment (keyed by
+        //      the quantized door center), so the decision survives prop churn.
+        //   3. The GATE LIFT lingers GateLiftLingerSeconds past the gate's death, bridging
+        //      the no-prop window without unfading the embedding wall.
+
+        /// <summary>A persistent arch-protection rectangle (see above).</summary>
+        private struct ArchRect
+        {
+            public float MinX, MaxX, MinZ, MaxZ, TopY;
+            public float LastSeen;
+        }
+
+        private readonly List<ArchRect> _archRects = new();
+        private const float ArchRectRetainSeconds = 10f;
+
+        /// <summary>Reborn-gate state memory, keyed by the quantized door center.</summary>
+        private readonly Dictionary<(int, int), (float fade, bool state, float sig)>
+            _gateMemory = new();
+
+        /// <summary>How long the gate-lift holds after the gate segment vanished (prop
+        /// churn) — rescans re-seed within ~2s, so 4s bridges every observed gap.</summary>
+        private const float GateLiftLingerSeconds = 4f;
+
+        private static (int, int) GateMemoryKey(Vector3 center) =>
+            (Mathf.RoundToInt(center.x * 2f), Mathf.RoundToInt(center.z * 2f));
+
+        /// <summary>Upsert the persistent arch rect for a freshly-seeded gate and prune
+        /// stale entries (nothing seen for <see cref="ArchRectRetainSeconds"/>).</summary>
+        private void UpsertArchRect(Segment gate)
+        {
+            float now = Time.unscaledTime;
+            for (int i = _archRects.Count - 1; i >= 0; i--)
+            {
+                ArchRect a = _archRects[i];
+                bool same = Mathf.Abs(a.MinX - gate.ArchMinX) < 0.6f
+                    && Mathf.Abs(a.MinZ - gate.ArchMinZ) < 0.6f;
+                if (same)
+                {
+                    _archRects.RemoveAt(i);
+                }
+                else if (now - a.LastSeen > ArchRectRetainSeconds)
+                {
+                    _archRects.RemoveAt(i);
+                }
+            }
+            _archRects.Add(new ArchRect
+            {
+                MinX = gate.ArchMinX, MaxX = gate.ArchMaxX,
+                MinZ = gate.ArchMinZ, MaxZ = gate.ArchMaxZ,
+                TopY = gate.ArchTopY, LastSeen = now,
+            });
+        }
 
         /// <summary>
         /// Create/refresh one fadeable GATE COLUMN per live door prop (called from Rescan
@@ -208,6 +275,18 @@ internal static partial class WallSegmentFade
                 {
                     gate = new Segment { Anchor = dp, FromWallCache = false, IsGateColumn = true };
                     _segments.Add(dp, gate);
+                    // ROUND-13 GATE MEMORY: Apparance prop churn destroys the door prop and
+                    // with it this segment (dead-anchor sweep) — the reborn gate inherits
+                    // the previous incarnation's fade/decision/log state so the EMA-dwell
+                    // pipeline does NOT restart from zero every ≤2s (the round-13 log:
+                    // rect re-logged every rescan, gate never reached ON, zero GATE-LIFT).
+                    if (_gateMemory.TryGetValue(GateMemoryKey(seed.center),
+                            out (float fade, bool state, float sig) mem))
+                    {
+                        gate.Fade = mem.fade;
+                        gate.State = mem.state;
+                        gate.ArchLogSig = mem.sig;
+                    }
                 }
                 BeginRefresh(gate);
                 gate.IsGateColumn = true;
@@ -221,6 +300,9 @@ internal static partial class WallSegmentFade
                 gate.ArchMaxZ = seed.max.z + ArchMarginXZ;
                 gate.ArchTopY = seed.max.y + ArchHeadroomWU;
                 FinishRefresh(gate);
+                UpsertArchRect(gate); // persistent protection (round 13)
+                _gateMemory[GateMemoryKey(seed.center)] =
+                    (gate.Fade, gate.State, gate.ArchLogSig);
 
                 // Change-triggered rect log — the proof line the next hardware round reads.
                 float sig = gate.ArchMinX + 3f * gate.ArchMaxX + 7f * gate.ArchMinZ
@@ -247,10 +329,10 @@ internal static partial class WallSegmentFade
         /// <summary>Fraction of the piece's XZ footprint that lies inside the gate's arch
         /// rect (0..1) — the round-10 membership metric AND the number the reject census
         /// prints, so the next hardware log proves the rect is tight.</summary>
-        private static float ArchContainmentFraction(Segment gate, Bounds b)
+        private static float ArchContainmentFraction(in ArchRect a, Bounds b)
         {
-            float ox = Mathf.Min(b.max.x, gate.ArchMaxX) - Mathf.Max(b.min.x, gate.ArchMinX);
-            float oz = Mathf.Min(b.max.z, gate.ArchMaxZ) - Mathf.Max(b.min.z, gate.ArchMinZ);
+            float ox = Mathf.Min(b.max.x, a.MaxX) - Mathf.Max(b.min.x, a.MinX);
+            float oz = Mathf.Min(b.max.z, a.MaxZ) - Mathf.Max(b.min.z, a.MinZ);
             if (ox <= 0f || oz <= 0f)
                 return 0f;
             float area = Mathf.Max(b.size.x * b.size.z, 0.0001f);
@@ -263,25 +345,23 @@ internal static partial class WallSegmentFade
         /// (regardless of headroom — trims, door sign), OR — under the headroom — a piece
         /// whose XZ footprint is ≥<see cref="ArchContainmentMin"/> inside the rect or
         /// centered with ≤<see cref="ArchOverhangWU"/> wu overhang per side.</summary>
-        private static bool IsGateArchPiece(Segment gate, Bounds b, string name)
+        private static bool IsArchRectPiece(in ArchRect a, Bounds b, string name)
         {
-            if (!gate.IsGateColumn)
-                return false;
             Vector3 c = b.center;
-            bool centerIn = c.x >= gate.ArchMinX && c.x <= gate.ArchMaxX
-                && c.z >= gate.ArchMinZ && c.z <= gate.ArchMaxZ;
+            bool centerIn = c.x >= a.MinX && c.x <= a.MaxX
+                && c.z >= a.MinZ && c.z <= a.MaxZ;
             // Door-NAMED family (sign, trims): wider reach than the tight geometric rect.
             if (name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0
-                && c.x >= gate.ArchMinX - ArchNameExtraWU && c.x <= gate.ArchMaxX + ArchNameExtraWU
-                && c.z >= gate.ArchMinZ - ArchNameExtraWU && c.z <= gate.ArchMaxZ + ArchNameExtraWU)
+                && c.x >= a.MinX - ArchNameExtraWU && c.x <= a.MaxX + ArchNameExtraWU
+                && c.z >= a.MinZ - ArchNameExtraWU && c.z <= a.MaxZ + ArchNameExtraWU)
                 return true;
-            if (b.max.y > gate.ArchTopY)
+            if (b.max.y > a.TopY)
                 return false;
-            if (ArchContainmentFraction(gate, b) >= ArchContainmentMin)
+            if (ArchContainmentFraction(in a, b) >= ArchContainmentMin)
                 return true;
             return centerIn
-                && b.size.x <= (gate.ArchMaxX - gate.ArchMinX) + 2f * ArchOverhangWU
-                && b.size.z <= (gate.ArchMaxZ - gate.ArchMinZ) + 2f * ArchOverhangWU;
+                && b.size.x <= (a.MaxX - a.MinX) + 2f * ArchOverhangWU
+                && b.size.z <= (a.MaxZ - a.MinZ) + 2f * ArchOverhangWU;
         }
 
         /// <summary>
@@ -340,21 +420,25 @@ internal static partial class WallSegmentFade
             return dp != null && _segments.TryGetValue(dp, out Segment? g) && g.IsGateColumn;
         }
 
-        /// <summary>Piece inside ANY gate's arch — excluded from EVERY adopter (stack,
-        /// corner, fast reclaim, mounted): the arch is the doorway ruling's permanently
-        /// solid remainder, refined 2026-08-07 to exactly this rectangle.</summary>
+        /// <summary>Piece inside ANY arch — excluded from EVERY adopter (stack, corner,
+        /// fast reclaim, mounted): the arch is the doorway ruling's permanently solid
+        /// remainder. ROUND 13: reads the PERSISTENT rect list, not gate segments — the
+        /// protection holds even while Apparance prop churn kills and rebirths the gate
+        /// segment (the round-13 arch-torch blackout: with the gate dead at sweep time,
+        /// the sign/trims/fire particles mounted on Wall 1 and faded with it).</summary>
         private bool IsArchProtected(Bounds b, string name) =>
             IsArchProtected(b, name, out _);
 
-        /// <summary>Overload reporting the matched gate's containment fraction (census).</summary>
+        /// <summary>Overload reporting the matched arch's containment fraction (census).</summary>
         private bool IsArchProtected(Bounds b, string name, out float containment)
         {
             containment = 0f;
-            foreach (Segment s in _segments.Values)
+            for (int i = 0; i < _archRects.Count; i++)
             {
-                if (s.IsGateColumn && IsGateArchPiece(s, b, name))
+                ArchRect a = _archRects[i];
+                if (IsArchRectPiece(in a, b, name))
                 {
-                    containment = ArchContainmentFraction(s, b);
+                    containment = ArchContainmentFraction(in a, b);
                     return true;
                 }
             }
