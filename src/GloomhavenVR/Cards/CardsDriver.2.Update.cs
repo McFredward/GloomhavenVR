@@ -738,6 +738,7 @@ internal sealed partial class CardsDriver
         LogFanState(hand);
         LogActionSelectionState(_fakeActive ? null : hand); // second-character action deadlock diagnostic
         TickTakeDamageSelection(); // task #6: select the attacked character during a take-damage decision
+        TickTakeDamageOptions();   // 2026-08-07: the burn options must stay OFFERED for the whole decision
     }
 
     // ------------------------------------------------- per-frame tick attribution guard --
