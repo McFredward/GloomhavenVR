@@ -269,16 +269,17 @@ internal static partial class Loc
                 + "Rillenlinie überlappen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung "
                 + "neu gebaut). Erhöhen, wenn Rillen zwischen den Hexfeldern weiter leuchten; "
                 + "verringern, wenn Dunkel über die äußersten Hexkanten hinausragt. Begrenzt auf 1..2.",
-            ["MixedReality/UnseenFillDrop"] =
+            ["MixedReality/UnseenWaferDrop"] =
                 "Wie weit (Welteinheiten) die flache Fugen-RÜCKPLATTE jedes 'Unseen'-Stücks in MR "
                 + "unter dessen OBERKANTE sitzt. Die Rückplatte ist eine plattgedrückte, leicht "
                 + "verbreiterte dunkle Kopie des Stücks, die die Fugen ZWISCHEN benachbarten "
                 + "Hexfeldern direkt unter deren Oberkante ausfüllt — der Blick in eine Fuge trifft "
                 + "auf Dunkel statt auf das durchscheinende Zimmer, während die animierte Kante "
-                + "darüber weiterspielt. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung "
-                + "neu gebaut). Erhöhen, wenn die Rückplatte mit den Hex-Oberseiten flimmert; Richtung "
-                + "0.01 senken, wenn bei flachen Winkeln weiter grüne Fugen zu sehen sind. Begrenzt "
-                + "auf 0..2.",
+                + "darüber weiterspielt. (Nachfolger des ausgemusterten Schlüssels UnseenFillDrop, "
+                + "dessen gespeicherter Tiefen-Füllwert nicht mehr zu dieser Bedeutung passte.) "
+                + "Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu gebaut). Erhöhen, "
+                + "wenn die Rückplatte mit den Hex-Oberseiten flimmert; Richtung 0.01 senken, wenn "
+                + "bei flachen Winkeln weiter grüne Fugen zu sehen sind. Begrenzt auf 0..2.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
