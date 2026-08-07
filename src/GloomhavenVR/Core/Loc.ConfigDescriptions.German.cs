@@ -302,6 +302,33 @@ internal static partial class Loc
                 + "Saum des Außenrands noch leuchtet. Wird auf mindestens UnseenWaferDrop + 0.005 "
                 + "erzwungen. Wirkt bei aktivem MR, live (Rückplatten werden bei Änderung neu "
                 + "gebaut). Begrenzt auf 0.005..0.5.",
+            ["MixedReality/UnseenRegionMembership"] =
+                "TEIL VON MIXED REALITY, keine Wahl daneben (wie HideSkyMeshes; nicht im VR-Menü). "
+                + "Gibt auch jedem Teil eine dunkle Rückplatte, das einfach IM Fog-of-War-Gebiet "
+                + "STEHT — unterhalb der Oberkante der unentdeckten Kacheln — selbst wenn sein "
+                + "Material für den Mod nicht durchscheinend aussieht. Die Kacheln des unentdeckten "
+                + "Gebiets bestehen aus mehreren Meshes pro Hexfeld, und das höchste davon (der "
+                + "Block, der die äußere KANTE des Gebiets bildet) verrät nichts, was der Mod "
+                + "erkennen könnte: kein 'Unseen' im Namen, keine sichtbare Transparenz-Mischung, "
+                + "keine Transparenz-Renderreihenfolge. Genau dessen senkrechte Flächen ließen "
+                + "weiterhin das Zimmer durchscheinen. Statt aus Materialien zu raten, fragt diese "
+                + "Option, WO ein Teil steht. Figuren werden nie angefasst, nichts was AUF den "
+                + "Kacheln steht wird angefasst, und alles, was deutlich größer als ein Hexfeld "
+                + "ist, wird abgelehnt. Nur AUS, wenn ein Durchlauf zeigt, dass gewollte Geometrie "
+                + "verdunkelt wird — das Log nennt alles, was hinterlegt wurde.",
+            ["MixedReality/UnseenBackingDebugColors"] =
+                "DIAGNOSE, standardmäßig aus — nur einschalten, wenn nach einem Screenshot gefragt "
+                + "wird. In MR bekommt jedes Fog-of-War-Stück drei vom Mod gebaute dunkle "
+                + "Rückplatten (eine Kopie direkt hinter seinen Flächen, eine flache Scheibe knapp "
+                + "unter seiner Oberkante und ein Prisma hinter seinen äußeren Seitenflächen). Mit "
+                + "dieser Option AN werden sie statt dunkel in flachen Signalfarben gezeichnet — "
+                + "Kopie BLAU, Scheibe MAGENTA, Seitenprisma ROT — bei sonst völlig unveränderter "
+                + "Form, Position und Zeichenreihenfolge. Ein Foto zeigt dann, welche der "
+                + "Mod-Flächen tatsächlich bei dir ankommen und wo genau sie sitzen — das Einzige, "
+                + "was eine dunkle Rückplatte niemals zeigen kann. Währenddessen die GRÜNE "
+                + "Key-Farbe benutzen, damit keine Signalfarbe weggekeyt wird. Wirkt bei aktivem "
+                + "MR, live (Rückplatten werden bei Änderung neu gebaut); beim Ausschalten kehrt "
+                + "sofort der normale dunkle Look zurück.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "

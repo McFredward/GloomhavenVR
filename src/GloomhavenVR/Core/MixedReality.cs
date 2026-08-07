@@ -364,16 +364,7 @@ internal static partial class MixedReality
     /// this is only the seal that makes the prism watertight.</summary>
     private const float RimBottomDrop = 0.02f;
 
-    /// <summary>Default for '[MixedReality] UnseenBackingDebugColors'. LOCAL FALLBACK: this branch
-    /// does not own Defaults/Loc — the constant + descriptions are reported for merge; swap this for
-    /// <c>Defaults.UnseenBackingDebugColors</c> then. OFF: it is a diagnostic, and it deliberately
-    /// makes the fog-of-war region look wrong.</summary>
-    private const bool UnseenBackingDebugColorsDefault = false;
 
-    /// <summary>Default for '[MixedReality] UnseenRegionMembership'. LOCAL FALLBACK, as above. ON:
-    /// it is the round-16 fix for the outer rim, and it is the route that does not depend on the
-    /// game advertising its fog-of-war geometry through a material.</summary>
-    private const bool UnseenRegionMembershipDefault = true;
 
     /// <summary>The three debug tints (round 16). Unmistakable and mutually unambiguous, and none of
     /// them is a chroma-key preset EXACTLY (the Magenta/Blue presets exist): a debug round must run
@@ -573,7 +564,7 @@ internal static partial class MixedReality
             "outer edge still glows. Forced to at least UnseenWaferDrop + 0.005. Applies while MR " +
             "is on, live (backings rebuild on change). Clamped to 0.005..0.5.");
         UnseenRegionMembership = _file.Bind("MixedReality", "UnseenRegionMembership",
-            UnseenRegionMembershipDefault,
+            Defaults.UnseenRegionMembership,
             "PART OF MIXED REALITY, not a choice beside it (like HideSkyMeshes; not offered in the " +
             "VR menu). Also give a dark backing to every piece that merely STANDS INSIDE the " +
             "fog-of-war region — below the unseen tiles' own top plane — even when its material " +
@@ -586,7 +577,7 @@ internal static partial class MixedReality
             "tiles is touched, and anything much larger than a single hex is refused. Turn OFF only " +
             "if a run shows it darkening wanted geometry — the log names everything it backed.");
         UnseenBackingDebugColors = _file.Bind("MixedReality", "UnseenBackingDebugColors",
-            UnseenBackingDebugColorsDefault,
+            Defaults.UnseenBackingDebugColors,
             "DIAGNOSTIC, default off — turn this on only when asked for a screenshot. In MR every " +
             "fog-of-war piece gets three mod-built dark backings (a copy right behind its surfaces, " +
             "a flat wafer just under its top plane, and a prism behind its outer side faces). With " +
