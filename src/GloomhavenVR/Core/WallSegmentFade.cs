@@ -793,7 +793,12 @@ internal static partial class WallSegmentFade
                 bool remoteFade = seg.DoorRoot == null
                     && RemoteWantsFade(seg, now, out peerFadeId);
                 LogRemoteFadeEdge(seg, remoteFade, peerFadeId);
-                float target = (seg.State || remoteFade) ? 1f : 0f;
+                // GATE LIFT (round 12): the embedding wall fades with its gate column's
+                // decision — same max-composition as the peer sync, native delivery.
+                bool gateLift = seg.GateLift != null && seg.GateLift.State
+                    && seg.DoorRoot == null;
+                LogGateLiftEdge(seg, gateLift);
+                float target = (seg.State || remoteFade || gateLift) ? 1f : 0f;
                 seg.Fade += (target - seg.Fade) * fadeStep;
                 if (Mathf.Abs(target - seg.Fade) < 0.005f)
                     seg.Fade = target;
@@ -863,6 +868,46 @@ internal static partial class WallSegmentFade
                     if (s.IsGateColumn)
                         gates++;
                 }
+                // ROUND-12 FAIL-SAFE FORENSICS (zero ADJACENT RE-ANCHOR lines at reach 4.0
+                // — is the reach too short, or do these walls have no bounds at all?): name
+                // each fail-safe wall with its nearest-anchored-room XZ gap (or NO-BOUNDS).
+                var fsSb = new System.Text.StringBuilder();
+                int fsListed = 0;
+                foreach (Segment s in _segments.Values)
+                {
+                    if (RoomDecisionValid(s.RoomIndex) || s.DoorRoot != null)
+                        continue;
+                    if (fsListed++ >= 10) { fsSb.Append(", …"); break; }
+                    if (fsSb.Length > 0)
+                        fsSb.Append(", ");
+                    string sn = s.Anchor != null ? s.Anchor.name : "<dead>";
+                    if (!s.HasBounds)
+                    {
+                        fsSb.Append('\'').Append(sn).Append("' NO-BOUNDS");
+                        continue;
+                    }
+                    float bestSq = float.PositiveInfinity;
+                    for (int ri = 0; ri < _roomBounds.Count; ri++)
+                    {
+                        if (!RoomDecisionValid(ri))
+                            continue;
+                        Bounds room = _roomBounds[ri];
+                        float gx = Mathf.Max(0f, Mathf.Max(room.min.x - s.Bounds.max.x,
+                            s.Bounds.min.x - room.max.x));
+                        float gz = Mathf.Max(0f, Mathf.Max(room.min.z - s.Bounds.max.z,
+                            s.Bounds.min.z - room.max.z));
+                        float sq = gx * gx + gz * gz;
+                        if (sq < bestSq)
+                            bestSq = sq;
+                    }
+                    fsSb.Append('\'').Append(sn).Append("' gap ")
+                        .Append(float.IsInfinity(bestSq) ? "n/a" : Mathf.Sqrt(bestSq).ToString("F1"));
+                }
+                if (fsListed > 0)
+                    VRLog.Info(Name, $"FAIL-SAFE GAPS: {fsSb} (re-anchor reach "
+                        + $"{AdjacentReanchorMaxGapWU:0.0} wu — walls beyond it or without "
+                        + "bounds stay solid; the round-12 datum for the next lever).");
+
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
                       + $"renderer — their shaders: {string.Join(", ", _unfadeableWallShaders)} "
@@ -1764,6 +1809,8 @@ internal static partial class WallSegmentFade
             // MP sync (record 17): refresh every segment's cross-machine wire key — needs the
             // final table and the room labels (part of the key derivation).
             ComputeWireKeys();
+            // Gate-lift links (round 12): bind embedding walls to their gate columns.
+            LinkGateLifts();
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
@@ -2050,17 +2097,27 @@ internal static partial class WallSegmentFade
                 Transform? doorRoot = FindDoorwayRoot(r);
                 if (doorRoot != null)
                 {
-                    // ROUND-11 TORCH FIX (ModBuild-69 census: 'CR_St_WallTorch_Fire …
-                    // already the wall renderer of ThickDoor (that wall's fade 0.00)'):
-                    // the permanently-solid DOORWAY segment holds ONLY the arch. A
-                    // door-hugging fade renderer OUTSIDE the arch rect — the torch fire on
-                    // the embedding/inner gate face — must not be chained to it: it is left
-                    // UNCLAIMED here, and the mounted sweep's new sconce-scale exception
-                    // adopts it to ride its nearest fading wall (gate column included).
-                    // Applies only when the door has a live gate column (an arch rect
-                    // exists); sliver-skipped doors keep the old full-radius grouping.
+                    // ROUND-11/12 SPLIT: the permanently-solid DOORWAY segment holds ONLY
+                    // the arch. A door-hugging fade renderer OUTSIDE the arch — the
+                    // flanking PILLARS ("Säulen die nicht zum Rechteck gehören") and the
+                    // torch fires on them — joins the GATE COLUMN's own renderer set
+                    // instead and fades NATIVELY with the gate face (round 12: the
+                    // round-11 "leave unclaimed" left them solid forever). Sliver-skipped
+                    // doors keep the old full-radius grouping.
                     if (HasGateColumnFor(doorRoot) && !IsArchProtected(r.bounds, r.name))
+                    {
+                        UnityGameEditorDoorProp? gdp =
+                            doorRoot.GetComponent<UnityGameEditorDoorProp>();
+                        if (gdp != null && _segments.TryGetValue(gdp, out Segment? gseg)
+                            && gseg.IsGateColumn && CollectWallFadeInfo(r, gseg))
+                        {
+                            gseg.Renderers.Add(r);
+                            Bounds gb = gseg.Bounds;
+                            gb.Encapsulate(r.bounds);
+                            gseg.Bounds = gb;
+                        }
                         continue;
+                    }
                     anchor = doorRoot;
                 }
                 // A group that proved too fat to be a slab is tracked per renderer instead
@@ -2101,8 +2158,16 @@ internal static partial class WallSegmentFade
             foreach (KeyValuePair<Component, Segment> kv in _segments)
             {
                 Segment seg = kv.Value;
-                if (seg.FromWallCache || seg.IsGateColumn)
-                    continue; // gate columns legitimately own zero renderers — kept alive
+                if (seg.IsGateColumn)
+                {
+                    // Gate columns may legitimately own zero renderers (kept alive), but
+                    // the ones that adopted pillar/torch renderers this sweep (round 12)
+                    // still need the leaver cleanup + epsilon derivation.
+                    FinishRefresh(seg);
+                    continue;
+                }
+                if (seg.FromWallCache)
+                    continue;
                 FinishRefresh(seg);
                 if (seg.Renderers.Count == 0)
                 {

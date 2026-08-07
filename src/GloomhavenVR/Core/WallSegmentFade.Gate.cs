@@ -60,15 +60,32 @@ internal static partial class WallSegmentFade
         /// <summary>Signature of the last LOGGED arch rect (change-triggered log — the
         /// next hardware log must prove the rect is tight).</summary>
         public float ArchLogSig = float.NaN;
+        /// <summary>Gate columns: the door prop's seed center (the gate-lift link test).</summary>
+        public Vector3 GateSeedCenter;
+        /// <summary>ROUND-12 GATE LIFT: the gate column whose face this wall EMBEDS (its XZ
+        /// footprint contains the door). The keep's gatehouse wall ('Wall 3') owns the
+        /// embedding masonry as its own toggle-native renderers — when the gate column's
+        /// decision turns ON, this wall's fade target lifts with it, so the masonry
+        /// dissolves NATIVELY (full animation) instead of being fought over by adopters
+        /// (the round-12 ownership-churn flicker). Null for most walls.</summary>
+        public Segment? GateLift;
+        /// <summary>Last gate-lift contribution (edge logging only).</summary>
+        public bool GateLiftActive;
     }
 
     private sealed partial class FadeDriver
     {
-        /// <summary>XZ expansion of the door AABB that defines the arch rect (wu). Data:
-        /// frame trims at gap 0.01–0.08, the door sign at 0.81 — 1.0 covers the authored
-        /// rectangular arch without reaching the embedding courses (their tops break the
-        /// headroom rule anyway).</summary>
-        private const float ArchMarginXZ = 1.0f;
+        /// <summary>XZ expansion of the door AABB that defines the GEOMETRIC arch rect (wu).
+        /// ROUND 12 tightened 1.0 → 0.25 (user: "zwei Säulen die nicht zum Rechteck
+        /// gehören" — the flanking pillars sat inside the old 1.0-wu inflation and were
+        /// wrongly arch-protected; the frame trims hug the door at gap 0.01–0.08, so 0.25
+        /// still holds the authored rectangle). Door-NAMED assets (sign, trims) keep a
+        /// wider reach via <see cref="ArchNameExtraWU"/>.</summary>
+        private const float ArchMarginXZ = 0.25f;
+        /// <summary>Extra XZ reach (wu) for the door-NAMED membership rule only — the
+        /// authored door family (CV_DoorSign at gap 0.81) belongs to the arch even beyond
+        /// the tight geometric rect.</summary>
+        private const float ArchNameExtraWU = 0.75f;
         /// <summary>Arch height above the door AABB top (wu). Data: door top 2.20, lintel
         /// trim top 3.2, door sign top 3.4 → 1.3 covers both; the embedding courses top
         /// 5.0–6.0 stay far outside.</summary>
@@ -196,6 +213,7 @@ internal static partial class WallSegmentFade
                 gate.IsGateColumn = true;
                 gate.Bounds = seed;
                 gate.HasBounds = true;
+                gate.GateSeedCenter = seed.center;
                 gate.ShaderNames = "gate column (doorway-embedding wall — user ruling 2026-08-07)";
                 gate.ArchMinX = seed.min.x - ArchMarginXZ;
                 gate.ArchMaxX = seed.max.x + ArchMarginXZ;
@@ -252,7 +270,10 @@ internal static partial class WallSegmentFade
             Vector3 c = b.center;
             bool centerIn = c.x >= gate.ArchMinX && c.x <= gate.ArchMaxX
                 && c.z >= gate.ArchMinZ && c.z <= gate.ArchMaxZ;
-            if (centerIn && name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0)
+            // Door-NAMED family (sign, trims): wider reach than the tight geometric rect.
+            if (name.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0
+                && c.x >= gate.ArchMinX - ArchNameExtraWU && c.x <= gate.ArchMaxX + ArchNameExtraWU
+                && c.z >= gate.ArchMinZ - ArchNameExtraWU && c.z <= gate.ArchMaxZ + ArchNameExtraWU)
                 return true;
             if (b.max.y > gate.ArchTopY)
                 return false;
@@ -261,6 +282,53 @@ internal static partial class WallSegmentFade
             return centerIn
                 && b.size.x <= (gate.ArchMaxX - gate.ArchMinX) + 2f * ArchOverhangWU
                 && b.size.z <= (gate.ArchMaxZ - gate.ArchMinZ) + 2f * ArchOverhangWU;
+        }
+
+        /// <summary>
+        /// ROUND-12 GATE-LIFT LINK (called at the end of Rescan, bounds final): bind every
+        /// wall whose XZ footprint contains a gate's door center (expanded 0.5 wu slack) to
+        /// that gate — it IS the embedding wall (the gatehouse 'Wall 3' whose own renderers
+        /// are the masonry the round-12 churn fought over). Its fade target then lifts with
+        /// the gate column's decision and the masonry dissolves natively. Doorway segments
+        /// and gates themselves never link.
+        /// </summary>
+        private void LinkGateLifts()
+        {
+            foreach (Segment seg in _segments.Values)
+            {
+                seg.GateLift = null;
+                if (seg.IsGateColumn || seg.DoorRoot != null || !seg.HasBounds)
+                    continue;
+                foreach (Segment gate in _segments.Values)
+                {
+                    if (!gate.IsGateColumn || !gate.HasBounds)
+                        continue;
+                    Vector3 c = gate.GateSeedCenter;
+                    if (c.x >= seg.Bounds.min.x - 0.5f && c.x <= seg.Bounds.max.x + 0.5f
+                        && c.z >= seg.Bounds.min.z - 0.5f && c.z <= seg.Bounds.max.z + 0.5f)
+                    {
+                        seg.GateLift = gate;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>Edge log for gate-lift fades (a lifted wall never flips its own State,
+        /// so LogStateFlip stays silent — this line is its counterpart).</summary>
+        private void LogGateLiftEdge(Segment seg, bool lifted)
+        {
+            if (lifted == seg.GateLiftActive)
+                return;
+            seg.GateLiftActive = lifted;
+            if (seg.State)
+                return; // locally faded anyway
+            string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+            string gate = seg.GateLift?.Anchor != null ? seg.GateLift.Anchor.name : "?";
+            VRLog.Info(Name, lifted
+                ? $"GATE-LIFT fade ON '{wall}' (embedding wall of '{gate}' — the masonry "
+                  + "dissolves natively with the gate face, round 12)"
+                : $"GATE-LIFT fade OFF '{wall}' (gate face solid again).");
         }
 
         /// <summary>Does this door root have a LIVE gate column (an arch rect exists)?

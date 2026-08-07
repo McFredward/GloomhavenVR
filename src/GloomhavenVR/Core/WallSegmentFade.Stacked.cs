@@ -384,6 +384,9 @@ internal static partial class WallSegmentFade
         private int _fastReclaimTotal;
         private float _nextFastReclaimLog;
         private readonly List<Segment> _fastSegScratch = new();
+        /// <summary>Round-12: per-sweep snapshot of every segment-listed renderer — the fast
+        /// path must refuse them exactly like the regular sweep (the churn fix).</summary>
+        private readonly HashSet<Renderer> _fastOwnedScratch = new();
 
         /// <summary>
         /// FAST RECLAIM (round 5): while at least one stack-carrying wall is HELD FADED,
@@ -412,6 +415,29 @@ internal static partial class WallSegmentFade
             if (_fastSegScratch.Count == 0)
                 return;
 
+            // ROUND-12 CHURN FIX (the tripwire's 20 WARNs: gate embedding pieces cycled
+            // 'stacked-fast → released → stacked-fast …'): those pieces are ANOTHER WALL's
+            // own renderers ('polySurface2 … already the wall renderer of Wall 3' — the
+            // gatehouse wall, toggle-native). The regular sweep correctly refuses them via
+            // IsSegmentListedRenderer, but this fast path lacked that check, claimed them,
+            // and the next rescan's sticky re-add rejected + released them — the flicker.
+            // Snapshot every segment-listed renderer ONCE per sweep (set lookup per
+            // candidate) and refuse them here exactly like the regular sweep.
+            _fastOwnedScratch.Clear();
+            foreach (Segment seg in _segments.Values)
+            {
+                foreach (MeshRenderer sr in seg.Renderers)
+                    if (sr != null) _fastOwnedScratch.Add(sr);
+                foreach (MeshRenderer sf in seg.Foliage)
+                    if (sf != null) _fastOwnedScratch.Add(sf);
+                foreach (MeshRenderer ss in seg.Siblings)
+                    if (ss != null) _fastOwnedScratch.Add(ss);
+                foreach (MountedProp bp in seg.Body)
+                    if (bp.Renderer != null) _fastOwnedScratch.Add(bp.Renderer);
+                foreach (MountedProp mp in seg.Mounted)
+                    if (mp.Renderer != null) _fastOwnedScratch.Add(mp.Renderer);
+            }
+
             MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
             int claimed = 0;
             foreach (MeshRenderer r in all)
@@ -420,6 +446,8 @@ internal static partial class WallSegmentFade
                     continue;
                 if (_mountedTouched.ContainsKey(r))
                     continue; // already ours (hidden or ramped)
+                if (_fastOwnedScratch.Contains(r))
+                    continue; // another segment's renderer/attachment — never fast-claimed
                 Bounds b = r.bounds;
                 if (IsArchProtected(b, r.name))
                     continue; // the doorway's arch stays solid (user ruling 2026-08-07)
