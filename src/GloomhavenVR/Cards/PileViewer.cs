@@ -67,6 +67,24 @@ internal sealed class PileViewer
     /// discard/burnt ability browser (board button, card grab, rest, action play, click-away).</summary>
     internal bool ItemsBrowseOpen => _itemsBrowse.IsOpen;
 
+    /// <summary>
+    /// NEVER-STUCK GUARANTEE (user report 2026-08-07: "es darf NIE einen Zustand geben, in dem
+    /// sich der Fächer nicht mehr schliessen lässt"). A stack refuses its poke/laser toggle while
+    /// it holds 0 cards (<see cref="PileStack.OnPoke"/>) — which, on its own, means a fan that is
+    /// ALREADY open when its pile empties (last item consumed, last card recovered) has no toggle
+    /// left to close it. This tells the stack "your own browse is up right now", so the CLOSING
+    /// half of the toggle always survives the empty gate. Discard/burnt resolve through the
+    /// browser's static <see cref="PileBrowser.Current"/> for the same reason
+    /// <see cref="CurrentCounts"/> is static: the browser instance is a private of CardsDriver.
+    /// </summary>
+    internal bool BrowseOpenFor(PileKind kind)
+    {
+        if (kind == PileKind.Items)
+            return _itemsBrowse.IsOpen;
+        PileBrowser? browser = PileBrowser.Current;
+        return browser != null && browser.IsOpen && browser.Kind == kind;
+    }
+
     /// <summary>Laser pick over the OPEN item fan (geometric, sticky — the item twin of
     /// <see cref="PileBrowser.TryRaycast"/>; the full every-second-card root cause lives on
     /// <see cref="ItemsPile.TryLaserRaycast"/>). Forwarded so CardsDriver's laser chain never
@@ -90,7 +108,7 @@ internal sealed class PileViewer
     /// <summary>Requirement 4: dismiss the item fan on a foreign interaction (the item counterpart of
     /// <c>CardsDriver.CloseBrowser</c>). The item→ability mutual-exclusion is separate (<see cref="ItemsOpening"/>);
     /// this is the general click-away close for the item fan itself.</summary>
-    internal void CloseItemsBrowse() => _itemsBrowse.Close();
+    internal void CloseItemsBrowse(string reason = "foreign interaction") => _itemsBrowse.Close(reason);
 
     /// <summary>Item-surrender pick (event consume/refresh mali): per-frame pump, driven by the
     /// CardsDriver INDEPENDENTLY of the stack visibility gate in <see cref="TickStatus"/> —
@@ -244,7 +262,7 @@ internal sealed class PileViewer
         if (_items != null && _items.gameObject.activeSelf != visible)
             _items.gameObject.SetActive(visible);
         if (!visible)
-            _itemsBrowse.Close(); // hidden (piles off / no hand) — never leave an item browse floating
+            _itemsBrowse.Close("pile stacks hidden (piles off / no hand)"); // never leave an item browse floating
     }
 
     internal void Destroy()
@@ -386,6 +404,14 @@ internal sealed class PileViewer
     {
         if (kind == PileKind.Items)
         {
+            // CLOSE first, unconditionally: an open fan must be closable even if the presented
+            // hand went away under it (_hand null) — that used to swallow the toggle and leave a
+            // fan nothing could dismiss (never-stuck guarantee).
+            if (_itemsBrowse.IsOpen)
+            {
+                _itemsBrowse.Close($"user toggle (items stack poke/laser, {hand.Side})");
+                return;
+            }
             if (_hand != null)
             {
                 ItemsOpening?.Invoke(); // close the ability browser first — one pile fan at a time
@@ -393,7 +419,7 @@ internal sealed class PileViewer
             }
             return;
         }
-        _itemsBrowse.Close();
+        _itemsBrowse.Close($"discard/burnt stack poked ({kind}) — one pile fan at a time");
         PokeToggled?.Invoke(kind, hand);
     }
 
@@ -761,7 +787,9 @@ internal sealed class PileViewer
 
         public void OnPoke(VRHand hand)
         {
-            if (!_hasCards)
+            // Empty stacks refuse to OPEN — but never refuse to CLOSE their own open browse
+            // (never-stuck guarantee, see PileViewer.BrowseOpenFor).
+            if (!_hasCards && !_owner.BrowseOpenFor(_kind))
                 return;
             if (!_pokeArmed || Time.unscaledTime < _nextToggleTime)
                 return; // retract/flicker edge — one toggle per physical poke
@@ -781,7 +809,7 @@ internal sealed class PileViewer
         /// </summary>
         internal void LaserToggle(VRHand hand)
         {
-            if (!_hasCards || Time.unscaledTime < _nextToggleTime)
+            if ((!_hasCards && !_owner.BrowseOpenFor(_kind)) || Time.unscaledTime < _nextToggleTime)
                 return;
             _nextToggleTime = Time.unscaledTime + PokeToggleCooldownSeconds;
             hand.SendHaptic(HapticPreset.ClickPulse);

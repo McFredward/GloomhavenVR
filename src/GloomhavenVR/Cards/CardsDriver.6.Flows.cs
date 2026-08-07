@@ -207,7 +207,7 @@ internal sealed partial class CardsDriver
     /// </summary>
     // Change-gate for the item-surrender/forfeit banner (see UpdateItemDemandStatus).
     private (CPlayerActor? actor, int wanted, int selected, bool refreshing, bool loseReward,
-             bool canSelect, string lang, int trayId)? _itemStatusKey;
+             bool canSelect, bool fanOpen, string lang, int trayId)? _itemStatusKey;
 
     /// <summary>
     /// Item-surrender pick (event consume/refresh mali) AND the goal-chest forfeit (flow 1):
@@ -258,7 +258,11 @@ internal sealed partial class CardsDriver
 
         int wanted = CardsGameApi.ItemPickWanted(picker);
         int selected = CardsGameApi.ItemPickSelectedCount(picker);
-        var key = (actor, wanted, selected, refreshing, loseReward, canSelect,
+        // The fan state is part of the key: the banner carries the "open the items stack" hint
+        // only while the fan is closed (2026-08-07 — the mod no longer opens it for the player,
+        // so a MANDATORY demand must say out loud where the candidates are).
+        bool fanOpen = _piles.ItemsBrowseOpen;
+        var key = (actor, wanted, selected, refreshing, loseReward, canSelect, fanOpen,
                    Core.Loc.CurrentLanguage,
                    _tray.Root != null ? _tray.Root.GetInstanceID() : 0);
         if (_itemStatusKey.HasValue && _itemStatusKey.Value.Equals(key))
@@ -291,8 +295,34 @@ internal sealed partial class CardsDriver
                 line = $"{what} — {selected}/{wanted}";
             }
         }
+        // MANDATORY demand + closed fan = the player must be told where to get the candidates.
+        // The mod stopped auto-raising the item fan (see ItemsPile's class doc); this hint is what
+        // replaces it, and it disappears the moment the fan is up.
+        if (canSelect && !fanOpen)
+            line += " — " + ItemFanOpenHint();
         _tray.SetPickStatus(who.Length > 0 ? who + ": " + line : line, null, null);
         return true;
+    }
+
+    /// <summary>
+    /// "Open the items pile" hint for the MANDATORY item-demand banner. The mod no longer raises
+    /// the item fan for the player (see <see cref="ItemsPile"/>'s class doc — the auto-open was
+    /// what made the fan unclosable), so a blocking demand has to name the affordance.
+    ///
+    /// The string belongs in <c>Core.Loc</c>'s table under <c>item_fan_open_hint</c>; that file is
+    /// shared, so this build carries the wording INLINE and prefers the table entry the moment it
+    /// exists (<c>Loc.Mod</c> returns the id itself for an unknown key — that is the probe here).
+    /// Delete this fallback once the key is in the table.
+    /// </summary>
+    private static string ItemFanOpenHint()
+    {
+        const string key = "item_fan_open_hint";
+        string localized = Core.Loc.Mod(key);
+        if (!string.Equals(localized, key, System.StringComparison.Ordinal))
+            return localized;
+        return Core.Loc.CurrentLanguage == "German"
+            ? "tippe den Gegenstände-Stapel an, um den Fächer zu öffnen"
+            : "tap the items pile to open the fan";
     }
 
     // Change-gate for the floating-panel decision banner (flows 2-4: doom picker /
@@ -711,6 +741,130 @@ internal sealed partial class CardsDriver
         }
     }
 
+    // ------------------------------------------- take-damage decision surface (2026-08-07) --
+
+    // User report 2026-08-07: "beim ZWEITEN Schaden auf einen ANDEREN eigenen Charakter wurde die
+    // Option '1 Karte verbrennen' NICHT mehr angeboten — ich musste den Schaden nehmen." The game
+    // itself always OFFERS the burn choices: TakeDamagePanel.DisplayButtons only ever toggles all
+    // three widgets together, and UpdateCardRemovalOptionVisuals decides pressability from live
+    // model truth (TakeDamagePanel.cs:407-420, verified in decompiled/):
+    //
+    //     hasEnoughAvailableCards = actorToShowCardsFor.CharacterClass.HandAbilityCards.Count > 0
+    //     hasEnoughDiscardedCards = actorToShowCardsFor.CharacterClass.DiscardedAbilityCards.Count > 1
+    //     <toggle>.interactable    = hasEnough… && ThisPlayerHasTakeDamageControl
+    //
+    // The catch: that formula runs ONCE, inside Show(). Everything afterwards only WRITES the
+    // states, and two game paths latch them off for the rest of the decision:
+    //   * SelectItemState.Enter → TakeDamagePanel.SetDisableVisualState() saves the current states
+    //     and forces all three to interactable=false plus canvasGroupVisbility.alpha=0; Exit
+    //     restores the SAVED snapshot and then calls DisplayButtons(false). Re-entering that state
+    //     before the matching Exit therefore snapshots the ALREADY-DISABLED state, and the restore
+    //     writes "all dead" permanently — with no Show() left to recompute it. The mod drives item
+    //     slots during exactly this decision (the shield place), so it can and does walk that state.
+    //   * ResetAndHide races (the TAKE-DAMAGE SAFETY swallow at LogOutput.log:21510 is that same
+    //     teardown arriving out of order) leave the row docked but dead.
+    //
+    // FIX — re-assert, do not re-implement: while the panel window is genuinely OPEN, recompute the
+    // game's OWN formula every frame and write it back when it disagrees. Idempotent, no new
+    // policy, no game state written beyond the three presentation flags the game itself owns, and
+    // MP-safe by construction: ThisPlayerHasTakeDamageControl is a factor, so a proxy client can
+    // never be handed a pressable option it must not have. The dedicated log line is the anchor the
+    // next hardware test needs — it states, per change, exactly WHY each option is (un)pressable.
+    private (bool avail, bool disc, bool ctrl, int hand, int discard)? _loggedDamageOptions;
+
+    private void TickTakeDamageOptions()
+    {
+        TakeDamagePanel panel = Singleton<TakeDamagePanel>.IsInitialized
+            ? Singleton<TakeDamagePanel>.Instance
+            : null!;
+        if (panel == null || !panel.IsOpen || panel.actorBeingAttacked == null)
+        {
+            _loggedDamageOptions = null; // next decision logs its surface afresh
+            return;
+        }
+
+        CPlayerActor? cards = panel.actorToShowCardsFor;
+        CCharacterClass? klass = cards != null ? cards.CharacterClass : null;
+        int inHand = klass != null ? klass.HandAbilityCards.Count : 0;
+        int discarded = klass != null ? klass.DiscardedAbilityCards.Count : 0;
+        bool control = panel.ThisPlayerHasTakeDamageControl;
+        bool wantAvail = inHand > 0 && control;      // the game's own hasEnoughAvailableCards gate
+        bool wantDisc = discarded > 1 && control;    // the game's own hasEnoughDiscardedCards gate
+
+        bool repaired = false;
+        // The panel's whole widget block must be visible while the decision is open — a stale
+        // SetDisableVisualState (alpha 0) makes the docked row invisible even though it is docked.
+        if (panel.canvasGroupVisbility != null && panel.canvasGroupVisbility.alpha < 0.999f)
+        {
+            panel.canvasGroupVisbility.alpha = 1f;
+            repaired = true;
+        }
+        repaired |= ReassertDamageOption(panel.burnAvailableCardsToggle, panel.burnAvailableCardsCanvasGroup,
+            wantAvail, inHand > 0);
+        repaired |= ReassertDamageOption(panel.burnDiscardedCardsToggle, panel.burnDiscardedCardsCanvasGroup,
+            wantDisc, discarded > 1);
+        if (panel.takeDamageButton != null)
+        {
+            if (!panel.takeDamageButton.gameObject.activeSelf)
+            {
+                panel.takeDamageButton.gameObject.SetActive(true);
+                repaired = true;
+            }
+            if (panel.takeDamageButton.interactable != control)
+            {
+                panel.takeDamageButton.interactable = control;
+                repaired = true;
+            }
+        }
+
+        var state = (wantAvail, wantDisc, control, inHand, discarded);
+        if (!repaired && _loggedDamageOptions.HasValue && _loggedDamageOptions.Value.Equals(state))
+            return;
+        _loggedDamageOptions = state;
+        VRLog.Info("Cards", "DECISION SURFACE (take-damage): " +
+                            $"burn-1-available = {(wantAvail ? "OFFERED" : "greyed")} (hand={inHand}), " +
+                            $"burn-2-discarded = {(wantDisc ? "OFFERED" : "greyed")} (discard={discarded}), " +
+                            $"receive-damage = {(control ? "OFFERED" : "greyed")}, takeDamageControl={control}" +
+                            (repaired
+                                ? " — RE-ASSERTED: the game had latched one or more of these off mid-decision " +
+                                  "(SelectItemState save/restore or a ResetAndHide race); restored from the " +
+                                  "panel's own formula, no policy invented."
+                                : " — matches the game's own gate, nothing to repair."));
+    }
+
+    /// <summary>Write the game's own interactable/dim state back onto one take-damage option
+    /// widget. Returns true when something actually had to be repaired (drives the log line).
+    /// <paramref name="modelAllows"/> is the pure model half of the gate — it drives the DIM
+    /// (alpha 0.7 vs 1), exactly as <c>UpdateCardRemovalOptionVisuals</c> does, so a proxy client
+    /// still sees which options the character HAS while none of them are pressable.</summary>
+    private static bool ReassertDamageOption(UnityEngine.UI.Toggle? toggle, CanvasGroup? group,
+        bool wantInteractable, bool modelAllows)
+    {
+        if (toggle == null)
+            return false;
+        bool repaired = false;
+        if (!toggle.gameObject.activeSelf)
+        {
+            // DisplayButtons(false) from a stale DamageScenarioState/SelectItemState exit while the
+            // decision is still open — the option would be missing from the docked row entirely
+            // (this is the literal "die Option wurde nicht angeboten").
+            toggle.gameObject.SetActive(true);
+            repaired = true;
+        }
+        if (toggle.interactable != wantInteractable)
+        {
+            toggle.interactable = wantInteractable;
+            repaired = true;
+        }
+        float wantAlpha = modelAllows ? 1f : 0.7f;
+        if (group != null && !Mathf.Approximately(group.alpha, wantAlpha))
+        {
+            group.alpha = wantAlpha;
+            repaired = true;
+        }
+        return repaired;
+    }
+
     // ---------------------------------------------------------- long-rest turn pump --
 
     // Long-rest stuck fix (log build 0a2767928, line 2340 ff.): when the long-rester's
@@ -1075,17 +1229,24 @@ internal sealed partial class CardsDriver
     {
         if (_browser.IsOpen && _browser.Kind == kind)
         {
-            CloseBrowser("poked again");
+            CloseBrowser($"USER stack toggle ({hand.Side}) — poked/clicked the open {kind} stack again");
             return;
         }
-        OpenBrowser(kind);
+        OpenBrowser(kind, $"USER stack toggle ({hand.Side})");
     }
 
     // NOTE: OnPileGrabOpened/OnPileGrabReleased (pinch-to-browse-while-held) are gone — the
     // stack grab that raised them was removed for ALL pile kinds (PileStack.CanGrab, user
     // report 2026-08-06). The poke/laser toggle above is the only way a browse fan opens.
 
-    private void OpenBrowser(PileKind kind)
+    /// <summary>
+    /// Raise the discard/burnt browse arc. <paramref name="trigger"/> names WHO asked and is
+    /// logged verbatim — the never-auto-open audit trail (user report 2026-08-07). There is
+    /// exactly ONE caller, <see cref="OnPileTogglePoked"/>, i.e. a deliberate stack poke or
+    /// laser click: no game event, decision phase or flow may open a pile fan. If a future
+    /// hardware log ever shows this line with a non-USER trigger, that caller is the bug.
+    /// </summary>
+    private void OpenBrowser(PileKind kind, string trigger)
     {
         CardsHandUI? gameHand = CurrentHand();
         Transform? anchor = AnchorParent();
@@ -1104,7 +1265,7 @@ internal sealed partial class CardsDriver
         // Fresh fan → fresh borrow ledger (the -1 sentinel makes the first refresh always log).
         _browseBorrowed = -1;
         _browseLeftOnBoard = 0;
-        VRLog.Info("Cards", $"Pile browse OPEN: {kind} (toggled, mode={mode}).");
+        VRLog.Info("Cards", $"PILE BROWSE OPEN: {kind} (mode={mode}) — trigger: {trigger}.");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
     }
 
@@ -1127,10 +1288,7 @@ internal sealed partial class CardsDriver
         // play, initiative swap, click-away). Item-fan-OWN interactions (poke the item stack, grab an
         // item chip, drop into the use slot) never route through here, so the fan stays open for them.
         if (_piles.ItemsBrowseOpen)
-        {
-            VRLog.Info("Cards", $"Items pile CLOSE (foreign interaction: {source}).");
-            _piles.CloseItemsBrowse();
-        }
+            _piles.CloseItemsBrowse($"foreign interaction: {source}");
     }
 
     /// <summary>
@@ -1171,7 +1329,7 @@ internal sealed partial class CardsDriver
     {
         if (!_browser.IsOpen)
             return;
-        VRLog.Info("Cards", $"Pile browse CLOSE ({reason}).");
+        VRLog.Info("Cards", $"PILE BROWSE CLOSE: {_browser.Kind} — trigger: {reason}.");
         _browseHand = null;
         ClearBrowseHover();
         // Requirement 2 (collapse-into-stack for discard/burnt): before the browser closes + the

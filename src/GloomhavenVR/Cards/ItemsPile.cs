@@ -57,6 +57,15 @@ namespace GloomhavenVR.Cards;
 /// SPENT → rolled 90° ("tapped") in the fan + the card's spent FX; otherwise upright. A chip taken INTO the hand snaps upright + enlarged so it always
 /// reads. Layout mirrors <see cref="PileBrowser"/>; open/close is driven by
 /// <see cref="PileViewer"/>.
+///
+/// THE FAN ONLY OPENS BY USER ACTION (user report 2026-08-07: "der Gegenstands-Fächer ging beim
+/// Schaden von selbst auf und liess sich nie wieder schliessen"). <see cref="Open"/> has exactly
+/// ONE caller — <see cref="TogglePoke"/>, i.e. a deliberate poke/laser click on the items stack.
+/// The two decision-flow pumps (<see cref="TickDemandPick"/>, <see cref="TickTakeDamagePick"/>)
+/// used to raise the fan themselves AND re-raise it every 0.5 s while their flow was live, which
+/// is precisely why no close could stick. They now only SERVE an already-open fan and log a
+/// throttled cue naming the items stack. Any future "this flow needs the fan up" requirement must
+/// raise a CUE on the stack, never call Open.
 /// </summary>
 internal sealed class ItemsPile
 {
@@ -231,12 +240,25 @@ internal sealed class ItemsPile
     {
         if (IsOpen)
         {
-            Close();
+            Close($"user toggle (stack poke/laser, {vrHand.Side})");
             return;
         }
         Open(hand, vrHand);
     }
 
+    /// <summary>
+    /// USER-OPEN ONLY (user report 2026-08-07: "der Gegenstands-Fächer ging bei Schaden von selbst
+    /// auf und liess sich nicht mehr schliessen"). This method has exactly ONE caller —
+    /// <see cref="TogglePoke"/>, i.e. a deliberate poke/laser click on the items STACK. The two
+    /// flow pumps below (<see cref="TickDemandPick"/>, <see cref="TickTakeDamagePick"/>) used to
+    /// call it on their own AND re-call it every 0.5 s for as long as the flow was live, which is
+    /// exactly the reported defect: the fan opened by itself on damage and every close (click-away,
+    /// stack poke, foreign interaction) was undone within half a second, so it could never be
+    /// closed. Both auto-open blocks are GONE; the flows now only SERVE an already-open fan and
+    /// tell the player, through the board's item-use slot and the demand banner, that the items
+    /// stack is where the candidates live. Keep it that way: any new "the flow needs the fan"
+    /// requirement must raise a CUE, never call Open.
+    /// </summary>
     private void Open(CardsHandUI hand, VRHand? by = null)
     {
         // AN EMPTY FAN MUST NOT OPEN (user ruling 2026-08-03: "Da 0 Gegenstände da waren soll es
@@ -274,15 +296,22 @@ internal sealed class ItemsPile
         else
             PlaceAtHead(); // no board — head-relative fallback
         EmergeAll(); // req #5: fly the chips OUT of the pile stack (after _root is placed)
-        VRLog.Info("Cards", $"Items pile browse OPEN ({(boardRoot != null ? "board-anchored" : "head-relative fallback")}, " +
-                            $"{_chips.Count} item(s), opened by {(by != null ? by.Side.ToString() : "auto/flow")}). " +
-                            "Board-anchored is the ONLY mode — the whole-fan trigger grab was removed.");
+        VRLog.Info("Cards", $"ITEM FAN OPEN ({(boardRoot != null ? "board-anchored" : "head-relative fallback")}, " +
+                            $"{_chips.Count} item(s)) — trigger: {(by != null ? $"USER stack poke/laser ({by.Side})" : "USER (unattributed)")}. " +
+                            "There is NO automatic open path any more; if this line ever appears without a " +
+                            "user trigger, a flow called Open() again.");
     }
 
-    internal void Close()
+    /// <summary>
+    /// Close the fan. <paramref name="reason"/> is logged so every close (and, by absence, every
+    /// failure to close) is traceable in the hardware log — the item-fan counterpart of
+    /// <c>CardsDriver.CloseBrowser</c>'s reason string.
+    /// </summary>
+    internal void Close(string reason = "unspecified")
     {
         if (!IsOpen)
             return;
+        _lastCloseReason = reason;
         IsOpen = false;
         if (ReferenceEquals(Current, this))
             Current = null; // unpublish (mirror + net extras stop showing the fan this frame)
@@ -301,8 +330,13 @@ internal sealed class ItemsPile
         _signature = string.Empty;
         if (_root != null)
             _root.gameObject.SetActive(false);
-        VRLog.Info("Cards", "Items pile browse CLOSE.");
+        VRLog.Info("Cards", $"ITEM FAN CLOSE — trigger: {reason}. It stays closed until the player pokes/laser-clicks " +
+                            "the items stack again (no flow re-opens it).");
     }
+
+    /// <summary>Last close reason (diagnostics only — surfaced by the demand/take-damage cue lines
+    /// so a "why is the fan not up?" question is answerable from the log alone).</summary>
+    private string _lastCloseReason = "never closed";
 
     internal void Destroy()
     {
@@ -1447,7 +1481,7 @@ internal sealed class ItemsPile
     private bool _demandRefreshing;
     private bool _demandLoseReward;  // flow 1: the fan shows REWARD items, commit = ItemRewardLosePicker
     private ItemChip? _demandChip;   // chip clipped into the slot for the current selection
-    private float _demandNextOpenAt; // fan auto-(re)open throttle
+    private float _demandCueAt;      // throttle for the "fan is closed, open the stack" cue line
 
     /// <summary>
     /// The picker the ACTIVE demand mirrors — the refresh/consume picker normally, the
@@ -1517,7 +1551,7 @@ internal sealed class ItemsPile
             _demandActive = true;
             _demandRefreshing = !loseReward && refreshing;
             _demandLoseReward = loseReward;
-            _demandNextOpenAt = 0f;
+            _demandCueAt = 0f;
             _signature = string.Empty; // content source may have flipped (inventory ↔ reward items)
             if (loseReward)
                 VRLog.Info("Cards", "GOAL-CHEST FORFEIT pick OPEN: the game demands " +
@@ -1534,13 +1568,18 @@ internal sealed class ItemsPile
                                     "button commits through the game's own picker confirm.");
         }
 
-        // Fan auto-(re)open, board-anchored — a foreign interaction may have closed it; the
-        // demand needs the candidates in reach the whole time. Throttled so a genuinely
-        // failing Open cannot spam.
-        if (!IsOpen && Time.unscaledTime >= _demandNextOpenAt)
+        // NO AUTO-OPEN (user report 2026-08-07). The demand used to raise the fan itself and
+        // re-raise it every 0.5 s while it was live, which made the fan unclosable. The demand is
+        // now advertised, not forced: the use slot below is the ask, the demand banner names it,
+        // and the items STACK (whose usable-highlight embers are already running) is the one place
+        // that opens the fan. Throttled cue line so the next hardware log proves which state the
+        // fan was in during a demand.
+        if (!IsOpen && Time.unscaledTime >= _demandCueAt)
         {
-            _demandNextOpenAt = Time.unscaledTime + 0.5f;
-            Open(hand!);
+            _demandCueAt = Time.unscaledTime + 5f;
+            VRLog.Info("Cards", "ITEM DEMAND waiting with the item fan CLOSED — poke (or laser-click) the " +
+                                $"items stack to fan the candidates out (last close: {_lastCloseReason}). " +
+                                "The mod never opens the fan by itself.");
         }
 
         // The use slot IS the ask — visible for the whole demand (Tick's action-turn gate is
@@ -1736,18 +1775,27 @@ internal sealed class ItemsPile
     // the ShowItems wrapper skips the send during TakeDamageConfirmation). Zero wire changes.
     private bool _tdActive;
     private ItemChip? _tdChip;      // chip clipped into the slot = the toggled shield item
-    private float _tdNextOpenAt;    // fan auto-(re)open throttle (the demand-pick pattern)
+    private float _tdCueAt;         // throttle for the "fan is closed, open the stack" cue line
 
     /// <summary>
     /// TAKE-DAMAGE place pump, one call per frame from the driver (sibling of
     /// <see cref="TickDemandPick"/>): while an open, locally-decided take-damage decision
     /// presents OnAttacked items for the PRESENTED hand's actor
     /// (<see cref="CardsGameApi.TakeDamagePlaceContext"/> — the presented hand itself follows
-    /// the attacked actor via CardsGameApi.TakeDamageHand), raise the item fan board-anchored
-    /// (the plain shield symbols are FILTERED from the docked bar, so the fan IS the
-    /// affordance), gate the use slot on a held candidate, and service the clipped chip
-    /// (grab-back = toggle off through the panel's own slot seam). Ends the moment the panel
-    /// closes — the game's confirm already committed (or discarded) the selection.
+    /// the attacked actor via CardsGameApi.TakeDamageHand), gate the use slot on a held
+    /// candidate and service the clipped chip (grab-back = toggle off through the panel's own
+    /// slot seam). Ends the moment the panel closes — the game's confirm already committed (or
+    /// discarded) the selection.
+    ///
+    /// NO AUTO-OPEN (user report 2026-08-07: "als der Charakter Schaden bekam ging der
+    /// Gegenstands-Fächer von selbst auf und liess sich nie wieder schliessen"). This pump used
+    /// to <c>Open</c> the fan on the first frame of the decision and RE-open it every 0.5 s for
+    /// as long as the panel stayed up — so the stack poke, the click-away and every foreign-
+    /// interaction close were all undone within half a second, and the hardware log shows the
+    /// exact churn (CLOSE → CLOSE → "OPEN … opened by auto/flow" triplets, e.g. LogOutput.log
+    /// 15732-15734 / 15906-15908 / 20748-20750, plus ~15 cycles on the peer). Placing a shield
+    /// item is OPTIONAL, so nothing is lost by requiring the deliberate stack poke; the item
+    /// stack's usable-highlight embers already advertise that there is something to play.
     /// </summary>
     internal void TickTakeDamagePick(CardsHandUI? hand)
     {
@@ -1762,20 +1810,23 @@ internal sealed class ItemsPile
         if (!_tdActive)
         {
             _tdActive = true;
-            _tdNextOpenAt = 0f;
-            VRLog.Info("Cards", "TAKE-DAMAGE item place OPEN: the damage decision presents OnAttacked " +
+            _tdCueAt = 0f;
+            VRLog.Info("Cards", "TAKE-DAMAGE item place ARMED: the damage decision presents OnAttacked " +
                                 "shield/retaliate items (TakeDamagePanel → hidden UIUseItemsBar; plain " +
-                                "symbols are filtered from the docked bar) — item fan raised, place the " +
-                                "shield card into the board's item slot to toggle it; grab it back out to " +
-                                "untoggle; the panel's own TakeDamage confirm commits.");
+                                "symbols are filtered from the docked bar). The item fan is NOT raised " +
+                                $"automatically (fan currently {(IsOpen ? "OPEN" : "closed")}) — poke the items " +
+                                "stack, then place a shield card into the board's item slot to toggle it; grab " +
+                                "it back out to untoggle; the panel's own TakeDamage confirm commits.");
         }
 
-        // Fan auto-(re)open, board-anchored — the candidates must be in reach for the whole
-        // decision (throttled so a genuinely failing Open cannot spam).
-        if (!IsOpen && Time.unscaledTime >= _tdNextOpenAt)
+        // NO AUTO-OPEN — see the method doc. One throttled cue instead, so a hardware log still
+        // proves whether the fan was available during the decision.
+        if (!IsOpen && Time.unscaledTime >= _tdCueAt)
         {
-            _tdNextOpenAt = Time.unscaledTime + 0.5f;
-            Open(hand!);
+            _tdCueAt = Time.unscaledTime + 5f;
+            VRLog.Info("Cards", "TAKE-DAMAGE item place: shield candidates exist but the item fan is CLOSED " +
+                                $"(last close: {_lastCloseReason}) — poke the items stack to fan them out. " +
+                                "Placing a shield is optional; the mod never opens the fan by itself.");
         }
 
         // Use slot: visible while a candidate chip is HELD or one is clipped (the toggle).
