@@ -443,6 +443,27 @@ internal struct PresenceState
     /// in THEIR language (meaningful only when <see cref="HasSkipCapLabel"/>). Capped at
     /// <see cref="NetProtocol.CapLabelMaxBytes"/> UTF8 bytes.</summary>
     public string? SkipCapLabel;
+
+    /// <summary>
+    /// True when this packet names the character the sender is currently FOCUSED on (extension
+    /// record <see cref="NetProtocol.ExtIdCharFocus"/>). Written only while a focus is actually
+    /// known (a non-zero actor id); absence means "no focus known", which renders as no
+    /// focus/turn outline at all — exactly what peers predating the record show.
+    /// </summary>
+    public bool HasCharFocus;
+
+    /// <summary>Stable id (<c>NetFigures.StableActorId</c> — the ActorGuid hash, the only id space
+    /// that agrees across machines) of the character the sender is looking at. Meaningful only when
+    /// <see cref="HasCharFocus"/>; never 0 — 0 is "none" everywhere in this system.</summary>
+    public int CharFocusActorId;
+
+    /// <summary>True when the character currently AT TURN is under the SENDER's control. Only the
+    /// owning client can evaluate this (<c>CActor.IsUnderMyControl</c> is a local flag), which is
+    /// why it travels; receivers combine it with their own read of
+    /// <c>Choreographer.CurrentActor</c> to colour the sender's board outline green (focus == the
+    /// actor at turn) or red (focus is some other character). Meaningful only when
+    /// <see cref="HasCharFocus"/>.</summary>
+    public bool CharFocusOwnsTurn;
 }
 
 /// <summary>
@@ -517,7 +538,13 @@ internal struct PresenceState
 ///                        17 WALL FADES ([count][count × u32 wall key LE] — the sender's
 ///                        currently-faded wall set by cross-machine stable key, ≤24, sorted;
 ///                        only while non-empty; receiver-gated by [WallFade] SyncPeerFades,
-///                        see NetProtocol.ExtIdWallFades)
+///                        see NetProtocol.ExtIdWallFades),
+///                        22 CHARACTER FOCUS ([flags][int32 focusActorId LE] — the character the
+///                        sender is currently LOOKING at, by the stable ActorGuid hash; flags bit0
+///                        = the sender OWNS the character at turn (a local-only fact, hence on the
+///                        wire); written only while a focus is known; drives the green/red
+///                        control-board + Steam-avatar outlines, see NetProtocol.ExtIdCharFocus.
+///                        Ids 18..21 are reserved for records developed in parallel.)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -555,8 +582,8 @@ internal static class PresenceSerializer
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
     /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 4 (half hover+select: 2 + 2)
     /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5)
-    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap) = 817, still inside the 848
-    /// headroom. Local buffer bound only — nothing on the wire depends on it, and every
+    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap) + 7 (character focus: 2 + 5) = 824,
+    /// still inside the 848 headroom. Local buffer bound only — nothing on the wire depends on it, and every
     /// variable-length record still bounds-checks against the real buffer before writing.</summary>
     public const int MaxSize = 848;
 
@@ -598,6 +625,9 @@ internal static class PresenceSerializer
                           // tail either (idle packets stay byte-identical to the last build's).
                           || (state.HasWallFades && state.WallFadesCount > 0
                               && state.WallFadesKeys != null)
+                          // A zero actor id writes no focus record (0 = "none" everywhere), so it
+                          // must not open the tail either — same rule as the track-hover record.
+                          || (state.HasCharFocus && state.CharFocusActorId != 0)
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
@@ -953,6 +983,25 @@ internal static class PresenceSerializer
                             AvatarSerializer.WriteU32(buffer, ref i, state.WallFadesKeys[k]);
                         records++;
                     }
+                }
+                if (state.HasCharFocus && state.CharFocusActorId != 0
+                    && i + 2 + NetProtocol.CharFocusRecordBytes <= buffer.Length)
+                {
+                    // CHARACTER FOCUS (22): [flags][int32 focusActorId LE]. The character the
+                    // sender is LOOKING at, by the stable ActorGuid hash (the per-class CActor.ID
+                    // collides — see NetFigures); flags bit0 says the sender owns the actor at
+                    // turn, the one half of the pair no receiver can evaluate for itself. The
+                    // flags byte is masked to the defined bits; actor id 0 is "none" everywhere
+                    // and is never emitted, so a spectating / scenario-less client stays
+                    // byte-identical to a pre-record sender.
+                    byte cfFlags = 0;
+                    if (state.CharFocusOwnsTurn)
+                        cfFlags |= NetProtocol.CharFocusOwnsTurnBit;
+                    buffer[i++] = NetProtocol.ExtIdCharFocus;
+                    buffer[i++] = (byte)NetProtocol.CharFocusRecordBytes;
+                    buffer[i++] = (byte)(cfFlags & NetProtocol.CharFocusDefinedMask);
+                    AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusActorId);
+                    records++;
                 }
                 buffer[countAt] = records;
             }
@@ -1499,6 +1548,24 @@ internal static class PresenceSerializer
                             state.HasWallFades = true;
                             state.WallFadesCount = n;
                             state.WallFadesKeys = keys;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdCharFocus
+                             && len >= NetProtocol.CharFocusRecordBytes)
+                    {
+                        // CHARACTER FOCUS: [flags][int32 focusActorId LE]. Actor id 0 is "none"
+                        // everywhere in this system and can never name a character, so a zero id
+                        // degrades to "record absent" = no outline, exactly what pre-record peers
+                        // render. The flags byte is re-masked to the bits this build defines, so
+                        // a newer sender's extra bits can never light a meaning here.
+                        byte cfFlags = (byte)(buffer[i] & NetProtocol.CharFocusDefinedMask);
+                        int j = i + 1;
+                        int focusActor = AvatarSerializer.ReadI32(buffer, ref j);
+                        if (focusActor != 0)
+                        {
+                            state.HasCharFocus = true;
+                            state.CharFocusActorId = focusActor;
+                            state.CharFocusOwnsTurn = (cfFlags & NetProtocol.CharFocusOwnsTurnBit) != 0;
                         }
                     }
                     else if (id == NetProtocol.ExtIdTrackHover

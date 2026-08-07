@@ -138,6 +138,10 @@ internal sealed class BoardModule : IVRModule
         // Selection cue: pulse a soft highlight on the INITIATIVE ORDER BAR entry of every local
         // player figure that has not yet finished card selection (two cards / long rest).
         _driverGo.AddComponent<SelectionReadyHighlighter>();
+        // FREE CHARACTER FOCUS: the initiative-track focus/turn rings and the frame around the
+        // LOCAL control board. Peers' boards are drawn by Net/RemoteFocusOutline from the same
+        // FocusCue palette; the focus itself is set by the portrait-click seam above.
+        _driverGo.AddComponent<FocusDriver>();
 
         VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
         VRLog.Info(Name, BoardConfig.TouchTilesWithFingertip.Value

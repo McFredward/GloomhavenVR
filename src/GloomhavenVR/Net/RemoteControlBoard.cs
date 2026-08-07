@@ -272,6 +272,12 @@ internal sealed class RemoteControlBoard
     private readonly RemoteBoardCard[] _cards = new RemoteBoardCard[SlotCount];
     private OwnerTag? _tag;
 
+    /// <summary>Character-focus turn cue for this peer (feature "free character focus"): the
+    /// blinking green/red frame around their board and the ring around their Steam avatar, from
+    /// the SAME <c>FocusCue</c> palette the local board and the initiative rings use. Built with
+    /// the board, driven from <see cref="Tick"/>, dies with it.</summary>
+    private RemoteFocusOutline? _focusOutline;
+
     // ---- board STYLE (extras block byte A bits 5..6) --------------------------------------------
     // The REAL 3D board asset for the style THIS peer chose (null → flat-quad fallback while the
     // bundle is absent). A style switch rebuilds the whole board from the new prefab (rare, cheap);
@@ -524,6 +530,12 @@ internal sealed class RemoteControlBoard
         LogHalfHoverIfChanged();
 
         _tag!.Tick();
+
+        // Character-focus turn cue: green while this peer owns the character at turn AND is
+        // looking at it, red while they own it but are looking elsewhere, nothing otherwise.
+        // The mark is re-derived locally every frame from THIS client's read of who is at turn,
+        // so only their focus (record 22) is taken from the wire.
+        _focusOutline?.Tick(visible: true, _tag.AvatarQuad, OwnerTag.AvatarQuadSize);
 
         // Content (objectives / elements / round / initiative / rest / pile counts / active cards)
         // on the shared cadence — everything below is a MODEL read, not a wire read. Before the
@@ -1069,6 +1081,11 @@ internal sealed class RemoteControlBoard
         _tag = new OwnerTag(_owner.PlayerId, _root.transform,
             new Vector3(-BoardW * 0.5f + 0.02f, 0.215f, ProudZ));
 
+        // Character-focus turn cue (frame + avatar ring). Built AFTER the tag so the ring can
+        // seat itself against the tag's avatar quad on the first tick that has one.
+        _focusOutline = new RemoteFocusOutline(_owner.PlayerId, _root.transform,
+                                               new Vector2(BoardW, BoardH));
+
         VRLayers.Apply(_root);
 
         // FINAL INERTNESS GUARANTEE for the WHOLE board, not just the furniture: a remote player's
@@ -1158,6 +1175,8 @@ internal sealed class RemoteControlBoard
     {
         _tag?.Destroy();
         _tag = null;
+        _focusOutline?.Destroy();
+        _focusOutline = null;
         // Drop every hosted card face FIRST. The clones are children of the board root and would die
         // with it anyway, but "we own the clone, we destroy the clone" is the contract these widgets
         // are built on (see RemoteAbilityCardSource) and it must not depend on Unity's destruction
