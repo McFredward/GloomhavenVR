@@ -309,8 +309,13 @@ internal sealed class AvatarMirror
     }
 
     /// <summary>Reflect a world pose across the vertical plane (point, unit normal). Position uses
-    /// the plane; orientation reflects the forward/up basis (a mirror flips handedness — for the
-    /// rigid mask + hands this reads exactly like a glass reflection).</summary>
+    /// the plane; orientation reflects the forward/up basis, which yields the PROPER rotation
+    /// R' = M·R·D (D = diag(−1, 1, 1)) — the closest a Transform can come to the improper mirror M.
+    /// The residual D is absorbed by the GEOMETRY drawn under it: the head mask is left/right
+    /// symmetric, and each mirror hand is built from the OPPOSITE side's mesh (see
+    /// <see cref="BuildHands"/>), which IS D of the real hand — so R'·(D·x) = M·R·x, an exact glass
+    /// reflection. Anything re-emitted in that frame must carry the same D
+    /// (<see cref="MirrorLocal(Vector3)"/>).</summary>
     private static void Reflect(Vector3 pos, Quaternion rot, Vector3 planePoint, Vector3 n,
         out Vector3 outPos, out Quaternion outRot)
     {
@@ -326,6 +331,24 @@ internal sealed class AvatarMirror
     }
 
     /// <summary>
+    /// THE D FACTOR — apply <c>D = diag(−1, 1, 1)</c> to a HOLDER-LOCAL offset.
+    ///
+    /// <para>A true planar mirror M is IMPROPER (det −1) and a Unity Transform can only carry a
+    /// PROPER rotation, so <see cref="Reflect"/> returns R' = M·R·D. Anything re-emitted in the
+    /// mirrored hand's frame must therefore be pre-multiplied by D to land where the TRUE
+    /// reflection puts it: holderPos + R'·(D·o) == M(handPos) + M·R·o. Since
+    /// <see cref="BuildHands"/> now draws the OPPOSITE side's hand mesh in each holder (the mesh
+    /// is itself D of the real hand), the drawn hand and everything riding it share one and the
+    /// same convention — the glass shows the exact reflection.</para>
+    /// </summary>
+    private static Vector3 MirrorLocal(Vector3 v) => new(-v.x, v.y, v.z);
+
+    /// <summary>The rotation half of <see cref="MirrorLocal(Vector3)"/>: <c>D·Q·D</c>, the
+    /// conjugation of a local rotation by the X reflection. In quaternion terms that is
+    /// (x, −y, −z, w) — a proper rotation, so a Transform can carry it.</summary>
+    private static Quaternion MirrorLocal(Quaternion q) => new(q.x, -q.y, -q.z, q.w);
+
+    /// <summary>
     /// Mirror a HAND-ATTACHED item's world pose by carrying its REAL-hand-local pose over to the
     /// RENDERED mirror hand's frame — the only side-correct way to mirror something riding a hand.
     ///
@@ -335,23 +358,29 @@ internal sealed class AvatarMirror
     /// reflected forward/up via LookRotation. That proper rotation is R' = M·R·D with
     /// D = diag(−1, 1, 1): identical to the true reflection on the forward and up axes, but with
     /// the local X axis (the thumb↔pinky axis of a hand) pointing OPPOSITE to the true reflection
-    /// of the real hand's X. The un-mirrored hand mesh rendered under R' is exactly how the mirror
-    /// hand is drawn (holder pose, set in <see cref="UpdateHand"/>).
+    /// of the real hand's X.
+    ///
+    /// <para>HANDEDNESS FIX (MP test 2026-08-07: "Hände passen nicht zum Spiegelbild —
+    /// spiegelverkehrt"). This class used to render the UN-mirrored left/right hand meshes under
+    /// R', i.e. a LEFT-shaped hand where a glass shows the reflection of the left hand — which is
+    /// RIGHT-shaped. Every hand-attached item was then deliberately carried WITHOUT the D factor
+    /// so it stayed on the thumb side of that un-mirrored mesh, which made the whole glass
+    /// internally consistent but externally mirror-INVERTED (the reported defect).
+    /// <see cref="BuildHands"/> now builds the OPPOSITE side's mesh into each holder, so the drawn
+    /// hand IS the reflection (mesh·D under R'·… ⇒ M·R·x, the exact reflection), and this method
+    /// carries the D factor with it.</para>
     ///
     /// A held item sits at handPos + R·o (hand-local offset o, thumb side ⇒ o.x has the thumb
-    /// sign). Reflecting its WORLD pose exactly (the old code) lands it at holderPos + M·R·o —
-    /// which, expressed in the rendered mirror hand's frame, is R'⁻¹·(M·R·o) = D·o: X flipped, so
-    /// the figure/card rendered at the PINKY side of the mirrored hand (the reported bug).
-    ///
-    /// Fix: real hand frame → hand-local pose → re-emit under the mirrored hand's frame:
+    /// sign). Re-emitted under the mirrored hand's frame:
     ///   o        = R⁻¹·(itemPos − handPos)          (rigid, world-metre offset — scale-proof)
     ///   localRot = R⁻¹·itemRot
-    ///   outPos   = holderPos + R'·o,   outRot = R'·localRot
-    /// Now the item's offset in the rendered mirror hand's frame is o — the SAME hand-frame
-    /// offset as on the real hand (thumb-side sign preserved), so it sits between thumb and
-    /// index in the glass exactly like it does on the real hand. <paramref name="handLocal"/>
-    /// returns o for the attach diagnostic. False when the hand/holder frame is unavailable
-    /// (untracked hand) — caller falls back to plain reflection.
+    ///   outPos   = holderPos + R'·(D·o),   outRot = R'·(D·localRot·D)
+    /// which equals M(handPos) + M·R·o with the closest PROPER orientation to M·R·localRot — the
+    /// true reflection. Because the drawn mirror hand is itself D of the real hand, the item still
+    /// sits between the mirrored thumb and index, exactly where the glass puts it.
+    /// <paramref name="handLocal"/> returns the REAL hand-local o (pre-D) for the attach
+    /// diagnostic. False when the hand/holder frame is unavailable (untracked hand) — caller falls
+    /// back to plain reflection.
     /// </summary>
     private bool TryMirrorThroughHand(VRHand? hand, Vector3 itemPos, Quaternion itemRot,
         out Vector3 outPos, out Quaternion outRot, out Vector3 handLocal)
@@ -373,8 +402,8 @@ internal sealed class AvatarMirror
         // Holder pose was written this frame by UpdateHand (Tick order guarantees it). Pure
         // quaternion math on the world-metre offset — the holder's localScale (rig/diorama
         // scale) must NOT rescale o, the offset is already in world units.
-        outPos = holder.position + holder.rotation * handLocal;
-        outRot = holder.rotation * localRot;
+        outPos = holder.position + holder.rotation * MirrorLocal(handLocal);
+        outRot = holder.rotation * MirrorLocal(localRot);
         return true;
     }
 
@@ -403,7 +432,9 @@ internal sealed class AvatarMirror
 
         _appliedScale = -1f;
         VRLayers.Apply(_root);
-        VRLog.Info("WorldUI", "Avatar mirror enabled (local self-preview): head + hands + held figure + "
+        VRLog.Info("WorldUI", "Avatar mirror enabled (local self-preview, TRUE reflection: each holder "
+            + "draws the OPPOSITE side's hand mesh and every hand-attached pose carries the D factor, "
+            + "so the glass is no longer spiegelverkehrt): head + hands + held figure + "
             + "grip-held ability/item cards + the open ABILITY hand fan (root through the mirrored hand "
             + "frame, billboarded at the mirrored head, card poses carried fan-local). The ITEM fan is "
             + "NOT mirrored (report 1) — no item-fan proxy is built and no item-fan state is read.");
@@ -439,10 +470,29 @@ internal sealed class AvatarMirror
         Transform rightVisual = new GameObject("HandVisual").transform;
         rightVisual.SetParent(_rightHolder, worldPositionStays: false);
 
-        _leftRig = HandVisuals.Build(leftVisual, HandSide.Left);
-        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig, HandSide.Left) : null;
-        _rightRig = HandVisuals.Build(rightVisual, HandSide.Right);
-        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig, HandSide.Right) : null;
+        // THE SIDE SWAP — the reflection of a LEFT hand is RIGHT-shaped.
+        //
+        // MP test 2026-08-07: "Hände passen nicht zum Spiegelbild — spiegelverkehrt". A Transform
+        // cannot carry the improper reflection M, so Reflect() hands the holder the proper
+        // R' = M·R·D (D = diag(−1, 1, 1); see MirrorLocal). Drawing the SAME side's mesh under R'
+        // therefore renders M·R·D·x — a proper rotation of the original mesh, i.e. a LEFT hand
+        // standing where the glass owes you the reflection of your left hand, which is a RIGHT
+        // hand. That is exactly the reported "spiegelverkehrt": the shape never flipped, only the
+        // position did, so the reflection's thumbs pointed the wrong way.
+        //
+        // The two prefab/procedural hands ARE X-mirrors of each other (HandVisuals.BuildProcedural
+        // Hand's `mirror` sign; the VRHand_L/VRHand_R pair), so rightMesh == D·leftMesh. Building
+        // the OPPOSITE side into each holder makes the drawn geometry R'·(D·x) = M·R·D·D·x =
+        // M·R·x — the EXACT planar reflection. Hand-attached content carries the same D factor
+        // (TryMirrorThroughHand / MirrorHandFan), so the whole glass is one consistent reflection.
+        //
+        // The holders keep their names/roles: Hand_Left is still driven by VRHands.Left, still
+        // ghosted by HandGhosts.LocalSide == Left. Only the MESH (and the FingerCurler's per-side
+        // glove spread sign, which must match the mesh it curls) takes the opposite side.
+        _leftRig = HandVisuals.Build(leftVisual, HandSide.Right);
+        _leftCurler = _leftRig != null ? new FingerCurler(_leftRig, HandSide.Right) : null;
+        _rightRig = HandVisuals.Build(rightVisual, HandSide.Left);
+        _rightCurler = _rightRig != null ? new FingerCurler(_rightRig, HandSide.Left) : null;
 
         // Build applied the style scale for the built style; remember it so the live
         // check in Tick only re-applies on an actual config edit.
@@ -497,10 +547,12 @@ internal sealed class AvatarMirror
         // ABSOLUTE root position curves between our Update sample and the pin).
         //
         // The mini rides a HAND, so it must go through the hand-frame path
-        // (TryMirrorThroughHand): a plain world-pose reflection lands it X-flipped in the
-        // rendered mirror hand's frame — at the PINKY instead of between thumb and index
-        // (see the math doc on TryMirrorThroughHand). Plain Reflect stays as the fallback
-        // for the frame-gap cases (holding hand untracked / holder not rendered).
+        // (TryMirrorThroughHand): that path re-emits the mini at its hand-local offset carried
+        // through the D factor, so it stays between the REFLECTED hand's thumb and index at the
+        // exact reflected pose (see the math doc on TryMirrorThroughHand / MirrorLocal). Plain
+        // Reflect stays as the fallback for the frame-gap cases (holding hand untracked / holder
+        // not rendered) — it agrees with the hand path on position, differing only in the frame
+        // the orientation is derived from.
         Transform st = source.transform;
         Vector3 renderedPos = st.parent != null ? st.parent.position : st.position;
         VRHand? holdingHand = FindHoldingHand(held);
@@ -514,7 +566,8 @@ internal sealed class AvatarMirror
                 // Attach diagnostic: o is the item's offset in BOTH the real and the mirrored
                 // hand's frame by construction — thumb-side sign preserved.
                 VRLog.Info("WorldUI", $"Mirror held-figure attach: hand={holdingHand!.Side}, "
-                    + $"handLocalOffset={lp.ToString("F3")} (same in mirrored hand frame; thumb-side X sign preserved).");
+                    + $"handLocalOffset={lp.ToString("F3")} (real hand frame; re-emitted X-reflected "
+                    + "in the mirrored hand frame — thumb side of the REFLECTED hand).");
             }
         }
         else
@@ -726,21 +779,22 @@ internal sealed class AvatarMirror
     /// WHY NOT A PER-CARD PLANAR REFLECTION (what the pre-removal code did, and the crux of the
     /// follow-up report "auch hier soll die Orientierung stimmen"). The old loop reflected each
     /// card's WORLD pose independently with <see cref="Reflect"/>. That is the mathematically exact
-    /// planar mirror — but this class does NOT render an exact planar mirror of the player, and it
-    /// must not: <see cref="Reflect"/> returns the PROPER rotation R' = M·R·D (D = diag(−1,1,1)),
-    /// i.e. the true reflection with the local X axis flipped back, because a Transform cannot carry
-    /// the improper reflection M and because the mirror hands are drawn with the UN-mirrored left/
-    /// right hand meshes. Every hand-attached thing in this class therefore lives in that same
-    /// D-convention (see the math doc on <see cref="TryMirrorThroughHand"/>): position is carried
-    /// through the RENDERED mirror hand's frame so it keeps its thumb-side offset, instead of
-    /// landing at the true reflection, which reads as the PINKY side of the drawn hand.
+    /// planar mirror of each card in ISOLATION — but the fan is not an isolated rigid body, it is
+    /// HAND-ATTACHED, and a per-card world reflection re-derives nothing from the hand it hangs off
+    /// (nor from the head it billboards at). <see cref="Reflect"/> returns the PROPER rotation
+    /// R' = M·R·D (D = diag(−1,1,1)) because a Transform cannot carry the improper reflection M;
+    /// every hand-attached thing in this class therefore lives in that same D-convention (see the
+    /// math doc on <see cref="TryMirrorThroughHand"/>): the pose is carried through the RENDERED
+    /// mirror hand's frame WITH the D factor, which IS the true reflection expressed in the frame
+    /// the mirror hand is actually drawn in — and since the mirror hands are the OPPOSITE side's
+    /// mesh (<see cref="BuildHands"/>), the drawn hand is the true reflection too.
     ///
     /// The fan is hand-attached — its root is parented to <c>Rig.PalmCenter</c> and floats one palm
-    /// standoff up the palm normal. Reflecting it exactly therefore reproduces the very bug already
-    /// fixed for the held figure and the held card, one level up: worked through in the mirrored
-    /// hand's own frame, an exact reflection puts card 0 at hand-local −X's MIRROR IMAGE, i.e. the
-    /// arc sweeps the opposite way round the drawn mirror hand — the fan spreads off the pinky/back
-    /// side and the card order reads reversed against the hand it is supposedly held in.
+    /// standoff up the palm normal. Reflecting each card's world pose in isolation therefore
+    /// reproduces the very bug already fixed for the held figure and the held card, one level up:
+    /// the ROOT stops tracking the mirrored palm and the arc no longer hangs off it — the fan
+    /// drifts away from the drawn mirror hand and its facing tumbles with the wrist instead of
+    /// holding still at the mirrored head.
     ///
     /// WHAT THE MIRRORED FAN MUST BE, derived from <see cref="CardFan"/> itself. The real fan is
     /// built as (a) a ROOT posed at the palm standoff and billboarded at the HEAD
@@ -765,13 +819,16 @@ internal sealed class AvatarMirror
     ///      report 2 hit with the held card (the fan would tumble with every wrist twist).
     ///      <see cref="MirrorFanFacing"/> also carries the gaze-bias yaw with the sign the mirror
     ///      gives it.
-    ///   3. CARD POSES: re-emit each card at its UNCHANGED fan-local pose under that mirrored root.
-    ///      Because the mirrored root billboards at the mirrored head, the mirrored head sits at the
-    ///      same fan-local ≈(0, 0, −d) the real head sits at in the real fan — so the arc, the roll,
-    ///      the split, the bow and the per-card toe-in are ALREADY correct for the mirrored viewer,
-    ///      verbatim, with no re-derivation and no D anywhere. Keeping the local X sign is what makes
-    ///      the arc sweep the same way round the mirrored hand as it does round the real one, which
-    ///      is step 1's convention applied consistently to the whole fan.
+    ///   3. CARD POSES: re-emit each card at its fan-local pose under that mirrored root, carried
+    ///      through the D factor (<see cref="MirrorLocal(Vector3)"/>) exactly like step 1 carries
+    ///      the root. Because the mirrored root billboards at the mirrored head, the mirrored head
+    ///      sits at the same fan-local ≈(0, 0, −d) the real head sits at in the real fan — so the
+    ///      arc, the roll, the split, the bow and the per-card toe-in are ALREADY correct for the
+    ///      mirrored viewer with no re-derivation; only the X sign of the layout is reflected, which
+    ///      is step 1's convention applied consistently to the whole fan. Since the mirror hands are
+    ///      drawn as the OPPOSITE side's mesh (see <see cref="BuildHands"/>), that reflected arc is
+    ///      the one that sweeps round the reflected hand the same way the real arc sweeps round the
+    ///      real one — this is the fan half of the 2026-08-07 "spiegelverkehrt" fix.
     ///
     /// Net effect in the glass: the reflection holds its hand of cards exactly the way the player
     /// holds theirs — same side, same order, same cup, faces toward the reflection (so the player
@@ -820,7 +877,14 @@ internal sealed class AvatarMirror
             Transform ct = card.transform;
             Vector3 localPos = invRoot * (ct.position - realRootPos);
             Quaternion localRot = invRoot * ct.rotation;
-            if (!PlaceSlabAt(used, rootPos + rootRot * localPos, rootRot * localRot,
+            // …carrying the D factor, exactly like every other hand-attached thing in this class
+            // (see MirrorLocal): the mirrored root is R'_root = M·R_root·D, so a fan-local pose
+            // re-emitted as D·localPos / D·localRot·D lands at the TRUE reflection of that card.
+            // With the mirror hands now drawn as the opposite-side mesh, this is what makes the
+            // arc sweep round the reflected hand the same way the real arc sweeps round the real
+            // one — dropping the D here would put card 0 off the reflection's pinky side.
+            if (!PlaceSlabAt(used, rootPos + rootRot * MirrorLocal(localPos),
+                    rootRot * MirrorLocal(localRot),
                     ct.lossyScale, _slabW, _slabH))
                 return used; // slab assets unavailable (no CardMesh material) — skip quietly
             used++;
@@ -949,7 +1013,7 @@ internal sealed class AvatarMirror
             if (hand.Side == HandSide.Left) _loggedCardLeft = card; else _loggedCardRight = card;
             VRLog.Info("WorldUI", $"Mirror held-card attach: hand={hand.Side}, kind={(isItem ? "Item" : "Ability")}, "
                 + $"pos={(viaHand ? "hand-frame" : "plane-reflect")}, handLocalOffset={lp.ToString("F3")} "
-                + $"(thumb-side X sign preserved); orient=billboard->mirrored head "
+                + $"(real hand frame; re-emitted X-reflected); orient=billboard->mirrored head "
                 + $"(delta vs wrist-carry {Quaternion.Angle(carried, r):F1} deg).");
         }
         return PlaceSlabAt(used, p, r, ct.lossyScale, w, h) ? used + 1 : used;

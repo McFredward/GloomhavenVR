@@ -652,9 +652,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // BOARD FAN = the pile browser OR the item fan — at most one is open (Cards-layer mutual
         // exclusion), so one wire field covers both. The item fan was missing here, which is why a
         // peer never saw an item chip lift (user report 2026-08-03).
+        //
+        // BOTH sources cover BOTH local hover paths — hand sweep AND laser beam — because both
+        // predicates now read the chip/card's own combined pop state (VRCard.IsHighlighted /
+        // ItemsPile.ItemChip.IsHighlighted). Until the MP test 2026-08-07 the ITEM side read the
+        // hand-sweep winner index alone, so a laser hover over an item chip lifted it locally and
+        // reached no peer ("Beim Hovern mit dem Laser wird das Highlight nicht synchronisiert; mit
+        // der Hand schon"). The fix is entirely inside ItemsPile.HighlightedIndex — this stays one
+        // bare index on record 6, and the change gate below still collapses a hand→laser handover
+        // on the same chip to zero packets.
         int fanHl = PileBrowser.Current?.HighlightedIndex ?? -1;
+        string fanHlSource = fanHl >= 0 ? "pile browser" : "none";
         if (fanHl < 0)
+        {
             fanHl = ItemsPile.Current?.HighlightedIndex ?? -1;
+            if (fanHl >= 0)
+                fanHlSource = "item fan";
+        }
         int highlightNow = (handHl & 0xFFFF) | (fanHl << 16);
         // A hover is a HUMAN-PACED gesture, but sweeping a hand along a fan can step the index
         // several times a second, so the pre-emption is capped at the rig interval exactly like
@@ -1063,7 +1077,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         {
             _lastSentHighlight = highlightNow;
             VRLog.Info("Net", $"Card highlight SENT: hand fan index {(handHl >= 0 ? handHl.ToString() : "none")}, " +
-                              $"board fan index {(fanHl >= 0 ? fanHl.ToString() : "none")} — " +
+                              $"board fan index {(fanHl >= 0 ? fanHl.ToString() : "none")} (source: {fanHlSource}; " +
+                              "hand-sweep AND laser hover both feed this) — " +
                               (extras.HasCardHighlight
                                   ? "extension record 6 (2 B: positions only, NO card identity); " +
                                     "peers lift the same card and split its neighbours apart."
