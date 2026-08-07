@@ -45,6 +45,37 @@ namespace GloomhavenVR.Core;
 /// ≤0.5 wu overhang — never mere intersection: a wall-wide course crossing the rect is
 /// embedding), and the change-triggered "GATE COLUMN … arch rect …" line plus containment
 /// fractions in the reject census let the next hardware log verify the rect is tight.
+///
+/// ROUND 14 — THE LATCH (user report: "Das Element über dem Rechteck des Torbogens ist nun
+/// dauerhaft ausgeblendet und kommt auch nicht wieder, obwohl es den Raum nicht verdeckt").
+/// The ModBuild-75 log shows the signature exactly: ONE <c>fade ON</c> for the gate column and
+/// no <c>fade OFF</c> in the whole session, while every regular wall flips both ways — and the
+/// gate stops appearing in the 2 Hz diag line although its remembered coverage (0.38) would
+/// have kept it in the top three. Both facts have ONE cause: the gate had no decision AABB.
+/// <c>LogDiagnostic</c> skips boundless segments, and the decision loop used to
+/// <c>continue</c> on them — skipping the state machine, the fade ramp AND <c>Apply</c> — so
+/// its six adopted masonry pieces stayed <c>renderer.enabled = false</c> with nothing left
+/// that could ever restore them. A gate column is the one segment class that reaches that
+/// state, because it legitimately owns ZERO wall renderers, so any pass that rebuilds an AABB
+/// from the renderer union (the ground strip) empties it. Four defenses, in the order they
+/// bite:
+/// <list type="number">
+/// <item>the decision loop's BOUNDLESS FAIL-SAFE forces <c>State = false</c> and still runs the
+///   ramp + Apply, so anything hidden returns through the normal animated un-fade — the general
+///   form of the standing rule, not a gate special case;</item>
+/// <item>the ground strip no longer rebuilds a gate column's bounds at all (its AABB is the
+///   arch seed plus the stacked/pillar extensions, never a renderer union);</item>
+/// <item><see cref="FadeDriver.EnsureGateBounds"/> re-anchors any gate that still lost them
+///   from <see cref="Segment.GateSeed"/>, as the last step of every rescan;</item>
+/// <item>the GATE MEMORY now carries the DEBOUNCE state with a timestamp, so a rebirth
+///   CONTINUES the live decision (including a half-elapsed un-fade dwell) instead of restarting
+///   it, and refuses to re-seed a faded state at all once it is older than
+///   <see cref="FadeDriver.GateMemoryRetainSeconds"/>.</item>
+/// </list>
+/// <see cref="FadeDriver.WatchLatch"/> is the tripwire for whatever is left: it names any
+/// segment still hiding pieces while the live coverage says off, and which mechanism is
+/// holding it. The arch itself (door leaf, frame trims, sign, arch torches) is untouched by
+/// all of this — it never fades.
 /// </summary>
 internal static partial class WallSegmentFade
 {
@@ -62,6 +93,20 @@ internal static partial class WallSegmentFade
         public float ArchLogSig = float.NaN;
         /// <summary>Gate columns: the door prop's seed center (the gate-lift link test).</summary>
         public Vector3 GateSeedCenter;
+        /// <summary>ROUND-14 BOUNDS ANCHOR: the gate column's own decision AABB seed (the arch
+        /// seed the door prop yields). A gate legitimately owns ZERO wall renderers, so every
+        /// pass that rebuilds a segment's AABB from its renderer union would leave it
+        /// BOUNDLESS — and a boundless segment used to be skipped whole by the decision loop,
+        /// latching it in whatever fade state it held ("das Element über dem Torbogen kommt
+        /// nicht wieder"). The seed is kept here so the bounds can always be restored.</summary>
+        public Bounds GateSeed;
+        public bool GateSeedValid;
+        /// <summary>LATCH WATCHDOG (round 14): when the held fade first disagreed with the live
+        /// coverage (0 = they agree). Drives the LATCH WARN line — see
+        /// <see cref="FadeDriver.WatchLatch"/>.</summary>
+        public float DisagreeSince;
+        /// <summary>Throttle for the LATCH WARN line.</summary>
+        public float NextLatchWarn;
         /// <summary>ROUND-12 GATE LIFT: the gate column whose face this wall EMBEDS (its XZ
         /// footprint contains the door). The keep's gatehouse wall ('Wall 3') owns the
         /// embedding masonry as its own toggle-native renderers — when the gate column's
@@ -140,9 +185,31 @@ internal static partial class WallSegmentFade
         private readonly List<ArchRect> _archRects = new();
         private const float ArchRectRetainSeconds = 10f;
 
-        /// <summary>Reborn-gate state memory, keyed by the quantized door center.</summary>
-        private readonly Dictionary<(int, int), (float fade, bool state, float sig)>
-            _gateMemory = new();
+        /// <summary>Reborn-gate state memory, keyed by the quantized door center. ROUND 14: it
+        /// carries the DEBOUNCE state (smoothed coverage + pending edge + its timestamp) as
+        /// well, so a rebirth CONTINUES the live decision instead of restarting it — including
+        /// an un-fade dwell that was already half elapsed. It may never do more than that: the
+        /// coverage decision, not the memory, owns whether the gate is faded.</summary>
+        private readonly Dictionary<(int, int), GateMemory> _gateMemory = new();
+
+        /// <summary>One remembered gate incarnation (see <see cref="_gateMemory"/>).</summary>
+        private struct GateMemory
+        {
+            public float Fade;
+            public bool State;
+            public float Sig;
+            public float Smooth;
+            public bool SmoothInit;
+            public bool PendingRaw;
+            public float PendingSince;
+            public float Written;
+        }
+
+        /// <summary>How long a gate memory may keep a FADED state alive across the prop's
+        /// death. Rescans re-seed within ~2s and the churn gap has never exceeded that, so 5s
+        /// is generous; beyond it the reborn gate starts SOLID and re-earns its fade from the
+        /// live coverage (never a latch that outlives the evidence for it).</summary>
+        private const float GateMemoryRetainSeconds = 5f;
 
         /// <summary>How long the gate-lift holds after the gate segment vanished (prop
         /// churn) — rescans re-seed within ~2s, so 4s bridges every observed gap.</summary>
@@ -280,18 +347,30 @@ internal static partial class WallSegmentFade
                     // the previous incarnation's fade/decision/log state so the EMA-dwell
                     // pipeline does NOT restart from zero every ≤2s (the round-13 log:
                     // rect re-logged every rescan, gate never reached ON, zero GATE-LIFT).
-                    if (_gateMemory.TryGetValue(GateMemoryKey(seed.center),
-                            out (float fade, bool state, float sig) mem))
+                    // ROUND 14: the memory continues the DECISION, it never substitutes for it.
+                    // It carries the smoothed coverage and the pending Schmitt edge with their
+                    // timestamp, so an un-fade dwell that was already running keeps running
+                    // across the rebirth; and a memory older than GateMemoryRetainSeconds is
+                    // refused outright, so a gate can never inherit a fade whose evidence has
+                    // gone stale (the "held ON forever" report).
+                    if (_gateMemory.TryGetValue(GateMemoryKey(seed.center), out GateMemory mem)
+                        && Time.unscaledTime - mem.Written <= GateMemoryRetainSeconds)
                     {
-                        gate.Fade = mem.fade;
-                        gate.State = mem.state;
-                        gate.ArchLogSig = mem.sig;
+                        gate.Fade = mem.Fade;
+                        gate.State = mem.State;
+                        gate.ArchLogSig = mem.Sig;
+                        gate.Smooth = mem.Smooth;
+                        gate.SmoothInit = mem.SmoothInit;
+                        gate.PendingRaw = mem.PendingRaw;
+                        gate.PendingSince = mem.PendingSince;
                     }
                 }
                 BeginRefresh(gate);
                 gate.IsGateColumn = true;
                 gate.Bounds = seed;
                 gate.HasBounds = true;
+                gate.GateSeed = seed;       // round-14 bounds anchor (see the field doc)
+                gate.GateSeedValid = true;
                 gate.GateSeedCenter = seed.center;
                 gate.ShaderNames = "gate column (doorway-embedding wall — user ruling 2026-08-07)";
                 gate.ArchMinX = seed.min.x - ArchMarginXZ;
@@ -301,8 +380,7 @@ internal static partial class WallSegmentFade
                 gate.ArchTopY = seed.max.y + ArchHeadroomWU;
                 FinishRefresh(gate);
                 UpsertArchRect(gate); // persistent protection (round 13)
-                _gateMemory[GateMemoryKey(seed.center)] =
-                    (gate.Fade, gate.State, gate.ArchLogSig);
+                WriteGateMemory(gate);
 
                 // Change-triggered rect log — the proof line the next hardware round reads.
                 float sig = gate.ArchMinX + 3f * gate.ArchMaxX + 7f * gate.ArchMinZ
@@ -324,6 +402,101 @@ internal static partial class WallSegmentFade
                         + "embedding wall stack-adopts onto this column and fades.");
                 }
             }
+        }
+
+        /// <summary>Snapshot a live gate's decision state for its next incarnation. Called at
+        /// seed time AND every frame from the decision loop, so the retain window measures how
+        /// long the PROP has been gone — not how long ago the last rescan ran.</summary>
+        private void WriteGateMemory(Segment gate)
+        {
+            if (!gate.IsGateColumn || !gate.GateSeedValid)
+                return;
+            _gateMemory[GateMemoryKey(gate.GateSeedCenter)] = new GateMemory
+            {
+                Fade = gate.Fade,
+                State = gate.State,
+                Sig = gate.ArchLogSig,
+                Smooth = gate.Smooth,
+                SmoothInit = gate.SmoothInit,
+                PendingRaw = gate.PendingRaw,
+                PendingSince = gate.PendingSince,
+                Written = Time.unscaledTime,
+            };
+        }
+
+        /// <summary>
+        /// ROUND-14 BOUNDS GUARANTEE (last step of every rescan): a gate column must ALWAYS
+        /// carry a decision AABB. It owns no wall renderers of its own, so any pass that
+        /// rebuilds bounds from the renderer union (ground strip, refresh) can leave it
+        /// boundless — and an unevaluated segment is a segment whose hidden pieces have no
+        /// path back. Restoring the arch seed keeps the gate inside the normal coverage
+        /// decision, which is the only thing allowed to decide whether it fades.
+        /// </summary>
+        private void EnsureGateBounds()
+        {
+            foreach (Segment seg in _segments.Values)
+            {
+                if (!seg.IsGateColumn || seg.HasBounds || !seg.GateSeedValid)
+                    continue;
+                seg.Bounds = seg.GateSeed;
+                seg.HasBounds = true;
+                float thickness = Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z);
+                seg.BlockEps = Mathf.Clamp(0.5f * thickness, BlockEpsMinWorld, BlockEpsMaxWorld);
+            }
+        }
+
+        /// <summary>Grace on top of the un-fade dwell before a disagreement counts as a latch.</summary>
+        private const float LatchWarnSlackSeconds = 1.5f;
+        /// <summary>Re-log cadence of the LATCH WARN line while the disagreement persists.</summary>
+        private const float LatchWarnIntervalSeconds = 10f;
+
+        /// <summary>
+        /// LATCH WATCHDOG (round 14, user report: "Das Element über dem Rechteck des Torbogens
+        /// ist nun dauerhaft ausgeblendet und kommt auch nicht wieder, obwohl es den Raum nicht
+        /// verdeckt"). The absolute rule is that anything the wall system hides returns the
+        /// moment it stops occluding the room. This line fires when a segment is still hiding
+        /// something (<c>Fade &gt; 0</c>) although the LIVE coverage says off — for longer than
+        /// the un-fade dwell plus <see cref="LatchWarnSlackSeconds"/> — and names the source
+        /// that is holding the fade alive, so a hardware log can never again leave "one fade ON,
+        /// no fade OFF, whole session" unattributed. A healthy session shows the OFF edge
+        /// instead of this line.
+        /// </summary>
+        private void WatchLatch(Segment seg, float now, float exitDwell, bool remoteFade,
+            bool gateLift)
+        {
+            bool coverageOff = !seg.HasBounds || !seg.SmoothInit
+                || seg.Smooth < WallFadeTuning.Off;
+            if (seg.Fade <= 0f || !coverageOff)
+            {
+                seg.DisagreeSince = 0f;
+                return;
+            }
+            if (seg.DisagreeSince <= 0f)
+            {
+                seg.DisagreeSince = now;
+                return;
+            }
+            float held = now - seg.DisagreeSince;
+            if (held < exitDwell + LatchWarnSlackSeconds || now < seg.NextLatchWarn)
+                return;
+            seg.NextLatchWarn = now + LatchWarnIntervalSeconds;
+            string source = !seg.HasBounds
+                ? "NO DECISION AABB — the segment is not being evaluated at all (round-14 "
+                  + "freeze class; the boundless fail-safe should have forced it off)"
+                : remoteFade ? "peer fade (MP wire record 17 — a teammate still hides it)"
+                : gateLift ? "gate-lift linger (its gate column is still ON)"
+                : seg.State ? (seg.IsGateColumn
+                    ? "gate memory / Schmitt state machine on the gate column"
+                    : "Schmitt state machine")
+                : "fade ramp still decaying";
+            string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+            VRLog.Warn(Name,
+                $"{(seg.IsGateColumn ? "GATE " : "")}LATCH WARN: '{wall}' held "
+                + $"{(seg.State ? "ON" : "fading")} for {held:0.0}s while coverage says OFF "
+                + $"(raw {seg.LastRaw:0.00}, ema {seg.Smooth:0.00}, bar {WallFadeTuning.Off:0.00}"
+                + $"{(seg.HasBounds ? "" : ", NO BOUNDS")}), fade {seg.Fade:0.00}, "
+                + $"+{seg.Stacked.Count} stacked shell / +{seg.Mounted.Count} mounted / "
+                + $"+{seg.Body.Count} body piece(s) still hidden — source: {source}.");
         }
 
         /// <summary>Fraction of the piece's XZ footprint that lies inside the gate's arch
