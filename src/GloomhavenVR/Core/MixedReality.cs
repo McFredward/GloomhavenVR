@@ -196,7 +196,6 @@ internal static class MixedReality
     private static Color _unseenDarkColor;
     private static int _previewScanNextFrame; // throttle (same cadence as the sky sweep)
     private static int _loggedPreviewCount = -1;
-    private static bool _previewDiagLogged;
     private static int _unseenVerboseLogs;    // per-renderer build log cap (see the churn note)
 
     // Border-census scratch/state (CensusUnseenBorder): reused lists, change-gate hash, rate floor.
@@ -212,6 +211,13 @@ internal static class MixedReality
     /// <summary>The fill drop the live underlays were built with — tracked beside
     /// <see cref="_appliedSkirtScale"/> so a config change rebuilds live (round 7).</summary>
     private static float _appliedWaferDrop = -1f;
+
+    // Round-13 unbacked-preview instrument state (RecordUnbacked / LogUnbackedPreview):
+    // per-sweep scratch (cleared after every dump decision) + change gate.
+    private static readonly List<Renderer> UnbackedScratch = new(16);
+    private static readonly List<string> UnbackedReasons = new(16);
+    private static int _unbackedLastHash;
+    private static float _unbackedNextAllowed;
 
     /// <summary>One-shot latch for the submesh-coverage sample line (round 12): the first built
     /// backing logs mesh subMeshCount vs source/backing material counts, so the next hardware
@@ -840,6 +846,24 @@ internal static class MixedReality
     /// bands in mixed_reality_tiles3.png); extras are padded with dark, and a one-shot sample
     /// line prints subMeshCount vs material counts so the next log proves the coverage.
     ///
+    /// ROUND 13 (hardware 2026-08-07 #4, ModBuild 70): TOP CLOSED — "Die Lücken oben sind
+    /// geschlossen und sieht gut aus top!" (instruments confirm: wafer at mesh-top − 0.02, and
+    /// submeshes 1/mats 1 — the submesh theory is dead, the harmless padding stays). REMAINING:
+    /// the outer-rim SIDE faces still glow translucent-over-key (mixed_reality_tiles4.png), and
+    /// the MAPTILE dumps show the 'Simple Tile' renderers — the hex side/base block geometry,
+    /// y−0.4..−0.1 — carry NO backing children while every EN_* piece does. Why the sweep skips
+    /// them (read from code + census): 'Simple Tile' is not family-NAMED anywhere, and it never
+    /// appeared in the census either, so it must also fail the blend probe — the round-3
+    /// documented blind spot (hardcoded pass blend, no _DstBlend property, opaque-range queue).
+    /// Fix: <see cref="IsTranslucent"/> learned the RenderType-TAG signal
+    /// (Transparent/Fade/Overlay — the family's own materials are tagged 'Overlay', the same
+    /// authoring style), which matches such pieces through the Preview-ancestor branch and
+    /// backs them like the rest (underlay + wafer; their sides get the coplanar dark treatment
+    /// the EN_* sides always had). Proof instrument: UNBACKED PREVIEW RENDERERS — every
+    /// Preview-descendant the sweep leaves un-backed is dumped with shader/queue/tag/reason,
+    /// change-gated; the goal state ("none") is logged too. If 'Simple Tile' still appears
+    /// there, its line carries exactly the signal the next round must add.
+    ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated
     /// alpha pattern that gives the unseen hexes their pulsing look suddenly reads as
@@ -938,7 +962,15 @@ internal static class MixedReality
                     anyTranslucent = true;
             }
             if (!family && !(anyTranslucent && UnderPreviewNode(r.transform)))
+            {
+                // Round 13 instrument: a PREVIEW-DESCENDANT the sweep rejects is fog-of-war
+                // stand-in content the mod leaves un-backed — exactly how the 'Simple Tile' rim
+                // sides stayed green through twelve rounds. Collect it with the reason; the
+                // change-gated dump below names it in the next hardware log.
+                if (!family && UnderPreviewNode(r.transform))
+                    RecordUnbacked(r, "opaque by probe+tag, not family-named");
                 continue;
+            }
             unseenRenderers++;
             if (UnseenSources.Contains(r.GetInstanceID()))
                 continue;
@@ -947,7 +979,15 @@ internal static class MixedReality
             // authored (standing instruction: never touch particle materials) — the census below
             // names it so the region backing can be verified/extended against the next log.
             if (r is MeshRenderer mesh)
+            {
                 BuildUnseenUnderlay(mesh, mats);
+                if (!UnseenSources.Contains(r.GetInstanceID()))
+                    RecordUnbacked(r, "matched but no dark slot / no mesh filter");
+            }
+            else if (!(r is ParticleSystemRenderer) && !(r is TrailRenderer))
+            {
+                RecordUnbacked(r, "matched but not a MeshRenderer");
+            }
         }
 
         if (UnseenUnderlays.Count != _loggedPreviewCount)
@@ -961,28 +1001,71 @@ internal static class MixedReality
                                "destroyed when MR turns off).");
         }
 
-        // One-shot diagnostic for the next hardware run: unseen renderers exist but NONE was
-        // translucent by the material test — then the see-through look has another mechanism
-        // (per-vertex alpha, a dither keyword, …) and this dump names the shaders to chase.
-        if (unseenRenderers > 0 && UnseenUnderlays.Count == 0 && !_previewDiagLogged)
+        LogUnbackedPreview();
+        CensusUnseenBorder(all);
+    }
+
+    /// <summary>Round-13 proof instrument: every Preview-descendant (or matched-but-skipped)
+    /// renderer left WITHOUT backing, with the reason — collected during the sweep
+    /// (<see cref="RecordUnbacked"/>) and dumped change-gated. The goal state is ZERO
+    /// unexplained entries: whatever still glows at the rim must appear on this list with its
+    /// shader/queue/RenderType tag, so the next round adds the missing signal instead of
+    /// guessing. Deliberately-authored leftovers (family particles/trails) are excluded at the
+    /// collection site.</summary>
+    private static void RecordUnbacked(Renderer r, string reason)
+    {
+        for (int i = 0; i < UnbackedScratch.Count; i++)
         {
-            _previewDiagLogged = true;
-            VRLog.Info("Core", $"MR: {unseenRenderers} unseen-geometry renderer(s) found but none " +
-                               "matched the translucency test — dumping their material state:");
-            int dumped = 0;
-            for (int i = 0; i < all.Length && dumped < 8; i++)
-            {
-                Renderer r = all[i];
-                if (r == null || !r.enabled || !UnderPreviewNode(r.transform))
-                    continue;
-                Material? m = r.sharedMaterial;
-                VRLog.Info("Core", $"MR:   unseen '{r.gameObject.name}' shader " +
-                                   $"'{ShaderName(r)}' queue {(m != null ? m.renderQueue : -1)}.");
-                dumped++;
-            }
+            if (ReferenceEquals(UnbackedScratch[i], r))
+                return;
+        }
+        UnbackedScratch.Add(r);
+        UnbackedReasons.Add(reason);
+    }
+
+    /// <summary>Dump the unbacked-preview list (change-gated on the set, 30 s rate floor,
+    /// cleared per sweep). An empty list logs once per change too — that IS the goal state.</summary>
+    private static void LogUnbackedPreview()
+    {
+        int hash = 17;
+        for (int i = 0; i < UnbackedScratch.Count; i++)
+            hash = hash * 31 + UnbackedScratch[i].GetInstanceID();
+        float now = Time.unscaledTime;
+        if (hash == _unbackedLastHash || now < _unbackedNextAllowed)
+        {
+            UnbackedScratch.Clear();
+            UnbackedReasons.Clear();
+            return;
+        }
+        _unbackedLastHash = hash;
+        _unbackedNextAllowed = now + CensusMinIntervalSeconds;
+
+        if (UnbackedScratch.Count == 0)
+        {
+            VRLog.Info("Core", "MR: UNBACKED PREVIEW RENDERERS — none. Every fog-of-war " +
+                               "stand-in renderer either carries a dark backing or is a " +
+                               "deliberately-authored particle/trail (goal state).");
+            return;
         }
 
-        CensusUnseenBorder(all);
+        VRLog.Info("Core", $"MR: UNBACKED PREVIEW RENDERERS — {UnbackedScratch.Count} fog-of-war " +
+                           "stand-in renderer(s) carry NO dark backing; whatever still glows at " +
+                           "the rim must be here:");
+        int listed = Mathf.Min(UnbackedScratch.Count, 12);
+        for (int i = 0; i < listed; i++)
+        {
+            Renderer r = UnbackedScratch[i];
+            Material? m = r != null ? r.sharedMaterial : null;
+            string tag = m != null ? m.GetTag("RenderType", false, "<none>") : "<none>";
+            VRLog.Info("Core", $"MR:   unbacked '{(r != null ? r.gameObject.name : "<dead>")}' " +
+                               $"shader '{(r != null ? ShaderName(r) : "<none>")}' queue " +
+                               $"{(m != null ? m.renderQueue : -1)} renderTypeTag '{tag}' mat " +
+                               $"'{(m != null ? m.name : "<none>")}' — {UnbackedReasons[i]}.");
+        }
+        if (UnbackedScratch.Count > listed)
+            VRLog.Info("Core", $"MR:   unbacked … +{UnbackedScratch.Count - listed} more.");
+        UnbackedScratch.Clear();
+        UnbackedReasons.Clear();
     }
 
     /// <summary>
@@ -1478,16 +1561,25 @@ internal static class MixedReality
     private static bool IsUnseenFamilyMaterial(Material? m) =>
         m != null && (HasUnseenName(m.name) || (m.shader != null && HasUnseenName(m.shader.name)));
 
-    /// <summary>Translucency test: a transparent-range render queue, or an active alpha blend
-    /// (DstBlend != Zero). Cutout (AlphaTest ≤ 2500, DstBlend 0) counts as opaque — it does not
-    /// let the key colour through per-pixel, so it needs no forcing.</summary>
+    /// <summary>Translucency test: a transparent-range render queue, an active alpha blend
+    /// (DstBlend != Zero), or — round 13 — a transparent-family RenderType TAG. The tag closes
+    /// the probe's documented blind spot (a pass that hardcodes its blend exposes no _DstBlend
+    /// and can sit at an opaque-range queue): the game's own unseen materials carry
+    /// RenderType='Overlay' (round-9 dump), so the tag is the authoring house style's signal,
+    /// and the round-13 rim evidence ('Simple Tile' side faces translucent over key, yet
+    /// invisible to both probe and census) is exactly the class only the tag can catch. Cutout
+    /// (AlphaTest, DstBlend 0, tag 'TransparentCutout') still counts as opaque — its holes
+    /// showing the background is authored behaviour, not key bleed-through.</summary>
     private static bool IsTranslucent(Material? m)
     {
         if (m == null)
             return false;
         if (m.renderQueue > 2500)
             return true;
-        return m.HasProperty("_DstBlend") && m.GetInt("_DstBlend") != 0;
+        if (m.HasProperty("_DstBlend") && m.GetInt("_DstBlend") != 0)
+            return true;
+        string tag = m.GetTag("RenderType", false, string.Empty);
+        return tag == "Transparent" || tag == "Fade" || tag == "Overlay";
     }
 
     /// <summary>Destroy every underlay child and the two shared materials — MR off / VR stop /
@@ -1519,8 +1611,9 @@ internal static class MixedReality
         }
         _previewScanNextFrame = 0;
         _loggedPreviewCount = -1;
-        _previewDiagLogged = false;
         _unseenVerboseLogs = 0;
+        _unbackedLastHash = 0;
+        _unbackedNextAllowed = 0f;
         _submeshDiagLogged = false;
         _censusLastHash = 0;
         _censusNextAllowed = 0f;
@@ -1635,7 +1728,8 @@ internal static class MixedReality
             }
         }
         _previewScanNextFrame = 0;
-        _previewDiagLogged = false;
         _loggedPreviewCount = -1;
+        _unbackedLastHash = 0;
+        _unbackedNextAllowed = 0f;
     }
 }
