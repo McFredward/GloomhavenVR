@@ -112,6 +112,7 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
 
     private readonly Transform _root;
     private readonly GameObject _hostGo;
+    private readonly Canvas _canvas;
     private readonly RectTransform _hostRect;
     private readonly RectTransform _frame;
     private readonly Image _frameImage;
@@ -142,6 +143,13 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         // initiative mirror spans the whole top edge; a TALL hint can still grow over it) at every
         // viewing angle -- see BoardVisual's sub-ladder header.
         canvas.sortingOrder = BoardVisual.OrderTooltip;
+        // 9-SLICE SCALE: uGUI resolves a sliced sprite's border into RECT pixels through the
+        // canvas's referencePixelsPerUnit. Ours must therefore be the OWNER's tooltip canvas's, or
+        // the frame art would render with corners of a different thickness at the same box size.
+        // Re-stamped in ApplySkin once the real value is sampled; 100 (Unity's default, and the
+        // game's) until then.
+        canvas.referencePixelsPerUnit = GameSkin.ReferencePixelsPerUnit;
+        _canvas = canvas;
         Camera? head = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
         if (head != null)
             canvas.worldCamera = head;
@@ -281,6 +289,8 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         }
         _skinApplied = true;
 
+        if (_canvas != null)
+            _canvas.referencePixelsPerUnit = GameSkin.ReferencePixelsPerUnit;
         _frameImage.sprite = GameSkin.Sprite;
         _frameImage.type = GameSkin.SpriteType;
         _frameImage.color = GameSkin.SpriteColor;
@@ -353,6 +363,10 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
 
         internal static float WidthPx { get; private set; } = FallbackWidthPx;
 
+        /// <summary>The owner's tooltip CANVAS reference PPU — what turns a sliced sprite's border
+        /// into rect pixels. 100 is Unity's (and the game's) default until the real one is read.</summary>
+        internal static float ReferencePixelsPerUnit { get; private set; } = 100f;
+
         /// <summary>Frame padding in px, x/y/z/w = left/bottom/right/top -- the tooltip's own
         /// <c>VerticalLayoutGroup.padding</c>, which is exactly what its <c>ContentSizeFitter</c>
         /// adds around the lines.</summary>
@@ -389,6 +403,10 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
                 FontColor = tip.m_TitleFontColor;
                 WidthPx = tip.m_DefaultWidth > 1f ? tip.m_DefaultWidth : FallbackWidthPx;
 
+                Canvas? srcCanvas = tip.GetComponentInParent<Canvas>();
+                if (srcCanvas != null && srcCanvas.referencePixelsPerUnit > 0f)
+                    ReferencePixelsPerUnit = srcCanvas.rootCanvas.referencePixelsPerUnit;
+
                 var group = tip.GetComponent<VerticalLayoutGroup>();
                 if (group != null && group.padding != null)
                 {
@@ -403,7 +421,8 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
                     VRLog.Info("Net", $"Remote board tooltip: sampled the GAME's own tooltip skin — " +
                                       $"{Describe()}, font '{(Font != null ? Font.name : "<default>")}' " +
                                       $"at {FontPx:F0} px, frame width {WidthPx:F0} px, padding " +
-                                      $"{PadPx.x:F0}/{PadPx.w:F0}/{PadPx.z:F0}/{PadPx.y:F0} px. Peers' " +
+                                      $"{PadPx.x:F0}/{PadPx.w:F0}/{PadPx.z:F0}/{PadPx.y:F0} px, " +
+                                      $"referencePixelsPerUnit {ReferencePixelsPerUnit:F0}. Peers' " +
                                       "hints now use the same background art and the same footprint " +
                                       "rule as the owner's own UITooltip (nothing on the game widget " +
                                       "was written).");
