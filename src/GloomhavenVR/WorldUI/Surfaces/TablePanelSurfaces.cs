@@ -413,8 +413,24 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// the layout group and snaps to the final order. So while the track is animating we HOLD OFF
     /// both interfering passes (freeze the fit, skip depth normalization); they resume on the final,
     /// settled order once the slide completes.
+    ///
+    /// HOLDING THEM OFF WAS NECESSARY BUT NOT SUFFICIENT (user, follow-up hardware test: "es sieht
+    /// immer so aus, als ob die Animation mitten drin geskipped/abgebrochen wird"). Two defects in
+    /// the VANILLA coroutine survive on a world-space panel — its tween is world-axis locked, and
+    /// its window runs on a DIFFERENT CLOCK than its tween — so the row still snapped part-way.
+    /// <see cref="InitiativeReorderSlide"/> now owns the slide outright while the track is adopted;
+    /// this flag is OR'd with its <see cref="InitiativeReorderSlide.Active"/> so the fit/depth hold
+    /// covers the whole visible animation, including the stretch after the game's own window has
+    /// already closed. Full derivation on that class.
     /// </summary>
     private bool _reorderActive;
+
+    /// <summary>
+    /// Owns the reorder slide while the track is adopted (see <see cref="InitiativeReorderSlide"/>).
+    /// Driven from <see cref="LateTick"/>: after every Update-phase transform writer in the process,
+    /// LeanTween's own updater included.
+    /// </summary>
+    private readonly InitiativeReorderSlide _slide = new();
 
     // ---- fit hold: the row must NOT move when a portrait is hovered ------------------------
     /// <summary>
@@ -501,6 +517,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         }
         else if (wasConverted)
         {
+            _slide.Abort("panel released"); // layout writers back to the game before anything else
             _reorderActive = false; // host gone — the next conversion starts a fresh hold
             _fitSignature = -1;     // …and a fresh settle window for the new host
             _fitArmedUntil = 0f;
@@ -510,6 +527,27 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // moment the canvas returns to the game (baked copies are a VR presentation detail).
             PanelMipBake.Restore(InitiativeTrack.Instance);
         }
+    }
+
+    /// <summary>
+    /// Re-place the docked host (base contract), then advance the mod-owned reorder slide.
+    ///
+    /// DELIBERATELY IN THE LATE PASS: the slide writes the row entries' <c>localPosition</c>, and the
+    /// writers it has to beat — LeanTween's updater (an ordinary MonoBehaviour <c>Update</c> with no
+    /// execution-order relation to <see cref="WorldUIModule"/>) and any layout rebuild the game
+    /// schedules — all live in the Update phase. Unity runs every <c>LateUpdate</c> after every
+    /// <c>Update</c>, so writing here is ordering-proof by rule instead of by luck; the same
+    /// reasoning that put <see cref="TrayMountedPanelSurface.LateTick"/> in the late pass.
+    /// Placement first: the slide reads nothing from the host pose, but a panel placed after its
+    /// content moved would render one frame stale.
+    /// </summary>
+    public override void LateTick()
+    {
+        base.LateTick();
+        if (Panel != null)
+            _slide.Tick(InitiativeTrack.Instance);
+        else
+            _slide.Abort("panel not converted");
     }
 
     /// <summary>
@@ -537,7 +575,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         InitiativeTrack track = InitiativeTrack.Instance;
         float now = Time.unscaledTime;
 
-        bool animating = track != null && (track.isAnimating || track.animationDelayed);
+        // OR'd with the mod-owned slide: the game's own flags drop when its (Chronos-clocked) window
+        // closes, which can be well before the visible slide has finished — see
+        // InitiativeReorderSlide. Holding until the LAST of the two is what makes the hold cover the
+        // whole animation the user actually watches.
+        bool animating = (track != null && (track.isAnimating || track.animationDelayed)) || _slide.Active;
         if (animating != _reorderActive)
         {
             _reorderActive = animating;
@@ -612,6 +654,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     public override void Shutdown()
     {
+        _slide.Abort("surface shutdown"); // layout writers back to the game while the row still lives
         _reorderActive = false; // the panel is about to be released — drop any active hold
         _fitSignature = -1;     // …and let the next conversion measure the row from scratch
         _fitArmedUntil = 0f;
