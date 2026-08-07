@@ -205,7 +205,10 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// reference instead: the grab-bar bottom, minus this clearance, is the prompt anchor
     /// under which the interactive widget block is placed.
     /// </summary>
-    private const float BarClearanceMeters = 0.008f;
+    /// <remarks>INTERNAL since the 1:1 remote mirror: <c>Net.RemoteBoardFurniture</c> hangs its
+    /// mirrored decision row from the same reference (bar bottom − clearance − DecisionGap) and
+    /// used to keep a hand-copied duplicate of this number.</remarks>
+    internal const float BarClearanceMeters = 0.008f;
 
     /// <summary>
     /// Fallback prompt-reference height above the <see cref="PlayTray.DecisionMount"/>
@@ -222,8 +225,14 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// authored Graphic colour, so per-widget differences survive; uGUI ColorTint
     /// transitions multiply on the CanvasRenderer ON TOP of this, so pressed/disabled
     /// dimming keeps working.
+    ///
+    /// INTERNAL since the 1:1 remote mirror (user 2026-08-07: "Die Entscheidungsbuttons sollen 1:1
+    /// genau so aussehen (Position und Größe und Erscheinungsbild) und genau das beinhalten was der
+    /// Spieler sieht"): <c>Net.RemoteBoardFurniture.SetDecisionLines</c> paints its mirrored plates
+    /// with THIS constant over the SAME sampled game button sprite the owner's docked widgets wear,
+    /// so the copy and the original cannot drift apart through a hand-copied colour.
     /// </summary>
-    private static readonly Color AntiqueTint = new(0.58f, 0.46f, 0.31f, 1f);
+    internal static readonly Color AntiqueTint = new(0.58f, 0.46f, 0.31f, 1f);
 
     private readonly List<(Graphic graphic, Color color)> _tintedGraphics = new(8);
     private Canvas? _deliberateCanvas;

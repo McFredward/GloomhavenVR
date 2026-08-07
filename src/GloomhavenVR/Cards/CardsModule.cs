@@ -61,6 +61,13 @@ internal sealed class CardsModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_Enter_HalfHoverSync));
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_Exit_HalfHoverSync));
 
+        // WHITE decision-phase card faces: an ADOPTED face is re-activated by CardFace every
+        // time the game's pick-mode UpdateView deactivates it, and each cycle re-enters the
+        // addressable card-art loader mid-load — which Unloads first (Image.sprite = null =
+        // the white action halves). The guard skips only those restarts and replays/heals
+        // once the loads are quiet (see Cards/CardArtGuard.cs).
+        VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_ShowCard_ArtGuard));
+
         HandSuppression.Active = true;
 
         _driverGo = new GameObject("GloomhavenVR.Cards");
@@ -89,6 +96,7 @@ internal sealed class CardsModule : IVRModule
         HandSuppression.Restore();
         CardsSignals.Clear();
         CardActionQueue.Clear();
+        CardArtGuard.Reset();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }
 }
