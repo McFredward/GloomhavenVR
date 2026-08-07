@@ -1122,6 +1122,53 @@ internal static class NetProtocol
     public const int TrackHoverRecordBytes = 5;
 
     /// <summary>
+    /// Extension record id: the sender's CURRENTLY-FADED WALL SET — <c>[count][count × u32
+    /// wall key LE]</c>, at most <see cref="WallFadesMaxKeys"/> keys, keys sorted ascending
+    /// (deterministic wire bytes, cheap set diff on the sender).
+    ///
+    /// <para>MP WALL-FADE SYNC (user request 2026-08-07: "Optional (schaltbar): die Wall-Fades
+    /// der Mitspieler sollen synchronisiert werden — Wände, die wegen eines anderen Spielers
+    /// gefadet sind, sollen auch für alle anderen Spieler faden, die die Einstellung aktiv
+    /// haben"). The record carries WHICH walls the sender's local decision currently fades
+    /// (gate columns included; doorway/arch segments never fade anywhere and are never
+    /// listed). It is ALWAYS written while the set is non-empty, regardless of the sender's
+    /// own <c>[WallFade] SyncPeerFades</c> toggle — bytes are cheap and the RECEIVER's
+    /// setting decides application, so one player toggling mid-session needs no
+    /// renegotiation. An empty set writes no record (idle packets stay byte-identical to the
+    /// previous build's); absence therefore means "no faded walls" AND covers pre-record
+    /// senders identically.</para>
+    ///
+    /// <para>WALL KEY: wall segments are scene-local objects, so both clients derive the key
+    /// independently — FNV-1a-32 (the <c>NetFigures.StableActorId</c> hash discipline) over
+    /// <c>"{anchorName}|{roomLabel}|{qx}|{qz}"</c>: the segment's anchor name ('Wall 2',
+    /// 'ThickDoor : (guid)' — generation-deterministic, door/tile names carry replicated
+    /// GUIDs), the wall's logical-room label (the round-4 CMap identity: RoomName /
+    /// MapInstanceName with the replicated MapGuid), and the anchor transform's world XZ
+    /// quantized to 0.5 wu (the scenario world is replicated at identical coordinates — the
+    /// mod moves only the VR rig, never the game world). A key the receiver cannot resolve
+    /// is silently ignored: never a wrong wall (the un-resolvable direction is the designed
+    /// failure).</para>
+    ///
+    /// <para>RECEIVER: a remote-fade source composed inside the wall-fade decision loop —
+    /// effective fade target = max(local decision, any live peer set containing the key),
+    /// dwell-free (the deciding peer already dwelled), same ramp and delivery as a local
+    /// fade, gated by the receiver's <c>[WallFade] SyncPeerFades</c>. A peer's set empties
+    /// when a packet arrives without the record; packet GAPS are bridged by a ~1s linger
+    /// (a dropped packet produces no read at all, so loss can never fake a close).</para>
+    /// </summary>
+    public const byte ExtIdWallFades = 17;
+
+    /// <summary>Key cap of <see cref="ExtIdWallFades"/> — a scene rarely fades more walls
+    /// simultaneously; the sender logs when the cap truncates. Bounds the record at
+    /// 1 + 4×24 = 97 payload bytes, well under the 255-byte TLV ceiling.</summary>
+    public const int WallFadesMaxKeys = 24;
+
+    /// <summary>Minimum payload of <see cref="ExtIdWallFades"/> (the count byte). The count
+    /// is re-clamped on read against the record length and <see cref="WallFadesMaxKeys"/> —
+    /// never trust the wire.</summary>
+    public const int WallFadesMinRecordBytes = 1;
+
+    /// <summary>
     /// Extension record id: the BUTTON LABELS of the sender's DOCKED DECISION ROW — the real game
     /// widgets their <c>WorldUI.Surfaces.DecisionDockSurface</c> currently docks below their
     /// control board ("Verbrennen", "Ja"/"Nein", the take-damage burn choices, …) — as ONE UTF8
