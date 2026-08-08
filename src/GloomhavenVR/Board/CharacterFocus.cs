@@ -7,18 +7,27 @@ using ScenarioRuleLibrary;
 namespace GloomhavenVR.Board;
 
 /// <summary>
-/// How a player's control board / avatar is marked with respect to the character that is
-/// currently AT TURN. One enum, three states — the whole visual vocabulary of the feature.
+/// How a player's control board / avatar is marked with respect to the character THE GAME IS
+/// WAITING ON — its turn, or (nobody at turn) an open decision it owes
+/// (<see cref="CharacterFocus.AttentionActor"/>). One enum, three states — the whole visual
+/// vocabulary of the feature. The names keep their <c>AtTurn…</c> spelling because the colours and
+/// the blink are literally the ones the at-turn cue has always used; only the set of moments they
+/// appear in grew, and it grew by exactly the pending-decision moments the user reported as
+/// unmarked. The peer-side derivation (<see cref="CharacterFocus.MarkForPeer"/>) is still purely
+/// about the TURN — see its own remark for why, and what that costs.
 /// </summary>
 internal enum FocusTurnMark
 {
-    /// <summary>No mark: this player does not own the character whose turn it is (or nobody is).</summary>
+    /// <summary>No mark: this player does not own the character the game is waiting on (or nobody
+    /// is being waited on).</summary>
     None,
 
-    /// <summary>GREEN: this player owns the character at turn AND is looking at that character.</summary>
+    /// <summary>GREEN: this player owns the character the game is waiting on AND is looking at that
+    /// character.</summary>
     AtTurnCorrect,
 
-    /// <summary>RED: this player owns the character at turn but is looking at a DIFFERENT one.</summary>
+    /// <summary>RED: this player owns the character the game is waiting on but is looking at a
+    /// DIFFERENT one.</summary>
     AtTurnWrong,
 }
 
@@ -232,6 +241,78 @@ internal static class CharacterFocus
     /// <summary>Stable wire id of <see cref="TurnActor"/> (0 = nobody / no scenario).</summary>
     internal static int TurnActorId => NetFigures.StableActorId(TurnActor);
 
+    /// <summary>
+    /// The character the game is waiting on for an OPEN DECISION, when that is not simply "whose
+    /// turn it is" — the attacked/burning hero of a take-damage prompt, the actor owing an item
+    /// surrender, the local anchor of a reward forfeit, the hero stepping through the boots' ±
+    /// phase. It is <c>Cards.CardsGameApi.DecidingHand()</c>'s actor and NOTHING ELSE: that method
+    /// IS the deciding-actor chain the card board already presents from
+    /// (<c>CardsDriver.CurrentHand</c> = <c>DecidingHand() ?? ActiveHand()</c>) and the same
+    /// question <c>WorldUI.Surfaces.DecisionDockSurface.PromptOwner</c> answers for the docked
+    /// prompt row. No third resolver exists and none may be added: if the mod ever disagreed with
+    /// itself about WHO owes the decision, the docked prompt and the highlight pointing at it would
+    /// name two different characters.
+    ///
+    /// <para>Every entry of that chain is non-null only while its own flow is genuinely OPEN and is
+    /// already gated to a LOCALLY CONTROLLED actor (<c>TakeDamageHand</c> refuses unless
+    /// <c>TakeDamagePanel.ThisPlayerHasTakeDamageControl</c> and the resolved actor is ours), so
+    /// this can never name a teammate's pending decision. <see cref="LocalOwnsAttention"/> re-asks
+    /// the ownership question anyway, belt and braces.</para>
+    /// </summary>
+    internal static CPlayerActor? DecisionOwner
+    {
+        get
+        {
+            try
+            {
+                CardsHandUI? hand = CardsGameApi.DecidingHand();
+                CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
+                return actor != null ? actor : null;
+            }
+            catch (System.Exception)
+            {
+                // Presentation question: a half-torn model must never take the cue down with it.
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// THE CHARACTER THE GAME IS WAITING ON — the one fact the board stroke and the initiative
+    /// ring have always meant, now stated completely.
+    ///
+    /// <para>DEFECT (user, hardware ModBuild 86): "Der Character der aktuell eine Entscheidung
+    /// treffen muss soll genauso gehighlighted werden wie zuvor auch — im Falle einer
+    /// Schadensauswahl ist das Highlighting nicht sichtbar, nur das rote Overlay". The cue used to
+    /// read <see cref="TurnActor"/> alone, i.e. <c>Choreographer.CurrentPlayerActor</c>, which is
+    /// NULL for the whole of an enemy's action — and a take-damage prompt is raised precisely
+    /// there (<c>Choreographer.cs:5467</c>, <c>MessageType.PlayerSelectingToAvoidDamageOrNot</c>,
+    /// inside the enemy's Action phase; the hardware log shows "phase Action, at turn '?'" for
+    /// every frame of that prompt). So a character that genuinely owed the player a decision wore
+    /// no ring and its board wore no stroke: the ONLY mark left was vanilla's own red
+    /// <c>InitiativeTrackPlayerBehaviour.ShowWarning</c> pulse
+    /// (<c>InitiativeTrackPlayerBehaviour.cs:60-69</c>, played from <c>Choreographer.cs:5477</c>),
+    /// which is the red overlay the user describes — and which says something DIFFERENT ("this
+    /// actor is being attacked", on <c>m_ActorBeingAttacked</c>) from what was missing.</para>
+    ///
+    /// <para>Turn FIRST, decision second: while somebody is at turn the two either agree (the
+    /// acting hero's own prompt) or the turn is the stronger statement, and reading the turn first
+    /// keeps every pre-existing situation byte-for-byte as it was — the decision branch can only
+    /// ever ADD a mark where there was none.</para>
+    /// </summary>
+    internal static CPlayerActor? AttentionActor => TurnActor ?? DecisionOwner;
+
+    /// <summary>True when the character the game is waiting on (turn OR open decision) is one the
+    /// LOCAL client controls. Offline every merc is ours.</summary>
+    internal static bool LocalOwnsAttention
+    {
+        get
+        {
+            CPlayerActor? actor = AttentionActor;
+            return actor != null && (!FFSNetwork.IsOnline || actor.IsUnderMyControl);
+        }
+    }
+
     /// <summary>True when the character at turn is one the LOCAL client controls. Offline every
     /// merc is ours, so this is simply "somebody is at turn" there.</summary>
     internal static bool LocalOwnsTurn
@@ -244,25 +325,40 @@ internal static class CharacterFocus
     }
 
     /// <summary>
-    /// The LOCAL player's turn mark — the colour their own control board and their own Steam
-    /// avatar wear. Green while they own the character at turn AND are looking at it; red while
-    /// they own it but are looking at somebody else (the user's "wrong character" warning); none
-    /// otherwise.
+    /// The LOCAL player's attention mark — the colour their own control board and their own Steam
+    /// avatar wear. Green while they own the character the game is waiting on AND are looking at
+    /// it; red while they own it but are looking at somebody else (the user's "wrong character"
+    /// warning); none otherwise.
+    ///
+    /// <para>"The character the game is waiting on" is <see cref="AttentionActor"/>: the character
+    /// AT TURN, or — when nobody is at turn, which is the whole of an enemy's action — the
+    /// character that owes an OPEN DECISION (<see cref="DecisionOwner"/>). The colours and the
+    /// blink are unchanged; only the set of moments in which they appear grew, and it grew by
+    /// exactly the moments the user reported as unmarked ("Der Character der aktuell eine
+    /// Entscheidung treffen muss soll genauso gehighlighted werden wie zuvor auch"). Both states
+    /// mean one thing to the player — <b>the game is waiting on THIS character of yours</b> — so
+    /// they are deliberately ONE cue rather than two competing ones.</para>
     /// </summary>
     internal static FocusTurnMark LocalMark
     {
         get
         {
-            if (!LocalOwnsTurn)
+            // ONE walk of the attention chain per read (it is a per-frame consumer): resolve the
+            // actor once and ask the ownership question of THAT object, instead of calling
+            // LocalOwnsAttention and then re-resolving for the comparison below.
+            CPlayerActor? attention = AttentionActor;
+            if (attention == null || (FFSNetwork.IsOnline && !attention.IsUnderMyControl))
                 return FocusTurnMark.None;
-            // NO OVERRIDE ⇒ we are looking at whatever the game presents, and during our OWN turn
-            // that IS the acting character (the game selects it and switches the hand to it). So
-            // "correct" is the state by construction, and it does not depend on a card rebuild
-            // having run this frame — which matters, because Rebuild is edge-driven and the mark
-            // is read every frame.
+            // NO OVERRIDE ⇒ we are looking at whatever the game presents, and the game presents
+            // the character it is waiting on: during our own turn the acting character (it selects
+            // it and switches the hand to it), and during a decision the deciding hand — the card
+            // board resolves exactly that (CardsDriver.CurrentHand = DecidingHand() ?? ActiveHand(),
+            // and DecidingHand IS what DecisionOwner reads). So "correct" is the state by
+            // construction, and it does not depend on a card rebuild having run this frame — which
+            // matters, because Rebuild is edge-driven and the mark is read every frame.
             if (_focused == null)
                 return FocusTurnMark.AtTurnCorrect;
-            return ReferenceEquals(_focused, TurnActor)
+            return ReferenceEquals(_focused, attention)
                 ? FocusTurnMark.AtTurnCorrect
                 : FocusTurnMark.AtTurnWrong;
         }
@@ -273,6 +369,25 @@ internal static class CharacterFocus
     /// at turn — so the two machines can never disagree about the turn itself, only about the
     /// focus (which is the one thing the wire actually carries). Unknown peer / no record /
     /// they do not own the turn ⇒ <see cref="FocusTurnMark.None"/>.
+    ///
+    /// <para>KNOWN LIMIT, stated rather than papered over: this is about the TURN only, so a peer
+    /// wearing the LOCAL cue for a pending DECISION (<see cref="DecisionOwner"/>, no actor at turn)
+    /// gets <see cref="FocusTurnMark.None"/> here — their mirrored board and mirrored initiative
+    /// track show nothing where their own board blinks. It is not a wire omission that could be
+    /// closed by sending one more bit of record 22: the receiver would still need the ID of the
+    /// character the peer is being waited on for, and BOTH existing resolvers refuse to name it on
+    /// a non-controlling client BY THE GAME'S OWN DESIGN — <c>UIScenarioMultiplayerController.
+    /// RefreshDamagePhase</c> routes a remote decision through <c>TakeDamagePanel.ShowOtherPlayer</c>,
+    /// which ends in <c>myWindow.Hide(instant: true)</c> (TakeDamagePanel.cs:1133), so
+    /// <c>IsOpen</c> is false and both <c>CardsGameApi.DecidingHand</c> and
+    /// <c>DecisionDockSurface.PromptOwner</c> answer null there. Closing it needs either a third
+    /// resolver reading the panel's fields around that gate or a new wire record; neither is in
+    /// scope for this fix. What DOES already cross: vanilla's own red
+    /// <c>InitiativeTrackPlayerBehaviour.ShowWarning</c> pulse is played on EVERY client
+    /// (Choreographer.cs:5477 runs before the online branch) and is plain GameObject +
+    /// transform state, so <c>RemoteWidgetMirror.Pair.Apply</c> carries it onto the mirrored track
+    /// unchanged — a peer's copy of the track shows the red damage overlay exactly as its owner
+    /// does.</para>
     /// </summary>
     /// <summary>
     /// The stable actor id of the character a PEER is looking at (0 = unknown / no record). The
@@ -703,8 +818,14 @@ internal static class CharacterFocus
         {
             if (_focused != null)
                 return _focused;
-            if (LocalOwnsTurn)
-                return TurnActor;
+            // No override ⇒ we are looking at the character the game is waiting on, when that is
+            // one of ours: the actor at turn, or (nobody at turn) the one owing an open decision.
+            // In the steady state this is the same object PresentedActor already resolves to — the
+            // card board presents DecidingHand() ?? ActiveHand() — so the wire payload is unchanged
+            // in every pre-existing situation; it only stops depending on a rebuild having landed.
+            CPlayerActor? attention = AttentionActor; // one chain walk — per-frame consumer
+            if (attention != null && (!FFSNetwork.IsOnline || attention.IsUnderMyControl))
+                return attention;
             return PresentedActor;
         }
     }
