@@ -597,6 +597,18 @@ internal sealed class UguiPointer
             // the verification trace for the whole far-click path (test #18).
             if (!Core.PerfConfig.Quiet)
                 Core.VRLog.Info("Interact", $"uGUI click: '{_pressedClickHandler.name}' ({_sourceTag}).");
+
+            // REFUSAL ACKNOWLEDGEMENT (user report 2026-08-09: "das Ablehnen-Geräusch … immer
+            // dann … wenn man in der Initiativreihenfolge ein Bild von einem nicht-spielbaren
+            // Character anklickt"). It sits HERE, not in RayUguiDriver or PokeInteractor, because
+            // this is the one line both VR click paths pass through — the laser and the fingertip
+            // poke — and the player will try both. A poke that PokeInteractor.PressAllowed
+            // withheld never pressed and therefore never reaches this line, so a touch the grip
+            // chord refused stays silent, which is correct: it was not a click. Called AFTER the
+            // dispatch above so vanilla has already had its full turn at the event; the method
+            // returns in two reference tests for every click that is not an initiative portrait,
+            // and it cannot influence what the click did.
+            WorldUI.Surfaces.InitiativeRefusalSound.NoticeClick(_pressedClickHandler);
         }
 
         // End any active drag (StandaloneInputModule fires endDrag after up+click) and
