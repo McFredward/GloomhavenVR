@@ -593,6 +593,12 @@ internal sealed class RemoteControlBoard
         _track?.SetPeerFocus(Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId),
                              Board.CharacterFocus.AttentionIdForPeer(_owner.PlayerId),
                              Board.CharacterFocus.MarkForPeer(_owner.PlayerId));
+        // TRACK SELECTION (extension record 23) — the third per-viewer fact of this widget, and
+        // the one that had been answered with the WRONG source: vanilla's own selection frame is
+        // not the character focus (record 22) and comes apart from it the moment an enemy is at
+        // turn or a mod focus is taken. Handed in on the same seam so the drive, the hover
+        // override, the frame override and the rings all settle in one frame.
+        _track?.SetPeerSelection(_owner.TrackSelectionIds, _owner.TrackSelectionCount);
         _track?.TickLive();
         _objectives?.TickLive();
     }

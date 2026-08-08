@@ -27,11 +27,20 @@ namespace GloomhavenVR.Net;
 /// blocked — <c>WorldUI.Patches.InitiativeHoverCardBlock</c>), so the flag is simply false
 /// for them. PUBLIC INFO throughout: the track and the monster preview are scenario-wide
 /// widgets every client already renders identically; no card identity is read or sent.
+///
+/// <para>SECOND SAMPLE, SAME WIDGET: <see cref="SampleSelectedActorIds"/> reads the track's
+/// vanilla SELECTION FRAMES (extras record <see cref="NetProtocol.ExtIdTrackSelection"/>). It
+/// lives here because it is the other half of one job — "what is per-VIEWER about this client's
+/// initiative track", the state a mirrored track must never copy off the observer's own widget.
+/// Everything else the track shows (the reorder slide, the portraits, the discs, grayscale, the
+/// extra-turn and damage-warning animations, the at-turn ordering) is GLOBAL or host-replicated
+/// and needs no wire at all.</para>
 /// </summary>
-/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes (extras extension record 16, 5 B,
-/// only while hovering). Sends a public track entry's stable id + one boolean; the popup
-/// CONTENT never rides the wire (receivers show their own copy of the public widget). See
-/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes (extras extension records 16, 5 B while
+/// hovering, and 23, 1 + 4·n B while a selection frame stands). Sends PUBLIC track entries' stable
+/// ids and one boolean; no popup CONTENT and no card identity ever ride the wire (receivers show
+/// their own copy of the public widget). See INVARIANTS-Net-Rig.md "Net — content
+/// classification".</remarks>
 internal static class InitiativeHoverSampler
 {
     /// <summary>
@@ -82,5 +91,72 @@ internal static class InitiativeHoverSampler
             // not an error worth a log line at 15 Hz.
         }
         return false;
+    }
+
+    /// <summary>
+    /// THE SELECTION FRAMES the local track is showing right now — extras record
+    /// <see cref="NetProtocol.ExtIdTrackSelection"/>. Fills <paramref name="into"/> with the stable
+    /// actor ids of every entry whose vanilla <c>selectionObject</c> is genuinely ON SCREEN, and
+    /// returns how many were written (0 = no frame anywhere, ⇒ no record).
+    ///
+    /// <para>WHY THE WIDGET AND NOT THE MODEL. Every alternative source re-DERIVES the frame:
+    /// <c>InitiativeTrack.SelectedActor()</c> is the track's own bookkeeping and is not the same
+    /// thing as a visible frame (<c>ToggleSelection</c> refuses to show one for an actor
+    /// <c>IsTakingExtraTurn</c>, InitiativeTrackActorAvatar.cs:128-135), and
+    /// <c>Choreographer.CurrentActor</c> is only the auto-select half of the story. Reading
+    /// <c>selectionObject.activeInHierarchy</c> is the pixel itself: whatever vanilla decided, for
+    /// whatever reason, present or future, is what goes on the wire — which is exactly the user's
+    /// ruling ("die highlights … so wie der Spieler sie sieht").</para>
+    ///
+    /// <para>WHY A LIST: <c>InitiativeTrack.Select</c> skips the deselect while the incoming actor
+    /// is taking an extra turn (InitiativeTrack.cs:340), so two frames can stand at once. Capped at
+    /// the caller's buffer AND <see cref="NetProtocol.TrackSelectionMaxIds"/>.</para>
+    ///
+    /// <para>PLAYERS, ENEMIES AND OBJECTS ALIKE — the frame is a TRACK fact and the ids ride the
+    /// same <c>NetFigures.StableActorId</c> space record 16 already uses, which is what lets a
+    /// peer's mirrored track finally frame a selected ENEMY (the gap record 22 structurally could
+    /// not express, because a character focus cannot name a monster).</para>
+    ///
+    /// <para>Wrapped whole: a half-built track must read as "no frame", never throw inside the
+    /// extras sender.</para>
+    /// </summary>
+    internal static int SampleSelectedActorIds(int[] into)
+    {
+        if (into == null || into.Length == 0)
+            return 0;
+        int n = 0;
+        try
+        {
+            InitiativeTrack track = InitiativeTrack.Instance;
+            if (track == null || !track.gameObject.activeInHierarchy)
+                return 0;
+            System.Collections.Generic.List<InitiativeTrackActorBehaviour> ui = track.actorsUI;
+            if (ui == null)
+                return 0;
+
+            int cap = into.Length < NetProtocol.TrackSelectionMaxIds
+                ? into.Length
+                : NetProtocol.TrackSelectionMaxIds;
+            for (int i = 0; i < ui.Count && n < cap; i++)
+            {
+                InitiativeTrackActorBehaviour beh = ui[i];
+                if (beh == null || !beh.gameObject.activeSelf || beh.Actor == null)
+                    continue;
+                InitiativeTrackActorAvatar avatar = beh.Avatar;
+                UnityEngine.GameObject? frame = avatar != null ? avatar.selectionObject : null;
+                if (frame == null || !frame.activeInHierarchy)
+                    continue;
+                int id = NetFigures.StableActorId(beh.Actor);
+                if (id == 0)
+                    continue; // 0 is "none" everywhere in this system — not expressible
+                into[n++] = id;
+            }
+        }
+        catch
+        {
+            // Degrade to "no frame": a torn-down singleton mid-read is a frame-order artefact.
+            return 0;
+        }
+        return n;
     }
 }

@@ -29,8 +29,49 @@ namespace GloomhavenVR.Net;
 /// "full card art only exists for the local hand" premise wrong. The portrait does not have to be
 /// reached at all: <c>CharacterPortraitsProvider</c> has ALREADY assigned it to the live track's
 /// <c>RawImage</c> on this client, and <c>Object.Instantiate</c> copies live component state. So
-/// cloning the game's own track brings the portraits, the class colours, the initiative discs, the
-/// selection frame, the hover state and the reorder animation across for free.
+/// cloning the game's own track brings the portraits, the class colours, the initiative discs and
+/// the reorder animation across for free.
+///
+/// ─── EVERY HIGHLIGHT THE TRACK CAN SHOW, AND WHERE EACH ONE COMES FROM ─────────────────────────
+/// User ruling 2026-08-08: "auch die highlights der Initativreihenfolge auf dem remote board, so
+/// wie der Spieler sie sieht. Sie unterscheidet sich also ggf. von der Anzeige auf dem eigenen
+/// board." The inventory below is the answer to that, one line per state, so the next reader does
+/// not have to re-derive which of them are safe to copy off the LOCAL widget.
+///
+/// GLOBAL (bit-identical on every client — copied straight off the mirrored widget, ZERO wire):
+///   • the ENTRY SET and their on-screen ORDER (<c>UpdateInitiativeTrack</c> + <c>CompareTo</c>);
+///   • the inter-round REORDER SLIDE (plain transform tweens, copied per frame by Pair.Apply);
+///   • GRAYSCALE — <c>SetGrayscale</c>, i.e. an exhausted hero and, during the action phases,
+///     every character that is not at turn (InitiativeTrack.cs:614/625). Its inputs are the phase
+///     and <c>Choreographer.m_CurrentActor</c>, both host-replicated. It is a MATERIAL swap, which
+///     is why <c>RemoteWidgetMirror.Pair.CopyMaterial</c> had to exist before it could mirror;
+///   • the DEAD state (header off / dead image on, <c>SetDeadState</c>) — model, active flags;
+///   • the EXTRA-TURN animation (<c>ShowExtraTurn(actor.IsTakingExtraTurn)</c>) — model;
+///   • the DAMAGE-WARNING animation (<c>InitiativeTrackPlayerBehaviour.ShowWarning</c>, raised at
+///     Choreographer.cs:5479 and cleared at :5582). It rides the game's own replicated message
+///     <c>PlayerSelectingToAvoidDamageOrNot</c>, which EVERY client processes (the branches inside
+///     it are about who holds the prompt, not about who runs the case), so it is already identical
+///     on every machine and needs NOT ONE WIRE BYTE. It animates through a GUIAnimator, i.e.
+///     LeanTween writes on transforms / colours / CanvasGroup alpha / material properties — all of
+///     which Pair.Apply now carries;
+///   • the persistent-ability chips and the multiplayer controller badge — model.
+///
+/// PER-VIEWER (must NEVER be copied off the local widget — each has its own wire record):
+///   • HOVER: the name label, the enemy info popup, the minimized-entry width and the
+///     ExtendedButton grow/nudge — extension record 16, applied by <see cref="ApplyHoverOverrides"/>;
+///   • the mod's FOCUS / AT-TURN RINGS — extension record 22 plus this client's own read of who is
+///     at turn, applied by <see cref="ApplyFocusRings"/>;
+///   • vanilla's SELECTION FRAME — extension record 23, applied by
+///     <see cref="ApplySelectionOverride"/>. See that method for why record 22 could not answer it.
+///
+/// DELIBERATELY NOT MIRRORED (the ruling's own exception, "während der Auswahlphase die
+/// tatsächlichen Oberseiten der Karten"): the INITIATIVE NUMBER and the initiative FX state of a
+/// foreign player during <c>SelectAbilityCardsOrLongRest</c>. Vanilla hides both behind
+/// <c>IsUnderMyControl</c> (<c>InitiativeTrackPlayerAvatar.CalculateInitiative</c>,
+/// <c>InitiativeTrackActorAvatar.RefreshInitiative</c>:203-227 — the FX literally encodes how many
+/// round cards that player has committed). The mirror therefore keeps THIS client's entitled view
+/// of those two, which is the strictly less-informed one; carrying the owner's would leak their
+/// chosen initiative, i.e. their card.
 ///
 /// ─── WHAT IT DRAWS NOW ─────────────────────────────────────────────────────────────────────────
 /// PRIMARY — <see cref="RemoteWidgetMirror"/> over <c>InitiativeTrack.Instance.transform</c>: the
@@ -57,8 +98,11 @@ namespace GloomhavenVR.Net;
 /// estimate) is gone: on the Steel board the owner's track sits at (0, 0.200, −0.070), which is
 /// 9 mm up and 16 mm proud of where this used to draw it — part of defect (c).
 /// </summary>
-/// <remarks>CLASSIFICATION: GLOBAL — ZERO wire. The mirrored widget is a scenario-wide singleton the
-/// local client already renders; the fallback's actor LIST is
+/// <remarks>CLASSIFICATION: MIXED. The mirrored WIDGET is GLOBAL — a scenario-wide singleton the
+/// local client already renders, at ZERO wire — and the three PER-VIEWER highlight families laid on
+/// top of it cost extension records 16 (hover), 22 (focus, shared with the board outlines) and 23
+/// (vanilla's selection frame). Each names a PUBLIC track entry by its stable ActorGuid hash and
+/// nothing else. The fallback's actor LIST is
 /// <c>ScenarioManager.Scenario.AllAliveActors</c> and its per-actor NUMBERS are PER-ACTOR MODEL
 /// gated by <see cref="RevealGate"/> exactly as vanilla gates its own. See INVARIANTS-Net-Rig.md
 /// "Net — content classification".</remarks>
@@ -121,10 +165,13 @@ internal sealed class RemoteInitiativeTrack
     }
 
     /// <summary>Per-FRAME: keep the mirrored widget in step with the original, so the track's
-    /// reorder slide and selection pop play out on a peer's board instead of stepping at the 4 Hz
-    /// content cadence — then re-assert the HOVER OVERRIDES on top (the drive is a faithful copy
-    /// of the LOCAL widget, and hover is per-player state; see <see cref="ApplyHoverOverrides"/>).
-    /// No-op while the fallback is live.</summary>
+    /// reorder slide and its animations play out on a peer's board instead of stepping at the 4 Hz
+    /// content cadence — then re-assert every PER-VIEWER override on top, in a fixed order. The
+    /// drive is a faithful copy of the LOCAL widget, so each override's job is to delete the
+    /// observer's own state and re-apply the OWNER's: hover (record 16), vanilla's selection frame
+    /// (record 23), the mod's focus/turn rings (record 22), and the fallback strip's tint. The
+    /// order matters only in that the rings run last, so a ring is never seated on a node the
+    /// hover pass is still re-posing this frame. No-op while the fallback is live.</summary>
     public void TickLive()
     {
         _mirror.TickLive();
@@ -278,49 +325,104 @@ internal sealed class RemoteInitiativeTrack
                                 "is exactly what a pre-record build shows)."));
     }
 
+    // ---------------------------------------------------------------- peer selection frame --
+
+    /// <summary>The stable ids of the entries the PEER's OWN track is framing (extension record
+    /// 23). Only the first <see cref="_peerSelectionCount"/> entries are meaningful.</summary>
+    private int[] _peerSelectionIds = System.Array.Empty<int>();
+
+    private int _peerSelectionCount;
+
+    /// <summary>Change-gate for the selection log (a cheap order-sensitive hash of the id set;
+    /// int.MinValue = never logged).</summary>
+    private int _loggedSelection = int.MinValue;
+
+    /// <summary>Hand the owner's synced SELECTION FRAMES in (called per frame by the board next to
+    /// <see cref="SetPeerHover"/> / <see cref="SetPeerFocus"/>). Cheap: two field writes and a
+    /// change-gated log.</summary>
+    public void SetPeerSelection(int[]? ids, int count)
+    {
+        _peerSelectionIds = ids ?? System.Array.Empty<int>();
+        _peerSelectionCount = count > 0 && count <= _peerSelectionIds.Length ? count : 0;
+
+        int key = _peerSelectionCount;
+        for (int i = 0; i < _peerSelectionCount; i++)
+            key = key * 31 + _peerSelectionIds[i];
+        if (key == _loggedSelection)
+            return;
+        _loggedSelection = key;
+        VRLog.Info("Net", "Remote initiative track selection: " +
+                          (_peerSelectionCount > 0
+                              ? $"{_peerSelectionCount} framed entr(y/ies) (extension record 23 — the " +
+                                "stable ids of the entries THIS peer's own track is framing with " +
+                                "vanilla's selectionObject, read off their live widget). Players, " +
+                                "ENEMIES and objects alike; the LOCAL player's frame is forced off " +
+                                "this mirror entirely."
+                              : "none (no record 23 from this peer, or their own track shows no " +
+                                "frame — either way the mirror draws none, which is honest; drawing " +
+                                "MY frame on THEIR board is the bug this replaced)."));
+    }
+
+    /// <summary>True while <paramref name="actorId"/> is one of the entries the peer's own track is
+    /// framing right now.</summary>
+    private bool PeerFrames(int actorId)
+    {
+        if (actorId == 0)
+            return false;
+        for (int i = 0; i < _peerSelectionCount; i++)
+        {
+            if (_peerSelectionIds[i] == actorId)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>Change-gate for the selection-override coverage line (one-shot per session).</summary>
     private bool _loggedSelectionCoverage;
 
     /// <summary>
-    /// THE GAME'S OWN SELECTION FRAME, re-decided from the PEER's focus — the third member of the
-    /// "the mirror copied MY state onto THEIR board" family, after the hover popup/name (defect (b),
-    /// 2026-08-04) and the hover GROW (2026-08-07).
+    /// THE GAME'S OWN SELECTION FRAME, re-decided from the PEER's OWN TRACK — the third member of
+    /// the "the mirror copied MY state onto THEIR board" family, after the hover popup/name (defect
+    /// (b), 2026-08-04) and the hover GROW (2026-08-07).
     ///
-    /// User, verbatim: "Die Auswahl, die in der Initiativreihenfolge angezeigt wird für den
-    /// jeweiligen Spieler, soll auch synchronisiert werden, so dass andere Spieler sehen können,
-    /// welchen Character jemand gerade ausgewählt hat."
+    /// User, verbatim (2026-08-08): "auch die highlights der Initativreihenfolge auf dem remote
+    /// board, so wie der Spieler sie sieht. Sie unterscheidet sich also ggf. von der Anzeige auf dem
+    /// eigenen board."
     ///
-    /// WHAT WAS WRONG. Vanilla's selection is a plain GameObject the avatar switches on and off
-    /// (<c>InitiativeTrackActorAvatar.ToggleSelection</c> → <c>selectionObject.SetActive</c>,
-    /// driven by <c>InitiativeTrack.Select</c>/<c>Deselect</c>), and it is strictly CLIENT-LOCAL —
-    /// nothing about it is networked, and the LOCAL track is the only track this client has. So
-    /// <c>RemoteWidgetMirror.Pair.Apply</c>, which copies <c>activeSelf</c> verbatim, put MY
-    /// selected portrait's frame on EVERY peer's mirrored track. ModBuild 81's focus RINGS were
-    /// then painted on top of that, which is why a peer's track could show two different answers to
-    /// "which character has this player selected" at the same time.
+    /// WHAT WAS WRONG, TWICE. Vanilla's selection is a plain GameObject the avatar switches on and
+    /// off (<c>InitiativeTrackActorAvatar.ToggleSelection</c> → <c>selectionObject.SetActive</c>,
+    /// driven by <c>InitiativeTrack.Select</c>/<c>Deselect</c>), and the LOCAL track is the only
+    /// track this client has.
+    /// <list type="number">
+    /// <item>Before ModBuild 84, <c>RemoteWidgetMirror.Pair.Apply</c> copied <c>activeSelf</c>
+    ///   verbatim, so MY selected portrait's frame stood on EVERY peer's mirrored track.</item>
+    /// <item>ModBuild 84 stopped that and re-enabled the frame for the peer's record-22 focus id
+    ///   instead. That fixed the wrong-SOURCE half and left a wrong-FACT half: the focus and the
+    ///   frame are different things, and they come apart in the three commonest states at the
+    ///   table — an ENEMY or a foreign player at turn (vanilla auto-selects
+    ///   <c>Choreographer.m_CurrentActor</c>, InitiativeTrack.cs:620, while record 22 carries the
+    ///   peer's own presented character or nothing), and a live MOD focus (which
+    ///   <c>Board/Patches/SelectionGuardPatches</c> suppresses vanilla's whole <c>OnClick</c> for,
+    ///   so their real frame never moves off the at-turn actor).</item>
+    /// </list>
     ///
     /// WHAT IT DOES NOW. The frame is forced OFF on every mirrored entry and re-enabled only for
-    /// the entry the PEER is looking at — <c>Board.CharacterFocus.FocusIdForPeer</c>, i.e.
-    /// extension record 22, the id this client already receives and already rings. Record 22
-    /// carries <c>CharacterFocus.LookingAt</c>, which IS "the character this player currently has
-    /// selected" (their focus override when they set one, otherwise the character the game itself
-    /// presents to them), so the game's selection visual and the mod's focus ring are two
-    /// renderings of ONE synced fact and can no longer disagree. No new wire record was needed.
+    /// the entries EXTENSION RECORD 23 names — the ids the peer's own <c>selectionObject</c>s were
+    /// literally ACTIVE on when their packet was sampled. There is no re-derivation left to be
+    /// wrong: whatever vanilla decided on their machine, for whatever reason, is what shows here,
+    /// which is exactly the ruling. Vanilla's <c>IsTakingExtraTurn</c> suppression therefore needs
+    /// no reimplementation either — it already ran on the SENDER, before the flag was read.
     ///
-    /// Vanilla's own suppression is honoured verbatim: <c>ToggleSelection</c> refuses to show the
-    /// frame for an actor <c>IsTakingExtraTurn</c>, so this does too — a mirrored track must not
-    /// invent a state the owner's own track cannot be in.
+    /// AND THE ENEMY/OBJECT GAP IS CLOSED. The previous build recorded it as a standing limitation
+    /// ("record 22 carries a CHARACTER focus, so a peer whose selection sits on an ENEMY shows no
+    /// frame"). Record 23 carries whatever the track framed, in the same stable id space the hover
+    /// record already uses for enemies, and <see cref="HoverNode.ActorId"/> is built from
+    /// <c>NetFigures.StableActorId(beh.Actor)</c> for every entry — enemies included — so a peer
+    /// who selects a monster now gets that monster framed on their mirrored track.
     ///
-    /// A peer with NO record 22 (pre-record build, no scenario) gets NO selection frame at all
+    /// A peer with NO record 23 (pre-record build, no scenario) gets NO selection frame at all
     /// rather than mine. That is the same choice the hover pass makes and for the same reason:
     /// showing nothing is honest, showing my state on their board is a lie.
-    ///
-    /// KNOWN LIMIT, stated rather than papered over: record 22 carries a CHARACTER focus, so a peer
-    /// whose vanilla selection sits on an ENEMY or an object entry shows NO frame here instead of
-    /// that enemy's. Closing it would cost a new wire record for a state the user did not ask about
-    /// ("welchen Character jemand gerade ausgewählt hat"), and the degradation is strictly better
-    /// than the bug it replaces — nothing, rather than MY selection on THEIR board. The peer's
-    /// HOVER over an enemy is synced already (record 16) and still lands on the right entry.
     /// </summary>
     private void ApplySelectionOverride()
     {
@@ -337,9 +439,7 @@ internal sealed class RemoteInitiativeTrack
             if (node.Selection == null)
                 continue;
             resolved++;
-            bool want = _peerFocusActorId != 0
-                        && node.ActorId == _peerFocusActorId
-                        && !TakingExtraTurn(node.Actor);
+            bool want = PeerFrames(node.ActorId);
             if (node.Selection.activeSelf != want)
                 node.Selection.SetActive(want);
         }
@@ -350,20 +450,10 @@ internal sealed class RemoteInitiativeTrack
             VRLog.Info("Net", $"Remote initiative track selection override: {resolved}/{_hoverNodes.Count} " +
                               "entr(y/ies) resolved the game's own selectionObject on the clone. The LOCAL " +
                               "player's selection frame is forced OFF on this mirror and re-applied only for " +
-                              "the character the PEER has selected (extension record 22) — a peer's mirrored " +
-                              "track now shows THEIR selection the way their own track shows it.");
+                              "the entries the PEER's OWN track is framing (extension record 23, sampled from " +
+                              "their live widget's active flag — not re-derived from their character focus, " +
+                              "which is a different fact). Enemies and object entries included.");
         }
-    }
-
-    /// <summary>Guarded <c>CActor.IsTakingExtraTurn</c> — vanilla's own exemption in
-    /// <c>ToggleSelection</c>. A mid-teardown actor reads as "extra turn" (⇒ no frame), which is
-    /// the quiet answer.</summary>
-    private static bool TakingExtraTurn(CActor? actor)
-    {
-        if (actor == null)
-            return true;
-        try { return actor.IsTakingExtraTurn; }
-        catch { return true; }
     }
 
     /// <summary>
@@ -440,7 +530,12 @@ internal sealed class RemoteInitiativeTrack
             }
             if (attentionId != 0 && id == attentionId && turnTint != null)
                 _chips[i].SetFocusTint(turnTint);
-            else if (_peerFocusActorId != 0 && id == _peerFocusActorId)
+            // The FALLBACK strip has no selection FRAME to switch, so vanilla's frame (record 23)
+            // and the mod's focus ring (record 22) collapse onto the one cue this path can draw:
+            // the selection tint. Either fact lighting the chip is strictly better than a strip
+            // that shows neither, and the mirrored path — which is what a real session runs —
+            // keeps them visually distinct.
+            else if ((_peerFocusActorId != 0 && id == _peerFocusActorId) || PeerFrames(id))
                 _chips[i].SetFocusTint(Board.FocusCue.SelectionRingTint());
             else
                 _chips[i].SetFocusTint(null);
@@ -453,14 +548,13 @@ internal sealed class RemoteInitiativeTrack
     {
         public int ActorId;
 
-        /// <summary>The LIVE actor behind this entry — read only for the two flags vanilla's own
-        /// selection rule consults (<c>IsTakingExtraTurn</c>). Never written.</summary>
-        public CActor? Actor;
-
         /// <summary>Clone of the entry's <c>InitiativeTrackActorAvatar.selectionObject</c> — the
         /// GAME's own selection frame, which <c>Pair.Apply</c> copies from the LOCAL track and
         /// which <see cref="ApplySelectionOverride"/> therefore has to re-decide from the PEER's
-        /// record-22 focus. Null when the avatar carries no selection object.</summary>
+        /// record-23 selection set. Null when the avatar carries no selection object.
+        /// <para>No live <c>CActor</c> is cached beside it any more: vanilla's
+        /// <c>IsTakingExtraTurn</c> exemption is not re-implemented here, because it already ran on
+        /// the SENDER before the frame's active flag was sampled.</para></summary>
         public GameObject? Selection;
 
         /// <summary>Mod-owned focus/turn ring seated on the CLONE of this entry's avatar portrait
@@ -523,7 +617,6 @@ internal sealed class RemoteInitiativeTrack
                 var node = new HoverNode
                 {
                     ActorId = NetFigures.StableActorId(beh.Actor),
-                    Actor = beh.Actor,
                 };
 
                 // The GAME's own selection frame on the CLONE (see ApplySelectionOverride).
@@ -732,9 +825,13 @@ internal sealed class RemoteInitiativeTrack
             // Content cadence: an entry can swap its ACTOR without a structural rebuild
             // (vanilla reuses entry objects across rounds), which the rebuild-stamp key cannot
             // see — so the hover cache re-resolves here too, then the overrides re-assert on
-            // the freshly synced clone (the same frame must never show the local hover).
+            // the freshly synced clone (the same frame must never show the local hover, and — the
+            // same argument, the same family — never the local SELECTION FRAME either: a rebuild
+            // lands with the LOCAL widget's active flags copied verbatim, so the frame is
+            // re-decided from the peer's record-23 set before anything can be presented).
             InvalidateHoverCache();
             ApplyHoverOverrides();
+            ApplySelectionOverride();
             return;
         }
 
