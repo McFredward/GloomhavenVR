@@ -16,11 +16,31 @@ namespace GloomhavenVR.Board;
 /// <list type="bullet">
 /// <item>a STEADY blue-white ring on the initiative entry of the character the player is currently
 ///   looking at — the user's "the initiative track must make the current selection visible";</item>
-/// <item>a ring on the entry of the character AT TURN — the user's "the initiative track must also
-///   make it visually clear which character is currently at turn". It BLINKS green when the local
-///   player owns that character and is looking at it, BLINKS red when they own it but are looking
-///   elsewhere, and is a STEADY gold otherwise (a teammate's or a monster's turn: a fact, not a
-///   demand);</item>
+/// <item>a ring on the entry of the character THE GAME IS WAITING ON — the user's "the initiative
+///   track must also make it visually clear which character is currently at turn". It BLINKS green
+///   when the local player owns that character and is looking at it, BLINKS red when they own it
+///   but are looking elsewhere, and is a STEADY gold otherwise (a teammate's or a monster's turn:
+///   a fact, not a demand).
+///
+///   <para>"Waiting on" is <c>CharacterFocus.AttentionActor</c> = the actor at turn, or — when
+///   nobody is at turn, which is the WHOLE of an enemy's action — the character that owes an OPEN
+///   DECISION. Reading only the turn was the 2026-08-08 defect: a take-damage prompt is raised
+///   inside the enemy's Action phase, where <c>Choreographer.CurrentPlayerActor</c> is null, so the
+///   character that actually owed the player a choice wore no ring and its board wore no stroke
+///   ("im Falle einer Schadensauswahl ist das Highlighting nicht sichtbar, nur das rote Overlay").
+///   The decision owner is NOT resolved here — it comes from
+///   <c>Cards.CardsGameApi.DecidingHand</c> through <c>CharacterFocus.DecisionOwner</c>, the same
+///   deciding-actor chain the card board presents from and <c>DecisionDockSurface.PromptOwner</c>
+///   attributes the docked prompt with, so the highlight and the prompt it points at can never
+///   name two different characters.</para>
+///
+///   <para>IT DOES NOT REPLACE VANILLA'S DAMAGE OVERLAY, and does not touch it: the red
+///   <c>InitiativeTrackPlayerBehaviour.ShowWarning</c> pulse the game plays on the ATTACKED actor
+///   (Choreographer.cs:5477) is a different statement — "this actor is being attacked" — and keeps
+///   running unchanged. The two also need not sit on the same portrait: vanilla marks
+///   <c>m_ActorBeingAttacked</c>, this marks the character that must DECIDE
+///   (<c>actorToShowCardsFor</c>), and for a damaged summon those are the summon and its
+///   summoner.</para></item>
 /// <item>the same blinking green/red as a STROKE on the outer edge of the local player's own
 ///   control board — the user's "the board gets a red blinking outline" and "the control board of
 ///   the player who owns the character at turn gets a blinking outline". Since 2026-08-08 that is
@@ -117,10 +137,14 @@ internal sealed class FocusDriver : MonoBehaviour
         }
 
         _tickFocused = CharacterFocus.LookingAt;
-        _tickTurn = CharacterFocus.TurnActor;
+        // THE CHARACTER THE GAME IS WAITING ON — the actor at turn, or (nobody at turn: the whole
+        // of an enemy's action) the one that owes an OPEN DECISION. Reading only the turn is what
+        // left a take-damage decision unmarked; see CharacterFocus.AttentionActor.
+        _tickAttention = CharacterFocus.AttentionActor;
         _tickMark = CharacterFocus.LocalMark;
 
         TickMrPalette();
+        TickAttentionLog();
         // PER-CARRIER ISOLATION, on top of the tick-wide TickGuard. TickGuard already stops one
         // throwing subsystem from starving input (the WorldUI incident's standing rule), but it
         // aborts the WHOLE tick: a single bad initiative entry would silently take the board
@@ -137,13 +161,13 @@ internal sealed class FocusDriver : MonoBehaviour
     }
 
     private CPlayerActor? _tickFocused;
-    private CPlayerActor? _tickTurn;
+    private CPlayerActor? _tickAttention;
     private FocusTurnMark _tickMark;
     private System.Action? _ringsCached;
     private System.Action? _boardCached;
     private System.Action? _readOnlyCached;
 
-    private void RunRings() => TickRings(_tickFocused, _tickTurn, _tickMark);
+    private void RunRings() => TickRings(_tickFocused, _tickAttention, _tickMark);
 
     private void RunBoard() => TickBoardFrame(_tickMark);
 
@@ -245,6 +269,77 @@ internal sealed class FocusDriver : MonoBehaviour
         }
     }
 
+    /// <summary>Change-gate for <see cref="TickAttentionLog"/>: attention actor id, whether it came
+    /// from the decision branch, and the mark. Zeroed state = never logged.</summary>
+    private int _loggedAttentionId;
+
+    private bool _loggedAttentionFromDecision;
+
+    private FocusTurnMark _loggedAttentionMark = (FocusTurnMark)(-1);
+
+    /// <summary>
+    /// ONE line whenever the answer to "who is the game waiting on, and what is the cue doing about
+    /// it" changes — never per frame (three-field change gate; a whole take-damage prompt is one
+    /// line, and an idle table costs three compares).
+    ///
+    /// <para>It exists because this is the exact question the 2026-08-08 hardware report was about:
+    /// "Der Character der aktuell eine Entscheidung treffen muss soll genauso gehighlighted werden
+    /// wie zuvor auch — im Falle einer Schadensauswahl ist das Highlighting nicht sichtbar, nur das
+    /// rote Overlay". The line names the owner, says WHERE the answer came from (turn vs open
+    /// decision), states the mark that was applied, and — for the decision branch — names what used
+    /// to suppress it, so a future "it is gone again" is answerable from the log alone.</para>
+    /// </summary>
+    private void TickAttentionLog()
+    {
+        CPlayerActor? attention = _tickAttention;
+        bool fromDecision = attention != null && CharacterFocus.TurnActor == null;
+        int id = Net.NetFigures.StableActorId(attention);
+        if (id == _loggedAttentionId && fromDecision == _loggedAttentionFromDecision
+            && _tickMark == _loggedAttentionMark)
+            return;
+        _loggedAttentionId = id;
+        _loggedAttentionFromDecision = fromDecision;
+        _loggedAttentionMark = _tickMark;
+
+        if (attention == null)
+        {
+            VRLog.Info("Board", "[Focus] the game is waiting on NOBODY (no actor at turn, no open "
+                                + "decision this client owns) — no attention ring on the initiative "
+                                + "track and no stroke on the control board.");
+            return;
+        }
+
+        string where = fromDecision
+            ? "an OPEN DECISION it owes (Cards.CardsGameApi.DecidingHand — the same deciding-actor "
+              + "chain the card board presents from and DecisionDockSurface.PromptOwner attributes "
+              + "the docked prompt with); nobody is at turn, which is normal for the whole of an "
+              + "enemy's action. BEFORE this build the cue read Choreographer.CurrentPlayerActor "
+              + "ALONE, which is null exactly there — so the decision owner got NO ring and NO board "
+              + "stroke, and vanilla's red InitiativeTrackPlayerBehaviour.ShowWarning pulse on the "
+              + "ATTACKED actor (Choreographer.cs:5477) was the only mark left. That pulse is "
+              + "untouched and still plays; this is drawn IN ADDITION to it"
+            : "its TURN (Choreographer.CurrentPlayerActor)";
+
+        string applied = _tickMark switch
+        {
+            FocusTurnMark.AtTurnCorrect =>
+                "APPLIED: blinking 'correct' ring on its initiative entry + the same blink as the "
+                + "stroke on the local control board (green, or calm white in mixed reality) — you "
+                + "own it and you are looking at it",
+            FocusTurnMark.AtTurnWrong =>
+                "APPLIED: blinking 'wrong character' ring on its initiative entry + the same blink "
+                + "as the stroke on the local control board (red, or pumping amber in mixed "
+                + $"reality) — you own it but you are looking at '{CharacterFocus.Describe(_tickFocused)}'",
+            _ =>
+                "APPLIED: steady gold ring on its initiative entry only (this client does not "
+                + "control that character, so the board stroke stays off — it states a fact, it "
+                + "does not ask you for anything)",
+        };
+
+        VRLog.Info("Board", $"[Focus] the game is waiting on '{CharacterFocus.Describe(attention)}' "
+                            + $"because of {where}. {applied}.");
+    }
+
     /// <summary>
     /// Keep a live READ-ONLY focus view current. The watched character's hand, piles and played
     /// cards change as THEY act, and none of those changes raise an event on this client (the
@@ -270,7 +365,7 @@ internal sealed class FocusDriver : MonoBehaviour
 
     // ------------------------------------------------------------------------- initiative rings --
 
-    private void TickRings(CPlayerActor? focused, CPlayerActor? turn, FocusTurnMark localMark)
+    private void TickRings(CPlayerActor? focused, CPlayerActor? attention, FocusTurnMark localMark)
     {
         InitiativeTrack track = InitiativeTrack.Instance;
         if (track == null)
@@ -279,17 +374,17 @@ internal sealed class FocusDriver : MonoBehaviour
             return;
         }
 
-        InitiativeTrackActorBehaviour? turnEntry = EntryFor(track, turn);
-        // Two rings never stack on one portrait: when the focus IS the actor at turn the turn ring
-        // (which carries the urgent colour) wins and the focus ring is skipped.
+        InitiativeTrackActorBehaviour? turnEntry = EntryFor(track, attention);
+        // Two rings never stack on one portrait: when the focus IS the character the game waits on,
+        // the attention ring (which carries the urgent colour) wins and the focus ring is skipped.
         InitiativeTrackActorBehaviour? focusEntry =
-            ReferenceEquals(focused, turn) ? null : EntryFor(track, focused);
+            ReferenceEquals(focused, attention) ? null : EntryFor(track, focused);
 
-        // The turn ring: blinking in the local mark's colour while the local player owns the turn,
-        // steady gold otherwise.
+        // The attention ring: blinking in the local mark's colour while the local player owns the
+        // character the game is waiting on (its turn, OR a decision it owes), steady gold otherwise.
         Color? turnTint = localMark != FocusTurnMark.None
             ? FocusCue.Tint(localMark)
-            : (turn != null ? FocusCue.AtTurnRingTint() : (Color?)null);
+            : (attention != null ? FocusCue.AtTurnRingTint() : (Color?)null);
 
         ApplyRing(_turnRings, turnEntry, turnTint, breathe: localMark != FocusTurnMark.None,
                   "GloomhavenVR.FocusTurnRing");
