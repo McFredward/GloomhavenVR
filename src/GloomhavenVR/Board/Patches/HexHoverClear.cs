@@ -1,3 +1,5 @@
+using System;
+using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
@@ -47,16 +49,68 @@ namespace GloomhavenVR.Board.Patches;
 ///   TileBehaviour, so the game's own null branch already cleared the tile ref but left
 ///   the previous hex's star lit; we now kill it.
 ///
+/// UNDISCOVERED-ROOM LEAK (user hardware report, ModBuild 90 — "pointing at a tile in an
+/// undiscovered room lights up the tile I last hovered in the discovered room"). The gate
+/// above was still too permissive, because an UNDISCOVERED hex is a perfectly ordinary
+/// <c>TileBehaviour</c> with a live <c>m_ClientTile</c> — the pick "is on a hex", so this
+/// postfix early-returned and the game got the last word. And the game's last word is a
+/// stale star:
+/// <code>
+///   // WSHD.cs:3220 — pointed tile is in an unrevealed map…
+///   if (tile.m_Tile.m_HexMap != null &amp;&amp; !tile.m_Tile.m_HexMap.Revealed
+///       &amp;&amp; (tile.m_Tile.m_Hex2Map == null || !tile.m_Tile.m_Hex2Map.Revealed))
+///   {
+///       if (!CanCursorHighlightUnrevealedTile(clientTile))   // :3330 — only dungeon EXIT tiles
+///       {
+///           s_CursorHighlightedTile = null;
+///           s_CursorHighlightedStar.gameObject.SetActive(false);   // hidden, NOT moved
+///       }
+///       else if (…) { ShowTooltipForTile(clientTile); }            // exit tile: star not moved either
+///       return;                                                    // ← never places a star
+///   }
+/// </code>
+/// So an undiscovered hex NEVER gets a star; the pooled star just stays parked — still
+/// positioned by the last <c>SetStarPos</c> (WSHD.cs:3000) on the last VALID hex, i.e. the
+/// last hex hovered inside the discovered room — and Update's unconditional tail (:487-489)
+/// re-activates it the very same frame. That is the reported symptom, exactly: point at the
+/// dark, the discovered room's last-hovered tile lights up.
+///
+/// THE ONE RULE (this class, since the ModBuild 90 fix): the cursor star may stay lit only
+/// while the game has actually placed it on the hex the VR pointer is resolving to RIGHT
+/// NOW; every other outcome CLEARS it — a miss never falls back to a remembered hex. That is
+/// three conditions, checked in <see cref="StarIsOnPointedHex"/>:
+/// 1. the pointer resolves to a live hex at all (collider → <c>TileBehaviour.m_ClientTile</c>),
+/// 2. that hex is REVEALED (the game's own :3220 test, inverted) — an undiscovered hex is a
+///    hex the game refuses to star, so any lit star is by definition somewhere else,
+/// 3. <c>s_CursorHighlightedTile</c> — the game's own record of which hex the star was moved
+///    to (set in lockstep with <c>SetStarPos</c> at :3253-3258, so it IS where the star sits)
+///    — equals that hex. This catches every remaining "the game did not (re)place the star
+///    this frame" case in one predicate: <c>Interactable()</c> gated off by
+///    <c>UIManager.IsPointerOverUI</c>, <c>DisplayCursorHoverStar</c> skipped entirely
+///    (<c>m_AllHexesHighlighted</c> / <c>LockView</c> / paused / WaitingForTileSelected), or
+///    the dungeon-EXIT unrevealed branch that sets the tile ref without moving the star.
+/// Both pointers are covered by construction: <see cref="BoardPick"/> is the single VR pick
+/// and it arbitrates fingertip (Near) over laser (Far), so whichever pointer owns the frame
+/// is the one this rule is applied to; a fingertip that leaves <c>[Board] TouchRange</c>
+/// while the laser has no hit collapses to <c>HasHit == false</c> → cleared.
+///
+/// TOOLTIP HALF (unchanged on purpose): <see cref="HideStaleTooltips"/> still runs ONLY when
+/// the pointer resolves to no hex at all. When the pointer IS on a hex the GAME owns the
+/// tooltip for it — it hides it itself for an undiscovered hex (:3227) and deliberately SHOWS
+/// it for an undiscovered dungeon-exit tile (:3236). Hiding it there would fight the game.
+///
 /// SCOPE / SAFETY:
 /// - <c>s_CursorHighlightedStar</c> is EXCLUSIVELY the cursor-hover indicator
 ///   (HexMode.Cursor). Placement / movement / attack / ability TargetSelection highlights
 ///   live in SEPARATE star dictionaries (s_PlacementStars, s_AttackStars, s_AbilityStars,
 ///   s_PossibleMoveStars, … — verified WSHD.cs:113-141), so real multi-frame targeting
 ///   highlighting is untouched — only the stale single hover star is killed.
-/// - Only runs while <see cref="BoardPick.InScenario"/> (never in Menu2D/ModalUI, never
-///   outside a scenario Controller), so vanilla behaviour outside a live scenario is intact.
-/// - When the VR pick IS on a real hex we early-return, leaving the game's fresh star up;
-///   re-hover therefore restores the star normally.
+/// - Only runs while <see cref="BoardPick.InScenario"/> (never in Menu2D, never outside a
+///   scenario Controller), so vanilla behaviour outside a live scenario is intact.
+/// - We only ever DEACTIVATE the star; nothing here activates one. Re-hovering a valid hex
+///   restores it through the game's own <c>DisplayCursorHoverStar</c> + Update tail.
+/// - When the star IS on the hex under the pointer we early-return, leaving the game's fresh
+///   star up untouched; the separate targeting star dictionaries are never read or written.
 ///
 /// STALE HOVER HINT (second stale-hover bug, same family — verified in the decompiled
 /// WSHD 2026-07-21): the info hint shown when hovering a loot tile ("2 Gold"), a closed
@@ -89,28 +143,136 @@ namespace GloomhavenVR.Board.Patches;
 [HarmonyPatch(typeof(WorldspaceStarHexDisplay), nameof(WorldspaceStarHexDisplay.Update))]
 internal static class HexHoverClear
 {
+    private const string Scope = "HexHover";
+
     private static readonly AccessTools.FieldRef<WorldspaceStarHexDisplay, HexSelect_Control?> CursorStarRef =
         AccessTools.FieldRefAccess<WorldspaceStarHexDisplay, HexSelect_Control?>("s_CursorHighlightedStar");
 
+    /// <summary>
+    /// The game's own record of which hex the cursor star was last MOVED to — written in
+    /// lockstep with <c>SetStarPos</c> (WSHD.cs:3253-3258), so it is where the star physically
+    /// sits. Comparing it with the hex under the VR pointer is condition 3 of the one rule.
+    /// </summary>
+    private static readonly AccessTools.FieldRef<WorldspaceStarHexDisplay, CClientTile?> CursorTileRef =
+        AccessTools.FieldRefAccess<WorldspaceStarHexDisplay, CClientTile?>("s_CursorHighlightedTile");
+
+    // ---- change-gated diagnostics (never per-frame) ------------------------------------------
+
+    /// <summary>Hex the highlight was last logged as SHOWING (null = last logged state was "cleared").</summary>
+    private static CClientTile? _loggedShown;
+
+    /// <summary>Reason last logged for a clear; null while the last logged state was "showing".</summary>
+    private static string? _loggedMiss;
+
+    private static int _errorLogs;
+
     private static void Postfix(WorldspaceStarHexDisplay __instance)
+    {
+        // WorldUI lesson: an unguarded NRE in a per-frame game path starves everything
+        // downstream of it. The whole body is guarded; errors are logged a few times, then quiet.
+        try
+        {
+            Run(__instance);
+        }
+        catch (Exception e)
+        {
+            if (_errorLogs < 3)
+            {
+                _errorLogs++;
+                VRLog.Error(Scope, $"postfix failed: {e}");
+            }
+        }
+    }
+
+    private static void Run(WorldspaceStarHexDisplay display)
     {
         // Outside a live scenario (Menu2D/ModalUI, no Controller) leave vanilla behaviour alone.
         if (!BoardPick.InScenario)
+        {
+            _loggedShown = null;
+            _loggedMiss = null;
             return;
+        }
 
-        // Keep the game's fresh star ONLY while the VR pick is genuinely on a hex tile — mirror the
-        // game's own hex-validity test (TileBehaviour with a live m_ClientTile). Every other case
-        // (off-board, non-hex, on a figure, or no pick at all) means a lit cursor star is stale.
-        if (PickIsOnHex())
+        CClientTile? pointed = ResolvePointedHex(out string miss);
+
+        // No hex under the pointer at all: clear the star AND the hover hints — with nothing
+        // hovered, a visible "2 Gold" / door / quest-item hint is stale too (see class doc).
+        if (pointed == null)
+        {
+            ClearStar(display, miss);
+            HideStaleTooltips();
             return;
+        }
 
-        HexSelect_Control? star = CursorStarRef(__instance);
+        // The pointer IS on a live hex, so the GAME owns the tooltip for it from here on
+        // (it hides it for an undiscovered hex, shows it for an undiscovered exit tile).
+
+        // Undiscovered room: the game refuses to place a star on that hex (WSHD.cs:3220-3238)
+        // and Update's tail (:487) re-lights the one still parked on the last valid hex.
+        if (!IsRevealed(pointed))
+        {
+            ClearStar(display, "the hex under the pointer is in an UNDISCOVERED room — the game " +
+                               "never stars it (WSHD.DisplayCursorHoverStar:3220), so any lit star " +
+                               "is the last hex hovered in a discovered room");
+            return;
+        }
+
+        // The star must actually sit on THAT hex. Anything else (game skipped
+        // DisplayCursorHoverStar this frame, Interactable() gated off, exit-tile branch) means
+        // the lit star is a memory, not a hover.
+        if (!ReferenceEquals(CursorTileRef(display), pointed))
+        {
+            ClearStar(display, "the game's cursor star is parked on a different hex than the " +
+                               "pointer (s_CursorHighlightedTile != the picked hex — the game did " +
+                               "not place a star for this hex this frame)");
+            return;
+        }
+
+        LogShown(pointed);
+    }
+
+    /// <summary>Deactivate the pooled cursor star (never activates anything) and log the change once.</summary>
+    private static void ClearStar(WorldspaceStarHexDisplay display, string reason)
+    {
+        HexSelect_Control? star = CursorStarRef(display);
         if (star != null && star.gameObject.activeSelf)
             star.gameObject.SetActive(false);
+        LogCleared(reason);
+    }
 
-        // Stale hover hint (see class doc): nothing is hovered, so any visible tile info hint
-        // ("2 Gold" loot, closed door, quest item) is stale — hide it the way the game does.
-        HideStaleTooltips();
+    private static void LogShown(CClientTile hex)
+    {
+        if (ReferenceEquals(_loggedShown, hex))
+            return;
+        _loggedShown = hex;
+        _loggedMiss = null;
+        VRLog.Info(Scope, $"highlight SHOWS hex {Describe(hex)} (pointer source={BoardPick.Source}).");
+    }
+
+    private static void LogCleared(string reason)
+    {
+        // Change-gated on BOTH the previous state and the reason: sweeping the laser across a
+        // dark room logs once, not once per frame and not once per hex.
+        if (_loggedShown == null && _loggedMiss == reason)
+            return;
+        _loggedShown = null;
+        _loggedMiss = reason;
+        VRLog.Info(Scope, $"highlight CLEARED — {reason}.");
+    }
+
+    private static string Describe(CClientTile hex)
+    {
+        try
+        {
+            if (hex.m_Tile != null)
+                return $"[{hex.m_Tile.m_ArrayIndex.X},{hex.m_Tile.m_ArrayIndex.Y}]";
+            return hex.m_GameObject != null ? $"'{hex.m_GameObject.name}'" : "(unnamed)";
+        }
+        catch
+        {
+            return "(unnamed)";
+        }
     }
 
     /// <summary>
@@ -144,14 +306,60 @@ internal static class HexHoverClear
         }
     }
 
-    private static bool PickIsOnHex()
+    /// <summary>
+    /// The hex the VR pointer (fingertip OR laser — <see cref="BoardPick"/> arbitrates) resolves
+    /// to this frame, or null with a human reason. Mirrors the game's own hex-validity test
+    /// (<c>TileBehaviour</c> with a live <c>m_ClientTile</c>, WSHD.cs:3212) so we can never
+    /// disagree with it about WHETHER a hex is under the pointer — only about whether the star
+    /// belongs on it.
+    /// </summary>
+    private static CClientTile? ResolvePointedHex(out string miss)
     {
-        if (!BoardPick.Active || !BoardPick.HasHit)
-            return false;
+        if (!BoardPick.Active)
+        {
+            miss = "no VR pick this frame (ray untracked / mode policy — source=None)";
+            return null;
+        }
+        if (!BoardPick.HasHit)
+        {
+            miss = "the pointer hits nothing (laser off the board, or the fingertip left " +
+                   "[Board] TouchRange)";
+            return null;
+        }
         Collider? collider = BoardPick.HitCollider;
         if (collider == null)
-            return false;
+        {
+            miss = "the picked collider vanished this frame";
+            return null;
+        }
         TileBehaviour? tile = collider.GetComponentInParent<TileBehaviour>();
-        return tile != null && tile.m_ClientTile != null;
+        if (tile == null)
+        {
+            miss = "the pointer is on a non-hex object (figure, prop or scenery — no TileBehaviour)";
+            return null;
+        }
+        if (tile.m_ClientTile == null)
+        {
+            miss = "the pointed TileBehaviour carries no live m_ClientTile";
+            return null;
+        }
+        miss = string.Empty;
+        return tile.m_ClientTile;
+    }
+
+    /// <summary>
+    /// The game's revealed test for a hex, inverted from <c>DisplayCursorHoverStar</c>
+    /// (WSHD.cs:3220): a tile counts as UNREVEALED only when it has a hex map that is not
+    /// revealed AND no revealed second map. Tiles without a map (level-editor / loose geometry)
+    /// count as revealed, exactly as the game's condition does.
+    /// </summary>
+    private static bool IsRevealed(CClientTile hex)
+    {
+        var tile = hex.m_Tile;
+        if (tile == null || tile.m_HexMap == null)
+            return true;
+        if (tile.m_HexMap.Revealed)
+            return true;
+        return tile.m_Hex2Map != null && tile.m_Hex2Map.Revealed;
     }
 }
