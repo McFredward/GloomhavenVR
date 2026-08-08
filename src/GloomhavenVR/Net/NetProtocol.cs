@@ -1253,10 +1253,63 @@ internal static class NetProtocol
     /// <summary>Mask of one slot's selection field (before shifting).</summary>
     public const byte HalfSelectFieldMask = 0x03;
 
-    /// <summary>Every DEFINED bit of the selection byte (two 2-bit fields for the board's two
-    /// slots — widens with <see cref="BoardUiSlotCount"/> if the board ever grows a recess).</summary>
+    /// <summary>Every DEFINED bit of the SELECTION FIELDS in byte 1 (two 2-bit fields for the
+    /// board's two slots — widens with <see cref="BoardUiSlotCount"/> if the board ever grows a
+    /// recess). Bits 4..7 are NOT selection: see <see cref="HalfEmptyFanHintBit"/> and
+    /// <see cref="HalfSelectByteDefinedMask"/>.</summary>
     public const byte HalfSelectDefinedMask =
         (byte)((1 << (BoardUiSlotCount * HalfSelectBitsPerSlot)) - 1);
+
+    /// <summary>
+    /// Record 14, byte 1, bit 4 — THE "KEINE HANDKARTEN" PLACARD IS ON THE SENDER'S SCREEN RIGHT
+    /// NOW (<c>Cards.EmptyFanHint</c>: the ghost plate that appears at the would-be fan spot when
+    /// the palm-roll gate opens onto a genuinely empty hand, and fades over ~1.5 s).
+    ///
+    /// <para>THE GAP IT CLOSES: the placard was the one control-board-adjacent display that was
+    /// not mirrored at all. It is HAND-anchored rather than board furniture, so none of the board
+    /// records carried it, and a peer raising an empty hand simply produced nothing on anyone
+    /// else's screen — while their own view answers the gesture with a plate. Under the standing
+    /// 1:1 ruling that is a display of the owner's, and it travels.</para>
+    ///
+    /// <para>WHY A REAL BIT AND NOT AN INFERENCE FROM THE HAND-CARD COUNT. The count alone cannot
+    /// tell "the gate opened onto an empty hand" (placard) from "the fan is closed" (nothing) —
+    /// both are <c>HandCardCount == 0</c> with no fan flag, which is also the state of every
+    /// player standing idle with their palm down. That ambiguity is recorded in
+    /// <c>.planning/refactor/INVARIANTS-Net-Rig.md</c>; deriving the placard from the count would
+    /// have flashed one on every peer's hand every time they lowered an empty hand. One bit states
+    /// the fact instead.</para>
+    ///
+    /// <para>WHY BYTE 1 OF RECORD 14 AND NOT A RECORD OF ITS OWN: both flag bytes are full, and a
+    /// TLV record for ONE bit would cost 3 bytes of header for it. Byte 1's bits 4..7 were
+    /// declared "reserved (written 0, masked on read)" from the day the record shipped, which is
+    /// exactly the room this needs. It costs ZERO bytes whenever the record is already riding for
+    /// a hover or a selection, and 4 bytes (the record) when the placard is the only thing to say
+    /// — a state that lasts ~1.5 s and happens on an edge.</para>
+    ///
+    /// <para>THE WRITE GATE WIDENS WITH IT: record 14 used to ride only while a half was hovered
+    /// OR selected. It now also rides while this bit is set, and the hint EDGE pre-empts the extras
+    /// send gate (a placard is discrete and human-paced — the pile-counts rule), so the plate lands
+    /// with the gesture instead of up to 200 ms after it. A sender with nothing hovered, nothing
+    /// selected and no placard still writes no record at all, so an idle packet stays byte-identical
+    /// to the previous build's.</para>
+    ///
+    /// <para>WHY NO TEXT RIDES WITH IT (unlike the pick banner, record 7): the placard's line is a
+    /// FIXED two-word string with an exact local equivalent on every client ("Keine Handkarten" /
+    /// "No hand cards"), not a composed sentence carrying an actor and a count. The receiver
+    /// therefore renders it from its OWN localization — the same choice record 24's prompt-TEXT
+    /// VARIANT makes, and for the same reason: a number (here a bit) is cheaper than a string
+    /// whenever the receiver can rebuild the string exactly. The one consequence is deliberate and
+    /// documented: a German player's placard reads "No hand cards" to an English peer. Nothing
+    /// about a hand's CONTENTS is expressible here — the bit says only that the hand is empty,
+    /// which the already-synced <c>HandCardCount</c> of 0 says too.</para>
+    /// </summary>
+    public const byte HalfEmptyFanHintBit = 1 << 4;
+
+    /// <summary>Every DEFINED bit of record 14's byte 1 — the two selection fields plus the
+    /// empty-fan-hint bit. Writer and reader both mask with it, so bits 5..7 stay genuinely
+    /// reserved and a future sender's extra bits can never light a meaning here.</summary>
+    public const byte HalfSelectByteDefinedMask =
+        (byte)(HalfSelectDefinedMask | HalfEmptyFanHintBit);
 
     /// <summary>Clamp a selection value onto the wire field: anything outside
     /// none/top/bottom (including the invalid 3) degrades to none.</summary>
@@ -1790,6 +1843,442 @@ internal static class NetProtocol
         (byte)((flags & DecisionTextVariantMask) >> DecisionTextVariantShift);
 
     // ---- record 25: USE BARS ------------------------------------------------------------------
+
+    // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------
+    // Ids 25, 26 and 27 are taken by records developed in parallel with this one; 18..21 remain
+    // reserved. A shipped record id can never be renumbered, so this one is 28 by assignment,
+    // not by "the next free number" (that habit already produced one id collision — see the note
+    // above record 22).
+
+    /// <summary>
+    /// Extension record id: THE OWNER'S OWN TUNING OF THEIR CONTROL BOARD, HAND FAN AND BOARD MESH
+    /// — a SPARSE set of <c>[field id][value]</c> entries carrying ONLY the dials whose live value
+    /// differs from the SHIPPED default for the sender's synced board style.
+    ///
+    /// <para>THE GAP IT CLOSES. Every mirrored dock, cap, overlay and fan on a peer's board was
+    /// seated from the AUTHORED per-board constants keyed by the synced board style —
+    /// <c>RemoteBoardLayout</c>, <c>RemoteBoardFurniture</c>, <c>RemoteTrayVisual</c>,
+    /// <c>RemotePickBanner</c>, <c>RemoteBoardTooltip</c>, <c>RemoteHandFan</c> — with a
+    /// DELIBERATELY-NOT note in each saying that the owner's private re-tuning stays local. That
+    /// was defensible while the board was a rough picture. It is not defensible under the standing
+    /// ruling ("alle Interaktionen, Animationen und Anzeigen des Controllboards … so wie der
+    /// Spieler sie sieht", 2026-08-08): a player who drags their objectives dock 40 mm up, shrinks
+    /// their piles or widens their hand fan is looking at a board that no other client draws. It
+    /// was invisible only while nobody re-tuned — and the shipped defaults themselves are a REBASE
+    /// of one player's tuning (<c>scripts/rebase-defaults.py</c>), which is proof that the dials
+    /// get moved.
+    ///
+    /// <para>WHY IT COSTS NOTHING IN THE COMMON CASE, which is what makes it payable at all. These
+    /// values are config entries a player edits once and then never touches; the overwhelmingly
+    /// common state is "every dial is at its shipped default". The record follows
+    /// <see cref="MaskSizeDefaultCode"/>'s precedent exactly: a field is written ONLY when it
+    /// differs from the compiled default, and when NO field differs the record is not written at
+    /// all — the extension tail does not even open for it. An untuned player therefore emits the
+    /// exact bytes the previous build emitted, byte for byte. A player who has moved ONE dock pays
+    /// 10 bytes (2 TLV header + 1 count + 1 id + 6 value) on a 5 Hz packet — about 50 B/s.</para>
+    ///
+    /// <para>WHY "DIFFERENT FROM THE DEFAULT" IS A SOUND TEST ACROSS MACHINES: peers must run the
+    /// same <see cref="ModBuild"/> to play together at all (the handshake raises the mismatch
+    /// dialog before a packet is interpreted), so both ends compile the SAME
+    /// <c>Defaults</c>/<c>CardsConfig.BoardDefaults</c> tables. "Field absent" therefore means
+    /// exactly "the value the receiver already has", never "some other build's idea of it".</para>
+    ///
+    /// <para>ONE BOARD ONLY. The dials are per-board-style, but the sender's style already rides
+    /// the extras block (byte A bits 5..6), so only the CURRENT style's values are transmitted.
+    /// Switching board style re-samples the record.</para>
+    ///
+    /// <para>LAYOUT — <c>[n][n × field]</c>, fields in ASCENDING ID ORDER (deterministic bytes; a
+    /// reader may early-out). A field is <c>[id][value]</c> and THE ID'S RANGE FIXES THE VALUE
+    /// WIDTH, which is what keeps the record self-describing without spending a length byte per
+    /// field:
+    /// <list type="bullet">
+    /// <item><see cref="TuneVecIdMin"/>..<see cref="TuneVecIdMax"/> — 6 bytes, a Vector3 as
+    ///   3 × i16 LE in TENTH-MILLIMETRES (<see cref="EncodeTuneLength"/>).</item>
+    /// <item><see cref="TuneLengthIdMin"/>..<see cref="TuneLengthIdMax"/> — 2 bytes, one i16 LE
+    ///   tenth-millimetre LENGTH (a scalar measured in metres).</item>
+    /// <item><see cref="TuneFactorIdMin"/>..<see cref="TuneFactorIdMax"/> — 2 bytes, one i16 LE
+    ///   dimensionless FACTOR in THOUSANDTHS (<see cref="EncodeTuneFactor"/>).</item>
+    /// <item><see cref="TuneAngleIdMin"/>..<see cref="TuneAngleIdMax"/> — 2 bytes, one i16 LE
+    ///   ANGLE in HUNDREDTH-DEGREES (<see cref="EncodeTuneAngle"/>).</item>
+    /// <item><see cref="TuneCountIdMin"/>..<see cref="TuneCountIdMax"/> — 1 byte, an integer
+    ///   COUNT of cards.</item>
+    /// <item>ids above <see cref="TuneCountIdMax"/> are RESERVED and have no defined width. A
+    ///   reader that meets one cannot skip it safely, so it keeps the fields it has already parsed
+    ///   and ABANDONS THE REST of the record — suppression, the designed failure direction here as
+    ///   everywhere. It cannot happen between same-build peers; it exists so that it cannot
+    ///   corrupt anything if it ever does.</item>
+    /// </list></para>
+    ///
+    /// <para>QUANTIZATION AND ITS WORST-CASE VISIBLE ERROR. Tenth-millimetres for everything
+    /// measured in metres (±3.2767 m, error ≤0.05 mm — the board is ~0.4 m wide and every offset
+    /// config range is inside ±0.5 m); thousandths for dimensionless factors (±32.767 with 8×
+    /// headroom over the widest config range, error ≤0.0005, i.e. ≤0.25 mm on a 0.5 m dock);
+    /// hundredth-degrees for angles (±327.67°, error ≤0.005°, i.e. ≤0.04 mm at the edge of a 0.5 m
+    /// board). Every one of those is an order of magnitude below what an eye resolves at arm's
+    /// length, and every code is readable as-is in a hardware log.</para>
+    ///
+    /// <para>NO IDENTITY, NO GAMEPLAY: the payload is a list of the sender's own cosmetic dial
+    /// positions. Nothing here consults a card, an actor or the game model.</para>
+    ///
+    /// <para>ADDITIVE TLV exactly like every record before it: an older peer steps over it by its
+    /// length and keeps seating everything at the shipped defaults — today's look, never a broken
+    /// one.</para>
+    /// </summary>
+    public const byte ExtIdBoardTuning = 28;
+
+    /// <summary>Field cap of <see cref="ExtIdBoardTuning"/> — the number of dials the record can
+    /// name (see the id table below; 50 are defined today). It bounds the record at
+    /// 1 + 15×7 + 12×3 + 16×3 + 5×3 + 2×2 = 209 payload bytes, well under the 255-byte TLV
+    /// ceiling, and is re-clamped on read against the record's own length.</summary>
+    public const int BoardTuneMaxFields = 50;
+
+    /// <summary>Minimum payload of <see cref="ExtIdBoardTuning"/> (the field-count byte alone). A
+    /// reader requires at least this much before it looks at the record.</summary>
+    public const int BoardTuneMinRecordBytes = 1;
+
+    // ---- field id RANGES (the range is the value width — see the record doc) ------------------
+
+    /// <summary>First / last id whose value is a Vector3 (6 bytes, 3 × i16 tenth-mm).</summary>
+    public const byte TuneVecIdMin = 1;
+    public const byte TuneVecIdMax = 63;
+
+    /// <summary>First / last id whose value is a metre LENGTH (2 bytes, i16 tenth-mm).</summary>
+    public const byte TuneLengthIdMin = 64;
+    public const byte TuneLengthIdMax = 127;
+
+    /// <summary>First / last id whose value is a dimensionless FACTOR (2 bytes, i16 thousandths).</summary>
+    public const byte TuneFactorIdMin = 128;
+    public const byte TuneFactorIdMax = 191;
+
+    /// <summary>First / last id whose value is an ANGLE in degrees (2 bytes, i16 hundredth-deg).</summary>
+    public const byte TuneAngleIdMin = 192;
+    public const byte TuneAngleIdMax = 223;
+
+    /// <summary>First / last id whose value is an integer COUNT (1 byte).</summary>
+    public const byte TuneCountIdMin = 224;
+    public const byte TuneCountIdMax = 247;
+
+    // ---- field ids — WIRE CONSTANTS. Append only inside a range; never renumber. ---------------
+    // VECTOR3 (6 B): board-local / mount-local offsets, tray-root metres.
+
+    /// <summary>[Cards] ObjectivesOffset_{board} — the objectives dock's seat.</summary>
+    public const byte TuneObjectivesOffset = 1;
+    /// <summary>[Cards] ElementsOffset_{board} — the element column's seat.</summary>
+    public const byte TuneElementsOffset = 2;
+    /// <summary>[Cards] InitiativeOffset_{board} — the initiative-track dock (a bare offset, no base).</summary>
+    public const byte TuneInitiativeOffset = 3;
+    /// <summary>[Cards] PileOffset_{board} — the discard/burnt/items stack column.</summary>
+    public const byte TunePileOffset = 4;
+    /// <summary>[Cards] ActiveOffset_{board} — the active/persistent card column.</summary>
+    public const byte TuneActiveOffset = 5;
+    /// <summary>[Cards] ReadoutOffset_{board} — the "Runde N" readout.</summary>
+    public const byte TuneReadoutOffset = 6;
+    /// <summary>[Cards] PickBannerOffset_{board} — the pick-status placard above the board.</summary>
+    public const byte TunePickBannerOffset = 7;
+    /// <summary>[Cards] HoverHintOffset_{board} — the board's tooltip AREA corner.</summary>
+    public const byte TuneHoverHintOffset = 8;
+    /// <summary>[Cards] ConfirmUndoOffset_{board} — the confirm/undo keycap column.</summary>
+    public const byte TuneConfirmUndoOffset = 9;
+    /// <summary>[Cards] RestButtonOffset_{board} — the short/long rest disc pair.</summary>
+    public const byte TuneRestButtonOffset = 10;
+    /// <summary>[Cards] PinOffset_{board} — the FOLLOW/PIN keycap.</summary>
+    public const byte TunePinOffset = 11;
+    /// <summary>[Cards] ItemUseSlotOffset_{board} — the dedicated item-use recess.</summary>
+    public const byte TuneItemUseSlotOffset = 12;
+    /// <summary>[Cards] DecisionOffset_{board} — the docked decision row.</summary>
+    public const byte TuneDecisionOffset = 13;
+    /// <summary>[Cards] SlotOverlayOffset_{board} — the slot glow / resting card offset.</summary>
+    public const byte TuneSlotOverlayOffset = 14;
+    /// <summary>[Cards] AssetOffset_{board} — the BOARD MESH's own pose offset inside the board
+    /// root (<c>PlayTray.SetAssetPose</c>). Note the bronze board ships a non-zero default, so this
+    /// is a live field, not a hypothetical one.</summary>
+    public const byte TuneAssetOffset = 15;
+
+    // LENGTH (2 B, tenth-mm): scalars measured in metres.
+
+    /// <summary>[Cards] PileSpacing_{board} — distance between two stack centres.</summary>
+    public const byte TunePileSpacing = 64;
+    /// <summary>[Cards] RestButtonDiameter_{board}.</summary>
+    public const byte TuneRestButtonDiameter = 65;
+    /// <summary>[Cards] RestButtonSpacing_{board}.</summary>
+    public const byte TuneRestButtonSpacing = 66;
+    /// <summary>[Cards] GenericButtonSpacing_{board} — the confirm/undo pair spacing.</summary>
+    public const byte TuneGenericButtonSpacing = 67;
+    /// <summary>[Cards] SlotOverlaySpacing_{board} — the glow pair's spread inside a recess.</summary>
+    public const byte TuneSlotOverlaySpacing = 68;
+    /// <summary>[Cards] DecisionGap_{board} — the decision text↔button gap, in metres by design.</summary>
+    public const byte TuneDecisionGap = 69;
+    /// <summary>[Cards] CardWidth — the card slab width every remote card visual is built from.</summary>
+    public const byte TuneCardWidth = 70;
+    /// <summary>[Cards] FanPalmOffset — how far up the palm normal the hand fan floats.</summary>
+    public const byte TuneFanPalmOffset = 71;
+    /// <summary>[Cards] FanEffectiveRadius — the hand fan's arc radius.</summary>
+    public const byte TuneFanEffectiveRadius = 72;
+    /// <summary>[Cards] FanSideDepthCurve — the depth bow at the ends of a full hand.</summary>
+    public const byte TuneFanSideDepthCurve = 73;
+    /// <summary>[Cards] FanSplitMultiplier — base sideways slide of a split neighbour.</summary>
+    public const byte TuneFanSplitMultiplier = 74;
+    /// <summary>[Cards] FanSelectedPopForward — how far a highlighted card comes toward the viewer.</summary>
+    public const byte TuneFanSelectedPopForward = 75;
+
+    // FACTOR (2 B, thousandths): dimensionless multipliers.
+
+    /// <summary>[Cards] ObjectivesScale_{board}.</summary>
+    public const byte TuneObjectivesScale = 128;
+    /// <summary>[Cards] ObjectivesWidth_{board} — the wrap-column width multiplier.</summary>
+    public const byte TuneObjectivesWidth = 129;
+    /// <summary>[Cards] ElementsScale_{board}.</summary>
+    public const byte TuneElementsScale = 130;
+    /// <summary>[Cards] PileScale_{board}.</summary>
+    public const byte TunePileScale = 131;
+    /// <summary>[Cards] ActiveCardScale_{board}.</summary>
+    public const byte TuneActiveCardScale = 132;
+    /// <summary>[Cards] ClusterScale_{board} — the docked turn-flow button cluster.</summary>
+    public const byte TuneClusterScale = 133;
+    /// <summary>[Cards] DecisionScale_{board}.</summary>
+    public const byte TuneDecisionScale = 134;
+    /// <summary>[Cards] FanFlatCurvatureFactor.</summary>
+    public const byte TuneFanFlatCurvatureFactor = 135;
+    /// <summary>[Cards] FanTiltFactor.</summary>
+    public const byte TuneFanTiltFactor = 136;
+    /// <summary>[Cards] FanFaceViewer — per-card toe-in gain.</summary>
+    public const byte TuneFanFaceViewer = 137;
+    /// <summary>[Cards] FanCurvePower — bow exponent.</summary>
+    public const byte TuneFanCurvePower = 138;
+    /// <summary>[Cards] FanGazeApexFollow — gaze relief amplitude.</summary>
+    public const byte TuneFanGazeApexFollow = 139;
+    /// <summary>[Cards] FanSplitFalloff.</summary>
+    public const byte TuneFanSplitFalloff = 140;
+    /// <summary>[Cards] FanHoverSplitScale.</summary>
+    public const byte TuneFanHoverSplitScale = 141;
+    /// <summary>[WorldUI] HoverInfoScale — the size dial the board tooltip renders at.</summary>
+    public const byte TuneHoverInfoScale = 142;
+    /// <summary>[WorldUI] CanvasScaleMm — the other factor in the board tooltip's world scale
+    /// (<c>WorldTooltips</c>: <c>CanvasScaleMm × 0.001 × boardScale × 0.5 × sizeDial</c>). Sent
+    /// with <see cref="TuneHoverInfoScale"/> because sending only one of a product would leave the
+    /// mirror wrong for anyone who tuned the other.</summary>
+    public const byte TuneCanvasScaleMm = 143;
+
+    // ANGLE (2 B, hundredth-degrees).
+
+    /// <summary>[Cards] AssetPitchDegrees_{board} — the board MESH's pitch inside the board root.</summary>
+    public const byte TuneAssetPitch = 192;
+    /// <summary>[Cards] AssetYawDegrees_{board}.</summary>
+    public const byte TuneAssetYaw = 193;
+    /// <summary>[Cards] AssetRollDegrees_{board}.</summary>
+    public const byte TuneAssetRoll = 194;
+    /// <summary>[Cards] FanArcSweepDegrees — the hand fan's total sweep.</summary>
+    public const byte TuneFanArcSweep = 195;
+    /// <summary>[Cards] FanPerCardStepDegrees — angular step between two fan cards.</summary>
+    public const byte TuneFanPerCardStep = 196;
+
+    // COUNT (1 B).
+
+    /// <summary>[Cards] FanMaxHandForCurve — hand size at which the fan's curvature saturates.</summary>
+    public const byte TuneFanMaxHandForCurve = 224;
+    /// <summary>[Cards] FanCurveMinCards — hands at or below this stay flat.</summary>
+    public const byte TuneFanCurveMinCards = 225;
+
+    /// <summary>Payload width of a board-tuning field with this id — 6 / 2 / 1, or 0 for a
+    /// RESERVED id whose width this build does not know (the reader then abandons the rest of the
+    /// record rather than mis-parsing it; see the record doc).</summary>
+    public static int BoardTuneFieldWidth(byte id)
+    {
+        if (id >= TuneVecIdMin && id <= TuneVecIdMax) return 6;
+        if (id >= TuneLengthIdMin && id <= TuneAngleIdMax) return 2;
+        if (id >= TuneCountIdMin && id <= TuneCountIdMax) return 1;
+        return 0;
+    }
+
+    /// <summary>Quantize a metre length to its i16 wire code — TENTH MILLIMETRES, clamped to
+    /// ±3.2767 m. 0.1 mm is an order of magnitude below what an eye resolves on a 0.4 m board, and
+    /// tenths keep the value readable in a hardware log (−1100 = −110.0 mm).</summary>
+    public static short EncodeTuneLength(float meters)
+    {
+        if (float.IsNaN(meters) || float.IsInfinity(meters))
+            return 0;
+        return (short)UnityEngine.Mathf.Clamp(
+            UnityEngine.Mathf.RoundToInt(meters * 10000f), short.MinValue, short.MaxValue);
+    }
+
+    /// <summary>Decode a tenth-millimetre length code back to metres.</summary>
+    public static float DecodeTuneLength(short code) => code / 10000f;
+
+    /// <summary>Quantize a dimensionless factor to its i16 wire code — THOUSANDTHS, clamped to
+    /// ±32.767 (8× headroom over the widest tunable range, which is 0.2..4).</summary>
+    public static short EncodeTuneFactor(float factor)
+    {
+        if (float.IsNaN(factor) || float.IsInfinity(factor))
+            return 0;
+        return (short)UnityEngine.Mathf.Clamp(
+            UnityEngine.Mathf.RoundToInt(factor * 1000f), short.MinValue, short.MaxValue);
+    }
+
+    /// <summary>Decode a thousandths factor code.</summary>
+    public static float DecodeTuneFactor(short code) => code / 1000f;
+
+    /// <summary>Quantize an angle in degrees to its i16 wire code — HUNDREDTH DEGREES, clamped to
+    /// ±327.67° (the widest tunable range is −85..180).</summary>
+    public static short EncodeTuneAngle(float degrees)
+    {
+        if (float.IsNaN(degrees) || float.IsInfinity(degrees))
+            return 0;
+        return (short)UnityEngine.Mathf.Clamp(
+            UnityEngine.Mathf.RoundToInt(degrees * 100f), short.MinValue, short.MaxValue);
+    }
+
+    /// <summary>Decode a hundredth-degree angle code.</summary>
+    public static float DecodeTuneAngle(short code) => code / 100f;
+
+    /// <summary>
+    /// Find field <paramref name="id"/> inside a board-tuning payload and return the offset of its
+    /// VALUE, or −1 when the field is absent. Walks the sparse list by the width its own id range
+    /// declares, so an unknown-width RESERVED id ends the walk (the payload's remaining bytes are
+    /// unparseable, and guessing is how a wire reader corrupts a screen).
+    ///
+    /// <para>Absent is the NORMAL answer: the record only ever carries the dials the sender moved,
+    /// so every caller pairs this with the shipped default it already compiles in. Never throws —
+    /// every read is bounded by <paramref name="len"/>, which the record's own TLV length fixed.</para>
+    /// </summary>
+    public static int FindBoardTuneField(byte[]? payload, int offset, int len, byte id)
+    {
+        if (payload == null || len < BoardTuneMinRecordBytes
+            || offset < 0 || offset + len > payload.Length)
+            return -1;
+        int n = payload[offset];
+        if (n > BoardTuneMaxFields)
+            n = BoardTuneMaxFields;
+        int i = offset + 1;
+        int end = offset + len;
+        for (int f = 0; f < n; f++)
+        {
+            if (i >= end)
+                break;
+            byte fieldId = payload[i];
+            int width = BoardTuneFieldWidth(fieldId);
+            if (width == 0 || i + 1 + width > end)
+                break;                       // reserved id / truncated tail — stop, never guess
+            if (fieldId == id)
+                return i + 1;
+            i += 1 + width;
+        }
+        return -1;
+    }
+
+    /// <summary>Read a Vector3 field out of a board-tuning payload, or
+    /// <paramref name="fallback"/> (the receiver's own shipped default) when it is absent.</summary>
+    public static UnityEngine.Vector3 BoardTuneVector(
+        byte[]? payload, int offset, int len, byte id, UnityEngine.Vector3 fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        if (at < 0)
+            return fallback;
+        return new UnityEngine.Vector3(
+            DecodeTuneLength((short)(payload![at] | (payload[at + 1] << 8))),
+            DecodeTuneLength((short)(payload[at + 2] | (payload[at + 3] << 8))),
+            DecodeTuneLength((short)(payload[at + 4] | (payload[at + 5] << 8))));
+    }
+
+    /// <summary>Read a metre LENGTH field, or <paramref name="fallback"/> when absent.</summary>
+    public static float BoardTuneLength(byte[]? payload, int offset, int len, byte id, float fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        return at < 0 ? fallback : DecodeTuneLength((short)(payload![at] | (payload[at + 1] << 8)));
+    }
+
+    /// <summary>Read a dimensionless FACTOR field, or <paramref name="fallback"/> when absent.</summary>
+    public static float BoardTuneFactor(byte[]? payload, int offset, int len, byte id, float fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        return at < 0 ? fallback : DecodeTuneFactor((short)(payload![at] | (payload[at + 1] << 8)));
+    }
+
+    /// <summary>Read an ANGLE field (degrees), or <paramref name="fallback"/> when absent.</summary>
+    public static float BoardTuneAngle(byte[]? payload, int offset, int len, byte id, float fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        return at < 0 ? fallback : DecodeTuneAngle((short)(payload![at] | (payload[at + 1] << 8)));
+    }
+
+    /// <summary>Read an integer COUNT field, or <paramref name="fallback"/> when absent.</summary>
+    public static int BoardTuneCount(byte[]? payload, int offset, int len, byte id, int fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        return at < 0 ? fallback : payload![at];
+    }
+
+    /// <summary>
+    /// Append one board-tuning field to <paramref name="payload"/> at <paramref name="i"/> IF the
+    /// live value differs from <paramref name="shipped"/>, comparing the QUANTIZED codes rather
+    /// than the floats: two values that land on the same wire code are the same picture, and a
+    /// float compare would emit a field for a config round-trip that changed nothing visible.
+    /// Returns true when a field was written (the caller counts them).
+    /// </summary>
+    public static bool WriteTuneLengthField(
+        byte[] payload, ref int i, byte id, float live, float shipped)
+    {
+        short code = EncodeTuneLength(live);
+        if (code == EncodeTuneLength(shipped) || i + 3 > payload.Length)
+            return false;
+        payload[i++] = id;
+        payload[i++] = (byte)(code & 0xFF);
+        payload[i++] = (byte)((code >> 8) & 0xFF);
+        return true;
+    }
+
+    /// <summary>Vector3 counterpart of <see cref="WriteTuneLengthField"/> — one field, written only
+    /// when any of the three quantized components differs from the shipped default.</summary>
+    public static bool WriteTuneVectorField(
+        byte[] payload, ref int i, byte id, UnityEngine.Vector3 live, UnityEngine.Vector3 shipped)
+    {
+        short x = EncodeTuneLength(live.x), y = EncodeTuneLength(live.y), z = EncodeTuneLength(live.z);
+        if ((x == EncodeTuneLength(shipped.x) && y == EncodeTuneLength(shipped.y)
+             && z == EncodeTuneLength(shipped.z))
+            || i + 7 > payload.Length)
+            return false;
+        payload[i++] = id;
+        payload[i++] = (byte)(x & 0xFF); payload[i++] = (byte)((x >> 8) & 0xFF);
+        payload[i++] = (byte)(y & 0xFF); payload[i++] = (byte)((y >> 8) & 0xFF);
+        payload[i++] = (byte)(z & 0xFF); payload[i++] = (byte)((z >> 8) & 0xFF);
+        return true;
+    }
+
+    /// <summary>FACTOR counterpart of <see cref="WriteTuneLengthField"/>.</summary>
+    public static bool WriteTuneFactorField(
+        byte[] payload, ref int i, byte id, float live, float shipped)
+    {
+        short code = EncodeTuneFactor(live);
+        if (code == EncodeTuneFactor(shipped) || i + 3 > payload.Length)
+            return false;
+        payload[i++] = id;
+        payload[i++] = (byte)(code & 0xFF);
+        payload[i++] = (byte)((code >> 8) & 0xFF);
+        return true;
+    }
+
+    /// <summary>ANGLE counterpart of <see cref="WriteTuneLengthField"/>.</summary>
+    public static bool WriteTuneAngleField(
+        byte[] payload, ref int i, byte id, float live, float shipped)
+    {
+        short code = EncodeTuneAngle(live);
+        if (code == EncodeTuneAngle(shipped) || i + 3 > payload.Length)
+            return false;
+        payload[i++] = id;
+        payload[i++] = (byte)(code & 0xFF);
+        payload[i++] = (byte)((code >> 8) & 0xFF);
+        return true;
+    }
+
+    /// <summary>COUNT counterpart of <see cref="WriteTuneLengthField"/> (1 byte, clamped 0..255).</summary>
+    public static bool WriteTuneCountField(byte[] payload, ref int i, byte id, int live, int shipped)
+    {
+        byte code = (byte)UnityEngine.Mathf.Clamp(live, 0, 255);
+        if (code == (byte)UnityEngine.Mathf.Clamp(shipped, 0, 255) || i + 2 > payload.Length)
+            return false;
+        payload[i++] = id;
+        payload[i++] = code;
+        return true;
+    }
 
     /// <summary>
     /// Extension record id: the sender's docked USE-SLOT BARS — the SECOND drawer below their

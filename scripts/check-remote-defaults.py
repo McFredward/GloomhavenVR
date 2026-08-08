@@ -30,10 +30,23 @@ the `// => [Section] Key` annotation for the pair. Pointing at the wrong entry i
 stale literal, and it is exactly the mistake a copy-paste makes. If anyone ever puts a literal
 back on either side, this fails and says so.
 
-WHAT IT DOES NOT COVER
-----------------------
-A player who TUNES one of these values still desyncs, because the value is not transmitted. That
-is a protocol question, not a lint question: see NetProtocol's remaining-extension-slot note.
+WHAT IT DOES NOT COVER — AND WHAT IT NOW DOES
+--------------------------------------------
+This used to end with: "A player who TUNES one of these values still desyncs, because the value is
+not transmitted. That is a protocol question, not a lint question." The protocol question was
+answered by extension record 28 (BOARD TUNING): the sender's own dials now ride the wire whenever
+they differ from the shipped default, and `RemoteBoardTuning` resolves them on the receiver.
+
+That does NOT retire this check — it makes it the check on the FALLBACK. The Remote* renderers hold
+these values as fields INITIALISED to the shipped default and overwritten from the wire only when
+the owner has actually moved that dial. The initialiser is therefore still what an untuned peer is
+drawn with, and it must still name the same `Defaults` entry the local Bind draws on. So the pairs
+below now match either form:
+
+    private const float PalmOffset = Defaults.FanPalmOffset;   // frozen (board furniture)
+    private float _palmOffset       = Defaults.FanPalmOffset;  // wire-overridable fallback
+
+What is genuinely no longer covered: nothing. A default change still has to be made in one place.
 """
 import re
 import sys
@@ -64,12 +77,22 @@ PAIRS = [
     ("Net/RemoteBoardFurniture.cs", "TransientCapTravel", "RoundButtons", "Travel"),
     ("Net/RemoteBoardFurniture.cs", "DissolveSeconds", "ButtonAnim", "DisappearSeconds"),
     ("Net/RemoteBoardFurniture.cs", "AppearSeconds", "ButtonAnim", "AppearSeconds"),
-    ("Net/RemoteHandFan.cs", "PalmOffset", "Cards", "FanPalmOffset"),
-    ("Net/RemoteHandFan.cs", "Radius", "Cards", "FanEffectiveRadius"),
-    ("Net/RemoteHandFan.cs", "ArcSweepDegrees", "Cards", "FanArcSweepDegrees"),
-    ("Net/RemoteHandFan.cs", "PerCardStepDegrees", "Cards", "FanPerCardStepDegrees"),
-    ("Net/RemoteHandFan.cs", "ArchFactor", "Cards", "FanFlatCurvatureFactor"),
-    ("Net/RemoteHandFan.cs", "TiltFactor", "Cards", "FanTiltFactor"),
+    # The hand fan's geometry: wire-overridable fields (record 28) whose INITIALISER is what an
+    # untuned peer is drawn with — see the header. Same guarantee, one keyword different.
+    ("Net/RemoteHandFan.cs", "_palmOffset", "Cards", "FanPalmOffset"),
+    ("Net/RemoteHandFan.cs", "_radius", "Cards", "FanEffectiveRadius"),
+    ("Net/RemoteHandFan.cs", "_arcSweepDegrees", "Cards", "FanArcSweepDegrees"),
+    ("Net/RemoteHandFan.cs", "_perCardStepDegrees", "Cards", "FanPerCardStepDegrees"),
+    ("Net/RemoteHandFan.cs", "_archFactor", "Cards", "FanFlatCurvatureFactor"),
+    ("Net/RemoteHandFan.cs", "_tiltFactor", "Cards", "FanTiltFactor"),
+    ("Net/RemoteHandFan.cs", "_faceViewer", "Cards", "FanFaceViewer"),
+    ("Net/RemoteHandFan.cs", "_sideDepthCurve", "Cards", "FanSideDepthCurve"),
+    ("Net/RemoteHandFan.cs", "_curvePower", "Cards", "FanCurvePower"),
+    ("Net/RemoteHandFan.cs", "_gazeApexFollow", "Cards", "FanGazeApexFollow"),
+    ("Net/RemoteHandFan.cs", "_splitMultiplier", "Cards", "FanSplitMultiplier"),
+    ("Net/RemoteHandFan.cs", "_splitFalloff", "Cards", "FanSplitFalloff"),
+    ("Net/RemoteHandFan.cs", "_splitScale", "Cards", "FanHoverSplitScale"),
+    ("Net/RemoteHandFan.cs", "_popForward", "Cards", "FanSelectedPopForward"),
     ("Net/RemoteHandFan.cs", "OpenSeconds", "Cards", "FanOpenDuration"),
     ("Net/RemoteHandFan.cs", "OpenStagger", "Cards", "FanOpenStagger"),
 ]
@@ -110,9 +133,13 @@ def bind_reference(section, key):
 
 
 def frozen(rel, const):
-    """What the Remote renderer's frozen constant resolves to: a Defaults name, or a literal."""
+    """What the Remote renderer's constant/fallback field resolves to: a Defaults name, or a
+    literal. Accepts both the frozen `const float X =` form and the wire-overridable
+    `private float _x =` form — see the header for why they carry the same guarantee."""
     text = (SRC / rel).read_text(encoding="utf-8")
     m = re.search(r"const float " + const + r" *= *([^;]+);", text)
+    if not m:
+        m = re.search(r"private (?:readonly )?float " + const + r" *= *([^;]+);", text)
     if not m:
         return None
     raw = m.group(1).strip()
@@ -171,5 +198,5 @@ if bad:
         print("  " + b, file=sys.stderr)
     sys.exit(1)
 
-print(f"remote defaults: {len(PAIRS)} frozen constants resolve to the same Defaults entries as "
-      f"the binds they mirror")
+print(f"remote defaults: {len(PAIRS)} frozen constants / wire-overridable fallbacks resolve "
+      f"to the same Defaults entries as the binds they mirror")

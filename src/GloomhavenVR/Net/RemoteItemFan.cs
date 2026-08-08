@@ -17,8 +17,23 @@ namespace GloomhavenVR.Net;
 ///
 /// ANTI-CHEAT / bandwidth: no item identity, art or state ever rides the WIRE — a peer transmits how
 /// many item cards are up and where the fan is, nothing more. Item cards are near-square rather than
-/// 63.5×88, so the slab uses its own dimensions; the real per-card face size is deliberately NOT
-/// transmitted (it would be per-card data for something the receiver can measure itself).
+/// 63.5×88, so the slab uses its own dimensions; the real PER-CARD face size is deliberately NOT
+/// transmitted.
+///
+/// <para>THAT DECISION WAS RE-EXAMINED against the 2026-08-08 1:1 ruling and DELIBERATELY KEPT, so
+/// here is the reasoning rather than an assertion. The owner's item chip sizes itself from the REAL
+/// hosted <c>ItemCardUI</c> rect (<c>ItemsPile.ItemChip.FaceWidth/FaceHeight</c>) — a
+/// PER-CARD measurement of a game widget, in units of their <c>[Cards] CardWidth</c>. Two of those
+/// three inputs already reach this client without a byte: the widget is the game's own prefab
+/// (identical on every machine, and this fan already hosts it through <see cref="RemotePileFronts"/>
+/// off the peer's host-replicated <c>CInventory.AllItems</c>), and CardWidth now rides extension
+/// record 28. What is left is the residual per-card aspect, and buying it would cost a length-
+/// prefixed list of up to 12 sizes — ~25 bytes on EVERY packet while a fan is open, more than the
+/// whole board-tuning record's typical cost — to correct a difference the receiver can measure for
+/// itself from the same widget it is already drawing. A record that pays 25 B/packet for a number
+/// the receiver holds locally is the "second source of truth" the tooltip's own frame-metrics note
+/// rejects. If the near-square constants below are ever seen to disagree with a real item on
+/// hardware, the fix is to measure the hosted face here — not to transmit it.</para>
 ///
 /// CARD FRONTS (user ruling 2026-08-08, "Die Oberseiten der Karten des remote Spielers soll auch
 /// überall sichtbar sein … NUR in der Auswahlphase sieht man überall nur die Rückseiten"): this arc

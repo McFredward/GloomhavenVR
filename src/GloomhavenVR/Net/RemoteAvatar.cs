@@ -48,6 +48,10 @@ internal sealed class RemoteAvatar
     private readonly RemoteHandFan _handFan;
     private readonly RemoteControlBoard _controlBoard;
     private readonly RemoteItemFan _itemFan;   // report 5: the peer's equipped-item fan
+
+    /// <summary>The mirror of their "Keine Handkarten" placard (record 14, byte 1 bit 4) — the
+    /// one control-board-adjacent display that had no mirror at all before it.</summary>
+    private readonly RemoteEmptyFanHint _emptyFanHint;
     private readonly RemoteCardFx _cardFx;     // report 6: replayed card animations
     private readonly RemoteBrowserFan _browserFan; // the peer's discard/burnt pile-browse reading fan
     private readonly RemoteNameTag _nameTag;   // username + Steam avatar floating above the mask
@@ -275,6 +279,43 @@ internal sealed class RemoteAvatar
     /// contract as <see cref="SlotFrameWidth"/>. This is the size the user's 1:1 rule is about:
     /// the card-to-board ratio on the remote board must equal what the owner sees.</summary>
     public float SlotCardWidth { get; private set; }
+
+    /// <summary>
+    /// The owner's OWN DIAL POSITIONS for their board, board mesh and hand fan (extension record
+    /// 28), resolved against this client's shipped defaults for every dial they have NOT moved.
+    ///
+    /// <para>Always valid: a peer who has tuned nothing — and a peer predating the record — yields
+    /// the shipped layout for their synced style, which is exactly what every remote visual seated
+    /// itself from before this record existed. Rebuilt only when the payload actually changes, so
+    /// the per-frame consumers read plain floats.</para>
+    /// </summary>
+    public RemoteBoardTuning BoardTuning { get; private set; }
+
+    /// <summary>Bumped every time <see cref="BoardTuning"/> is re-resolved (a dial moved on the
+    /// owner's side, or their board style changed). Constructor-sized visuals latch it and rebuild
+    /// on a mismatch — the same teardown-rebuild trigger the slot-card size uses.</summary>
+    public int BoardTuningRevision { get; private set; }
+
+    /// <summary>
+    /// OUR OWN COPY of the payload the current <see cref="BoardTuning"/> was resolved from, and the
+    /// change detector for it.
+    ///
+    /// <para>COMPARED BY CONTENT, NOT BY REFERENCE, and that distinction is load-bearing:
+    /// <c>PresenceSerializer.DecodeBoardTuning</c> keeps ONE cache entry for the whole process, so
+    /// with two differently-tuned peers at the table their payloads evict each other and every
+    /// packet hands back a fresh array. A reference compare would then read as "the tuning changed"
+    /// on every packet and tear down and rebuild both control boards five times a second. A byte
+    /// compare of ≤211 bytes per packet is nothing, and it is right.</para>
+    /// </summary>
+    private byte[] _tuningPayload = System.Array.Empty<byte>();
+    private int _tuningLength;
+    private int _tuningStyle = -1;
+
+    /// <summary>True while the owner's "Keine Handkarten" placard is on their screen (record 14,
+    /// byte 1 bit 4). A LEVEL: the mirror runs its own fade from its own rising edge and follows
+    /// this down. Absent/clear for every peer predating the bit, which renders as no placard —
+    /// what those peers produced anyway.</summary>
+    public bool EmptyFanHint { get; private set; }
 
     /// <summary>The owner's PICK-STATUS line (extension record 7), or null while their placard is
     /// down — including for a sender that predates the record, which renders identically.</summary>
@@ -609,9 +650,16 @@ internal sealed class RemoteAvatar
         // Cosmetic add-ons built off the public seam (ghost card fan + read-only control board).
         // Foundation stubs today; the feature workers fill their bodies. Owned here: ticked from
         // Tick and torn down from Destroy.
+        // The tuning must be VALID before the first extras packet: RemoteControlBoard can build on
+        // an earlier frame, and a default(RemoteBoardTuning) is all zeros — every dock at the board
+        // origin. Seed it with the shipped Oak layout, i.e. exactly what this client rendered before
+        // record 28 existed; the first packet re-resolves it for the peer's real style.
+        BoardTuning = new RemoteBoardTuning(Cards.ControlBoard.Oak, null, 0);
+
         _handFan = new RemoteHandFan(this);
         _controlBoard = new RemoteControlBoard(this);
         _itemFan = new RemoteItemFan(this);
+        _emptyFanHint = new RemoteEmptyFanHint(this);
         _cardFx = new RemoteCardFx(this);
         _browserFan = new RemoteBrowserFan(this);
         _nameTag = new RemoteNameTag(this); // appended last — never reorder the ctor above (ghosts-before-BuildHands)
@@ -669,6 +717,22 @@ internal sealed class RemoteAvatar
 
     /// <summary>Accept a freshly-decoded EXTRAS packet (board pose + hand count + dominant hand).
     /// Poses are already in world frame (converted by the driver).</summary>
+    /// <summary>True when a peer's board-tuning payload really differs from the one
+    /// <see cref="BoardTuning"/> was resolved from (or their board style changed). Content compare —
+    /// see <see cref="_tuningPayload"/> for why a reference compare would rebuild both boards at
+    /// 5 Hz whenever two differently-tuned players are at the table.</summary>
+    private bool TuningChanged(byte[]? payload, int len)
+    {
+        if (len != _tuningLength || (int)BoardStyle != _tuningStyle)
+            return true;
+        for (int i = 0; i < len; i++)
+        {
+            if (payload![i] != _tuningPayload[i])
+                return true;
+        }
+        return false;
+    }
+
     public void SetExtras(in PresenceState p)
     {
         HasBoard = p.HasBoard;
@@ -737,6 +801,36 @@ internal sealed class RemoteAvatar
                               "their board is drawn in the material THEY chose, the same rule the " +
                               "head mask, mask size and hand style already follow.");
         }
+
+        // BOARD TUNING (extension record 28): the owner's OWN dial positions for their board,
+        // board mesh and hand fan. Re-resolved only when the payload really changed (reference
+        // compare against the serializer's decode cache) or when their style did — the resolve
+        // walks ~49 fields and every consumer then reads plain floats. Absent ⇒ null payload ⇒
+        // every dial falls back to the shipped default for their style, which is precisely what
+        // this client rendered before the record existed and what a pre-record peer still means.
+        byte[]? tunePayload = p.HasBoardTuning ? p.BoardTuningBytes : null;
+        int tuneLen = p.HasBoardTuning && tunePayload != null ? p.BoardTuningLength : 0;
+        if (tuneLen > 0 && tunePayload != null && tuneLen > tunePayload.Length)
+            tuneLen = tunePayload.Length;
+        if (TuningChanged(tunePayload, tuneLen))
+        {
+            _tuningPayload = tuneLen > 0 ? new byte[tuneLen] : System.Array.Empty<byte>();
+            for (int b = 0; b < tuneLen; b++)
+                _tuningPayload[b] = tunePayload![b];
+            _tuningLength = tuneLen;
+            _tuningStyle = (int)BoardStyle;
+            BoardTuning = new RemoteBoardTuning(BoardStyle, _tuningPayload, tuneLen);
+            BoardTuningRevision++;
+            VRLog.Info("Net", $"Board tuning RECEIVED from player {PlayerId}: {BoardTuning} " +
+                              "(extension record 28) — every dial they have MOVED is applied to " +
+                              "their remote board, mesh pose and hand fan; every dial they have " +
+                              "not is this client's shipped default, which is the same value.");
+        }
+
+        // EMPTY-FAN PLACARD (record 14, byte 1 bit 4): the owner's "Keine Handkarten" ghost plate
+        // is up right now. A LEVEL — the mirror starts its own 1.5 s fade on the rising edge and
+        // follows this down. Absent ⇒ false ⇒ no placard, exactly what a pre-bit peer renders.
+        EmptyFanHint = p.EmptyFanHint;
 
         // SLOT-CARD SIZE (extension record 11): the widths the sender's own board renders its
         // slot overlays / a parked card at. Absent ⇒ 0 ⇒ every consumer falls back to the legacy
@@ -1192,6 +1286,7 @@ internal sealed class RemoteAvatar
         _handFan.Tick(dt);
         _controlBoard.Tick(dt);
         _itemFan.Tick(dt);
+        _emptyFanHint.Tick();
         _cardFx.Tick(dt);
         _browserFan.Tick(dt);
         _nameTag.Tick();
@@ -1372,6 +1467,7 @@ internal sealed class RemoteAvatar
         _handFan.Destroy();
         _controlBoard.Destroy();
         _itemFan.Destroy();
+        _emptyFanHint.Destroy();
         _cardFx.Destroy();
         _browserFan.Destroy();
         _nameTag.Destroy();

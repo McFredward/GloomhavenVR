@@ -62,10 +62,15 @@ namespace GloomhavenVR.Net;
 ///   * GAZE-BIAS YAW ([Cards] FanGazeBias): opt-in, OFF by default and superseded by the toe-in.
 ///     The receiver could compute the whole eased/hysteretic yaw from the peer's synced head gaze,
 ///     but not whether the SENDER has the toggle on — that one bit is the only missing input.
-///   * TUNED Fan* CONFIG: the constants above are seeded to the CardsConfig DEFAULTS and stay
-///     self-contained (a peer's fan must not depend on the local player's Cards config being bound
-///     or tuned). A sender who retunes their own fan geometry therefore reads slightly differently
-///     to others than to themselves.
+/// CLOSED SINCE EXTENSION RECORD 28 — the TUNED Fan* CONFIG. The geometry fields below used to be
+/// consts seeded to the CardsConfig DEFAULTS, on the argument that "a peer's fan must not depend on
+/// the LOCAL player's Cards config being bound or tuned". That argument is still right and still
+/// holds: nothing here reads the local config. What was wrong was the conclusion — the fan was
+/// drawn at the SHIPPED numbers rather than at the OWNER's, so a sender who retuned their own fan
+/// read differently to others than to themselves. Their dials now ride the wire, sparsely and only
+/// when moved (<see cref="NetProtocol.ExtIdBoardTuning"/>), and <see cref="SyncTuning"/> pulls them
+/// off <see cref="RemoteAvatar.BoardTuning"/>; every dial they have NOT moved resolves to this
+/// client's own shipped constant, which is the same number this file always used.
 /// </summary>
 /// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes: one card-COUNT byte in the extras packet
 /// (<c>HandCardCount</c>, always written) plus the sender's hand pose and dominant-hand flag, which
@@ -84,9 +89,21 @@ internal sealed class RemoteHandFan
     /// <summary>Card slab height default (CardsConfig.CardHeight ratio over the width).</summary>
     internal const float DefaultCardHeight = DefaultCardWidth * (88f / 63.5f);
 
-    private const float CardWidth = DefaultCardWidth;
-    private const float CardHeight = DefaultCardHeight;
-    private const float PalmOffset = Defaults.FanPalmOffset;                        // CardsConfig.FanPalmOffset
+    // ---- THE OWNER'S OWN FAN GEOMETRY (extension record 28) ---------------------------------
+    // These were `const`, seeded to the CardsConfig defaults, with a KNOWN-GAP note saying that a
+    // sender who retunes their fan "reads slightly differently to others than to themselves". Under
+    // the 1:1 ruling that gap is a defect, so every one of them is now an instance field refreshed
+    // from RemoteBoardTuning: the owner's value where they have moved the dial, this client's
+    // shipped constant where they have not — which is the same number, so an untuned peer renders
+    // byte-for-byte the fan this file has always drawn.
+    //
+    // WHY FIELDS AND NOT PROPERTY READS: the layout loop touches a dozen of these per card per
+    // frame, and RemoteBoardTuning is a wide struct. They are refreshed by SyncTuning() when the
+    // owner's tuning REVISION changes (a config edit on their side — rare), and read as plain
+    // floats in between.
+    private float _cardWidth = DefaultCardWidth;
+    private float _cardHeight = DefaultCardHeight;
+    private float _palmOffset = Defaults.FanPalmOffset;
 
     /// <summary>
     /// Where a peer's hand fan actually floats: one palm standoff up the PALM normal of
@@ -104,14 +121,18 @@ internal sealed class RemoteHandFan
     internal static Vector3 FanAnchorPoint(RemoteAvatar owner, Transform holder)
     {
         Transform anchor = owner.PalmAnchorFor(holder) ?? holder;
-        return anchor.position + anchor.up * (PalmOffset * owner.AppliedScale);
+        // The OWNER's own FanPalmOffset (extension record 28) — read straight off their resolved
+        // tuning because this is a static helper shared with RemoteCardFx, and it runs once per
+        // frame per fan rather than per card.
+        return anchor.position
+               + anchor.up * (owner.BoardTuning.FanPalmOffset * owner.AppliedScale);
     }
-    private const float Radius = Defaults.FanEffectiveRadius;                          // CardsConfig.FanEffectiveRadius
-    private const float ArcSweepDegrees = Defaults.FanArcSweepDegrees;                     // CardsConfig.FanArcSweepDegrees
-    private const float PerCardStepDegrees = Defaults.FanPerCardStepDegrees;                  // CardsConfig.FanPerCardStepDegrees
-    private const float ArchFactor = Defaults.FanFlatCurvatureFactor;                        // CardsConfig.FanFlatCurvatureFactor
-    private const float TiltFactor = Defaults.FanTiltFactor;                        // CardsConfig.FanTiltFactor
-    private const int MaxHandForCurve = 10;                        // CardsConfig.FanMaxHandForCurve
+    private float _radius = Defaults.FanEffectiveRadius;
+    private float _arcSweepDegrees = Defaults.FanArcSweepDegrees;
+    private float _perCardStepDegrees = Defaults.FanPerCardStepDegrees;
+    private float _archFactor = Defaults.FanFlatCurvatureFactor;
+    private float _tiltFactor = Defaults.FanTiltFactor;
+    private int _maxHandForCurve = Defaults.FanMaxHandForCurve;
     private const float ZStagger = 0.004f;                         // CardFan.ZStagger (draw order)
     private const int MaxCards = 12;                               // hard clamp on the broadcast count
 
@@ -124,20 +145,20 @@ internal sealed class RemoteHandFan
 
     /// <summary>Per-card toe-in gain (CardsConfig.FanFaceViewer default 1 = each card's own normal
     /// aims fully at the owner's head, not the fan root's single billboard normal).</summary>
-    private const float FaceViewer = 1f;
+    private float _faceViewer = Defaults.FanFaceViewer;
 
     /// <summary>Depth bow at the ends of a full hand, metres (CardsConfig.FanSideDepthCurve).</summary>
-    private const float SideDepthCurve = 0.035f;
+    private float _sideDepthCurve = Defaults.FanSideDepthCurve;
 
     /// <summary>Bow exponent in the card's fraction-from-centre (CardsConfig.FanCurvePower).</summary>
-    private const float CurvePower = 2f;
+    private float _curvePower = Defaults.FanCurvePower;
 
     /// <summary>Hands at or below this many cards stay flat (CardsConfig.FanCurveMinCards).</summary>
-    private const int CurveMinCards = 3;
+    private int _curveMinCards = Defaults.FanCurveMinCards;
 
     /// <summary>Gaze relief amplitude (CardsConfig.FanGazeApexFollow): how much of the resting bow
     /// the card the owner is LOOKING at is lifted out of.</summary>
-    private const float GazeApexFollow = 1f;
+    private float _gazeApexFollow = Defaults.FanGazeApexFollow;
 
     /// <summary>Ease rate (1/s) of the tracked gaze apex (CardsConfig.FanGazeSmoothing).</summary>
     private const float GazeSmoothing = 8f;
@@ -165,18 +186,18 @@ internal sealed class RemoteHandFan
     // renders a given fan at the SHIPPED numbers.
 
     /// <summary>CardsConfig.FanSplitMultiplier — the base sideways slide of a split neighbour.</summary>
-    private const float SplitMultiplier = Defaults.FanSplitMultiplier;
+    private float _splitMultiplier = Defaults.FanSplitMultiplier;
 
     /// <summary>CardsConfig.FanSplitFalloff — how fast that slide decays with card distance.</summary>
-    private const float SplitFalloff = Defaults.FanSplitFalloff;
+    private float _splitFalloff = Defaults.FanSplitFalloff;
 
     /// <summary>CardsConfig.FanHoverSplitScale — global gain keeping the gap proportional to the
     /// card spacing.</summary>
-    private const float SplitScale = Defaults.FanHoverSplitScale;
+    private float _splitScale = Defaults.FanHoverSplitScale;
 
     /// <summary>CardsConfig.FanSelectedPopForward — how far a lifted card comes toward the viewer
     /// (VRCard's pop, along the card's own −Z).</summary>
-    private const float PopForward = Defaults.FanSelectedPopForward;
+    private float _popForward = Defaults.FanSelectedPopForward;
 
     /// <summary>VRCard's pop: the small upward component that rides with the forward lift.</summary>
     private const float PopUp = 0.012f;
@@ -246,6 +267,8 @@ internal sealed class RemoteHandFan
 
     public void Tick(float dt)
     {
+        SyncTuning();
+
         // Which hand does the fan hang off? owner.NonDominantHandHolder already resolves to the
         // LEFT holder when DominantRight is true (the sensible default), else RIGHT; fall back to
         // the avatar root when the holder is missing. (Handedness audit: this receiver mapping is
@@ -435,7 +458,7 @@ internal sealed class RemoteHandFan
                     ? "PALM anchor (Rig.PalmCenter, +Y out of the palm) — matches the owner's CardFan."
                     : "HAND-ROOT fallback (+Y out of the BACK of the hand) — rig not built yet."));
         }
-        Vector3 target = anchor.position + anchor.up * (PalmOffset * scale);
+        Vector3 target = anchor.position + anchor.up * (_palmOffset * scale);
 
         // Face the owner's head: the fan's +Z points AWAY from the head so the card fronts (-Z)
         // look toward the owner and their BACKS face everyone else — exactly like the local fan.
@@ -490,13 +513,13 @@ internal sealed class RemoteHandFan
         if (n <= 0 || _root == null)
             return;
 
-        float step = n > 1 ? Mathf.Min(PerCardStepDegrees, ArcSweepDegrees / (n - 1)) : 0f;
+        float step = n > 1 ? Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
         // Curvature-by-fill: a few cards read nearly flat/untilted, a full hand arches and tilts.
-        float fill = Mathf.Clamp01((float)n / MaxHandForCurve);
-        float arch = ArchFactor * fill;
-        float tilt = TiltFactor * fill;
+        float fill = Mathf.Clamp01((float)n / _maxHandForCurve);
+        float arch = _archFactor * fill;
+        float tilt = _tiltFactor * fill;
 
         // Fan-out reveal (see _openElapsed), now card-for-card what CardFan.Relayout blends on Open:
         // every card SEEDS at the MIDDLE slot's arc pose (not at the fan origin — the local fan-in
@@ -508,8 +531,8 @@ internal sealed class RemoteHandFan
         float midAngle = start + step * mid;
         float midRad = midAngle * Mathf.Deg2Rad;
         var collapsedRot = Quaternion.Euler(0f, 0f, -midAngle * tilt);
-        var collapsedXY = new Vector2(Mathf.Sin(midRad) * Radius,
-                                      (Mathf.Cos(midRad) - 1f) * Radius * arch);
+        var collapsedXY = new Vector2(Mathf.Sin(midRad) * _radius,
+                                      (Mathf.Cos(midRad) - 1f) * _radius * arch);
         if (opening)
         {
             _openElapsed += Mathf.Max(dt, 0f);
@@ -549,8 +572,8 @@ internal sealed class RemoteHandFan
         {
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
-            var pos = new Vector3(Mathf.Sin(rad) * Radius,
-                                  (Mathf.Cos(rad) - 1f) * Radius * arch,
+            var pos = new Vector3(Mathf.Sin(rad) * _radius,
+                                  (Mathf.Cos(rad) - 1f) * _radius * arch,
                                   i < n ? _depths[i] : -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * tilt);
 
@@ -565,20 +588,20 @@ internal sealed class RemoteHandFan
             // of inheriting the root's single billboard normal. FromToRotation is the minimal arc
             // from the card's forward to the head, PRE-multiplied so the roll — the fan's signature
             // shape — survives exactly.
-            if (haveHead && FaceViewer > 0f)
+            if (haveHead && _faceViewer > 0f)
             {
                 Vector3 toCard = pos - headLocal;
                 if (toCard.sqrMagnitude > 1e-6f)
                 {
                     Vector3 dir = toCard.normalized;
-                    // FaceViewer is the toe-in GAIN. Slerped unconditionally from "no toe-in" (the
+                    // _faceViewer is the toe-in GAIN. Slerped unconditionally from "no toe-in" (the
                     // branch CardFan takes only when the gain is < 1 would be dead code against a
                     // const, and Slerp at 1 returns the aim itself) so the constant stays honest if
                     // it is ever re-seeded from a retuned CardsConfig default.
                     Quaternion aim = Quaternion.Slerp(
-                        Quaternion.identity, Quaternion.FromToRotation(Vector3.forward, dir), FaceViewer);
+                        Quaternion.identity, Quaternion.FromToRotation(Vector3.forward, dir), _faceViewer);
                     rot = aim * rot;
-                    float deg = Vector3.Angle(Vector3.forward, dir) * FaceViewer;
+                    float deg = Vector3.Angle(Vector3.forward, dir) * _faceViewer;
                     if (deg > maxToeDeg)
                         maxToeDeg = deg;
                 }
@@ -600,7 +623,7 @@ internal sealed class RemoteHandFan
             // pop grows and relaxes at the local speed and the wire only ever carries the index.
             float popT = PopAmount(i, hovered, dt);
             if (popT > 0f)
-                pos += rot * new Vector3(0f, PopUp * popT, -PopForward * popT);
+                pos += rot * new Vector3(0f, PopUp * popT, -_popForward * popT);
             t.localPosition = pos;
             t.localRotation = rot;
             Vector3 want = Vector3.one * (1f + PopScale * popT);
@@ -625,10 +648,10 @@ internal sealed class RemoteHandFan
 
     /// <summary>Sideways slide of a split neighbour <paramref name="signed"/> cards away from the
     /// highlighted one — <c>CardFan.SplitOffset</c> against the AUTHORED defaults.</summary>
-    private static float SplitOffset(int signed)
+    private float SplitOffset(int signed)
     {
-        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, SplitFalloff);
-        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * SplitMultiplier * Mathf.Max(0f, SplitScale);
+        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, _splitFalloff);
+        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * _splitMultiplier * Mathf.Max(0f, _splitScale);
     }
 
     /// <summary>Advance and return slab <paramref name="i"/>'s pop ramp toward 1 while it is the
@@ -703,39 +726,39 @@ internal sealed class RemoteHandFan
     }
 
     /// <summary>The arc's own half-width in fan-local metres (CardFan.ArcHalfWidth).</summary>
-    private static float ArcHalfWidth(int n)
+    private float ArcHalfWidth(int n)
     {
         if (n < 2)
-            return Radius;
-        float step = Mathf.Min(PerCardStepDegrees, ArcSweepDegrees / (n - 1));
+            return _radius;
+        float step = Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (n - 1));
         float half = step * (n - 1) * 0.5f;
-        return Mathf.Max(0.001f, Mathf.Sin(half * Mathf.Deg2Rad) * Radius);
+        return Mathf.Max(0.001f, Mathf.Sin(half * Mathf.Deg2Rad) * _radius);
     }
 
     /// <summary>The gaze apex as a FRACTIONAL card index (CardFan.GazeApexIndex).</summary>
     private float GazeApexIndex(int n)
     {
         float center = (n - 1) * 0.5f;
-        if (n < 2 || GazeApexFollow <= 0f)
+        if (n < 2 || _gazeApexFollow <= 0f)
             return center;
-        float step = Mathf.Min(PerCardStepDegrees, ArcSweepDegrees / (n - 1));
+        float step = Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (n - 1));
         if (step <= 0.0001f)
             return center;
         float start = -step * (n - 1) * 0.5f;
-        float angle = Mathf.Asin(Mathf.Clamp(_gazeX / Radius, -1f, 1f)) * Mathf.Rad2Deg;
+        float angle = Mathf.Asin(Mathf.Clamp(_gazeX / _radius, -1f, 1f)) * Mathf.Rad2Deg;
         return Mathf.Clamp((angle - start) / step, 0f, n - 1f);
     }
 
     /// <summary>The resting, gaze-independent symmetric cup (CardFan.RestBowDepth).</summary>
-    private static float RestBowDepth(int i, int n)
+    private float RestBowDepth(int i, int n)
     {
-        if (n < 2 || SideDepthCurve == 0f || n <= CurveMinCards)
+        if (n < 2 || _sideDepthCurve == 0f || n <= _curveMinCards)
             return 0f;
         float half = (n - 1) * 0.5f;
         float frac = Mathf.Clamp01(Mathf.Abs(i - half) / half);
-        int hi = Mathf.Max(CurveMinCards + 1, MaxHandForCurve);
-        float fill = Mathf.Clamp01((float)(n - CurveMinCards) / (hi - CurveMinCards));
-        return SideDepthCurve * Mathf.Pow(frac, CurvePower) * fill;
+        int hi = Mathf.Max(_curveMinCards + 1, _maxHandForCurve);
+        float fill = Mathf.Clamp01((float)(n - _curveMinCards) / (hi - _curveMinCards));
+        return _sideDepthCurve * Mathf.Pow(frac, _curvePower) * fill;
     }
 
     /// <summary>The resting cup with the gaze RELIEF applied (CardFan.BowDepth): the card under the
@@ -743,11 +766,11 @@ internal sealed class RemoteHandFan
     private float BowDepth(int i, int n, float apex)
     {
         float rest = RestBowDepth(i, n);
-        if (rest == 0f || GazeApexFollow <= 0f)
+        if (rest == 0f || _gazeApexFollow <= 0f)
             return rest;
         float w = Mathf.Max(GazeReliefMinWidth, (n - 1) * 0.5f * GazeReliefWidthFactor);
         float d = (i - apex) / w;
-        return rest * (1f - GazeApexFollow * Mathf.Exp(-d * d));
+        return rest * (1f - _gazeApexFollow * Mathf.Exp(-d * d));
     }
 
     /// <summary>Compose every card's fan-local Z (stagger + bow + stacking clamp) and return the
@@ -759,7 +782,7 @@ internal sealed class RemoteHandFan
         float apex = GazeApexIndex(n);
         for (int i = 0; i < count; i++)
             _depths[i] = -ZStagger * i + BowDepth(i, n, apex);
-        if (SideDepthCurve > 0f)
+        if (_sideDepthCurve > 0f)
         {
             for (int i = 1; i < count; i++)
             {
@@ -857,6 +880,54 @@ internal sealed class RemoteHandFan
         }
     }
 
+    /// <summary>The <see cref="RemoteAvatar.BoardTuningRevision"/> the geometry fields below were
+    /// last refreshed at (−1 = never). Latched rather than value-compared: the resolve already
+    /// happens once per real change in <see cref="RemoteAvatar"/>.</summary>
+    private int _tuningRevision = -1;
+
+    /// <summary>
+    /// Pull the owner's own fan geometry out of their resolved tuning (extension record 28) when it
+    /// has actually changed. Everything here is either the value they set or — for every dial they
+    /// have not touched — this client's shipped constant, which is the same number, so an untuned
+    /// peer's fan is unchanged from every previous build.
+    ///
+    /// <para>A change in the CARD SIZE invalidates <see cref="_builtCount"/> so the slabs are
+    /// rebuilt at the new size on this same frame; the angular/curve dials need no rebuild because
+    /// the layout recomputes every card's pose every frame anyway.</para>
+    /// </summary>
+    private void SyncTuning()
+    {
+        if (_tuningRevision == _owner.BoardTuningRevision)
+            return;
+        _tuningRevision = _owner.BoardTuningRevision;
+        RemoteBoardTuning t = _owner.BoardTuning;
+
+        float width = t.CardWidth > 0.001f ? t.CardWidth : DefaultCardWidth;
+        bool sizeChanged = !Mathf.Approximately(width, _cardWidth);
+        _cardWidth = width;
+        _cardHeight = width * (88f / 63.5f);
+
+        _palmOffset = t.FanPalmOffset;
+        _radius = t.FanEffectiveRadius;
+        _arcSweepDegrees = t.FanArcSweepDegrees;
+        _perCardStepDegrees = t.FanPerCardStepDegrees;
+        _archFactor = t.FanFlatCurvatureFactor;
+        _tiltFactor = t.FanTiltFactor;
+        _maxHandForCurve = Mathf.Max(1, t.FanMaxHandForCurve);
+        _faceViewer = t.FanFaceViewer;
+        _sideDepthCurve = t.FanSideDepthCurve;
+        _curvePower = t.FanCurvePower;
+        _curveMinCards = Mathf.Max(0, t.FanCurveMinCards);
+        _gazeApexFollow = t.FanGazeApexFollow;
+        _splitMultiplier = t.FanSplitMultiplier;
+        _splitFalloff = t.FanSplitFalloff;
+        _splitScale = t.FanHoverSplitScale;
+        _popForward = t.FanSelectedPopForward;
+
+        if (sizeChanged)
+            _builtCount = -1;
+    }
+
     /// <summary>Destroy and recreate exactly <paramref name="count"/> back-on-both-faces slabs, each
     /// with its own (initially hidden) cloned-front overlay. Only called when the count changes
     /// (cheap). Re-applies the mod layer so the owned head camera renders the new slabs.</summary>
@@ -884,7 +955,9 @@ internal sealed class RemoteHandFan
         {
             var card = new GameObject($"Card{i}");
             card.transform.SetParent(_root!.transform, worldPositionStays: false);
-            card.transform.localScale = Vector3.one;
+            // The slab MESH is the shared default-sized one; the owner's own CardWidth arrives as
+            // a uniform scale (record 28), so their ghost cards read the size they see.
+            card.transform.localScale = Vector3.one * (_cardWidth / DefaultCardWidth);
             var mf = card.AddComponent<MeshFilter>();
             mf.sharedMesh = mesh;
             var mr = card.AddComponent<MeshRenderer>();
@@ -892,7 +965,7 @@ internal sealed class RemoteHandFan
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             _cards.Add(card);
-            _faces.Add(new RemoteCardArt(card.transform, CardWidth, CardHeight));
+            _faces.Add(new RemoteCardArt(card.transform, _cardWidth, _cardHeight));
         }
 
         _builtCount = count;
@@ -946,7 +1019,10 @@ internal sealed class RemoteHandFan
     /// <summary>A thin card-back slab whose BOTH faces show the mod's card-back texture: a front
     /// quad (-Z, normal back) and a back quad (+Z, normal forward), each a hair off centre so it
     /// reads as a solid card from either side. Built once and shared by every ghost card.</summary>
-    private static Mesh SharedCardMesh => _sharedCardMesh != null ? _sharedCardMesh : (_sharedCardMesh = BuildBackSlab(CardWidth, CardHeight));
+    /// <summary>Built at the DEFAULT card size and shared by every peer's fan; a peer whose own
+    /// [Cards] CardWidth differs gets that size through the slab's localScale instead, so one tuned
+    /// player cannot resize everybody else's cards through a shared mesh.</summary>
+    private static Mesh SharedCardMesh => _sharedCardMesh != null ? _sharedCardMesh : (_sharedCardMesh = BuildBackSlab(DefaultCardWidth, DefaultCardHeight));
 
     /// <summary>Also consumed by <see cref="WorldUI.AvatarMirror"/> (mirrored local card fan):
     /// a thin both-faces-back card slab mesh. Caller owns the returned mesh.</summary>

@@ -40,12 +40,14 @@ namespace GloomhavenVR.Net;
 ///
 /// SEATING. When the REAL tray asset is up (<see cref="RemoteTrayVisual"/>), the caps sit on the
 /// prefab's own anchors (<c>ConfirmButton/UndoButton/ShortRestToken/LongRestToken</c>) plus the
-/// AUTHORED per-board offsets (<c>Defaults.ConfirmUndoOffset_*</c>, <c>RestButtonOffset_*</c>, …,
-/// keyed by the PEER's synced style) — the same anchor + authored-offset seat the owner's own
-/// board uses. The peer's private debug-menu RE-tuning of those offsets stays off the wire and is
-/// NOT applied (DELIBERATELY-NOT, as ever): every client renders a given board style at its
-/// shipped layout. On the flat fallback board (bundle absent) the caps keep the legacy Oak
-/// board-local constants.
+/// OWNER's own per-board offsets, resolved through <see cref="RemoteBoardTuning"/>: the value they
+/// set where they have moved a dial (extension record 28) and the authored
+/// <c>Defaults.ConfirmUndoOffset_*</c> / <c>RestButtonOffset_*</c> / … for their synced style where
+/// they have not — which is the same number, so an untuned peer's board is unchanged. The
+/// DELIBERATELY-NOT note that stood here ("their re-tuning stays off the wire; every client renders
+/// a given style at its shipped layout") was retired with record 28: under the 1:1 ruling a cap the
+/// owner has moved belongs where they moved it on every screen. On the flat fallback board (bundle
+/// absent) the caps keep the legacy Oak board-local constants.
 ///
 /// NON-INTERACTIVE IS A HARD REQUIREMENT, and it is enforced three ways, not one:
 ///   1. CONSTRUCTION — nothing here ever creates a <c>Collider</c>, a <c>Rigidbody</c> or a
@@ -366,6 +368,23 @@ internal sealed class RemoteBoardFurniture
         _ => Defaults.DecisionOffset_Oak,
     };
 
+    // ---------------------------------------------------------------- the owner's own seats --
+    // These used to be a switch per dial over the SHIPPED per-board layout
+    // (Defaults.*_Oak/Steel/Bronze) keyed by the PEER's synced style, with a DELIBERATELY-NOT note
+    // saying that the owner's re-tuning of them stays local. They are now read off
+    // <see cref="RemoteBoardTuning"/>, which is the same shipped constant for every dial the owner
+    // has NOT moved and their real value for every dial they have (extension record 28). The
+    // per-board DESIGN half of the old argument is unchanged and still applies: a Steel peer's
+    // confirm column belongs at the Steel spot (x +0.462 off the anchor!), not the Oak one.
+    //
+    // ONE DIAL IS STILL DELIBERATELY NOT APPLIED, and it is not a tuning question: the ButtonCluster
+    // mount's POSITION (ClusterOffset_*). The local cluster's rigid dock
+    // (<c>ButtonCluster.AttachDocked</c>) reads the mount's ROTATION and SCALE only and seats the
+    // buttons at fixed column constants — the mount's position never moves the RENDERED cluster, so
+    // mirroring it would move the copy where the original never goes (the previous revision's
+    // misplacement, task 3(b)). Its SCALE is applied, and now follows the owner's tuning like the
+    // rest.
+
     /// <summary>
     /// THE SLOT-OVERLAY SEAT — defect (d) of this round ("die Kartenoverlays haben einen Versatz
     /// auf der X-Achse, sie werden zu weit links dargestellt").
@@ -389,14 +408,14 @@ internal sealed class RemoteBoardFurniture
     /// remote glows already carry their own proud offsets relative to the card plane, and the
     /// authored z is the local build's equivalent of exactly that.
     ///
-    /// As everywhere on this board, these are the SHIPPED per-board defaults keyed by the peer's
-    /// SYNCED style, never that peer's private re-tuning (DELIBERATELY-NOT).
+    /// As everywhere on this board, these are the OWNER's own values (extension record 28) where
+    /// they have moved the dial and the SHIPPED per-board default keyed by their SYNCED style
+    /// where they have not — the two coincide for every untuned player.
     /// </summary>
-    private static Vector3 SlotOverlayLocal(Cards.ControlBoard s, int slot)
+    private static Vector3 SlotOverlayLocal(in RemoteBoardTuning t, int slot)
     {
-        int i = (int)Cards.ControlBoards.Clamp((int)s);
-        Vector3 ov = Cards.CardsConfig.BoardDefaults.SlotOverlayOffset[i];
-        float spread = (slot == 0 ? -0.5f : 0.5f) * Cards.CardsConfig.BoardDefaults.SlotOverlaySpacing[i];
+        Vector3 ov = t.SlotOverlayOffset;
+        float spread = (slot == 0 ? -0.5f : 0.5f) * t.SlotOverlaySpacing;
         return new Vector3(ov.x + spread, ov.y, 0f) * Cards.PlayTray.SlotScale;
     }
 
@@ -416,9 +435,11 @@ internal sealed class RemoteBoardFurniture
     private readonly Material _itemUseGlowMat;
     private readonly Transform _decision;
 
-    /// <summary>The board style this furniture was built for — keys the decision row's authored
-    /// scale/gap when the synced content is rebuilt after construction.</summary>
-    private Cards.ControlBoard _decisionStyle;
+    /// <summary>The OWNER's resolved tuning this furniture was built for — keys the decision row's
+    /// scale/gap when the synced content is rebuilt after construction. Their own values where they
+    /// have moved a dial (extension record 28), the shipped per-board defaults where they have
+    /// not.</summary>
+    private RemoteBoardTuning _decisionTuning;
 
     /// <summary>The captioned IDLE drawer under <see cref="_decision"/> — shown while the owner
     /// has a docked prompt whose labels this client does not hold (legacy sender).</summary>
@@ -592,7 +613,7 @@ internal sealed class RemoteBoardFurniture
     /// positions the two round CARDS render at — the slot overlays (wanted pulse / snap glow)
     /// centre on them so glow and card agree on every board style.
     /// </summary>
-    public RemoteBoardFurniture(Transform boardRoot, Cards.ControlBoard style, RemoteTrayVisual? tray,
+    public RemoteBoardFurniture(Transform boardRoot, in RemoteBoardTuning tuning, RemoteTrayVisual? tray,
         Vector3 slot0CardLocal, Vector3 slot1CardLocal,
         float slotFrameWidth = 0f, float slotCardWidth = 0f)
     {
@@ -611,8 +632,8 @@ internal sealed class RemoteBoardFurniture
         // Real tray: on the prefab's own ConfirmButton/UndoButton anchors + the authored per-style
         // offset + the authored generic spacing (± spacing/2 — GenericClusterY's 2-member layout),
         // exactly the seat PlayTray.BuildButtons gives the live keycaps. Fallback: the Oak mounts.
-        Vector3 cuOff = ConfirmUndoOffsetFor(style);
-        float cuSpacing = GenericSpacingFor(style);
+        Vector3 cuOff = tuning.ConfirmUndoOffset;
+        float cuSpacing = tuning.GenericButtonSpacing;
         Transform confirmParent = tray?.ConfirmAnchor ?? _root;
         Transform undoParent = tray?.UndoAnchor ?? _root;
         Vector3 confirmPos = tray?.ConfirmAnchor != null
@@ -669,9 +690,9 @@ internal sealed class RemoteBoardFurniture
         // built IDLE and switch to their authored accent when the owner's do.
         if (tray?.ShortRestAnchor != null && tray.LongRestAnchor != null)
         {
-            Vector3 restOff = RestOffsetFor(style);
-            float restSpacing = RestSpacingFor(style);
-            float restD = RestDiameterFor(style);
+            Vector3 restOff = tuning.RestButtonOffset;
+            float restSpacing = tuning.RestButtonSpacing;
+            float restD = tuning.RestButtonDiameter;
             _shortRest = InertCap.Round(tray.ShortRestAnchor, "ShortRest",
                 restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, RestCapD, CapIdleColor,
                 travel: RestCapTravel, accent: ShortRestColor);
@@ -682,7 +703,7 @@ internal sealed class RemoteBoardFurniture
 
         // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced
         // state every refresh (SetPinned) — label AND cap colour, exactly like their own cap.
-        _pin = InertCap.Square(_root, "FollowToggle", PinMount + PinOffsetFor(style),
+        _pin = InertCap.Square(_root, "FollowToggle", PinMount + tuning.PinOffset,
             new Vector2(PinCapW, DashCapH), DashCapD, PinIdleColor,
             travel: DashCapTravel, accent: PinAccentColor);
 
@@ -711,7 +732,7 @@ internal sealed class RemoteBoardFurniture
         // the AUTHORED shape (the shipped default is a SQUARE keycap of the [RoundButtons] W/H/D,
         // not a round disc). The previous revision drew an unscaled round disc at the bare column
         // anchor — wrong spot, wrong shape, 1.43× too big.
-        float clusterScale = ClusterDockScale * ClusterScaleFor(style);
+        float clusterScale = ClusterDockScale * tuning.ClusterScale;
         Vector3 skipSeat = ClusterMount + SkipSeatOffset
                            + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + Defaults.OffsetZ));
         _skip = Defaults.RoundButtons_Shape == Cards.ButtonShape.Round
@@ -724,7 +745,7 @@ internal sealed class RemoteBoardFurniture
                 travel: TransientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
-        _itemUse = BuildItemUseRecess(ItemUseMount + ItemUseOffsetFor(style), out _itemUseGlowMat);
+        _itemUse = BuildItemUseRecess(ItemUseMount + tuning.ItemUseSlotOffset, out _itemUseGlowMat);
 
         // ---- shared decision drawer -----------------------------------------------------------
         // ANCHORED WHERE THE OWNER'S DOCK REALLY HANGS (task 2 — the detached "ENTSCHEIDUNGEN"
@@ -737,10 +758,10 @@ internal sealed class RemoteBoardFurniture
         // bar's authored seat, its zone half-height, the shared clearance and the AUTHORED
         // per-board DecisionGap. The mount contributes only its authored X/Z (sideways + proud),
         // exactly as it does locally.
-        _decisionStyle = style;
-        Vector3 decisionOff = DecisionOffsetFor(style);
+        _decisionTuning = tuning;
+        Vector3 decisionOff = tuning.DecisionOffset;
         float barBottomY = HandleMount.y - HandleZoneHalfY;
-        float decisionTopY = barBottomY - BarClearanceMeters - DecisionGapFor(style);
+        float decisionTopY = barBottomY - BarClearanceMeters - tuning.DecisionGap;
         _decision = BuildDecisionDrawer(new Vector3(
             DecisionMount.x + decisionOff.x, decisionTopY, DecisionMount.z + decisionOff.z));
         // ---- the SECOND drawer: the mirrored use-slot bars (wire record 25) -------------------
@@ -764,7 +785,7 @@ internal sealed class RemoteBoardFurniture
         _decisionPrompt = BuildDecisionPrompt(new Vector3(
             DecisionMount.x + decisionOff.x,
             DecisionMount.y + decisionOff.y + PromptAboveMountY,
-            DecisionMount.z + decisionOff.z), style);
+            DecisionMount.z + decisionOff.z), in tuning);
 
         // ---- slot overlays: wanted pulse + snap glow ------------------------------------------
         // Centred on the CARD positions handed in by the board (the real recess anchors when the
@@ -784,7 +805,7 @@ internal sealed class RemoteBoardFurniture
         // state that could gate it: the zones are never visible.
         for (int i = 0; i < 2; i++)
         {
-            Vector3 card = (i == 0 ? slot0CardLocal : slot1CardLocal) + SlotOverlayLocal(style, i);
+            Vector3 card = (i == 0 ? slot0CardLocal : slot1CardLocal) + SlotOverlayLocal(in tuning, i);
             _wanted[i] = BuildSlotGlow($"WantedGlow{i}", card, 1.36f, -0.003f,
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
             _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, 1.24f, -0.005f,
@@ -1357,9 +1378,9 @@ internal sealed class RemoteBoardFurniture
     /// the help box's own gold/grey rich-text colouring, MR-backed like every other line that hangs
     /// below the board in open air. Display-only: one TMP, no collider, nothing to press.
     /// </summary>
-    private TextMeshPro BuildDecisionPrompt(Vector3 local, Cards.ControlBoard style)
+    private TextMeshPro BuildDecisionPrompt(Vector3 local, in RemoteBoardTuning tuning)
     {
-        float scale = DecisionScaleFor(style);
+        float scale = tuning.DecisionScale;
         TextMeshPro label = RemoteBoardContent.Label(_root, "DecisionPrompt", local,
             new Vector2(Cards.PlayTray.DecisionMountWidth * scale, 0.075f * scale),
             0.17f * scale, new Color(0.82f, 0.80f, 0.76f),
@@ -1419,17 +1440,12 @@ internal sealed class RemoteBoardFurniture
         return sb.ToString();
     }
 
-    /// <summary>Authored per-board decision text↔button gap (<c>Defaults.DecisionGap_*</c> — the
-    /// board-local metres the owner's widget-block top hangs below the prompt reference).</summary>
-    private static float DecisionGapFor(Cards.ControlBoard s) =>
-        Cards.CardsConfig.BoardDefaults.DecisionGap[(int)Cards.ControlBoards.Clamp((int)s)];
+    // The decision text↔button GAP (Defaults.DecisionGap_*, board-local metres below the prompt
+    // reference) and the dock SCALE (Defaults.DecisionScale_*, 1.6 on every shipped board — the
+    // "readable under pressure" enlargement the local mount carries) both come off the owner's
+    // resolved tuning now, so a player who has moved either reads the same to everyone.
 
-    /// <summary>Authored per-board decision dock SCALE (<c>Defaults.DecisionScale_*</c>, 1.6 on
-    /// every shipped board — the "readable under pressure" enlargement the local mount carries).</summary>
-    private static float DecisionScaleFor(Cards.ControlBoard s) =>
-        Defaults.DecisionScale_ByBoard[(int)Cards.ControlBoards.Clamp((int)s)];
-
-    // ---- decision-row geometry (all board-local metres, scaled by DecisionScaleFor) ----------
+    // ---- decision-row geometry (all board-local metres, scaled by the owner's dock scale) ----
     // The local row is the game's own widget row fitted into PlayTray.DecisionMountWidth ×
     // DecisionMountMaxHeight at the mount's 1.6× scale; the mirror reproduces that envelope with
     // one plate per synced label — content-true widths inside the same budget.
@@ -1513,7 +1529,7 @@ internal sealed class RemoteBoardFurniture
         if (lines == null)
             return;
 
-        float scale = DecisionScaleFor(_decisionStyle);
+        float scale = _decisionTuning.DecisionScale;
         string[] labels = lines.Split('\n');
         int n = labels.Length;
 
@@ -1595,7 +1611,7 @@ internal sealed class RemoteBoardFurniture
                           $"× {h:F3} m at the authored ×{scale:F2} dock scale, face = " +
                           $"{(native ? "the sampled GAME button sprite (9-sliced) × DecisionDockSurface.AntiqueTint" : "procedural fallback plate (no live button sampled yet)")}, " +
                           $"top edge at board-local y {_decision.localPosition.y:F3} (bar bottom − " +
-                          $"clearance − authored DecisionGap_{_decisionStyle}) — the seat, look and " +
+                          $"clearance − the owner's own DecisionGap for {_decisionTuning.Style}) — the seat, look and " +
                           "wording the OWNER's own docked row shows. Display-only: colliderless.");
     }
 
@@ -1896,7 +1912,10 @@ internal sealed class RemoteBoardFurniture
             return;
         }
 
-        float scale = DecisionScaleFor(_decisionStyle);
+        // The use-bar drawer rides the DECISION dock's own scale and offset, which since record
+        // 28 come from the OWNER's tuning rather than from the shipped defaults — otherwise a
+        // tuned player's mirrored bars would stack at a different pitch from their mirrored row.
+        float scale = _decisionTuning.DecisionScale;
         float rowH = UseBarRowH * scale;
         float rowGap = UseBarRowGap * scale;
         float budget = Cards.PlayTray.DecisionMountWidth * scale;
@@ -1914,7 +1933,7 @@ internal sealed class RemoteBoardFurniture
             // DecisionMountMaxHeight/2 above the MOUNT — expressed here relative to this root.
             // × the authored dock scale for the same reason DecisionMountWidth is scaled above:
             // both are MOUNT-local constants and the decision mount carries that scale.
-            float mountY = DecisionMount.y + DecisionOffsetFor(_decisionStyle).y;
+            float mountY = DecisionMount.y + _decisionTuning.DecisionOffset.y;
             top = mountY + Cards.PlayTray.DecisionMountMaxHeight * 0.5f * scale
                   - _useBars.localPosition.y;
         }

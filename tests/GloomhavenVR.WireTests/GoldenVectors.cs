@@ -2958,6 +2958,279 @@ internal static class GoldenVectors
                 "and the order id is confused with none of them — four different facts");
 
 
+        // -- 7s. EMPTY-FAN PLACARD (record 14, byte 1, bit 4) ------------------------------
+        // The one control-board-adjacent display that had no mirror: the hand-anchored "Keine
+        // Handkarten" plate. It rides record 14's reserved nibble as ONE bit, and — this is the
+        // point of these vectors — it OPENS the record on its own, because the placard can be up
+        // while nothing at all is hovered or selected. It could never be inferred: 0 hand cards
+        // with the fan closed is also every idle player (the trap in INVARIANTS-Net-Rig.md).
+        t.Case("7s. extras, empty-fan placard bit (record 14 byte 1 bit 4)");
+        m = PresenceSerializer.Write(new PresenceState { EmptyFanHint = true }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            0E 02 03 10      // id 14, len 2: hover SENTINEL (no hover), byte1 = bit4 only
+            "), ext, m, "the placard alone opens record 14 with the no-hover sentinel in byte 0");
+        t.Equal(15, m, "header 7 + count 1 + block 2 + tail 1 + 4 = 15 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hint), "and it parses");
+        t.True(hint.EmptyFanHint, "the placard bit is delivered");
+        t.True(!hint.HasHalfHover,
+               "WITHOUT claiming a half hover — a placard-only record must not light a hover " +
+               "state nobody is in, which is why bit 4 is read outside the hover/selection drop");
+        t.Equal(NetProtocol.HalfSelectNone, hint.HalfSelect0, "and no selection is invented");
+
+        // The placard rides ALONGSIDE a live hover + selection in the same two bytes, at no cost.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHalfHover = true, HalfHoverActive = true, HalfHoverSlot = 1, HalfHoverTop = true,
+            HalfSelect0 = NetProtocol.HalfSelectBottom,
+            EmptyFanHint = true,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            01
+            0E 02 05 12      // id 14: hover slot1|top; byte1 = sel0 BOTTOM (2) | placard (0x10)
+            "), ext, m, "the placard bit costs ZERO bytes when the record is already riding");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hintBoth), "and it parses");
+        t.True(hintBoth.EmptyFanHint && hintBoth.HasHalfHover && hintBoth.HalfHoverActive,
+               "with the placard and the hover both delivered");
+        t.Equal(1, hintBoth.HalfHoverSlot, "the hover slot is untouched by the new bit");
+        t.Equal(NetProtocol.HalfSelectBottom, hintBoth.HalfSelect0,
+                "and so is the selection field beside it");
+
+        // NO placard, no hover, no selection -> no record at all: byte-identical to the build
+        // before the bit existed.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 3 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 03"), ext, m,
+               "no placard and nothing lit -> no record: byte-identical to a pre-bit sender");
+
+        // An OLD-STYLE packet — a sender that predates the bit writes byte 1's bits 4..7 as 0.
+        // The receiver must DERIVE 'no placard' from that, never a stale one.
+        byte[] preBitPacket = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 02 04 00");
+        t.True(PresenceSerializer.TryRead(preBitPacket, preBitPacket.Length, out PresenceState old14),
+               "a pre-bit record 14 still parses");
+        t.True(old14.HasHalfHover && old14.HalfHoverActive && old14.HalfHoverTop,
+               "with its hover intact");
+        t.True(!old14.EmptyFanHint,
+               "and NO placard derived — absence means 'down', which is what those builds render");
+
+        // RESERVED bits 5..7 set by a future sender: masked off, and they must not be mistaken
+        // for the placard or bleed into the selection fields.
+        byte[] futBits = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 02 03 F0");
+        t.True(PresenceSerializer.TryRead(futBits, futBits.Length, out PresenceState fut14),
+               "a record with reserved bits 5..7 set parses");
+        t.True(fut14.EmptyFanHint, "bit 4 is still read");
+        t.True(!fut14.HasHalfHover, "and bits 5..7 light nothing at all");
+
+        // -- 7t. BOARD TUNING (extension record 28) ----------------------------------------
+        // The owner's OWN dial positions, SPARSE: a field only where the value differs from the
+        // shipped default for their synced style, and NO RECORD AT ALL when nothing differs.
+        // That last case is the important one — it is the whole economic argument for the record.
+        t.Case("7t. extras, board-tuning record");
+
+        // THE DEFAULT CASE FIRST: an untuned player produces a zero-length payload, which must
+        // not even open the extension tail. Byte-for-byte a pre-record sender.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HandCardCount = 4,
+            HasBoardTuning = true,          // the sampler ran…
+            BoardTuningBytes = System.Array.Empty<byte>(),
+            BoardTuningLength = 0,          // …and found every dial at its default
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 04"), ext, m,
+               "EVERY DIAL AT THE DEFAULT -> no record, no tail, no block: byte-identical to a " +
+               "pre-record-28 sender (the whole reason this record is affordable)");
+        t.Equal(8, m, "and the packet is the bare 8-byte extras packet");
+
+        // ONE MOVED DOCK: [n=1][id 1 objectives][x y z as i16 tenth-mm].
+        // (0.012, -0.034, 0.005) m -> 120, -340, 50 tenth-mm -> 78 00 / AC FE / 32 00.
+        byte[] oneDial = { 1, NetProtocol.TuneObjectivesOffset, 0x78, 0x00, 0xAC, 0xFE, 0x32, 0x00 };
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTuning = true, BoardTuningBytes = oneDial, BoardTuningLength = oneDial.Length,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            1C 08            // id 28 (0x1C), len 8
+            01               //   field count
+            01 78 00 AC FE 32 00   //   id 1 (objectives offset): 120, -340, 50 tenth-mm
+            "), ext, m, "one moved dock costs 10 bytes: TLV header 2 + count 1 + id 1 + value 6");
+        t.Equal(21, m, "header 7 + count 1 + block 2 + tail 1 + 10 = 21 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState tune), "and it parses");
+        t.True(tune.HasBoardTuning, "the tuning record is delivered");
+        t.Equal(8, tune.BoardTuningLength, "with its payload length intact");
+        Vector3 objOff = NetProtocol.BoardTuneVector(
+            tune.BoardTuningBytes, 0, tune.BoardTuningLength,
+            NetProtocol.TuneObjectivesOffset, new Vector3(9f, 9f, 9f));
+        t.Equal(0.012f, objOff.x, "x decodes at 0.1 mm resolution");
+        t.Equal(-0.034f, objOff.y, "y decodes signed");
+        t.Equal(0.005f, objOff.z, "z decodes");
+
+        // A FIELD THAT IS NOT IN THE RECORD reads as the caller's own shipped default — which is
+        // what makes a SPARSE record correct: absence means "the value you already have".
+        Vector3 absent = NetProtocol.BoardTuneVector(
+            tune.BoardTuningBytes, 0, tune.BoardTuningLength,
+            NetProtocol.TunePileOffset, new Vector3(1f, 2f, 3f));
+        t.True(absent == new Vector3(1f, 2f, 3f),
+               "an absent field yields the receiver's own default, never zero");
+
+        // ALL FOUR VALUE WIDTHS in one record, in ascending id order (the layout contract).
+        //   id  15 vec3   asset offset (0, -0.11, 0.08) -> 0, -1100, 800
+        //   id  70 length card width 0.0700 m           -> 700
+        //   id 128 factor objectives scale 1.250        -> 1250
+        //   id 192 angle  asset pitch 57.00 deg         -> 5700
+        //   id 224 count  fan max hand for curve 8      -> 8
+        byte[] mixedTune =
+        {
+            5,
+            NetProtocol.TuneAssetOffset,       0x00, 0x00, 0xB4, 0xFB, 0x20, 0x03,
+            NetProtocol.TuneCardWidth,         0xBC, 0x02,
+            NetProtocol.TuneObjectivesScale,   0xE2, 0x04,
+            NetProtocol.TuneAssetPitch,        0x44, 0x16,
+            NetProtocol.TuneFanMaxHandForCurve, 0x08,
+        };
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTuning = true, BoardTuningBytes = mixedTune, BoardTuningLength = mixedTune.Length,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            01
+            1C 13            // id 28, len 19
+            05               //   5 fields
+            0F 00 00 B4 FB 20 03   //   id 15 vec3  : asset offset (0, -0.11, 0.08)
+            46 BC 02               //   id 70 length: card width 70.0 mm
+            80 E2 04               //   id 128 factor: objectives scale 1.250
+            C0 44 16               //   id 192 angle : asset pitch 57.00 deg
+            E0 08                  //   id 224 count : fan max hand for curve = 8
+            "), ext, m, "all four value widths ride one record, ids ascending");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState mixTune), "and it parses");
+        Vector3 asset = NetProtocol.BoardTuneVector(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+                                                    NetProtocol.TuneAssetOffset, Vector3.zero);
+        t.Equal(-0.11f, asset.y, "the bronze board's shipped mesh offset survives the round trip");
+        t.Equal(0.08f, asset.z, "on both moved axes");
+        t.Equal(0.07f, NetProtocol.BoardTuneLength(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+                                                   NetProtocol.TuneCardWidth, 0f),
+                "a LENGTH field decodes in tenth-millimetres");
+        t.Equal(1.25f, NetProtocol.BoardTuneFactor(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+                                                   NetProtocol.TuneObjectivesScale, 0f),
+                "a FACTOR field decodes in thousandths");
+        t.Equal(57f, NetProtocol.BoardTuneAngle(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+                                                NetProtocol.TuneAssetPitch, 0f),
+                "an ANGLE field decodes in hundredth-degrees");
+        t.Equal(8, NetProtocol.BoardTuneCount(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+                                              NetProtocol.TuneFanMaxHandForCurve, 0),
+                "a COUNT field is one plain byte");
+        t.Equal(2f, NetProtocol.BoardTuneFactor(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+                                                NetProtocol.TuneFanCurvePower, 2f),
+                "and every field NOT in the record still reads as the receiver's own default");
+
+        // MASKED READ: a field is found by WALKING the sparse list at the widths the ids declare.
+        // Here a 6-byte vec3 sits before a 2-byte factor whose VALUE BYTES (0x80 0xE2) would look
+        // like an id-128 field if the walk ever mis-stepped — the reason the widths are fixed by
+        // id RANGE and not guessed.
+        t.Equal(1.25f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTune.Length,
+                                                   NetProtocol.TuneObjectivesScale, 0f),
+                "the walk steps over a 6-byte vec3 to reach the factor behind it");
+        t.Equal(-1f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTune.Length,
+                                                 NetProtocol.TuneElementsScale, -1f),
+                "and a factor id that is NOT present is not matched by another field's value byte");
+
+        // A RESERVED id (no defined width) ENDS the walk: fields before it survive, nothing past
+        // it is guessed at. Cannot happen between same-build peers; it must not corrupt if it does.
+        byte[] reserved =
+        {
+            3,
+            NetProtocol.TuneCardWidth, 0xBC, 0x02,
+            0xFF, 0x11, 0x22,                        // id 255: RESERVED, width unknown
+            NetProtocol.TuneObjectivesScale, 0xE2, 0x04,
+        };
+        t.Equal(0.07f, NetProtocol.BoardTuneLength(reserved, 0, reserved.Length,
+                                                   NetProtocol.TuneCardWidth, 0f),
+                "a field BEFORE an unknown-width id is delivered");
+        t.Equal(9f, NetProtocol.BoardTuneFactor(reserved, 0, reserved.Length,
+                                                NetProtocol.TuneObjectivesScale, 9f),
+                "and everything behind it degrades to the default rather than being mis-parsed");
+
+        // TRUNCATION: the record claims 8 payload bytes and delivers 4. The tail is abandoned
+        // mid-record, the packet still parses, and nothing is delivered from the torn record.
+        byte[] cutTune = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1C 08 01 01 78 00");
+        t.True(PresenceSerializer.TryRead(cutTune, cutTune.Length, out PresenceState cutT),
+               "a truncated tuning record still parses the packet");
+        t.True(!cutT.HasBoardTuning, "and the incomplete record is simply not delivered");
+
+        // A FIELD truncated INSIDE an otherwise well-formed record: the walk stops at the short
+        // field, the fields before it stand. (The record's own TLV length bounds every read.)
+        byte[] shortField = { 2, NetProtocol.TuneCardWidth, 0xBC, 0x02, NetProtocol.TunePileOffset, 0x01 };
+        t.Equal(0.07f, NetProtocol.BoardTuneLength(shortField, 0, shortField.Length,
+                                                   NetProtocol.TuneCardWidth, 0f),
+                "the complete field before a truncated one is still read");
+        t.True(NetProtocol.BoardTuneVector(shortField, 0, shortField.Length,
+                                           NetProtocol.TunePileOffset, Vector3.one) == Vector3.one,
+               "and the truncated field yields the default, never a torn vector");
+
+        // A ZERO-FIELD record is dropped: identical to 'record absent', which is what an untuned
+        // sender emits anyway — the two must never be distinguishable on the receiver.
+        byte[] emptyRec = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1C 01 00");
+        t.True(PresenceSerializer.TryRead(emptyRec, emptyRec.Length, out PresenceState emptyT),
+               "a zero-field tuning record parses");
+        t.True(!emptyT.HasBoardTuning, "and is dropped — indistinguishable from 'record absent'");
+
+        // QUANTIZATION CLAMPS (never trust a config, either): values past each encoding's range
+        // saturate instead of wrapping into a wrong sign.
+        t.Equal(short.MaxValue, NetProtocol.EncodeTuneLength(99f), "a 99 m length clamps");
+        t.Equal(short.MinValue, NetProtocol.EncodeTuneLength(-99f), "and so does a negative one");
+        t.Equal((short)0, NetProtocol.EncodeTuneLength(float.NaN), "NaN encodes as 0, never garbage");
+        t.Equal(short.MaxValue, NetProtocol.EncodeTuneFactor(999f), "a runaway factor clamps");
+        t.Equal(short.MaxValue, NetProtocol.EncodeTuneAngle(9999f), "and a runaway angle clamps");
+        t.Equal(0.0001f, NetProtocol.DecodeTuneLength(1), "1 tenth-mm is the length step");
+        t.Equal(0.001f, NetProtocol.DecodeTuneFactor(1), "0.001 is the factor step");
+        t.Equal(0.01f, NetProtocol.DecodeTuneAngle(1), "0.01 deg is the angle step");
+
+        // ID ORDER ON THE WIRE: record 28 is appended LAST, behind record 24, exactly like every
+        // record before it — an older reader steps over it by its length.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHalfHover = true, HalfHoverActive = true, HalfHoverSlot = 0, HalfHoverTop = true,
+            HasBoardTuning = true, BoardTuningBytes = oneDial, BoardTuningLength = oneDial.Length,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02
+            0E 02 04 00      // id 14 first
+            1C 08 01 01 78 00 AC FE 32 00  // id 28 behind it
+            "), ext, m, "record 28 rides the tail LAST, in id order behind record 14");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ordered), "and the combo parses");
+        t.True(ordered.HasHalfHover && ordered.HasBoardTuning,
+               "with both records delivered");
+
+        // An UNKNOWN record ahead of it (a future sender's field) is stepped over by length.
+        byte[] futureTune = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02
+            63 03 DE AD BE   // id 99, len 3 -- unknown to this build
+            1C 08 01 01 78 00 AC FE 32 00
+            ");
+        t.True(PresenceSerializer.TryRead(futureTune, futureTune.Length, out PresenceState futT),
+               "a packet with an unknown record ahead of the tuning record parses");
+        t.True(futT.HasBoardTuning, "and the tuning behind it is read");
+        t.Equal(0.012f, NetProtocol.BoardTuneVector(futT.BoardTuningBytes, 0, futT.BoardTuningLength,
+                                                    NetProtocol.TuneObjectivesOffset, Vector3.zero).x,
+                "with its field intact");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:

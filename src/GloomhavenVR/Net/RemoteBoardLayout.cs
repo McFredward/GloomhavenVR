@@ -28,18 +28,25 @@ namespace GloomhavenVR.Net;
 ///   • the mount BASE — read straight out of <see cref="PlayTray"/> (those five members were
 ///     widened from private to internal for exactly this; see the note there). No copy, so no
 ///     mirrored constant to drift and nothing new for scripts/check-mirrors.sh to police.
-///   • the AUTHORED per-board offset/scale — read out of <see cref="Defaults"/>, keyed by the PEER's
-///     SYNCED board style (extras byte A bits 5..6), which is how <see cref="RemoteBoardFurniture"/>
-///     has been seating the keycaps since the 3D-parity pass.
+///   • the OWNER'S OWN per-board offset/scale — read out of <see cref="RemoteBoardTuning"/>, i.e.
+///     from extension record 28 when the owner has moved that dial and from the SHIPPED
+///     <see cref="Defaults"/> constant (keyed by the PEER's SYNCED board style, extras byte A bits
+///     5..6) when they have not.
 ///
-/// WHAT IS DELIBERATELY NOT APPLIED: the peer's own debug-menu RE-tuning of those offsets. It is
-/// their local config, it never rides the wire, and the standing DELIBERATELY-NOT rule keeps it off.
-/// Every client therefore renders a given board style at its SHIPPED layout — which is what the two
-/// overwhelmingly common cases (nobody has tuned anything) make identical to what the owner sees.
+/// ─── WHAT CHANGED, AND WHY THE OLD NOTE HERE WAS WRONG ─────────────────────────────────────────
+/// This file used to carry a DELIBERATELY-NOT clause: "the peer's own debug-menu RE-tuning of those
+/// offsets … never rides the wire … every client renders a given board style at its SHIPPED layout
+/// — which is what the two overwhelmingly common cases (nobody has tuned anything) make identical
+/// to what the owner sees". The parenthesis is the whole of the argument, and it only holds while
+/// nobody tunes. Under the 2026-08-08 ruling ("alle … Anzeigen des Controllboards … so wie der
+/// Spieler sie sieht") a tuned owner's board must read the same everywhere, so the tuning now
+/// travels — sparsely, and only when it is off the default, so an untuned player's packet is
+/// byte-identical to the previous build's (see <see cref="NetProtocol.ExtIdBoardTuning"/>).
 /// </summary>
-/// <remarks>CLASSIFICATION: DELIBERATELY-NOT + VR-ONLY-derived — ZERO wire of its own. Its only
-/// input is the board STYLE that already rides the extras block; everything else is a shipped
-/// constant both clients compile in. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// <remarks>CLASSIFICATION: WIRE (extension record 28, via <see cref="RemoteBoardTuning"/>) +
+/// VR-ONLY-derived. Its inputs are the board STYLE that already rides the extras block and the
+/// owner's sparse tuning record; the mount BASES are shipped constants both clients compile in.
+/// See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal readonly struct RemoteBoardLayout
 {
     /// <summary>The peer's synced board style this layout was derived for.</summary>
@@ -103,32 +110,41 @@ internal readonly struct RemoteBoardLayout
     /// debug-menu re-tuning of the offset never rides the wire.</summary>
     public Vector3 TooltipMount { get; }
 
-    public RemoteBoardLayout(ControlBoard style)
+    /// <summary>Derive the seats from the peer's own tuning (record 28), falling back per field to
+    /// the shipped default for their synced style — which is what an untuned peer, and every peer
+    /// predating the record, resolves to.</summary>
+    public RemoteBoardLayout(in RemoteBoardTuning tuning)
     {
-        Style = style;
-        int i = (int)ControlBoards.Clamp((int)style);
+        Style = tuning.Style;
 
-        ObjectivesMount = PlayTray.ObjectivesMountBase + CardsConfig.BoardDefaults.ObjectivesOffset[i];
-        ObjectivesScale = CardsConfig.BoardDefaults.ObjectivesScale[i];
-        ObjectivesWidth = PlayTray.ObjectivesMountWidth * CardsConfig.BoardDefaults.ObjectivesWidth[i];
+        ObjectivesMount = PlayTray.ObjectivesMountBase + tuning.ObjectivesOffset;
+        ObjectivesScale = tuning.ObjectivesScale;
+        ObjectivesWidth = PlayTray.ObjectivesMountWidth * tuning.ObjectivesWidth;
 
-        ElementMount = PlayTray.ElementMountBase + CardsConfig.BoardDefaults.ElementsOffset[i];
-        ElementScale = Defaults.ElementsScale_ByBoard[i];
+        ElementMount = PlayTray.ElementMountBase + tuning.ElementsOffset;
+        ElementScale = tuning.ElementsScale;
 
-        InitiativeMount = CardsConfig.BoardDefaults.InitiativeOffset[i];
+        InitiativeMount = tuning.InitiativeOffset;
 
-        PileMount = PlayTray.PileMountBase + CardsConfig.BoardDefaults.PileOffset[i];
-        PileSpacing = Defaults.PileSpacing_ByBoard[i];
-        PileScale = Defaults.PileScale_ByBoard[i];
+        PileMount = PlayTray.PileMountBase + tuning.PileOffset;
+        PileSpacing = tuning.PileSpacing;
+        PileScale = tuning.PileScale;
 
-        ActiveMount = PlayTray.ActiveMountBase + CardsConfig.BoardDefaults.ActiveOffset[i];
-        ActiveCardScale = CardsConfig.BoardDefaults.ActiveCardScale[i];
+        ActiveMount = PlayTray.ActiveMountBase + tuning.ActiveOffset;
+        ActiveCardScale = tuning.ActiveCardScale;
 
-        ReadoutMount = PlayTray.ReadoutBase + CardsConfig.BoardDefaults.ReadoutOffset[i];
+        ReadoutMount = PlayTray.ReadoutBase + tuning.ReadoutOffset;
 
-        PickBannerMount = PlayTray.PickBannerBase + CardsConfig.BoardDefaults.PickBannerOffset[i];
+        PickBannerMount = PlayTray.PickBannerBase + tuning.PickBannerOffset;
 
-        TooltipMount = PlayTray.TooltipAreaBase + CardsConfig.BoardDefaults.HoverHintOffset[i];
+        TooltipMount = PlayTray.TooltipAreaBase + tuning.HoverHintOffset;
+    }
+
+    /// <summary>The shipped layout for a style, with no peer tuning applied — the pre-seat used
+    /// before a peer's first extras packet has resolved their style and dials.</summary>
+    public RemoteBoardLayout(ControlBoard style)
+        : this(new RemoteBoardTuning(style, null, 0))
+    {
     }
 
     /// <summary>One-line dump of the derived seats for the board-built log line: a wrong panel

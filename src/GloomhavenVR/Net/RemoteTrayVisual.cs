@@ -21,9 +21,15 @@ namespace GloomhavenVR.Net;
 ///      frame derived from their own positions — verbatim the anchor math in
 ///      <c>PlayTray.EnsureBuilt</c> (−Z out of the decorated face, +Y up the short axis) — so
 ///      cards and caps parented on them face the viewer exactly like the owner's do;
-///   3. the peer's own per-board DEBUG-MENU tuning (AssetOffset / AssetPitch / …) is NOT applied:
-///      those values are local to each player and never ride the wire (the standing
-///      DELIBERATELY-NOT rule) — every peer's board renders at the authored asset pose.
+///   3. the peer's own per-board MESH POSE (AssetOffset / AssetPitch / Yaw / Roll) IS applied,
+///      through the same algorithm the local board uses: the offset + euler move the MESH inside
+///      the board root while the six anchors are pinned back to the root-local poses they held
+///      before, so slots, rest tokens and Confirm/Undo — and everything docked on them — stay
+///      exactly where they were and only the slab moves. Their values ride extension record 28
+///      when the owner has moved a dial and are this client's shipped constant when they have
+///      not; the bronze board's shipped AssetOffset (0, −0.11, 0.08) and 57° pitch mean the
+///      mirror now reproduces even the UNTUNED bronze mesh pose, which the old
+///      DELIBERATELY-NOT rule dropped.
 ///
 /// INERT: every <c>Collider</c> (the bundled board ships a real MeshCollider the LOCAL board
 /// registers as its laser surface) and any <c>Rigidbody</c> is destroyed at clone time,
@@ -80,8 +86,9 @@ internal sealed class RemoteTrayVisual
     /// old bundle whose prefab lacks the anchor set — then a mis-aligned mesh would be worse
     /// than the honest fallback).
     /// </summary>
-    public static RemoteTrayVisual? Build(Transform boardRoot, ControlBoard style)
+    public static RemoteTrayVisual? Build(Transform boardRoot, in RemoteBoardTuning tuning)
     {
+        ControlBoard style = tuning.Style;
         GameObject? prefab = VRCardFactory.PeekTrayPrefab(style);
         if (prefab == null)
             return null;
@@ -130,13 +137,47 @@ internal sealed class RemoteTrayVisual
                 a.rotation = faceWorld;
         }
 
+        // THE MESH POSE (extension record 28 / the shipped per-board default) — verbatim the
+        // local PlayTray algorithm: capture the anchors' board-root-local poses while the mesh is
+        // untouched, move the mesh, then write the anchors back. Without the pinning the anchors
+        // would ride the mesh and drag every docked element with them, which is the opposite of
+        // what the dial does on the owner's own board. The bronze board reaches this even untuned.
+        Vector3 assetOffset = tuning.AssetOffset;
+        var assetEuler = new Vector3(tuning.AssetPitchDegrees, tuning.AssetYawDegrees,
+                                     tuning.AssetRollDegrees);
+        if (assetOffset != Vector3.zero || assetEuler != Vector3.zero)
+        {
+            Transform[] pinned = { visual._slots[0], visual._slots[1], visual.ShortRestAnchor!,
+                                   visual.LongRestAnchor!, visual.ConfirmAnchor!, visual.UndoAnchor! };
+            var pinPos = new Vector3[pinned.Length];
+            var pinRot = new Quaternion[pinned.Length];
+            for (int i = 0; i < pinned.Length; i++)
+            {
+                if (pinned[i] == null)
+                    continue;
+                pinPos[i] = boardRoot.InverseTransformPoint(pinned[i].position);
+                pinRot[i] = Quaternion.Inverse(boardRoot.rotation) * pinned[i].rotation;
+            }
+            go.transform.localPosition += assetOffset;
+            go.transform.localRotation = Quaternion.Euler(assetEuler) * go.transform.localRotation;
+            for (int i = 0; i < pinned.Length; i++)
+            {
+                if (pinned[i] == null)
+                    continue;
+                pinned[i].position = boardRoot.TransformPoint(pinPos[i]);
+                pinned[i].rotation = boardRoot.rotation * pinRot[i];
+            }
+        }
+
         for (int i = 0; i < 2; i++)
             visual._slotLocal[i] = boardRoot.InverseTransformPoint(visual._slots[i].position);
 
         VRLog.Info("Net", $"Remote tray visual built from the REAL '{style}' board prefab " +
                           $"('{VRCardFactory.TrayPrefabPath(style)}') — slots board-local " +
-                          $"{visual._slotLocal[0]} / {visual._slotLocal[1]}, all colliders stripped " +
-                          "(pure display).");
+                          $"{visual._slotLocal[0]} / {visual._slotLocal[1]}, mesh pose offset " +
+                          $"{assetOffset:F3} / euler {assetEuler:F1}° (the owner's own, extension " +
+                          "record 28 where they tuned it), anchors pinned back so nothing docked " +
+                          "moved, all colliders stripped (pure display).");
         return visual;
     }
 

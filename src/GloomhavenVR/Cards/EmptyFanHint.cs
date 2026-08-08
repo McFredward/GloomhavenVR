@@ -49,6 +49,24 @@ internal sealed class EmptyFanHint
     private float _elapsed = -1f; // -1 = idle
 
     /// <summary>
+    /// TRUE WHILE THE PLACARD IS ACTUALLY ON SCREEN — the seam the multiplayer sender reads
+    /// (record 14, byte 1, <see cref="Net.NetProtocol.HalfEmptyFanHintBit"/>).
+    ///
+    /// <para>STATIC because the hint instance is a private of <c>CardsDriver</c>, exactly like
+    /// <see cref="PileViewer.CurrentCounts"/> and for the same reason: the wire sampler must be
+    /// able to ask "is this display up?" without a handle on the driver's internals.</para>
+    ///
+    /// <para>IT IS THE RENDERED STATE, NOT A RE-DERIVATION. That is the whole point of putting it
+    /// here rather than re-testing the hand in the sampler: the recorded trap
+    /// (<c>INVARIANTS-Net-Rig.md</c>) is that the hand-card COUNT cannot distinguish "the gate
+    /// opened onto an empty hand" from "the fan is closed", so any inference from the count would
+    /// flash a placard on every peer's screen whenever a player lowers an empty hand. This flag is
+    /// set and cleared by the same code that shows and hides the plate, so the wire bit and the
+    /// picture cannot disagree.</para>
+    /// </summary>
+    internal static bool CurrentlyShown { get; private set; }
+
+    /// <summary>
     /// The hand the placard belongs to, held for the whole fade so <see cref="Tick"/> can
     /// re-derive the pose from the LIVE palm. Cleared by <see cref="Hide"/>, so an idle
     /// hint never keeps a stale hand reference alive across a hands rebuild.
@@ -79,6 +97,7 @@ internal sealed class EmptyFanHint
         _elapsed = 0f;
         ApplyAlpha(1f);
         _root.SetActive(true);
+        CurrentlyShown = true;   // the wire bit and the picture are set by the same statement
     }
 
     /// <summary>
@@ -118,6 +137,7 @@ internal sealed class EmptyFanHint
     {
         _elapsed = -1f;
         _hand = null;
+        CurrentlyShown = false;
         if (_root != null)
             _root.SetActive(false);
     }
@@ -126,6 +146,7 @@ internal sealed class EmptyFanHint
     {
         _elapsed = -1f;
         _hand = null;
+        CurrentlyShown = false;
         if (_root != null)
         {
             Object.Destroy(_root);
