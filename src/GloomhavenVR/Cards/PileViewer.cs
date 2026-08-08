@@ -105,6 +105,11 @@ internal sealed class PileViewer
     /// <see cref="ItemsPile.HandOwnedChip"/> for WHY.</summary>
     internal ItemsPile.ItemChip? HandOwnedItemChip(VRHand? hand) => _itemsBrowse.HandOwnedChip(hand);
 
+    /// <summary>True while an item card LIES IN the board's use recess with the item fan CLOSED
+    /// (<see cref="ItemsPile.HasPlacedCardWhileClosed"/>). The interaction drivers gate on the fan
+    /// being open; that card is reachable without one, so they need this second question.</summary>
+    internal bool ItemCardInRecess => _itemsBrowse.HasPlacedCardWhileClosed;
+
     /// <summary>Requirement 4: dismiss the item fan on a foreign interaction (the item counterpart of
     /// <c>CardsDriver.CloseBrowser</c>). The item→ability mutual-exclusion is separate (<see cref="ItemsOpening"/>);
     /// this is the general click-away close for the item fan itself.</summary>
@@ -267,7 +272,12 @@ internal sealed class PileViewer
         if (_items != null && _items.gameObject.activeSelf != visible)
             _items.gameObject.SetActive(visible);
         if (!visible)
-            _itemsBrowse.Close("pile stacks hidden (piles off / no hand)"); // never leave an item browse floating
+        {
+            // keepPlacedCard:false — the board furniture is going away, so there is nothing for the
+            // placed card to lie on and nothing ticking to resolve its decision.
+            _itemsBrowse.Close("pile stacks hidden (piles off / no hand)", keepPlacedCard: false);
+            _itemsBrowse.RetirePlacedCardIfAny("the pile stacks were hidden");
+        }
     }
 
     internal void Destroy()
@@ -326,11 +336,16 @@ internal sealed class PileViewer
         if (_discard == null || _burnt == null || hand == null || counted == null)
         {
             CurrentCounts = null; // nothing displayed ⇒ nothing for the wire to claim
+            // A card lying in the item-use recess is serviced from _itemsBrowse.Tick below, which
+            // this return skips — so it must not be left there unserviced (it would be frozen on a
+            // board nobody is ticking, with a decision nobody can resolve).
+            _itemsBrowse.RetirePlacedCardIfAny("the board is not presenting a hand any more");
             return;
         }
         if (!_discard.gameObject.activeSelf)
         {
             CurrentCounts = null;
+            _itemsBrowse.RetirePlacedCardIfAny("the pile stacks are hidden");
             return; // hidden ([Cards] PileViewer off / no hand) — no counts, no logs
         }
         int discard = CardsGameApi.DiscardedCount(counted);

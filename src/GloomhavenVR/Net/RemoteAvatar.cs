@@ -890,10 +890,19 @@ internal sealed class RemoteAvatar
         // ITEM-USE CLIP (extension record 26): which fan position lies in their use recess.
         // Absent ⇒ -1, i.e. "the recess is empty" — never a stale clip from a card that has since
         // been taken back out, because the sender writes the record on every packet while the card
-        // is there and omits it on the frame it leaves. Gated on HasItemFan for the same reason the
-        // sender only writes it inside the fan branch: an index into a fan that is not open names
-        // nothing.
-        ItemUseClipIndex = p.HasItemFan && p.HasItemUseClip ? p.ItemUseClipIndex : -1;
+        // is there and omits it on the frame it leaves.
+        //
+        // NO LONGER GATED ON HasItemFan (2026-08-09). The gate encoded "an index into a fan that is
+        // not open names nothing", which stopped being true when the owner's placed card started
+        // OUTLIVING their fan (ItemsPile._keptClip — the user's "sie soll liegen bleiben"): they lay
+        // the card in the recess, click the arc away, and go on playing while it lies there, so the
+        // fan flag is ABSENT for most of the decision. Read through the old gate, the peer's copy of
+        // the card left their mirrored recess on the very frame the owner put their fan down — the
+        // receiver-side twin of the defect. With the arc closed the index does not name a seat in a
+        // fan; it names the SLAB <see cref="RemoteItemFan"/> is already holding on the recess (that
+        // renderer keeps it out of the fold-in and re-adopts it on the next rebuild), and that
+        // renderer is still the only place the value is range-checked.
+        ItemUseClipIndex = p.HasItemUseClip ? p.ItemUseClipIndex : -1;
 
         // Board UI (extension record 4): authoritative when present — the furniture then shows
         // EXACTLY the controls the owner sees. Absent = the sender predates the field; the

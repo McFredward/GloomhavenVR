@@ -694,8 +694,20 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // has, and the two numbers must come from the same frame or a peer could clip a slab it has
         // not built yet. -1 = the recess is empty ⇒ no record at all (see the field's note for why
         // both edges pre-empt the rate gate).
-        int itemClip = itemsCount > 0 && itemsNow != null ? itemsNow.ClippedChipIndex : -1;
-        if (itemClip >= itemsCount)
+        int itemClip = itemsNow != null ? itemsNow.ClippedChipIndex : -1;
+        // THE CARD OUTLIVES THE FAN (user report 2026-08-09; local half in ItemsPile._keptClip). The
+        // clamp used to be unconditional, which quietly encoded "no fan => no card in the recess" —
+        // and that is precisely the state the owner now spends most of the decision in: they lay the
+        // card in, click the fan away, and go on playing while the card lies there. With itemsCount
+        // 0 the clamp turned every such frame into -1, so a peer saw the card leave their mirrored
+        // recess the instant the owner put their fan down.
+        //
+        // So the clamp is what it always meant: an index may not exceed the ARC it indexes into —
+        // and only while there IS an arc. With the arc closed the index is the position the card
+        // held when it folded away, which is the same slab the receiver already has parented to
+        // their recess (RemoteItemFan keeps it out of the fold-in); it identifies an OBJECT, not a
+        // seat in a fan that no longer exists.
+        if (itemsCount > 0 && itemClip >= itemsCount)
             itemClip = -1;
         bool itemClipChanged = itemClip != _lastSentItemClip;
 
@@ -1256,14 +1268,24 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.ItemCardCount = (byte)Mathf.Clamp(itemsCount, 0, 255);
             extras.ItemFanHeld = itemsNow != null && itemsNow.IsHandHeld;
             extras.ItemFanLeftHand = itemsNow != null && itemsNow.IsHeldByLeftHand;
-            // ITEM-USE CLIP (record 26): …and WHICH of those positions is lying in our own use
-            // recess right now. Inside the fan branch on purpose — an index is meaningless without
-            // the count it indexes into, and a fan that is not open has no positions at all.
-            if (itemClip >= 0)
-            {
-                extras.HasItemUseClip = true;
-                extras.ItemUseClipIndex = (byte)itemClip;
-            }
+        }
+        // ITEM-USE CLIP (record 26): WHICH position is lying in our own use recess right now.
+        //
+        // OUTSIDE the fan branch since 2026-08-09, and that is the receiver-side half of "die
+        // abgelegte Gegenstandskarte verschwindet wenn ich den Fächer schliesse". It used to sit
+        // INSIDE it on the argument that "an index is meaningless without the count it indexes
+        // into" — true of a seat in an arc, false of the card in the RECESS, which is exactly the
+        // thing that is not in the arc. The owner's card now stays lying there after the fan folds
+        // away, so the record has to be able to describe a recess with no fan behind it; the
+        // receiver (RemoteItemFan) reads it the same way — the slab it already holds on the recess
+        // is kept OUT of the fold-in instead of being collapsed with the arc.
+        //
+        // Still additive TLV and still ONE index byte with no item identity: a reader that ignores
+        // record 26 steps over it by its own length exactly as before.
+        if (itemClip >= 0)
+        {
+            extras.HasItemUseClip = true;
+            extras.ItemUseClipIndex = (byte)itemClip;
         }
         if (itemClipChanged)
         {
@@ -1271,7 +1293,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             VRLog.Info("Net", itemClip < 0
                 ? "Item-use clip SENT: recess EMPTY — record 26 omitted (peers glide the card back " +
                   "into their copy of the arc)."
-                : $"Item-use clip SENT: fan position {itemClip} of {itemsCount} lies in our item-use " +
+                : $"Item-use clip SENT: fan position {itemClip} of " +
+                  $"{(itemsCount > 0 ? itemsCount.ToString() : "a CLOSED fan (the card lies in the recess " +
+                     "on its own now)")} lies in our item-use " +
                   "recess — extension record 26, ONE index byte and NO item identity. Peers " +
                   "re-parent that same slab onto their mirrored recess and replay the 0.28 s settle " +
                   "from this edge, so the card is seen ARRIVING rather than teleporting.");

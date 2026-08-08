@@ -1421,7 +1421,13 @@ internal sealed partial class CardsDriver
     private void UpdateBoardFanHandTrigger()
     {
         bool browseOpen = _browser.IsOpen;
-        bool itemsOpen = _piles.ItemsBrowseOpen;
+        // …OR a card is lying in the board's item-use recess with the fan already closed (user
+        // requirement 2026-08-09: the placed card outlives the fan and must stay grabbable "egal ob
+        // linke oder rechte Hand"). That card is the one thing in the item pool that is reachable
+        // WITHOUT an open arc, and gating this method on the fan alone left it with no hand-owned
+        // trigger at all: the pull fell through to the board laser, exactly the failure this method
+        // was written to end for the arc chips.
+        bool itemsOpen = _piles.ItemsBrowseOpen || _piles.ItemCardInRecess;
         if (!browseOpen && !itemsOpen)
             return;
 
@@ -1459,8 +1465,20 @@ internal sealed partial class CardsDriver
             {
                 VRLog.Info("Cards", $"Item fan: HAND owns the trigger — '{chip.name}' is physically " +
                                     $"in contact with the {hand.Side} hand, so the pull takes it " +
-                                    "instead of falling through to the board laser.");
-                chip.OnPoke(hand); // pluck into the hand (ForceGrab, released on trigger-up)
+                                    "instead of falling through to the board laser" +
+                                    (chip.PendingUse
+                                        ? " (it is the card LYING IN the use recess: the hand TAKES it, " +
+                                          "which is the cancel-by-taking-back route; only the far laser " +
+                                          "puts it straight back on the pile)."
+                                        : "."));
+                // PluckIntoHand, NOT OnPoke (user report 2026-08-09, "Ich kann immer noch nicht eine
+                // Gegenstandskarte wieder direkt zurück in die Hand nehmen"). OnPoke is the BEAM entry
+                // and carries the far-laser branch for a card lying in the use recess — running it
+                // from here, the physical-contact path, meant that reaching down to the recess and
+                // pulling the trigger PUT THE CARD BACK ON THE PILE instead of taking it into the
+                // hand. Full root cause on ItemsPile.ItemChip.PluckIntoHand; the two entries are
+                // identical for a chip standing in the arc, so the ordinary pluck is unchanged.
+                chip.PluckIntoHand(hand); // ForceGrab, released on trigger-up
             }
         }
     }
