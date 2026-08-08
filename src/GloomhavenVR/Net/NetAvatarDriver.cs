@@ -250,6 +250,32 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// shown on the board). Same edge pre-emption as the decision lines.</summary>
     private string? _lastSentSkipLabel;
 
+    /// <summary>Last UNDO cap label put on the wire (extension record 13 bit 2; null = no undo
+    /// control shown). Same edge pre-emption as its two neighbours.</summary>
+    private string? _lastSentUndoLabel;
+
+    /// <summary>Last item-USE cap label put on the wire (extension record 13 bit 3; null = the cap
+    /// is not up). Same edge pre-emption.</summary>
+    private string? _lastSentItemUseLabel;
+
+    /// <summary>Board-UI cap-state byte, CONFIRM cap, for the change-gated diagnostic. Confirmed
+    /// beats accent exactly as <c>BoardButton.StateColor</c> resolves them.</summary>
+    private static string DescribeConfirmCapState(int boardUi) =>
+        ((boardUi >> 16) & NetProtocol.BoardUiCapConfirmReadyBit) != 0 ? "CONFIRMED"
+        : ((boardUi >> 16) & NetProtocol.BoardUiCapConfirmAccentBit) != 0 ? "accent"
+        : "idle";
+
+    /// <summary>Board-UI cap-state byte, one rest disc, for the change-gated diagnostic.</summary>
+    private static string DescribeRestCapState(int boardUi, byte enabledBit, byte accentBit) =>
+        (((boardUi >> 16) & enabledBit) != 0 ? "enabled" : "DIMMED")
+        + (((boardUi >> 16) & accentBit) != 0 ? "+accent" : string.Empty);
+
+    /// <summary>Last cap PRESS put on the wire (record 14 byte 0 bits 3..7, packed
+    /// <c>cap | seq &lt;&lt; 8</c>; -1 = none in flight). A NEW value pre-empts the 5 Hz gate
+    /// OUTRIGHT — the mirrored dip has to land with the click — while the rest of the hold window
+    /// only rides packets that were going out anyway.</summary>
+    private int _lastSentCapPress = -1;
+
     // BOARD POSE MOTION (defect 7 "Bewegen kommt nicht flüssig an"): the last SENT board pose in
     // the shared anchor frame. While the pose is CHANGING (the owner drags/scales their board),
     // extras go out at the RIG rate (SendRateHz, 15 Hz) instead of the idle 5 Hz — the receiver's
@@ -426,6 +452,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentUseBarMask = -1;      // …and the use-bar drawer below it (record 25)
         _lastSentConfirmLabel = null;  // and the live cap labels
         _lastSentSkipLabel = null;
+        _lastSentUndoLabel = null;
+        _lastSentItemUseLabel = null;
+        _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
+        Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
@@ -737,9 +767,43 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             overlays |= (trayNow.OccupiedSlotMask << NetProtocol.BoardUiSlotShift)
                         & NetProtocol.BoardUiSlotMask;
             overlays |= NetProtocol.BoardUiSlotsValidBit;
-            boardUiNow = buttons | ((overlays & NetProtocol.BoardUiOverlayMask) << 8);
+            // SNAP-GLOW HOVER TELEGRAPH (byte 1 bits 6..7 — the "cannot be reproduced" defect).
+            // WHICH recess the owner's own gold rim is lit on, read straight off the field the
+            // local glow is driven from (PlayTray.HighlightedSlot ← CardsDriver
+            // .UpdateSlotHighlight), so the mirrored rim lights on the same recess in the same
+            // frames — BEFORE the drop, where the telegraph belongs, and it goes out again when the
+            // hover ends without one.
+            overlays |= (NetProtocol.EncodeSnapSlot(trayNow.HighlightedSlot)
+                         << NetProtocol.BoardUiSnapShift) & NetProtocol.BoardUiSnapMask;
+            // CAP STATES (byte 2): the ACCENT/CONFIRMED/ENABLED flags the owner's own caps are
+            // painted from — every one of them read off the flag the local renderer obeys, never
+            // re-derived from the game rules, so the mirror cannot disagree with the original.
+            // UNDO and the item-USE cap are absent on purpose: every SetState call on them in the
+            // whole mod is a constant, so their look is a build fact and costs no bit (see
+            // NetProtocol.BoardUiCapConfirmAccentBit).
+            byte capStates = 0;
+            if (trayNow.ConfirmCapAccent) capStates |= NetProtocol.BoardUiCapConfirmAccentBit;
+            if (trayNow.ConfirmCapConfirmed) capStates |= NetProtocol.BoardUiCapConfirmReadyBit;
+            if (RestControls.ShortRestEnabled) capStates |= NetProtocol.BoardUiCapShortRestEnabledBit;
+            if (RestControls.ShortRestAccent) capStates |= NetProtocol.BoardUiCapShortRestAccentBit;
+            if (RestControls.LongRestEnabled) capStates |= NetProtocol.BoardUiCapLongRestEnabledBit;
+            if (RestControls.LongRestAccent) capStates |= NetProtocol.BoardUiCapLongRestAccentBit;
+            if (WorldUI.ButtonCluster.BoardSkipEnabled) capStates |= NetProtocol.BoardUiCapSkipEnabledBit;
+            boardUiNow = buttons | ((overlays & NetProtocol.BoardUiOverlayMask) << 8)
+                         | ((capStates & NetProtocol.BoardUiCapStateDefinedMask) << 16);
         }
-        bool boardUiChanged = boardUiNow != _lastSentBoardUi;
+        // THE SNAP FIELD IS RATE-CAPPED, THE REST OF THE RECORD IS NOT. Every other bit of this
+        // record moves on a game-state edge — a control appears, a rest is selected, a card lands —
+        // so a change pre-empts the 5 Hz gate OUTRIGHT and lands in the next frame. The snap field
+        // is different in kind: it follows the owner's HAND, and a held card hovering the boundary
+        // of a recess can toggle it at frame rate. Splitting the change test gives it the same
+        // capped pre-emption the card highlight and the half hover already use (at most one packet
+        // per rig interval), so the telegraph still lands with the gesture but a jittering hand can
+        // never turn this record into a stream.
+        const int snapKeyMask = NetProtocol.BoardUiSnapMask << 8;
+        bool boardUiChanged = (boardUiNow & ~snapKeyMask) != (_lastSentBoardUi & ~snapKeyMask);
+        bool boardSnapChanged = (boardUiNow & snapKeyMask) != (_lastSentBoardUi & snapKeyMask);
+        bool boardSnapDue = boardSnapChanged && _extrasAccumulator >= fastInterval;
 
         // SLOT-CARD SIZE (extension record 11, defect "Kartengröße am fremden Board nicht 1:1"):
         // the widths the local board renders its slot overlays and a parked card at — the exact
@@ -823,6 +887,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         HalfSelection.SampleLocalSelection(out int halfSel0, out int halfSel1);
         int halfSelNow = halfSel0 | (halfSel1 << 2);
         bool halfSelChanged = halfSelNow != _lastSentHalfSelect;
+
+        // CAP PRESS (record 14 byte 0 bits 3..7 — the one keycap ANIMATION that is not derivable
+        // from already-synced state; see Cards.BoardCapPress for why). WHICH cap the owner has just
+        // pressed plus a 2-bit sequence, latched for a short hold window so the record rides a few
+        // packets and a lost datagram still delivers it. A NEW press pre-empts the gate OUTRIGHT —
+        // a click is discrete and human-paced (the pile-counts rule) and the mirrored dip has to
+        // land WITH it, not up to 200 ms later. The hold window itself does NOT pre-empt: it only
+        // rides packets that were going out anyway.
+        bool capPress = BoardCapPress.TrySample(out byte capPressCap, out byte capPressSeq);
+        int capPressNow = capPress ? capPressCap | (capPressSeq << 8) : -1;
+        bool capPressChanged = capPressNow >= 0 && capPressNow != _lastSentCapPress;
 
         // TRACK HOVER (extension record 16, user defect "die Mouseover der Initiativreihenfolge
         // sind nicht synchronisiert"): which initiative-track entry OUR pointer is on (stable
@@ -1041,12 +1116,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             ? trayNow.ConfirmControlLabel
             : null;
         string? skipLabelNow = WorldUI.ButtonCluster.BoardSkipLabel;
+        // …and the two wordings that never travelled (mask bits 2/3): the UNDO cap, whose pick-flow
+        // override turns it into the confirm dialog's CANCEL, and the item-USE cap, whose
+        // surrender-demand override must never read as an ordinary "USE" on a peer's screen. Same
+        // shape as the pair above — null while the control is hidden, so the record's presence
+        // tracks the board-UI visibility bits.
+        string? undoLabelNow = trayNow != null && trayNow.UndoControlShown
+            ? trayNow.UndoControlLabel
+            : null;
+        string? itemUseLabelNow = trayNow != null ? trayNow.ItemUseCapLabel : null;
         bool capLabelsChanged = confirmLabelNow != _lastSentConfirmLabel
-                                || skipLabelNow != _lastSentSkipLabel;
+                                || skipLabelNow != _lastSentSkipLabel
+                                || undoLabelNow != _lastSentUndoLabel
+                                || itemUseLabelNow != _lastSentItemUseLabel;
 
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
-            && !poseDue && !boardUiChanged && !highlightDue
+            && !poseDue && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
@@ -1350,16 +1436,35 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HasSkipCapLabel = true;
             extras.SkipCapLabel = skipLabelNow;
         }
+        if (!string.IsNullOrEmpty(undoLabelNow))
+        {
+            extras.HasUndoCapLabel = true;
+            extras.UndoCapLabel = undoLabelNow;
+        }
+        if (!string.IsNullOrEmpty(itemUseLabelNow))
+        {
+            extras.HasItemUseCapLabel = true;
+            extras.ItemUseCapLabel = itemUseLabelNow;
+        }
         if (capLabelsChanged)
         {
             _lastSentConfirmLabel = confirmLabelNow;
             _lastSentSkipLabel = skipLabelNow;
-            VRLog.Info("Net", $"Cap labels SENT: confirm=" +
-                              $"{(string.IsNullOrEmpty(confirmLabelNow) ? "<hidden>" : "\"" + confirmLabelNow + "\"")}, " +
-                              $"skip={(string.IsNullOrEmpty(skipLabelNow) ? "<hidden>" : "\"" + skipLabelNow + "\"")} — " +
+            _lastSentUndoLabel = undoLabelNow;
+            _lastSentItemUseLabel = itemUseLabelNow;
+            // Single quotes around each wording: a nested escaped quote inside an interpolation
+            // hole trips the patch-inventory source scanner (the StateLine rule).
+            string Cap(string? v) => string.IsNullOrEmpty(v) ? "<hidden>" : "'" + v + "'";
+            VRLog.Info("Net", $"Cap labels SENT: confirm={Cap(confirmLabelNow)}, " +
+                              $"skip={Cap(skipLabelNow)}, undo={Cap(undoLabelNow)}, " +
+                              $"itemUse={Cap(itemUseLabelNow)} — " +
                               $"extension record 13 (UTF8, {NetProtocol.CapLabelMaxBytes} B cap per label, " +
                               "sender language verbatim); peers letter their mirrored caps with " +
-                              "EXACTLY these words instead of a re-localized GUI_CONFIRM/GUI_SKIP_MOVEMENT.");
+                              "EXACTLY these words instead of a re-localized GUI_CONFIRM / " +
+                              "GUI_SKIP_MOVEMENT / GUI_UNDO / GUI_USE. The UNDO and item-USE slots " +
+                              "(mask bits 2/3) are new this build: they carry the pick flow's " +
+                              "dialog-CANCEL wording and an item-SURRENDER demand's wording, both of " +
+                              "which used to read as a plain undo / 'USE' on every peer's board.");
         }
 
         if (boardUiChanged)
@@ -1384,14 +1489,54 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                   "FOLLOW/PIN state is byte 1 bit 2, the card-slot occupancy is " +
                                   "byte 1 bits 3..4 with its validity bit 5, new this build). The " +
                                   "occupancy is a POSITION only — peers draw a card BACK there; no " +
-                                  "card identity rides this wire.");
+                                  "card identity rides this wire. " +
+                                  $"CAP STATES (byte 2, new this build) = 0x{(boardUiNow >> 16) & 0xFF:X2} — " +
+                                  $"confirm={DescribeConfirmCapState(boardUiNow)}, " +
+                                  $"shortRest={DescribeRestCapState(boardUiNow, NetProtocol.BoardUiCapShortRestEnabledBit, NetProtocol.BoardUiCapShortRestAccentBit)}, " +
+                                  $"longRest={DescribeRestCapState(boardUiNow, NetProtocol.BoardUiCapLongRestEnabledBit, NetProtocol.BoardUiCapLongRestAccentBit)}, " +
+                                  $"skip={(((boardUiNow >> 16) & NetProtocol.BoardUiCapSkipEnabledBit) != 0 ? "enabled" : "DIMMED")} — " +
+                                  "peers paint their mirrored caps in exactly these state colours " +
+                                  "instead of the single colour the cap was built with.");
             }
             else
             {
                 VRLog.Info("Net", "Board UI SENT: no live tray — record omitted (peers keep the last board state).");
             }
         }
+        if (boardSnapChanged && (boardUiNow >= 0 || _lastSentBoardUi >= 0))
+        {
+            int snapValue = boardUiNow >= 0
+                ? (boardUiNow >> (8 + NetProtocol.BoardUiSnapShift)) & 0x03
+                : NetProtocol.BoardUiSnapNone;
+            int snapSlot = NetProtocol.DecodeSnapSlot(snapValue);
+            VRLog.Info("Net", snapSlot >= 0
+                ? $"Snap-glow hover SENT: recess {snapSlot + 1} — board-UI record byte 1 bits 6..7, " +
+                  "ZERO extra bytes. Peers light the gold snap rim on the SAME recess at the same " +
+                  "moment the owner does, i.e. BEFORE the drop, which is what the telegraph is for; " +
+                  "the old occupancy-edge flash fired after it, and not at all for a hover that " +
+                  "ended without a drop. A recess POSITION, no card identity."
+                : "Snap-glow hover SENT: none — peers clear the gold rim (the held card left snap " +
+                  "range, or the drop committed).");
+        }
         _lastSentBoardUi = boardUiNow;
+
+        // CAP PRESS (extension record 14 byte 0 bits 3..7): written while a press is in its hold
+        // window; absent otherwise, so an idle packet stays byte-identical to the previous build's.
+        if (capPress)
+        {
+            extras.HasCapPress = true;
+            extras.CapPressCap = capPressCap;
+            extras.CapPressSeq = capPressSeq;
+        }
+        if (capPressChanged)
+        {
+            _lastSentCapPress = capPressNow;
+            VRLog.Info("Net", $"Cap press SENT: wire cap {capPressCap} (sequence {capPressSeq}) — " +
+                              "extension record 14 byte 0 bits 3..7, ZERO extra bytes. The edge " +
+                              "PRE-EMPTED the extras gate, so the mirrored cap on every peer's copy " +
+                              "of this board sinks and springs back WITH the press. An ANIMATION " +
+                              "only: their copy stays colliderless and registered nowhere.");
+        }
 
         // CARD HIGHLIGHT (extension record 6): written ONLY while something really is highlighted,
         // so an idle player's packet stays byte-identical to the previous build's — "record absent"

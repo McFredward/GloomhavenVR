@@ -157,6 +157,16 @@ internal sealed class ButtonCluster
     /// </summary>
     internal static string? BoardSkipLabel { get; private set; }
 
+    /// <summary>
+    /// Multiplayer cap-STATE read seam (board-UI record byte 2, <c>BoardUiCapSkipEnabledBit</c>):
+    /// true while the docked SKIP disc is INTERACTABLE. The cluster's disabled look is not a
+    /// palette swap but a 0.75 lerp of the cap accent toward dark wood plus a 0.35-alpha label
+    /// (<see cref="PhysicalButton"/>'s state apply), and a peer's mirrored cap used to render the
+    /// enabled look unconditionally — a dead skip and a live one were the same picture. Written on
+    /// the same tick as <see cref="BoardSkipShown"/>, off the same mirror.
+    /// </summary>
+    internal static bool BoardSkipEnabled { get; private set; }
+
     // Right-column layout state (user #8).
     private bool _dockedNow;
     private float _rootToLocal = 1f / 0.7f; // root-local → cluster-local unit factor (mount carries the 0.7 dock scale)
@@ -183,6 +193,7 @@ internal sealed class ButtonCluster
         {
             SetVisible(false);
             BoardSkipShown = false;
+            BoardSkipEnabled = false;
             BoardSkipLabel = null;
             return;
         }
@@ -211,6 +222,7 @@ internal sealed class ButtonCluster
         if (!placed)
         {
             BoardSkipShown = false;
+            BoardSkipEnabled = false;
             BoardSkipLabel = null;
             return;
         }
@@ -229,6 +241,10 @@ internal sealed class ButtonCluster
         // Publish the docked Skip's live visibility for the multiplayer board-UI record — the
         // one cluster member a peer's copy of this board draws.
         BoardSkipShown = _dockedNow && _skip.VisibleNow;
+        // …and whether it is actually PRESSABLE, for the cap-state byte of the same record: the
+        // owner's dead skip cap is dimmed toward dark wood with a faded label, and that is what a
+        // peer must see too.
+        BoardSkipEnabled = BoardSkipShown && _skip.InteractableNow;
         // The label the shown disc wears, for the cap-labels wire record: the game's own live
         // SkipButton text (the exact string MirrorSkip just applied). Null while not shown, so
         // the record's presence tracks the control's.
@@ -381,6 +397,7 @@ internal sealed class ButtonCluster
             new Color(0.35f, 0.46f, 0.28f), ClickReady);
         _skip = PhysicalButton.Create(_root.transform, "Skip", new Vector3(0.11f, 0f, 0f), 0.038f,
             new Color(0.37f, 0.44f, 0.56f), ClickSkip);
+        _skip.IsBoardSkip = true; // the one cluster member a peer's remote board mirrors
 
         // Mod layer (render-only — pokes go through the VRInteractables registry).
         VRLayers.Apply(_root);
@@ -675,6 +692,17 @@ internal sealed class ButtonCluster
         /// immediately while its visuals finish shrinking out.
         /// </summary>
         internal bool VisibleNow => _rootGo != null && _logicalVisible;
+
+        /// <summary>Multiplayer cap-STATE read seam: this cap is shown AND pressable right now
+        /// (its dimmed-toward-dark-wood disabled look is what the negative case renders). Read by
+        /// <see cref="ButtonCluster.BoardSkipEnabled"/> for the board-UI record's cap-state byte.</summary>
+        internal bool InteractableNow => _rootGo != null && _logicalVisible && _interactable;
+
+        /// <summary>True for the ONE cluster member a peer's remote control board mirrors — the
+        /// docked turn-flow SKIP cap. Set by <see cref="ButtonCluster.Build"/>; the Ready/Undo
+        /// twins are forced permanently off (see Tick) and the floating fallback cluster is not a
+        /// board, so neither ever reports a press onto the wire.</summary>
+        internal bool IsBoardSkip { get; set; }
 
         /// <summary>
         /// Column-slot assignment (user #8): move the button to <paramref name="localPos"/>
@@ -1279,6 +1307,12 @@ internal sealed class ButtonCluster
             _nextPressTime = Time.unscaledTime + ButtonTuning.PokePressCooldownSeconds;
             _pressT = 1f;
             hand.SendHaptic(HapticPreset.ClickPulse);
+            // MULTIPLAYER (1:1 ruling, keycap ANIMATIONS): publish the press edge so the mirrored
+            // SKIP cap on every peer's copy of this board dips with this one. Only the DOCKED skip
+            // is mirrored at all (MirrorReady/MirrorUndo force the twins off), so only it reports;
+            // the floating fallback cluster and the two dead twins stay silent by construction.
+            if (IsBoardSkip && BoardSkipShown)
+                Cards.BoardCapPress.Report(Net.NetProtocol.CapPressSkip);
             VRLog.Info("WorldUI", $"{_rootGo.name} pressed (source={source}, {hand.Side}).");
             _onClick();
         }

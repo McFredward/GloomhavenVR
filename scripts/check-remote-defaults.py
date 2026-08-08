@@ -53,6 +53,17 @@ PAIRS = [
     ("Net/RemoteBoardFurniture.cs", "RestCapD", "RestButtons", "Depth"),
     ("Net/RemoteBoardFurniture.cs", "TransientCapR", "RoundButtons", "CapSize"),
     ("Net/RemoteBoardFurniture.cs", "TransientCapD", "RoundButtons", "Depth"),
+    # The mirrored keycap ANIMATIONS (2026-08-08 1:1 round). A peer's cap now dips its own
+    # category's authored TRAVEL on the synced press edge and crumbles/assembles over the authored
+    # ButtonAnim durations, so all six numbers have a second home in Net/ and belong on this list
+    # for exactly the reason the sizes above do: retune the local feel and the remote boards must
+    # follow, or a press looks 4 mm deep on one screen and 8 on another.
+    ("Net/RemoteBoardFurniture.cs", "BoardCapTravel", "BoardButtons", "Travel"),
+    ("Net/RemoteBoardFurniture.cs", "DashCapTravel", "BoardDashboard", "Travel"),
+    ("Net/RemoteBoardFurniture.cs", "RestCapTravel", "RestButtons", "Travel"),
+    ("Net/RemoteBoardFurniture.cs", "TransientCapTravel", "RoundButtons", "Travel"),
+    ("Net/RemoteBoardFurniture.cs", "DissolveSeconds", "ButtonAnim", "DisappearSeconds"),
+    ("Net/RemoteBoardFurniture.cs", "AppearSeconds", "ButtonAnim", "AppearSeconds"),
     ("Net/RemoteHandFan.cs", "PalmOffset", "Cards", "FanPalmOffset"),
     ("Net/RemoteHandFan.cs", "Radius", "Cards", "FanEffectiveRadius"),
     ("Net/RemoteHandFan.cs", "ArcSweepDegrees", "Cards", "FanArcSweepDegrees"),

@@ -560,6 +560,72 @@ internal sealed partial class PlayTray
         (_undo != null && _undo.LogicalVisible)
         || WorldUI.Surfaces.TrayControlDockSurface.UndoDocked;
 
+    /// <summary>
+    /// The text the SHOWN undo control currently displays — the multiplayer cap-label read seam
+    /// (wire record <c>NetProtocol.ExtIdCapLabels</c> bit 2), with exactly
+    /// <see cref="ConfirmControlLabel"/>'s shape and precedence.
+    ///
+    /// <para>WHY IT NEEDED ITS OWN WIRE SLOT. The UNDO keycap has TWO wordings. Normally it is the
+    /// game's live undo string (<c>CardsGameApi.UndoLabel()</c>); during the EVENT-DISCARD pick
+    /// flow the driver overrides it with the confirm dialog's own CANCEL option
+    /// (<see cref="SetPickStatus"/>'s <c>undoLabel</c>, e.g. "Wähle eine andere Karte") — in that
+    /// flow this cap IS the popup's second button. Peers wrote a flat GUI_UNDO, so the owner's
+    /// cancel affordance read "Rückgängig" on every other screen: the same defect record 13 was
+    /// created for, one cap to the left.</para>
+    /// </summary>
+    internal string? UndoControlLabel
+    {
+        get
+        {
+            if (WorldUI.Surfaces.TrayControlDockSurface.UndoDocked)
+            {
+                UndoButton? native = Choreographer.s_Choreographer != null
+                    ? Choreographer.s_Choreographer.m_UndoButton
+                    : null;
+                return native != null && native.m_ButtonText != null ? native.m_ButtonText.text : null;
+            }
+            return _undo != null && _undo.LogicalVisible ? _undo.CurrentLabel : null;
+        }
+    }
+
+    /// <summary>
+    /// The text the item-USE cap currently displays — the multiplayer cap-label read seam (wire
+    /// record <c>NetProtocol.ExtIdCapLabels</c> bit 3). Null while the cap is not up, so the
+    /// record's presence tracks <see cref="ItemUseCapShown"/>.
+    ///
+    /// <para>WHY: an item-SURRENDER demand (event malus) overrides this cap's wording so "the user
+    /// must never read a surrender as an ordinary use" (see
+    /// <see cref="SetItemUseConfirmVisible"/>). The mirror hardcoded the localized "USE", so a peer
+    /// watching a player hand an item over saw them apparently USE it. A widget label, never an
+    /// item name.</para>
+    /// </summary>
+    internal string? ItemUseCapLabel =>
+        _itemUseActive && _itemUseConfirm != null && _itemUseConfirm.LogicalVisible
+            ? _itemUseConfirm.CurrentLabel
+            : null;
+
+    /// <summary>
+    /// The slot whose GOLD SNAP GLOW is lit right now (-1 = none) — the multiplayer read seam for
+    /// the board-UI record's snap field (byte 1 bits 6..7).
+    ///
+    /// <para>This is a HOVER telegraph, not a drop report: <c>CardsDriver.UpdateSlotHighlight</c>
+    /// lights it while a held card is within snap range of a recess, moves it as the hand crosses
+    /// between the two, and clears it when the card leaves — "what glows is what drops". A peer's
+    /// mirrored board used to light its rim on the OCCUPANCY edge instead, i.e. after the drop and
+    /// never at all for a hover that ended without one. Reading the field the local glow itself is
+    /// driven from is what makes the two agree by construction.</para>
+    /// </summary>
+    internal int HighlightedSlot => _highlightedSlot;
+
+    /// <summary>True while the CONFIRM keycap is ACCENTED — multiplayer cap-STATE read seam
+    /// (board-UI record byte 2 bit 0), read off the flag the local renderer itself obeys. False
+    /// when no mod keycap exists (the native dock's own look is not a mod cap state).</summary>
+    internal bool ConfirmCapAccent => _confirm != null && _confirm.StateAccent;
+
+    /// <summary>True while the CONFIRM keycap is in its CONFIRMED (readied, worn-brass) state —
+    /// see <see cref="ConfirmCapAccent"/>.</summary>
+    internal bool ConfirmCapConfirmed => _confirm != null && _confirm.StateConfirmed;
+
     /// <summary>True while the item-use clip-in RECESS is shown (ItemsPile toggles it while the
     /// owner is handling a usable item).</summary>
     internal bool ItemUseSlotShown => _itemUseSlot != null && _itemUseSlot.gameObject.activeSelf;

@@ -50,6 +50,27 @@ internal sealed class RestControls
     /// <summary>True while the LONG-rest keycap is visible on the local board.</summary>
     internal static bool LongRestShown { get; private set; }
 
+    // ---- multiplayer cap-STATE read seam (board-UI record byte 2) -----------------------------
+    // "Buttons dim when the action is unavailable and accent when selected" (the class doc's own
+    // sentence) was true LOCALLY and invisible to everyone else: a peer's mirrored discs were drawn
+    // at their authored ACCENT colour permanently, so a dead disc and a selected one looked the
+    // same as an available one. Both halves of the pair are published here, off the very values
+    // TickStatus hands SetState, so the wire state IS the rendered state.
+
+    /// <summary>True while the SHORT-rest keycap is ENABLED (a short rest is available). A visible
+    /// but DISABLED disc is what the owner sees after selecting a rest that is no longer offered —
+    /// dark wood, not the accent.</summary>
+    internal static bool ShortRestEnabled { get; private set; }
+
+    /// <summary>True while the SHORT-rest keycap is ACCENTED (that rest is selected).</summary>
+    internal static bool ShortRestAccent { get; private set; }
+
+    /// <summary>True while the LONG-rest keycap is ENABLED — see <see cref="ShortRestEnabled"/>.</summary>
+    internal static bool LongRestEnabled { get; private set; }
+
+    /// <summary>True while the LONG-rest keycap is ACCENTED (selected).</summary>
+    internal static bool LongRestAccent { get; private set; }
+
     internal void EnsureBuilt(PlayTray tray)
     {
         // Feature 6a: the rest controls seat in the board's two rest-notches. PER-BOARD: the
@@ -88,6 +109,7 @@ internal sealed class RestControls
                 Core.Loc.Mod("short_rest"),
                 () => ShortRestRequested?.Invoke(),
                 round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel);
+            _shortButton.WireCap = Net.NetProtocol.CapPressShortRest; // mirror the press dip to peers
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
             built++;
         }
@@ -98,6 +120,7 @@ internal sealed class RestControls
                 Core.Loc.Game("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
                 round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel);
+            _longButton.WireCap = Net.NetProtocol.CapPressLongRest;
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
             built++;
         }
@@ -155,6 +178,8 @@ internal sealed class RestControls
         _longButton = null;
         ShortRestShown = false; // never advertise rest discs off a torn-down board
         LongRestShown = false;
+        ShortRestEnabled = ShortRestAccent = false;
+        LongRestEnabled = LongRestAccent = false;
     }
 
     /// <summary>
@@ -204,5 +229,11 @@ internal sealed class RestControls
         // Publish for the multiplayer board-UI record (only meaningful while the caps exist).
         ShortRestShown = _shortButton != null && shortVisible;
         LongRestShown = _longButton != null && longVisible;
+        // …and the cap STATES the very SetState calls above just applied (record 4 byte 2), so a
+        // peer's mirrored disc dims and accents in the same frames the owner's does.
+        ShortRestEnabled = canShort;
+        ShortRestAccent = shortSelected;
+        LongRestEnabled = canLong;
+        LongRestAccent = longSelected;
     }
 }

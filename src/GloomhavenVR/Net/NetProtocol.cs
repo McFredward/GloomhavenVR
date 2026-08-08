@@ -502,12 +502,12 @@ internal static class NetProtocol
     // No wire changes — bumped anyway: the handshake's job is same-BUILD enforcement.
 
     /// <summary>
-    /// Extension record id: the sender's live BOARD-UI STATE — 2 bytes,
-    /// <c>[byte0 buttons][byte1 overlays]</c>. This is what makes a peer's copy of a control
-    /// board show EXACTLY the controls its owner currently sees (user requirement: the remote
-    /// board used to draw ALL buttons permanently), plus the "wanted slot" glow state so the
-    /// teal blink is synced (the blink ANIMATION stays local-clock driven at the shared period —
-    /// synced state, locally animated, zero per-frame traffic).
+    /// Extension record id: the sender's live BOARD-UI STATE — 3 bytes,
+    /// <c>[byte0 buttons][byte1 overlays][byte2 cap states]</c>. This is what makes a peer's copy
+    /// of a control board show EXACTLY the controls its owner currently sees (user requirement:
+    /// the remote board used to draw ALL buttons permanently), plus the "wanted slot" glow state
+    /// so the teal blink is synced (the blink ANIMATION stays local-clock driven at the shared
+    /// period — synced state, locally animated, zero per-frame traffic).
     ///
     /// byte 0 (buttons — 1 = that control is VISIBLE on the owner's board right now):
     ///   bit0 CONFIRM keycap        bit1 UNDO keycap
@@ -523,18 +523,33 @@ internal static class NetProtocol
     ///            (bit3 = left slot holds a card, bit4 = right slot holds a card);
     ///   bit5     <see cref="BoardUiSlotsValidBit"/> — the sender KNOWS its slot occupancy, i.e.
     ///            bits 3..4 are state and not "a sender that predates the field";
-    ///   bits6..7 reserved (written 0, ignored on read).
+    ///   bits6..7 <see cref="BoardUiSnapMask"/> — the SNAP-GLOW HOVER telegraph, i.e. which recess
+    ///            the owner's own gold "the held card lands here on release" rim is lit on
+    ///            (<see cref="BoardUiSnapNone"/> 0 = none, 1 = slot 0, 2 = slot 1, 3 invalid).
+    /// byte 2 (cap STATES — <see cref="BoardUiCapStateDefinedMask"/>; see
+    ///   <see cref="BoardUiCapConfirmAccentBit"/> for the whole argument and the layout).
     ///
     /// Unlike the "only when non-default" records, this one is written on EVERY extras packet
     /// that also carries a board pose: the receiver must distinguish "the owner's board shows
     /// no dynamic controls" (record present, byte0 = 0) from "the sender predates the field"
     /// (record absent → the receiver keeps the legacy always-drawn furniture, so a build-1 peer
-    /// looks exactly as before). ~4 bytes at 5 Hz. No card identity is derivable from any bit —
-    /// the wanted mask reveals only "slot still empty during selection" and the occupancy nibble
-    /// only its complement, which the board's own card backs (and vanilla's ready tracker) already
-    /// show.
+    /// looks exactly as before). ~5 bytes at 5 Hz. No card identity is derivable from any bit —
+    /// the wanted mask reveals only "slot still empty during selection", the occupancy nibble
+    /// only its complement (both already visible through the board's own card backs and vanilla's
+    /// ready tracker), and the snap field only WHICH RECESS a card the peer is already watching
+    /// the owner carry is about to land in.
     /// </summary>
     public const byte ExtIdBoardUi = 4;
+
+    /// <summary>Payload length of <see cref="ExtIdBoardUi"/> BEFORE the cap-state byte — the
+    /// length every build up to ModBuild 88 wrote, and the minimum a reader requires.</summary>
+    public const int BoardUiRecordBytesLegacy = 2;
+
+    /// <summary>Payload length of <see cref="ExtIdBoardUi"/> WITH the cap-state byte. The LENGTH
+    /// is this record's validity flag for byte 2 — see
+    /// <see cref="BoardUiCapConfirmAccentBit"/> for why it needed one and why no bit was
+    /// spent on it.</summary>
+    public const int BoardUiRecordBytes = 3;
 
     // Board-UI record byte 0 (buttons) bit assignments — wire constants, append-only.
     public const byte BoardUiConfirmBit = 1 << 0;
@@ -650,14 +665,133 @@ internal static class NetProtocol
     /// </summary>
     public const byte BoardUiSlotsValidBit = 1 << (BoardUiSlotShift + BoardUiSlotCount);
 
+    /// <summary>
+    /// Board-UI record byte 1, bits 6..7 — the SNAP-GLOW HOVER TELEGRAPH: which recess the owner's
+    /// own gold "the held card lands HERE on release" rim is lit on right now
+    /// (<c>PlayTray.SetHighlightedSlot</c>, driven from <c>CardsDriver.UpdateSlotHighlight</c>).
+    /// <see cref="BoardUiSnapNone"/> (0) = no rim lit; 1 = slot 0; 2 = slot 1; 3 is invalid and
+    /// reads as none (never trust the wire).
+    ///
+    /// <para>WHY IT IS ON THE WIRE, having been declared IMPOSSIBLE. The previous revision of
+    /// <c>RemoteBoardFurniture.Refresh</c> lit the mirrored rim on the OCCUPANCY edge instead —
+    /// empty→occupied, then a 0.6 s fade — with the note "a remote hover is not reproduced (and
+    /// cannot be)". Both halves of that were wrong. It is not the same event: the owner sees the
+    /// glow BEFORE the drop (it is the telegraph that tells them where the card will go, and it
+    /// tracks their hand across the two recesses and back to none), a peer saw it AFTER, and a
+    /// hover that ended without a drop produced no glow on the peer's board at all. And it was
+    /// never impossible: the hovered slot is one small integer that the owner's own board already
+    /// renders, and the record it belongs in had two reserved bits sitting in the very byte the
+    /// wanted-glow mask rides. It costs ZERO extra bytes.</para>
+    ///
+    /// <para>ANTI-CHEAT: the field names a RECESS, never a card — the same class of fact as the
+    /// occupancy nibble two bits below it, and strictly less than that nibble reveals (the peer is
+    /// already watching the owner carry the card; this says which of two public recesses it is
+    /// heading for). A sender that predates the field writes 0, which reads as "no rim", i.e. the
+    /// receiver falls back to its legacy occupancy-edge flash exactly as before.</para>
+    /// </summary>
+    public const int BoardUiSnapShift = 6;
+
+    /// <summary>Mask of the snap-glow field in the board-UI record's byte 1 (bits 6..7).</summary>
+    public const byte BoardUiSnapMask = (byte)(0x03 << BoardUiSnapShift);
+
+    /// <summary>Snap-glow field value: no recess rim is lit on the owner's board. Also what an
+    /// out-of-range value (3) and a sender predating the field decode to.</summary>
+    public const byte BoardUiSnapNone = 0;
+
+    /// <summary>Encode a highlighted slot index (-1 = none) into the board-UI snap field's VALUE
+    /// (before shifting): none → 0, slot i → i + 1. A slot the two-recess board does not have
+    /// degrades to none rather than lighting the wrong rim.</summary>
+    public static byte EncodeSnapSlot(int slot) =>
+        slot >= 0 && slot < BoardUiSlotCount ? (byte)(slot + 1) : BoardUiSnapNone;
+
+    /// <summary>Decode the board-UI snap field's VALUE back to a slot index, or -1 for none /
+    /// the invalid value 3 / a recess this board shape does not have.</summary>
+    public static int DecodeSnapSlot(int value) =>
+        value >= 1 && value <= BoardUiSlotCount ? value - 1 : -1;
+
     /// <summary>Every DEFINED bit of the board-UI record's byte 1 (wanted glow + pinned + slot
-    /// occupancy + its validity bit). The writer masks with this so undefined bits can never be
-    /// pre-claimed by garbage, and the reader masks again (never trust the wire). Widening it is how
-    /// the next overlay bit ships — and it is why old readers, which mask with the narrower
-    /// <see cref="BoardUiWantedMask"/> (or with this constant's previous 0x07 value), ignore the new
-    /// bits instead of mis-reading them.</summary>
+    /// occupancy + its validity bit + the snap-glow hover field). The writer masks with this so
+    /// undefined bits can never be pre-claimed by garbage, and the reader masks again (never trust
+    /// the wire). Widening it is how the next overlay bit ships — and it is why old readers, which
+    /// mask with the narrower <see cref="BoardUiWantedMask"/> (or with this constant's previous
+    /// 0x07 / 0x3F values), ignore the new bits instead of mis-reading them.</summary>
     public const byte BoardUiOverlayMask =
-        (byte)(BoardUiWantedMask | BoardUiPinnedBit | BoardUiSlotMask | BoardUiSlotsValidBit);
+        (byte)(BoardUiWantedMask | BoardUiPinnedBit | BoardUiSlotMask | BoardUiSlotsValidBit
+               | BoardUiSnapMask);
+
+    /// <summary>
+    /// Board-UI record BYTE 2, bit 0 — the owner's CONFIRM keycap is ACCENTED.
+    ///
+    /// <para>WHAT THE WHOLE BYTE IS FOR. <c>PlayTray.BoardButton.SetState(enabled, accent,
+    /// confirmed)</c> gives every board keycap three independent visual states, painted onto the
+    /// cap's three submesh materials by <c>SetCapColor</c>: DISABLED (dark wood), IDLE (warm
+    /// parchment), ACCENT (the cap's own authored accent) and CONFIRMED (worn brass). A peer's
+    /// mirror rendered exactly ONE of them — the colour the cap was BUILT with — so a greyed-out
+    /// rest disc, a brass-accented pick-flow CONFIRM and a gold readied CONFIRM were all the same
+    /// picture on every other screen. That is the "alles … so wie der Spieler sie sieht" rule
+    /// failing on the most-looked-at furniture on the board.</para>
+    ///
+    /// <para>WHY IT IS A THIRD BYTE ON RECORD 4 AND NOT A NEW RECORD. These bits QUALIFY the
+    /// visibility bits of byte 0 — "the CONFIRM cap is shown" and "the CONFIRM cap is readied" must
+    /// never arrive in different packets, or a peer paints a state onto a cap that is not there
+    /// (or worse, misses the state edge of a cap that just appeared). One record, one packet, one
+    /// atomic write. It also costs 1 byte where a new record costs 3 (id + len + payload).</para>
+    ///
+    /// <para>WHY NO VALIDITY BIT. Unlike the occupancy nibble, this byte gets its validity for
+    /// free from the TLV LENGTH: a sender that predates it writes
+    /// <see cref="BoardUiRecordBytesLegacy"/> and the receiver, which requires
+    /// <see cref="BoardUiRecordBytes"/> before it trusts byte 2, keeps the legacy
+    /// built-colour look. An OLD reader is symmetrically safe — it validates <c>len &gt;= 2</c> and
+    /// steps over the record by its own length byte, so the extra byte is invisible to it rather
+    /// than shifting its tail walk.</para>
+    ///
+    /// <para>WHAT IS NOT HERE, and why. The UNDO keycap and the item-USE cap are CONSTANT-state
+    /// controls at their source — every <c>SetState</c> call on them in the whole mod is
+    /// <c>(enabled: true, accent: false)</c> for UNDO (PlayTray.5.Status) and
+    /// <c>(enabled: true, accent: true)</c> for USE (PlayTray.6.Build) — so their look is a build
+    /// fact, not a state fact, and the mirror reproduces it with zero bits. Likewise CONFIRM is
+    /// never DISABLED: the board HIDES an unpressable confirm rather than greying it ("wenn es
+    /// nicht drückbar ist dann soll es dort auch nicht erscheinen"), which byte 0 bit 0 already
+    /// carries. And the FOLLOW/PIN cap's accent is byte 1 bit 2, where it has ridden since the
+    /// pinned bit shipped.</para>
+    /// </summary>
+    public const byte BoardUiCapConfirmAccentBit = 1 << 0;
+
+    /// <summary>Board-UI byte 2, bit 1 — the owner's CONFIRM keycap is in the CONFIRMED (readied,
+    /// worn-brass) state, i.e. pressing it REVOKES. Beats the accent bit exactly as
+    /// <c>BoardButton.StateColor</c> does.</summary>
+    public const byte BoardUiCapConfirmReadyBit = 1 << 1;
+
+    /// <summary>Board-UI byte 2, bit 2 — the owner's SHORT-rest disc is ENABLED (a short rest is
+    /// available: <c>CardsGameApi.CanShortRest</c>). Clear while the disc is up but dead, which the
+    /// owner sees as the dark-wood disabled cap — the state <c>RestControls.TickStatus</c> paints
+    /// when a rest is SELECTED but no longer available.</summary>
+    public const byte BoardUiCapShortRestEnabledBit = 1 << 2;
+
+    /// <summary>Board-UI byte 2, bit 3 — the owner's SHORT-rest disc is ACCENTED (that rest is
+    /// SELECTED — the commitment readout).</summary>
+    public const byte BoardUiCapShortRestAccentBit = 1 << 3;
+
+    /// <summary>Board-UI byte 2, bit 4 — the owner's LONG-rest disc is ENABLED. Same contract as
+    /// <see cref="BoardUiCapShortRestEnabledBit"/>.</summary>
+    public const byte BoardUiCapLongRestEnabledBit = 1 << 4;
+
+    /// <summary>Board-UI byte 2, bit 5 — the owner's LONG-rest disc is ACCENTED (selected).</summary>
+    public const byte BoardUiCapLongRestAccentBit = 1 << 5;
+
+    /// <summary>Board-UI byte 2, bit 6 — the owner's turn-flow SKIP cap is INTERACTABLE. The
+    /// cluster's own disabled look is not a palette swap but a 0.75 lerp of the accent toward dark
+    /// wood (<c>ButtonCluster.PhysicalButton.SetState</c>), plus a 0.35-alpha label; the mirror
+    /// reproduces both.</summary>
+    public const byte BoardUiCapSkipEnabledBit = 1 << 6;
+
+    /// <summary>Every DEFINED bit of the board-UI record's byte 2 (bit 7 reserved, written 0 and
+    /// masked on read). Same discipline as <see cref="BoardUiOverlayMask"/>.</summary>
+    public const byte BoardUiCapStateDefinedMask =
+        (byte)(BoardUiCapConfirmAccentBit | BoardUiCapConfirmReadyBit
+               | BoardUiCapShortRestEnabledBit | BoardUiCapShortRestAccentBit
+               | BoardUiCapLongRestEnabledBit | BoardUiCapLongRestAccentBit
+               | BoardUiCapSkipEnabledBit);
 
     /// <summary>
     /// Extension record id: the board-local ANCHOR POSITION of the sender's open BOARD-ANCHORED
@@ -962,7 +1096,10 @@ internal static class NetProtocol
     ///             record also rides for a selection-only state; slot 2 (a recess the two-slot
     ///             board lacks) is rejected on read and degrades to "no hover" too.
     ///   bit 2     set = the TOP action half (<see cref="HalfHoverTopBit"/>), clear = bottom.
-    ///   bits 3..7 reserved (written 0, masked on read).
+    ///   bits 3..5 the BOARD KEYCAP the owner has just PRESSED (<see cref="CapPressCapMask"/>,
+    ///             <see cref="CapPressNone"/> 0 = no press riding this packet);
+    ///   bits 6..7 that press's 2-bit SEQUENCE (<see cref="CapPressSeqMask"/>) — see
+    ///             <see cref="CapPressNone"/> for why an edge needs a counter.
     /// byte 1 — the persistent SELECTION (which half of each slot card is CLICKED/committed,
     ///   the game's own steady half highlight after a click, cleared again by undo):
     ///   bits 0..1 slot 0's selected half (<see cref="HalfSelectNone"/> 0 / <see
@@ -990,15 +1127,93 @@ internal static class NetProtocol
     /// action phase they are public anyway (the committed half also reaches every client through
     /// the authoritative action stream — this record only makes it visible at the board).</para>
     ///
-    /// <para>Written ONLY while a half is hovered OR selected, so an idle packet stays
-    /// byte-identical to the previous build's. Hover edges pre-empt the extras gate capped at
-    /// the rig interval (a drifting beam can flick halves several times a second); SELECTION
-    /// edges pre-empt it OUTRIGHT (a click/undo is discrete and human-paced — the pile-counts
-    /// rule), so the steady highlight lands with the click. This record has never shipped in a
-    /// distributed build, so the 1→2-byte extension costs no compatibility case: the ModBuild
-    /// handshake gates every peer to the same build.</para>
+    /// <para>Written ONLY while a half is hovered OR selected OR a keycap press is in its hold
+    /// window, so an idle packet stays byte-identical to the previous build's. Hover edges pre-empt
+    /// the extras gate capped at the rig interval (a drifting beam can flick halves several times a
+    /// second); SELECTION and PRESS edges pre-empt it OUTRIGHT (a click is discrete and
+    /// human-paced — the pile-counts rule), so the steady highlight and the cap dip land with the
+    /// click. This record has never shipped in a distributed build, so the 1→2-byte extension costs
+    /// no compatibility case: the ModBuild handshake gates every peer to the same build.</para>
     /// </summary>
     public const byte ExtIdHalfHover = 14;
+
+    /// <summary>
+    /// Half-hover byte 0, bits 3..5 — WHICH board keycap the owner has just PRESSED, as one of
+    /// <see cref="CapPressConfirm"/> … <see cref="CapPressFollowPin"/>, or this value (0) for
+    /// "no press rides this packet".
+    ///
+    /// <para>WHY THE SENTINEL IS ZERO AND THE SEVEN CAP IDS ARE 1..7 — the same rule the PINNED bit
+    /// and the snap field follow: a sender that predates a field writes its bits as ZERO, so zero
+    /// must decode to the behaviour those builds already produced, which here is "no press, animate
+    /// nothing". Numbering the caps from 0 would have made a pre-field sender's empty byte read as
+    /// "the CONFIRM cap was pressed". Seven caps in three bits with zero reserved is an exact fit.</para>
+    ///
+    /// <para>WHY A PRESS NEEDS A WIRE FIELD AT ALL, when almost every other keycap ANIMATION does
+    /// not. A cap's dissolve-away, its materialize-from-dust and its state colours are all
+    /// FUNCTIONS of state that is already synced (record 4's visibility bits and cap-state byte),
+    /// so a receiver plays them from the transition it can already see — zero wire. The press is
+    /// the one that is not: it is an EVENT with no state behind it. The cap dips to the bottom of
+    /// its travel and springs back over ~170 ms (<c>BoardButton._press</c> decaying at 6/s), the
+    /// button's action may or may not change anything the wire carries, and at the 5 Hz extras
+    /// cadence the whole animation can fall between two packets. Five bits reproduce it exactly.
+    /// </para>
+    ///
+    /// <para>WHY THE SEQUENCE COUNTER. The field is a LATCH, not a pulse: the sender keeps writing
+    /// the last press for a short hold window so a lost or late packet still delivers it. A
+    /// receiver therefore cannot animate "the field is set" — it would replay the same press on
+    /// every packet of the window. It animates the field CHANGING, and two identical consecutive
+    /// presses of the SAME cap differ only in the counter. Two bits are ample: presses on one cap
+    /// are debounced <c>0.4 s</c> apart (<c>ButtonTuning.PokePressCooldownSeconds</c>) and every
+    /// press pre-empts the send gate outright, so four unobserved presses in a row cannot happen.
+    /// </para>
+    ///
+    /// <para>NOT INTERACTIVITY. What crosses is "this cap was pressed", and what the receiver does
+    /// with it is play the owner's own dip on a colliderless copy. No callback, no registration,
+    /// nothing on the remote board becomes pressable — see <c>RemoteBoardFurniture</c>'s inertness
+    /// contract, which the mirrored animation is explicitly inside.</para>
+    /// </summary>
+    public const byte CapPressNone = 0;
+
+    /// <summary>Bit position of the pressed-cap field in the half-hover record's byte 0.</summary>
+    public const int CapPressShift = 3;
+
+    /// <summary>Mask of the pressed-cap field (bits 3..5) IN PLACE.</summary>
+    public const byte CapPressCapMask = (byte)(0x07 << CapPressShift);
+
+    /// <summary>Bit position of the press SEQUENCE field in the half-hover record's byte 0.</summary>
+    public const int CapPressSeqShift = 6;
+
+    /// <summary>Mask of the press SEQUENCE field (bits 6..7) IN PLACE.</summary>
+    public const byte CapPressSeqMask = (byte)(0x03 << CapPressSeqShift);
+
+    /// <summary>Pressed-cap id: the CONFIRM keycap. Wire ids are append-only and are mapped from
+    /// the Cards layer's own cap enum by an explicit switch in <c>NetAvatarDriver</c>, so a
+    /// re-ordering there cannot silently renumber the wire.</summary>
+    public const byte CapPressConfirm = 1;
+
+    /// <summary>Pressed-cap id: the UNDO keycap.</summary>
+    public const byte CapPressUndo = 2;
+
+    /// <summary>Pressed-cap id: the item-use USE keycap (the dynamic third cluster member).</summary>
+    public const byte CapPressItemUse = 3;
+
+    /// <summary>Pressed-cap id: the SHORT-rest disc.</summary>
+    public const byte CapPressShortRest = 4;
+
+    /// <summary>Pressed-cap id: the LONG-rest disc.</summary>
+    public const byte CapPressLongRest = 5;
+
+    /// <summary>Pressed-cap id: the turn-flow SKIP cap.</summary>
+    public const byte CapPressSkip = 6;
+
+    /// <summary>Pressed-cap id: the FOLLOW/PIN dashboard toggle — the last id the 3-bit field
+    /// holds. An eighth cap would need a new field, not a renumbering.</summary>
+    public const byte CapPressFollowPin = 7;
+
+    /// <summary>Highest cap id the field defines. A receiver rejects anything above it (there is
+    /// nothing above it today, which is the point of asserting the bound anyway) and treats
+    /// <see cref="CapPressNone"/> as "animate nothing" — never trust the wire.</summary>
+    public const byte CapPressMaxId = CapPressFollowPin;
 
     /// <summary>Payload length of <see cref="ExtIdHalfHover"/>: hover byte + selection byte. A
     /// reader requires at least this much before it trusts the record.</summary>
@@ -1015,9 +1230,11 @@ internal static class NetProtocol
     /// <summary>Half-hover byte 0, bit 2 — the hovered half is the TOP action (clear = bottom).</summary>
     public const byte HalfHoverTopBit = 1 << 2;
 
-    /// <summary>Every DEFINED bit of the half-hover byte 0. Masked on write AND read so a future
-    /// bit cannot be pre-claimed by garbage — the same discipline as every masked byte here.</summary>
-    public const byte HalfHoverDefinedMask = (byte)(HalfHoverSlotMask | HalfHoverTopBit);
+    /// <summary>Every DEFINED bit of the half-hover byte 0 (slot + top-half + the cap-press cap and
+    /// sequence fields — the byte is now FULL). Masked on write AND read so a future bit cannot be
+    /// pre-claimed by garbage — the same discipline as every masked byte here.</summary>
+    public const byte HalfHoverDefinedMask =
+        (byte)(HalfHoverSlotMask | HalfHoverTopBit | CapPressCapMask | CapPressSeqMask);
 
     /// <summary>Selection field (2 bits per slot in byte 1): no half of this slot's card is
     /// selected. Also what a reader assumes for the invalid value 3.</summary>
@@ -1794,11 +2011,12 @@ internal static class NetProtocol
     public const byte TrackOrderOwnedDefinedMask = (1 << TrackOrderMaxIds) - 1;
 
     /// <summary>
-    /// Extension record id: the LIVE LABELS of the sender's turn-flow board caps — what their
-    /// CONFIRM keycap and their docked SKIP button ACTUALLY read right now — as
-    /// <c>[byte mask][per set bit: byte len + UTF8]</c>, each label capped at
-    /// <see cref="CapLabelMaxBytes"/> bytes. Mask bits: <see cref="CapLabelConfirmBit"/>,
-    /// <see cref="CapLabelSkipBit"/>.
+    /// Extension record id: the LIVE LABELS of the sender's board caps — what their CONFIRM
+    /// keycap, their docked SKIP button, their UNDO keycap and their item-USE cap ACTUALLY read
+    /// right now — as <c>[byte mask][per set bit, in mask-bit order: byte len + UTF8]</c>, each
+    /// label capped at <see cref="CapLabelMaxBytes"/> bytes. Mask bits:
+    /// <see cref="CapLabelConfirmBit"/>, <see cref="CapLabelSkipBit"/>,
+    /// <see cref="CapLabelUndoBit"/>, <see cref="CapLabelItemUseBit"/>.
     ///
     /// <para>WHY (user report 2026-08-04: "Mein Mitspieler las 'Fortfahren', ich sehe
     /// 'Bestätigen'"): the remote furniture used to label the mirrored caps from the RECEIVER's
@@ -1822,13 +2040,46 @@ internal static class NetProtocol
     /// block when both are present — mask-bit order, the same rule the extras flag blocks use).</summary>
     public const byte CapLabelSkipBit = 1 << 1;
 
+    /// <summary>
+    /// Cap-labels record, mask bit 2: an UNDO label block follows.
+    ///
+    /// <para>The UNDO keycap has TWO wordings and only one of them ever reached a peer. Its normal
+    /// text is the game's live undo string (<c>CardsGameApi.UndoLabel()</c>), but during the
+    /// EVENT-DISCARD pick flow the driver overrides it with the confirm dialog's own cancel option
+    /// (<c>PlayTray.SetPickStatus</c> → <c>_pickUndoLabel</c>, e.g. "Wähle eine andere Karte") —
+    /// the reachable stand-in for the 2D popup's second button. The mirror wrote a flat
+    /// <c>GUI_UNDO</c>, so on every other screen the owner's cancel affordance read "Rückgängig".
+    /// Exactly the defect record 13 was created for, on the cap next to the one it fixed.</para>
+    /// </summary>
+    public const byte CapLabelUndoBit = 1 << 2;
+
+    /// <summary>
+    /// Cap-labels record, mask bit 3: an item-USE label block follows.
+    ///
+    /// <para>Same class of defect, higher stakes: the USE cap normally reads "USE", but an
+    /// item-surrender demand (event malus) overrides it with a demand-specific wording
+    /// (<c>PlayTray.SetItemUseConfirmVisible(…, label)</c> — "the user must never read a surrender
+    /// as an ordinary use"). The mirror hardcoded <c>Loc.Game("GUI_USE")</c>, so a peer watching a
+    /// player hand over an item saw them apparently USE it.</para>
+    /// </summary>
+    public const byte CapLabelItemUseBit = 1 << 3;
+
     /// <summary>Every DEFINED bit of the cap-labels mask byte — masked on write AND on read so an
-    /// undefined bit can never be pre-claimed by garbage (the board-UI overlay discipline).</summary>
-    public const byte CapLabelDefinedMask = CapLabelConfirmBit | CapLabelSkipBit;
+    /// undefined bit can never be pre-claimed by garbage (the board-UI overlay discipline). An OLD
+    /// reader masks with its own narrower value (0x03 before this build) and therefore stops after
+    /// the two blocks it knows — which is why the new bits are the HIGH ones and their blocks ride
+    /// LAST.</summary>
+    public const byte CapLabelDefinedMask =
+        CapLabelConfirmBit | CapLabelSkipBit | CapLabelUndoBit | CapLabelItemUseBit;
+
+    /// <summary>How many label slots <see cref="ExtIdCapLabels"/> can carry (one per defined mask
+    /// bit) — the sizing input for the record's worst case.</summary>
+    public const int CapLabelSlotCount = 4;
 
     /// <summary>UTF8 byte cap PER LABEL in <see cref="ExtIdCapLabels"/>. Button wordings are a few
     /// words ("Lange Rast durchführen"); truncation on a UTF8 CHARACTER boundary, re-clamped on
-    /// read. Two labels + mask + lengths stay far under the 255-byte TLV ceiling.</summary>
+    /// read. Four labels + mask + lengths stay far under the 255-byte TLV ceiling
+    /// (1 + 4 × (1 + 48) = 197).</summary>
     public const int CapLabelMaxBytes = 48;
 
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver

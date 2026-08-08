@@ -671,6 +671,27 @@ internal sealed partial class PlayTray
         /// </summary>
         internal System.Func<float>? ActivationGuard;
 
+        /// <summary>This cap's live ENABLED state — the multiplayer cap-STATE read seam (board-UI
+        /// record byte 2). Reading the flag the renderer itself obeys is what makes the mirrored
+        /// cap's colour the owner's colour by construction, instead of a second derivation of the
+        /// game rules that can drift from it.</summary>
+        internal bool StateEnabled => _enabledState;
+
+        /// <summary>This cap's live ACCENT state — see <see cref="StateEnabled"/>.</summary>
+        internal bool StateAccent => _accent;
+
+        /// <summary>This cap's live CONFIRMED (readied) state — see <see cref="StateEnabled"/>.</summary>
+        internal bool StateConfirmed => _confirmed;
+
+        /// <summary>
+        /// WHICH cap this is on the multiplayer press wire (<c>NetProtocol.CapPress*</c>), or
+        /// <c>NetProtocol.CapPressNone</c> for a cap whose presses are not mirrored. Set by the
+        /// builder that knows the cap's role (<see cref="BuildButtons"/>,
+        /// <see cref="BuildDashboardControls"/>, <c>RestControls.EnsureBuilt</c>) rather than
+        /// guessed from the name, and defaulted to "none" so a new cap has to opt IN.
+        /// </summary>
+        internal byte WireCap { get; set; } = Net.NetProtocol.CapPressNone;
+
         internal void SetState(bool enabled, bool accent, bool confirmed = false)
         {
             if (_enabledState == enabled && _accent == accent && _confirmed == confirmed)
@@ -1115,6 +1136,12 @@ internal sealed partial class PlayTray
             _nextPressTime = Time.unscaledTime + WorldUI.ButtonTuning.PokePressCooldownSeconds;
             _press = 1f;
             hand.SendHaptic(HapticPreset.ClickPulse);
+            // MULTIPLAYER (1:1 ruling — "alle Interaktionen, ANIMATIONEN und Anzeigen des
+            // Controllboards"): publish the press EDGE for the extras sampler, so the mirrored cap
+            // on every peer's copy of this board dips and springs back with this one. Reported from
+            // the single commit point both input paths share, AFTER every gate, so a rejected /
+            // suppressed / debounced attempt never animates anywhere.
+            BoardCapPress.Report(WireCap);
             VRLog.Info("Cards", $"Board: {name} pressed (source={source}, {hand.Side}).");
             _onClick?.Invoke();
         }

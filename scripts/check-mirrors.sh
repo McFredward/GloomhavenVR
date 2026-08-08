@@ -67,6 +67,15 @@ MIRRORS=(
   "keycap wall tint factor : Cards/PlayTray.7.Nested.cs:WallTintFactor Net/RemoteBoardFurniture.cs:WallTintFactor"
   "keycap wall warm lerp : Cards/PlayTray.7.Nested.cs:WallWarmLerp Net/RemoteBoardFurniture.cs:WallWarmLerp"
   "keycap bevel highlight lerp : Cards/PlayTray.7.Nested.cs:BevelLerp Net/RemoteBoardFurniture.cs:BevelLerp"
+  # The mirrored keycap ANIMATIONS (2026-08-08 1:1 round) add two more pairs this extractor
+  # cannot reach, for the opposite reason to the colours: the LOCAL half is not a named constant
+  # at all. BoardButton.Update springs its press back with an inline `Time.deltaTime * 6f` and
+  # fades a materializing cap with an inline `Mathf.SmoothStep(0.15f, 1f, k)`. Net/RemoteCapFx
+  # names them (PressDecayPerSecond / AppearFadeFloor) precisely so the remote side is
+  # readable, and both doc comments call the other side out by file and method. The AUTHORED
+  # travels and the ButtonAnim durations the same round mirrored ARE machine-checked — by
+  # scripts/check-remote-defaults.py, which is the right lint for a Defaults-backed pair.
+  #
   # Same story for the FOLLOW/PIN toggle's two STATE colours: the idle parchment
   # (PlayTray.BoardButton.IdleColor) and the accent brass (the _accentColor BuildDashboardControls
   # hands its pin button) are Color statics, which this float/string extractor cannot read — they

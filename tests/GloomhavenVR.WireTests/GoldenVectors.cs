@@ -454,13 +454,14 @@ internal static class GoldenVectors
             80               // byte A: PileBrowseExtensionBit only
             00               // byte B: count 0 -> no fan
             02               // tail: 2 records
-            04 02 B5 02      // record: id 4 (board UI), len 2, buttons 0xB5, overlays 0x02
+            04 03 B5 02 00   // record: id 4 (board UI), len 3, buttons 0xB5, overlays 0x02,
+                             //   cap states 0x00 (nothing accented, every gated cap DIMMED)
             05 0C            // record: id 5 (fan anchor), len 12
             0000003F         // x = 0.5
             0000803E         // y = 0.25
             000000BE         // z = -0.125
             "), ext, m, "board-UI and fan-anchor records ride the tail as [id][len][payload]");
-        t.Equal(53, m, "header 7 + board 24 + count 1 + block 2 + tail 1 + 4 + 14 = 53 bytes");
+        t.Equal(54, m, "header 7 + board 24 + count 1 + block 2 + tail 1 + 5 + 14 = 54 bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState bu), "and it parses");
         t.True(bu.HasBoardUi, "the board-UI record is delivered");
         t.Equal((byte)0xB5, bu.BoardButtonsMask, "with the buttons mask intact");
@@ -470,20 +471,32 @@ internal static class GoldenVectors
                "with the exact board-local position");
 
         // Overlay hygiene: only the DEFINED overlay bits are wire state — bits 0..1 (wanted-slot
-        // glow), bit 2 (FOLLOW/PIN), bits 3..4 (card-slot occupancy) and bit 5 (that nibble's
-        // validity). The writer masks the still-reserved bits 6..7 so a future use of them cannot be
-        // pre-claimed by garbage, and the reader masks again (never trust the wire). This expectation
-        // moved from 0x06 to 0x3E when the occupancy nibble widened BoardUiOverlayMask from 0x07 to
-        // 0x3F — which is exactly the assertion that would catch a widening done on only one side.
+        // glow), bit 2 (FOLLOW/PIN), bits 3..4 (card-slot occupancy), bit 5 (that nibble's validity)
+        // and, since the mirrored-cap round, bits 6..7 (the snap-glow HOVER field). The writer masks
+        // anything undefined so a future use cannot be pre-claimed by garbage, and the reader masks
+        // again (never trust the wire). This expectation moved 0x06 → 0x3E → 0xFE as the occupancy
+        // nibble and then the snap field widened BoardUiOverlayMask — which is exactly the assertion
+        // that would catch a widening done on only one side.
         m = PresenceSerializer.Write(new PresenceState
         {
             HasBoardUi = true, BoardButtonsMask = 0x01, BoardOverlayMask = 0xFE,
         }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ov), "overlay-mask packet parses");
-        t.Equal((byte)0x3E, ov.BoardOverlayMask,
-                "undefined overlay bits are masked off, the defined ones survive (0xFE -> 0x3E)");
-        t.Equal((byte)0xC0, (byte)(0xFE & ~NetProtocol.BoardUiOverlayMask),
-                "bits 6..7 are the only reserved overlay bits left");
+        t.Equal((byte)0xFE, ov.BoardOverlayMask,
+                "every defined overlay bit survives (0xFE -> 0xFE: the byte is FULL now)");
+        t.Equal((byte)0x00, (byte)(0xFF & ~NetProtocol.BoardUiOverlayMask),
+                "and NO reserved overlay bit is left — the next overlay field needs a new byte, " +
+                "not a free bit in this one");
+        // The cap-state byte gets the same hygiene: bit 7 is the last reserved one there, and a
+        // sender writing it must not have it survive into a receiver's state.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x00, BoardCapStateMask = 0xFF,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cs), "cap-state packet parses");
+        t.True(cs.HasBoardCapStates, "and the 3-byte record delivers its cap-state byte");
+        t.Equal((byte)0x7F, cs.BoardCapStateMask,
+                "cap-state bit 7 is reserved and masked off on both sides (0xFF -> 0x7F)");
 
         // -- 7f. FOLLOW/PIN (board-UI byte 1 bit 2) ----------------------------------------
         // The cross-version contract in both directions, byte-exact.
@@ -503,7 +516,8 @@ internal static class GoldenVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
             01               // tail: 1 record
-            04 02 00 04      // record: id 4 (board UI), len 2, buttons 0x00, overlays 0x04 = PINNED
+            04 03 00 04 00   // record: id 4 (board UI), len 3, buttons 0x00,
+                             //   overlays 0x04 = PINNED, cap states 0x00
             "), ext, m, "the pinned bit rides byte 1 of the EXISTING board-UI record — zero new bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState pin), "and it parses");
         t.Equal((byte)NetProtocol.BoardUiPinnedBit, pin.BoardOverlayMask, "PINNED survives the round trip");
@@ -537,10 +551,12 @@ internal static class GoldenVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
             01               // tail: 1 record
-            04 02 00 28      // record: id 4 (board UI), len 2, buttons 0x00,
-                             //   overlays 0x28 = slot0 occupied (0x08) | occupancy valid (0x20)
+            04 03 00 28 00   // record: id 4 (board UI), len 3, buttons 0x00,
+                             //   overlays 0x28 = slot0 occupied (0x08) | occupancy valid (0x20),
+                             //   cap states 0x00
             "), ext, m, "the occupancy nibble rides byte 1 of the EXISTING board-UI record");
-        t.Equal(15, m, "and costs ZERO extra bytes — same 15 as the FOLLOW/PIN vector above");
+        t.Equal(16, m, "and costs ZERO extra bytes of its own — the same 16 as the FOLLOW/PIN " +
+                       "vector above, both of which grew by the ONE cap-state byte");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState sl), "and it parses");
         t.Equal((byte)0x28, sl.BoardOverlayMask, "the occupancy + validity bits survive the round trip");
         t.Equal(1, (sl.BoardOverlayMask & NetProtocol.BoardUiSlotMask) >> NetProtocol.BoardUiSlotShift,
@@ -565,8 +581,9 @@ internal static class GoldenVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0
             01               // tail: 1 record
-            04 02 B5 3E      // id 4, len 2, buttons 0xB5, overlays 0x3E =
-                             //   wanted bit1 (0x02) | PINNED (0x04) | both slots (0x18) | valid (0x20)
+            04 03 B5 3E 00   // id 4, len 3, buttons 0xB5, overlays 0x3E =
+                             //   wanted bit1 (0x02) | PINNED (0x04) | both slots (0x18) | valid (0x20),
+                             //   cap states 0x00
             "), ext, m, "wanted glow, FOLLOW/PIN and both occupancy bits coexist in one byte");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState both), "and it parses");
         t.Equal(3, (both.BoardOverlayMask & NetProtocol.BoardUiSlotMask) >> NetProtocol.BoardUiSlotShift,
@@ -601,6 +618,118 @@ internal static class GoldenVectors
         t.True((preSlotState.BoardOverlayMask & NetProtocol.BoardUiSlotsValidBit) == 0,
                "and reads as UNKNOWN occupancy, not as 'both recesses empty'");
 
+        // -- 7f3. SNAP-GLOW HOVER TELEGRAPH (board-UI byte 1 bits 6..7) -------------------
+        // The gold "the held card lands HERE on release" rim, which the previous revision claimed
+        // "cannot be" reproduced and instead faked from the occupancy edge (i.e. AFTER the drop).
+        // A recess index in the two bits that byte was still reserving: ZERO extra bytes.
+        t.Case("7f3. extras, snap-glow hover telegraph");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x00,
+            BoardOverlayMask = (byte)(NetProtocol.EncodeSnapSlot(1) << NetProtocol.BoardUiSnapShift),
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            04 03 00 80 00   // record: id 4, len 3, buttons 0x00,
+                             //   overlays 0x80 = snap field value 2 (= slot 1) at bits 6..7,
+                             //   cap states 0x00
+            "), ext, m, "the snap-glow recess rides bits 6..7 of the EXISTING overlay byte");
+        t.Equal(16, m, "and costs ZERO extra bytes — same 16 as the occupancy vector above");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState sn), "and it parses");
+        t.Equal(1, NetProtocol.DecodeSnapSlot(
+                    (sn.BoardOverlayMask & NetProtocol.BoardUiSnapMask) >> NetProtocol.BoardUiSnapShift),
+                "the hovered recess survives the round trip");
+        t.Equal((byte)0x00, (byte)(sn.BoardOverlayMask & NetProtocol.BoardUiWantedMask),
+                "and does not bleed into the wanted-slot glow mask");
+        t.Equal(0, (sn.BoardOverlayMask & NetProtocol.BoardUiSlotMask) >> NetProtocol.BoardUiSlotShift,
+                "nor into the occupancy nibble");
+
+        // The ENCODING contract, both directions, including the two values that must degrade.
+        t.Equal((byte)0, NetProtocol.EncodeSnapSlot(-1), "no hover encodes as the 0 sentinel");
+        t.Equal((byte)1, NetProtocol.EncodeSnapSlot(0), "slot 0 encodes as 1 — the ids are 1-based");
+        t.Equal((byte)2, NetProtocol.EncodeSnapSlot(1), "slot 1 encodes as 2");
+        t.Equal((byte)0, NetProtocol.EncodeSnapSlot(2),
+                "a recess this two-slot board does not have degrades to 'no hover', never to a " +
+                "glow on the wrong recess");
+        t.Equal(-1, NetProtocol.DecodeSnapSlot(0), "the 0 sentinel decodes to 'none'");
+        t.Equal(-1, NetProtocol.DecodeSnapSlot(3),
+                "and so does the invalid value 3 — never trust the wire");
+
+        // A PRE-SNAP sender (build <= 88): bits 6..7 clear. 0 has to mean "no rim", because that is
+        // what those builds' receivers rendered — the same "0 is the old look" rule the PINNED bit
+        // follows, and the reason the sentinel is 0 rather than a cap id.
+        byte[] preSnap = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 04 02 B5 01");
+        t.True(PresenceSerializer.TryRead(preSnap, preSnap.Length, out PresenceState preSnapState),
+               "a pre-snap board-UI record still parses");
+        t.Equal(-1, NetProtocol.DecodeSnapSlot(
+                    (preSnapState.BoardOverlayMask & NetProtocol.BoardUiSnapMask)
+                    >> NetProtocol.BoardUiSnapShift),
+                "and reads as NO hover — the receiver falls back to its legacy occupancy-edge flash");
+
+        // -- 7f4. CAP STATES (board-UI BYTE 2, length-gated) ------------------------------
+        // The seven bits that end "every mirrored cap looks enabled and un-accented". Its validity
+        // flag is the record's own LENGTH, which is why the byte needed no bit of its own.
+        t.Case("7f4. extras, cap states");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true,
+            BoardButtonsMask = (byte)(NetProtocol.BoardUiConfirmBit
+                                      | NetProtocol.BoardUiShortRestBit
+                                      | NetProtocol.BoardUiSkipBit),
+            BoardCapStateMask = (byte)(NetProtocol.BoardUiCapConfirmReadyBit
+                                       | NetProtocol.BoardUiCapShortRestAccentBit
+                                       | NetProtocol.BoardUiCapSkipEnabledBit),
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            04 03 51 00 4A   // id 4, len 3, buttons 0x51 = confirm|shortRest|skip,
+                             //   overlays 0x00, cap states 0x4A = confirm CONFIRMED (0x02)
+                             //   | short rest ACCENT (0x08) | skip ENABLED (0x40).
+                             //   Note the short rest is ACCENTED but NOT enabled: the owner
+                             //   selected a rest that is no longer available, which is a real
+                             //   board state and a THIRD distinct look.
+            "), ext, m, "the cap-state byte is the board-UI record's third byte, 1 B for 7 states");
+        t.Equal(16, m, "ONE byte more than the two-byte form — a new record would have cost three");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState st), "and it parses");
+        t.True(st.HasBoardCapStates, "the cap-state byte is delivered");
+        t.True((st.BoardCapStateMask & NetProtocol.BoardUiCapConfirmReadyBit) != 0,
+               "the CONFIRM cap reads as confirmed (worn brass on the mirror)");
+        t.True((st.BoardCapStateMask & NetProtocol.BoardUiCapConfirmAccentBit) == 0,
+               "and not as merely accented — confirmed beats accent, as StateColor resolves them");
+        t.True((st.BoardCapStateMask & NetProtocol.BoardUiCapShortRestAccentBit) != 0
+               && (st.BoardCapStateMask & NetProtocol.BoardUiCapShortRestEnabledBit) == 0,
+               "the short-rest disc reads SELECTED but UNAVAILABLE — the dark-wood look, which is " +
+               "neither of the two the mirror could show before");
+        t.True((st.BoardCapStateMask & NetProtocol.BoardUiCapSkipEnabledBit) != 0,
+               "and the skip cap reads pressable");
+        t.Equal((byte)0x00, st.BoardOverlayMask, "with nothing bled into the overlay byte");
+
+        // THE LENGTH IS THE VALIDITY FLAG. A hand-built TWO-byte record — exactly what every build
+        // up to 88 wrote — must deliver its buttons and overlays and NO cap states, so the receiver
+        // keeps every mirrored cap at the colour it was built with instead of reading zeros as
+        // "everything disabled and un-accented".
+        byte[] preCaps = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 04 02 51 01");
+        t.True(PresenceSerializer.TryRead(preCaps, preCaps.Length, out PresenceState preCapState),
+               "a two-byte board-UI record still parses");
+        t.True(preCapState.HasBoardUi && preCapState.BoardButtonsMask == 0x51,
+               "its buttons mask is delivered unchanged");
+        t.True(!preCapState.HasBoardCapStates,
+               "but NO cap states are claimed — the length says the byte is absent, and the " +
+               "receiver therefore leaves the caps at their built colour rather than painting " +
+               "every gated cap DIMMED from a byte that was never sent");
+        t.Equal((byte)0x00, preCapState.BoardCapStateMask,
+                "and the mask stays clear, so a consumer that forgets the flag still gets zeros " +
+                "rather than garbage");
+
         // ---- BACKWARD COMPATIBILITY, the explicit assertion ------------------------------
         // An OLD reader (build <= 18) masks byte 1 with its OWN narrower overlay mask, 0x07. Feed
         // it a packet from a build that fills every new bit and it must still (a) parse the packet,
@@ -623,11 +752,13 @@ internal static class GoldenVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0
             02               // tail: 2 records
-            04 02 42 3F      // id 4, len 2, buttons 0x42, overlays 0x3F = every defined overlay bit
+            04 03 42 3F 00   // id 4, len 3, buttons 0x42, overlays 0x3F, cap states 0x00
             06 02 05 FF      // id 6 card highlight — the record an OLD reader must still reach
             "), ext, m, "a fully-populated overlay byte still leaves the tail walk byte-identical");
-        t.Equal((byte)2, ext[12], "the board-UI record's LENGTH byte is still 2 — an old reader's " +
-                                  "'i += len' skips exactly as far as it always did");
+        t.Equal((byte)3, ext[12], "the board-UI record's LENGTH byte is 3 now that the cap-state " +
+                                  "byte rides it — and an old reader's 'i += len' therefore still " +
+                                  "skips exactly the right distance, which is the whole point of " +
+                                  "TLV: the extra byte is INVISIBLE to it, never a shifted tail walk");
         t.Equal((byte)0x3F, ext[14], "and the new bits really are on the wire in byte 1");
         t.Equal((byte)0x07, (byte)(ext[14] & LegacyOverlayMask),
                 "an OLD reader masking byte 1 with its own 0x07 sees exactly its own three bits " +
@@ -678,7 +809,7 @@ internal static class GoldenVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0
             03               // tail: 3 records, in id order
-            04 02 01 00      // id 4 board UI
+            04 03 01 00 00   // id 4 board UI (3-byte form)
             05 0C 0000003F 0000803E 000000BE   // id 5 fan anchor
             06 02 FF 07      // id 6 card highlight
             "), ext, m, "records ride the tail in id order: board UI, fan anchor, card highlight");
@@ -1423,6 +1554,93 @@ internal static class GoldenVectors
         t.True(futHh.HasHalfHover && futHh.HalfHoverActive && futHh.HalfHoverTop,
                "and the half hover behind it is read");
 
+        // -- 7l2. CAP PRESS (record 14 byte 0 bits 3..7) -----------------------------------
+        // The ONE keycap animation that is not a function of already-synced state: the press dip.
+        // Five bits of a byte that record 14 was already reserving — zero extra bytes — carrying
+        // WHICH cap plus a 2-bit sequence, because the field is a LATCH that rides several packets
+        // and a receiver must animate it CHANGING rather than being set.
+        t.Case("7l2. extras, keycap press edge");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCapPress = true, CapPressCap = NetProtocol.CapPressLongRest, CapPressSeq = 2,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            0E 02            // record: id 14, len 2
+            AB               // byte0 = 0xAB: hover slot field 3 (= NO hover), top bit clear,
+                             //   cap id 5 (LONG rest) at bits 3..5, sequence 2 at bits 6..7
+            00               // byte1: no half selected
+            "), ext, m, "a press rides record 14 ALONE — no hover, no selection, no extra byte");
+        t.Equal(15, m, "the same 15 bytes a hover-only record 14 costs — the press is free");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cp), "and it parses");
+        t.True(cp.HasCapPress, "the press is delivered");
+        t.Equal(NetProtocol.CapPressLongRest, cp.CapPressCap, "with the cap id intact");
+        t.Equal((byte)2, cp.CapPressSeq, "and the sequence intact");
+        t.True(!cp.HasHalfHover,
+               "and it does NOT invent a half hover: a press-only record decodes to a press only");
+
+        // A press RIDING ALONGSIDE a live hover and selection — the three fields share byte 0/1 and
+        // must not bleed into each other. This is the packet a player produces by pressing CONFIRM
+        // while their beam still rests on a card half.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHalfHover = true, HalfHoverActive = true, HalfHoverSlot = 1, HalfHoverTop = true,
+            HalfSelect0 = NetProtocol.HalfSelectBottom,
+            HasCapPress = true, CapPressCap = NetProtocol.CapPressConfirm, CapPressSeq = 1,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            0E 02            // id 14, len 2
+            4D               // byte0 = 0x4D: slot 1 (0x01) | TOP half (0x04) | cap id 1 (CONFIRM)
+                             //   at bits 3..5 (0x08) | sequence 1 at bits 6..7 (0x40)
+            02               // byte1: slot 0 selected BOTTOM
+            "), ext, m, "hover, selection and press share record 14 without touching each other");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState mix), "and it parses");
+        t.True(mix.HalfHoverActive && mix.HalfHoverSlot == 1 && mix.HalfHoverTop,
+               "the hover survives beside the press");
+        t.Equal(NetProtocol.HalfSelectBottom, mix.HalfSelect0, "so does the selection");
+        t.True(mix.HasCapPress && mix.CapPressCap == NetProtocol.CapPressConfirm
+               && mix.CapPressSeq == 1, "and the press is read out of the same byte");
+
+        // THE SENTINEL IS ZERO, and this is the assertion that pins why. A PRE-PRESS record 14 —
+        // one every build up to 88 wrote, hover only, bits 3..7 clear — must deliver NO press. Had
+        // the cap ids started at 0, those clear bits would have read as "the CONFIRM cap was
+        // pressed" and every old peer's board would have twitched on its first hover.
+        byte[] prePress = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 0E 02 04 00");
+        t.True(PresenceSerializer.TryRead(prePress, prePress.Length, out PresenceState pp),
+               "a pre-press record 14 still parses");
+        t.True(pp.HasHalfHover && pp.HalfHoverActive && pp.HalfHoverSlot == 0 && pp.HalfHoverTop,
+               "its hover is delivered unchanged");
+        t.True(!pp.HasCapPress,
+               "and NO press is claimed from its cleared reserved bits — the receiver animates " +
+               "nothing, which is exactly what those builds' boards did");
+        t.Equal((byte)NetProtocol.CapPressNone, (byte)0,
+                "because the 'no press' sentinel IS zero, and the seven cap ids run 1..7");
+
+        // Every defined cap id survives its own round trip — a renumbering, or a mask that clips
+        // the top id, fails here rather than silently animating the wrong cap on a peer's board.
+        for (byte capId = NetProtocol.CapPressConfirm; capId <= NetProtocol.CapPressMaxId; capId++)
+        {
+            m = PresenceSerializer.Write(new PresenceState
+            {
+                HasCapPress = true, CapPressCap = capId, CapPressSeq = 3,
+            }, ext);
+            t.True(PresenceSerializer.TryRead(ext, m, out PresenceState one)
+                   && one.HasCapPress && one.CapPressCap == capId && one.CapPressSeq == 3,
+                   $"cap id {capId} survives the round trip with its sequence");
+        }
+        t.Equal((byte)7, NetProtocol.CapPressMaxId,
+                "seven cap ids in three bits with zero reserved is an EXACT fit — an eighth cap " +
+                "needs a new field, not a renumbering of these");
+        t.Equal((byte)0xF8, NetProtocol.HalfHoverDefinedMask & 0xF8,
+                "and byte 0 is now FULL: slot, top-half, cap id and sequence leave no reserved bit");
+
         // -- 7m. PILE COUNTS (extension record 15) -----------------------------------------
         // The numbers the sender's own three stack labels display ([discard][burnt][items]).
         // On the wire because the receiver's model read is NOT timely (session logs: the
@@ -2145,6 +2363,77 @@ internal static class GoldenVectors
             0D 04 01 02 4F 4B// id 13 cap labels, confirm 'OK'
             "), ext, m, "records 12 and 13 ride the tail behind record 9 (id order 9, 12, 13)");
 
+        // -- 7p2. THE TWO CAP LABELS THAT NEVER TRAVELLED (record 13 mask bits 2 + 3) -------
+        // UNDO carries the pick flow's dialog-CANCEL wording and the item-USE cap carries an
+        // item-SURRENDER demand's wording; peers used to letter both from their OWN localization
+        // ("Rückgängig" / "USE"), so a cancel read as an undo and a surrender read as a use.
+        // Additive: the new blocks are the HIGH mask bits and ride LAST, behind the two that
+        // already shipped.
+        t.Case("7p2. extras, undo + item-use cap labels");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasConfirmCapLabel = true, ConfirmCapLabel = "OK",
+            HasSkipCapLabel = true, SkipCapLabel = "Skip",
+            HasUndoCapLabel = true, UndoCapLabel = "Zu",
+            HasItemUseCapLabel = true, ItemUseCapLabel = "Ab",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            0D 0F            // record: id 13 (cap labels), len 15
+            0F               // mask: bit0 confirm | bit1 skip | bit2 UNDO | bit3 ITEM-USE
+            02 4F 4B         // confirm: len 2, UTF8 'OK'
+            04 53 6B 69 70   // skip:    len 4, UTF8 'Skip'
+            02 5A 75         // undo:    len 2, UTF8 'Zu'
+            02 41 62         // itemUse: len 2, UTF8 'Ab'
+            "), ext, m, "the two new labels ride behind the two that already shipped, in mask-bit order");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cl4), "and it parses");
+        t.Equal("OK", cl4.ConfirmCapLabel ?? string.Empty, "confirm label byte-exact");
+        t.Equal("Skip", cl4.SkipCapLabel ?? string.Empty, "skip label byte-exact");
+        t.Equal("Zu", cl4.UndoCapLabel ?? string.Empty, "undo label byte-exact");
+        t.Equal("Ab", cl4.ItemUseCapLabel ?? string.Empty, "item-use label byte-exact");
+
+        // ONE of the new labels alone — the mask, not the position, is what names a block, so an
+        // item-use-only record must not be misread as a confirm/skip/undo label.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemUseCapLabel = true, ItemUseCapLabel = "Ab",
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            0D 04            // id 13, len 4
+            08               // mask: bit3 item-use ONLY
+            02 41 62         // itemUse: len 2, UTF8 'Ab'
+            "), ext, m, "an item-use-only record carries mask bit3 and exactly one block");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState uo), "and it parses");
+        t.True(!uo.HasConfirmCapLabel && !uo.HasSkipCapLabel && !uo.HasUndoCapLabel,
+               "no other label is invented from a block that is not there");
+        t.Equal("Ab", uo.ItemUseCapLabel ?? string.Empty, "and it lands in the item-use slot");
+
+        // AN OLD-STYLE RECORD (mask 0x03, the only two bits that ever shipped) must still deliver
+        // its two labels and claim NEITHER new one — which is what a receiver derives when its peer
+        // predates the bits: the neutral GUI_UNDO / GUI_USE fallback on those two caps.
+        byte[] oldMask = Hex.Bytes(
+            "31 52 56 47 03 01 80 00 80 00 01 0D 09 03 02 4F 4B 04 53 6B 69 70");
+        t.True(PresenceSerializer.TryRead(oldMask, oldMask.Length, out PresenceState om),
+               "a two-label cap-labels record still parses");
+        t.Equal("OK", om.ConfirmCapLabel ?? string.Empty, "its confirm label is delivered");
+        t.Equal("Skip", om.SkipCapLabel ?? string.Empty, "its skip label is delivered");
+        t.True(!om.HasUndoCapLabel && !om.HasItemUseCapLabel,
+               "and NEITHER new label is claimed — the receiver letters those two caps with its " +
+               "own neutral wording, exactly as every build before this one did");
+
+        // The mask's OWN hygiene: a future sender's bit 4 must not survive into a decode, or
+        // widening the mask later would re-read old packets as having opted into a new block.
+        t.Equal((byte)0x0F, NetProtocol.CapLabelDefinedMask,
+                "four label slots are defined; bits 4..7 are still reserved");
+        t.True(1 + NetProtocol.CapLabelSlotCount * (1 + NetProtocol.CapLabelMaxBytes) <= 255,
+               "and four maximum-length labels plus the mask still fit one TLV record");
+
         // -- 7q. CHARACTER FOCUS (extension record 22) --------------------------------------
         // Which character the sender is LOOKING at (free character focus), by the stable
         // ActorGuid hash, plus the facts only they can know: whether the character THE GAME IS
@@ -2820,6 +3109,8 @@ internal static class GoldenVectors
         && x.ModVersionText == y.ModVersionText
         && x.HasBoardUi == y.HasBoardUi && x.BoardButtonsMask == y.BoardButtonsMask
         && x.BoardOverlayMask == y.BoardOverlayMask
+        && x.HasBoardCapStates == y.HasBoardCapStates
+        && x.BoardCapStateMask == y.BoardCapStateMask
         && x.HasFanAnchor == y.HasFanAnchor && x.FanAnchorLocal == y.FanAnchorLocal
         && x.HasSecondFigure == y.HasSecondFigure
         && x.SecondFigureActorId == y.SecondFigureActorId
@@ -2843,6 +3134,12 @@ internal static class GoldenVectors
         && x.ConfirmCapLabel == y.ConfirmCapLabel
         && x.HasSkipCapLabel == y.HasSkipCapLabel
         && x.SkipCapLabel == y.SkipCapLabel
+        && x.HasUndoCapLabel == y.HasUndoCapLabel
+        && x.UndoCapLabel == y.UndoCapLabel
+        && x.HasItemUseCapLabel == y.HasItemUseCapLabel
+        && x.ItemUseCapLabel == y.ItemUseCapLabel
+        && x.HasCapPress == y.HasCapPress
+        && x.CapPressCap == y.CapPressCap && x.CapPressSeq == y.CapPressSeq
         && x.HasCharFocus == y.HasCharFocus
         && x.CharFocusActorId == y.CharFocusActorId
         && x.CharFocusOwnsAttention == y.CharFocusOwnsAttention
