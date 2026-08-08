@@ -1447,7 +1447,15 @@ internal static partial class CanvasConversion
         // global Canvas.ForceUpdateCanvases per frame for over a second would be a real cost), and
         // the watch throttles to a few checks per second — a late content jump is a discrete event,
         // not something that needs per-frame sampling.
-        bool hidden = panel.RenderHidden;
+        // BOTH hides count here, and for exactly the reason stated above — this flag does NOT gate
+        // whether the verify runs (it must keep running: the row's geometry has to be correct the
+        // moment it comes back, which is also why DecisionDockSurface deliberately keeps Place()
+        // going while focus-hidden and re-places on the un-hide tick). It selects the MEASUREMENT
+        // MODE: a surface-owned focus hide disables the very same canvases, so the uGUI pipeline
+        // does not service them either and the measure would read stale geometry without the
+        // explicit layout flush below. Treating OwnerRenderHidden as "visible" would silently
+        // re-introduce the round-2 stale-measure bug for every focus-hidden row.
+        bool hidden = panel.RenderHidden || panel.OwnerRenderHidden;
         if (!hidden && Time.frameCount < panel.FitVerifyNextCheckFrame && !expired)
             return;
         panel.FitVerifyNextCheckFrame = Time.frameCount + FitVerifyVisibleCheckFrames;
@@ -1543,7 +1551,7 @@ internal static partial class CanvasConversion
                                   $"{center.x:F0},{center.y:F0}; that is the 'empty frame in front, content far " +
                                   $"away' failure). {DescribeLastMeasure()}. Re-fitting " +
                                   $"(correction {panel.FitVerifyCorrections} of {FitVerifyMaxCorrections}, " +
-                                  $"window {(panel.RenderHidden ? "still render-hidden" : "already visible")}).");
+                                  $"window {(panel.RenderHidden ? "still render-hidden behind the reveal gate" : panel.OwnerRenderHidden ? "render-hidden by its surface (character focus)" : "already visible")}).");
             FitHostToContent(panel, contentRoot, force: true);
             return;
         }

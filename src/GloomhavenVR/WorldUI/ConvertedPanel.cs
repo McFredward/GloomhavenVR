@@ -504,9 +504,39 @@ internal sealed class ConvertedPanel
     /// grab bar) does not even live under the host — it hangs off the mod-owned
     /// <see cref="GrabbableModal"/> holder, see
     /// <see cref="ExtraRenderRoots"/>. Consumers that must not act on an invisible window
-    /// (grab affordances, MR plates) read THIS instead of guessing from the canvas.
+    /// (grab affordances, MR plates) read THIS instead of guessing from the canvas — and, since
+    /// 2026-08-08, <see cref="OwnerRenderHidden"/> alongside it: the panel is invisible if EITHER
+    /// hide is in force, and each has its own owner and its own restore set.
     /// </summary>
     public bool RenderHidden;
+
+    /// <summary>
+    /// True while the OWNING SURFACE has render-hidden this panel for a reason of its OWN — today
+    /// only the character focus ("one character owns a decision", user ruling 2026-08-08:
+    /// <c>DecisionDockSurface.ApplyFocusHide</c> and <c>UseBarsSurface.Dock.ApplyFocusHide</c> hide
+    /// a decision row / use bar whose owner is not the character the player is looking at).
+    ///
+    /// <para>WHY IT IS A SECOND FLAG AND NOT <see cref="RenderHidden"/>. That flag is owned, start
+    /// to finish, by the CONVERSION's reveal-gate lifecycle: it is set by
+    /// <see cref="CanvasConversion.SetPanelRenderVisible"/> only, from
+    /// <c>CanvasConversion.1.Core</c> (Convert arms the gate) and <c>CanvasConversion.4.Lifecycle</c>
+    /// (the per-frame re-apply, the reveal, Release). Those calls are LEVEL writes, not a counter:
+    /// the gate's own <c>SetPanelRenderVisible(panel, true)</c> would silently lift a surface's
+    /// focus hide, and the gate's per-frame re-hide would fold the surface's components into
+    /// <see cref="HiddenCanvases"/>/<see cref="HiddenRenderers"/> where the reveal — not the
+    /// surface — would later switch them back on. Two owners, one flag, and the loser is whichever
+    /// wrote first. A separate flag makes the two hides ORTHOGONAL: each keeps its own recorded
+    /// restore set, and every consumer that must not act on an invisible panel simply reads BOTH
+    /// (MR backing plate, grab affordance — see <see cref="MrBacking"/> and
+    /// <see cref="GrabbableModal"/>).</para>
+    ///
+    /// <para>The two never actually overlap on today's surfaces: the reveal gate is armed only for
+    /// the floated-modal family (<c>Convert</c> arms it when the mod layer or the transparent
+    /// background is requested), and the docked decision row / use bars are converted by
+    /// <c>WorldSurface</c> without either. The orthogonality above is what keeps that a
+    /// coincidence rather than a load-bearing assumption.</para>
+    /// </summary>
+    public bool OwnerRenderHidden;
 
     /// <summary>
     /// Mod-drawn trees that belong to this window but are NOT children of the host: today the

@@ -80,8 +80,10 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// look back at the owner it is shown again, unchanged, in the very same place.
 ///
 /// AND HIDING CANNOT DISTURB IT — structurally, not by care (see
-/// <see cref="ApplyFocusHide"/>). The hide toggles <c>Canvas.enabled</c> on the MOD-OWNED
-/// converted host (and any nested canvas under it), and nothing else: no game method is
+/// <see cref="ApplyFocusHide"/>). The hide toggles <c>Canvas.enabled</c> and
+/// <c>Renderer.enabled</c> on the MOD-OWNED converted host subtree (nested canvases and the
+/// mixed-reality backing plate included — a plate is a MeshRenderer, and leaving it on was
+/// the ModBuild 84 "leerer Hintergrund" report), and nothing else: no game method is
 /// called, no GameObject the game owns is deactivated — so not one game widget's
 /// <c>OnDisable</c> runs (<c>ExtendedButton.OnDisable</c> raises <c>ActiveChanged</c>/
 /// <c>onDeselected</c>, which is exactly why SetActive is NOT the mechanism), no
@@ -225,6 +227,13 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// enabled).</summary>
     private readonly List<Canvas> _focusHiddenCanvases = new(4);
 
+    /// <summary>Renderers WE disabled for the same hide — same exact-restore contract as
+    /// <see cref="_focusHiddenCanvases"/>. The MR backing plate lives here (an opaque plate
+    /// MeshRenderer <see cref="MrBacking"/> parents under the host rect): it is not a Canvas, so a
+    /// canvas-only hide left it drawing as an empty dark rectangle where the row had been —
+    /// hardware report ModBuild 84.</summary>
+    private readonly List<Renderer> _focusHiddenRenderers = new(4);
+
     /// <summary>True while the docked row is render-hidden because the focused character is not
     /// the one the prompt belongs to.</summary>
     private bool _rowHiddenForFocus;
@@ -232,8 +241,12 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <summary>Change-dedup for the hide/show line: last (owner, looked-at) pair logged.</summary>
     private string? _loggedFocusVisibility;
 
-    /// <summary>Scratch for the host-subtree canvas walk (single instance per driver).</summary>
-    private static readonly List<Canvas> HostCanvasScratch = new(8);
+    /// <summary>Component counts the CURRENT focus hide has switched off in total (across the
+    /// re-asserting ticks), and whether the MR backing plate was among them — reported by the hide
+    /// log so the next hardware log proves the plate is gone, not just the widgets.</summary>
+    private int _focusHiddenCanvasCount;
+    private int _focusHiddenRendererCount;
+    private bool _focusHiddenPlate;
 
     // ---- docked-row adjustments (user #5 antique tint; user #14 placement-driven gap) ---
 
@@ -1208,16 +1221,24 @@ internal sealed class DecisionDockSurface : WorldSurface
                 Place();
         }
 
+        // The count/plate fields are part of the dedup key on purpose: the hide is re-asserted every
+        // docked tick, so a canvas or renderer that only appears LATER (a pooled option button, an
+        // MR plate the sweep built a frame after the row docked) genuinely changes what is hidden
+        // and deserves one more line. The sets are finite, so this can never become a per-frame log.
         string state = $"{(hide ? "hidden" : "shown")}|{Board.CharacterFocus.Describe(owner)}|" +
-                       $"{Board.CharacterFocus.Describe(focused)}";
+                       $"{Board.CharacterFocus.Describe(focused)}|" +
+                       $"{_focusHiddenCanvasCount}|{_focusHiddenRendererCount}|{_focusHiddenPlate}";
         if (_loggedFocusVisibility == state)
             return;
         _loggedFocusVisibility = state;
         if (hide)
             VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' belongs to " +
                                   $"'{Board.CharacterFocus.Describe(owner)}' and the player is looking at " +
-                                  $"'{Board.CharacterFocus.Describe(focused)}' — the row is RENDER-HIDDEN " +
-                                  "(mod-owned host canvases disabled). The prompt itself is untouched: its " +
+                                  $"'{Board.CharacterFocus.Describe(focused)}' — the row is RENDER-HIDDEN: " +
+                                  $"{_focusHiddenCanvasCount} canvas(es) and {_focusHiddenRendererCount} " +
+                                  "renderer(s) disabled on the mod-owned host subtree + extra render roots, " +
+                                  $"MR backing plate {(_focusHiddenPlate ? "INCLUDED (the empty dark rectangle is gone)" : "not present (no plate on this panel yet)")}. " +
+                                  "The prompt itself is untouched: its " +
                                   "UIWindow is still open, its widgets keep their state, nothing was " +
                                   "answered, cancelled or closed, and it reappears unchanged the moment the " +
                                   "owner is focused again.");
@@ -1232,10 +1253,25 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
-    /// RENDER-HIDE the docked row — and NOTHING ELSE. The only thing written is
-    /// <c>Canvas.enabled = false</c> on the mod's own converted host and on any nested canvas
-    /// underneath it (a nested canvas renders independently of its ancestors, the CanvasConversion
-    /// lesson that <see cref="ApplySuppression"/> already applies to the window).
+    /// RENDER-HIDE the docked row — and NOTHING ELSE. The only things written are
+    /// <c>Canvas.enabled = false</c> and <c>Renderer.enabled = false</c> on the mod's own converted
+    /// host subtree (a nested canvas renders independently of its ancestors, the CanvasConversion
+    /// lesson that <see cref="ApplySuppression"/> already applies to the window) and on the panel's
+    /// registered extra render roots.
+    ///
+    /// <para>WHY RENDERERS TOO (hardware report ModBuild 84: "Der mixed-reality Hintergrund für die
+    /// decision ist auch bei den anderen Characteren noch zu sehen aber leer"). The MIXED-REALITY
+    /// BACKING PLATE is an opaque quad <c>MeshRenderer</c> that <see cref="MrBacking"/> parents
+    /// under the host rect — it is not a Canvas and the uGUI path never touches it, so the
+    /// canvas-only hide left it drawing: an empty dark rectangle exactly where the row had been,
+    /// for every character that is not the prompt's owner. The walk is name-blind (every Renderer
+    /// under the host goes off, so any future mod-drawn child is covered), and it also walks
+    /// <c>ConvertedPanel.ExtraRenderRoots</c> — the <see cref="GrabbableModal"/> grab bar hangs off
+    /// a scene-root holder OUTSIDE the host, so no host-subtree walk could ever reach it. The shared
+    /// mechanism lives in <see cref="CanvasConversion.ApplyOwnerRenderHide"/>, which also sets
+    /// <c>ConvertedPanel.OwnerRenderHidden</c> so <see cref="MrBacking"/> refuses to BUILD a plate
+    /// for a hidden panel in the first place (this surface ticks earlier in the same Update than the
+    /// plate sweep, so there is no one-frame plate flash).</para>
     ///
     /// <para>WHY NOT <c>SetActive(false)</c>, which would be the obvious hide. The row's children
     /// ARE the game's live widgets, so deactivating the host deactivates them, and the game's
@@ -1256,47 +1292,60 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// </summary>
     private void ApplyFocusHide()
     {
-        GameObject? host = Panel?.HostGo;
-        if (host == null)
+        ConvertedPanel? panel = Panel;
+        if (panel == null || panel.HostGo == null)
             return;
+        bool first = !_rowHiddenForFocus;
         _rowHiddenForFocus = true;
         RowBottomUpMeters = null; // the use-bars stack must not hang off a row nobody can see
-
-        HostCanvasScratch.Clear();
-        host.GetComponentsInChildren(includeInactive: true, HostCanvasScratch);
-        for (int i = 0; i < HostCanvasScratch.Count; i++)
+        if (first)
         {
-            Canvas c = HostCanvasScratch[i];
-            if (c == null || !c.enabled)
-                continue;
-            c.enabled = false;
-            if (!_focusHiddenCanvases.Contains(c))
-                _focusHiddenCanvases.Add(c);
+            _focusHiddenCanvasCount = 0;
+            _focusHiddenRendererCount = 0;
+            _focusHiddenPlate = false;
         }
-        HostCanvasScratch.Clear();
+
+        int before = _focusHiddenRenderers.Count;
+        CanvasConversion.ApplyOwnerRenderHide(panel, _focusHiddenCanvases, _focusHiddenRenderers,
+            out int canvases, out int renderers);
+        _focusHiddenCanvasCount += canvases;
+        _focusHiddenRendererCount += renderers;
+        // Diagnostic only (see MrBacking.PlateObjectName): name the MR plate in the log if this
+        // pass — or an earlier one for the same hide — actually switched it off. The hide itself
+        // never looks at names.
+        for (int i = before; i < _focusHiddenRenderers.Count && !_focusHiddenPlate; i++)
+        {
+            Renderer r = _focusHiddenRenderers[i];
+            if (r != null && r.gameObject.name == MrBacking.PlateObjectName)
+                _focusHiddenPlate = true;
+        }
     }
 
     /// <summary>
-    /// Undo <see cref="ApplyFocusHide"/>: re-enable every canvas WE disabled. Idempotent, and safe
-    /// after the conversion was already released — the canvases are held by reference and belong
+    /// Undo <see cref="ApplyFocusHide"/>: re-enable every canvas AND every renderer WE disabled
+    /// (exactly those — <see cref="CanvasConversion.LiftOwnerRenderHide"/> restores the recorded
+    /// set and nothing else) and clear <c>ConvertedPanel.OwnerRenderHidden</c>. Idempotent, and safe
+    /// after the conversion was already released — the components are held by reference and belong
     /// enabled wherever they now live (their 2D home restores them enabled too).
     /// </summary>
     private void RestoreFocusHide(string? reason)
     {
-        if (_focusHiddenCanvases.Count == 0 && !_rowHiddenForFocus)
+        if (_focusHiddenCanvases.Count == 0 && _focusHiddenRenderers.Count == 0 && !_rowHiddenForFocus)
             return;
-        for (int i = 0; i < _focusHiddenCanvases.Count; i++)
-        {
-            if (_focusHiddenCanvases[i] != null)
-                _focusHiddenCanvases[i].enabled = true;
-        }
-        _focusHiddenCanvases.Clear();
+        CanvasConversion.LiftOwnerRenderHide(Panel, _focusHiddenCanvases, _focusHiddenRenderers);
         _rowHiddenForFocus = false;
+        int canvases = _focusHiddenCanvasCount;
+        int renderers = _focusHiddenRendererCount;
+        _focusHiddenCanvasCount = 0;
+        _focusHiddenRendererCount = 0;
+        _focusHiddenPlate = false;
         if (reason != null)
         {
             _loggedFocusVisibility = null;
-            VRLog.Info("WorldUI", $"DECISION DOCK: focus hide lifted ({reason}) — every canvas the " +
-                                  "mod disabled is enabled again; the prompt was never touched.");
+            VRLog.Info("WorldUI", $"DECISION DOCK: focus hide lifted ({reason}) — all {canvases} " +
+                                  $"canvas(es) and {renderers} renderer(s) the mod disabled are " +
+                                  "enabled again (the MR backing plate among them); the prompt was " +
+                                  "never touched.");
         }
     }
 

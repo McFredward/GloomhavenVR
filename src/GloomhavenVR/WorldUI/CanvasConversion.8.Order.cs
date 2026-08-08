@@ -506,8 +506,15 @@ internal static partial class CanvasConversion
             sb.Append(i > 0 ? "; " : " ")
               .Append('\'').Append(name).Append("' d=").Append(p.OrderDistance.ToString("F2"))
               .Append("m order=").Append(p.DrawSortingOrder);
+            // Diagnostic label only — the ladder itself deliberately keeps ranking hidden panels
+            // (a panel must have its slot the instant it becomes visible again, and both hides are
+            // transient). Naming WHICH hide is what makes the next hardware log readable: "gate"
+            // is the reveal gate, "focus" is the surface-owned hide of a row that belongs to a
+            // character the player is not looking at.
             if (p.RenderHidden)
-                sb.Append(" (hidden)");
+                sb.Append(" (hidden: reveal gate)");
+            else if (p.OwnerRenderHidden)
+                sb.Append(" (hidden: character focus)");
         }
         VRLog.Info("WorldUI", $"PANEL DRAW ORDER ({OrderedPanels.Count} panel(s), far->near, " +
                               $"{(changed ? "RESORTED" : "steady")}):{sb}" +
