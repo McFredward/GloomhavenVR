@@ -671,6 +671,11 @@ internal sealed partial class CardsDriver
 
         if (modalBlock)
             BlockCardInteractions();
+        // FIRST in the laser block (user report 2026-08-08): a hand physically INSIDE a card of a
+        // fan/pile has no laser at all — the beam would leave through the card and grab/press
+        // whatever stands behind it. Publishes a per-hand stand-down that every path below reads
+        // through dom.Ray.Active, and that the hand interactors read the same way.
+        UpdateLaserContactStandDown();
         UpdateFanLaser();
         // BEFORE the board laser on purpose: a hand physically in contact with a card in the
         // board-anchored browse arc / item fan owns that hand's trigger, for BOTH hands. Running

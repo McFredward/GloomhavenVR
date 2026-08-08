@@ -90,6 +90,93 @@ internal sealed class RayInteractor : IPickProvider
 
     private int _farClickFrame = -1;
 
+    // ---- card-contact stand-down (user report 2026-08-08) -------------------------------
+
+    /// <summary>
+    /// How long (s, unscaled) a card-contact stand-down survives its last assertion. The
+    /// producer (<c>CardsDriver.UpdateLaserContactStandDown</c>) re-asserts it every frame the
+    /// hand is in a card, so this is a RELEASE grace, not a timeout: it is what keeps the beam
+    /// from blinking back on for the one frame a contact election drops out — most importantly
+    /// the TRIGGER-PULL frame, where curling the index finger moves the fingertip off the card
+    /// it was measured against. Deliberately the same window as
+    /// <see cref="FanOccluderGraceSeconds"/> (and <c>CardsDriver.FanHoverGraceSeconds</c>):
+    /// all three bridge the identical pull-jerk, and a laser that came back exactly ON the
+    /// press frame is the accident this whole feature exists to prevent.
+    /// </summary>
+    private const float CardContactGraceSeconds = FanOccluderGraceSeconds;
+
+    private float _cardContactUntil;
+    private string _cardContactZone = "";
+    private string _cardContactCard = "";
+    private bool _loggedCardContact;
+
+    /// <summary>
+    /// TRUE while this hand is physically inside a grabbable card of a fan/pile and its laser
+    /// therefore stands down completely (see <see cref="StandDownForCardContact"/>). Read as
+    /// ONE of the level inputs of <see cref="Active"/>, never latched: it is a DEADLINE in
+    /// unscaled time that only an actively re-asserted contact can extend.
+    /// </summary>
+    public bool CardContactStandDown => Time.unscaledTime <= _cardContactUntil;
+
+    /// <summary>
+    /// USER REPORT 2026-08-08 ("Während die Hand physisch in einer Karte von einem Pile steckt,
+    /// deaktiviere den Laser — aktuell greife ich versehentlich mit dem Laser dahinter
+    /// irgendwas"): while the hand is IN a card, its beam necessarily points straight THROUGH
+    /// that card at whatever stands behind it (a board button, a hex, a figure, a menu), and the
+    /// trigger that means "take this card" was landing there instead.
+    ///
+    /// This is the one seam that turns the whole beam off for that hand: <see cref="Active"/>
+    /// goes false, so the physics pick stops (BoardPick/BoardClickDriver, FigureGrabDriver),
+    /// <see cref="RayUguiDriver"/> and <see cref="RayGrabDriver"/> cancel their hover/press,
+    /// the Cards laser paths clear their own hovers at their guards, and the visuals hide —
+    /// the laser being visibly gone is the honest affordance for "this hand is grabbing, not
+    /// pointing". The hand's PROXIMITY grab is untouched (that is how the card is taken), and
+    /// the OTHER hand's ray never sees this call.
+    ///
+    /// NO DEADLOCK BY CONSTRUCTION — this is why it is a re-asserted deadline and not a flag:
+    /// every way the contact can end (card destroyed or re-parked, fan/pile closed, mode or
+    /// phase change, the driver itself dying, the hand teleporting or losing tracking) ends
+    /// with NOBODY CALLING THIS, and the beam is back <see cref="CardContactGraceSeconds"/>
+    /// later without anyone having to remember to clear anything. There is no "off" call to
+    /// miss.
+    /// <paramref name="zone"/> must be a literal (it is logged, never per-frame formatted);
+    /// <paramref name="card"/> is read for its name ONLY on the stand-down edge.
+    /// </summary>
+    public void StandDownForCardContact(string zone, Object? card)
+    {
+        _cardContactUntil = Time.unscaledTime + CardContactGraceSeconds;
+        _cardContactZone = zone;
+        if (!_loggedCardContact)
+            _cardContactCard = card != null ? card.name : "a card";
+    }
+
+    /// <summary>
+    /// ONE Info line per hand when the beam stands down for a card contact and one when it
+    /// comes back — change-gated on the state itself, so sweeping the hand from card to card
+    /// inside the same contact episode adds nothing and a resting hand costs nothing.
+    /// Grep: "laser STAND-DOWN" / "laser RESTORED".
+    /// </summary>
+    private void TickCardContactLog()
+    {
+        bool standDown = CardContactStandDown;
+        if (standDown == _loggedCardContact)
+            return;
+        _loggedCardContact = standDown;
+        if (standDown)
+        {
+            Core.VRLog.Info("Hands", $"{_hand.Side} laser STAND-DOWN — the hand is physically in " +
+                                     $"'{_cardContactCard}' ({_cardContactZone}); the beam points THROUGH " +
+                                     "that card, so it is switched off for this hand: no hover, no press, " +
+                                     "no grab on anything behind it. The proximity grab still takes the card.");
+        }
+        else
+        {
+            Core.VRLog.Info("Hands", $"{_hand.Side} laser RESTORED — no card contact for " +
+                                     $"{CardContactGraceSeconds:F2}s (last '{_cardContactCard}', " +
+                                     $"{_cardContactZone}); hover/press/grab are live again.");
+        }
+    }
+
     /// <summary>
     /// True while <see cref="UiHitOverride"/> is fresh (set this frame or the last) —
     /// i.e. the beam is clamped to a code-intersected UI surface (world panel, fan
@@ -264,8 +351,19 @@ internal sealed class RayInteractor : IPickProvider
     ///                                 |                | on every hands rebuild.
     ///   rig/hands rebuild             | visuals die    | no — Build → ApplyMode recreates
     ///                                 |                | hand, ray and visuals together.
+    ///   CardContactStandDown          | pick + visuals | no — a DEADLINE in unscaled time that
+    ///                                 |                | only a live contact election can
+    ///                                 |                | re-assert (StandDownForCardContact);
+    ///                                 |                | nothing has to switch it OFF, so
+    ///                                 |                | nothing can forget to.
+    ///
+    /// <para>The stand-down row is the ONE exception to the 2026-08 "der Laser ist ausnahmslos
+    /// da" ruling, and it is not a phase/mode policy: it lasts exactly as long as the player's
+    /// hand is inside a card they are reaching for (fractions of a second), and it exists
+    /// because the beam THROUGH that card was grabbing and pressing whatever stood behind
+    /// it (user report 2026-08-08).</para>
     /// </summary>
-    public bool Active => _enabled && _hand.HasPose && !IsHolding;
+    public bool Active => _enabled && _hand.HasPose && !IsHolding && !CardContactStandDown;
 
     /// <summary>Transient suppression: the hand is actually holding a grabbable RIGHT NOW.</summary>
     private bool IsHolding => _hand.Grabber != null && _hand.Grabber.Held != null;
@@ -278,10 +376,27 @@ internal sealed class RayInteractor : IPickProvider
 
     internal void Tick()
     {
+        TickCardContactLog();
         bool active = Active;
         SyncActiveState(active);
         if (!active)
         {
+            // CARD-CONTACT STAND-DOWN, clean release (requirement 3: nothing stale left
+            // behind): the beam can go down mid-hover, and the LAST thing it did may have been
+            // to clamp itself onto a surface (UiHitOverride) or claim the trigger without one
+            // (SuppressFarClick). Both live in a two-frame freshness window, and both are read
+            // as "the laser owns this pull" — HasFreshUiHit makes ProximityGrabber DEFER and
+            // BoardClickDriver skip. Left standing, that residue would swallow exactly the
+            // grab this stand-down exists to deliver, for the frame after it engages. Drop it
+            // at the moment the beam goes down; the hover objects themselves are released by
+            // their own owners (RayUguiDriver.Cancel / RayGrabDriver.ClearHover / the Cards
+            // laser paths' Clear*Hover), all of which already run off this same !Active edge.
+            if (CardContactStandDown)
+            {
+                _uiHitOverride = null;
+                _uiHitOverrideFrame = -1;
+                _farClickFrame = -1;
+            }
             _current.HasHit = false;
             FanOccluderDistance = float.PositiveInfinity;
             // State hygiene: the hold is meaningless across an inactive gap (grabbing the
@@ -648,7 +763,11 @@ internal sealed class RayInteractor : IPickProvider
         string reason = active ? "active"
             : !_enabled ? $"mode policy — no Ray in the {VRModeStateMachine.CurrentMode} mask"
             : !_hand.HasPose ? "no pose (tracking lost)"
-            : "hand is holding a grabbable (level-derived, releases with it)";
+            : IsHolding ? "hand is holding a grabbable (level-derived, releases with it)"
+            // Keyed on the ZONE, not the card: sweeping from card to card inside one contact
+            // episode must not re-log. The card itself is named by the STAND-DOWN line.
+            : $"physical card contact ({_cardContactZone}) — the hand is in a card, so the beam " +
+              "stands down (deadline-derived, returns on its own)";
         if (active == _wasActive && reason == _lastReason)
             return;
         _wasActive = active;
