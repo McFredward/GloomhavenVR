@@ -71,6 +71,34 @@ internal static partial class Defaults
     internal const float FanRadiusFactor_Items = 1.7f;                                                // => [Cards] FanRadiusFactor_Items
     internal const float FanRadiusFactor_Discard = 1.7f;                                              // => [Cards] FanRadiusFactor_Discard
     internal const float FanRadiusFactor_Burnt = 1.7f;                                                // => [Cards] FanRadiusFactor_Burnt
+
+    // ---- THE ITEM FAN's OPEN/CLOSE ANIMATION (user report 2026-08-08: "Ich mag die Animation im
+    // Item-Pile sehr aber sie ist (insbesondere in mixed Reality) etwas zu dezent.") --------------
+    //
+    // He LIKES the motion — these dials do not replace it, they give it presence. The shipped
+    // numbers ARE the louder look; nobody should have to tune anything to get what he asked for.
+    //
+    // WHAT THE ANIMATION USED TO BE, and why it read as "dezent" on a passthrough background: every
+    // chip started on the items stack at 0.35× size and flew to its arc slot on ONE shared
+    // exponential home-lerp — no stagger (all twelve moved as a single blob), no arc (a straight
+    // chord), no overshoot (an exponential only ever decelerates, so the motion has no end — it
+    // just stops being visible), and no rotation at all (BeginEmerge never touched the pose that
+    // SetHome had already written). Against a black VR skybox that is enough. Against a lit living
+    // room it is not: passthrough hands the eye a background that is already full of edges,
+    // contrast and its own parallax, and a short, smooth, simultaneous, purely-translational move
+    // is exactly the class of motion that background swallows.
+    //
+    // The five axes below are the ones that survive it, each for a stated reason — see the Loc
+    // descriptions and Cards/ItemsPile.cs's emerge/collapse region for the derivation.
+    internal const float ItemFanOpenDuration = 0.34f;                                                 // => [Cards] ItemFanOpenDuration
+    internal const float ItemFanOpenStagger = 0.055f;                                                 // => [Cards] ItemFanOpenStagger
+    internal const float ItemFanOpenArc = 0.06f;                                                      // => [Cards] ItemFanOpenArc
+    internal const float ItemFanOpenSpinDegrees = 52f;                                                // => [Cards] ItemFanOpenSpinDegrees
+    internal const float ItemFanSeedScale = 0.12f;                                                    // => [Cards] ItemFanSeedScale
+    internal const float ItemFanSettleOvershoot = 1.4f;                                               // => [Cards] ItemFanSettleOvershoot
+    internal const float ItemFanCloseDuration = 0.3f;                                                 // => [Cards] ItemFanCloseDuration
+    internal const float ItemFanCloseStagger = 0.032f;                                                // => [Cards] ItemFanCloseStagger
+
     internal const float BoardMinWidthMeters = 0.18f;                                                 // => [Cards] BoardMinWidthMeters
     internal const float BoardMaxWidthMeters = 1.4f;                                                  // => [Cards] BoardMaxWidthMeters
     internal const bool SpawnLeftOfHead = true;                                                       // => [Cards] SpawnLeftOfHead

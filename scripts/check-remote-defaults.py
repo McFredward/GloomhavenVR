@@ -95,6 +95,21 @@ PAIRS = [
     ("Net/RemoteHandFan.cs", "_popForward", "Cards", "FanSelectedPopForward"),
     ("Net/RemoteHandFan.cs", "OpenSeconds", "Cards", "FanOpenDuration"),
     ("Net/RemoteHandFan.cs", "OpenStagger", "Cards", "FanOpenStagger"),
+    # The ITEM fan's open/close ANIMATION (presence pass, 2026-08-08 — "Ich mag die Animation im
+    # Item-Pile sehr aber sie ist (insbesondere in mixed Reality) etwas zu dezent."). Same shape as
+    # the hand fan's geometry above: wire-overridable fields (record 28, ids 76 / 144..149 / 197)
+    # whose INITIALISER is what an untuned peer's fan is drawn with. All eight belong on this list
+    # for the reason the header gives — re-tune the local feel and the mirrored fans must follow, or
+    # the cards deal out with a settle on one screen and slide open on another, and nobody can see
+    # that from inside their own headset.
+    ("Net/RemoteItemFan.cs", "_openSeconds", "Cards", "ItemFanOpenDuration"),
+    ("Net/RemoteItemFan.cs", "_openStagger", "Cards", "ItemFanOpenStagger"),
+    ("Net/RemoteItemFan.cs", "_openArc", "Cards", "ItemFanOpenArc"),
+    ("Net/RemoteItemFan.cs", "_openSpinDegrees", "Cards", "ItemFanOpenSpinDegrees"),
+    ("Net/RemoteItemFan.cs", "_seedScale", "Cards", "ItemFanSeedScale"),
+    ("Net/RemoteItemFan.cs", "_settleOvershoot", "Cards", "ItemFanSettleOvershoot"),
+    ("Net/RemoteItemFan.cs", "_closeSeconds", "Cards", "ItemFanCloseDuration"),
+    ("Net/RemoteItemFan.cs", "_closeStagger", "Cards", "ItemFanCloseStagger"),
 ]
 
 DEFAULTS_DIR = SRC / "Defaults"

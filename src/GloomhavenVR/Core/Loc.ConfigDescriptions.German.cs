@@ -1309,6 +1309,50 @@ internal static partial class Loc
                 "Fächer verbergen: Sekunden, die die Karten brauchen, um wieder in den Mittelstapel "
                 + "zusammenzuklappen, bevor der Fächer verschwindet (unskalierte Zeit). 0 = sofort verschwinden "
                 + "(Verhalten vor der Animation).",
+            ["Cards/ItemFanOpenDuration"] =
+                "Gegenstands-Fächer öffnen: Sekunden, die EINE Gegenstandskarte braucht, um aus dem "
+                + "Gegenstands-Stapel an ihren Platz im Bogen zu fliegen (unskalierte Zeit — läuft auch, "
+                + "während das Spiel pausiert). Der ganze Fächer braucht das PLUS den Verzug der letzten "
+                + "Karte. Länger = der Flug ist lesbar statt ein Zucken; zu lang und das Öffnen wirkt zäh.",
+            ["Cards/ItemFanOpenStagger"] =
+                "Gegenstands-Fächer öffnen: zusätzliche Startverzögerung in Sekunden PRO PLATZ Abstand von "
+                + "der Fächermitte — die Karten werden nacheinander nach außen ausgeteilt, statt dass alle "
+                + "gleichzeitig den Stapel verlassen. Das ist der wichtigste Grund, warum die Animation vor "
+                + "einem Mixed-Reality-Hintergrund überhaupt ankommt: eine wandernde FRONT verfolgt das "
+                + "Auge, ein gleichzeitiger Klumpen ist nur ein Flackern, das ein unruhiger Raum schluckt. "
+                + "0 = alle Karten starten zusammen (das alte Verhalten).",
+            ["Cards/ItemFanOpenArc"] =
+                "Gegenstands-Fächer öffnen: wie weit sich die fliegende Karte in der Mitte ihres Flugs ZU "
+                + "DIR hin wölbt (echte Meter), bevor sie sich in die Fächerebene zurücklegt. Aus dem "
+                + "geraden Schieben wird ein geworfener Bogen — und, der Mixed-Reality-Teil, die Karte "
+                + "bewegt sich in der TIEFE, sodass beide Augen sie vom Raum dahinter getrennt sehen. "
+                + "Stereo-Trennung ist ein Reiz, den Passthrough nicht überdecken kann. 0 = die alte Gerade.",
+            ["Cards/ItemFanOpenSpinDegrees"] =
+                "Gegenstands-Fächer öffnen: die Drehung (Grad), aus der sich eine Karte im Flug "
+                + "herauswickelt — nach außen vorzeichenbehaftet, sodass sich der Fächer sichtbar "
+                + "AUFKLAPPT statt aufzuschieben. Eine Drehung verändert die Silhouette der Karte, und "
+                + "eine Silhouettenänderung ist auch vor einem Hintergrund lesbar, der selbst Bewegung "
+                + "und Kontrast mitbringt. 0 = keine Drehung (das alte Verhalten).",
+            ["Cards/ItemFanSeedScale"] =
+                "Gegenstands-Fächer: die Größe, mit der eine Karte auf dem Stapel startet (und auf die sie "
+                + "beim Schließen schrumpft), als Anteil ihrer Größe im Bogen. Kleiner = mehr Wachstum über "
+                + "den Flug, der zweite Tiefenreiz nach der Wölbung — eine Karte, die ihre Größe "
+                + "verdoppelt, kommt auf dich zu und schiebt sich nicht über ein Bild.",
+            ["Cards/ItemFanSettleOvershoot"] =
+                "Gegenstands-Fächer: die Stärke des Überschwingens am ENDE des Ausflugs (die Karte schießt "
+                + "über ihren Platz hinaus und schwingt in ihn zurück) und des passenden Ausholens vor dem "
+                + "Einklappen. Ein RICHTUNGSWECHSEL ist das auffälligste Ereignis, das Bewegung hat, und er "
+                + "kostet anders als Tempo keinen zusätzlichen Weg — deshalb steht er hier statt einer "
+                + "einfach schnelleren Animation. Etwa 1,4 sind ~5 % Überschwingen; 0 = ein reines "
+                + "Ausrollen ohne Umkehr (das alte Verhalten).",
+            ["Cards/ItemFanCloseDuration"] =
+                "Gegenstands-Fächer schließen: Sekunden, die EINE Gegenstandskarte braucht, um zurück in "
+                + "den Gegenstands-Stapel zu fallen, bevor sie verschwindet (unskalierte Zeit). Die Karten "
+                + "werden vorher vom Fächer gelöst, also läuft das vollständig ab, egal wodurch der Fächer "
+                + "geschlossen wurde.",
+            ["Cards/ItemFanCloseStagger"] =
+                "Gegenstands-Fächer schließen: Verzug pro Platz, ÄUSSERSTE KARTE ZUERST, sodass das "
+                + "Einklappen das Öffnen exakt rückwärts ist. 0 = alle Karten lösen sich gleichzeitig.",
             ["Cards/FanRevealSound"] =
                 "Spiel-Audio-Item, das einmal abgespielt wird, wenn sich der Handflächen-Fächer aufdeckt "
                 + "(Demeo spielt MotherbrainAudio.OnCardHandShow, CardHandView.cs:682). PlaySound_EnemyCardDraw "

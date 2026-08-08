@@ -1927,10 +1927,11 @@ internal static class NetProtocol
     public const byte ExtIdBoardTuning = 28;
 
     /// <summary>Field cap of <see cref="ExtIdBoardTuning"/> — the number of dials the record can
-    /// name (see the id table below; 50 are defined today). It bounds the record at
-    /// 1 + 15×7 + 12×3 + 16×3 + 5×3 + 2×2 = 209 payload bytes, well under the 255-byte TLV
+    /// name (see the id table below; 58 are defined today, the last eight being the item fan's
+    /// open/close ANIMATION set added on the presence pass). It bounds the record at
+    /// 1 + 15×7 + 13×3 + 22×3 + 6×3 + 2×2 = 233 payload bytes, still under the 255-byte TLV
     /// ceiling, and is re-clamped on read against the record's own length.</summary>
-    public const int BoardTuneMaxFields = 50;
+    public const int BoardTuneMaxFields = 58;
 
     /// <summary>Minimum payload of <see cref="ExtIdBoardTuning"/> (the field-count byte alone). A
     /// reader requires at least this much before it looks at the record.</summary>
@@ -2020,6 +2021,12 @@ internal static class NetProtocol
     public const byte TuneFanSplitMultiplier = 74;
     /// <summary>[Cards] FanSelectedPopForward — how far a highlighted card comes toward the viewer.</summary>
     public const byte TuneFanSelectedPopForward = 75;
+    /// <summary>[Cards] ItemFanOpenArc — how far an emerging item chip bows toward its viewer at
+    /// mid-flight. Part of the ITEM-FAN ANIMATION set (ids 76 / 144..149 / 197), which is on the
+    /// wire for the reason the standing 1:1 ruling states outright: "alle Interaktionen,
+    /// **Animationen** und Anzeigen des Controllboards" are what a peer must see, so an owner who
+    /// re-tunes how their item fan opens must be seen re-tuning it.</summary>
+    public const byte TuneItemFanOpenArc = 76;
 
     // FACTOR (2 B, thousandths): dimensionless multipliers.
 
@@ -2059,6 +2066,27 @@ internal static class NetProtocol
     /// mirror wrong for anyone who tuned the other.</summary>
     public const byte TuneCanvasScaleMm = 143;
 
+    // The ITEM FAN's OPEN/CLOSE ANIMATION (ids 144..149 here, plus 76 and 197). Four of the six are
+    // DURATIONS IN SECONDS carried in the FACTOR range, which is deliberate and not a category
+    // error: the id range states the VALUE WIDTH, not the unit (see the record doc), and the factor
+    // width is an i16 in thousandths — millisecond resolution over ±32 s, which is finer than any
+    // animation dial can be tuned and far wider than any of them can be set.
+
+    /// <summary>[Cards] ItemFanOpenDuration — seconds one item chip takes to fly out of the stack.</summary>
+    public const byte TuneItemFanOpenDuration = 144;
+    /// <summary>[Cards] ItemFanOpenStagger — the deal-out ripple's per-place delay, seconds.</summary>
+    public const byte TuneItemFanOpenStagger = 145;
+    /// <summary>[Cards] ItemFanSeedScale — the size a chip starts the fly-out at (and ends the
+    /// collapse at), as a fraction of its seated size.</summary>
+    public const byte TuneItemFanSeedScale = 146;
+    /// <summary>[Cards] ItemFanSettleOvershoot — the back-ease strength shared by the fly-out's
+    /// overshoot and the collapse's wind-up.</summary>
+    public const byte TuneItemFanSettleOvershoot = 147;
+    /// <summary>[Cards] ItemFanCloseDuration — seconds one item chip takes to fall back in.</summary>
+    public const byte TuneItemFanCloseDuration = 148;
+    /// <summary>[Cards] ItemFanCloseStagger — the reverse ripple's per-place delay, seconds.</summary>
+    public const byte TuneItemFanCloseStagger = 149;
+
     // ANGLE (2 B, hundredth-degrees).
 
     /// <summary>[Cards] AssetPitchDegrees_{board} — the board MESH's pitch inside the board root.</summary>
@@ -2071,6 +2099,8 @@ internal static class NetProtocol
     public const byte TuneFanArcSweep = 195;
     /// <summary>[Cards] FanPerCardStepDegrees — angular step between two fan cards.</summary>
     public const byte TuneFanPerCardStep = 196;
+    /// <summary>[Cards] ItemFanOpenSpinDegrees — the roll an emerging item chip unwinds from.</summary>
+    public const byte TuneItemFanOpenSpin = 197;
 
     // COUNT (1 B).
 

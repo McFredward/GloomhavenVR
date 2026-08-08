@@ -861,8 +861,8 @@ internal static class PresenceSerializer
     /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap)
     /// + 43 (USE BARS: 2 + mask 1 + 4 bars × (flags 1 + count 1 + its 8-slot cap))
     /// + 28 (track order: 2 + count 1 + owned mask 1 + 4 × its 6-id cap)
-    /// + 211 (BOARD TUNING: 2 + count 1 + every one of its 50 fields at once —
-    /// 15 vec3 × 7 + 12 length × 3 + 16 factor × 3 + 5 angle × 3 + 2 count × 2 = 208) = 1240.
+    /// + 235 (BOARD TUNING: 2 + count 1 + every one of its 58 fields at once —
+    /// 15 vec3 × 7 + 13 length × 3 + 22 factor × 3 + 6 angle × 3 + 2 count × 2 = 232) = 1264.
     ///
     /// <para>859 → 1240 across the 1:1 mirroring round, each record adding its own worst case in
     /// its own commit per the rule below: USE BARS (25) +43, TRACK ORDER (27) +28, BOARD TUNING
@@ -871,15 +871,21 @@ internal static class PresenceSerializer
     /// cap-PRESS field, the snap-hover telegraph and the empty-fan placard added nothing — they
     /// fill bits records 14 and 4 already reserved.</para>
     ///
-    /// <para>THAT 1240 IS A CEILING NO REAL PACKET REACHES: board tuning carries only the dials a
-    /// player has MOVED and an untuned player writes no record at all, which alone is 211 of it. It
+    /// <para>1240 → 1264 on the item-fan PRESENCE pass (2026-08-08): board tuning grew by its own
+    /// eight new fields — the item fan's open/close ANIMATION dials, which are on the wire because
+    /// the standing 1:1 ruling names animations outright. Eight dials × 3 bytes = 24, so the record
+    /// went 211 → 235. Stated here in its own commit per the rule below; the margin at
+    /// <see cref="MaxSize"/> = 1600 is 336 bytes, still more than the largest single record.</para>
+    ///
+    /// <para>THAT 1264 IS A CEILING NO REAL PACKET REACHES: board tuning carries only the dials a
+    /// player has MOVED and an untuned player writes no record at all, which alone is 235 of it. It
     /// is stated at its maximum because the buffer must survive the pathological sender, not the
     /// typical one.</para>
     ///
     /// <para>RAISED AGAIN, 1280 → 1600, in the merge that brought the round together. At 1280 the
     /// margin was 40 bytes, thinner than every record in the tail — i.e. the bound would once more
     /// have been the thing the next feature discovered by overflowing. 1600 restores 360 bytes,
-    /// comfortably past the largest single record (211, board tuning). Same reasoning as the first
+    /// comfortably past the largest single record (235, board tuning). Same reasoning as the first
     /// raise: this sizes ONE local send buffer and appears in no packet, header or contract.</para>
     ///
     /// <para>RAISED 848 → 1280 on 2026-08-08, deliberately and ahead of need rather than on a crash.

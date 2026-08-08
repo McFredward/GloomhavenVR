@@ -26,7 +26,7 @@ namespace GloomhavenVR.Net;
 /// when its live value differs from the compiled default for the sender's style, and when NO field
 /// differs the record is not written at all — the extension tail does not even open for it. An
 /// untuned player therefore emits the exact bytes the previous build emitted. One moved dock costs
-/// 10 bytes at 5 Hz; every dial at once costs 211, and even that leaves the packet 212 bytes inside
+/// 10 bytes at 5 Hz; every dial at once costs 235, and even that leaves the packet 336 bytes inside
 /// <see cref="PresenceSerializer.MaxSize"/>.
 ///
 /// COMPARING QUANTIZED CODES, NOT FLOATS, is what makes "differs from the default" stable: a config
@@ -47,8 +47,8 @@ internal static class BoardTuningSampler
 {
     /// <summary>Buffer size a caller must hand <see cref="Sample"/>: the record's own worst case
     /// (every field present), which is what <see cref="PresenceSerializer.MaxSize"/> budgets for.
-    /// 1 count byte + 15 vec3 × 7 + 12 length × 3 + 16 factor × 3 + 5 angle × 3 + 2 count × 2.</summary>
-    internal const int MaxPayloadBytes = 1 + 15 * 7 + 12 * 3 + 16 * 3 + 5 * 3 + 2 * 2;
+    /// 1 count byte + 15 vec3 × 7 + 13 length × 3 + 22 factor × 3 + 6 angle × 3 + 2 count × 2.</summary>
+    internal const int MaxPayloadBytes = 1 + 15 * 7 + 13 * 3 + 22 * 3 + 6 * 3 + 2 * 2;
 
     /// <summary>
     /// Build the record-28 payload for <paramref name="style"/> into <paramref name="payload"/>
@@ -129,6 +129,8 @@ internal static class BoardTuningSampler
                  CardsConfig.FanSplitMultiplier, Defaults.FanSplitMultiplier);
         n += Len(payload, ref i, NetProtocol.TuneFanSelectedPopForward,
                  CardsConfig.FanSelectedPopForward, Defaults.FanSelectedPopForward);
+        n += Len(payload, ref i, NetProtocol.TuneItemFanOpenArc,
+                 CardsConfig.ItemFanOpenArc, Defaults.ItemFanOpenArc);
 
         // ---- FACTOR fields (ids 128..142) — dimensionless multipliers ------------------------
         n += Fac(payload, ref i, NetProtocol.TuneObjectivesScale,
@@ -163,8 +165,25 @@ internal static class BoardTuningSampler
                  WorldUI.WorldUIConfig.HoverInfoScale, Defaults.HoverInfoScale);
         n += Fac(payload, ref i, NetProtocol.TuneCanvasScaleMm,
                  WorldUI.WorldUIConfig.CanvasScaleMm, Defaults.CanvasScaleMm);
+        // The ITEM FAN's ANIMATION (the presence pass of 2026-08-08). Four seconds-valued dials ride
+        // the FACTOR width — millisecond resolution, see the id table's note on why that is not a
+        // category error. These are here rather than frozen into RemoteItemFan because the standing
+        // 1:1 ruling names ANIMATIONS explicitly: an owner who makes their item fan deal out slower,
+        // wider or with a bigger settle must be seen doing it on every other screen.
+        n += Fac(payload, ref i, NetProtocol.TuneItemFanOpenDuration,
+                 CardsConfig.ItemFanOpenDuration, Defaults.ItemFanOpenDuration);
+        n += Fac(payload, ref i, NetProtocol.TuneItemFanOpenStagger,
+                 CardsConfig.ItemFanOpenStagger, Defaults.ItemFanOpenStagger);
+        n += Fac(payload, ref i, NetProtocol.TuneItemFanSeedScale,
+                 CardsConfig.ItemFanSeedScale, Defaults.ItemFanSeedScale);
+        n += Fac(payload, ref i, NetProtocol.TuneItemFanSettleOvershoot,
+                 CardsConfig.ItemFanSettleOvershoot, Defaults.ItemFanSettleOvershoot);
+        n += Fac(payload, ref i, NetProtocol.TuneItemFanCloseDuration,
+                 CardsConfig.ItemFanCloseDuration, Defaults.ItemFanCloseDuration);
+        n += Fac(payload, ref i, NetProtocol.TuneItemFanCloseStagger,
+                 CardsConfig.ItemFanCloseStagger, Defaults.ItemFanCloseStagger);
 
-        // ---- ANGLE fields (ids 192..196) ------------------------------------------------------
+        // ---- ANGLE fields (ids 192..197) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
                  CardsConfig.AssetPitch(style), CardsConfig.BoardDefaults.AssetPitchDegrees[b]);
         n += Ang(payload, ref i, NetProtocol.TuneAssetYaw,
@@ -175,6 +194,8 @@ internal static class BoardTuningSampler
                  CardsConfig.FanArcSweepDegrees, Defaults.FanArcSweepDegrees);
         n += Ang(payload, ref i, NetProtocol.TuneFanPerCardStep,
                  CardsConfig.FanPerCardStepDegrees, Defaults.FanPerCardStepDegrees);
+        n += Ang(payload, ref i, NetProtocol.TuneItemFanOpenSpin,
+                 CardsConfig.ItemFanOpenSpinDegrees, Defaults.ItemFanOpenSpinDegrees);
 
         // ---- COUNT fields (ids 224..225) ------------------------------------------------------
         n += Cnt(payload, ref i, NetProtocol.TuneFanMaxHandForCurve,
@@ -280,6 +301,9 @@ internal readonly struct RemoteBoardTuning
     public float FanSplitMultiplier { get; }
     public float FanSelectedPopForward { get; }
 
+    /// <summary>[Cards] ItemFanOpenArc — the item chip's mid-flight bow toward its viewer.</summary>
+    public float ItemFanOpenArc { get; }
+
     // ---- FACTOR dials ------------------------------------------------------------------------
     public float ObjectivesScale { get; }
     public float ObjectivesWidth { get; }
@@ -298,12 +322,22 @@ internal readonly struct RemoteBoardTuning
     public float HoverInfoScale { get; }
     public float CanvasScaleMm { get; }
 
+    // The item fan's ANIMATION (presence pass). The four SECONDS values ride the factor width —
+    // see the id table in NetProtocol for why that is the right container and not a category slip.
+    public float ItemFanOpenDuration { get; }
+    public float ItemFanOpenStagger { get; }
+    public float ItemFanSeedScale { get; }
+    public float ItemFanSettleOvershoot { get; }
+    public float ItemFanCloseDuration { get; }
+    public float ItemFanCloseStagger { get; }
+
     // ---- ANGLE dials (degrees) ---------------------------------------------------------------
     public float AssetPitchDegrees { get; }
     public float AssetYawDegrees { get; }
     public float AssetRollDegrees { get; }
     public float FanArcSweepDegrees { get; }
     public float FanPerCardStepDegrees { get; }
+    public float ItemFanOpenSpinDegrees { get; }
 
     // ---- COUNT dials -------------------------------------------------------------------------
     public int FanMaxHandForCurve { get; }
@@ -372,6 +406,7 @@ internal readonly struct RemoteBoardTuning
                                Defaults.FanSplitMultiplier);
         FanSelectedPopForward = L(payload, len, NetProtocol.TuneFanSelectedPopForward,
                                   Defaults.FanSelectedPopForward);
+        ItemFanOpenArc = L(payload, len, NetProtocol.TuneItemFanOpenArc, Defaults.ItemFanOpenArc);
 
         ObjectivesScale = F(payload, len, NetProtocol.TuneObjectivesScale,
                             CardsConfig.BoardDefaults.ObjectivesScale[b]);
@@ -395,6 +430,17 @@ internal readonly struct RemoteBoardTuning
                                Defaults.FanHoverSplitScale);
         HoverInfoScale = F(payload, len, NetProtocol.TuneHoverInfoScale, Defaults.HoverInfoScale);
         CanvasScaleMm = F(payload, len, NetProtocol.TuneCanvasScaleMm, Defaults.CanvasScaleMm);
+        ItemFanOpenDuration = F(payload, len, NetProtocol.TuneItemFanOpenDuration,
+                                Defaults.ItemFanOpenDuration);
+        ItemFanOpenStagger = F(payload, len, NetProtocol.TuneItemFanOpenStagger,
+                               Defaults.ItemFanOpenStagger);
+        ItemFanSeedScale = F(payload, len, NetProtocol.TuneItemFanSeedScale, Defaults.ItemFanSeedScale);
+        ItemFanSettleOvershoot = F(payload, len, NetProtocol.TuneItemFanSettleOvershoot,
+                                   Defaults.ItemFanSettleOvershoot);
+        ItemFanCloseDuration = F(payload, len, NetProtocol.TuneItemFanCloseDuration,
+                                 Defaults.ItemFanCloseDuration);
+        ItemFanCloseStagger = F(payload, len, NetProtocol.TuneItemFanCloseStagger,
+                                Defaults.ItemFanCloseStagger);
 
         AssetPitchDegrees = A(payload, len, NetProtocol.TuneAssetPitch,
                               CardsConfig.BoardDefaults.AssetPitchDegrees[b]);
@@ -403,6 +449,8 @@ internal readonly struct RemoteBoardTuning
         FanArcSweepDegrees = A(payload, len, NetProtocol.TuneFanArcSweep, Defaults.FanArcSweepDegrees);
         FanPerCardStepDegrees = A(payload, len, NetProtocol.TuneFanPerCardStep,
                                   Defaults.FanPerCardStepDegrees);
+        ItemFanOpenSpinDegrees = A(payload, len, NetProtocol.TuneItemFanOpenSpin,
+                                   Defaults.ItemFanOpenSpinDegrees);
 
         FanMaxHandForCurve = C(payload, len, NetProtocol.TuneFanMaxHandForCurve,
                                Defaults.FanMaxHandForCurve);

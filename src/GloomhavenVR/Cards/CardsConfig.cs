@@ -317,6 +317,38 @@ internal static class CardsConfig
     /// <summary>Quick-collapse animation length in seconds on hide (unscaled time). 0 = the fan vanishes instantly.</summary>
     internal static ConfigEntry<float> FanCloseDuration = null!;
 
+    // ---- THE ITEM FAN's OWN open/close animation (item-pile presence pass) --------------------
+    // Deliberately NOT the FanOpen*/FanClose* dials above. Those animate the HAND fan, which opens
+    // an arm's length in front of a face against whatever the player is looking at; these animate
+    // the ITEM fan, which blooms out of a stack on a board that in mixed reality sits on a real
+    // table in a real room. The two want different amounts of motion for exactly that reason —
+    // see Defaults.Cards.cs for the report these were authored against.
+
+    /// <summary>Item fan: seconds ONE chip takes to fly out of the items stack into its arc slot.</summary>
+    internal static ConfigEntry<float> ItemFanOpenDuration = null!;
+
+    /// <summary>Item fan: extra start delay per slot of distance from the fan centre — the deal-out ripple.</summary>
+    internal static ConfigEntry<float> ItemFanOpenStagger = null!;
+
+    /// <summary>Item fan: how far the flying chip bows TOWARD the viewer at mid-flight, real meters.</summary>
+    internal static ConfigEntry<float> ItemFanOpenArc = null!;
+
+    /// <summary>Item fan: the roll (degrees) a chip unwinds from as it flies out — outward-signed per side.</summary>
+    internal static ConfigEntry<float> ItemFanOpenSpinDegrees = null!;
+
+    /// <summary>Item fan: the size a chip starts at on the stack, as a fraction of its seated size.</summary>
+    internal static ConfigEntry<float> ItemFanSeedScale = null!;
+
+    /// <summary>Item fan: back-ease strength — the overshoot-and-settle at the end of the fly-out
+    /// and the wind-up before the collapse. 0 = a plain ease with no reversal.</summary>
+    internal static ConfigEntry<float> ItemFanSettleOvershoot = null!;
+
+    /// <summary>Item fan: seconds ONE chip takes to fall back into the items stack on close.</summary>
+    internal static ConfigEntry<float> ItemFanCloseDuration = null!;
+
+    /// <summary>Item fan: per-slot close delay — the fold-in runs outermost chip first.</summary>
+    internal static ConfigEntry<float> ItemFanCloseStagger = null!;
+
     /// <summary>Game audio item played once when the fan reveals ("" = silent).</summary>
     internal static ConfigEntry<string> FanRevealSound = null!;
 
@@ -673,6 +705,74 @@ internal static class CardsConfig
                     "FanRadius). Bigger = a wider, flatter arc, which also spaces the cards out.",
                     new AcceptableValueRange<float>(0.5f, 4f)));
         }
+        // THE ITEM FAN's OPEN/CLOSE ANIMATION (user report 2026-08-08: "Ich mag die Animation im
+        // Item-Pile sehr aber sie ist (insbesondere in mixed Reality) etwas zu dezent."). Read LIVE
+        // by Cards/ItemsPile.cs's emerge/collapse region and mirrored to peers through extension
+        // record 28 — the standing 1:1 ruling names ANIMATIONS explicitly, so a player who dials
+        // these further must be seen dialling them further on every other screen.
+        //
+        // WHY THE RANGES START AT 0: every one of these is an amplitude, and 0 on all of them is
+        // exactly the previous build's animation (straight chord, one shared timing, no roll, no
+        // reversal). That is the honest "turn it back down" position, and it is reachable from the
+        // debug steppers without editing a file.
+        ItemFanOpenDuration = _file.Bind("Cards", "ItemFanOpenDuration", Defaults.ItemFanOpenDuration,
+            new ConfigDescription(
+                "Item fan opening: seconds ONE item card takes to fly out of the items stack into " +
+                "its place in the arc (unscaled time — it runs even while the game pauses). The " +
+                "whole fan takes this PLUS the last card's stagger delay. Longer = the flight is " +
+                "readable rather than a flick; too long and opening the fan feels slow.",
+                new AcceptableValueRange<float>(0.05f, 0.9f)));
+        ItemFanOpenStagger = _file.Bind("Cards", "ItemFanOpenStagger", Defaults.ItemFanOpenStagger,
+            new ConfigDescription(
+                "Item fan opening: extra start delay in seconds PER PLACE of distance from the " +
+                "middle of the fan — the cards deal outwards one after another instead of all " +
+                "leaving the stack at once. This is the single biggest reason the animation reads " +
+                "on a mixed-reality background: a moving FRONT that crosses the fan is something " +
+                "the eye follows, where one simultaneous blob-move is a flicker a busy room " +
+                "swallows. 0 = all cards start together (the old look).",
+                new AcceptableValueRange<float>(0f, 0.2f)));
+        ItemFanOpenArc = _file.Bind("Cards", "ItemFanOpenArc", Defaults.ItemFanOpenArc,
+            new ConfigDescription(
+                "Item fan opening: how far the flying card bows TOWARD YOU at the middle of its " +
+                "flight, real meters, before settling back into the arc plane. It turns a straight " +
+                "slide into a thrown curve, and — the mixed-reality half — it moves the card in " +
+                "DEPTH, so both eyes see it separate from the room behind it. Stereo separation is " +
+                "a cue passthrough cannot mask. 0 = the old straight line.",
+                new AcceptableValueRange<float>(0f, 0.2f)));
+        ItemFanOpenSpinDegrees = _file.Bind("Cards", "ItemFanOpenSpinDegrees", Defaults.ItemFanOpenSpinDegrees,
+            new ConfigDescription(
+                "Item fan opening: the roll (degrees) a card unwinds from while it flies — signed " +
+                "outward, so the fan visibly UNFOLDS instead of sliding open. A rotation changes " +
+                "the card's outline, and an outline change is legible against a background that " +
+                "already has movement and contrast of its own. 0 = no roll (the old look).",
+                new AcceptableValueRange<float>(0f, 180f)));
+        ItemFanSeedScale = _file.Bind("Cards", "ItemFanSeedScale", Defaults.ItemFanSeedScale,
+            new ConfigDescription(
+                "Item fan: the size a card starts at on the stack (and shrinks to on close), as a " +
+                "fraction of its seated size in the arc. Smaller = more growth over the flight, " +
+                "which is the second depth cue after the bow — a card that doubles in size is " +
+                "coming at you, not sliding across a picture.",
+                new AcceptableValueRange<float>(0.02f, 1f)));
+        ItemFanSettleOvershoot = _file.Bind("Cards", "ItemFanSettleOvershoot", Defaults.ItemFanSettleOvershoot,
+            new ConfigDescription(
+                "Item fan: the strength of the overshoot at the END of the fly-out (the card " +
+                "passes its slot and swings back into it) and of the matching wind-up before the " +
+                "collapse. A REVERSAL OF DIRECTION is the most noticeable event motion has, and " +
+                "unlike speed it costs no extra travel — which is why it is here rather than a " +
+                "simply faster animation. About 1.4 is a ~5 % overshoot; 0 = a plain ease that " +
+                "just decelerates to a stop (the old look).",
+                new AcceptableValueRange<float>(0f, 3f)));
+        ItemFanCloseDuration = _file.Bind("Cards", "ItemFanCloseDuration", Defaults.ItemFanCloseDuration,
+            new ConfigDescription(
+                "Item fan closing: seconds ONE item card takes to fall back into the items stack " +
+                "before it disappears (unscaled time). The cards are detached from the fan first, " +
+                "so this plays out in full however the fan was closed.",
+                new AcceptableValueRange<float>(0.05f, 0.9f)));
+        ItemFanCloseStagger = _file.Bind("Cards", "ItemFanCloseStagger", Defaults.ItemFanCloseStagger,
+            new ConfigDescription(
+                "Item fan closing: per-place delay, run OUTERMOST CARD FIRST so the fold-in is the " +
+                "opening exactly reversed. 0 = every card leaves at the same moment.",
+                new AcceptableValueRange<float>(0f, 0.2f)));
         BoardMinWidthMeters = _file.Bind("Cards", "BoardMinWidthMeters", Defaults.BoardMinWidthMeters,
             new ConfigDescription(
                 "Smallest the control board may ever get, measured as its APPARENT WIDTH in real " +
