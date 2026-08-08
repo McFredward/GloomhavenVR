@@ -77,10 +77,10 @@ namespace GloomhavenVR.Board;
 ///   therefore distinguishable by movement alone, with the colour as reinforcement rather than as
 ///   the only channel.</item>
 /// </list>
-/// The board outline additionally gains a wider dark KEYLINE under the coloured rim
-/// (<see cref="OutlineKeylineTint"/>): it is the one carrier that sits against the real room, and a
-/// white rim on a white wall is as invisible as a green one on green. The other two carriers sit on
-/// mod-drawn board geometry and need no backing.</para>
+/// The board FRAME (<see cref="BoardFrame"/>) additionally gains a dark KEYLINE hugging its
+/// coloured band on both edges (<see cref="OutlineKeylineTint"/>): it is the one carrier that sits
+/// against the real room, and a white rim on a white wall is as invisible as a green one on green.
+/// The other two carriers sit on mod-drawn board geometry and need no backing.</para>
 ///
 /// <para>WHY THE MR SWITCH LIVES HERE AND NOWHERE ELSE: all three carriers — the control boards,
 /// the Steam-avatar ring and the initiative-track rings, local and mirrored — read their colour
@@ -219,30 +219,41 @@ internal static class FocusCue
         Mathf.Clamp01(k < 0.5f ? Mathf.Max(v, k + MrKeyMargin * 1.2f)
                                : Mathf.Min(v, k - MrKeyMargin * 1.2f));
 
-    // ------------------------------------------------------------------ the board outline's rim --
+    // ----------------------------------------------------------------- the board FRAME's bands --
 
-    /// <summary>Rim width of the board outline in board-LOCAL metres — how far the inverted hull is
-    /// pushed out along the board's own normals, i.e. how proud of the silhouette the outline
-    /// stands. 6 mm on a 0.64 × 0.32 m board: it reads across the table without looking like
-    /// furniture, the brief the old 12 mm bars were written to.</summary>
-    private const float RimLocal = 0.006f;
+    // The board cue is a FRAME AROUND THE ASSET (see <see cref="BoardFrame"/>): three concentric
+    // band radii measured outward from the board's own outer contour, in board-LOCAL metres. They
+    // live here rather than in the geometry class for the same reason every colour does — one file
+    // decides what the cue looks like, including the MR fork.
 
-    /// <summary>The MR rim is wider. It competes with a real room instead of with a dark void, and
+    /// <summary>Clear air between the board's contour and the frame's inner edge. 6 mm on a 0.64 m
+    /// board: enough that the frame reads as a frame AROUND the asset rather than as a highlight
+    /// painted onto its rim, and enough that the board's own bevel can never swallow it.</summary>
+    private const float GapLocal = 0.006f;
+
+    /// <summary>Width of the coloured band. 8 mm reads across the table without looking like
+    /// furniture — the brief the old 12 mm bars were written to.</summary>
+    private const float RimWidthLocal = 0.008f;
+
+    /// <summary>The MR band is wider. It competes with a real room instead of with a dark void, and
     /// it is the only mode where the cue may have to be seen out of the corner of an eye.</summary>
-    private const float MrRimLocal = 0.010f;
+    private const float MrRimWidthLocal = 0.012f;
 
-    /// <summary>The MR keyline sits outside the rim by another notch, so a dark border of ~6 mm
-    /// remains visible around the coloured band whatever the room behind it is doing.</summary>
-    private const float MrKeylineLocal = 0.016f;
+    /// <summary>Width of the dark keyline that hugs the coloured band on EACH side in MR, so a
+    /// 4 mm dark border separates the cue from an arbitrary real room on both edges.</summary>
+    private const float KeylineWidthLocal = 0.004f;
 
-    /// <summary>Live rim width of the board outline (board-local metres).</summary>
-    internal static float OutlineRimExtrudeLocal => MrActive ? MrRimLocal : RimLocal;
+    /// <summary>Live gap between the board's contour and the frame (board-local metres).</summary>
+    internal static float OutlineGapLocal => GapLocal;
 
-    /// <summary>Live keyline width of the board outline (board-local metres). Only read while
-    /// <see cref="OutlineKeylineTint"/> is non-null.</summary>
-    internal static float OutlineKeylineExtrudeLocal => MrKeylineLocal;
+    /// <summary>Live width of the frame's coloured band (board-local metres).</summary>
+    internal static float OutlineRimWidthLocal => MrActive ? MrRimWidthLocal : RimWidthLocal;
 
-    /// <summary>The dark contrast backing under the board outline's coloured rim, or null outside
+    /// <summary>Live width of the dark keyline on each side of the coloured band (board-local
+    /// metres). Only read while <see cref="OutlineKeylineTint"/> is non-null.</summary>
+    internal static float OutlineKeylineWidthLocal => KeylineWidthLocal;
+
+    /// <summary>The dark contrast backing under the board frame's coloured band, or null outside
     /// MR (where the cue is drawn against the game's own dark scene and needs none). STEADY on
     /// purpose — it is a border, and a border that blinks with the rim would just re-encode the
     /// same bit twice.</summary>

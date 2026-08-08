@@ -24,12 +24,13 @@ namespace GloomhavenVR.Net;
 /// wearing the MR palette while your own board wears the flat one. This class only owns GEOMETRY
 /// (where the outline sits and how big it is).</para>
 ///
-/// <para>THE BOARD OUTLINE IS THE ASSET'S OWN SILHOUETTE (2026-08-08). A peer's board is a clone of
-/// the SAME bundled prefab the owner renders (<see cref="RemoteTrayVisual"/>, child "TrayVisual"),
-/// so the very same <see cref="BoardOutline"/> inverted-hull builder the local board uses works
-/// here unchanged and needs nothing passed to it: it finds the asset under the board root itself.
-/// A peer still on the FLAT fallback board (bundle not resident on this client) has no asset, and
-/// keeps the old rectangle — the same degradation ladder the board itself has.</para>
+/// <para>THE BOARD CUE IS A FRAME AROUND THE ASSET'S OUTER CONTOUR (2026-08-08). A peer's board is a
+/// clone of the SAME bundled prefab the owner renders (<see cref="RemoteTrayVisual"/>, child
+/// "TrayVisual"), so the very same <see cref="BoardFrame"/> builder the local board uses works here
+/// unchanged and needs nothing passed to it: it finds the asset under the board root itself, hulls
+/// its plan-view footprint and lays ONE closed band just outside it — nothing inside. A peer still
+/// on the FLAT fallback board (bundle not resident on this client) has no asset, and keeps the
+/// rectangle — the same degradation ladder the board itself has.</para>
 ///
 /// <para>The Steam-avatar ring stays a <see cref="WorldFrame"/>: it frames a ~5.5 cm PICTURE (a
 /// stretched unit quad), not a modelled object, so there is no silhouette to trace — a rectangle is
@@ -62,30 +63,30 @@ internal sealed class RemoteFocusOutline
 
     private readonly int _playerId;
 
-    /// <summary>The REAL outline of the peer's board asset, or null when that peer is still on the
-    /// flat fallback board — then <see cref="_boardFrame"/> carries the cue.</summary>
-    private readonly BoardOutline? _boardOutline;
+    /// <summary>The frame around the peer's board asset, or null when that peer is still on the
+    /// flat fallback board — then <see cref="_rectFrame"/> carries the cue.</summary>
+    private readonly BoardFrame? _boardFrame;
 
     /// <summary>The legacy rectangle: the FALLBACK renderer only (see the class doc).</summary>
-    private readonly WorldFrame? _boardFrame;
+    private readonly WorldFrame? _rectFrame;
 
     private WorldFrame? _avatarRing;
     private Transform? _avatarHost;
 
     /// <summary>
-    /// Build the board outline under <paramref name="boardRoot"/>. Traces the real board asset when
-    /// this peer's board was built from the bundled prefab; falls back to a rectangle of
-    /// <paramref name="boardSize"/> board-local metres when it was not. The avatar ring is built
+    /// Build the board frame under <paramref name="boardRoot"/>. Frames the real board asset's
+    /// contour when this peer's board was built from the bundled prefab; falls back to a rectangle
+    /// of <paramref name="boardSize"/> board-local metres when it was not. The avatar ring is built
     /// lazily, the first time the owner tag actually has an avatar quad (the Steam picture arrives
     /// asynchronously).
     /// </summary>
     internal RemoteFocusOutline(int playerId, Transform boardRoot, Vector2 boardSize)
     {
         _playerId = playerId;
-        _boardOutline = BoardOutline.Build(boardRoot, $"remote control board [{playerId}]");
-        if (_boardOutline == null)
+        _boardFrame = BoardFrame.Build(boardRoot, $"remote control board [{playerId}]");
+        if (_boardFrame == null)
         {
-            _boardFrame = WorldFrame.Build(
+            _rectFrame = WorldFrame.Build(
                 boardRoot, $"GloomhavenVR.RemoteFocusFrame[{playerId}]",
                 new Vector2(boardSize.x + BoardMargin * 2f, boardSize.y + BoardMargin * 2f),
                 BoardThickness, BoardZ);
@@ -101,8 +102,8 @@ internal sealed class RemoteFocusOutline
     internal void Tick(bool visible, Transform? avatarQuad, Vector2 avatarSize)
     {
         Color? tint = visible ? FocusCue.Tint(CharacterFocus.MarkForPeer(_playerId)) : null;
-        _boardOutline?.Apply(tint);
         _boardFrame?.Apply(tint);
+        _rectFrame?.Apply(tint);
 
         if (avatarQuad == null)
         {
@@ -134,8 +135,8 @@ internal sealed class RemoteFocusOutline
 
     internal void Destroy()
     {
-        _boardOutline?.Destroy();
         _boardFrame?.Destroy();
+        _rectFrame?.Destroy();
         _avatarRing?.Destroy();
         _avatarRing = null;
         _avatarHost = null;
