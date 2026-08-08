@@ -21,9 +21,12 @@ namespace GloomhavenVR.Board;
 ///   player owns that character and is looking at it, BLINKS red when they own it but are looking
 ///   elsewhere, and is a STEADY gold otherwise (a teammate's or a monster's turn: a fact, not a
 ///   demand);</item>
-/// <item>the same blinking green/red as a frame around the local player's own control board — the
-///   user's "the board gets a red blinking outline" and "the control board of the player who owns
-///   the character at turn gets a blinking outline".</item>
+/// <item>the same blinking green/red as an OUTLINE around the local player's own control board —
+///   the user's "the board gets a red blinking outline" and "the control board of the player who
+///   owns the character at turn gets a blinking outline". Since 2026-08-08 that is a REAL outline
+///   of the board asset (<see cref="BoardOutline"/>, an inverted hull of the board's own meshes),
+///   not the rectangle it used to be; the rectangle survives only as the fallback for the
+///   procedural board, which has no asset to trace.</item>
 /// </list>
 ///
 /// <para>WHY THE TWO RINGS NEVER STACK: when the focused character IS the character at turn, only
@@ -46,17 +49,18 @@ internal sealed class FocusDriver : MonoBehaviour
 {
     /// <summary>Half-width of the local control board's slab in tray-root local metres — the ONE
     /// dimension <c>PlayTray</c> publishes. The slab is 0.64 × 0.32 m, i.e. exactly 2:1, so the
-    /// half-height is half of this; see <see cref="BoardAspect"/>.</summary>
+    /// half-height is half of this; see <see cref="BoardAspect"/>.
+    /// FALLBACK ONLY since 2026-08-08 — see <see cref="TickBoardFrame"/>.</summary>
     private static float BoardHalfW => PlayTray.BoardHalfWidthLocal;
 
     /// <summary>The control board slab's height/width ratio (0.32 / 0.64). Stated here rather than
     /// mirrored from PlayTray's private constants, and only ever used to place a decoration —
     /// a board style with a different aspect would draw a slightly loose frame, never a wrong
-    /// board.</summary>
+    /// board. FALLBACK ONLY — the real board is traced, not circumscribed.</summary>
     private const float BoardAspect = 0.5f;
 
-    /// <summary>Outward margin of the board frame past the slab edge (metres), so the outline sits
-    /// just OFF the board rather than on top of its art.</summary>
+    /// <summary>Outward margin of the fallback board frame past the slab edge (metres), so the
+    /// outline sits just OFF the board rather than on top of its art.</summary>
     private const float BoardFrameMargin = 0.022f;
 
     /// <summary>Bar thickness of the board frame (metres) — thick enough to read across the table,
@@ -74,6 +78,11 @@ internal sealed class FocusDriver : MonoBehaviour
     private readonly Dictionary<InitiativeTrackActorBehaviour, UiRing> _turnRings = new(8);
     private readonly List<InitiativeTrackActorBehaviour> _stale = new(8);
 
+    /// <summary>The REAL outline of the board asset. Null only on the procedural fallback board or
+    /// a bundle that cannot supply one — then <see cref="_boardFrame"/> carries the cue instead.</summary>
+    private BoardOutline? _boardOutline;
+
+    /// <summary>The legacy rectangle, now the FALLBACK path only (see <see cref="TickBoardFrame"/>).</summary>
     private WorldFrame? _boardFrame;
     private Transform? _boardFrameHost;
 
@@ -85,6 +94,8 @@ internal sealed class FocusDriver : MonoBehaviour
     private void OnDestroy()
     {
         ClearAllRings();
+        _boardOutline?.Destroy();
+        _boardOutline = null;
         _boardFrame?.Destroy();
         _boardFrame = null;
         _boardFrameHost = null;
@@ -94,7 +105,7 @@ internal sealed class FocusDriver : MonoBehaviour
     {
         // Gate: no live scenario (or a teardown that left PhaseManager's static phase stale — the
         // exact trap SelectionReadyHighlighter documents) ⇒ everything off, nothing dereferenced.
-        bool live = Net.RevealGate.InScenario && CardsGameApi.InScenario
+        bool live = ScenarioLive() && CardsGameApi.InScenario
                     && ScenarioManager.Scenario != null;
         if (!live)
         {
@@ -102,13 +113,130 @@ internal sealed class FocusDriver : MonoBehaviour
             return;
         }
 
-        CPlayerActor? focused = CharacterFocus.LookingAt;
-        CPlayerActor? turn = CharacterFocus.TurnActor;
-        FocusTurnMark localMark = CharacterFocus.LocalMark;
+        _tickFocused = CharacterFocus.LookingAt;
+        _tickTurn = CharacterFocus.TurnActor;
+        _tickMark = CharacterFocus.LocalMark;
 
-        TickRings(focused, turn, localMark);
-        TickBoardFrame(localMark);
-        TickReadOnlyRefresh();
+        TickMrPalette();
+        // PER-CARRIER ISOLATION, on top of the tick-wide TickGuard. TickGuard already stops one
+        // throwing subsystem from starving input (the WorldUI incident's standing rule), but it
+        // aborts the WHOLE tick: a single bad initiative entry would silently take the board
+        // outline down with it, and the two would then disagree about the state — the one thing
+        // this feature exists to prevent. Each carrier is therefore isolated on its own, and names
+        // itself once so a hardware log says WHICH cue died instead of "the focus cue died".
+        //
+        // The arguments travel in FIELDS and the three delegates are cached, because a lambda per
+        // carrier per frame is a steady-state allocation in a LateUpdate — the same reason the
+        // TickGuard entry point above caches its own <see cref="System.Action"/>.
+        Carrier("initiative rings", _ringsCached ??= RunRings);
+        Carrier("board outline", _boardCached ??= RunBoard);
+        Carrier("read-only refresh", _readOnlyCached ??= TickReadOnlyRefresh);
+    }
+
+    private CPlayerActor? _tickFocused;
+    private CPlayerActor? _tickTurn;
+    private FocusTurnMark _tickMark;
+    private System.Action? _ringsCached;
+    private System.Action? _boardCached;
+    private System.Action? _readOnlyCached;
+
+    private void RunRings() => TickRings(_tickFocused, _tickTurn, _tickMark);
+
+    private void RunBoard() => TickBoardFrame(_tickMark);
+
+    /// <summary>Names already reported by <see cref="Carrier"/>, so a per-frame failure logs once
+    /// instead of flooding — the carrier keeps being retried, only the shouting stops.</summary>
+    private readonly HashSet<string> _reported = new(4);
+
+    private void Carrier(string name, System.Action work)
+    {
+        try
+        {
+            work();
+        }
+        catch (System.Exception e)
+        {
+            if (_reported.Add(name))
+            {
+                VRLog.Warn("Board", $"Focus cue carrier '{name}' threw and was ISOLATED — the other "
+                                    + "carriers still render this frame, so the board, the avatar "
+                                    + $"ring and the track cannot drift apart over it. {e}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// "A scenario is actually running", with the guard the GAME forgets.
+    ///
+    /// <para>DEFECT (hardware log 2026-08-08, LogOutput.log around the campaign pick):
+    /// <c>Board.CharacterFocus</c> threw a NullReferenceException every frame, and the stack
+    /// bottoms out INSIDE the game: <c>GlobalData.get_CurrentGameState</c> ←
+    /// <c>RevealGate.InScenario</c> ← this tick. <c>RevealGate</c>'s own guard
+    /// (<c>save?.Global != null</c>) is correct and still not enough, because it is the GETTER that
+    /// throws, not the access to it.</para>
+    ///
+    /// <para>ROOT CAUSE, READ FROM SOURCE (<c>decompiled/GH.Runtime/GlobalData.cs</c>:563): the
+    /// Campaign branch of <c>CurrentGameState</c> reads
+    /// <c>AdventureState.MapState.IsInScenarioPhase</c> with NO null check — while the Guildmaster
+    /// branch three lines below it does have one. And <c>AdventureState.MapState</c>
+    /// (<c>MapRuleLibrary.Adventure</c>) is a plain auto-property that is null until
+    /// <c>StartAdventure</c> runs and null again after <c>End()</c>. So between "the player picked
+    /// Campaign in the main menu" (GameMode is already Campaign) and "the campaign save finished
+    /// loading" (MapState exists), the game's own property throws for anyone who reads it. The log
+    /// puts the exception exactly there: the frames after the Campaign menu click and before
+    /// "Loading started".</para>
+    ///
+    /// <para>THE FIX IS THE MISSING GUARD, not a swallowed exception: ask whether the object the
+    /// getter is about to dereference exists, and answer "not in a scenario" when it does not.
+    /// Nothing else about the gate changes, and the guard is confined to the exact branch that has
+    /// the hole — the other <c>GameMode</c>s never touch <c>MapState</c>.</para>
+    ///
+    /// <para>Deliberately NOT fixed in <c>Net.RevealGate</c>: that gate is the multiplayer
+    /// anti-cheat linchpin with several callers and is not this feature's to re-scope. The same
+    /// guard belongs there eventually — see the snippet handed back with this round.</para>
+    /// </summary>
+    private static bool ScenarioLive()
+    {
+        SaveData? save = SaveData.Instance;
+        GlobalData? global = save != null ? save.Global : null;
+        if (global == null)
+            return false;
+        if (global.GameMode == EGameMode.Campaign && MapRuleLibrary.Adventure.AdventureState.MapState == null)
+            return false; // campaign chosen, adventure not started yet — the getter would throw
+        return Net.RevealGate.InScenario;
+    }
+
+    private bool _mrPalette;
+    private bool _mrPaletteKnown;
+
+    /// <summary>
+    /// Log the ONE mode switch that changes what all three carriers look like, so a hardware round
+    /// can tell "the cue is drawn in the wrong palette" from "the cue is drawn and the compositor
+    /// ate it" without guessing. Change-gated: two lines per session at most.
+    /// </summary>
+    private void TickMrPalette()
+    {
+        bool mr = FocusCue.MrActive;
+        if (_mrPaletteKnown && mr == _mrPalette)
+            return;
+        _mrPaletteKnown = true;
+        _mrPalette = mr;
+        if (mr)
+        {
+            Color key = Core.MixedReality.KeyColor.Value;
+            VRLog.Info("Board", "Focus cue → MIXED-REALITY palette. Chroma key is "
+                                + $"{Core.MixedReality.KeyColorName} (RGBA {key.r:0.##},{key.g:0.##},"
+                                + $"{key.b:0.##}); the cue is now OPAQUE (blink rides brightness, not "
+                                + "alpha), correct/wrong are white/amber instead of green/red, and the "
+                                + "board outline wears a dark keyline under its rim. The old cue was a "
+                                + "TRANSLUCENT green over that green key: the compositor keyed the "
+                                + "blended pixel and replaced the outline with the room.");
+        }
+        else
+        {
+            VRLog.Info("Board", "Focus cue → normal (non-MR) palette: the original translucent "
+                                + "green/red blink, unchanged.");
+        }
     }
 
     /// <summary>
@@ -242,27 +370,52 @@ internal sealed class FocusDriver : MonoBehaviour
 
     // ---------------------------------------------------------------------------- board frame --
 
+    /// <summary>
+    /// The cue on the local player's own control board. Since 2026-08-08 the preferred renderer is
+    /// <see cref="BoardOutline"/> — an inverted hull of the BOARD ASSET's own meshes, so the outline
+    /// traces the real silhouette (rounded corners, lip, fittings) at any pose and any user scale.
+    /// The old <see cref="WorldFrame"/> rectangle is kept ONLY for the boards that have no asset to
+    /// trace: the procedural fallback board, or a bundle too old to supply the Overlay shader.
+    ///
+    /// <para>Neither path ever writes the tray's transform — both build CHILDREN of the tray root,
+    /// which is what keeps a FIXIERT (pinned, world-frozen) board legal: the freeze sentinel in
+    /// <c>PlayTray.2.Watchdog</c> compares the ROOT's world pose, and parenting a decoration under
+    /// it leaves that pose untouched. The outline is re-derived on a board SWITCH (a new root), the
+    /// same edge the frame already used.</para>
+    /// </summary>
     private void TickBoardFrame(FocusTurnMark localMark)
     {
         PlayTray? tray = PlayTray.Current;
         Transform? root = tray?.Root;
         if (root == null)
         {
+            _boardOutline?.Apply(null);
             _boardFrame?.Apply(null);
             return;
         }
-        if (_boardFrame == null || !ReferenceEquals(_boardFrameHost, root))
+        if (!ReferenceEquals(_boardFrameHost, root)
+            || (_boardOutline == null && _boardFrame == null))
         {
-            // The tray root is re-created on a board SWITCH; the frame is a child and dies with
-            // it, so rebuild against the live root rather than resurrect a dangling handle.
+            // The tray root is re-created on a board SWITCH; both renderers are children and die
+            // with it, so rebuild against the live root rather than resurrect a dangling handle.
+            _boardOutline?.Destroy();
+            _boardOutline = null;
             _boardFrame?.Destroy();
-            float w = BoardHalfW * 2f + BoardFrameMargin * 2f;
-            float h = BoardHalfW * 2f * BoardAspect + BoardFrameMargin * 2f;
-            _boardFrame = WorldFrame.Build(root, "GloomhavenVR.FocusBoardFrame",
-                                           new Vector2(w, h), BoardFrameThickness, BoardFrameZ);
+            _boardFrame = null;
             _boardFrameHost = root;
+
+            _boardOutline = BoardOutline.Build(root, "local control board");
+            if (_boardOutline == null)
+            {
+                float w = BoardHalfW * 2f + BoardFrameMargin * 2f;
+                float h = BoardHalfW * 2f * BoardAspect + BoardFrameMargin * 2f;
+                _boardFrame = WorldFrame.Build(root, "GloomhavenVR.FocusBoardFrame",
+                                               new Vector2(w, h), BoardFrameThickness, BoardFrameZ);
+            }
         }
-        _boardFrame.Apply(FocusCue.Tint(localMark));
+        Color? tint = FocusCue.Tint(localMark);
+        _boardOutline?.Apply(tint);
+        _boardFrame?.Apply(tint);
     }
 
     // ---------------------------------------------------------------------------------- teardown --
@@ -270,6 +423,7 @@ internal sealed class FocusDriver : MonoBehaviour
     private void HideAll()
     {
         HideRings();
+        _boardOutline?.Apply(null);
         _boardFrame?.Apply(null);
     }
 
