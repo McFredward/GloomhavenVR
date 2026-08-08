@@ -24,13 +24,13 @@ namespace GloomhavenVR.Net;
 /// wearing the MR palette while your own board wears the flat one. This class only owns GEOMETRY
 /// (where the outline sits and how big it is).</para>
 ///
-/// <para>THE BOARD CUE IS A FRAME AROUND THE ASSET'S OUTER CONTOUR (2026-08-08). A peer's board is a
+/// <para>THE BOARD CUE IS A THIN STROKE ON THE ASSET'S OUTER EDGE (2026-08-08). A peer's board is a
 /// clone of the SAME bundled prefab the owner renders (<see cref="RemoteTrayVisual"/>, child
 /// "TrayVisual"), so the very same <see cref="BoardFrame"/> builder the local board uses works here
-/// unchanged and needs nothing passed to it: it finds the asset under the board root itself, hulls
-/// its plan-view footprint and lays ONE closed band just outside it — nothing inside. A peer still
-/// on the FLAT fallback board (bundle not resident on this client) has no asset, and keeps the
-/// rectangle — the same degradation ladder the board itself has.</para>
+/// unchanged and needs nothing passed to it: it finds the asset under the board root itself, traces
+/// its plan-view boundary and lays ONE closed line on it — nothing inside, nothing floating beside
+/// it. A peer still on the FLAT fallback board (bundle not resident on this client) has no asset,
+/// and keeps the rectangle — the same degradation ladder the board itself has.</para>
 ///
 /// <para>The Steam-avatar ring stays a <see cref="WorldFrame"/>: it frames a ~5.5 cm PICTURE (a
 /// stretched unit quad), not a modelled object, so there is no silhouette to trace — a rectangle is
@@ -84,6 +84,17 @@ internal sealed class RemoteFocusOutline
     {
         _playerId = playerId;
         _boardFrame = BoardFrame.Build(boardRoot, $"remote control board [{playerId}]");
+        // Seat the stroke on the REMOTE board's own intra-board sub-ladder, explicitly rather than
+        // by leaving Unity's default: it is board FURNITURE (a transparent, depth-less surface in
+        // the board's own plane), so it belongs at BoardVisual.OrderFurniture, under this board's
+        // docked widgets and its tooltip, exactly like the pick-banner plate. A peer's board has no
+        // distance-ranked furniture GROUP the way the local one does (BoardVisual's header: the
+        // remote sub-ladder is a fixed 0/4/8 that stays below the converted-panel ladder), so the
+        // stroke inherits that board's known limitation instead of inventing a third rule for
+        // itself. The local board's stroke IS ladder-ranked - see FocusDriver.TickBoardFrame.
+        MeshRenderer? frameRenderer = _boardFrame?.Renderer;
+        if (frameRenderer != null)
+            frameRenderer.sortingOrder = BoardVisual.OrderFurniture;
         if (_boardFrame == null)
         {
             _rectFrame = WorldFrame.Build(

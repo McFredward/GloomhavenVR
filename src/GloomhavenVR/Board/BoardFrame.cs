@@ -8,100 +8,157 @@ using UnityEngine.Rendering;
 namespace GloomhavenVR.Board;
 
 /// <summary>
-/// ONE closed frame around the control board's OUTER CONTOUR — a picture frame around the asset,
-/// with nothing whatsoever drawn inside it.
+/// ONE thin closed STROKE on the control board's outer EDGE — a line drawn along the rim of the
+/// asset, with nothing whatsoever drawn inside it and nothing floating beside it.
 ///
-/// <para><b>USER RULING 2026-08-08, second round</b> ("Die Outlines sind völlig kaputt — ich habe mir
-/// einen RAHMEN UM DAS ASSET vorgestellt, KEINE weiteren Outlines innerhalb des Assets"). The
-/// ModBuild-82 INVERTED HULL is deleted, not demoted: it could not be repaired, because it failed in
-/// two independent ways at once and only one of them was a bug.
+/// <para><b>USER RULING 2026-08-08, third round.</b> ModBuild 83's frame was the right OBJECT and
+/// the wrong drawing. Three complaints, all structural, all answered below:
 /// <list type="number">
-/// <item><b>It was the wrong shape by construction.</b> An inverted hull outlines EVERY surface of
-///   every mesh it is built from — so it drew a rim around each card well, each recess, each dial
-///   and each internal bevel of the board, exactly the "weitere Outlines innerhalb des Assets" the
-///   ruling forbids. No width, colour or queue tweak removes interior edges from a hull: they ARE
-///   the hull. A silhouette-only outline is a different object, not a tuned one.</item>
-/// <item><b>Normal extrusion tears on this asset.</b> The board FBX is hard-edged and UV-split
-///   almost everywhere (a bevelled, decorated prop), so its vertices are duplicated per face. Even
-///   with the position-weld the old code did, a decimated 20 k-tri AI-generated mesh has enough
-///   near-duplicate positions and near-degenerate slivers that the shell separates at the seams —
-///   the white confetti in <c>outline.png</c>.</item>
+/// <item>"Es soll wie jedes andere Element auch die Perspektive respektieren, manche Hintergründe
+///   von Texten sind dadurch sichtbar." → DRAW ORDER, see THE PERSPECTIVE DEFECT.</item>
+/// <item>"Es soll dezenter sein, der Strich ist mir zu dick und den schwarzen Rahmen braucht es
+///   auch nicht um den Outline-Strich." → 8/12 mm bands → a 3/4 mm stroke, and the dark MR keyline
+///   is deleted (both live in <see cref="FocusCue"/>). ONE band, ONE material, ONE submesh.</item>
+/// <item>"Ich hätte es gerne wirklich am äußeren Rand des Assets aber eben nur am Rand und ohne
+///   'Versprengung' wie es davor war." → CONTOUR + PLANE, see the next two sections.</item>
 /// </list></para>
 ///
-/// <para><b>WHAT THIS BUILDS INSTEAD, and why the construction is exact rather than approximate.</b>
-/// The board is a flat-ish prop that lives in its root's local XY plane with its thickness on Z (the
-/// bundle contract, <c>unity/board-prep/prepare_playtray.py</c>: "board lying in local XY, thin axis
-/// = Z, decorated TOP face toward -Z"). Its outer contour is therefore a 2-D question, and answered
-/// as one:
-/// <list type="number">
-/// <item>project every vertex of every BOARD-ASSET mesh into board-ROOT-local space and drop the Z —
-///   the plan-view point cloud of the whole asset;</item>
-/// <item>take the CONVEX HULL of that cloud (<see cref="Hull"/>, monotone chain, with an
-///   Akl–Toussaint octagon pre-filter so the sort sees hundreds of points instead of tens of
-///   thousands);</item>
-/// <item>offset that contour outward and stitch two closed rings into a band.</item>
-/// </list>
-/// Every interior vertex — every recess, well and fitting — is strictly INSIDE the hull and
-/// contributes no geometry at all. That is not a filter that could miss something: it is the
-/// definition of a hull. Interior detail cannot be drawn by this class.</para>
+/// <para><b>THE PERSPECTIVE DEFECT, READ FROM SOURCE AND FROM THE HARDWARE LOG.</b> The frame's
+/// pixels were never the problem: the material is <c>Sprites/Default</c>, which declares
+/// <c>ZWrite Off</c> and NO <c>ZTest</c> — i.e. the default <c>ZTest LEqual</c> — in the
+/// <c>Transparent</c> queue, so opaque world geometry in front of it always occluded it correctly.
+/// The break was the DRAW ORDER against everything TRANSPARENT, and it was an omission rather than
+/// a decision: Unity resolves transparent renderers by sortingLayer → sortingOrder → material
+/// renderQueue → distance (this project's own finding, <c>RayInteractor</c> and
+/// <c>CanvasConversion.8.Order</c>), and this renderer shipped at the default
+/// <c>sortingOrder 0</c> while EVERY other transparent surface around it rides the mod's distance
+/// ladder — converted panels at ≥ <c>PanelOrderBase</c> (100) and the control board's own
+/// transparent furniture in the band just under the nearest panel in front of it (hardware log,
+/// <c>FURNITURE ORDER: 'control board' … band 95..99</c>, later <c>239..243</c>). At order 0 the
+/// stroke was painted BEFORE all of them, so a menu or a text plate that is spatially BEHIND the
+/// board still painted over it, and — being the highest renderQueue at order 0 — the stroke in turn
+/// painted over the game's own order-0 transparent plates that were in FRONT of it. Both directions
+/// are the same bug, and the reported "text backgrounds become visible" is its visible half.</para>
 ///
-/// <para><b>IS THE REAL FOOTPRINT CONVEX? MEASURED, NOT ASSUMED.</b> Both shipped board styles were
-/// parsed offline from their prepped meshes (<c>unity/board-prep/out/PlayTray_*.glb</c>) and their
-/// plan-view silhouette compared against its own convex hull:
+/// <para>THE FIX IS THE LADDER'S OWN MEDICINE, not a queue tweak: the stroke is REGISTERED AS BOARD
+/// FURNITURE (<see cref="Renderer"/> → <c>PlayTray.AdoptFurniture</c>, done by
+/// <see cref="FocusDriver"/> for the local board), so it rides in the same distance-ranked band as
+/// the status placard and the keycap labels and is ordered against every panel by measured eye
+/// distance. The material's renderQueue is no longer written at all — it stays at the shader's own
+/// <c>Transparent</c> (3000), the same queue as the rest of that band, so nothing inside the band
+/// is decided by an artificial queue bump. On a PEER's board there is no such group (a remote board
+/// has a fixed intra-board sub-ladder, <c>BoardVisual.OrderFurniture</c> = 0); the stroke sits at
+/// exactly that value, with its peers, and inherits that board's known limitation instead of
+/// inventing a third rule. Stated honestly: the local stroke now draws OVER the game's own order-0
+/// transparent surfaces, which is the trade the whole furniture band already makes.</para>
+///
+/// <para><b>THE CONTOUR IS TRACED, NOT CIRCUMSCRIBED — AND THAT IS WHAT MOVED IT ONTO THE EDGE.</b>
+/// The board is a flat-ish prop lying in its root's local XY plane with its depth on Z (the bundle
+/// contract, <c>unity/board-prep/prepare_playtray.py</c>). ModBuild 83 took the CONVEX HULL of the
+/// plan-view point cloud. The hull is exact at its own vertices and chords across every shallow
+/// concavity BETWEEN them — and the shipped boards are barrel-sided rounded rectangles whose edges
+/// bow slightly inward, so the chords stand off the visible rim everywhere. MEASURED OFFLINE for
+/// this round (Blender, the three shipped assets, plan-view silhouette rasterised at 0.4 mm and the
+/// distance from every point of the hull boundary to the nearest silhouette pixel):
 /// <list type="bullet">
-/// <item>16vm268h ("bronze"), footprint 0.640 × 0.218 m: hull area 0.13822 m² vs. true filled
-///   footprint 0.13249 m² — the hull overshoots by <b>4.3 %</b>; worst gap between the real boundary
-///   and the hull <b>7.0 mm</b>, mean 3.8 mm. Hull: 42 vertices.</item>
-/// <item>9capjqp6 ("steel"), footprint 0.640 × 0.369 m: hull 0.23367 m² vs. 0.22565 m² —
-///   <b>3.6 %</b>; worst gap <b>10.4 mm</b>, mean 4.4 mm. Hull: 47 vertices.</item>
+/// <item>oak (<c>PlayTray_prepped.fbx</c>, the DEFAULT board, footprint 0.639 × 0.318 m):
+///   hull stand-off max <b>5.8 mm</b>, mean 3.4 mm, median 4.4 mm; 71 % of the perimeter over
+///   2 mm out.</item>
+/// <item>bronze (<c>PlayTray_16vm268h</c>, 0.640 × 0.218 m): max <b>6.4 mm</b>, mean 3.7 mm.</item>
+/// <item>steel (<c>PlayTray_9capjqp6</c>, 0.640 × 0.369 m): max <b>9.5 mm</b>, mean 4.2 mm.</item>
 /// </list>
-/// So the footprint is a rounded rectangle that is convex to within a centimetre, and the hull is
-/// the exact answer along every straight edge and every corner round. The residual few millimetres
-/// are shallow dips where the AI-generated corner rounding pinches slightly inward; there the frame
-/// simply stands off the board by that much, which is what a frame is supposed to do. A concave
-/// extraction (alpha shape / boundary-edge walk) would buy those millimetres back at the price of a
-/// non-manifold edge walk on a mesh whose boundary is admittedly not manifold — the failure mode
-/// that just cost a round.</para>
+/// On top of that ModBuild 83 added 6 mm of deliberate clear air, so the stroke's inner edge sat
+/// 9–16 mm off the visible rim of a 0.64 m board. That IS the "nicht wirklich am äußeren Rand"
+/// report, and no width change could have fixed it.</para>
 ///
-/// <para><b>ONE MESH, ONE RENDERER, ONE FRAME.</b> Every board renderer contributes to ONE point
-/// cloud, which yields ONE hull, which yields ONE <see cref="Mesh"/> on ONE GameObject. The count is
-/// structural, not a convention: <see cref="Build"/> has no loop that can emit a second frame, and
-/// the built frame is ~190 triangles.</para>
+/// <para>The contour is therefore now the SAME convex hull with every edge <b>SAGGED ONTO THE
+/// MESH'S OWN BOUNDARY</b> (<see cref="Trace"/>): each hull edge is cut into 3 mm buckets, a bucket
+/// keeps the least-inward mesh vertex that projects into it and lies within
+/// <see cref="SagTrustLocal"/> of the edge, and the contour vertex is that bucket's midpoint pulled
+/// in by exactly that much. This is not a new contour algorithm — it is the shipped hull, moved,
+/// which is what keeps every property it was chosen for:
+/// <list type="bullet">
+/// <item><b>It is bounded on both sides by construction.</b> The contour can only move INWARD from
+///   the hull, and never by more than 10 mm. It cannot wander into the board's interior art and it
+///   cannot grow outward.</item>
+/// <item><b>No interior geometry can be drawn.</b> Every recess, well, dial and bevel is far more
+///   than 10 mm inside the hull and can never win a bucket. That is a construction, not a filter
+///   that could miss a feature.</item>
+/// <item><b>No "Versprengung" is expressible.</b> The output is one vertex per bucket walked once
+///   around the hull — exactly ONE closed polygon. There is no second ring and no free vertex to
+///   shed. Verified offline on all three shipped assets: zero self-intersections in the contour and
+///   in both offset rings of the stroke.</item>
+/// <item><b>It degrades to the hull, not to garbage.</b> A bucket with no evidence is interpolated
+///   from its neighbours against zero sag at the hull vertices, i.e. back to the hull edge; a
+///   degenerate hull skips the trace entirely. The log states which contour was used and the mean
+///   and max sag it applied.</item>
+/// </list></para>
 ///
-/// <para><b>THE MR KEYLINE IS PART OF THE SAME MESH.</b> In mixed reality the frame needs a dark
-/// border or a white rim vanishes on a white wall. That border is two extra bands in the SAME mesh
-/// (submesh 0), hugging the coloured band (submesh 1) on its inner and outer edge. They share the
-/// offset contours exactly — <see cref="Offset"/> is called once per radius and the result reused —
-/// so the three bands are watertight neighbours that never OVERLAP. No overlap means the draw order
-/// between them cannot matter and there is nothing to z-fight; the render queues below are only
-/// about the rest of the transparent scene.</para>
+/// <para>MEASURED RESULT, same method as above (signed distance from the built geometry to the
+/// rasterised silhouette; negative = on the board):
+/// <list type="bullet">
+/// <item>contour median −0.3 mm / −0.9 mm / −0.2 mm (oak / bronze / steel), i.e. it sits ON the
+///   visible rim rather than 3.4–4.2 mm outside it;</item>
+/// <item>with the shipped 1 mm bite and 3 mm stroke, the stroke's INNER edge is on the board for
+///   93–99 % of the perimeter and its OUTER edge sits a median 1.5–2.0 mm off it. The stroke
+///   straddles the rim. ModBuild 83's band started 9–16 mm outside it.</item>
+/// </list>
+/// The one number that makes this work on a DECIMATED mesh is <see cref="SagTrustLocal"/> — see its
+/// own doc, and the 24 mm error it exists to prevent.</para>
 ///
-/// <para><b>NO Z-FIGHTING WITH THE BOARD, BY SEPARATION IN BOTH X/Y AND Z.</b> The band starts
-/// <see cref="FocusCue.OutlineGapLocal"/> OUTSIDE the silhouette, so it does not overlap the board in
-/// plan view at all; and it sits at the board's frontmost measured Z minus <see cref="ProudLocal"/>,
-/// so nothing of the board is ever in front of it. It writes no depth.</para>
+/// <para>Also verified rather than assumed: none of the three shipped boards has a stray part —
+/// every hull vertex of all three lies within 1.7 mm of the rasterised silhouette (oak 1.03 mm,
+/// bronze 1.67 mm, steel 0.63 mm), and each board is a SINGLE mesh object, so there is no
+/// decorative sub-mesh for the trace to ignore and nothing pushing the contour outward.</para>
 ///
-/// <para><b>SCALE AND POSE, AND THE PINNED BOARD.</b> The frame is a child of the board ROOT with an
-/// IDENTITY local pose, and its geometry is baked in board-ROOT-local metres. A board move, tilt or
-/// user RESIZE is a write to the root's own transform (<c>PlayTray.3.Pose</c> writes
-/// <c>_root.localScale</c>), which the frame inherits for free — no per-frame maths. Nothing here
-/// ever writes the tray's transform: adding a child leaves the ROOT's world pose untouched, which is
-/// what keeps a FIXIERT (pinned, world-frozen) board legal under the freeze sentinel in
-/// <c>PlayTray.2.Watchdog</c>.</para>
+/// <para><b>THE PLANE: THE BOARD'S +Z IS THE SIDE THAT FACES YOU, AND ModBuild 83 HAD IT
+/// BACKWARDS.</b> This is the second half of the "not on the edge" report and it was invisible in
+/// the source. The FBX is authored decorated-face-first with the body behind it, but the shipped
+/// prefabs re-orient the imported model with a 180° rotation about (0, 1, −1) — so in board-ROOT
+/// local space the asset occupies z ∈ [−depth, 0] and its DECORATED FACE is the z = 0 end.
+/// Confirmed three ways: the hardware log's own measurement (<c>front face z −0.0332</c>) equals the
+/// oak board's full modelled depth (0.03324 m) to the last digit, i.e. it is the BACK; the prefab's
+/// authored anchor overrides sit 12–28 mm on the +body side of the face plane, which is where recess
+/// FLOORS are; and the board face frame <c>PlayTray</c> derives from those anchors,
+/// <c>n = (Slot2−Slot1) × (ShortRest−LongRest)</c>, comes out −Z, whose "out of the decorated face"
+/// direction (−n) is +Z. ModBuild 83 read the MINIMUM z as "frontmost" and then clamped it, which
+/// parked the stroke 22 mm BEHIND the board's face — beside the rim and a centimetre down its
+/// side wall. <see cref="FaceSign"/> now derives that facing from the four anchors the same way
+/// <c>PlayTray</c> does, and the stroke is laid on the board's own face plane
+/// <see cref="ProudLocal"/> proud of it. The clamp survives only as insurance against a
+/// mis-imported asset (<see cref="MaxFaceOffsetLocal"/>) and does not bind on any shipped
+/// board.</para>
 ///
-/// <para><b>THE MESH REPORTS THE BOARD'S BOUNDS, NOT ITS OWN.</b> <c>PlayTray.MeasureBoardLocalExtents</c>
-/// walks every mesh renderer under the tray and prefers <c>mesh.bounds</c>. An honest bound would
-/// make the board's measured top edge — and with it the tooltip and enemy-reveal clearance — twitch
-/// by the frame width every time the cue blinks on. The frame therefore reports the HULL's own
-/// bounding box, which is by construction no larger than the board's. Costs a sliver of early
-/// frustum culling at the screen edge.</para>
+/// <para><b>ONE MESH, ONE RENDERER, ONE MATERIAL, ONE SUBMESH.</b> The whole point cloud yields ONE
+/// contour, which yields ONE <see cref="Mesh"/> on ONE GameObject with ONE material. The count is
+/// structural, not a convention: <see cref="Build"/> has no loop that can emit a second stroke.</para>
 ///
-/// <para><b>MATERIALS ARE OWN INSTANCES.</b> Two <see cref="Material"/> instances from
+/// <para><b>NO Z-FIGHTING WITH THE BOARD.</b> The stroke deliberately bites
+/// <see cref="FocusCue.OutlineEdgeBiteLocal"/> (1 mm) INSIDE the contour so it touches the rim
+/// everywhere — but it is drawn <see cref="ProudLocal"/> in FRONT of the board's own face plane and
+/// writes no depth, so the bitten millimetre paints onto the rim instead of fighting it.</para>
+///
+/// <para><b>SCALE AND POSE, AND THE PINNED BOARD.</b> The stroke is a child of the board ROOT with
+/// an IDENTITY local pose, and its geometry is baked in board-ROOT-local metres. A board move, tilt
+/// or user RESIZE is a write to the root's own transform, which the stroke inherits for free — no
+/// per-frame maths. Nothing here ever writes the tray's transform: adding a child leaves the ROOT's
+/// world pose untouched, which is what keeps a FIXIERT (pinned, world-frozen) board legal under the
+/// freeze sentinel in <c>PlayTray.2.Watchdog</c>.</para>
+///
+/// <para><b>THE MESH REPORTS THE CONTOUR'S BOUNDS, NOT THE STROKE'S.</b>
+/// <c>PlayTray.MeasureBoardLocalExtents</c> walks every mesh renderer under the tray and prefers
+/// <c>mesh.bounds</c>. An honest bound would make the board's measured top edge — and with it the
+/// tooltip and enemy-reveal clearance — twitch by the stroke width every time the cue blinks on.
+/// The mesh therefore reports the CONTOUR's bounding box, which is by construction no larger than
+/// the board's own footprint. The one place it does exceed the board is depth: the reported box
+/// sits at the stroke's plane, ~2 mm proud of the board's face. Costs a sliver of early frustum
+/// culling at the screen edge.</para>
+///
+/// <para><b>THE MATERIAL IS AN OWN INSTANCE.</b> One <see cref="Material"/> from
 /// <see cref="BoardVisual.Unlit"/> (<c>Sprites/Default</c>: unlit, Cull Off — right for a flat ring
-/// that must survive being looked at from behind — alpha-blended, no depth write). The board's own
-/// materials are read for nothing and written never. Note this drops the ModBuild-82 dependency on
-/// the bundled <c>GloomhavenVR/Overlay</c> shader: a flat band needs no <c>_Cull Front</c>, so an old
-/// bundle no longer costs the player the outline.</para>
+/// that must survive being looked at from behind — alpha-blended, no depth write, and its
+/// renderQueue left exactly where the shader puts it). The board's own materials are read for
+/// nothing and written never.</para>
 ///
 /// <para>Degrades honestly: no bundled board (procedural fallback board — which is a genuine
 /// RECTANGLE, so the caller's rectangle frame is its true contour, not a compromise), no readable
@@ -117,7 +174,7 @@ internal sealed class BoardFrame
 
     /// <summary>The six FBX anchor empties. Everything the MOD parks on the board — cards, slot
     /// frames and highlights, the Confirm/Undo/rest keycaps — hangs under one of these. A card in a
-    /// slot is not part of the board's contour and must not push the frame outward.</summary>
+    /// slot is not part of the board's contour and must not push the stroke outward.</summary>
     private static readonly string[] AnchorNames =
         { "Slot1", "Slot2", "ShortRestToken", "LongRestToken", "ConfirmButton", "UndoButton" };
 
@@ -127,46 +184,58 @@ internal sealed class BoardFrame
 
     private const string FrameName = "GloomhavenVR.BoardFrame";
 
-    /// <summary>Draw queue of the dark MR keyline bands. Transparent range: the frame must run after
-    /// the opaque scene has written depth so the world can occlude it.</summary>
-    private const int KeylineQueue = 3000;
-
-    /// <summary>Draw queue of the coloured rim band. Later than the keyline as a matter of stated
-    /// order rather than necessity — the bands do not overlap (see the class doc), so this only
-    /// ranks the frame against the rest of the transparent scene.</summary>
-    private const int RimQueue = 3002;
-
-    /// <summary>How far in FRONT of the board's frontmost vertex the frame plane sits, in
-    /// board-local metres (+Z points AWAY under the module convention, so this is subtracted).
-    /// Small: the frame is a frame, not a floating halo — and it is already separated from the board
-    /// in plan view, so this only guarantees that a raised lip can never occlude it at a tilt.</summary>
-    private const float ProudLocal = 0.002f;
+    /// <summary>Length of one SAG BUCKET along a hull edge (board-local metres). 3 mm: the sag
+    /// profile of a modelled board edge varies over centimetres, so this samples it several times
+    /// over, and the whole contour lands at ~550–660 vertices — one ~1 300-triangle static ring,
+    /// built once per board.</summary>
+    private const float SagBucketLocal = 0.003f;
 
     /// <summary>
-    /// How far in front of the CARD PLANE the measured front face is still allowed to pull the frame
-    /// (board-local metres). The bundle contract puts the decorated face at board-local z ≈ 0 — all
-    /// six FBX anchors are authored at z = 0 and everything the mod parks on the board sits a few
-    /// millimetres proud of it (<c>PlayTray.3.Pose</c>'s mounts are at z −0.004) — so a lip standing
-    /// more than 2 cm proud is not a lip, it is a mis-imported or mis-oriented asset. Clamping keeps
-    /// the frame IN THE BOARD'S PLANE instead of floating it a board-depth toward the player: the
-    /// bronze board is 0.30 m deep, so an unclamped front-face read on a Z-flipped import would put
-    /// the frame 30 cm in front of the board.
+    /// How far INSIDE a hull edge a mesh vertex may still be taken as evidence of where the real
+    /// boundary runs (board-local metres). This is the one number that makes the sag trustworthy on
+    /// a DECIMATED mesh: the shipped boards are 20 k-triangle decimations, so a straight run of rim
+    /// can be one long triangle edge with no vertex on it for 80 mm at a stretch, and a bucket there
+    /// contains only INTERIOR vertices. Ignoring anything deeper than 10 mm means such a bucket
+    /// reports "no evidence" and is interpolated from its neighbours — which on a straight run is
+    /// the hull line, i.e. exactly right — instead of being dragged 25 mm into the board by a vertex
+    /// that has nothing to do with the boundary. Measured: with this band the traced contour lands
+    /// within 0.9 mm (median) of the rasterised silhouette on all three shipped boards; without it
+    /// the worst error was 24 mm.
     /// </summary>
-    private const float MaxFrontProudLocal = 0.02f;
+    private const float SagTrustLocal = 0.010f;
 
-    /// <summary>Hull edges shorter than this (board-local metres) are collapsed. A decimated mesh
-    /// produces near-duplicate extreme points; the miter of a sub-millimetre edge is numerically
-    /// worthless and would put a spike on the frame — the one artefact this round exists to kill.</summary>
+    /// <summary>Hard cap on the buckets of one hull edge, so a pathological hull cannot allocate
+    /// without bound. 512 × 3 mm = 1.5 m, longer than any shipped board's whole perimeter.</summary>
+    private const int MaxBucketsPerEdge = 512;
+
+    /// <summary>How far in FRONT of the board's own face plane the stroke sits, in board-local
+    /// metres, measured along the face direction <see cref="FaceSign"/> resolves. Small on purpose:
+    /// the stroke is a line ON the edge, not a halo floating off it — 1.5 mm is enough that the
+    /// millimetre it bites onto the rim can never be z-clipped by the rim's own art.</summary>
+    private const float ProudLocal = 0.0015f;
+
+    /// <summary>
+    /// Absolute cap on how far from board-local z = 0 the stroke's plane may end up (board-local
+    /// metres) — insurance, not a working part. The bundle contract puts the decorated face at
+    /// board-local z ≈ 0 on every shipped board (measured: all three occupy z ∈ [−depth, 0], so the
+    /// face plane IS 0.000), and a face plane further out than 2 cm means the asset was imported
+    /// mis-oriented. Without the cap a Z-flipped import would put the stroke a whole board depth in
+    /// front of the board — 30 cm on the bronze board.
+    /// </summary>
+    private const float MaxFaceOffsetLocal = 0.02f;
+
+    /// <summary>Contour edges shorter than this (board-local metres) are collapsed. Adjacent bins
+    /// can land on the same modelled corner; the miter of a sub-millimetre edge is numerically
+    /// worthless and would put a spike on the stroke.</summary>
     private const float MinEdgeLocal = 0.0008f;
 
-    /// <summary>Floor on the miter's cosine when offsetting a contour vertex. A convex hull cannot
-    /// have a reflex vertex, but it CAN have a very sharp one if the cloud has a spike; without a
-    /// floor the miter length would run away. 0.25 caps the outward step at 4× the offset.</summary>
+    /// <summary>Floor on the miter's cosine when offsetting a contour vertex, so a pathologically
+    /// sharp vertex cannot grow a spike. 0.25 caps the outward step at 4× the offset.</summary>
     private const float MinMiterCos = 0.25f;
 
     /// <summary>Board-local metres past the AUTHORED plate that a vertex may sit and still count
     /// toward the contour. Mirrors <c>PlayTray</c>'s own <c>BoardExtentSanityMargin</c> and exists
-    /// for the same reason: one stray vertex must never drag the frame metres into the scene. Wide
+    /// for the same reason: one stray vertex must never drag the stroke metres into the scene. Wide
     /// enough that the tallest shipped board (steel, half-height 0.184 m vs. the authored 0.16 m)
     /// clears it comfortably.</summary>
     private const float FootprintSanityMargin = 0.35f;
@@ -176,44 +245,49 @@ internal sealed class BoardFrame
 
     private readonly Vector2[] _contour;
     private readonly float _planeZ;
+    private readonly float _faceSign;
     private readonly Bounds _bounds;
     private readonly GameObject _go;
     private readonly MeshFilter _filter;
     private readonly MeshRenderer _renderer;
     private readonly Material _rimMaterial;
-    private readonly Material _keylineMaterial;
     private readonly Mesh _mesh;
 
-    /// <summary>Band radii the mesh is currently baked at, in board-local microns; keyline < 0 means
-    /// "no keyline band" (outside MR). <see cref="int.MinValue"/> = never baked.</summary>
-    private int _bakedGap = int.MinValue;
+    /// <summary>Stroke radii the mesh is currently baked at, in board-local microns.
+    /// <see cref="int.MinValue"/> = never baked.</summary>
+    private int _bakedBite = int.MinValue;
     private int _bakedRim = int.MinValue;
-    private int _bakedKeyline = int.MinValue;
-    private bool _keylineSubmesh;
     private bool _shown;
 
     private static bool _loggedBuilt;
     private static bool _loggedFallback;
 
-    private BoardFrame(Vector2[] contour, float planeZ, Bounds bounds, GameObject go,
-                       MeshFilter filter, MeshRenderer renderer, Material rim, Material keyline,
-                       Mesh mesh)
+    private BoardFrame(Vector2[] contour, float planeZ, float faceSign, Bounds bounds, GameObject go,
+                       MeshFilter filter, MeshRenderer renderer, Material rim, Mesh mesh)
     {
         _contour = contour;
         _planeZ = planeZ;
+        _faceSign = faceSign;
         _bounds = bounds;
         _go = go;
         _filter = filter;
         _renderer = renderer;
         _rimMaterial = rim;
-        _keylineMaterial = keyline;
         _mesh = mesh;
     }
+
+    /// <summary>The stroke's own renderer, for the caller that must seat it on a draw-order ladder
+    /// (the LOCAL board registers it as furniture — see THE PERSPECTIVE DEFECT in the class doc).
+    /// Null-safe for a torn-down frame.</summary>
+    internal MeshRenderer? Renderer => _renderer != null ? _renderer : null;
+
+    /// <summary>The stroke's GameObject, for the same caller. Null once destroyed.</summary>
+    internal GameObject? RootObject => _go != null ? _go : null;
 
     // -------------------------------------------------------------------------------- building --
 
     /// <summary>
-    /// Build the frame for the board asset under <paramref name="boardRoot"/> (the tray root
+    /// Build the stroke for the board asset under <paramref name="boardRoot"/> (the tray root
     /// locally, the remote board root for a peer). Null when there is no board ASSET to trace — the
     /// procedural fallback board, a peer still on the flat fallback, or a bundle whose meshes are not
     /// Read/Write enabled. The caller then keeps <see cref="WorldFrame"/>.
@@ -227,7 +301,8 @@ internal sealed class BoardFrame
             return null; // procedural / flat fallback board — a rectangle IS its true contour
 
         var cloud = new List<Vector2>(4096);
-        float frontZ = float.PositiveInfinity;
+        float minZ = float.PositiveInfinity;
+        float maxZ = float.NegativeInfinity;
         int layer = boardRoot.gameObject.layer;
         int skippedUnreadable = 0;
         int meshes = 0;
@@ -261,8 +336,10 @@ internal sealed class BoardFrame
                 if (!(Mathf.Abs(p.x) <= xLimit) || !(Mathf.Abs(p.y) <= yLimit))
                     continue;
                 cloud.Add(new Vector2(p.x, p.y));
-                if (p.z < frontZ)
-                    frontZ = p.z;
+                if (p.z < minZ)
+                    minZ = p.z;
+                if (p.z > maxZ)
+                    maxZ = p.z;
             }
             layer = mf.gameObject.layer; // ride the board's own (mod) layer, as its renderers do
             meshes++;
@@ -277,16 +354,19 @@ internal sealed class BoardFrame
             return null;
         }
 
-        Vector2[]? contour = Simplify(Hull(cloud));
+        List<Vector2> hull = Hull(cloud);
+        Vector2[]? traced = Simplify(Trace(cloud, hull, out float meanSag, out float maxSag));
+        Vector2[]? contour = traced ?? Simplify(hull);
+        bool usedTrace = traced != null;
         if (contour == null)
         {
             Fallback(label, $"the board's {cloud.Count} projected vertices collapse to a degenerate "
-                            + "contour (fewer than three distinct hull points) — there is no "
-                            + "footprint to frame");
+                            + "contour (fewer than three distinct boundary points) — there is no "
+                            + "footprint to trace");
             return null;
         }
 
-        // The frame's REPORTED bounds are the hull's, never the band's — see the class doc.
+        // The REPORTED bounds are the contour's, never the stroke's — see the class doc.
         var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
         var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
         for (int i = 0; i < contour.Length; i++)
@@ -294,17 +374,20 @@ internal sealed class BoardFrame
             min = Vector2.Min(min, contour[i]);
             max = Vector2.Max(max, contour[i]);
         }
-        // Sit on the board's own front face, but never further out than a real lip could be — see
-        // MaxFrontProudLocal. Also never BEHIND the card plane, so a board whose frontmost vertex is
-        // its back body cannot bury the frame inside the asset.
-        float planeZ = Mathf.Clamp(frontZ, -MaxFrontProudLocal, 0f) - ProudLocal;
+
+        // WHICH WAY THE BOARD FACES. +1 = the decorated face is the board's MAX-z end (every
+        // shipped prefab); −1 = its MIN-z end. See THE PLANE in the class doc.
+        float faceSign = FaceSign(visual, boardRoot, out bool faceFromAnchors);
+        float facePlane = faceSign > 0f ? maxZ : minZ;
+        float planeZ = Mathf.Clamp(facePlane, -MaxFaceOffsetLocal, MaxFaceOffsetLocal)
+                       + faceSign * ProudLocal;
         var bounds = new Bounds(
             new Vector3((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, planeZ),
             new Vector3(max.x - min.x, max.y - min.y, 0.001f));
 
         var go = new GameObject(FrameName);
         Transform t = go.transform;
-        // IDENTITY local pose under the board ROOT: the frame inherits the board's live pose, tilt
+        // IDENTITY local pose under the board ROOT: the stroke inherits the board's live pose, tilt
         // and user scale with no per-frame maths, and dies with the board. The ROOT's own transform
         // is never written — that is what keeps a pinned board's freeze sentinel quiet.
         t.SetParent(boardRoot, worldPositionStays: false);
@@ -321,28 +404,33 @@ internal sealed class BoardFrame
         mr.receiveShadows = false;
         mr.lightProbeUsage = LightProbeUsage.Off;
         mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
-
+        // sortingOrder is NOT set here: it is the caller's ladder seat (BoardVisual.OrderFurniture
+        // = 0 on a peer's board, the control board's distance-ranked furniture band locally). The
+        // material's renderQueue is NOT written either — Sprites/Default's own Transparent (3000)
+        // is exactly the queue the rest of that band uses.
         Material rim = BoardVisual.Unlit(Color.white);
-        rim.renderQueue = RimQueue;
-        Material keyline = BoardVisual.Unlit(Color.white);
-        keyline.renderQueue = KeylineQueue;
         mr.sharedMaterial = rim;
         go.SetActive(false);
 
-        var frame = new BoardFrame(contour, planeZ, bounds, go, filter, mr, rim, keyline, mesh2);
+        var frame = new BoardFrame(contour, planeZ, faceSign, bounds, go, filter, mr, rim, mesh2);
 
         if (!_loggedBuilt)
         {
             _loggedBuilt = true;
-            VRLog.Info("Board", $"Focus frame: ONE closed contour frame built for '{label}' — "
-                                + $"{contour.Length} hull vertices from {meshes} board mesh(es), "
-                                + $"{cloud.Count} projected points, board-local front face z "
-                                + $"{frontZ:0.####} → frame plane z {planeZ:0.####}, "
-                                + $"footprint {(max.x - min.x):0.###} × {(max.y - min.y):0.###} m. "
-                                + "Exactly 1 ring mesh on 1 renderer; NO geometry is emitted for any "
-                                + "interior feature (every interior vertex is inside the hull by "
-                                + "definition). This REPLACES the ModBuild-82 inverted hull, which "
-                                + "outlined every recess and tore at the FBX's hard edges.");
+            VRLog.Info("Board", $"Focus stroke: ONE closed contour stroke built for '{label}' — "
+                                + $"{contour.Length} contour vertices ({(usedTrace ? "hull SAGGED onto the mesh boundary" : "CONVEX-HULL fallback")}"
+                                + $", {hull.Count} hull edges, sag mean {meanSag * 1000f:0.##} mm / max "
+                                + $"{maxSag * 1000f:0.##} mm) from {meshes} board mesh(es) and "
+                                + $"{cloud.Count} projected points. Board-local z spans "
+                                + $"{minZ:0.####}…{maxZ:0.####}; the decorated face is the "
+                                + $"{(faceSign > 0f ? "MAX" : "MIN")}-z end "
+                                + $"({(faceFromAnchors ? "derived from the four FBX anchors" : "ANCHORS NOT FOUND — assumed")}), "
+                                + $"so the stroke plane is z {planeZ:0.####}. Footprint "
+                                + $"{(max.x - min.x):0.###} × {(max.y - min.y):0.###} m. Exactly 1 ring "
+                                + "mesh on 1 renderer with 1 material and 1 submesh; NO geometry is "
+                                + "emitted for any interior feature (the contour never leaves the "
+                                + "hull's own boundary band), and no dark keyline (user: 'den "
+                                + "schwarzen Rahmen braucht es auch nicht').");
         }
         return frame;
     }
@@ -363,11 +451,55 @@ internal sealed class BoardFrame
         return false;
     }
 
+    /// <summary>
+    /// +1 when the board's DECORATED face is its MAX-z end in board-ROOT-local space, −1 when it is
+    /// the MIN-z end. Derived exactly the way <c>PlayTray</c> derives the board face frame it seats
+    /// every card and keycap with: <c>n = (Slot2−Slot1) × (ShortRest−LongRest)</c> is the board's
+    /// normal and −n points OUT of the decorated face. Only the sign of that direction's z matters
+    /// here, because the stroke is a flat ring in the board-root XY plane.
+    ///
+    /// <para>Every shipped prefab answers +1 (measured offline: the assets occupy z ∈ [−depth, 0]
+    /// with the decorated face at 0), which is also the assumption when the anchors are missing —
+    /// a board without them cannot seat a card either, so it is broken well before this. The log
+    /// says which of the two happened.</para>
+    /// </summary>
+    private static float FaceSign(Transform visual, Transform boardRoot, out bool fromAnchors)
+    {
+        fromAnchors = false;
+        Transform? s1 = FindAnchor(visual, "Slot1");
+        Transform? s2 = FindAnchor(visual, "Slot2");
+        Transform? shortRest = FindAnchor(visual, "ShortRestToken");
+        Transform? longRest = FindAnchor(visual, "LongRestToken");
+        if (s1 == null || s2 == null || shortRest == null || longRest == null)
+            return 1f;
+
+        Vector3 a = boardRoot.InverseTransformPoint(s1.position);
+        Vector3 b = boardRoot.InverseTransformPoint(s2.position);
+        Vector3 c = boardRoot.InverseTransformPoint(shortRest.position);
+        Vector3 d = boardRoot.InverseTransformPoint(longRest.position);
+        Vector3 outward = -Vector3.Cross(b - a, c - d);
+        if (Mathf.Abs(outward.z) < 1e-6f)
+            return 1f; // anchors are degenerate/coplanar with z — no usable statement
+        fromAnchors = true;
+        return outward.z > 0f ? 1f : -1f;
+    }
+
+    private static Transform? FindAnchor(Transform root, string name)
+    {
+        if (root.name == name)
+            return root;
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform? hit = FindAnchor(root.GetChild(i), name);
+            if (hit != null)
+                return hit;
+        }
+        return null;
+    }
+
     // ---------------------------------------------------------------------------------- drawing --
 
-    /// <summary>Show the frame in <paramref name="tint"/>, or hide it when null. In MR a dark
-    /// keyline hugs the coloured band on both sides (see <see cref="FocusCue.OutlineKeylineTint"/>);
-    /// outside MR only the coloured band is built, exactly the pre-MR look.</summary>
+    /// <summary>Show the stroke in <paramref name="tint"/>, or hide it when null.</summary>
     internal void Apply(Color? tint)
     {
         if (_go == null)
@@ -378,11 +510,7 @@ internal sealed class BoardFrame
             return;
         }
 
-        Color? keyline = FocusCue.OutlineKeylineTint();
-        Bake(FocusCue.OutlineGapLocal, FocusCue.OutlineRimWidthLocal,
-             keyline != null ? FocusCue.OutlineKeylineWidthLocal : 0f);
-        if (keyline != null && _keylineMaterial != null)
-            _keylineMaterial.color = keyline.Value;
+        Bake(FocusCue.OutlineEdgeBiteLocal, FocusCue.OutlineRimWidthLocal);
         if (_rimMaterial != null)
             _rimMaterial.color = tint.Value;
         Show(true);
@@ -394,11 +522,9 @@ internal sealed class BoardFrame
             Object.Destroy(_go);
         if (_mesh != null)
             Object.Destroy(_mesh);
-        // OWN instances — nothing else wears them.
+        // OWN instance — nothing else wears it.
         if (_rimMaterial != null)
             Object.Destroy(_rimMaterial);
-        if (_keylineMaterial != null)
-            Object.Destroy(_keylineMaterial);
     }
 
     private void Show(bool shown)
@@ -413,82 +539,46 @@ internal sealed class BoardFrame
     // ----------------------------------------------------------------------------- ring geometry --
 
     /// <summary>
-    /// Rebuild the ring for the given band radii (board-local metres): the coloured band spans
-    /// <paramref name="gap"/> … <paramref name="gap"/> + <paramref name="rim"/> outside the contour,
-    /// and — when <paramref name="keyline"/> &gt; 0 — a dark band of that width hugs it on each side.
+    /// Rebuild the ring for the given radii (board-local metres): the stroke spans
+    /// −<paramref name="bite"/> … −<paramref name="bite"/> + <paramref name="rim"/> measured
+    /// outward from the contour, i.e. it starts <paramref name="bite"/> INSIDE the board's own edge.
     /// A no-op unless a width actually changed, which outside the MR toggle it never does.
     /// </summary>
-    private void Bake(float gap, float rim, float keyline)
+    private void Bake(float bite, float rim)
     {
-        int gapU = Mathf.RoundToInt(gap * 1e6f);
+        int biteU = Mathf.RoundToInt(bite * 1e6f);
         int rimU = Mathf.RoundToInt(rim * 1e6f);
-        int keyU = keyline > 0f ? Mathf.RoundToInt(keyline * 1e6f) : -1;
-        if (gapU == _bakedGap && rimU == _bakedRim && keyU == _bakedKeyline)
+        if (biteU == _bakedBite && rimU == _bakedRim)
             return;
-        _bakedGap = gapU;
+        _bakedBite = biteU;
         _bakedRim = rimU;
-        _bakedKeyline = keyU;
 
         int n = _contour.Length;
-        bool wantKeyline = keyU > 0;
-        // Each contour radius is offset ONCE and the result shared by the bands that meet on it, so
-        // neighbouring bands are watertight and can never overlap.
-        Vector2[] cIn = Offset(_contour, gap);
-        Vector2[] cOut = Offset(_contour, gap + rim);
-        // The inner keyline may eat into the gap but never past the board's own contour: a keyline
-        // wider than the gap would be drawn OVER the board's edge, which is interior art.
-        Vector2[]? kIn = wantKeyline ? Offset(_contour, Mathf.Max(gap - keyline, 0f)) : null;
-        Vector2[]? kOut = wantKeyline ? Offset(_contour, gap + rim + keyline) : null;
+        Vector2[] cIn = Offset(_contour, -bite);
+        Vector2[] cOut = Offset(_contour, -bite + rim);
 
-        int rings = wantKeyline ? 3 : 1;
-        int vertexCount = rings * 2 * n;
+        int vertexCount = 2 * n;
         var verts = new Vector3[vertexCount];
         var normals = new Vector3[vertexCount];
         var colors = new Color32[vertexCount];
         var white = new Color32(255, 255, 255, 255);
         // The unlit shader multiplies by the vertex COLOUR channel; a mesh without one feeds it an
-        // undefined value (black on some drivers), which is how an "invisible" frame happens.
-        var faceNormal = new Vector3(0f, 0f, -1f); // toward the viewer (+Z points away)
+        // undefined value (black on some drivers), which is how an "invisible" stroke happens.
+        var faceNormal = new Vector3(0f, 0f, _faceSign); // out of the board's decorated face
 
         int v = 0;
         int rimBase = Fill(verts, normals, colors, ref v, cIn, cOut, _planeZ, faceNormal, white);
-        int keyInnerBase = 0, keyOuterBase = 0;
-        if (wantKeyline)
-        {
-            keyInnerBase = Fill(verts, normals, colors, ref v, kIn!, cIn, _planeZ, faceNormal, white);
-            keyOuterBase = Fill(verts, normals, colors, ref v, cOut, kOut!, _planeZ, faceNormal, white);
-        }
 
         _mesh.Clear();
         _mesh.vertices = verts;
         _mesh.normals = normals;
         _mesh.colors32 = colors;
-        if (wantKeyline)
-        {
-            _mesh.subMeshCount = 2;
-            int[] key = new int[n * 6 * 2];
-            Stitch(key, 0, keyInnerBase, n);
-            Stitch(key, n * 6, keyOuterBase, n);
-            _mesh.SetTriangles(key, 0, calculateBounds: false);
-            _mesh.SetTriangles(Ring(rimBase, n), 1, calculateBounds: false);
-        }
-        else
-        {
-            _mesh.subMeshCount = 1;
-            _mesh.SetTriangles(Ring(rimBase, n), 0, calculateBounds: false);
-        }
-        // The board's bounds, never the band's — see the class doc (measured board extents must not
-        // twitch by the frame width every time the cue blinks on).
+        _mesh.subMeshCount = 1;
+        _mesh.SetTriangles(Ring(rimBase, n), 0, calculateBounds: false);
+        // The contour's bounds, never the stroke's — see the class doc (measured board extents must
+        // not twitch by the stroke width every time the cue blinks on).
         _mesh.bounds = _bounds;
 
-        if (_keylineSubmesh != wantKeyline)
-        {
-            _keylineSubmesh = wantKeyline;
-            // Submesh 0 is the keyline, submesh 1 the rim, so the material array follows that order.
-            _renderer.sharedMaterials = wantKeyline
-                ? new[] { _keylineMaterial, _rimMaterial }
-                : new[] { _rimMaterial };
-        }
         if (_filter.sharedMesh != _mesh)
             _filter.sharedMesh = _mesh;
     }
@@ -525,8 +615,7 @@ internal sealed class BoardFrame
     }
 
     /// <summary>Stitch a closed band: quad i joins inner[i], outer[i], outer[i+1], inner[i+1].
-    /// Wound so the face points at the viewer on the -Z side; the material is Cull Off, so this is
-    /// correctness rather than necessity.</summary>
+    /// The material is Cull Off, so the winding is correctness rather than necessity.</summary>
     private static void Stitch(int[] tris, int at, int baseIndex, int n)
     {
         for (int i = 0; i < n; i++)
@@ -544,10 +633,130 @@ internal sealed class BoardFrame
     // --------------------------------------------------------------------------- contour maths --
 
     /// <summary>
+    /// The traced outer boundary of <paramref name="cloud"/> in counter-clockwise order: the convex
+    /// <paramref name="hull"/> with every edge SAGGED onto the mesh's own boundary.
+    ///
+    /// <para>Each hull edge is cut into <see cref="SagBucketLocal"/>-long buckets. A bucket keeps
+    /// the LEAST-INWARD cloud point that projects into it and lies within
+    /// <see cref="SagTrustLocal"/> of the edge; that point's inward distance is the bucket's sag,
+    /// and the contour vertex is the bucket's midpoint pulled in by it. Buckets with no such point
+    /// are linearly interpolated between their populated neighbours, with sag 0 pinned at both hull
+    /// VERTICES — which is exact, because a hull vertex IS a cloud point and therefore has no sag.
+    /// On a long straight rim run (where a decimated mesh has no vertex to offer) that interpolation
+    /// reproduces the hull edge, which is the correct answer there.</para>
+    ///
+    /// <para>Every property the shipped convex hull was chosen for survives, because this IS the
+    /// hull, moved:
+    /// <list type="bullet">
+    /// <item>the contour can only ever move INWARD from the hull, and never further than
+    ///   <see cref="SagTrustLocal"/> — it is bounded on both sides by construction, so it cannot
+    ///   wander into the board's interior art;</item>
+    /// <item>no interior feature can be drawn: a recess, well or dial is metres — at minimum, more
+    ///   than 10 mm — inside the hull and can never win a bucket;</item>
+    /// <item>the output is ONE closed polygon walked once around the hull, so no fragment
+    ///   ("Versprengung") is expressible.</item>
+    /// </list>
+    /// Null when the hull is degenerate; the caller then uses the hull itself.</para>
+    ///
+    /// <para>Cost: one pass over the cloud per hull edge (~1.2 M point tests on a shipped board,
+    /// tens of milliseconds once, on the frame the board is built).</para>
+    /// </summary>
+    private static List<Vector2>? Trace(List<Vector2> cloud, List<Vector2> hull,
+                                        out float meanSag, out float maxSag)
+    {
+        meanSag = 0f;
+        maxSag = 0f;
+        int h = hull.Count;
+        if (h < MinContourVertices)
+            return null;
+
+        Vector2[] pts = cloud.ToArray(); // array indexing: this is the hot loop of the whole build
+        var contour = new List<Vector2>(1024);
+        var sag = new float[MaxBucketsPerEdge];
+        var has = new bool[MaxBucketsPerEdge];
+        double sagSum = 0d;
+        int sagCount = 0;
+
+        for (int i = 0; i < h; i++)
+        {
+            Vector2 a = hull[i];
+            Vector2 b = hull[(i + 1) % h];
+            Vector2 e = b - a;
+            float len = e.magnitude;
+            if (len < 1e-6f)
+                continue;
+            Vector2 dir = e / len;
+            var normal = new Vector2(dir.y, -dir.x); // outward for a CCW hull
+            int m = Mathf.Clamp(Mathf.RoundToInt(len / SagBucketLocal), 1, MaxBucketsPerEdge);
+            for (int k = 0; k < m; k++)
+            {
+                sag[k] = 0f;
+                has[k] = false;
+            }
+
+            for (int p = 0; p < pts.Length; p++)
+            {
+                float dx = pts[p].x - a.x;
+                float dy = pts[p].y - a.y;
+                float s = dx * normal.x + dy * normal.y; // <= 0 inside a supporting line
+                if (s > 0f || s < -SagTrustLocal)
+                    continue;
+                float t = dx * dir.x + dy * dir.y;
+                if (t < 0f || t > len)
+                    continue;
+                int k = (int)(t / len * m);
+                if (k >= m)
+                    k = m - 1;
+                if (!has[k] || s > sag[k])
+                {
+                    sag[k] = s;
+                    has[k] = true;
+                }
+            }
+
+            Interpolate(sag, has, m);
+            for (int k = 0; k < m; k++)
+            {
+                contour.Add(a + dir * ((k + 0.5f) / m * len) + normal * sag[k]);
+                sagSum += -sag[k];
+                sagCount++;
+                if (-sag[k] > maxSag)
+                    maxSag = -sag[k];
+            }
+        }
+
+        if (sagCount > 0)
+            meanSag = (float)(sagSum / sagCount);
+        return contour.Count >= MinContourVertices ? contour : null;
+    }
+
+    /// <summary>Fill the buckets with no supporting point by linear interpolation between the
+    /// populated ones, pinning sag 0 half a bucket outside each end — the hull VERTICES, which are
+    /// cloud points and therefore have zero sag by definition.</summary>
+    private static void Interpolate(float[] sag, bool[] has, int m)
+    {
+        float prevPos = -0.5f;   // the hull vertex before the first bucket
+        float prevVal = 0f;
+        int atK = 0;
+        for (int k = 0; k < m; k++)
+        {
+            if (!has[k])
+                continue;
+            for (int g = atK; g < k; g++)
+                sag[g] = Mathf.Lerp(prevVal, sag[k], (g - prevPos) / (k - prevPos));
+            prevPos = k;
+            prevVal = sag[k];
+            atK = k + 1;
+        }
+        float endPos = m - 0.5f; // the hull vertex after the last bucket
+        for (int g = atK; g < m; g++)
+            sag[g] = Mathf.Lerp(prevVal, 0f, (g - prevPos) / (endPos - prevPos));
+    }
+
+    /// <summary>
     /// The convex hull of <paramref name="cloud"/> in counter-clockwise order (Andrew's monotone
     /// chain), preceded by an Akl–Toussaint octagon reject that typically discards well over 90 % of
-    /// the points before the sort — a board mesh contributes ~22 000 of them and this runs on the
-    /// frame a board is built on.
+    /// the points before the sort. Kept as the RADIAL TRACE's fallback and as its area reference.
     /// </summary>
     private static List<Vector2> Hull(List<Vector2> cloud)
     {
@@ -627,18 +836,19 @@ internal sealed class BoardFrame
         return true;
     }
 
-    /// <summary>Drop hull vertices closer than <see cref="MinEdgeLocal"/> to the one before them, so
-    /// no miter is computed from a sub-millimetre edge. Null when fewer than three survive.</summary>
-    private static Vector2[]? Simplify(List<Vector2> hull)
+    /// <summary>Drop contour vertices closer than <see cref="MinEdgeLocal"/> to the one before them,
+    /// so no miter is computed from a sub-millimetre edge. Null when fewer than three survive or the
+    /// input is null.</summary>
+    private static Vector2[]? Simplify(List<Vector2>? contour)
     {
-        if (hull.Count < MinContourVertices)
+        if (contour == null || contour.Count < MinContourVertices)
             return null;
         float minSq = MinEdgeLocal * MinEdgeLocal;
-        var kept = new List<Vector2>(hull.Count);
-        for (int i = 0; i < hull.Count; i++)
+        var kept = new List<Vector2>(contour.Count);
+        for (int i = 0; i < contour.Count; i++)
         {
-            if (kept.Count == 0 || (hull[i] - kept[kept.Count - 1]).sqrMagnitude >= minSq)
-                kept.Add(hull[i]);
+            if (kept.Count == 0 || (contour[i] - kept[kept.Count - 1]).sqrMagnitude >= minSq)
+                kept.Add(contour[i]);
         }
         while (kept.Count > MinContourVertices
                && (kept[0] - kept[kept.Count - 1]).sqrMagnitude < minSq)
@@ -649,11 +859,12 @@ internal sealed class BoardFrame
     }
 
     /// <summary>
-    /// Push a CCW convex contour outward by <paramref name="d"/> board-local metres along each
-    /// vertex' miter. Exact for the straight runs; at a corner the miter cuts the true offset's
-    /// circular arc, which on a hull of forty-odd vertices turning a few degrees at a time is a
-    /// sub-tenth-of-a-millimetre difference. <see cref="MinMiterCos"/> caps a pathologically sharp
-    /// vertex so a spike can never grow out of the frame.
+    /// Push a CCW contour outward by <paramref name="d"/> board-local metres along each vertex'
+    /// miter (a NEGATIVE <paramref name="d"/> pulls it inward, which is how the stroke bites onto
+    /// the rim). Exact for the straight runs; at a corner the miter cuts the true offset's circular
+    /// arc, which on a five-hundred-vertex contour turning a fraction of a degree at a time is a
+    /// sub-hundredth-of-a-millimetre difference. <see cref="MinMiterCos"/> caps a pathologically
+    /// sharp vertex so a spike can never grow out of the stroke.
     /// </summary>
     private static Vector2[] Offset(Vector2[] contour, float d)
     {
@@ -692,8 +903,8 @@ internal sealed class BoardFrame
         if (_loggedFallback)
             return;
         _loggedFallback = true;
-        VRLog.Warn("Board", $"Focus frame for '{label}' falls back to the RECTANGLE frame: {why}. "
+        VRLog.Warn("Board", $"Focus stroke for '{label}' falls back to the RECTANGLE frame: {why}. "
                             + "The cue still works; it just circumscribes the board instead of "
-                            + "tracing its contour.");
+                            + "tracing its edge.");
     }
 }
