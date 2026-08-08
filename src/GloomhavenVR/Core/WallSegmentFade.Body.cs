@@ -138,7 +138,10 @@ internal static partial class WallSegmentFade
                 // The fade-ON line and the diag need an honest mechanism label — there is
                 // no shader variant on a body wall.
                 if (seg.ShaderNames == "?")
-                    seg.ShaderNames = "plain (no fade shader — enabled-only delivery)";
+                    // Round 15: a body wall's meshes carry NO live wall-fade toggle by
+                    // construction (that is why the segment got a body at all), so they
+                    // dissolve through the material SWAP — not by popping.
+                    seg.ShaderNames = "plain (no fade shader — dissolve-swap delivery)";
                 float thickness = Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z);
                 seg.BlockEps = Mathf.Clamp(0.5f * thickness, BlockEpsMinWorld, BlockEpsMaxWorld);
             }
@@ -185,6 +188,7 @@ internal static partial class WallSegmentFade
                     if (p.Renderer.enabled)
                     {
                         _mountedTouched[p.Renderer] = p;
+                        EnsureDissolveChannel(p);
                         DriveProp(p, 1f);
                         p.Renderer.enabled = false;
                     }
@@ -192,7 +196,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
-                    TryBeginSwap(p); // round 11: everything that fades animates
+                    EnsureDissolveChannel(p); // round 15: everything that fades animates
                     DriveProp(p, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;

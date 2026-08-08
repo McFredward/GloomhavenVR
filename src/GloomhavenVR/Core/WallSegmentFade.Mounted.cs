@@ -124,17 +124,28 @@ internal static partial class WallSegmentFade
         public float EmissionRate;
         /// <summary>Which channel(s) this prop dissolves through — for the census line.</summary>
         public string Tier = "none";
-        // ---- round-11 dissolve swap (user: "ALLE assets die faden sollen das immer mit
-        // der Animation tun") — plain meshes whose material has no working fade channel get
-        // their materials swapped onto COPIES on the game's own masonry fade shader for the
-        // dissolve; restored bit-for-bit (and the copies destroyed) on restore.
+        // ---- round-11/15 dissolve channel (user: "ALLE assets die faden sollen das immer mit
+        // der Animation tun") — see WallSegmentFade.Dissolve.cs. A piece whose materials ALL
+        // carry a live wall-fade toggle is driven by the wall renderers' own map/_Cutoff ramp
+        // (NativeFade, nothing swapped); a piece with channel-less slots gets COPIES on the
+        // game's masonry fade shader for those slots and is driven by the same ramp.
+        /// <summary>Drive this piece through the wall's NATIVE map/_Cutoff MPB ramp (round 15).
+        /// True for toggle-native materials AND for swapped copies.</summary>
+        public bool NativeFade;
         /// <summary>The renderer's authored sharedMaterials array (restored on unfade).</summary>
         public Material[]? SwapOriginals;
-        /// <summary>Our fade-shader material copies currently assigned (owned; destroyed on
-        /// restore/teardown). Non-null = the piece dissolves on the native wall ramp.</summary>
+        /// <summary>The array currently assigned to the renderer while swapped: our fade-shader
+        /// copies in the channel-less slots, the AUTHORED material in slots that were already
+        /// toggle-native. Non-null = a swap is in place.</summary>
         public Material[]? SwapCopies;
-        /// <summary>The swap decision was evaluated once (cheap re-entry guard).</summary>
+        /// <summary>Per slot: did WE create <see cref="SwapCopies"/>[i]? Only those may be
+        /// destroyed on restore — a kept authored slot is a shared game material.</summary>
+        public bool[]? SwapOwned;
+        /// <summary>The channel decision was evaluated once (cheap re-entry guard).</summary>
         public bool SwapChecked;
+        /// <summary>Why this piece has NO dissolve channel (enabled-only), for the round-15
+        /// DISSOLVE CENSUS line. Null when it dissolves.</summary>
+        public string? DissolveWhy;
     }
 
     private sealed partial class FadeDriver
@@ -278,8 +289,15 @@ internal static partial class WallSegmentFade
                     p.EmissionRate = ps.emission.rateOverTimeMultiplier;
                 }
             }
+            // ROUND 15: a bare "cutoff" verdict was misleading — the keep's masonry exposes
+            // _Cutoff but only dissolves through the wall's map/_Cutoff ramp behind its live
+            // wall-fade toggle. Name that class explicitly so the census lines distinguish
+            // "dissolves natively" from "needs the material swap".
+            bool nativeToggle = mat != null && HasLiveWallFadeToggle(mat);
             p.Tier = (p.DissolveControlId >= 0 ? "dissolve+" : string.Empty)
-                + (p.ColorId >= 0 ? "alpha" : p.CutoffId >= 0 ? "cutoff" : "no-material-channel")
+                + (p.ColorId >= 0 ? "alpha"
+                    : nativeToggle ? "wallfade-native"
+                    : p.CutoffId >= 0 ? "cutoff" : "no-material-channel")
                 + (p.System != null ? "+particles" : string.Empty);
             return p;
         }
@@ -307,12 +325,15 @@ internal static partial class WallSegmentFade
             Renderer r = p.Renderer;
             if (r == null)
                 return;
-            if (p.SwapCopies != null)
+            if (p.NativeFade)
             {
-                // Round-11 dissolve swap: the piece now runs the game's own masonry fade
-                // shader — drive the SAME map/cutoff ramp the wall renderers get (opaque
-                // per-pixel clip, no alpha blending — MR chroma-key ruling).
-                DriveSwappedProp(p, fade);
+                // Round 15: the piece runs the game's own masonry fade branch — either on its
+                // OWN toggle-native materials or on swapped copies. Either way it needs the
+                // WALL renderers' map/_Cutoff ramp, not the foliage cutoff lerp below (that
+                // lerp is what made the gate's toggle-native courses pop: _Cutoff alone,
+                // without the occlusion map or the fade gate, is not a dissolve). Opaque
+                // per-pixel clip, no alpha blending — MR chroma-key ruling.
+                DriveNativeProp(p, fade);
                 return;
             }
             float visible = Mathf.Clamp01(1f - fade);
@@ -358,11 +379,16 @@ internal static partial class WallSegmentFade
         {
             _mountedTouched.Remove(p.Renderer);
             Renderer r = p.Renderer;
-            RestorePropSwap(p, r); // round 11: authored materials back, our copies destroyed
+            // Did we ever write a property block on this renderer? (Read BEFORE the swap
+            // restore clears NativeFade — a natively-driven piece has no colour/cutoff id of
+            // its own to infer it from.)
+            bool wroteBlock = p.NativeFade
+                || p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0;
+            RestorePropSwap(p, r); // round 15: authored materials back, only OUR copies destroyed
             if (r == null)
                 return;
             NoteOwnershipChange(r, "released"); // churn tripwire (round 11)
-            if (p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0)
+            if (wroteBlock)
                 r.SetPropertyBlock(null);
             if (p.System != null)
             {
@@ -422,6 +448,7 @@ internal static partial class WallSegmentFade
                     if (p.Renderer.enabled)
                     {
                         _mountedTouched[p.Renderer] = p;
+                        EnsureDissolveChannel(p);
                         DriveProp(p, ramp);
                         p.Renderer.enabled = false;
                     }
@@ -429,7 +456,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
-                    TryBeginSwap(p); // round 11: mesh dressing without a channel animates too
+                    EnsureDissolveChannel(p); // round 15: dressing without a channel animates too
                     DriveProp(p, ramp);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
