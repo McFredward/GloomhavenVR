@@ -616,18 +616,36 @@ internal sealed partial class CardsDriver
     /// pop-suppression, the occluder distances); this is the general one: while the hand is in a
     /// card, that hand has no beam at all.
     ///
-    /// <para>THE SIGNAL IS THE EXISTING CONTACT ELECTIONS, nothing new — the very winners that
-    /// already decide which single card lifts under the hand, each with its own incumbent
+    /// <para>THE CANDIDATE SOURCE IS THE EXISTING CONTACT ELECTIONS, nothing new — the very winners
+    /// that already decide which single card lifts under the hand, each with its own incumbent
     /// hysteresis inside <see cref="FanSweep.Score{T}"/>: <see cref="_handContactWinner"/> (the
     /// dominant hand over the ability fan + the board's slot/pick-field recesses),
     /// <see cref="_gateContactWinner"/> (the gate hand over the same recesses),
     /// <see cref="PileBrowser.HandOwnedCard"/>, <see cref="ItemsPile.HandOwnedChip"/>, and — the
     /// one pool with no election of its own — the active column via the hand's own proximity
-    /// highlight (sticky by <c>ProximityGrabber.SwitchMarginMeters</c>). No second hysteresis is
-    /// introduced anywhere: the stand-down is coarser than the winner IDENTITY (any winner will
-    /// do), so it is strictly more stable than the lift it rides on. The only time term is the
-    /// release grace inside <see cref="RayInteractor.StandDownForCardContact"/>, which exists for
-    /// the trigger-pull jerk, exactly like the fan occluder's hold.</para>
+    /// highlight (sticky by <c>ProximityGrabber.SwitchMarginMeters</c>). No second election and no
+    /// second hysteresis is introduced anywhere: the elections stay the single stable answer to
+    /// "which card is this hand's", and the geometry below only ever asks WHETHER that one card is
+    /// being touched. The only time term is the release grace inside
+    /// <see cref="RayInteractor.StandDownForCardContact"/>, which exists for the trigger-pull jerk,
+    /// exactly like the fan occluder's hold.</para>
+    ///
+    /// <para>AN ELECTION IS NOT A TOUCH — ROUND 2 (user report 2026-08-08: "Sei strenger mit dem
+    /// Deaktivieren des Lasers — das will ich eigentlich wirklich nur, wenn die Hand die Karte
+    /// physisch berührt; aktuell ist es immer wenn auch eine Karte nur gehighlighted ist, das führt
+    /// dazu dass der Laser auch nicht da ist obwohl die Hand weiter über der Karte ist"). The first
+    /// round read "this hand elected a card" as "this hand is INSIDE a card". It is not: every one
+    /// of those elections is proximity/REACH scored — <see cref="FanSweep.TipReachMeters"/> is
+    /// 3,5 cm off the collider surface, <see cref="FanSweep.PalmReachMeters"/> and
+    /// <c>ProximityGrabber.ReachMeters</c> are THIRTEEN centimetres — so a winner exists (and the
+    /// card visibly lifts) from a good hand's breadth away. That is exactly right for "which card
+    /// would this hand take" and exactly wrong for "the beam is buried in a card", so the laser
+    /// vanished while the player was still hovering above the fan with nothing in the way of the
+    /// beam. <see cref="TryHandContact(VRHand, VRCard, out ContactGeometry)"/> is the missing
+    /// term: the elected card must additionally OVERLAP the hand — a hand point inside the card's
+    /// face and within <see cref="ContactSlabHalfDepthMeters"/> of its plane. Two orders of
+    /// magnitude tighter than the reach that nominated it, and measured, not assumed: the numbers
+    /// go into the stand-down log line.</para>
     ///
     /// <para>PER HAND, and only for the fan the hand is actually IN: every source above is
     /// per-hand and reach-gated, so the other hand keeps its laser and a fan the hand is nowhere
@@ -650,45 +668,54 @@ internal sealed partial class CardsDriver
             VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
             if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
                 continue;
-            Object? card = ContactedCard(hand, out string zone);
+            Object? card = ContactedCard(hand, out string zone, out ContactGeometry geo);
             if (card != null)
-                hand.Ray.StandDownForCardContact(zone, card);
+                hand.Ray.StandDownForCardContact(zone, card, geo.ToLog());
         }
     }
 
     /// <summary>
-    /// The ONE grabbable card/chip <paramref name="hand"/> is physically in contact with right
-    /// now, or null — read straight off the existing single-winner elections (see
-    /// <see cref="UpdateLaserContactStandDown"/> for why these and not a fresh geometric test).
-    /// <paramref name="zone"/> is a literal naming the pool, for the stand-down log line.
+    /// The ONE grabbable card/chip <paramref name="hand"/> is physically TOUCHING right now, or
+    /// null. Each of the five pools contributes its own single-winner election as the CANDIDATE
+    /// (see <see cref="UpdateLaserContactStandDown"/> for why the elections and not a second one of
+    /// our own), and every candidate then has to pass the same geometric overlap test —
+    /// <see cref="TryHandContact(VRHand, VRCard, out ContactGeometry)"/> — before it counts.
+    ///
+    /// <para>A candidate that fails the touch test does NOT end the search: the pools are different
+    /// card sets and a hand elected in one can be buried in another (the ability fan hangs off the
+    /// gate palm while the browse arc and the item fan float over the board). Falling through costs
+    /// at most four more rect tests on a frame that is about to conclude "no contact" anyway.</para>
+    ///
+    /// <paramref name="zone"/> is a literal naming the pool and <paramref name="geo"/> carries the
+    /// measurement, both for the stand-down log line. Allocation-free.
     /// </summary>
-    private Object? ContactedCard(VRHand hand, out string zone)
+    private Object? ContactedCard(VRHand hand, out string zone, out ContactGeometry geo)
     {
         // 1. the dominant hand's election: the open ability fan PLUS the board's slot/pick-field
         //    recesses (the arbitration scores both pools into one winner, so ask the fan which
         //    of the two it is purely to name the zone).
         if (!ReferenceEquals(hand, _gateHand) && ReferenceEquals(hand, VRHands.Primary)
-            && _handContactWinner != null)
+            && TryHandContact(hand, _handContactWinner, out geo))
         {
-            zone = _fan.Contains(_handContactWinner) ? "hand fan" : "board slot / pick field";
+            zone = _fan.Contains(_handContactWinner!) ? "hand fan" : "board slot / pick field";
             return _handContactWinner;
         }
         // 2. the gate hand's parallel election over the same recesses (fan cards refuse that
         //    hand outright — the fan hangs off its own palm).
-        if (ReferenceEquals(hand, _gateHand) && _gateContactWinner != null)
+        if (ReferenceEquals(hand, _gateHand) && TryHandContact(hand, _gateContactWinner, out geo))
         {
             zone = "board slot / pick field";
             return _gateContactWinner;
         }
         // 3./4. the two board-anchored fans — both hands sweep these.
         VRCard? browse = _browser.HandOwnedCard(hand);
-        if (browse != null)
+        if (TryHandContact(hand, browse, out geo))
         {
             zone = "pile browse arc";
             return browse;
         }
         ItemsPile.ItemChip? chip = _piles.HandOwnedItemChip(hand);
-        if (chip != null)
+        if (TryHandContact(hand, chip, out geo))
         {
             zone = "item fan";
             return chip;
@@ -697,13 +724,180 @@ internal sealed partial class CardsDriver
         //    its contact signal is the hand's proximity grab candidate — which is exactly "the
         //    card this hand's trigger would take", sticky by the grabber's own switch margin.
         if (hand.Grabber.Highlighted is VRCard prox && prox != null && !prox.IsHeld
-            && prox.CanGrab && _active.Contains(prox))
+            && prox.CanGrab && _active.Contains(prox)
+            && TryHandContact(hand, prox, out geo))
         {
             zone = "active column";
             return prox;
         }
         zone = "";
+        geo = default;
         return null;
+    }
+
+    // ------------------------------------------- the CONTACT test (touch, not proximity) --
+
+    /// <summary>
+    /// Half-depth of the slab a hand point must be inside to count as TOUCHING a card, in REAL
+    /// metres (multiplied by the hand's own world scale at the call site, like every other distance
+    /// in this codebase, so it means the same thing at any rig zoom or board scale).
+    ///
+    /// <para>Derived, not guessed: the card's own grab box is 2 cm deep in card-local metres
+    /// (<c>VRCard.Build</c>: <c>_box.size = new Vector3(w, h, 0.02f)</c>; the item chip's
+    /// <c>ColliderDepth</c> is the same 2 cm), so ONE CENTIMETRE is the half-thickness the rest of
+    /// the mod already treats as the card's body — a point inside it is inside the card as far as
+    /// the grabber is concerned. The remaining 5 mm is tolerance for the two places this test
+    /// cannot be exact: controller tracking noise, and the fact that the fingertip/palm anchors are
+    /// rig points a few millimetres inside a hand that has no real skin. Against the reach that
+    /// NOMINATED the card — 3,5 cm at the fingertip, 13 cm at the palm — this is 2 to 9 times
+    /// tighter, which is the whole point of the round-2 report: highlighted is not touched.</para>
+    /// </summary>
+    private const float ContactSlabHalfDepthMeters = 0.015f;
+
+    /// <summary>
+    /// Lateral accept margin on the card's half-extents for the contact test — the same 10 % the
+    /// mod's other card-rect tests have long carried (<see cref="LiftHitMargin"/>,
+    /// <see cref="FanSweep.LaserAcceptMargin"/>), and card-RELATIVE for the same reason they are:
+    /// expressed as a fraction of the live half-extents it is automatically correct on a 0,32×
+    /// board and on a 0,80× one. It buys the edges of the card a few millimetres of slack so a
+    /// finger touching the very rim of a card still reads as contact; it cannot widen the test into
+    /// the neighbouring card's territory, because WHICH card is being tested was already decided by
+    /// the election.
+    /// </summary>
+    private const float ContactRectMargin = 1.10f;
+
+    /// <summary>
+    /// What the contact test MEASURED, so the stand-down log line can prove its own threshold
+    /// instead of asserting a card name (user report 2026-08-08 round 2). Distances are world
+    /// units here and converted to real millimetres exactly once, in <see cref="ToLog"/>.
+    /// Plain mutable struct, filled by value on the stack — nothing allocates.
+    /// </summary>
+    private struct ContactGeometry
+    {
+        /// <summary>Which hand point touched — a literal, never formatted per frame.</summary>
+        internal string Probe;
+
+        /// <summary>Signed distance from that point to the card PLANE (world units, along the card's
+        /// +Z: positive is behind the face, negative in front of it).</summary>
+        internal float Depth;
+
+        /// <summary>Smaller of the two in-face edge clearances (world units, ≥ 0 on an accept).</summary>
+        internal float Margin;
+
+        /// <summary>The depth tolerance that accepted it (world units) — printed as the yardstick.</summary>
+        internal float Limit;
+
+        /// <summary>The hand's world scale, i.e. world units per real metre.</summary>
+        internal float Scale;
+
+        /// <summary>Real millimetres for the log (world distance ÷ the rig/board scale).</summary>
+        internal RayInteractor.CardContact ToLog()
+        {
+            float mm = 1000f / Mathf.Max(Scale, 1e-4f);
+            return new RayInteractor.CardContact(Probe ?? "no probe", Depth * mm, Margin * mm,
+                Limit * mm);
+        }
+    }
+
+    /// <summary>
+    /// Is <paramref name="hand"/> physically overlapping <paramref name="card"/> — i.e. is one of
+    /// its hand points inside the card's face AND within
+    /// <see cref="ContactSlabHalfDepthMeters"/> of the card's plane?
+    ///
+    /// <para>TESTED WHERE THE CARD VISIBLY IS, and where it rests, accepting either — the lesson
+    /// <see cref="TryHitLiftedCard"/> already had to learn for the beam. This test runs on exactly
+    /// the card the hand has just elected, which is the card that is at that moment RAISING toward
+    /// the player: the live rect is where the player sees it and reaches for it, the resting rect is
+    /// where it was a moment ago, and during the raise the truth is somewhere between the two.
+    /// Testing one pose alone would make the contact blink through the animation.</para>
+    /// </summary>
+    private static bool TryHandContact(VRHand hand, VRCard? card, out ContactGeometry geo)
+    {
+        geo = default;
+        if (card == null)
+            return false;
+        if (card.TryGetLiveLaserRect(out Vector3 c, out Vector3 n, out Vector3 r, out Vector3 u,
+                out float hw, out float hh)
+            && TryHandContactRect(hand, c, n, r, u, hw, hh, ref geo))
+            return true;
+        return card.TryGetRestingLaserRect(out c, out n, out r, out u, out hw, out hh)
+               && TryHandContactRect(hand, c, n, r, u, hw, hh, ref geo);
+    }
+
+    /// <summary>
+    /// Item-chip overload of <see cref="TryHandContact(VRHand, VRCard, out ContactGeometry)"/>.
+    /// A chip is not a <see cref="VRCard"/> and its face is the item card's own near-square
+    /// rectangle, so its geometry comes from <see cref="ItemsPile.ItemChip.TryGetFaceRect"/> — the
+    /// same two poses, the same test, the same tolerances.
+    /// </summary>
+    private static bool TryHandContact(VRHand hand, ItemsPile.ItemChip? chip, out ContactGeometry geo)
+    {
+        geo = default;
+        if (chip == null)
+            return false;
+        if (chip.TryGetFaceRect(resting: false, out Vector3 c, out Vector3 n, out Vector3 r,
+                out Vector3 u, out float hw, out float hh)
+            && TryHandContactRect(hand, c, n, r, u, hw, hh, ref geo))
+            return true;
+        return chip.TryGetFaceRect(resting: true, out c, out n, out r, out u, out hw, out hh)
+               && TryHandContactRect(hand, c, n, r, u, hw, hh, ref geo);
+    }
+
+    /// <summary>
+    /// The touch test itself against ONE world-space card rectangle, for both hand points.
+    ///
+    /// <para>WHICH HAND POINTS, AND WHY BOTH. The INDEX TIP is the point that physically arrives
+    /// first and the point the fan elections already rank by (<c>tipFirst</c> — "the card nearest
+    /// the pointing finger wins"), so a card plucked out of a fan is touched by the tip; it is
+    /// tested first for that reason. The PALM CENTRE is the point the GRAB itself is measured from
+    /// (<c>ProximityGrabber</c> scores every candidate against <c>Rig.PalmCenter</c>), so it is what
+    /// "the hand is on the card" means for a card taken with a whole-hand grip off the board dock or
+    /// the active column, where the fingers curl PAST the small card and the tip can be beyond its
+    /// far edge while the palm is flat on it. Requiring both would refuse every one of those grips;
+    /// requiring only the tip would refuse them too. Either point inside the slab is a genuine
+    /// physical overlap — and it is the palm that carries the controller, i.e. the beam origin the
+    /// whole stand-down is about.</para>
+    ///
+    /// Fills <paramref name="geo"/> only on an accept. No allocations, no square roots.
+    /// </summary>
+    private static bool TryHandContactRect(VRHand hand, Vector3 center, Vector3 normal, Vector3 right,
+        Vector3 up, float halfW, float halfH, ref ContactGeometry geo)
+    {
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        float limit = ContactSlabHalfDepthMeters * scale;
+        if (TryProbeRect(hand.Rig.IndexTip.position, center, normal, right, up, halfW, halfH, limit,
+                out float depth, out float margin))
+        {
+            geo = new ContactGeometry
+            {
+                Probe = "index tip", Depth = depth, Margin = margin, Limit = limit, Scale = scale,
+            };
+            return true;
+        }
+        if (TryProbeRect(hand.Rig.PalmCenter.position, center, normal, right, up, halfW, halfH, limit,
+                out depth, out margin))
+        {
+            geo = new ContactGeometry
+            {
+                Probe = "palm", Depth = depth, Margin = margin, Limit = limit, Scale = scale,
+            };
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>One point against one rect: project onto the card's plane, require the projection
+    /// inside the face (plus <see cref="ContactRectMargin"/>) and the signed plane distance inside
+    /// <paramref name="depthLimit"/>. <paramref name="depth"/> and <paramref name="margin"/> are the
+    /// two numbers the log prints.</summary>
+    private static bool TryProbeRect(Vector3 point, Vector3 center, Vector3 normal, Vector3 right,
+        Vector3 up, float halfW, float halfH, float depthLimit, out float depth, out float margin)
+    {
+        Vector3 rel = point - center;
+        depth = Vector3.Dot(rel, normal);
+        margin = Mathf.Min(halfW * ContactRectMargin - Mathf.Abs(Vector3.Dot(rel, right)),
+                           halfH * ContactRectMargin - Mathf.Abs(Vector3.Dot(rel, up)));
+        return margin >= 0f && depth >= -depthLimit && depth <= depthLimit;
     }
 
     // ------------------------------------------------------------------ board laser --
