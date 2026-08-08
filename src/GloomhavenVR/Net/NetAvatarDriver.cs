@@ -171,6 +171,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         return sb.ToString();
     }
 
+    /// <summary>Which use bar a record-25 BAR INDEX names, for the change-gated log line only —
+    /// the wire carries the bit, never a name (see <see cref="NetProtocol.ExtIdUseBars"/>).</summary>
+    private static string UseBarName(int bar) => bar switch
+    {
+        0 => "activeBonus",
+        1 => "abilities",
+        2 => "augments",
+        _ => "items",
+    };
+
     // WALL FADES (extension record 17, MP wall-fade sync): the set of walls the LOCAL fade
     // decision currently hides, as sorted cross-machine keys. A set CHANGE is an edge with
     // the capped pre-emption (fade flips are dwell-paced — a few per minute, never a
@@ -198,6 +208,28 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// array handed to the serializer with a live count, the <see cref="_wallFadeSample"/>
     /// pattern, so the 5 Hz path allocates nothing while a prompt is docked.</summary>
     private readonly byte[] _decisionOptionSample = new byte[NetProtocol.DecisionStateMaxOptions];
+
+    /// <summary>Sample buffers for the USE-BAR drawer (extension record 25) — persistent arrays
+    /// handed to the serializer with a live mask, the <see cref="_wallFadeSample"/> pattern, so the
+    /// 5 Hz path allocates nothing while bars are docked. Flags/counts are per BAR INDEX; the
+    /// states are flat with a fixed <c>UseBarsMaxSlots</c> stride per bar.</summary>
+    private readonly byte[] _useBarFlagsSample = new byte[NetProtocol.UseBarsCount];
+    private readonly byte[] _useBarCountSample = new byte[NetProtocol.UseBarsCount];
+    private readonly byte[] _useBarSlotSample =
+        new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
+
+    /// <summary>The USE-BAR drawer last put on the wire (extension record 25): the mask (−1 = no
+    /// record was written yet) plus a byte-for-byte copy of what went out. A slot toggling on, a
+    /// sub-picker opening and a bar appearing/vanishing are all human-paced EDGES that pre-empt the
+    /// 5 Hz gate — a drawer that lands on the peer's copy 200 ms late reads as "not synced", the
+    /// same board-UI-edge argument the decision records make. Compared BYTE-EXACT rather than
+    /// through a packed fingerprint: 40 bytes is cheaper than reasoning about hash collisions on a
+    /// change gate that decides whether a peer sees a click at all.</summary>
+    private int _lastSentUseBarMask = -1;
+    private readonly byte[] _lastSentUseBarFlags = new byte[NetProtocol.UseBarsCount];
+    private readonly byte[] _lastSentUseBarCounts = new byte[NetProtocol.UseBarsCount];
+    private readonly byte[] _lastSentUseBarSlots =
+        new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
 
     /// <summary>Last CONFIRM cap label put on the wire (extension record 13 bit 0; null = no
     /// confirm control shown). Same edge pre-emption as the decision lines.</summary>
@@ -378,6 +410,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         Board.CharacterFocus.Reset();             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentDecisionState = -1;   // …including its option states + prompt-text variant
+        _lastSentUseBarMask = -1;      // …and the use-bar drawer below it (record 25)
         _lastSentConfirmLabel = null;  // and the live cap labels
         _lastSentSkipLabel = null;
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
@@ -940,6 +973,31 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
         bool decisionStateChanged = decisionStateNow != _lastSentDecisionState;
 
+        // USE BARS (extension record 25, the same 2026-08-08 ruling): the SECOND drawer below the
+        // decision row — which of the four use bars are docked AND VISIBLE on the owner's board,
+        // how many slots each shows, whether it has an element/option sub-picker open, and per slot
+        // offered / dimmed / chosen. The bars are HUD singletons raised on ONE client, so none of
+        // this exists anywhere else and a peer saw nothing there at all. A bar the owner
+        // render-hid because they are looking at another character is already out of the mask the
+        // surface publishes, so the hide travels with the drawer. Sampled before the rate gate: a
+        // slot click is exactly the human-paced edge the decision records already pre-empt for.
+        byte useBarMask = WorldUI.Surfaces.UseBarsSurface.WireBarMask;
+        if (useBarMask != 0)
+            WorldUI.Surfaces.UseBarsSurface.CopyWireBars(
+                _useBarFlagsSample, _useBarCountSample, _useBarSlotSample);
+        bool useBarsChanged = useBarMask != _lastSentUseBarMask;
+        for (int b = 0; !useBarsChanged && useBarMask != 0 && b < NetProtocol.UseBarsCount; b++)
+        {
+            if (_useBarFlagsSample[b] != _lastSentUseBarFlags[b]
+                || _useBarCountSample[b] != _lastSentUseBarCounts[b])
+                useBarsChanged = true;
+        }
+        for (int s = 0; !useBarsChanged && useBarMask != 0 && s < _useBarSlotSample.Length; s++)
+        {
+            if (_useBarSlotSample[s] != _lastSentUseBarSlots[s])
+                useBarsChanged = true;
+        }
+
         // CAP LABELS (extension record 13): what the owner's CONFIRM cap and docked SKIP button
         // actually read. Null while the control is hidden, so the record's presence tracks the
         // board-UI visibility bits; appearance/disappearance/re-wording are edges.
@@ -957,7 +1015,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
-            && !decisionChanged && !decisionStateChanged && !capLabelsChanged && !focusChanged && !trackSelChanged)
+            && !decisionChanged && !decisionStateChanged && !useBarsChanged
+            && !capLabelsChanged && !focusChanged && !trackSelChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1172,6 +1231,74 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                   "12's lines). The prompt TEXT itself is NOT on the wire: peers " +
                                   "compose the same line from their own localization, so the " +
                                   "mandatory-use variant's active-bonus CARD NAMES never travel.");
+            }
+        }
+        // USE BARS (extension record 25): written on every packet while at least one bar is docked
+        // AND visible on the owner's board; omitted otherwise, so an idle packet stays
+        // byte-identical to the previous build's and a peer's mirrored drawer empties in the same
+        // frames the owner's does.
+        if (useBarMask != 0)
+        {
+            extras.HasUseBars = true;
+            extras.UseBarsMask = useBarMask;
+            extras.UseBarFlags = _useBarFlagsSample;
+            extras.UseBarSlotCounts = _useBarCountSample;
+            extras.UseBarSlotStates = _useBarSlotSample;
+        }
+        if (useBarsChanged)
+        {
+            _lastSentUseBarMask = useBarMask;
+            for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+            {
+                _lastSentUseBarFlags[b] = useBarMask != 0 ? _useBarFlagsSample[b] : (byte)0;
+                _lastSentUseBarCounts[b] = useBarMask != 0 ? _useBarCountSample[b] : (byte)0;
+            }
+            for (int s = 0; s < _lastSentUseBarSlots.Length; s++)
+                _lastSentUseBarSlots[s] = useBarMask != 0 ? _useBarSlotSample[s] : (byte)0;
+
+            if (useBarMask == 0)
+            {
+                VRLog.Info("Net", "Use bars SENT: no bar docked and visible — record 25 omitted " +
+                                  "(peers drop the mirrored bar drawer, including when the bars are " +
+                                  "still docked but render-hidden because the owner is looking at " +
+                                  "another character).");
+            }
+            else
+            {
+                var bars = new System.Text.StringBuilder(96);
+                int totalSlots = 0;
+                for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+                {
+                    if ((useBarMask & (1 << b)) == 0)
+                        continue;
+                    if (bars.Length > 0)
+                        bars.Append("; ");
+                    bars.Append(UseBarName(b)).Append('=').Append(_useBarCountSample[b])
+                        .Append(" slot(s)");
+                    totalSlots += _useBarCountSample[b];
+                    byte f = _useBarFlagsSample[b];
+                    if ((f & NetProtocol.UseBarElementPickerBit) != 0)
+                        bars.Append(" +element picker OPEN");
+                    if ((f & NetProtocol.UseBarOptionPickerBit) != 0)
+                        bars.Append(" +option picker OPEN");
+                    int at = b * NetProtocol.UseBarsMaxSlots;
+                    for (int s = 0; s < _useBarCountSample[b]; s++)
+                    {
+                        byte st = _useBarSlotSample[at + s];
+                        bars.Append(" #").Append(s).Append('=')
+                            .Append((st & NetProtocol.UseSlotOfferedBit) != 0 ? "OFFERED" : "greyed");
+                        if ((st & NetProtocol.UseSlotDimmedBit) != 0)
+                            bars.Append("+dim");
+                        if ((st & NetProtocol.UseSlotChosenBit) != 0)
+                            bars.Append("+CHOSEN");
+                    }
+                }
+                VRLog.Info("Net", $"Use bars SENT: mask 0x{useBarMask:X2}, {totalSlots} slot(s) " +
+                                  $"[{bars}] — extension record 25 (bar mask + per bar: sub-picker " +
+                                  "flags, slot count, one state byte per slot). NO slot identity is " +
+                                  "on the wire: the game's use slots carry no label at all, only card " +
+                                  "ART, so peers caption each bar from the BAR BIT and draw anonymous " +
+                                  "state-painted tiles.");
             }
         }
         // CAP LABELS (extension record 13): written on every packet while a confirm/skip control

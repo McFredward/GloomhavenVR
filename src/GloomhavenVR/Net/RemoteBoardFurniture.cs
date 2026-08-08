@@ -406,6 +406,51 @@ internal sealed class RemoteBoardFurniture
     /// built; null = idle drawer).</summary>
     private string? _shownDecisionLines;
 
+    /// <summary>The mirrored USE-BAR drawer (wire record 25) — the SECOND drawer, below the
+    /// decision row. Built empty and hidden; rebuilt by <see cref="SetUseBars"/> whenever the
+    /// owner's bar structure changes.</summary>
+    private readonly Transform _useBars;
+
+    /// <summary>One mirrored bar's repaintable tiles + its sub-picker badge, so a state change (a
+    /// slot toggling on, the game re-asserting a gate) repaints instead of rebuilding.</summary>
+    private readonly struct UseBarRow
+    {
+        public UseBarRow(Transform root, Material[] tiles, GameObject[] chosenRims, GameObject picker)
+        {
+            Root = root;
+            Tiles = tiles;
+            ChosenRims = chosenRims;
+            Picker = picker;
+        }
+
+        public readonly Transform Root;
+        public readonly Material[] Tiles;
+        public readonly GameObject[] ChosenRims;
+        public readonly GameObject Picker;
+    }
+
+    /// <summary>The mirrored bar rows currently built, in the owner's own stack order (top to
+    /// bottom) — i.e. record 25's bit order.</summary>
+    private readonly System.Collections.Generic.List<UseBarRow> _useBarRows = new(4);
+
+    /// <summary>Which bar indices <see cref="_useBarRows"/> was built for, parallel to it — the
+    /// caption of row <c>r</c> comes from bar index <c>_useBarRowIndices[r]</c>.</summary>
+    private readonly System.Collections.Generic.List<int> _useBarRowIndices = new(4);
+
+    /// <summary>STRUCTURE gate for <see cref="SetUseBars"/>: the mask + per-bar slot counts the
+    /// current rows were built from (−1 = nothing built). Only a structure change rebuilds; the
+    /// per-slot STATES repaint through <see cref="ApplyUseBarStates"/>, exactly the split the
+    /// decision row uses between its labels and its option states.</summary>
+    private int _shownUseBarStructure = -1;
+
+    /// <summary>The per-slot state bytes last PAINTED onto <see cref="_useBarRows"/> (null =
+    /// nothing painted yet, so the first refresh after a rebuild always paints).</summary>
+    private byte[]? _shownUseBarStates;
+
+    /// <summary>The per-bar sub-picker flags last painted (same contract as
+    /// <see cref="_shownUseBarStates"/>).</summary>
+    private byte[]? _shownUseBarFlags;
+
     /// <summary>Last synced CONFIRM wording applied to the cap (wire record 13; null = the
     /// neutral GUI_CONFIRM fallback is applied). Reset by <see cref="ApplyLabels"/> so a language
     /// switch re-derives the fallback without losing a live synced label.</summary>
@@ -580,6 +625,19 @@ internal sealed class RemoteBoardFurniture
         float decisionTopY = barBottomY - BarClearanceMeters - DecisionGapFor(style);
         _decision = BuildDecisionDrawer(new Vector3(
             DecisionMount.x + decisionOff.x, decisionTopY, DecisionMount.z + decisionOff.z));
+        // ---- the SECOND drawer: the mirrored use-slot bars (wire record 25) -------------------
+        // The owner's UseBarsSurface stacks its bars BELOW the decision row: while a row is docked
+        // the stack top hangs DecisionClearance under the row's measured bottom edge, otherwise it
+        // takes the drawer zone's own top. The mirror derives the same two cases from the pieces it
+        // already has — the decision root above (whose synced row is exactly one plate tall) and
+        // the authored decision mount — see SetUseBars for the term-by-term derivation. Built empty
+        // at the same X/Z as the decision drawer; content grows DOWN from its origin.
+        _useBars = new GameObject("UseBarsDrawer").transform;
+        _useBars.SetParent(_root, worldPositionStays: false);
+        _useBars.localPosition = new Vector3(DecisionMount.x + decisionOff.x, decisionTopY,
+            DecisionMount.z + decisionOff.z);
+        _useBars.gameObject.SetActive(false);
+
         // …and the PROMPT TEXT above it, at the seat the owner's own tip takes: their
         // DamageTooltipSurface parks the converted HelpBox AboveRowMetres over the decision MOUNT
         // (mount position + up × 0.11), so unlike the row — whose Y solve cancels the mount out —
@@ -700,6 +758,17 @@ internal sealed class RemoteBoardFurniture
         ApplyDecisionOptionStates(owner.DecisionOptionStates);
         SetDecisionPrompt(actor, owner);
 
+        // ---- SYNCED USE-BAR DRAWER (wire record 25 — the SECOND drawer, the same 2026-08-08
+        //      ruling). Two passes, the same structure/state split the decision row uses:
+        //        • the bar STRUCTURE — which of the four bars the owner has up and how many slots
+        //          each shows — as inert tile rows below the mirrored decision row;
+        //        • their per-slot STATES (offered / dimmed / chosen) and each bar's open
+        //          element/option sub-picker, repainted without rebuilding the rows.
+        //      Both vanish the moment the owner's bars do — including when the owner focuses
+        //      another character and a bar render-hides on their own board.
+        SetUseBars(owner);
+        ApplyUseBarStates(owner);
+
         // ---- FOLLOW / PIN toggle (defect (a)) -------------------------------------------------
         // The owner's tray anchor mode now rides the board-UI record (byte 1 bit 2), so this cap
         // shows their ACTUAL state instead of one fixed look: "FIXIERT"/"PINNED" on the accented
@@ -806,7 +875,8 @@ internal sealed class RemoteBoardFurniture
                     $"[{DescribeStates(_shownOptionStates, _decisionPlates.Count)}]" +
                     // Single quotes around the line, like the cap labels above: a nested \" inside
                     // an interpolation hole trips the patch-inventory source scanner.
-                    $", prompt={(_shownPromptText != null ? "'" + StripRichText(_shownPromptText) + "'" : "none")}";
+                    $", prompt={(_shownPromptText != null ? "'" + StripRichText(_shownPromptText) + "'" : "none")}" +
+                    $", useBars={(owner.UseBarsMask == 0 ? "none" : "0x" + owner.UseBarsMask.ToString("X2") + " (" + _useBarRows.Count + " row(s))")}";
     }
 
     /// <summary>Last applied FOLLOW/PIN state (null = nothing written yet, so the first refresh
@@ -1403,6 +1473,351 @@ internal sealed class RemoteBoardFurniture
                 widths[i] = Mathf.Max(0.001f, widths[i] * k);
         }
         return widths;
+    }
+
+    // ---- the mirrored USE-BAR drawer (wire record 25) ---------------------------------------
+    // Geometry, all board-local metres at scale 1 and multiplied by the authored DecisionScaleFor
+    // like the decision row above it, so the two drawers read as ONE connected decision area on
+    // the mirror exactly as they do on the owner's board.
+
+    /// <summary>Height of one mirrored bar row (the owner's bar strip is a single row of square
+    /// slot symbols, fitted into the same DecisionMountWidth budget as the decision row).</summary>
+    private const float UseBarRowH = 0.040f;
+
+    /// <summary>Gap between two stacked bar rows. ALIASED, not copied, from the local stack's own
+    /// constant — one value, nothing to drift (the <c>BarClearanceMeters</c> precedent, see
+    /// <c>scripts/check-mirrors.sh</c>).</summary>
+    private const float UseBarRowGap = WorldUI.Surfaces.UseBarsSurface.StackGap;
+
+    /// <summary>Clearance between the decision row's bottom edge and the bar stack top — the
+    /// constant that keeps the two drawers reading as ONE decision area instead of two (screenshot
+    /// abstand.png). Aliased from the local stack for the same reason as
+    /// <see cref="UseBarRowGap"/>.</summary>
+    private const float UseBarDecisionClearance =
+        WorldUI.Surfaces.UseBarsSurface.DecisionClearance;
+
+    /// <summary>Side of one mirrored slot tile.</summary>
+    private const float UseBarTile = 0.026f;
+
+    /// <summary>Gap between two tiles in a row.</summary>
+    private const float UseBarTileGap = 0.006f;
+
+    /// <summary>Width of the caption column left of a bar's tiles (the bar's NAME, localized HERE
+    /// from the bar bit — the record-24 text-variant solution, applied to a drawer whose slots have
+    /// no wordings at all).</summary>
+    private const float UseBarCaptionW = 0.150f;
+
+    /// <summary>Tile colour of an OFFERED slot — the same antique family the mirrored decision
+    /// plates wear, so the two drawers are visibly one surface.</summary>
+    private static readonly Color UseBarTileColor = new(0.38f, 0.31f, 0.20f, 1f);
+
+    /// <summary>Backing plate of one mirrored bar row (the owner's bar strip has its own dark
+    /// backing under the MR plate).</summary>
+    private static readonly Color UseBarPlateColor = new(0.10f, 0.09f, 0.08f, 0.80f);
+
+    /// <summary>Localized caption of a record-25 BAR INDEX. The bar NAME is composed on THIS
+    /// machine from the bar BIT — the wire never carries a word, and the slots it describes have no
+    /// word to carry (see <see cref="NetProtocol.ExtIdUseBars"/>).</summary>
+    private static string UseBarCaption(int bar) => bar switch
+    {
+        0 => Loc.Mod("use_bar_bonuses"),
+        1 => Loc.Mod("use_bar_abilities"),
+        2 => Loc.Mod("use_bar_augments"),
+        _ => Loc.Mod("use_bar_items"),
+    };
+
+    /// <summary>
+    /// The STRUCTURE fingerprint of the owner's published drawer — mask + per-bar slot counts, AND
+    /// whether a mirrored decision row currently stands above it. A change here rebuilds the rows;
+    /// a change in the STATES alone only repaints.
+    ///
+    /// <para>The decision row belongs in this key even though it is not part of record 25: the
+    /// stack TOP is derived from it (row up ⇒ hang below the row, row down ⇒ take the drawer zone's
+    /// own top edge, the two cases the owner's <c>UseBarsSurface.StackDocked</c> distinguishes), so
+    /// a row appearing or undocking under unchanged bars must re-seat the stack — otherwise the
+    /// mirrored bars would keep hanging where a row no longer is.</para>
+    /// </summary>
+    private int UseBarStructure(RemoteAvatar owner)
+    {
+        if (owner.UseBarsMask == 0)
+            return 0;
+        int key = owner.UseBarsMask | (_shownDecisionLines != null ? 1 << 8 : 0);
+        for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+        {
+            int n = owner.UseBarSlotCounts != null && b < owner.UseBarSlotCounts.Length
+                ? owner.UseBarSlotCounts[b] : 0;
+            key = key * 31 + n;
+        }
+        return key;
+    }
+
+    /// <summary>
+    /// (Re)build the mirrored use-bar drawer from the owner's synced structure (wire record 25;
+    /// mask 0 = no bars, which is also what a sender predating the record produces).
+    ///
+    /// <para>WHAT IT DRAWS, AND WHY THAT IS THE 1:1 ANSWER. The owner's bars are strips of ICON
+    /// tiles: <c>UIUseSlot&lt;T&gt;</c> has no label at all, and each concrete slot decorates itself
+    /// with a sprite taken straight off the item / bonus / ability art
+    /// (<c>UIUseItemScenario.Decorate</c> → <c>UIInfoTools.GetItemConfig(item.YMLData.Art)
+    /// .miniIcon</c>). That art IS card identity, and card identity never rides this wire in any
+    /// form — so the mirror shows the drawer's STRUCTURE and STATE faithfully (which bars, how many
+    /// slots, which are live, dim or chosen, whether a sub-picker stands open) and captions each bar
+    /// from its BAR BIT in the VIEWER's language. It is the same rule
+    /// <see cref="RemoteItemCardSource"/> ships for a peer's item faces: structure travels, identity
+    /// is resolved locally or not at all.</para>
+    ///
+    /// <para>SEAT — derived term-for-term from the owner's own stack (<c>UseBarsSurface.
+    /// StackDocked</c>): while a decision row is up, the stack top hangs
+    /// <see cref="UseBarDecisionClearance"/> below that row's bottom edge (here: the mirrored row's
+    /// own single-plate height below the decision anchor); with no row, it takes the drawer zone's
+    /// top edge, <c>PlayTray.DecisionMountMaxHeight/2</c> above the authored mount. Rows then stack
+    /// downward with <see cref="UseBarRowGap"/>, in the owner's own bar order — which is the wire's
+    /// bit order, so nothing has to describe it.</para>
+    ///
+    /// <para>Display-only by construction: no collider, no <c>IPokeable</c>, registered with no
+    /// laser or poke router, and <see cref="StripColliders"/> sweeps the finished drawer.</para>
+    /// </summary>
+    private void SetUseBars(RemoteAvatar owner)
+    {
+        int structure = UseBarStructure(owner);
+        if (structure == _shownUseBarStructure)
+            return;
+        _shownUseBarStructure = structure;
+
+        for (int r = 0; r < _useBarRows.Count; r++)
+        {
+            if (_useBarRows[r].Root != null)
+                Object.Destroy(_useBarRows[r].Root.gameObject);
+        }
+        _useBarRows.Clear();
+        _useBarRowIndices.Clear();
+        _shownUseBarStates = null; // a new drawer repaints its states from scratch
+        _shownUseBarFlags = null;
+
+        byte mask = owner.UseBarsMask;
+        if (mask == 0)
+        {
+            if (_useBars.gameObject.activeSelf)
+                _useBars.gameObject.SetActive(false);
+            VRLog.Info("Net", "Remote use bars: none — the mirrored bar drawer is empty (no bar " +
+                              "docked and visible on the owner's board, or a sender predating " +
+                              "record 25).");
+            return;
+        }
+
+        float scale = DecisionScaleFor(_decisionStyle);
+        float rowH = UseBarRowH * scale;
+        float rowGap = UseBarRowGap * scale;
+        float budget = Cards.PlayTray.DecisionMountWidth * scale;
+
+        // Stack top, in the drawer root's own local frame (its origin IS the decision row's top
+        // edge, so a docked row's bottom sits exactly one mirrored plate below it).
+        float top;
+        if (_shownDecisionLines != null)
+        {
+            top = -(DecisionButtonH * scale) - UseBarDecisionClearance * scale;
+        }
+        else
+        {
+            // No row: the owner's stack takes the drawer zone's top edge, which is
+            // DecisionMountMaxHeight/2 above the MOUNT — expressed here relative to this root.
+            // × the authored dock scale for the same reason DecisionMountWidth is scaled above:
+            // both are MOUNT-local constants and the decision mount carries that scale.
+            float mountY = DecisionMount.y + DecisionOffsetFor(_decisionStyle).y;
+            top = mountY + Cards.PlayTray.DecisionMountMaxHeight * 0.5f * scale
+                  - _useBars.localPosition.y;
+        }
+
+        int rows = 0;
+        int totalSlots = 0;
+        float cursor = top;
+        for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+        {
+            if ((mask & (1 << b)) == 0)
+                continue;
+            int n = owner.UseBarSlotCounts != null && b < owner.UseBarSlotCounts.Length
+                ? owner.UseBarSlotCounts[b] : 0;
+            if (n > NetProtocol.UseBarsMaxSlots)
+                n = NetProtocol.UseBarsMaxSlots;
+
+            var row = new GameObject($"UseBar{b}").transform;
+            row.SetParent(_useBars, worldPositionStays: false);
+            row.localPosition = new Vector3(0f, cursor - rowH * 0.5f, 0f);
+            cursor -= rowH + rowGap;
+
+            MeshRenderer plate = BoardVisual.Quad(row, "Plate", new Vector2(budget, rowH),
+                BoardVisual.Unlit(UseBarPlateColor));
+            plate.transform.localPosition = new Vector3(0f, 0f, 0.001f);
+            WorldUI.MrBacking.Opacify(plate.sharedMaterial); // 0.80 → 1 while MR is on
+
+            RemoteBoardContent.Label(row, "Caption",
+                new Vector3(-budget * 0.5f + UseBarCaptionW * scale * 0.5f, 0f, -0.001f),
+                new Vector2(UseBarCaptionW * scale, rowH * 0.7f), 0.14f * scale,
+                new Color(0.72f, 0.68f, 0.58f), TextAlignmentOptions.Left)
+                .text = UseBarCaption(b).ToUpperInvariant();
+
+            // Sub-picker badge: a small accent pip at the row's right edge, lit while the owner has
+            // an element/option picker standing open in THIS bar (record 25's bar flags). Built once
+            // per row so the state repaint never allocates.
+            GameObject picker = BoardVisual.Quad(row, "PickerBadge",
+                new Vector2(UseBarTile * scale * 0.45f, UseBarTile * scale * 0.45f),
+                BoardVisual.Unlit(new Color(1f, 0.85f, 0.35f, 0.95f))).gameObject;
+            picker.transform.localPosition =
+                new Vector3(budget * 0.5f - UseBarTile * scale * 0.4f, 0f, -0.001f);
+            picker.SetActive(false);
+
+            var tiles = new Material[n];
+            var rims = new GameObject[n];
+            float tile = UseBarTile * scale;
+            float tileGap = UseBarTileGap * scale;
+            float tilesW = n > 0 ? n * tile + (n - 1) * tileGap : 0f;
+            float x = -budget * 0.5f + UseBarCaptionW * scale;
+            // Centre the tiles in what is left of the row after the caption column, and shrink the
+            // pitch rather than overflow the owner's own width budget.
+            float free = budget - UseBarCaptionW * scale - tile;
+            if (tilesW > free && tilesW > 0f)
+            {
+                float k = free / tilesW;
+                tile *= k;
+                tileGap *= k;
+                tilesW = free;
+            }
+            x += Mathf.Max(0f, (budget - UseBarCaptionW * scale - tilesW) * 0.5f);
+            for (int s = 0; s < n; s++)
+            {
+                var cell = new GameObject($"Slot{s}").transform;
+                cell.SetParent(row, worldPositionStays: false);
+                cell.localPosition = new Vector3(x + tile * 0.5f, 0f, 0f);
+                x += tile + tileGap;
+
+                // The CHOSEN telegraph: an accent frame behind the tile, shown only while the owner
+                // has that slot toggled on — the same language the mirrored decision plates use.
+                GameObject rim = BoardVisual.Quad(cell, "ChosenRim",
+                    new Vector2(tile + 0.005f * scale, tile + 0.005f * scale),
+                    BoardVisual.Unlit(new Color(1f, 0.85f, 0.35f, 0.95f))).gameObject;
+                rim.transform.localPosition = new Vector3(0f, 0f, -0.0005f);
+                rim.SetActive(false);
+
+                Material face = BoardVisual.Unlit(UseBarTileColor);
+                BoardVisual.Quad(cell, "Face", new Vector2(tile, tile), face)
+                    .transform.localPosition = new Vector3(0f, 0f, -0.001f);
+
+                tiles[s] = face;
+                rims[s] = rim;
+            }
+            totalSlots += n;
+            _useBarRows.Add(new UseBarRow(row, tiles, rims, picker));
+            _useBarRowIndices.Add(b);
+            rows++;
+        }
+
+        if (!_useBars.gameObject.activeSelf)
+            _useBars.gameObject.SetActive(true);
+        StripColliders(_useBars.gameObject, "RemoteBoardFurniture.UseBarsDrawer");
+
+        VRLog.Info("Net", $"Remote use bars: {rows} mirrored bar row(s), {totalSlots} slot tile(s) " +
+                          $"(mask 0x{mask:X2}) — stacked from board-local y " +
+                          $"{_useBars.localPosition.y + top:F3} downward, {budget:F3} m wide at the " +
+                          $"authored ×{scale:F2} dock scale, " +
+                          $"{(_shownDecisionLines != null ? "hung below the mirrored decision row" : "at the drawer zone top (no decision row up)")}. " +
+                          "Bar captions are composed HERE from the bar bit; the SLOTS are anonymous " +
+                          "by construction — the game's use slots carry no label, only card art, " +
+                          "which never rides this wire. Display-only: colliderless.");
+    }
+
+    /// <summary>
+    /// Paint the owner's per-slot STATES and open sub-pickers (wire record 25) onto the mirrored
+    /// tiles: greyed where the owner cannot click, dimmed where the game dims (its
+    /// <c>UIUseSlot.disabledAlpha</c> look), an accent frame on a slot they have chosen, and the
+    /// row's pip lit while an element/option picker stands open in that bar.
+    ///
+    /// <para>A SEPARATE PASS from <see cref="SetUseBars"/> for the same reason the decision row
+    /// splits its labels from its option states: the structure is constant for a whole bar while the
+    /// states move on every click. This repaints a handful of material colours; a rebuild would
+    /// re-create quads several times per decision.</para>
+    /// </summary>
+    private void ApplyUseBarStates(RemoteAvatar owner)
+    {
+        if (_useBarRows.Count == 0)
+        {
+            _shownUseBarStates = owner.UseBarSlotStates;
+            _shownUseBarFlags = owner.UseBarFlags;
+            return;
+        }
+        byte[]? states = owner.UseBarSlotStates;
+        byte[]? flags = owner.UseBarFlags;
+        if (SameStates(states, _shownUseBarStates) && SameStates(flags, _shownUseBarFlags))
+            return;
+        _shownUseBarStates = states;
+        _shownUseBarFlags = flags;
+
+        for (int r = 0; r < _useBarRows.Count; r++)
+        {
+            UseBarRow row = _useBarRows[r];
+            int bar = _useBarRowIndices[r];
+            byte f = flags != null && bar < flags.Length ? flags[bar] : (byte)0;
+            bool picker = (f & (NetProtocol.UseBarElementPickerBit
+                                | NetProtocol.UseBarOptionPickerBit)) != 0;
+            if (row.Picker != null && row.Picker.activeSelf != picker)
+                row.Picker.SetActive(picker);
+
+            int at = bar * NetProtocol.UseBarsMaxSlots;
+            for (int s = 0; s < row.Tiles.Length; s++)
+            {
+                byte st = states != null && at + s < states.Length ? states[at + s] : (byte)0;
+                bool known = states != null && at + s < states.Length;
+                // Unknown (a short/absent state array) ⇒ the plain look: offered, undimmed,
+                // unchosen — never a guess at somebody else's live choice.
+                bool offered = !known || (st & NetProtocol.UseSlotOfferedBit) != 0;
+                bool dimmed = known && (st & NetProtocol.UseSlotDimmedBit) != 0;
+                bool chosen = known && (st & NetProtocol.UseSlotChosenBit) != 0;
+
+                float tint = offered ? 1f : GreyedFactor;
+                float alpha = dimmed ? DimmedAlpha : 1f;
+                if (row.Tiles[s] != null)
+                    row.Tiles[s].color = new Color(UseBarTileColor.r * tint, UseBarTileColor.g * tint,
+                        UseBarTileColor.b * tint, UseBarTileColor.a * alpha);
+                if (row.ChosenRims[s] != null && row.ChosenRims[s].activeSelf != chosen)
+                    row.ChosenRims[s].SetActive(chosen);
+            }
+        }
+
+        VRLog.Info("Net", $"Remote use-bar states applied: {_useBarRows.Count} row(s) — " +
+                          $"{DescribeUseBarStates(states, flags)} (wire record 25). Greyed/dim/chosen " +
+                          "and the open-sub-picker pip read exactly as on the owner's own drawer; " +
+                          "still inert — no collider, no raycast target, nothing to press.");
+    }
+
+    /// <summary>Human-readable use-bar states for the diagnostic line.</summary>
+    private string DescribeUseBarStates(byte[]? states, byte[]? flags)
+    {
+        if (states == null && flags == null)
+            return "no state bytes (every tile keeps the plain look)";
+        var sb = new System.Text.StringBuilder(96);
+        for (int r = 0; r < _useBarRows.Count; r++)
+        {
+            int bar = _useBarRowIndices[r];
+            if (sb.Length > 0)
+                sb.Append("; ");
+            sb.Append(UseBarCaption(bar));
+            byte f = flags != null && bar < flags.Length ? flags[bar] : (byte)0;
+            if ((f & NetProtocol.UseBarElementPickerBit) != 0)
+                sb.Append(" +element picker OPEN");
+            if ((f & NetProtocol.UseBarOptionPickerBit) != 0)
+                sb.Append(" +option picker OPEN");
+            int at = bar * NetProtocol.UseBarsMaxSlots;
+            for (int s = 0; s < _useBarRows[r].Tiles.Length; s++)
+            {
+                byte st = states != null && at + s < states.Length ? states[at + s] : (byte)0;
+                sb.Append(" #").Append(s).Append('=')
+                  .Append((st & NetProtocol.UseSlotOfferedBit) != 0 ? "OFFERED" : "greyed");
+                if ((st & NetProtocol.UseSlotDimmedBit) != 0)
+                    sb.Append("+dim");
+                if ((st & NetProtocol.UseSlotChosenBit) != 0)
+                    sb.Append("+CHOSEN");
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>A collider-free glow rim behind a round-card slot (the teal "wanted" pulse and the

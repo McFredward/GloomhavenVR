@@ -309,6 +309,28 @@ internal sealed class RemoteAvatar
     /// chosen — the three facts that make a mirrored row read like the owner's.</summary>
     public byte[]? DecisionOptionStates { get; private set; }
 
+    /// <summary>Which USE BARS are docked AND visible on the owner's board (extension record 25),
+    /// as <see cref="NetProtocol.UseBarActiveBonusBit"/> … <see cref="NetProtocol.UseBarItemsBit"/>
+    /// in the owner's own stack order. 0 while no bar rides — including for a sender predating the
+    /// record, whose remote board then shows nothing below the decision row, exactly as
+    /// before.</summary>
+    public byte UseBarsMask { get; private set; }
+
+    /// <summary>Per-bar sub-picker flags (record 25), indexed by BAR INDEX 0..3; null while no bar
+    /// rides. <see cref="NetProtocol.UseBarElementPickerBit"/> /
+    /// <see cref="NetProtocol.UseBarOptionPickerBit"/>.</summary>
+    public byte[]? UseBarFlags { get; private set; }
+
+    /// <summary>Per-bar visible slot counts (record 25), indexed by bar index; null while no bar
+    /// rides.</summary>
+    public byte[]? UseBarSlotCounts { get; private set; }
+
+    /// <summary>Per-slot state bytes (record 25) — offered / dimmed / chosen, bar <c>b</c> at
+    /// <c>[b * NetProtocol.UseBarsMaxSlots …)</c>; null while no bar rides. NO slot identity is or
+    /// can be here: the game's use slots carry no label at all, only card art, which never rides
+    /// this wire (see <see cref="NetProtocol.ExtIdUseBars"/>).</summary>
+    public byte[]? UseBarSlotStates { get; private set; }
+
     /// <summary>What the owner's CONFIRM cap actually reads (extension record 13 bit 0), or null
     /// — the receiver then letters the mirrored cap with the neutral GUI_CONFIRM fallback,
     /// exactly what pre-record senders get.</summary>
@@ -768,6 +790,35 @@ internal sealed class RemoteAvatar
                   $"[{DescribeOptionStates(optionStates)}] — their remote board greys, dims and " +
                   "lights the mirrored plates exactly as the owner's own dock does, and composes " +
                   "the prompt line locally (the text itself never rides this wire).");
+        }
+
+        // USE BARS (extension record 25): the owner's SECOND drawer — which bars are up, each bar's
+        // slot count + open sub-picker, and per slot offered/dimmed/chosen. Absent ⇒ mask 0 ⇒ this
+        // board draws nothing below the mirrored decision row, which is both "the owner has no bars
+        // up" and "the sender predates the record". A bar the owner render-hid because they are
+        // looking at another character is already out of their published mask, so it disappears
+        // here in the same frames it disappears there.
+        byte barMask = p.HasUseBars ? p.UseBarsMask : (byte)0;
+        byte[]? barFlags = barMask != 0 ? p.UseBarFlags : null;
+        byte[]? barCounts = barMask != 0 ? p.UseBarSlotCounts : null;
+        byte[]? barSlots = barMask != 0 ? p.UseBarSlotStates : null;
+        if (barMask != UseBarsMask || !SameOptionStates(barFlags, UseBarFlags)
+            || !SameOptionStates(barCounts, UseBarSlotCounts)
+            || !SameOptionStates(barSlots, UseBarSlotStates))
+        {
+            UseBarsMask = barMask;
+            UseBarFlags = barFlags;
+            UseBarSlotCounts = barCounts;
+            UseBarSlotStates = barSlots;
+            VRLog.Info("Net", barMask == 0
+                ? $"Use bars RECEIVED from player {PlayerId}: none — their remote board shows no bar " +
+                  "drawer (no bar docked, every bar hidden on their own board for another " +
+                  "character's focus, or a sender predating record 25)."
+                : $"Use bars RECEIVED from player {PlayerId}: mask 0x{barMask:X2} " +
+                  $"[{DescribeUseBars(barMask, barFlags, barCounts, barSlots)}] — mirrored as inert, " +
+                  "state-painted tiles below their remote decision row. The wire carried structure " +
+                  "and state only; WHICH item/bonus/ability a slot is never travels (those slots " +
+                  "have no label at all, only card art).");
         }
 
         // CAP LABELS (extension record 13): absent ⇒ null ⇒ the neutral-label fallback. The
@@ -1309,8 +1360,44 @@ internal sealed class RemoteAvatar
         VRLayers.Apply(_root);
     }
 
+    /// <summary>Human-readable use-bar drawer for the received-log line (diagnostic only). Names
+    /// each bar by its BAR INDEX — the wire carries the bit, never a name.</summary>
+    private static string DescribeUseBars(byte mask, byte[]? flags, byte[]? counts, byte[]? states)
+    {
+        var sb = new System.Text.StringBuilder(96);
+        for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+        {
+            if ((mask & (1 << b)) == 0)
+                continue;
+            if (sb.Length > 0)
+                sb.Append("; ");
+            int n = counts != null && b < counts.Length ? counts[b] : 0;
+            sb.Append(b switch { 0 => "activeBonus", 1 => "abilities", 2 => "augments", _ => "items" })
+              .Append('=').Append(n).Append(" slot(s)");
+            byte f = flags != null && b < flags.Length ? flags[b] : (byte)0;
+            if ((f & NetProtocol.UseBarElementPickerBit) != 0)
+                sb.Append(" +element picker OPEN");
+            if ((f & NetProtocol.UseBarOptionPickerBit) != 0)
+                sb.Append(" +option picker OPEN");
+            int at = b * NetProtocol.UseBarsMaxSlots;
+            for (int s = 0; s < n && states != null && at + s < states.Length; s++)
+            {
+                byte st = states[at + s];
+                sb.Append(" #").Append(s).Append('=')
+                  .Append((st & NetProtocol.UseSlotOfferedBit) != 0 ? "OFFERED" : "greyed");
+                if ((st & NetProtocol.UseSlotDimmedBit) != 0)
+                    sb.Append("+dim");
+                if ((st & NetProtocol.UseSlotChosenBit) != 0)
+                    sb.Append("+CHOSEN");
+            }
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Value equality for the per-option state arrays (wire record 23) — the change gate
-    /// for the decision-state log, so a toggle flip logs once and a steady prompt logs never.</summary>
+    /// for the decision-state log, so a toggle flip logs once and a steady prompt logs never.
+    /// Reused verbatim by the use-bar drawer's three arrays (record 25): the question is the same
+    /// one, "did these bytes move".</summary>
     private static bool SameOptionStates(byte[]? a, byte[]? b)
     {
         if (ReferenceEquals(a, b))

@@ -1822,6 +1822,199 @@ internal static class GoldenVectors
                "a truncated decision-state record still parses the packet");
         t.True(!cutDsS.HasDecisionState, "and the incomplete record is simply not delivered");
 
+        // -- 7o3. USE BARS (extension record 25) ---------------------------------------------
+        // The SECOND drawer below the decision row: which of the four use-slot bars the owner has
+        // docked AND visible, how many slots each shows, whether an element/option sub-picker
+        // stands open in it, and per slot offered / dimmed / chosen. Variable-length blocks — one
+        // per SET mask bit, in BIT order — which is what makes the reader's own bounds discipline
+        // the thing under test.
+        //
+        // WHAT IS DELIBERATELY ABSENT: any slot LABEL. The game's use slots have none
+        // (UIUseSlot<T> carries a button and two highlight objects; every concrete slot decorates
+        // itself with a sprite off the item/bonus/ability ART), so a "label" here could only have
+        // been card identity — which never rides this wire in any form. The receiver captions each
+        // bar from the BAR BIT in its own language, the record-24 text-variant solution.
+        t.Case("7o3. extras, use-bars record");
+        var useBarFlags = new byte[NetProtocol.UseBarsCount];
+        var useBarCounts = new byte[NetProtocol.UseBarsCount];
+        var useBarSlots = new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
+        useBarCounts[0] = 2;                                     // active-bonus bar: two slots
+        useBarSlots[0] = NetProtocol.UseSlotOfferedBit;           //   #0 clickable
+        useBarSlots[1] = (byte)(NetProtocol.UseSlotOfferedBit | NetProtocol.UseSlotChosenBit);
+        useBarCounts[3] = 1;                                     // items bar: one slot…
+        useBarFlags[3] = NetProtocol.UseBarElementPickerBit;      //   …with its element picker open
+        useBarSlots[3 * NetProtocol.UseBarsMaxSlots] = NetProtocol.UseSlotDimmedBit;
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasUseBars = true,
+            UseBarsMask = (byte)(NetProtocol.UseBarActiveBonusBit | NetProtocol.UseBarItemsBit),
+            UseBarFlags = useBarFlags,
+            UseBarSlotCounts = useBarCounts,
+            UseBarSlotStates = useBarSlots,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            19 08            // id 25 (use bars), len 8
+            09               // bar mask: activeBonus (bit0) + items (bit3)
+            00 02 01 05      // bar 0: no picker, 2 slots -- #0 offered, #1 offered+chosen
+            01 01 02         // bar 3: element picker OPEN, 1 slot -- #0 dimmed (greyed)
+            "), ext, m, "the use-bars record is [id 25][len][barMask] then, per SET bar bit in BIT "
+                        + "order, [barFlags][n][n slot bytes] — written AFTER record 24 in id order");
+        t.Equal(21, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 8) = 21 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ub), "and it parses");
+        t.True(ub.HasUseBars, "the use-bar drawer is delivered");
+        t.Equal((byte)(NetProtocol.UseBarActiveBonusBit | NetProtocol.UseBarItemsBit), ub.UseBarsMask,
+                "with both bar bits intact — and the two bars the owner did NOT have up stay clear");
+        t.Equal(2, ub.UseBarSlotCounts![0], "the active-bonus bar reports its two slots");
+        t.Equal(0, ub.UseBarSlotCounts[1], "the abilities bar, absent from the mask, reports none");
+        t.Equal(1, ub.UseBarSlotCounts[3], "and the items bar its one");
+        t.Equal(NetProtocol.UseSlotOfferedBit, ub.UseBarSlotStates![0],
+                "slot 0 of the first bar is OFFERED — the receiver draws a live tile");
+        t.True((ub.UseBarSlotStates[1] & NetProtocol.UseSlotChosenBit) != 0,
+               "slot 1 carries CHOSEN (the accent frame on the peer's tile)");
+        t.Equal(NetProtocol.UseSlotDimmedBit,
+                ub.UseBarSlotStates[3 * NetProtocol.UseBarsMaxSlots],
+                "and the items slot is dimmed and not offered — two separate axes, as on the "
+                + "owner's own bar");
+        t.Equal(NetProtocol.UseBarElementPickerBit, ub.UseBarFlags![3],
+                "the items bar reports its OPEN element sub-picker");
+        t.Equal(0, ub.UseBarFlags[0], "and the active-bonus bar reports none");
+
+        // MASKED ON WRITE AND ON READ, on all three byte kinds: a sender that sets bits this build
+        // does not define must not light a fifth bar, a third picker or a fourth slot axis here.
+        byte[] wildUb = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            19 05            // id 25, len 5
+            F1               // bar mask: reserved bits 4..7 set, on top of bar 0
+            FE               // bar flags: every reserved bit set, on top of OPTION picker
+            02               // 2 slots
+            F9 FA            // slot bytes: reserved bits 3..7 set, on top of OFFERED / DIMMED
+            ");
+        t.True(PresenceSerializer.TryRead(wildUb, wildUb.Length, out PresenceState wub),
+               "a use-bars record with undefined bits still parses");
+        t.Equal(NetProtocol.UseBarActiveBonusBit, wub.UseBarsMask,
+                "the bar mask is read through the mask — no fifth bar can be invented");
+        t.Equal(NetProtocol.UseBarOptionPickerBit, wub.UseBarFlags![0],
+                "the bar flags likewise");
+        t.Equal(NetProtocol.UseSlotOfferedBit, wub.UseBarSlotStates![0],
+                "and every undefined slot bit is masked away");
+        t.Equal(NetProtocol.UseSlotDimmedBit, wub.UseBarSlotStates[1], "on every slot, not just the first");
+
+        // A LYING COUNT can neither overrun the record nor bleed into the next one: n is re-clamped
+        // against what is LEFT INSIDE the record, and the record behind it still reads.
+        byte[] lyingUb = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 02
+            19 05 01 00 FF 01 02       // id 25, len 5: bar 0 claims 255 slots, carries 2
+            03 07 01 00 30 2E 31 2E 30 // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(lyingUb, lyingUb.Length, out PresenceState ubLiar),
+               "a use-bars record claiming more slots than it carries still parses");
+        t.Equal(2, ubLiar.UseBarSlotCounts![0], "the count is clamped to what the record really holds");
+        t.True(ubLiar.HasModVersion, "and the record behind it is read past it, undamaged");
+
+        // OVER-CAP: a sender offering more slots than the per-bar cap is clamped on read, so a peer
+        // can never be made to allocate or draw past the record's own bound.
+        byte[] ubOverCap = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            19 0F 01 00 0C 01 01 01 01 01 01 01 01 01 01 01 01
+            ");
+        t.True(PresenceSerializer.TryRead(ubOverCap, ubOverCap.Length, out PresenceState ubCapped),
+               "an over-cap use-bars record parses");
+        t.Equal(NetProtocol.UseBarsMaxSlots, ubCapped.UseBarSlotCounts![0],
+                "with the slot count clamped to UseBarsMaxSlots");
+
+        // A TRUNCATED BLOCK ends the walk WITHOUT losing the bars already read: the mask delivered
+        // is the mask actually parsed, so a peer never draws a row it has no bytes for.
+        byte[] ubCutBlock = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            19 04            // id 25, len 4
+            09               // mask claims activeBonus AND items
+            00 01 01         // bar 0 complete: no picker, 1 slot, offered -- then the record ENDS
+            ");
+        t.True(PresenceSerializer.TryRead(ubCutBlock, ubCutBlock.Length, out PresenceState ubCut),
+               "a use-bars record whose last block is missing still parses");
+        t.Equal(NetProtocol.UseBarActiveBonusBit, ubCut.UseBarsMask,
+                "and delivers only the bar it really carried — the truncated items bar is dropped");
+        t.Equal(1, ubCut.UseBarSlotCounts![0], "the complete bar keeps its slot");
+
+        // NOTHING UP ⇒ NO RECORD, NO TAIL, NO BLOCK: the drawer is empty when the last bar releases
+        // AND when every bar is render-hidden because the owner is looking at another character
+        // (the surface drops a hidden bar from the mask before it ever gets here). An idle packet
+        // stays byte-identical to the previous build's.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasUseBars = true, HandCardCount = 5,
+            UseBarsMask = 0,
+            UseBarFlags = useBarFlags, UseBarSlotCounts = useBarCounts, UseBarSlotStates = useBarSlots,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "an empty use-bar mask writes no record at all");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noUb), "and it parses");
+        t.True(!noUb.HasUseBars, "with HasUseBars false (the peer's bar drawer empties)");
+
+        // OLD-STYLE PACKET (no record 25 at all — a build-88 sender): everything that existed
+        // before still arrives, and the receiver derives "no bar drawer", which is exactly what
+        // every build before this one drew below the decision row: nothing.
+        byte[] oldStyleUb = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 02
+            0C 02 4A 61      // id 12 decision lines: 'Ja'
+            18 03 09 01 01   // id 24 decision state: take-damage, one OFFERED option
+            ");
+        t.True(PresenceSerializer.TryRead(oldStyleUb, oldStyleUb.Length, out PresenceState preUb),
+               "a pre-record-25 packet parses");
+        t.True(preUb.HasDecisionLines && preUb.HasDecisionState,
+               "its decision records are delivered");
+        t.True(!preUb.HasUseBars, "no use-bar drawer is invented");
+        t.Equal(0, preUb.UseBarsMask, "the derived bar mask is 0 — the peer draws no second drawer");
+        t.True(preUb.UseBarSlotStates == null,
+               "and no slot states — never a guess at somebody else's live choice");
+
+        // TRUNCATED record (claims 8 payload bytes, delivers 2): tail abandoned, nothing throws.
+        byte[] cutUb = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 19 08 09 00");
+        t.True(PresenceSerializer.TryRead(cutUb, cutUb.Length, out PresenceState cutUbS),
+               "a truncated use-bars record still parses the packet");
+        t.True(!cutUbS.HasUseBars, "and the incomplete record is simply not delivered");
+
+        // ID ORDER: record 25 rides LAST, behind 12 and 24 — the whole decision display in one
+        // packet, in id order, exactly as the owner's board shows it (row, states, bar drawer).
+        useBarCounts[1] = 0;
+        useBarCounts[3] = 0;
+        useBarFlags[3] = 0;
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionLines = true, DecisionLinesText = "Ja",
+            HasDecisionState = true,
+            DecisionPromptKind = NetProtocol.DecisionKindTakeDamage,
+            DecisionTextVariant = NetProtocol.DecisionTextDealDamage,
+            DecisionOptionCount = 1,
+            DecisionOptionFlags = new[] { NetProtocol.DecisionOptionOfferedBit },
+            HasUseBars = true,
+            UseBarsMask = NetProtocol.UseBarActiveBonusBit,
+            UseBarFlags = useBarFlags, UseBarSlotCounts = useBarCounts, UseBarSlotStates = useBarSlots,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            03                   // tail: 3 records, in id order
+            0C 02 4A 61          // id 12 decision lines: 'Ja'
+            18 03 09 01 01       // id 24 decision state
+            19 05 01 00 02 01 05 // id 25 use bars: bar 0, no picker, 2 slots
+            "), ext, m, "record 25 rides the tail behind records 12 and 24 (id order 12, 24, 25)");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ubCombo),
+               "and the whole decision display parses");
+        t.True(ubCombo.HasDecisionLines && ubCombo.HasDecisionState && ubCombo.HasUseBars,
+               "with all three decision-display records delivered");
+
         // -- 7p. CAP LABELS (extension record 13) ------------------------------------------
         // What the sender's CONFIRM cap and docked SKIP button ACTUALLY read — the fix for
         // "mein Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'": the receiver's neutral
@@ -2468,7 +2661,9 @@ internal static class GoldenVectors
         && x.CharFocusOwnsAttention == y.CharFocusOwnsAttention
         && x.CharFocusAttentionActorId == y.CharFocusAttentionActorId
         && x.HasTrackSelection == y.HasTrackSelection
-        && x.TrackSelectionCount == y.TrackSelectionCount;
+        && x.TrackSelectionCount == y.TrackSelectionCount
+        && x.HasUseBars == y.HasUseBars
+        && x.UseBarsMask == y.UseBarsMask;
 
     /// <summary>The three states of the attention cue, mirrored from <c>Board.FocusTurnMark</c> —
     /// that enum lives in the plugin assembly (UnityEngine types all the way down) and cannot be

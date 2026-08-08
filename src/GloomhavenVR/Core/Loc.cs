@@ -611,6 +611,15 @@ internal static partial class Loc
         // Caption of the (idle) shared decision drawer drawn on a REMOTE player's control board —
         // the reserved strip where their take-damage / dialog prompts dock on their own client.
         ["decision_dock"] = Pair("Decisions", "Entscheidungen"),
+        // Captions of the four mirrored USE-BAR rows drawn on a REMOTE player's control board (wire
+        // record 25 — the second drawer, below their decision row). The wire carries the BAR BIT,
+        // never a word: the game's use-slot widgets have no label at all, only card art, so the
+        // caption is composed HERE in the VIEWER's language and the slots themselves stay anonymous
+        // state-painted tiles.
+        ["use_bar_bonuses"] = Pair("Active bonuses", "Aktive Boni"),
+        ["use_bar_abilities"] = Pair("Abilities", "Fähigkeiten"),
+        ["use_bar_augments"] = Pair("Augments", "Verstärkungen"),
+        ["use_bar_items"] = Pair("Items", "Gegenstände"),
         // The MP ready keycap's CONFIRMED state. Vanilla's own GUI_READY ("Mach dich bereit!")
         // was showing here, which names the OPPOSITE action — pressing it revokes ready. The
         // cap's other state reads "Auswahl beenden", so this wording keeps the pair one toggle

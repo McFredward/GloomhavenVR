@@ -1572,6 +1572,139 @@ internal static class NetProtocol
     public static byte DecodeDecisionTextVariant(byte flags) =>
         (byte)((flags & DecisionTextVariantMask) >> DecisionTextVariantShift);
 
+    // ---- record 25: USE BARS ------------------------------------------------------------------
+
+    /// <summary>
+    /// Extension record id: the sender's docked USE-SLOT BARS — the SECOND drawer below their
+    /// decision row (<c>WorldUI.Surfaces.UseBarsSurface</c>): which of the four bars are up, how
+    /// many slots each shows, whether that bar has an element / option SUB-PICKER open, and per
+    /// slot whether it is offered, dimmed or chosen.
+    ///
+    /// <para>WHY (user ruling 2026-08-08, the standing 1:1 rule — "alle Interaktionen, Animationen
+    /// und Anzeigen des Controllboards in MP auch synchronisieren … so wie der Spieler sie sieht").
+    /// The four bars (<c>UIActiveBonusBar</c> / <c>UIUseAbilitiesBar</c> /
+    /// <c>UIUseAugmentationsBar</c> / <c>UIUseItemsBar</c>) are HUD singletons that exist only on
+    /// the client the game raised them for — every other client's bar is empty — so a peer saw
+    /// NOTHING below the decision row while the owner was looking at a whole drawer of slots. By
+    /// area this was the largest missing surface of the control board.</para>
+    ///
+    /// <para>LAYOUT — <c>[barMask]</c> then, for EVERY SET bar bit in BIT ORDER,
+    /// <c>[barFlags][n][n × slot byte]</c>. At least <see cref="UseBarsMinRecordBytes"/> bytes:
+    /// <list type="bullet">
+    /// <item><c>barMask</c> — <see cref="UseBarActiveBonusBit"/> / <see cref="UseBarAbilitiesBit"/> /
+    ///   <see cref="UseBarAugmentsBit"/> / <see cref="UseBarItemsBit"/>, in the owner's own stack
+    ///   order (top to bottom). Bits 4..7 reserved, masked to <see cref="UseBarsDefinedMask"/> on
+    ///   write AND on read. A bar that is DOCKED but render-hidden for another character's focus is
+    ///   NOT in the mask — see the hide note below.</item>
+    /// <item><c>barFlags</c> — <see cref="UseBarElementPickerBit"/> (an <c>UIElementPicker</c> popup
+    ///   stands open in this bar) and <see cref="UseBarOptionPickerBit"/> (an <c>UIOptionPicker</c>
+    ///   does). Masked to <see cref="UseBarFlagsDefinedMask"/> both ways.</item>
+    /// <item><c>n</c> — visible slots in that bar, clamped to <see cref="UseBarsMaxSlots"/> on both
+    ///   ends AND, on read, against the record's own remaining length.</item>
+    /// <item>slot byte — <see cref="UseSlotOfferedBit"/> (the owner can click it),
+    ///   <see cref="UseSlotDimmedBit"/> (the slot's <c>CanvasGroup</c> is below full alpha — the
+    ///   game's own <c>UIUseSlot.disabledAlpha</c> 0.25 "not yours / not now" look) and
+    ///   <see cref="UseSlotChosenBit"/> (<c>UIUseSlot.IsSelected()</c> — the toggle is ON). Same
+    ///   three bit POSITIONS and the same meanings as record 24's option byte, so a receiver paints
+    ///   a bar tile and a decision plate through one code path. Masked to
+    ///   <see cref="UseSlotDefinedMask"/> both ways.</item>
+    /// </list></para>
+    ///
+    /// <para>THERE IS NO SLOT LABEL ON THIS WIRE, AND NOT BECAUSE IT WAS SUPPRESSED — the game's
+    /// use-slot widgets HAVE no label. <c>UIUseSlot&lt;T&gt;</c> carries only a button, a selected
+    /// mask and two highlight objects; every concrete slot decorates itself with a SPRITE
+    /// (<c>UIUseItemScenario.imageItem</c> ← <c>UIInfoTools.GetItemConfig(item.YMLData.Art)
+    /// .miniIcon</c>, <c>UIUseActiveBonus.icon</c> ← <c>bonus.GetIcon()</c>,
+    /// <c>UIUseAbility.icon</c> ← <c>ability.Icon</c>, <c>UIUseAugmentation</c>'s element
+    /// glyphs). The only words on a slot live in its hover TOOLTIP (<c>UIItemTooltip</c> /
+    /// <c>UIAbilityTooltip</c> / <c>UIAugmentTooltip</c>), which is not part of the docked strip.
+    /// So the choice was never "string or variant id": an item slot's identity is its CARD ART, and
+    /// putting it on the wire in any form — sprite name, item id, art key — would be card identity,
+    /// which never rides this wire. The receiver captions each bar from the BAR BIT (a number it
+    /// localizes itself, the record-24 text-variant solution) and draws the slots as anonymous,
+    /// state-painted tiles: the same "structure and state travel, identity is resolved locally or
+    /// not at all" rule <see cref="RemoteItemCardSource"/> already ships.</para>
+    ///
+    /// <para>THE OWNER'S FOCUS HIDE TRAVELS WITH IT. <c>UseBarsSurface</c> render-hides a bar whose
+    /// owner is not the character the player is looking at (<c>BarDock.ApplyFocusHide</c>, driven by
+    /// the same rule <c>DecisionDockSurface.PromptFocus</c> rolls up). A hidden bar is dropped from
+    /// the mask, so the peer's copy of that bar empties in the same frames the owner's does — the
+    /// rule records 12 and 24 already follow. All four hidden ⇒ mask 0 ⇒ NO RECORD at all, so an
+    /// idle packet stays byte-identical to the previous build's and absence renders as the
+    /// pre-record look (nothing below the decision row).</para>
+    ///
+    /// <para>ADDITIVE TLV, appended in id order behind record 24; an older reader steps over it by
+    /// its own length. Worst case 2 + 1 + 4 × (1 + 1 + 8) = 43 bytes.</para>
+    /// </summary>
+    public const byte ExtIdUseBars = 25;
+
+    /// <summary>Smallest payload <see cref="ExtIdUseBars"/> can have: the bar mask alone. A shorter
+    /// record is not trusted (never trust the wire).</summary>
+    public const int UseBarsMinRecordBytes = 1;
+
+    /// <summary>How many use bars exist (the four the surface docks). Fixed by the game, not by the
+    /// wire — the mask has one bit per bar and the reserved bits are masked away.</summary>
+    public const int UseBarsCount = 4;
+
+    /// <summary>Per-bar slot cap of <see cref="ExtIdUseBars"/>. A raised bar shows a handful of
+    /// slots (the items bar only docks its SUB-CHOICE slots at all — the place-to-use split), and
+    /// the cap bounds the record at 1 + 4 × 10 = 41 payload bytes. Clamped on write AND on read,
+    /// where it is additionally clamped against the record's own remaining length.</summary>
+    public const int UseBarsMaxSlots = 8;
+
+    /// <summary>Use-bar mask bit 0: the ACTIVE BONUS bar (<c>UIActiveBonusBar</c>) — top of the
+    /// owner's stack.</summary>
+    public const byte UseBarActiveBonusBit = 1 << 0;
+
+    /// <summary>Use-bar mask bit 1: the ABILITIES bar (<c>UIUseAbilitiesBar</c>) — the element
+    /// infusion / choose-ability pickers, including the end-of-ability "Any" infusion that blocks
+    /// the owner's turn until it is answered.</summary>
+    public const byte UseBarAbilitiesBit = 1 << 1;
+
+    /// <summary>Use-bar mask bit 2: the AUGMENTATIONS bar (<c>UIUseAugmentationsBar</c>).</summary>
+    public const byte UseBarAugmentsBit = 1 << 2;
+
+    /// <summary>Use-bar mask bit 3: the usable ITEMS bar (<c>UIUseItemsBar</c>) — bottom of the
+    /// stack.</summary>
+    public const byte UseBarItemsBit = 1 << 3;
+
+    /// <summary>Every bar bit defined today. Writer and reader both mask with it, so a future
+    /// sender's extra bits can never light a fifth bar here (the board-UI overlay discipline).</summary>
+    public const byte UseBarsDefinedMask =
+        UseBarActiveBonusBit | UseBarAbilitiesBit | UseBarAugmentsBit | UseBarItemsBit;
+
+    /// <summary>Bar-flags bit 0: an ELEMENT sub-picker (<c>UIElementPicker.IsOpen</c>) stands open
+    /// in this bar — the popup the owner is mid-choice in, which is why their bar host grew.</summary>
+    public const byte UseBarElementPickerBit = 1 << 0;
+
+    /// <summary>Bar-flags bit 1: an OPTION sub-picker (<c>UIOptionPicker.IsOpen</c>) stands open in
+    /// this bar (initiative ±, forgo, choose-ability).</summary>
+    public const byte UseBarOptionPickerBit = 1 << 1;
+
+    /// <summary>Every bar-flags bit defined today; masked on write AND on read.</summary>
+    public const byte UseBarFlagsDefinedMask = UseBarElementPickerBit | UseBarOptionPickerBit;
+
+    /// <summary>Slot byte bit 0: the owner can actually CLICK this slot right now. Clear = greyed.
+    /// Deliberately the SAME bit position as <see cref="DecisionOptionOfferedBit"/>.</summary>
+    public const byte UseSlotOfferedBit = 1 << 0;
+
+    /// <summary>Slot byte bit 1: the slot is DIMMED — a <c>CanvasGroup</c> between it and the bar
+    /// root holds it below full alpha, which for these widgets is the game's own
+    /// <c>UIUseSlot.SetInteractable</c> writing <c>disabledAlpha</c> (0.25). Same bit position as
+    /// <see cref="DecisionOptionDimmedBit"/>.</summary>
+    public const byte UseSlotDimmedBit = 1 << 1;
+
+    /// <summary>Slot byte bit 2: the slot is CHOSEN — <c>UIUseSlot.IsSelected()</c>, the toggle the
+    /// owner has switched on. Same bit position as <see cref="DecisionOptionChosenBit"/>.</summary>
+    public const byte UseSlotChosenBit = 1 << 2;
+
+    /// <summary>Every slot bit defined today; masked on write AND on read. Bit 3 was considered for
+    /// the MANDATORY highlight and deliberately left reserved: <c>UIUseSlot.mandatoryHiglight</c> is
+    /// private serialized state, and the fact it telegraphs ("a mandatory bonus still owes a pick")
+    /// already reaches every peer through the pick-banner record 7, which
+    /// <c>UseBarsSurface.UpdateWaitingHint</c> publishes on exactly that condition.</summary>
+    public const byte UseSlotDefinedMask = UseSlotOfferedBit | UseSlotDimmedBit | UseSlotChosenBit;
+
     /// <summary>
     /// Extension record id: the LIVE LABELS of the sender's turn-flow board caps — what their
     /// CONFIRM keycap and their docked SKIP button ACTUALLY read right now — as

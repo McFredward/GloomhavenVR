@@ -3,6 +3,7 @@ using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using ScenarioRuleLibrary;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -140,9 +141,17 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// skip a canvas that is not <c>isActiveAndEnabled</c> (RayUguiDriver:132/312,
 /// PokeInteractor:298).
 ///
-/// MP: zero wire changes — every interaction is a real widget click on local-player UI;
-/// peers see state via the game's own sync (proxy paths <c>ProxyUseActiveBonus</c>/
-/// <c>ProxyToggleAugment</c>/<c>ProxyInfuseAbility</c> replay on remotes untouched).
+/// MP — THE BARS THEMSELVES NOW RIDE THE WIRE (record 25; the paragraph below used to read
+/// "zero wire changes"). Every interaction still is a real widget click on local-player UI and
+/// peers still see the RESULT via the game's own sync (proxy paths <c>ProxyUseActiveBonus</c>/
+/// <c>ProxyToggleAugment</c>/<c>ProxyInfuseAbility</c> replay on remotes untouched) — but the
+/// DISPLAY did not travel, and under the 2026-08-08 ruling it must: these four bars are HUD
+/// singletons raised on ONE client, so a peer saw nothing below the decision row while the owner
+/// looked at a whole drawer of slots. <see cref="SampleWire"/> publishes the structure and the
+/// state (which bars, how many slots, offered/dimmed/chosen, sub-picker open) — never a slot's
+/// identity, which for these widgets is CARD ART and has no textual form at all (see
+/// <c>Net.NetProtocol.ExtIdUseBars</c>). The focus HIDE above travels with it: a render-hidden
+/// bar is dropped from the published mask, so a peer's copy empties in the same frames.
 /// Reversibility: pure CanvasConversion (Release restores the exact 2D home); nothing
 /// destroyed, nothing re-layered permanently; every pass TickGuard-isolated by the module.
 /// </summary>
@@ -156,7 +165,12 @@ internal sealed class UseBarsSurface
     private const float MinFitScale = 0.5f;
 
     /// <summary>Clearance between the decision row's measured bottom edge and the bar stack top (tray-local m).</summary>
-    private const float DecisionClearance = 0.015f;
+    /// <remarks>INTERNAL since the 1:1 remote mirror of this drawer (wire record 25):
+    /// <c>Net.RemoteBoardFurniture</c> hangs its mirrored bar stack the same clearance below the
+    /// mirrored decision row and ALIASES this constant rather than keeping a hand-copied duplicate
+    /// — the fix <c>scripts/check-mirrors.sh</c> exists to provoke (see
+    /// <see cref="DecisionDockSurface.BarClearanceMeters"/>, which went the same way).</remarks>
+    internal const float DecisionClearance = 0.015f;
 
     /// <summary>
     /// Deadband (uGUI px at row density) on the decision row's live bottom edge before the
@@ -169,7 +183,9 @@ internal sealed class UseBarsSurface
     private const float RowBottomDeadbandPx = 8f;
 
     /// <summary>Vertical gap between stacked bars (tray-local m).</summary>
-    private const float StackGap = 0.012f;
+    /// <remarks>INTERNAL for the same reason as <see cref="DecisionClearance"/>: the mirrored bar
+    /// stack on a peer's board stacks its rows with THIS gap, by alias, not by copy.</remarks>
+    internal const float StackGap = 0.012f;
 
     /// <summary>Per-bar proud step toward the viewer — stops equal-order world canvases depth-tying (flicker lesson).</summary>
     private const float ProudStep = 0.004f;
@@ -202,15 +218,21 @@ internal sealed class UseBarsSurface
         // The container accessor feeds the fit-stability hold: the bar's serialized slot
         // container is the LAYOUT truth (slots are Instantiate(prefab, container)), so its
         // active-children set changes exactly when the slot set does — never on hover.
-        _itemsDock = new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, ItemsContainer, ItemsOwners, this);
+        //
+        // THE STACK ORDER IS ALSO THE WIRE ORDER: the four record-25 mask bits are assigned in
+        // exactly this sequence (NetProtocol.UseBarActiveBonusBit … UseBarItemsBit), so a peer's
+        // mirrored drawer stacks the bars the way the owner's own drawer does without anything
+        // having to describe the order.
+        _itemsDock = new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, ItemsContainer, ItemsOwners,
+            ItemSlotChosen, this);
         _docks = new[]
         {
             new BarDock("UseBarActiveBonus", ActiveBonusRoot, ActiveBonusPopulated, ActiveBonusContainer,
-                ActiveBonusOwners, this),
+                ActiveBonusOwners, ActiveBonusSlotChosen, this),
             new BarDock("UseBarAbilities", AbilitiesRoot, AbilitiesPopulated, AbilitiesContainer,
-                AbilitiesOwners, this),
+                AbilitiesOwners, AbilitySlotChosen, this),
             new BarDock("UseBarAugments", AugmentsRoot, AugmentsPopulated, AugmentsContainer,
-                AugmentsOwners, this),
+                AugmentsOwners, AugmentSlotChosen, this),
             _itemsDock,
         };
     }
@@ -226,6 +248,9 @@ internal sealed class UseBarsSurface
         UpdateFocusVisibility();  // one character owns a decision — hide bars whose owner is not in view
         StackDocked();            // …so the stack closes up over a hidden bar in the SAME tick
         UpdateWaitingHint();
+        // …and deliberately LAST, after the hide has been applied: what rides the wire is what this
+        // board SHOWS, so the sampler reads the same FocusHidden flags the stack just honoured.
+        SampleWire();
     }
 
     /// <summary>
@@ -250,6 +275,11 @@ internal sealed class UseBarsSurface
         _floatPlaced = false;
         _floatPlacedCount = -1;
         _rowBottomValid = false;
+        // The wire seam is static and outlives this instance: a module teardown must withdraw
+        // record 25 explicitly, or peers would keep the last drawer standing on a board that no
+        // longer has one (the same contract DecisionDockSurface's undock publish honours).
+        _nextWireAt = 0f;
+        SampleWire();
     }
 
     // ---- bar detection (polled — the bars raise no window events) -------------------------
@@ -446,6 +476,267 @@ internal sealed class UseBarsSurface
             return;
         for (int i = 0; i < actors.Count; i++)
             AddOwner(into, actors[i]);
+    }
+
+    // ---- MULTIPLAYER READ SEAM (wire record 25 — NetProtocol.ExtIdUseBars) ------------------
+
+    /// <summary>
+    /// Which bars are DOCKED AND VISIBLE on this board right now, as the record-25 mask
+    /// (<c>NetProtocol.UseBarActiveBonusBit</c> … <c>UseBarItemsBit</c>, in this surface's own
+    /// stack order). 0 = nothing to publish, which is also what a peer predating the record
+    /// renders (no second drawer at all).
+    ///
+    /// <para>A bar that is docked but RENDER-HIDDEN for another character's focus is deliberately
+    /// NOT in this mask: since the 2026-08-08 ruling a remote board is a picture of ITS OWNER'S
+    /// board, and the owner's board shows nothing at that lane while the hide holds — the same
+    /// rule <c>DecisionDockSurface.WireButtonLines</c> follows. The hide predicate is not
+    /// re-derived here; this reads <c>BarDock.FocusHidden</c>, i.e. the flag
+    /// <see cref="UpdateFocusVisibility"/> set when it actually applied the hide.</para>
+    /// </summary>
+    internal static byte WireBarMask { get; private set; }
+
+    /// <summary>Per-bar flags (element/option sub-picker open), indexed by BAR INDEX — the same
+    /// 0..3 order as the mask bits. Meaningful only for bars present in
+    /// <see cref="WireBarMask"/>.</summary>
+    private static readonly byte[] WireBarFlagsBuffer = new byte[Net.NetProtocol.UseBarsCount];
+
+    /// <summary>Per-bar visible slot counts, indexed by bar index (≤
+    /// <c>NetProtocol.UseBarsMaxSlots</c>).</summary>
+    private static readonly byte[] WireBarSlotCountBuffer = new byte[Net.NetProtocol.UseBarsCount];
+
+    /// <summary>Per-slot state bytes, bar <c>b</c> occupying
+    /// <c>[b * NetProtocol.UseBarsMaxSlots .. +count)</c>. Flat and fixed-size so the whole sample
+    /// is allocation-free in the steady state.</summary>
+    private static readonly byte[] WireSlotStateBuffer =
+        new byte[Net.NetProtocol.UseBarsCount * Net.NetProtocol.UseBarsMaxSlots];
+
+    /// <summary>
+    /// Copy the published per-bar flags / slot counts / slot states into the caller's buffers (each
+    /// may be shorter; nothing is written past its length). The three describe the bars named by
+    /// <see cref="WireBarMask"/>, indexed by BAR INDEX, so the caller never has to know which bars
+    /// were present to address them.
+    /// </summary>
+    internal static void CopyWireBars(byte[]? flags, byte[]? counts, byte[]? states)
+    {
+        Copy(WireBarFlagsBuffer, flags);
+        Copy(WireBarSlotCountBuffer, counts);
+        Copy(WireSlotStateBuffer, states);
+
+        static void Copy(byte[] from, byte[]? into)
+        {
+            if (into == null)
+                return;
+            int n = from.Length < into.Length ? from.Length : into.Length;
+            for (int i = 0; i < n; i++)
+                into[i] = from[i];
+        }
+    }
+
+    /// <summary>Next unscaled time the wire sample runs while bars are up (the shared content
+    /// cadence the decision dock uses — the states move on human-paced clicks, not per frame).</summary>
+    private float _nextWireAt;
+
+    /// <summary>The mask/flags/counts/states last PUBLISHED — the change gate's memory, so a
+    /// steady drawer costs one comparison and no log line.</summary>
+    private static byte _publishedMask;
+    private static readonly byte[] PublishedFlags = new byte[Net.NetProtocol.UseBarsCount];
+    private static readonly byte[] PublishedCounts = new byte[Net.NetProtocol.UseBarsCount];
+    private static readonly byte[] PublishedStates =
+        new byte[Net.NetProtocol.UseBarsCount * Net.NetProtocol.UseBarsMaxSlots];
+
+    /// <summary>The record-25 mask bit of bar index <paramref name="i"/> — the stack order this
+    /// surface builds its docks in IS the bit order (see the constructor).</summary>
+    private static byte BarBit(int i) => (byte)(1 << i);
+
+    /// <summary>
+    /// Sample the docked bars for the multiplayer wire (record 25): the mask of bars that are up
+    /// AND visible, each bar's open sub-picker flags, and one state byte per visible slot.
+    ///
+    /// <para>WITHDRAWAL BYPASSES THE CADENCE. When nothing is up any more — the last bar released,
+    /// or every bar went render-hidden for another character's focus — the empty mask is published
+    /// on the very tick it becomes true, so a peer's drawer empties in the same frames the owner's
+    /// does instead of up to a quarter second later. Only the non-empty sample is throttled.</para>
+    ///
+    /// <para>NO IDENTITY IS READ. The walk visits the bar's slot CONTAINER children (visual order,
+    /// the same layout truth the fit hold uses) and asks three questions of each: can the owner
+    /// click it, is it dimmed, is it toggled on. It never touches a slot's sprite, its model
+    /// element or its tooltip — see <c>NetProtocol.ExtIdUseBars</c> for why an item slot's only
+    /// "label" is its card art and therefore may not travel in any form.</para>
+    ///
+    /// <para>Never throws its way out of Tick: a half-torn bar degrades to "that bar is not
+    /// published", which peers render as no bar at all.</para>
+    /// </summary>
+    private void SampleWire()
+    {
+        byte mask = 0;
+        for (int i = 0; i < _docks.Length; i++)
+        {
+            if (_docks[i].Docked != null && !_docks[i].FocusHidden)
+                mask |= BarBit(i);
+        }
+
+        if (mask == 0)
+        {
+            _nextWireAt = 0f; // withdraw NOW, not on the next cadence tick
+            for (int i = 0; i < WireBarFlagsBuffer.Length; i++)
+            {
+                WireBarFlagsBuffer[i] = 0;
+                WireBarSlotCountBuffer[i] = 0;
+            }
+            for (int i = 0; i < WireSlotStateBuffer.Length; i++)
+                WireSlotStateBuffer[i] = 0;
+            Publish(0);
+            return;
+        }
+
+        if (Time.unscaledTime < _nextWireAt)
+            return;
+        _nextWireAt = Time.unscaledTime + 0.25f;
+
+        for (int i = 0; i < _docks.Length; i++)
+        {
+            int at = i * Net.NetProtocol.UseBarsMaxSlots;
+            byte flags = 0;
+            int count = 0;
+            if ((mask & BarBit(i)) != 0)
+            {
+                try
+                {
+                    count = _docks[i].SampleWireSlots(WireSlotStateBuffer, at, out flags);
+                }
+                catch (System.Exception e)
+                {
+                    // A bar that cannot be read is a bar peers do not get: dropping it from the
+                    // mask is the honest (and safe) degradation, never a guessed row of tiles.
+                    mask &= (byte)~BarBit(i);
+                    count = 0;
+                    flags = 0;
+                    VRLog.Warn("WorldUI", $"USE BARS: wire sample of '{_docks[i].Name}' failed " +
+                                          $"({e.Message}) — that bar is dropped from record 25 this " +
+                                          "cadence; peers simply do not draw it.");
+                }
+            }
+            WireBarFlagsBuffer[i] = flags;
+            WireBarSlotCountBuffer[i] = (byte)count;
+            for (int s = count; s < Net.NetProtocol.UseBarsMaxSlots; s++)
+                WireSlotStateBuffer[at + s] = 0; // stale tail must never reach the wire
+        }
+        Publish(mask);
+    }
+
+    /// <summary>Publish (change-gated) what record 25 carries, and log the change once. Mask,
+    /// flags, counts and states move together — they describe one drawer — so they share one gate
+    /// and one line.</summary>
+    private static void Publish(byte mask)
+    {
+        bool same = mask == _publishedMask;
+        for (int i = 0; same && i < Net.NetProtocol.UseBarsCount; i++)
+        {
+            if (PublishedFlags[i] != WireBarFlagsBuffer[i] || PublishedCounts[i] != WireBarSlotCountBuffer[i])
+                same = false;
+        }
+        for (int i = 0; same && i < WireSlotStateBuffer.Length; i++)
+        {
+            if (PublishedStates[i] != WireSlotStateBuffer[i])
+                same = false;
+        }
+        if (same)
+            return;
+
+        _publishedMask = mask;
+        WireBarMask = mask;
+        for (int i = 0; i < Net.NetProtocol.UseBarsCount; i++)
+        {
+            PublishedFlags[i] = WireBarFlagsBuffer[i];
+            PublishedCounts[i] = WireBarSlotCountBuffer[i];
+        }
+        for (int i = 0; i < WireSlotStateBuffer.Length; i++)
+            PublishedStates[i] = WireSlotStateBuffer[i];
+
+        if (mask == 0)
+        {
+            VRLog.Info("WorldUI", "USE BARS: wire drawer cleared (no bar docked and visible) — record " +
+                                  "25 stops riding, so every peer's mirrored bar drawer empties too, " +
+                                  "including when the bars are still docked but render-hidden because " +
+                                  "the player is looking at another character.");
+            return;
+        }
+        VRLog.Info("WorldUI", $"USE BARS: wire drawer published — mask 0x{mask:X2} " +
+                              $"[{DescribeWire(mask)}] (record 25: which bars, how many slots, each " +
+                              "slot offered/dimmed/chosen, sub-picker open. NO slot identity — the " +
+                              "game's use slots carry no label at all, only card ART, which never " +
+                              "rides this wire).");
+    }
+
+    /// <summary>Human-readable summary of the published drawer — built ONLY when a line is really
+    /// emitted (the gate above compares bytes first), so the steady state allocates nothing.</summary>
+    private static string DescribeWire(byte mask)
+    {
+        var sb = new System.Text.StringBuilder(96);
+        for (int i = 0; i < Net.NetProtocol.UseBarsCount; i++)
+        {
+            if ((mask & BarBit(i)) == 0)
+                continue;
+            if (sb.Length > 0)
+                sb.Append("; ");
+            sb.Append(WireBarName(i)).Append(": ").Append(WireBarSlotCountBuffer[i]).Append(" slot(s)");
+            byte f = WireBarFlagsBuffer[i];
+            if ((f & Net.NetProtocol.UseBarElementPickerBit) != 0)
+                sb.Append(" +ELEMENT PICKER OPEN");
+            if ((f & Net.NetProtocol.UseBarOptionPickerBit) != 0)
+                sb.Append(" +OPTION PICKER OPEN");
+            int at = i * Net.NetProtocol.UseBarsMaxSlots;
+            for (int s = 0; s < WireBarSlotCountBuffer[i]; s++)
+            {
+                byte st = WireSlotStateBuffer[at + s];
+                sb.Append(" #").Append(s).Append('=')
+                  .Append((st & Net.NetProtocol.UseSlotOfferedBit) != 0 ? "OFFERED" : "greyed");
+                if ((st & Net.NetProtocol.UseSlotDimmedBit) != 0)
+                    sb.Append("+dim");
+                if ((st & Net.NetProtocol.UseSlotChosenBit) != 0)
+                    sb.Append("+CHOSEN");
+            }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Bar name for the diagnostic line (the wire carries the BAR BIT, never a name).</summary>
+    private static string WireBarName(int index) => index switch
+    {
+        0 => "activeBonus",
+        1 => "abilities",
+        2 => "augments",
+        _ => "items",
+    };
+
+    // ---- per-bar "is this slot toggled on?" resolvers ---------------------------------------
+    // Each bar instantiates ONE concrete slot type under its container (UIUseSlot<T>.IsSelected()
+    // is inherited public), so the chosen state is read off the widget the owner clicked rather
+    // than re-derived from the model. A child that is not that type is not a slot and contributes
+    // nothing (null) — pooled decoration under the container can never become a mirrored tile.
+
+    private static bool? ActiveBonusSlotChosen(Transform child)
+    {
+        var slot = child.GetComponent<UIUseActiveBonus>();
+        return slot != null ? slot.IsSelected() : null;
+    }
+
+    private static bool? AbilitySlotChosen(Transform child)
+    {
+        var slot = child.GetComponent<UIUseAbility>();
+        return slot != null ? slot.IsSelected() : null;
+    }
+
+    private static bool? AugmentSlotChosen(Transform child)
+    {
+        var slot = child.GetComponent<UIUseAugmentation>();
+        return slot != null ? slot.IsSelected() : null;
+    }
+
+    private static bool? ItemSlotChosen(Transform child)
+    {
+        var slot = child.GetComponent<UIUseItemScenario>();
+        return slot != null ? slot.IsSelected() : null;
     }
 
     /// <summary>Owner scratch — one resolve per dock per tick, reused (no steady-state garbage).</summary>
@@ -896,6 +1187,11 @@ internal sealed class UseBarsSurface
         private readonly System.Func<bool> _populated;
         private readonly System.Func<RectTransform?> _container;
         private readonly System.Action<List<CPlayerActor>> _owners;
+
+        /// <summary>"Is this container child a slot, and is it toggled ON?" for THIS bar's concrete
+        /// slot type — null when the child is not a slot at all. Feeds the record-25 sample only.</summary>
+        private readonly System.Func<Transform, bool?> _chosen;
+
         private readonly UseBarsSurface _owner;
         private bool _conflictWarned;
 
@@ -928,14 +1224,99 @@ internal sealed class UseBarsSurface
 
         internal BarDock(string name, System.Func<RectTransform?> root,
             System.Func<bool> populated, System.Func<RectTransform?> container,
-            System.Action<List<CPlayerActor>> owners, UseBarsSurface owner)
+            System.Action<List<CPlayerActor>> owners, System.Func<Transform, bool?> chosen,
+            UseBarsSurface owner)
         {
             Name = name;
             _root = root;
             _populated = populated;
             _container = container;
             _owners = owners;
+            _chosen = chosen;
             _owner = owner;
+        }
+
+        /// <summary>
+        /// Sample this bar for wire record 25: one state byte per VISIBLE slot into
+        /// <paramref name="into"/> at <paramref name="at"/> (never past
+        /// <c>NetProtocol.UseBarsMaxSlots</c> entries or the buffer), plus the bar's open-sub-picker
+        /// <paramref name="flags"/>. Returns the slot count written.
+        ///
+        /// <para>The walk is the bar's slot CONTAINER children in hierarchy order — the same layout
+        /// truth <see cref="TickFitStability"/> hashes, i.e. the order the owner sees — and the
+        /// three facts read per slot are exactly the three the receiver paints: OFFERED (the game's
+        /// <c>Selectable.IsInteractable</c> and no dim), DIMMED (the lowest <c>CanvasGroup</c> alpha
+        /// between the slot and the bar root, which for these widgets is
+        /// <c>UIUseSlot.SetInteractable</c> writing its serialized <c>disabledAlpha</c>), and CHOSEN
+        /// (<c>UIUseSlot.IsSelected()</c> through this bar's concrete slot type). A slot the mod
+        /// itself suppressed (the requirement-C plain-item split) is inactive and is therefore
+        /// absent here too — the peer sees the same slots the owner does.</para>
+        /// </summary>
+        internal int SampleWireSlots(byte[] into, int at, out byte flags)
+        {
+            flags = 0;
+            RectTransform? target = Panel?.Target;
+            if (target != null)
+            {
+                if (AnyElementPickerOpen(target))
+                    flags |= Net.NetProtocol.UseBarElementPickerBit;
+                if (AnyOptionPickerOpen(target))
+                    flags |= Net.NetProtocol.UseBarOptionPickerBit;
+            }
+
+            RectTransform? container = _container();
+            if (container == null)
+                return 0;
+
+            int count = 0;
+            for (int i = 0; i < container.childCount && count < Net.NetProtocol.UseBarsMaxSlots; i++)
+            {
+                Transform child = container.GetChild(i);
+                if (!child.gameObject.activeSelf)
+                    continue;
+                bool? chosen = _chosen(child);
+                if (chosen == null)
+                    continue; // not a slot widget — pooled decoration, never a mirrored tile
+                if (at + count >= into.Length)
+                    break;
+                into[at + count] = SampleSlotState(child, container, chosen.Value);
+                count++;
+            }
+            return count;
+        }
+
+        /// <summary>One slot's record-25 state byte. Identical axes (and identical bit positions) to
+        /// <c>DecisionDockSurface.SampleOptionState</c>, so a receiver paints a bar tile and a
+        /// decision plate through one code path; OFFERED additionally requires "not dimmed", because
+        /// for these widgets the alpha IS the game's own interactable readout
+        /// (<c>UIUseSlot.SetInteractable</c>) while the button's own <c>interactable</c> flag is
+        /// never written.</summary>
+        private static byte SampleSlotState(Transform slot, Transform root, bool chosen)
+        {
+            float alpha = 1f;
+            Transform? t = slot;
+            while (t != null)
+            {
+                var group = t.GetComponent<CanvasGroup>();
+                if (group != null && group.alpha < alpha)
+                    alpha = group.alpha;
+                if (ReferenceEquals(t, root))
+                    break;
+                t = t.parent;
+            }
+            bool dimmed = alpha < 0.999f;
+
+            var sel = slot.GetComponentInChildren<Selectable>(includeInactive: false);
+            bool offered = !dimmed && sel != null && sel.IsInteractable();
+
+            byte state = 0;
+            if (offered)
+                state |= Net.NetProtocol.UseSlotOfferedBit;
+            if (dimmed)
+                state |= Net.NetProtocol.UseSlotDimmedBit;
+            if (chosen)
+                state |= Net.NetProtocol.UseSlotChosenBit;
+            return state;
         }
 
         /// <summary>Fill <paramref name="into"/> with the characters this bar was raised FOR
@@ -1204,8 +1585,14 @@ internal sealed class UseBarsSurface
         }
 
         /// <summary>Any embedded element/option sub-picker open in the docked subtree (their
-        /// popup content is the legitimate degenerate-fit growth case).</summary>
-        private static bool AnyPickerOpen(RectTransform? target)
+        /// popup content is the legitimate degenerate-fit growth case). Split into the two
+        /// per-kind helpers below because wire record 25 reports them as SEPARATE bits — the
+        /// owner's element pick and their option pick are different pictures.</summary>
+        private static bool AnyPickerOpen(RectTransform? target) =>
+            AnyElementPickerOpen(target) || AnyOptionPickerOpen(target);
+
+        /// <summary>An <c>UIElementPicker</c> popup stands open in the docked subtree.</summary>
+        private static bool AnyElementPickerOpen(RectTransform? target)
         {
             if (target == null)
                 return false;
@@ -1218,8 +1605,15 @@ internal sealed class UseBarsSurface
                 open = p != null && p.IsOpen;
             }
             ElementPickerScratch.Clear();
-            if (open)
-                return true;
+            return open;
+        }
+
+        /// <summary>An <c>UIOptionPicker</c> popup stands open in the docked subtree.</summary>
+        private static bool AnyOptionPickerOpen(RectTransform? target)
+        {
+            if (target == null)
+                return false;
+            bool open = false;
             OptionPickerScratch.Clear();
             target.GetComponentsInChildren(includeInactive: false, OptionPickerScratch);
             for (int i = 0; i < OptionPickerScratch.Count && !open; i++)
