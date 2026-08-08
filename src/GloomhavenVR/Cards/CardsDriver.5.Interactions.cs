@@ -319,10 +319,65 @@ internal sealed partial class CardsDriver
             return;
         }
 
+        // INSPECTION RELEASE (user ruling 2026-08-08: "Ich möchte das man jederzeit auch eine Karte
+        // aus der Hand nehmen kann um sie sich genau anzuschauen, auch wenn man die Karte nirgendwo
+        // ablegen kann. Das soll also niemals blockiert sein"). The card was picked up purely to be
+        // READ — the fan was in CardFan.FanMode.Inspect when it was grabbed (VRCard.InspectOnly is
+        // stamped by the zone funnel and by the fan's own membership seams). It returns HOME to the
+        // fan, animated, and NOTHING else happens: no SelectCard, no UnselectCard, no slot
+        // occupancy, no initiative reconcile, not even a fan-reorder commit.
+        //
+        // POSITION IN THE ROUTING IS LOAD-BEARING — this sits BEFORE CurrentHand() on purpose, so
+        // no game hand is even resolved for an inspect-only card. That matters most for a focus
+        // view of one of our OWN characters: CurrentHand() is the hand the GAME presents, which in
+        // a focus view is a DIFFERENT character, so every branch below would evaluate this card's
+        // ability against the wrong hand. The branch above it (PileOrigin) is deliberately kept
+        // first: a browse-borrowed card must go back to its PILE, not into a hand fan.
+        //
+        // The fan-origin marker has already been consumed above, so nothing leaks; ClearFanInsertion
+        // drops any glowing gap so the return-home is unambiguous.
+        if (card.InspectOnly)
+        {
+            ClearFanInsertion();
+            _fan.Add(card); // animated return HOME — the same glide every refused drop uses
+            VRLog.Info("Cards", $"Inspect release ({hand.Side}): '{card.name}' returns HOME to the hand fan — " +
+                                $"the GRAB was allowed, the PLACEMENT is refused by: {_placementRefusal}. " +
+                                "No game state was written (no SelectCard/UnselectCard, no slot occupancy, no " +
+                                "reorder commit); the card is immediately grabbable again for another look.");
+            return;
+        }
+
         CardsHandUI? gameHand = CurrentHand();
         if (gameHand == null || card.GameCard == null)
         {
             _fan.Add(card);
+            return;
+        }
+
+        // WRONG-HAND BELT (structural, not a convention). Every branch below reaches a game seam
+        // that names `gameHand` — CardsGameApi.SelectCard / UnselectCard / ReconcileInitiative — and
+        // `gameHand` is the hand the GAME presents, which is NOT always the hand this card came out
+        // of (a focus view renders another character's fan; a hand teardown/rebuild can swap the
+        // presented hand mid-hold). Committing a card the presented hand does not own would write
+        // the wrong character's round pile. The game's own widget list is the authority on
+        // ownership, so ask it: a card the presented hand does not list simply goes home.
+        // Never a silent no-op: any physical bookkeeping the card still carries (tray occupancy, a
+        // pick-field seat) is released too and a rebuild is requested, so the board re-derives
+        // everything from authoritative state instead of keeping a card that is both "in a slot"
+        // and "in the fan".
+        if (!CardsGameApi.HandOwnsWidget(gameHand, card.GameCard))
+        {
+            ClearFanInsertion();
+            if (_tray.ContainsCard(card))
+                _tray.RemoveCard(card);
+            if (_fieldCards.Remove(card))
+                RelayoutField();
+            _fan.Add(card);
+            _dirty = true;
+            VRLog.Warn("Cards", $"Drop REFUSED ({hand.Side}): '{card.name}' is not a card of the hand the game " +
+                                $"presents ('{Board.CharacterFocus.Describe(gameHand.PlayerActor)}') — the grab was " +
+                                "allowed, but committing it would write ANOTHER character's state. Returned home " +
+                                "and a rebuild requested; no game call was made.");
             return;
         }
 

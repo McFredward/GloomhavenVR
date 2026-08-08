@@ -427,6 +427,48 @@ internal static class CharacterFocus
     internal static bool IsForeign(CPlayerActor? actor) =>
         actor != null && FFSNetwork.IsOnline && !actor.IsUnderMyControl;
 
+    /// <summary>
+    /// MAY THE PLAYER PICK A CARD OUT OF THIS HAND JUST TO LOOK AT IT? User ruling 2026-08-08:
+    /// „Ich möchte das man jederzeit auch eine Karte aus der Hand nehmen kann um sie sich genau
+    /// anzuschauen, auch wenn man die Karte nirgendwo ablegen kann. Das soll also niemals blockiert
+    /// sein — aktuell kann man nur Karten in die Hand nehmen wenn man sie auch ablegen kann."
+    ///
+    /// <para>THE ENTITLEMENT RULE, in one line: <b>inspection is allowed for every character the
+    /// LOCAL client controls, in every phase, and refused for a FOREIGN character.</b> That is
+    /// exactly <c>CardsGameApi.IsLocalHand</c> — <c>!FFSNetwork.IsOnline ||
+    /// hand.PlayerActor.IsUnderMyControl</c>, the game's own ownership test and the precise inverse
+    /// of <see cref="IsForeign"/> — so offline (where every merc is ours) the answer is always yes
+    /// and the feature is unconditional.</para>
+    ///
+    /// <para>WHY NOT ALSO FOREIGN, given that a foreign HAND is not secret. It is not secret: the
+    /// class doc's "WHAT IS AND IS NOT A DISCLOSURE" reads it off the game's own model
+    /// (<c>CCharacterClass.HandAbilityCards</c> is host-replicated with no visibility gate,
+    /// <c>CCharacterClass.cs:91</c>), the game builds a fully populated <c>CardsHandUI</c> per
+    /// player actor on EVERY client (<c>Choreographer.cs:925/1112</c>), and the focus fan already
+    /// DRAWS those cards face-up today. So refusing here is NOT a secrecy necessity — nothing new
+    /// would be disclosed. It is refused because a foreign view's read-only guarantee is
+    /// STRUCTURAL and worth keeping absolute: while the mod presents a character the player may not
+    /// drive, nothing it built is grabbable, so no VR input can reach a game call for that
+    /// character at all. Keeping that funnel exception-free matters most for the one seam that
+    /// would otherwise be within reach — <c>CardsDriver.OnCardReleased</c> resolves its game hand
+    /// from <c>CurrentHand()</c>, which in a focus view is a DIFFERENT character's hand, so a
+    /// foreign card released near a slot would be evaluated against the local player's own hand.
+    /// The release path refuses that on <see cref="Cards.VRCard.InspectOnly"/> anyway; this keeps
+    /// the card from ever getting there. <see cref="RevealGate"/> is untouched and unweakened: the
+    /// only real secret it guards — which two cards a player CHOSE this round — lives in the
+    /// ROUND-card dock, which stays a picture for every focus view (<c>HalfSelection.SetReadOnly</c>),
+    /// and a focus cannot even be open during <see cref="RevealGate.IsSecretSelectionPhase"/>
+    /// (<see cref="Refusal"/>, <see cref="ResolveHand"/>).</para>
+    ///
+    /// <para>NOTE WHAT THIS DOES <b>NOT</b> DECIDE: whether the card may be PLAYED. That stays
+    /// exactly where it was (<c>CardsDriver.Rebuild</c>'s <c>grabbable</c>, i.e. the real
+    /// card-selection window and the modal pick flows). A hand that answers true here but is
+    /// outside that window becomes <c>CardFan.FanMode.Inspect</c>: fully handleable, never
+    /// committable.</para>
+    /// </summary>
+    internal static bool HandInspectable(CardsHandUI? hand) =>
+        hand != null && hand.PlayerActor != null && CardsGameApi.IsLocalHand(hand);
+
     // ----------------------------------------------------------------------------- resolution --
 
     /// <summary>

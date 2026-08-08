@@ -120,7 +120,13 @@ internal sealed partial class CardsDriver
         // Eligible: plucked out of the fan (reorder) OR lifted off a tray slot (T1 — take-back
         // straight into a chosen fan position). Board slot telegraph (UpdateSlotHighlight ran
         // first) wins outright.
-        bool eligible = held != null && (_fanOriginCards.Contains(held) || _tray.ContainsCard(held));
+        // INSPECTION grabs never telegraph a gap (2026-08-08). A locked CardsSelection hand keeps
+        // mode == CardsSelection, so an inspect-only card WOULD reach the gap logic here — but its
+        // release routes home before the reorder-commit branch is even considered, so the gold gap
+        // would promise a re-seat that cannot happen. Same "what glows is what drops" contract the
+        // slot telegraph honours through IsReadOnlyViewerCard.
+        bool eligible = held != null && !held.InspectOnly
+            && (_fanOriginCards.Contains(held) || _tray.ContainsCard(held));
         if (held == null || holder == null || !eligible || _snapHighlightSlot >= 0)
         {
             ClearFanInsertion();
@@ -249,8 +255,9 @@ internal sealed partial class CardsDriver
         {
             _hasSwitchPose = false; // no board to re-pose without a hand
             // A focus view that ends with no hand at all (scenario teardown, hand mid-rebuild)
-            // must not leave the fan latched read-only: the next interactive fan would be inert.
-            _fan.SetReadOnly(false);
+            // must not leave the fan latched in a restricted mode: the next interactive fan would
+            // be inert.
+            _fan.SetMode(CardFan.FanMode.Interactive);
             RebuildFakeOrClear(anchor);
             return;
         }
@@ -352,6 +359,12 @@ internal sealed partial class CardsDriver
         // are armed and the card canvas is never registered with UguiPokeSurfaces, so the dock is a
         // picture there too.
         bool readOnly = Board.CharacterFocus.ReadOnlyView;
+        // INSPECTION ENTITLEMENT (user ruling 2026-08-08 — taking a card out of the hand to LOOK at
+        // it must never be blocked). Latched ONCE for the whole rebuild, exactly like `readOnly`,
+        // so the zone stamp and the fan mode below can never disagree about it. The rule and its
+        // source evidence live in Board.CharacterFocus.HandInspectable: every character the local
+        // client controls (which offline is every merc), never a foreign one.
+        bool handInspectable = Board.CharacterFocus.HandInspectable(hand);
         if (readOnly)
         {
             // SLOT CARDS FIRST, so the fan can exclude them (see below).
@@ -651,14 +664,29 @@ internal sealed partial class CardsDriver
             // pluck one to read it, release returns it to the column, never a game seam.
             // READ-ONLY FOCUS (structural, not a convention): while the mod presents a character
             // the player may not drive, NOTHING it built is grabbable. Together with the
-            // unconditional PokeSelectEnabled = false above and CardFan's read-only raycast veto,
-            // there is no interactor left that can even FIND one of these cards — so there is no
-            // path from a VR input to a game call for a character we are only looking at. This is
-            // the single funnel every card in every zone passes through on every rebuild, so it
+            // unconditional PokeSelectEnabled = false above and CardFan's Picture-mode raycast
+            // veto, there is no interactor left that can even FIND one of these cards — so there is
+            // no path from a VR input to a game call for a character we are only looking at. This
+            // is the single funnel every card in every zone passes through on every rebuild, so it
             // cannot be bypassed by a card that changed zone between frames.
-            card.Grabbable = !readOnly
-                             && ((inFan && grabbable) || (inTray && grabbable)
-                                 || inField || inBrowse || inActive);
+            //
+            // COMMIT vs INSPECT (user ruling 2026-08-08: "Ich möchte das man jederzeit auch eine
+            // Karte aus der Hand nehmen kann um sie sich genau anzuschauen, auch wenn man die Karte
+            // nirgendwo ablegen kann. Das soll also niemals blockiert sein"). `commitGrab` is the
+            // OLD verdict, byte for byte — "this card may be picked up AND placed", which is why
+            // every phase that refused the PLACEMENT also refused the LOOK. `inspectGrab` is the
+            // new, additive one: a HAND-FAN card of a hand this client is entitled to handle
+            // (Board.CharacterFocus.HandInspectable) may ALWAYS be picked up, in every phase and
+            // every mode, with `InspectOnly` stamped so the release routes it straight back home
+            // without touching a game seam. Nothing else in the pipeline is widened: the tray, the
+            // pick field, the browse arc, the active column and the round-card dock all keep the
+            // exact verdicts they had.
+            bool commitGrab = !readOnly
+                              && ((inFan && grabbable) || (inTray && grabbable)
+                                  || inField || inBrowse || inActive);
+            bool inspectGrab = inFan && !commitGrab && handInspectable;
+            card.Grabbable = commitGrab || inspectGrab;
+            card.InspectOnly = inspectGrab;
             // BOTH HANDS ON EVERY CARD (user ruling 2026-08-04: "Alle Karten sollen allgemein auch
             // mit der nicht-dominanten Hand aufgenommen werden koennen ... Das soll fuer alle
             // Karten gelten - ausser den Faecherkarten selber"). This is the GENERAL rule that
@@ -740,19 +768,28 @@ internal sealed partial class CardsDriver
         // and keep game order.
         if (mode == CardHandMode.CardsSelection)
             ReorderFanBuffer();
-        // READ-ONLY FAN: told BEFORE its content, so the very first frame of a read-only view is
-        // already laser-inert (a fan that learned it was read-only one frame late would be
-        // clickable for exactly that frame).
+        // FAN MODE: told BEFORE its content, so the very first frame of a restricted view already
+        // carries the right affordance (a fan that learned its mode one frame late would offer the
+        // wrong one for exactly that frame).
         //
-        // TWO reasons a fan is a PICTURE, and they are the same reason: nothing in it may be
-        // driven. (1) A focus OVERRIDE — the player is looking at a character the game does not
-        // present. (2) `grabbable` false — the hand is shown outside an interactive window
-        // (selection locked / confirmed, an action turn, any other phase). The second case is new
-        // with the "show the hand in every phase" rule and it MUST latch here: the hand fan is
-        // populated in those states now, and CardFan.TryRaycast is the ONE laser path into a hand
-        // card, so leaving the fan interactive would hand the laser cards the game would refuse.
-        // Pick modes keep grabbable=true and stay fully interactive, unchanged.
-        _fan.SetReadOnly(readOnly || !grabbable);
+        // THREE STATES, and the middle one is the 2026-08-08 ruling ("Ich möchte das man jederzeit
+        // auch eine Karte aus der Hand nehmen kann um sie sich genau anzuschauen, auch wenn man die
+        // Karte nirgendwo ablegen kann"):
+        //  • INTERACTIVE — `grabbable` and not a focus override: the real card-selection window and
+        //    the modal pick flows. Grab, laser-pluck, reorder, DROP into a slot. Unchanged.
+        //  • INSPECT — the placement is refused (selection locked / confirmed, an action turn, any
+        //    other phase, or a focus view of one of our OWN characters) but the hand is one this
+        //    client is entitled to handle. The cards are fully grabbable and laser-pluckable and
+        //    the release returns them HOME; no game seam is reachable (VRCard.InspectOnly).
+        //    THIS IS WHAT USED TO BE A PICTURE, and that was the reported bug.
+        //  • PICTURE — a FOREIGN character's hand in a focus view. Inert end to end, exactly as
+        //    before; see Board.CharacterFocus.HandInspectable for why that one stays refused.
+        CardFan.FanMode fanMode =
+            !readOnly && grabbable ? CardFan.FanMode.Interactive
+            : handInspectable ? CardFan.FanMode.Inspect
+            : CardFan.FanMode.Picture;
+        LogFanMode(hand, fanMode, readOnly, grabbable, mode);
+        _fan.SetMode(fanMode);
         _fan.SetCards(_fanBuffer);
         _tray.SetVisible(trayVisible);
         // READ-ONLY FOCUS, slot cards: told BEFORE the content for the same reason as the fan. The
