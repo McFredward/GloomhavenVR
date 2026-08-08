@@ -287,6 +287,62 @@ internal sealed class CardFan
         }
     }
 
+    /// <summary>
+    /// Turn fan MEMBERSHIP into interaction verdicts for one card — the gate-hand veto plus
+    /// <see cref="StampMode"/>. The single place <see cref="SetCards"/> and <see cref="Add"/>
+    /// share, so the two membership seams cannot drift.
+    ///
+    /// <para>A HELD CARD IS NOT A FAN CARD (hand-to-hand transfer bug, user report 2026-08-08:
+    /// "Auch das Wechseln der Hand in dem die Karte gehalten wird soll immer möglich sein —
+    /// aktuell ist es nicht möglich wenn man sich eine Karte eines Characters anguckt der nicht
+    /// am Zug ist"). ROOT CAUSE: the game's widget list still names a card the player is holding,
+    /// so every Rebuild put it back into <see cref="SetCards"/>'s incoming list, and this stamp
+    /// then wrote <c>AllowsGateHand = false</c> onto a card sitting in the player's hand. The
+    /// hand-to-hand transfer adopts the card into the OTHER hand, and that hand is normally the
+    /// GATE hand (the fan hangs off it) — so <c>VRCard.AllowsHand</c> refused the adoption and
+    /// <c>CardsDriver.TransferHeldCard</c> aborted, every time, for as long as rebuilds kept
+    /// coming. That is exactly a watched, non-acting character: its turn churn (actor change /
+    /// action signature, <c>CardsDriver.PollModeChange</c>) marks the driver dirty over and over,
+    /// so in a focus view the re-stamp was effectively per-frame and the transfer NEVER worked,
+    /// while in a quiet locked phase (no rebuild during the hold) the very same gesture DID work —
+    /// the hardware log shows both outcomes minutes apart. The same stale FALSE also makes
+    /// <c>ProximityGrabber.HealDeadHeld</c> force-drop a card held IN the gate hand mid-hold.</para>
+    ///
+    /// <para>THE RULE: while a card is HELD, this seam writes nothing that a hold depends on.
+    /// <see cref="VRCard.AllowsGateHand"/> stays TRUE (stamped at the one point where any card
+    /// becomes held, <c>CardsDriver.OnCardGrabbed</c>) and <see cref="VRCard.Grabbable"/> is left
+    /// alone — mirroring the driver's Rebuild zone loop, which skips held cards outright, and this
+    /// class' own layout/raycast/fingertip scans, which all skip <c>IsHeld</c> already.</para>
+    ///
+    /// <para>THE ONE EXCEPTION IS A TIGHTENING, never a widening: a held card may still GAIN
+    /// <see cref="VRCard.InspectOnly"/> when the fan is no longer <see cref="FanMode.Interactive"/>.
+    /// That flag only ever REFUSES a placement (<c>CardsDriver.OnCardReleased</c> returns the card
+    /// home before any game seam is reachable), so adding it can never open a path from a VR
+    /// gesture to a game state write — and dropping it could. Clearing it is deliberately NOT done:
+    /// per <see cref="VRCard.InspectOnly"/> the verdict the player saw when they grabbed the card
+    /// is the verdict that decides their release.</para>
+    /// </summary>
+    private void StampMembership(VRCard card)
+    {
+        if (card.IsHeld)
+        {
+            if (Mode != FanMode.Interactive)
+                card.InspectOnly = true;
+            return;
+        }
+        // Gate-hand veto seam (general rule 2026-08-04, see VRCard.AllowsGateHand): a card
+        // becomes a FAN card the moment it enters this list, and only fan cards refuse the
+        // fan-owning hand. Stamped here — not only in the driver's Rebuild loop — so a card
+        // handed to the fan between rebuilds can never spend frames grabbable by the very
+        // hand the fan hangs off. The ONE interaction fact this layout class writes, because
+        // fan membership is decided exactly here.
+        card.AllowsGateHand = false;
+        // MODE: re-assert the fan's verdict at the same seam that decides fan membership,
+        // so a card that entered the fan between rebuilds never spends a frame with the
+        // wrong affordance (inert in Picture, inspect-only in Inspect).
+        StampMode(card);
+    }
+
     /// <summary>Replace the fan's card set (called on rebuilds; cards fly to their arc slots).</summary>
     internal void SetCards(List<VRCard> cards)
     {
@@ -306,20 +362,13 @@ internal sealed class CardFan
         for (int i = 0; i < cards.Count; i++)
         {
             _cards.Add(cards[i]);
-            // Gate-hand veto seam (general rule 2026-08-04, see VRCard.AllowsGateHand): a card
-            // becomes a FAN card the moment it enters this list, and only fan cards refuse the
-            // fan-owning hand. Stamped here — not only in the driver's Rebuild loop — so a card
-            // handed to the fan between rebuilds can never spend frames grabbable by the very
-            // hand the fan hangs off. The ONE interaction fact this layout class writes, because
-            // fan membership is decided exactly here.
+            // Membership → interaction verdicts (gate-hand veto + mode), and the held-card rule
+            // that keeps a card the player is HOLDING transferable between the hands: see
+            // StampMembership. NOTE the incoming list legitimately still names a held card — the
+            // game's widget list does not know about our grabs — which is exactly why that rule
+            // lives there and not in the caller.
             if (cards[i] != null)
-            {
-                cards[i].AllowsGateHand = false;
-                // MODE: re-assert the fan's verdict at the same seam that decides fan membership,
-                // so a card that entered the fan between rebuilds never spends a frame with the
-                // wrong affordance (inert in Picture, inspect-only in Inspect).
-                StampMode(cards[i]);
-            }
+                StampMembership(cards[i]);
         }
         if (IsOpen)
         {
@@ -373,11 +422,12 @@ internal sealed class CardFan
         // Fan entry = gate-hand veto (general rule 2026-08-04, see SetCards / VRCard.AllowsGateHand):
         // a void-released card re-enters the fan HERE, often frames before the next Rebuild
         // re-stamps zones — without this the fan-owning hand could hover/grab its own fan card.
-        card.AllowsGateHand = false;
         // MODE: the RETURN-HOME seam of an inspection release lands here, frames before the next
         // Rebuild re-stamps zones — re-assert the fan's verdict so the card is immediately
         // re-grabbable for another look (Inspect) or immediately inert (Picture).
-        StampMode(card);
+        // Shared with SetCards through StampMembership, which also carries the held-card rule (a
+        // released card is never held, so this call is the plain stamp it always was).
+        StampMembership(card);
         if (IsOpen)
             Relayout(instant: false);
     }
