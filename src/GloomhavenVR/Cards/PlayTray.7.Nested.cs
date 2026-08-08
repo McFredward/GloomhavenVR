@@ -923,7 +923,17 @@ internal sealed partial class PlayTray
                     // gesture. The cap still follows the finger (the button visibly reacts),
                     // it just cannot FIRE from an accidental brush-through; laser presses
                     // arrive via Press(hand, "laser"/"click") and stay grip-free.
-                    if (!_hoverHand.GripPressed)
+                    //
+                    // EMPTY HAND added 2026-08 with the "alle buttons" round (the report that
+                    // made the decision dock take this same chord, Hands.Interact.PokeInteractor
+                    // .PressAllowed): the grip is ALSO what grabs (IGrabbable.GrabWithGrip), so a
+                    // hand that is carrying something pressed the grip to CARRY, not to press.
+                    // Without this half, dragging the control board itself — a grip grab, with
+                    // that hand's fingertip inches from its own keycaps — fires every cap it
+                    // sweeps, and walking a card over the board does the same. It is the exact
+                    // second half BoardPick.TryNearPick has always carried for the hex ping; the
+                    // two gates now read identically at every fingertip commit in the mod.
+                    if (!_hoverHand.GripPressed || _hoverHand.Grabber.Held != null)
                     {
                         LogGripGate(_hoverHand);
                     }
@@ -995,8 +1005,14 @@ internal sealed partial class PlayTray
             if (DwellSeconds > 0f && _enabledState)
             {
                 // GRIP CHORD (requirement (a), same gate as the depth-fire in Update): a dwell
-                // is still a PHYSICAL fingertip press, so it too only starts under a held grip.
-                if (!hand.GripPressed)
+                // is still a PHYSICAL fingertip press, so it too only starts under a held grip
+                // and an empty hand. Belt-and-braces since the "alle buttons" round: OnPoke is
+                // now only DELIVERED to a fingertip press that already passed the identical gate
+                // in Hands.Interact.PokeInteractor.PressAllowed (laser presses reach a board
+                // button through Press(), not here). Kept anyway, for the reason BoardClickDriver
+                // .TickNear keeps its re-check: it makes "a dwell cannot start without the chord"
+                // true by construction instead of by chain of reasoning.
+                if (!hand.GripPressed || hand.Grabber.Held != null)
                 {
                     LogGripGate(hand);
                     return;
@@ -1159,8 +1175,11 @@ internal sealed partial class PlayTray
                 return;
             _nextGripGateLogAt = Time.unscaledTime + 1f;
             VRLog.Info("Cards", $"Board: {name} poke WITHHELD ({hand.Side}) — physical board-button " +
-                                "presses require the same hand's GRIP held (accidental-press guard, " +
-                                "same chord as the fingertip tile ping); laser clicks are unaffected.");
+                                "presses require the same hand's GRIP held AND that hand to be empty " +
+                                $"(grip {(hand.GripPressed ? "held" : "open")}, hand " +
+                                $"{(hand.Grabber.Held != null ? "carrying something" : "empty")}; " +
+                                "accidental-press guard, same chord as the fingertip tile ping and " +
+                                "the poked uGUI buttons); laser clicks are unaffected.");
         }
 
         public override void OnPokeEnter(VRHand hand)

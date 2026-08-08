@@ -326,6 +326,19 @@ internal sealed partial class FlatScreen
                 return;
             }
 
+            // GRIP CHORD, re-checked every pending frame (user 2026-08, "alle buttons"): the flat
+            // screen's poke click is a PHYSICAL fingertip press whose click lands on the WITHDRAWAL
+            // (EndPoke with reason == null), i.e. exactly the shape the decision dock has — so a
+            // press that armed under a held grip and is pulled back after the grip opened must NOT
+            // click. Ending with a REASON is that guarantee: the virtual-mouse press is released,
+            // any drag ends, and DirectClick is skipped. See
+            // Hands.Interact.PokeInteractor.PressAllowed for the rule and why it is this condition.
+            if (!PokePressAllowed(hand))
+            {
+                EndPoke("grip released (or the hand grabbed something) mid-press — no click");
+                return;
+            }
+
             float scale = hand.WorldScale;
             Vector3 tip = hand.Rig.IndexTip.position;
             float signed = Vector3.Dot(tip - t.position, t.forward); // viewer side < 0
@@ -390,6 +403,21 @@ internal sealed partial class FlatScreen
             TryBeginPoke(VRHands.Right, t);
     }
 
+    /// <summary>
+    /// THE GRIP CHORD for the flat screen's fingertip click (user 2026-08: "Auch die
+    /// Entscheidungsbuttons (so wie alle buttons) sollen nur auf pyhsisches Drücken reagieren wenn
+    /// die Greiftaste gedrückt ist"). The 2D menu's buttons are buttons like any other, so the
+    /// fingertip commits here under exactly the condition every other physical press in the mod
+    /// uses — grip held, hand empty. The rule, its two halves and why HOVER stays ungated are
+    /// documented once at <c>Hands.Interact.PokeInteractor.PressAllowed</c>; this is the flat
+    /// screen's copy of the CONDITION, not of the reasoning.
+    ///
+    /// <para>The LASER is untouched: <c>TickPointer</c>'s trigger press is the primary way to work
+    /// the 2D menu and stays grip-free, so nothing about the menu becomes unreachable.</para>
+    /// </summary>
+    private static bool PokePressAllowed(VRHand hand)
+        => hand.GripPressed && hand.Grabber.Held == null;
+
     private void TryBeginPoke(VRHand? hand, Transform t)
     {
         // Respect the per-mode interactor matrix: only hands whose Poke interactor
@@ -406,6 +434,26 @@ internal sealed partial class FlatScreen
         Vector3 local = t.InverseTransformPoint(tip);
         if (Mathf.Abs(local.x) > 0.5f || Mathf.Abs(local.y) > 0.5f)
             return;
+
+        // GRIP CHORD (see PokePressAllowed): checked AFTER the contact + rect tests, so the log
+        // below only speaks when the fingertip really is on the screen — and checked before
+        // anything is latched or warped, so a grip-less touch leaves no state behind at all. The
+        // press is NOT consumed: closing the grip with the fingertip already on the plane begins
+        // the poke on the next frame, the same commit-time semantics the keycaps and the poked
+        // canvases use.
+        if (!PokePressAllowed(hand))
+        {
+            if (Time.unscaledTime >= _nextPokeGripLogAt)
+            {
+                _nextPokeGripLogAt = Time.unscaledTime + 1f;
+                VRLog.Info("WorldUI", $"FlatScreen poke WITHHELD ({hand.Side}) — a physical fingertip " +
+                                      "press commits only while the SAME hand holds the GRIP and " +
+                                      $"carries nothing (grip {(hand.GripPressed ? "held" : "open")}, " +
+                                      $"hand {(hand.Grabber.Held != null ? "carrying something" : "empty")}); " +
+                                      "the trigger laser click is unaffected.");
+            }
+            return;
+        }
 
         var pixel = new Vector2((local.x + 0.5f) * _rt!.width, (local.y + 0.5f) * _rt.height);
         _pokePressing = true;
