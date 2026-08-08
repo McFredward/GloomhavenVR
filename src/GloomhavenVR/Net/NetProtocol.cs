@@ -416,7 +416,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 92;
+    public const ushort ModBuild = 93;
+    // Build 93: hardware round — the item chip's LEFT-hand pose finally gets ba70e43's mirror (its
+    // copy of GetHeldPose predated the fix); a hand in physical contact PLUCKS the placed item card
+    // instead of running the far-laser's put-it-back branch through the shared IPokeable entry; the
+    // placed card outlives the fan close and cancels through one state machine with three animated
+    // entrances; the hand fan EXCHANGES hands on a character switch (there was no swap animation at
+    // all — the park sweep teleported the old cards away in the same frame); and the game's own
+    // refusal sound answers a click on an unplayable initiative portrait.
+    // WIRE: record 28 gains the 8 fan-swap dials and is now at EXACTLY 255 payload bytes — the
+    // extension tail's one-byte per-record length ceiling. THE NEXT FIELD IN RECORD 28 MUST FREE
+    // BYTES FIRST; the sampler logs loudly and refuses the record rather than truncating it, and
+    // two wire tests pin the 255-out / 256-dropped boundary. Wire Version still 3.
     // (The note list below lapsed around build 36 while the counter kept climbing; resumed here
     // because this build claims a wire id, and a claim nobody wrote down is how record 23 got
     // taken twice. Notes are newest-first.)
