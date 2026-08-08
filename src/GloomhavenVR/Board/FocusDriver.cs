@@ -21,12 +21,15 @@ namespace GloomhavenVR.Board;
 ///   player owns that character and is looking at it, BLINKS red when they own it but are looking
 ///   elsewhere, and is a STEADY gold otherwise (a teammate's or a monster's turn: a fact, not a
 ///   demand);</item>
-/// <item>the same blinking green/red as an OUTLINE around the local player's own control board —
+/// <item>the same blinking green/red as a FRAME around the local player's own control board —
 ///   the user's "the board gets a red blinking outline" and "the control board of the player who
-///   owns the character at turn gets a blinking outline". Since 2026-08-08 that is a REAL outline
-///   of the board asset (<see cref="BoardOutline"/>, an inverted hull of the board's own meshes),
-///   not the rectangle it used to be; the rectangle survives only as the fallback for the
-///   procedural board, which has no asset to trace.</item>
+///   owns the character at turn gets a blinking outline". Since 2026-08-08 that is a frame around
+///   the board asset's OUTER CONTOUR (<see cref="BoardFrame"/>: one closed band offset from the
+///   convex hull of the board's own plan-view footprint) — not the rectangle it used to be, and
+///   explicitly NOT the inverted hull that briefly replaced it and drew a rim around every interior
+///   recess as well ("KEINE weiteren Outlines innerhalb des Assets"). The rectangle survives only
+///   as the fallback for the procedural board, which IS a rectangle and is therefore correctly
+///   framed by one.</item>
 /// </list>
 ///
 /// <para>WHY THE TWO RINGS NEVER STACK: when the focused character IS the character at turn, only
@@ -78,12 +81,12 @@ internal sealed class FocusDriver : MonoBehaviour
     private readonly Dictionary<InitiativeTrackActorBehaviour, UiRing> _turnRings = new(8);
     private readonly List<InitiativeTrackActorBehaviour> _stale = new(8);
 
-    /// <summary>The REAL outline of the board asset. Null only on the procedural fallback board or
-    /// a bundle that cannot supply one — then <see cref="_boardFrame"/> carries the cue instead.</summary>
-    private BoardOutline? _boardOutline;
+    /// <summary>The frame around the board asset's outer contour. Null only on the procedural
+    /// fallback board — then <see cref="_rectFrame"/> carries the cue instead.</summary>
+    private BoardFrame? _boardFrame;
 
     /// <summary>The legacy rectangle, now the FALLBACK path only (see <see cref="TickBoardFrame"/>).</summary>
-    private WorldFrame? _boardFrame;
+    private WorldFrame? _rectFrame;
     private Transform? _boardFrameHost;
 
     private System.Action? _tickCached;
@@ -94,10 +97,10 @@ internal sealed class FocusDriver : MonoBehaviour
     private void OnDestroy()
     {
         ClearAllRings();
-        _boardOutline?.Destroy();
-        _boardOutline = null;
         _boardFrame?.Destroy();
         _boardFrame = null;
+        _rectFrame?.Destroy();
+        _rectFrame = null;
         _boardFrameHost = null;
     }
 
@@ -129,7 +132,7 @@ internal sealed class FocusDriver : MonoBehaviour
         // carrier per frame is a steady-state allocation in a LateUpdate — the same reason the
         // TickGuard entry point above caches its own <see cref="System.Action"/>.
         Carrier("initiative rings", _ringsCached ??= RunRings);
-        Carrier("board outline", _boardCached ??= RunBoard);
+        Carrier("board frame", _boardCached ??= RunBoard);
         Carrier("read-only refresh", _readOnlyCached ??= TickReadOnlyRefresh);
     }
 
@@ -228,7 +231,8 @@ internal sealed class FocusDriver : MonoBehaviour
                                 + $"{Core.MixedReality.KeyColorName} (RGBA {key.r:0.##},{key.g:0.##},"
                                 + $"{key.b:0.##}); the cue is now OPAQUE (blink rides brightness, not "
                                 + "alpha), correct/wrong are white/amber instead of green/red, and the "
-                                + "board outline wears a dark keyline under its rim. The old cue was a "
+                                + "board frame wears a dark keyline on both edges of its band. The "
+                                + "old cue was a "
                                 + "TRANSLUCENT green over that green key: the compositor keyed the "
                                 + "blended pixel and replaced the outline with the room.");
         }
@@ -371,11 +375,11 @@ internal sealed class FocusDriver : MonoBehaviour
     // ---------------------------------------------------------------------------- board frame --
 
     /// <summary>
-    /// The cue on the local player's own control board. Since 2026-08-08 the preferred renderer is
-    /// <see cref="BoardOutline"/> — an inverted hull of the BOARD ASSET's own meshes, so the outline
-    /// traces the real silhouette (rounded corners, lip, fittings) at any pose and any user scale.
-    /// The old <see cref="WorldFrame"/> rectangle is kept ONLY for the boards that have no asset to
-    /// trace: the procedural fallback board, or a bundle too old to supply the Overlay shader.
+    /// The cue on the local player's own control board. The preferred renderer is
+    /// <see cref="BoardFrame"/> — ONE closed band offset outward from the board asset's own outer
+    /// contour, so the cue frames the real shape (rounded corners included) at any pose and any user
+    /// scale, and draws NOTHING inside it. The old <see cref="WorldFrame"/> rectangle is kept ONLY
+    /// for the procedural fallback board, whose contour genuinely is a rectangle.
     ///
     /// <para>Neither path ever writes the tray's transform — both build CHILDREN of the tray root,
     /// which is what keeps a FIXIERT (pinned, world-frozen) board legal: the freeze sentinel in
@@ -389,33 +393,33 @@ internal sealed class FocusDriver : MonoBehaviour
         Transform? root = tray?.Root;
         if (root == null)
         {
-            _boardOutline?.Apply(null);
             _boardFrame?.Apply(null);
+            _rectFrame?.Apply(null);
             return;
         }
         if (!ReferenceEquals(_boardFrameHost, root)
-            || (_boardOutline == null && _boardFrame == null))
+            || (_boardFrame == null && _rectFrame == null))
         {
             // The tray root is re-created on a board SWITCH; both renderers are children and die
             // with it, so rebuild against the live root rather than resurrect a dangling handle.
-            _boardOutline?.Destroy();
-            _boardOutline = null;
             _boardFrame?.Destroy();
             _boardFrame = null;
+            _rectFrame?.Destroy();
+            _rectFrame = null;
             _boardFrameHost = root;
 
-            _boardOutline = BoardOutline.Build(root, "local control board");
-            if (_boardOutline == null)
+            _boardFrame = BoardFrame.Build(root, "local control board");
+            if (_boardFrame == null)
             {
                 float w = BoardHalfW * 2f + BoardFrameMargin * 2f;
                 float h = BoardHalfW * 2f * BoardAspect + BoardFrameMargin * 2f;
-                _boardFrame = WorldFrame.Build(root, "GloomhavenVR.FocusBoardFrame",
-                                               new Vector2(w, h), BoardFrameThickness, BoardFrameZ);
+                _rectFrame = WorldFrame.Build(root, "GloomhavenVR.FocusBoardFrame",
+                                              new Vector2(w, h), BoardFrameThickness, BoardFrameZ);
             }
         }
         Color? tint = FocusCue.Tint(localMark);
-        _boardOutline?.Apply(tint);
         _boardFrame?.Apply(tint);
+        _rectFrame?.Apply(tint);
     }
 
     // ---------------------------------------------------------------------------------- teardown --
@@ -423,8 +427,8 @@ internal sealed class FocusDriver : MonoBehaviour
     private void HideAll()
     {
         HideRings();
-        _boardOutline?.Apply(null);
         _boardFrame?.Apply(null);
+        _rectFrame?.Apply(null);
     }
 
     private void HideRings()
