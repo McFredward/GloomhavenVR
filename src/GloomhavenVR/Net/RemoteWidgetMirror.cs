@@ -408,6 +408,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         _pairs = new Pair[n];
         for (int i = 0; i < n; i++)
             _pairs[i] = new Pair(srcNodes[i], _walk[i]);
+        int secret = SuppressSecretBranches(clone.transform);
         RebuildStamp++; // CloneOf holders must re-resolve against the fresh clone
 
         // Own head camera renders the mod layer only; the whole clone is ours, so re-layering it is
@@ -419,8 +420,83 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                           $"('{source.name}', {n} node(s)) — a live CLONE of the panel this client " +
                           "already shows, driven per frame from the original (positions, portraits, " +
                           "text, progress, animations). Zero wire traffic; the source is never " +
-                          "touched, re-parented or mutated.");
+                          "touched, re-parented or mutated." +
+                          (secret > 0
+                              ? $" {secret} node(s) carrying a PER-CHARACTER SECRET goal were " +
+                                "suppressed on the clone (see SuppressSecretBranches)."
+                              : string.Empty));
         return true;
+    }
+
+    /// <summary>
+    /// THE SECRECY NET on the clone: permanently kill any branch that renders a PER-CHARACTER
+    /// SECRET goal, so no future prefab reshuffle can carry one onto a peer's board by accident.
+    ///
+    /// WHY IT EXISTS AT ALL, given the two widgets this class currently mirrors (the initiative
+    /// track and <c>MissionObjectiveContainer</c>) contain none. The mirror's whole premise is
+    /// "the pixels being copied are pixels this client is already displaying, so copying them
+    /// reveals nothing new". That premise holds for GLOBAL widgets and breaks the moment a
+    /// mirrored widget contains something the GAME itself only draws for the LOCAL player —
+    /// because then the copy renders MY entitlement at a PEER's pose, and a viewer who later
+    /// focuses a foreign character would see a goal the game deliberately hides from them.
+    /// Researched 2026-08-08 from the game's own code, and the rule is not symmetric:
+    ///   • BATTLE GOAL — <c>UIScenarioPlayerBattleGoal</c> / <c>UIBattleGoalProgress</c>. HARD
+    ///     SECRET online: <c>ActorStatPanel.cs:566</c> and <c>BattleGoalContainer.cs:44/73/81</c>
+    ///     both gate it on <c>!FFSNetwork.IsOnline || actor.IsUnderMyControl</c>.
+    ///   • PERSONAL QUEST — <c>UIPersonalQuestProgress</c>. Public BY DEFAULT; secret only when its
+    ///     owner ticked conceal (<c>ActorStatPanel.cs:557</c>). Suppressed here anyway, because a
+    ///     CLONE cannot re-evaluate <c>IsConcealed</c> per viewer and a mirror that shows a
+    ///     concealed quest would be the exact leak this method exists to make impossible. If a
+    ///     future surface wants to draw one, it asks <see cref="RevealGate.ShowPersonalQuest"/> for
+    ///     the character it is about and draws it itself — that is the supported path.
+    /// See <see cref="RevealGate"/> for the full evidence block.
+    ///
+    /// Cost: one <c>GetComponentsInChildren</c> per component type per clone REBUILD (never per
+    /// frame), and on both widgets that ships today the result is zero hits.
+    /// </summary>
+    private int SuppressSecretBranches(Transform cloneRoot)
+    {
+        if (_pairs == null)
+            return 0;
+        int killed = 0;
+        killed += Suppress(cloneRoot.GetComponentsInChildren<UIScenarioPlayerBattleGoal>(true));
+        killed += Suppress(cloneRoot.GetComponentsInChildren<UIBattleGoalProgress>(true));
+        killed += Suppress(cloneRoot.GetComponentsInChildren<UIPersonalQuestProgress>(true));
+        return killed;
+    }
+
+    /// <summary>Mark every pair at or below each of <paramref name="roots"/> as suppressed and
+    /// deactivate it. Returns how many PAIRS were suppressed (0 in the shipping configuration).</summary>
+    private int Suppress<T>(T[] roots) where T : Component
+    {
+        if (roots == null || roots.Length == 0 || _pairs == null)
+            return 0;
+        int killed = 0;
+        for (int r = 0; r < roots.Length; r++)
+        {
+            Transform? root = roots[r] != null ? roots[r].transform : null;
+            if (root == null)
+                continue;
+            for (int i = 0; i < _pairs.Length; i++)
+            {
+                Transform? dst = _pairs[i].Dst;
+                if (dst == null || _pairs[i].Suppressed || !IsSelfOrDescendant(dst, root))
+                    continue;
+                _pairs[i].Suppress();
+                killed++;
+            }
+        }
+        return killed;
+    }
+
+    private static bool IsSelfOrDescendant(Transform node, Transform root)
+    {
+        for (Transform? t = node; t != null; t = t.parent)
+        {
+            if (ReferenceEquals(t, root))
+                return true;
+        }
+        return false;
     }
 
     private void EnsureHost()
@@ -862,10 +938,28 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// a two-hundred-node panel costs a couple of hundred field copies and not one
     /// <c>GetComponent</c>.
     /// </summary>
-    private readonly struct Pair
+    /// <remarks>Deliberately NOT a <c>readonly struct</c>: <see cref="Suppressed"/> is latched
+    /// once at build time by <see cref="SuppressSecretBranches"/> through the array element
+    /// (<c>_pairs[i].Suppress()</c>), which needs an addressable, mutable element. Every other
+    /// field stays <c>readonly</c>, and the array is only ever indexed — never enumerated by value
+    /// — so no copy can lose the flag.</remarks>
+    private struct Pair
     {
         public readonly Transform Src;
         public readonly Transform Dst;
+
+        /// <summary>PERMANENTLY off: this node renders a per-character SECRET (a battle goal, a
+        /// personal quest) and must never appear on a mirrored board. See
+        /// <see cref="SuppressSecretBranches"/> for the evidence and the rule.</summary>
+        public bool Suppressed { get; private set; }
+
+        /// <summary>Latch <see cref="Suppressed"/> and hide the clone node for good.</summary>
+        public void Suppress()
+        {
+            Suppressed = true;
+            if (Dst != null && Dst.gameObject.activeSelf)
+                Dst.gameObject.SetActive(false);
+        }
 
         /// <summary>The clone-side rect and graphic, exposed for <see cref="TryMeasure"/> — the fit
         /// measures the same objects the drive writes, so the two can never disagree.</summary>
@@ -923,6 +1017,15 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         {
             if (Src == null || Dst == null)
                 return;
+
+            // SECRECY, before anything else: a suppressed branch is never driven and never
+            // re-activated, whatever the source does. See SuppressSecretBranches.
+            if (Suppressed)
+            {
+                if (Dst.gameObject.activeSelf)
+                    Dst.gameObject.SetActive(false);
+                return;
+            }
 
             bool on = isRoot || Src.gameObject.activeSelf;
             if (Dst.gameObject.activeSelf != on)

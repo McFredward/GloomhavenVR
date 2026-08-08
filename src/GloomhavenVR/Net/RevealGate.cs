@@ -62,4 +62,104 @@ internal static class RevealGate
           && actor != null
           && !actor.IsUnderMyControl
           && PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest);
+
+    // ============================================================================================
+    //  PER-CHARACTER GOALS — the SECOND secret this game has, and the one the free character focus
+    //  put within reach. Researched from the game's OWN code (2026-08-08); the findings and their
+    //  evidence, because the answer is not what board-game folklore predicts:
+    //
+    //   • SCENARIO OBJECTIVES + the quest header ("Aufgaben", MissionObjectiveContainer) are
+    //     PUBLIC and party-wide. The header is AdventureState.MapState.InProgressQuestState — the
+    //     party's in-progress scenario, not anybody's personal anything
+    //     (MissionObjectiveContainer.cs:41-53) — and the rows are the scenario's own
+    //     Win/LoseObjectives. There is no ownership test in that file at all. CObjective.IsHidden
+    //     exists but is a SCENARIO-DESIGN flag, identical on every client: the game compares it
+    //     across clients as a desync check (CObjective.cs:573-588, "CObjective IsHidden does not
+    //     match"), which is only meaningful if it is supposed to be the same for everybody.
+    //     ⇒ Nothing to gate. <see cref="RemoteObjectivesPanel"/> stays a GLOBAL surface.
+    //
+    //   • BATTLE GOAL (the per-character secret goal for the running scenario — what a player
+    //     means by "die Szenario-Quest meines Characters") is SECRET, unconditionally, online.
+    //     ActorStatPanel.cs:566 — the game's own "inspect this character" card:
+    //         if (AdventureState.MapState?.InProgressQuestState != null
+    //             && (!FFSNetwork.IsOnline || actor.IsUnderMyControl)) { …show… }
+    //         else battleGoalContainer.SetActive(false);
+    //     and the in-scenario HUD does the same twice over (BattleGoalContainer.cs:44 in Show,
+    //     :73/:81 in UpdateProgress). Note it is a RENDER-time rule only: the chosen goal is
+    //     broadcast in the clear (BattleGoalService.cs:31-43 → BattleGoalMultiplayerService.cs) and
+    //     every client holds it. Which is exactly why the mod must re-implement the rule rather
+    //     than assume the data is unavailable.
+    //     ⇒ <see cref="ShowBattleGoal"/>.
+    //
+    //   • PERSONAL QUEST (the campaign retirement / life goal) is PUBLIC BY DEFAULT and secret
+    //     only when its owner opted in. ActorStatPanel.cs:557:
+    //         if (pq == null || (pq.IsConcealed && FFSNetwork.IsOnline && !actor.IsUnderMyControl))
+    //             personalQuestContainer.SetActive(false); else { …show… }
+    //     CPersonalQuestState.IsConcealed is a player-flipped toggle (UICampaignAssemblyCharacter-
+    //     Information.cs:46-49, hotkey KeyAction.CONCEAL_PQ) that RESETS TO false
+    //     (CPersonalQuestState.cs:271) — i.e. visible unless hidden. The game even ANNOUNCES a
+    //     peer's personal-quest progress by name to everybody (UIPersonalQuestResultManager.cs:258+).
+    //     ⇒ <see cref="ShowPersonalQuest"/>, same three-clause shape as the game's.
+    //
+    //  Both predicates are written as the game writes them — offline / single player answers TRUE,
+    //  because offline every merc is ours and the game shows both surfaces freely.
+    // ============================================================================================
+
+    /// <summary>
+    /// May <paramref name="actor"/>'s BATTLE GOAL (the per-character secret scenario goal) be shown
+    /// to the local player? Verbatim <c>ActorStatPanel.cs:566</c> / <c>BattleGoalContainer.cs:44</c>:
+    /// online, only for a character under our own control.
+    ///
+    /// <para>THIS IS THE RULE THAT DECIDES THE FOCUS FEATURE'S QUEST QUESTION: a player who focuses
+    /// a character they do NOT own must not be shown that character's battle goal — not on their own
+    /// board, and not via a peer's mirrored board either. It is deliberately a property of the
+    /// CHARACTER and the VIEWER, never of who is looking: a mirrored board renders on the VIEWER's
+    /// machine, so the viewer's own entitlement is the only one that can be evaluated there, and it
+    /// is the strictly safer of the two (see <see cref="RemoteBoardFocus"/> rule 2).</para>
+    /// </summary>
+    public static bool ShowBattleGoal(CActor? actor) =>
+        !(FFSNetwork.IsOnline && (actor == null || !actor.IsUnderMyControl));
+
+    /// <summary>
+    /// May <paramref name="actor"/>'s PERSONAL QUEST (campaign life goal) be shown? Verbatim
+    /// <c>ActorStatPanel.cs:557</c>: hidden only when its owner CONCEALED it and it is not ours.
+    /// A quest we cannot resolve at all answers false — "no quest to show" and "not allowed to
+    /// show it" are the same outcome for a renderer, and false is the safe one.
+    /// </summary>
+    public static bool ShowPersonalQuest(CActor? actor)
+    {
+        if (actor == null)
+            return false;
+        try
+        {
+            MapRuleLibrary.State.CMapState? map = MapRuleLibrary.Adventure.AdventureState.MapState;
+            if (map == null || !map.IsCampaign || map.MapParty == null)
+                return false; // guildmaster / no campaign party — the game shows no PQ panel either
+            string? id = actor.Class != null ? actor.Class.ID : null;
+            if (string.IsNullOrEmpty(id))
+                return false;
+            MapRuleLibrary.Party.CPersonalQuestState? quest = null;
+            // SelectedCharactersArray, not the LINQ-filtered SelectedCharacters property: same
+            // members, no per-call enumerator allocation on a path a per-frame surface may read.
+            MapRuleLibrary.Party.CMapCharacter[]? chars = map.MapParty.SelectedCharactersArray;
+            if (chars == null)
+                return false;
+            for (int i = 0; i < chars.Length; i++)
+            {
+                MapRuleLibrary.Party.CMapCharacter c = chars[i];
+                if (c != null && c.CharacterID == id)
+                {
+                    quest = c.PersonalQuest;
+                    break;
+                }
+            }
+            if (quest == null)
+                return false;
+            return !(quest.IsConcealed && FFSNetwork.IsOnline && !actor.IsUnderMyControl);
+        }
+        catch
+        {
+            return false; // a half-loaded campaign state must never leak by accident
+        }
+    }
 }

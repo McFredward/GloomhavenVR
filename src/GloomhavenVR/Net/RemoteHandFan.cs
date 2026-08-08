@@ -311,9 +311,17 @@ internal sealed class RemoteHandFan
         int frontCount = 0;
         try
         {
-            // Resolve the remote actor and the game's own reveal rule. NetPlayerActors.ActorFor and
-            // RevealGate.ShowRoundCardFronts are both null-safe and degrade to no-front off-scenario.
-            CPlayerActor? actor = NetPlayerActors.ActorFor(_owner.PlayerId);
+            // Resolve the DISPLAYED character and the game's own reveal rule. Both calls are
+            // null-safe and degrade to no-front off-scenario.
+            //
+            // THE FAN FOLLOWS THE OWNER'S FOCUS (ModBuild 84). The card COUNT has always come off
+            // the wire — it is the size of the fan that peer is physically holding up, which on
+            // their machine is the hand of the character they are LOOKING at. Resolving the fronts
+            // from their OWNED character therefore used to draw a mismatched pair: n slabs from
+            // one character wearing faces from another. RemoteBoardFocus makes both halves name
+            // the same character; when it cannot (no record, unresolvable, secret phase) it hands
+            // back the owned character exactly as before.
+            CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
             // Also require an actual running scenario before touching the game's hand UI (the clone's
             // widget lifecycle depends on scenario singletons); off-scenario we simply show backs.
             if (actor != null && RevealGate.InScenario && RevealGate.ShowRoundCardFronts(actor))

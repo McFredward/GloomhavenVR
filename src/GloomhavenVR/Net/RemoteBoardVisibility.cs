@@ -80,19 +80,22 @@ internal static class RemoteBoardGate
 
     /// <summary>
     /// May ANYTHING anchored to <paramref name="owner"/>'s control board be drawn this frame?
-    /// Resolves the owner's actor itself, so callers that do not otherwise need the game model
-    /// (the fans, the card FX) stay free of it. A peer with no synced board pose or the mode set
-    /// to Off always answers false. A peer WITHOUT an actor (join-time, before the host assigns
-    /// characters) answers like a peer outside the secret phase: they have no cards, so there is
-    /// nothing to hide, and the board must be visible from their first packets — the same rule
-    /// <see cref="RemoteControlBoard.Tick"/> applies to the board surface itself.
+    /// Resolves the owner's DISPLAYED character itself (<see cref="RemoteBoardFocus"/> — the same
+    /// resolution <see cref="RemoteControlBoard.Tick"/> makes, so a fan and the board it hangs off
+    /// can never arbitrate the gate against two different characters), so callers that do not
+    /// otherwise need the game model (the fans, the card FX) stay free of it. A peer with no synced
+    /// board pose or the mode set to Off always answers false. A peer WITHOUT an actor (join-time,
+    /// before the host assigns characters) answers like a peer outside the secret phase: they have
+    /// no cards, so there is nothing to hide, and the board must be visible from their first
+    /// packets — the same rule <see cref="RemoteControlBoard.Tick"/> applies to the board surface
+    /// itself.
     /// </summary>
     internal static bool ShowBoardSurface(RemoteAvatar? owner)
     {
         RemoteBoardVisibility mode = Mode;
         if (owner == null || !owner.HasBoard || mode == RemoteBoardVisibility.Off)
             return false;
-        CPlayerActor? actor = NetPlayerActors.ActorFor(owner.PlayerId);
+        CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(owner, out _);
         return SurfaceVisible(mode, actor == null || RevealGate.ShowRoundCardFronts(actor));
     }
 

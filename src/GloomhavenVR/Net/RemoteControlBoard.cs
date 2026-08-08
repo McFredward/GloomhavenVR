@@ -367,6 +367,17 @@ internal sealed class RemoteControlBoard
     /// </summary>
     private readonly CAbilityCard?[] _latchedFaces = new CAbilityCard?[SlotCount];
 
+    /// <summary>
+    /// The character <see cref="_latchedFaces"/> was filled for. THE SECOND RESET, added with the
+    /// focus-following board (ModBuild 84): the latch above is keyed on the RECESS, not on the
+    /// character, so when this peer switches which character their board is about
+    /// (<see cref="RemoteBoardFocus"/>) a face latched for the previous one would otherwise be
+    /// re-shown in the new one's recess for the rest of the action phase — a card that character
+    /// never played. The gate-close reset cannot catch it: the gate stays open across a focus
+    /// switch, which is precisely when a switch is allowed at all.
+    /// </summary>
+    private CPlayerActor? _latchedActor;
+
     public RemoteControlBoard(RemoteAvatar owner)
     {
         _owner = owner;
@@ -388,13 +399,24 @@ internal sealed class RemoteControlBoard
             return;
         }
 
-        // Read the owner's actor fresh each frame (null offline / before the host assigns
+        // Read the DISPLAYED character fresh each frame (null offline / before the host assigns
         // characters / benched). JOIN-TIME REQUIREMENT: the actor is NOT a gate for the board
         // SURFACE any more — a peer's board must appear the moment their first extras packet
         // lands, character assignment or not. An actorless peer has no cards, so there is
         // nothing the reveal gate could need to hide: "no actor" counts as "not in the secret
         // phase" for the visibility rule below.
-        CPlayerActor? actor = NetPlayerActors.ActorFor(_owner.PlayerId);
+        //
+        // FOLLOWS THE OWNER'S FOCUS since ModBuild 84 (user: "Jegliche Anzeige eines Boards soll
+        // 1:1 synchronisiert werden im Remote-Board, auch wenn der Remote-Spieler einen anderen
+        // Character ausgewählt hat"). This ONE call is where the whole requirement lands: every
+        // per-actor surface below — status readouts, active pile, the two round-card recesses,
+        // the furniture, the model-fallback pile counts — is parameterised by this actor and
+        // therefore follows the peer's focus without a line of its own. It resolves to their
+        // OWNED character whenever the focus is absent, unresolvable or suppressed, so the
+        // pre-ModBuild-84 behaviour is exactly the fallback. See RemoteBoardFocus for the three
+        // rules (secrecy wins, the viewer's gate still decides, never blank).
+        CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out bool viaFocus);
+        _ = viaFocus; // the state is stated in RemoteBoardFocus' own change-gated log line
 
         bool showFronts = actor != null && RevealGate.ShowRoundCardFronts(actor);
 
@@ -909,14 +931,18 @@ internal sealed class RemoteControlBoard
         _slotFaceMask = 0;
         _slotAnonMask = 0;
 
-        // The reveal gate closing is the latch's ONLY reset (see _latchedFaces): the next secret
-        // selection phase / scenario end / actor loss all answer showFronts == false, and from
-        // that frame on nothing latched during the previous action phase exists any more.
-        if (!showFronts)
+        // TWO resets, and only two (see _latchedFaces / _latchedActor):
+        //   • the reveal gate closing — the next secret selection phase / scenario end / actor loss
+        //     all answer showFronts == false, and from that frame on nothing latched during the
+        //     previous action phase exists any more;
+        //   • the DISPLAYED CHARACTER changing — a face approved for one character must never be
+        //     repeated in another character's recess just because the recess index matched.
+        if (!showFronts || !ReferenceEquals(actor, _latchedActor))
         {
             for (int i = 0; i < _latchedFaces.Length; i++)
                 _latchedFaces[i] = null;
         }
+        _latchedActor = actor;
 
         if (wire < 0)
         {

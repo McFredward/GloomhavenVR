@@ -129,6 +129,7 @@ internal sealed class RemoteInitiativeTrack
     {
         _mirror.TickLive();
         ApplyHoverOverrides();
+        ApplySelectionOverride();
         ApplyFocusRings();
         ApplyFallbackFocusTint();
     }
@@ -258,6 +259,94 @@ internal sealed class RemoteInitiativeTrack
                                 "is exactly what a pre-record build shows)."));
     }
 
+    /// <summary>Change-gate for the selection-override coverage line (one-shot per session).</summary>
+    private bool _loggedSelectionCoverage;
+
+    /// <summary>
+    /// THE GAME'S OWN SELECTION FRAME, re-decided from the PEER's focus — the third member of the
+    /// "the mirror copied MY state onto THEIR board" family, after the hover popup/name (defect (b),
+    /// 2026-08-04) and the hover GROW (2026-08-07).
+    ///
+    /// User, verbatim: "Die Auswahl, die in der Initiativreihenfolge angezeigt wird für den
+    /// jeweiligen Spieler, soll auch synchronisiert werden, so dass andere Spieler sehen können,
+    /// welchen Character jemand gerade ausgewählt hat."
+    ///
+    /// WHAT WAS WRONG. Vanilla's selection is a plain GameObject the avatar switches on and off
+    /// (<c>InitiativeTrackActorAvatar.ToggleSelection</c> → <c>selectionObject.SetActive</c>,
+    /// driven by <c>InitiativeTrack.Select</c>/<c>Deselect</c>), and it is strictly CLIENT-LOCAL —
+    /// nothing about it is networked, and the LOCAL track is the only track this client has. So
+    /// <c>RemoteWidgetMirror.Pair.Apply</c>, which copies <c>activeSelf</c> verbatim, put MY
+    /// selected portrait's frame on EVERY peer's mirrored track. ModBuild 81's focus RINGS were
+    /// then painted on top of that, which is why a peer's track could show two different answers to
+    /// "which character has this player selected" at the same time.
+    ///
+    /// WHAT IT DOES NOW. The frame is forced OFF on every mirrored entry and re-enabled only for
+    /// the entry the PEER is looking at — <c>Board.CharacterFocus.FocusIdForPeer</c>, i.e.
+    /// extension record 22, the id this client already receives and already rings. Record 22
+    /// carries <c>CharacterFocus.LookingAt</c>, which IS "the character this player currently has
+    /// selected" (their focus override when they set one, otherwise the character the game itself
+    /// presents to them), so the game's selection visual and the mod's focus ring are two
+    /// renderings of ONE synced fact and can no longer disagree. No new wire record was needed.
+    ///
+    /// Vanilla's own suppression is honoured verbatim: <c>ToggleSelection</c> refuses to show the
+    /// frame for an actor <c>IsTakingExtraTurn</c>, so this does too — a mirrored track must not
+    /// invent a state the owner's own track cannot be in.
+    ///
+    /// A peer with NO record 22 (pre-record build, no scenario) gets NO selection frame at all
+    /// rather than mine. That is the same choice the hover pass makes and for the same reason:
+    /// showing nothing is honest, showing my state on their board is a lie.
+    ///
+    /// KNOWN LIMIT, stated rather than papered over: record 22 carries a CHARACTER focus, so a peer
+    /// whose vanilla selection sits on an ENEMY or an object entry shows NO frame here instead of
+    /// that enemy's. Closing it would cost a new wire record for a state the user did not ask about
+    /// ("welchen Character jemand gerade ausgewählt hat"), and the degradation is strictly better
+    /// than the bug it replaces — nothing, rather than MY selection on THEIR board. The peer's
+    /// HOVER over an enemy is synced already (record 16) and still lands on the right entry.
+    /// </summary>
+    private void ApplySelectionOverride()
+    {
+        if (Source != RemoteWidgetMirror.Fidelity.MirroredWidget)
+            return;
+        EnsureHoverCache();
+        if (_hoverNodes.Count == 0)
+            return;
+
+        int resolved = 0;
+        for (int i = 0; i < _hoverNodes.Count; i++)
+        {
+            HoverNode node = _hoverNodes[i];
+            if (node.Selection == null)
+                continue;
+            resolved++;
+            bool want = _peerFocusActorId != 0
+                        && node.ActorId == _peerFocusActorId
+                        && !TakingExtraTurn(node.Actor);
+            if (node.Selection.activeSelf != want)
+                node.Selection.SetActive(want);
+        }
+
+        if (!_loggedSelectionCoverage && _hoverNodes.Count > 0)
+        {
+            _loggedSelectionCoverage = true;
+            VRLog.Info("Net", $"Remote initiative track selection override: {resolved}/{_hoverNodes.Count} " +
+                              "entr(y/ies) resolved the game's own selectionObject on the clone. The LOCAL " +
+                              "player's selection frame is forced OFF on this mirror and re-applied only for " +
+                              "the character the PEER has selected (extension record 22) — a peer's mirrored " +
+                              "track now shows THEIR selection the way their own track shows it.");
+        }
+    }
+
+    /// <summary>Guarded <c>CActor.IsTakingExtraTurn</c> — vanilla's own exemption in
+    /// <c>ToggleSelection</c>. A mid-teardown actor reads as "extra turn" (⇒ no frame), which is
+    /// the quiet answer.</summary>
+    private static bool TakingExtraTurn(CActor? actor)
+    {
+        if (actor == null)
+            return true;
+        try { return actor.IsTakingExtraTurn; }
+        catch { return true; }
+    }
+
     /// <summary>
     /// Drive the focus/turn rings on the MIRRORED entries. Runs every frame (the blink is a
     /// continuous alpha), after <see cref="ApplyHoverOverrides"/> so a ring is never applied to a
@@ -338,6 +427,16 @@ internal sealed class RemoteInitiativeTrack
     {
         public int ActorId;
 
+        /// <summary>The LIVE actor behind this entry — read only for the two flags vanilla's own
+        /// selection rule consults (<c>IsTakingExtraTurn</c>). Never written.</summary>
+        public CActor? Actor;
+
+        /// <summary>Clone of the entry's <c>InitiativeTrackActorAvatar.selectionObject</c> — the
+        /// GAME's own selection frame, which <c>Pair.Apply</c> copies from the LOCAL track and
+        /// which <see cref="ApplySelectionOverride"/> therefore has to re-decide from the PEER's
+        /// record-22 focus. Null when the avatar carries no selection object.</summary>
+        public GameObject? Selection;
+
         /// <summary>Mod-owned focus/turn ring seated on the CLONE of this entry's avatar portrait
         /// (null while the portrait is not resolvable yet). Not a mirrored node — see the peer-focus
         /// block header for why the mirror cannot touch it and it cannot touch the mirror.</summary>
@@ -395,7 +494,16 @@ internal sealed class RemoteInitiativeTrack
                 InitiativeTrackActorBehaviour beh = ui[i];
                 if (beh == null || beh.Actor == null || beh.Avatar == null)
                     continue;
-                var node = new HoverNode { ActorId = NetFigures.StableActorId(beh.Actor) };
+                var node = new HoverNode
+                {
+                    ActorId = NetFigures.StableActorId(beh.Actor),
+                    Actor = beh.Actor,
+                };
+
+                // The GAME's own selection frame on the CLONE (see ApplySelectionOverride).
+                GameObject? selection = beh.Avatar.selectionObject;
+                Transform? selectionClone = selection != null ? _mirror.CloneOf(selection.transform) : null;
+                node.Selection = selectionClone != null ? selectionClone.gameObject : null;
 
                 TMP_Text? name = beh.Avatar.nameText;
                 Transform? nameClone = name != null ? _mirror.CloneOf(name.transform) : null;
