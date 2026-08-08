@@ -84,10 +84,22 @@ internal enum FocusTurnMark
 /// <c>OnClick</c> whenever a focus is taken, so not one of its side effects (Select → SwitchHand →
 /// ClearHilightedActors → SetHilighted → CameraController.SmartFocus → ToggleViewAllCards) can
 /// fire while a prompt is open. And the prompt itself is a SEPARATE surface: the game's decision
-/// window, docked by <c>WorldUI.Surfaces.DecisionDockSurface</c> on <c>PlayTray.DecisionMount</c>
-/// — a fixture of the BOARD, not of the focused character's presentation. Focus only chooses which
-/// <c>CardsHandUI</c> the card fan renders, so the decision row stays exactly where it was, keeps
-/// its own live widgets, and is still answerable while the player looks somewhere else.</para>
+/// window, docked by <c>WorldUI.Surfaces.DecisionDockSurface</c> on <c>PlayTray.DecisionMount</c>.
+/// Focus only chooses which <c>CardsHandUI</c> the card fan renders; the game's own decision
+/// widgets are never touched by a switch, so they keep their state and stay answerable.</para>
+///
+/// <para>A DECISION BELONGS TO ONE CHARACTER (user ruling 2026-08-08: "Die Entscheidung soll auch
+/// nur für den jeweiligen Character angezeigt werden! Wechsle ich den Character, während ich eine
+/// Entscheidung treffen muss, soll auch die Entscheidung nicht mehr angezeigt werden bei dem neuen
+/// Character."). <c>DecisionDockSurface</c> therefore reads <see cref="Focused"/> and RENDER-HIDES
+/// its own converted host — the mod-owned canvas the row was reparented onto — while the player
+/// looks at somebody other than the character the prompt was raised FOR (resolved from the game's
+/// own model: the attacked actor, the short-resting hand, the hand whose pick opened the confirm).
+/// That hide is a mod-side visibility toggle on mod-side objects: it disables <c>Canvas</c>
+/// components under our host, never a game method, never a GameObject the game owns, so no
+/// <c>OnDisable</c> of a game widget fires and no answer/cancel/expiry path is reachable. The
+/// prompt's <c>UIWindow</c> stays open and the Choreographer stays parked exactly where it was —
+/// looking away is as inert as looking at a different card fan.</para>
 ///
 /// <para>Belt AND braces with <see cref="RevealGate"/>, which independently keeps a foreign
 /// character's ROUND cards face DOWN through the secret window.</para>
@@ -564,6 +576,73 @@ internal static class CharacterFocus
         catch
         {
             return 0; // diagnostic only — a half-torn actor reads as "nothing to say"
+        }
+    }
+
+    /// <summary>
+    /// How many cards the game's replicated model currently names as this character's HAND —
+    /// a pure read of <c>CCharacterClass.HandAbilityCards</c> (CCharacterClass.cs:91, the
+    /// host-replicated list with no visibility gate; the very list
+    /// <c>TakeDamagePanel.cs:412</c> and <c>CPlayerActorExtensions.cs:27</c> test against).
+    ///
+    /// <para>THIS IS THE ARBITER OF "KEINE HANDKARTEN" (user ruling 2026-08-08: "'Keine
+    /// Handkarten' soll wirklich nur dann kommen, wenn der Character auch wirklich keine
+    /// Handkarten hat, egal in welcher Phase"). The empty-hand placard used to be raised from a
+    /// MOD-side fact — "the fan buffer is empty" — which is a statement about what the mod built
+    /// this frame, not about the character. Those two came apart in exactly one place and it was
+    /// the reported bug (see <see cref="HandWidgetCount"/>). The placard now asks the MODEL, and
+    /// the model alone, whether the hand is empty.</para>
+    ///
+    /// <para>Never a gate on anything else, and never a secrecy question: the hand pile is not
+    /// secret in Gloomhaven (class doc, "WHAT IS AND IS NOT A DISCLOSURE") — only the two CHOSEN
+    /// round cards are, and only during the window <see cref="RevealGate"/> owns.</para>
+    /// </summary>
+    internal static int ModelHandCardCount(CardsHandUI? hand)
+    {
+        try
+        {
+            CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
+            CCharacterClass? cc = actor != null ? actor.CharacterClass : null;
+            return cc?.HandAbilityCards?.Count ?? 0;
+        }
+        catch
+        {
+            return 0; // diagnostic only — a half-torn actor reads as "nothing to say"
+        }
+    }
+
+    /// <summary>
+    /// How many LIVE hand-pile card WIDGETS this client currently holds for the character —
+    /// <c>CardsHandUI.cardsUI</c> entries whose <c>CardType</c> is <c>CardPileType.Hand</c>
+    /// (the game instantiates a fully populated <c>CardsHandUI</c> per player actor on EVERY
+    /// client, Choreographer.cs:925/1112). The companion of <see cref="ModelHandCardCount"/>:
+    /// together they separate the only two honest answers a missing fan can have —
+    /// "this character HAS no hand cards" (model 0) from "the widgets for them are not built on
+    /// this client yet" (model &gt; 0, widgets 0, a transient the next rebuild retries).
+    /// Diagnostic + retry signal only; never a gate.
+    /// </summary>
+    internal static int HandWidgetCount(CardsHandUI? hand)
+    {
+        try
+        {
+            if (hand == null)
+                return 0;
+            List<AbilityCardUI>? cards = hand.cardsUI;
+            if (cards == null)
+                return 0;
+            int n = 0;
+            for (int i = 0; i < cards.Count; i++)
+            {
+                AbilityCardUI c = cards[i];
+                if (c != null && c.AbilityCard != null && !c.IsLongRest
+                    && c.CardType == CardPileType.Hand)
+                    n++;
+            }
+            return n;
+        }
+        catch
+        {
+            return 0;
         }
     }
 
