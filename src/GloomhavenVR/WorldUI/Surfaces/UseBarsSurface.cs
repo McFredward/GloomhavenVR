@@ -105,6 +105,38 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 ///   choose-ability slot is pre-selected and the CONFIRM/ReadyButton AlternativeAction
 ///   finishes it) — no extra affordance needed.
 ///
+/// ONE CHARACTER OWNS A DECISION (user ruling 2026-08-08, the same rule
+/// <see cref="DecisionDockSurface"/> follows — "Die Entscheidung soll auch nur für den
+/// jeweiligen Character angezeigt werden!"). Since ModBuild 80 an item is used by
+/// PLACING its card in the board's item-use slot, and the follow-up element choice
+/// appears here, in this drawer — so from the player's side these bars ARE "die
+/// Entscheidung", and leaving them up while the player looks at a teammate is exactly
+/// the complaint. Every bar carries the actor the GAME raised it for
+/// (<c>UIUseItemsBar.actor</c> :40/:372/:431, <c>UIUseAugmentationsBar.actor</c>
+/// :27/:252, <c>UIUseAbilitiesBar.actor</c> :172/:272/:295/:310/:330,
+/// <c>UIActiveBonusBar.actors</c> :25/:236 — a LIST, the bar can be raised for several
+/// at once), so ownership is read from the model, never from turn state (a bar outlives
+/// a turn boundary just as a prompt does). While the focused character is not among a
+/// bar's owners, that bar is RENDER-HIDDEN; it returns unchanged the moment the owner is
+/// focused again. Unresolvable owner ⇒ shown (an unanswerable decision is worse than a
+/// visible one — the same fail-open direction as everywhere else in this drawer).
+///
+/// THE HIDE CANNOT DISTURB THE PENDING CHOICE — structurally. It disables
+/// <c>Canvas.enabled</c> on the MOD-OWNED converted host (and any nested canvas under it)
+/// and writes nothing else: no game method, no <c>SetActive</c> on a game object. That
+/// matters here more than anywhere: the slots ARE <c>ExtendedButton</c>s, whose
+/// <c>OnDisable</c> raises <c>ActiveChanged(false)</c>, un-highlights and can clear the
+/// EventSystem selection + invoke <c>onDeselected</c> (ExtendedButton.cs:300-320), and an
+/// OPEN element picker mid-choice must survive untouched. It also leaves the requirement-C
+/// items split alone by construction: <see cref="ItemsPopulated"/> and
+/// <see cref="EnforceItemsSplit"/> both key on slot <c>activeSelf</c>, which the hide never
+/// writes — so a hidden bar neither releases its dock nor re-exposes a plain symbol, and
+/// coming back needs no second placement. The fit is FROZEN while hidden
+/// (<c>ConvertedPanel.FitEnabled</c> off, the existing stability hold) so the panel returns
+/// at exactly the geometry it left with. Input is impossible meanwhile: both interactors
+/// skip a canvas that is not <c>isActiveAndEnabled</c> (RayUguiDriver:132/312,
+/// PokeInteractor:298).
+///
 /// MP: zero wire changes — every interaction is a real widget click on local-player UI;
 /// peers see state via the game's own sync (proxy paths <c>ProxyUseActiveBonus</c>/
 /// <c>ProxyToggleAugment</c>/<c>ProxyInfuseAbility</c> replay on remotes untouched).
@@ -167,12 +199,15 @@ internal sealed class UseBarsSurface
         // The container accessor feeds the fit-stability hold: the bar's serialized slot
         // container is the LAYOUT truth (slots are Instantiate(prefab, container)), so its
         // active-children set changes exactly when the slot set does — never on hover.
-        _itemsDock = new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, ItemsContainer, this);
+        _itemsDock = new BarDock("UseBarItems", ItemsRoot, ItemsPopulated, ItemsContainer, ItemsOwners, this);
         _docks = new[]
         {
-            new BarDock("UseBarActiveBonus", ActiveBonusRoot, ActiveBonusPopulated, ActiveBonusContainer, this),
-            new BarDock("UseBarAbilities", AbilitiesRoot, AbilitiesPopulated, AbilitiesContainer, this),
-            new BarDock("UseBarAugments", AugmentsRoot, AugmentsPopulated, AugmentsContainer, this),
+            new BarDock("UseBarActiveBonus", ActiveBonusRoot, ActiveBonusPopulated, ActiveBonusContainer,
+                ActiveBonusOwners, this),
+            new BarDock("UseBarAbilities", AbilitiesRoot, AbilitiesPopulated, AbilitiesContainer,
+                AbilitiesOwners, this),
+            new BarDock("UseBarAugments", AugmentsRoot, AugmentsPopulated, AugmentsContainer,
+                AugmentsOwners, this),
             _itemsDock,
         };
     }
@@ -184,8 +219,9 @@ internal sealed class UseBarsSurface
         for (int i = 0; i < _docks.Length; i++)
             _docks[i].Tick(); // convert / release, level-triggered on the polled slot state
 
-        EnforceItemsSplit(); // req C: plain item slots never show in a docked (mixed) items bar
-        StackDocked();
+        EnforceItemsSplit();      // req C: plain item slots never show in a docked (mixed) items bar
+        UpdateFocusVisibility();  // one character owns a decision — hide bars whose owner is not in view
+        StackDocked();            // …so the stack closes up over a hidden bar in the SAME tick
         UpdateWaitingHint();
     }
 
@@ -324,6 +360,154 @@ internal sealed class UseBarsSurface
         return false;
     }
 
+    // ---- one character owns a decision: WHOSE bar is this? (read from the game's model) ----
+
+    /// <summary>
+    /// Resolve a game actor to the CHARACTER a focus can be on, and add it to
+    /// <paramref name="into"/> without duplicates. A summon maps to its <c>Summoner</c> — the
+    /// selectable hero, <c>CHeroSummonActor.Summoner</c>, the same mapping
+    /// <c>CardsGameApi.TakeDamageSubject</c> and the initiative track use, so a bar raised for a
+    /// summon belongs to the player who owns it. Anything that is not a player character (an
+    /// enemy, an object) contributes NOTHING, which — with the fail-open rule in
+    /// <see cref="UpdateFocusVisibility"/> — means such a bar is always shown.
+    /// </summary>
+    private static void AddOwner(List<CPlayerActor> into, CActor? actor)
+    {
+        CPlayerActor? owner = actor switch
+        {
+            CPlayerActor player => player,
+            CHeroSummonActor summon => summon.Summoner,
+            _ => null,
+        };
+        if (owner == null)
+            return;
+        for (int i = 0; i < into.Count; i++)
+        {
+            if (ReferenceEquals(into[i], owner))
+                return;
+        }
+        into.Add(owner);
+    }
+
+    /// <summary>The items bar's own actor — <c>UIUseItemsBar.actor</c> (private, publicized;
+    /// UIUseItemsBar.cs:40), written by every entry point that raises the bar
+    /// (<c>ShowItems</c> :372, <c>ShowUsableItems</c> :431, and <c>TakeDamagePanel.Show</c>'s
+    /// OnAttacked repopulation, which is why <c>CardsGameApi.TakeDamagePlaceContext</c> already
+    /// compares against it). THIS is "the character whose item slot raised the element
+    /// picker".</summary>
+    private static void ItemsOwners(List<CPlayerActor> into)
+    {
+        UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
+            ? Singleton<UIUseItemsBar>.Instance : null;
+        if (bar != null)
+            AddOwner(into, bar.actor);
+    }
+
+    /// <summary>The abilities bar's actor — <c>UIUseAbilitiesBar.actor</c> (CPlayerActor,
+    /// UIUseAbilitiesBar.cs:172), written by all four raise paths: <c>ShowInfuseAbilities</c>
+    /// :272, <c>ShowInfusionsAction</c> :295 (the end-of-ability "Any" infusion that BLOCKS the
+    /// turn), <c>ShowGenericInfusion</c> :310 and <c>ShowChooseAbility</c> :330.</summary>
+    private static void AbilitiesOwners(List<CPlayerActor> into)
+    {
+        UIUseAbilitiesBar? bar = Singleton<UIUseAbilitiesBar>.IsInitialized
+            ? Singleton<UIUseAbilitiesBar>.Instance : null;
+        if (bar != null)
+            AddOwner(into, bar.actor);
+    }
+
+    /// <summary>The augment bar's actor — <c>UIUseAugmentationsBar.actor</c>
+    /// (UIUseAugmentationsBar.cs:27, written by <c>Show</c> :252 and handed to every slot's
+    /// <c>Init</c> :45/:62, so the slots and this agree by construction).</summary>
+    private static void AugmentsOwners(List<CPlayerActor> into)
+    {
+        UIUseAugmentationsBar? bar = Singleton<UIUseAugmentationsBar>.IsInitialized
+            ? Singleton<UIUseAugmentationsBar>.Instance : null;
+        if (bar != null)
+            AddOwner(into, bar.actor);
+    }
+
+    /// <summary>
+    /// The active-bonus bar's actors — <c>UIActiveBonusBar.actors</c> (a LIST,
+    /// UIActiveBonusBar.cs:25, written by <c>Init</c> :236; the single-actor
+    /// <c>ShowActiveBonus</c> overload :248 wraps one actor in a one-element list :250). This is
+    /// the one bar the game can legitimately raise for SEVERAL characters at once, so ownership
+    /// here is a SET and the rule generalizes without a special case: the bar is shown while the
+    /// focused character is one of them.
+    /// </summary>
+    private static void ActiveBonusOwners(List<CPlayerActor> into)
+    {
+        UIActiveBonusBar? bar = Singleton<UIActiveBonusBar>.IsInitialized
+            ? Singleton<UIActiveBonusBar>.Instance : null;
+        List<CActor>? actors = bar != null ? bar.actors : null;
+        if (actors == null)
+            return;
+        for (int i = 0; i < actors.Count; i++)
+            AddOwner(into, actors[i]);
+    }
+
+    /// <summary>Owner scratch — one resolve per dock per tick, reused (no steady-state garbage).</summary>
+    private static readonly List<CPlayerActor> OwnerScratch = new(4);
+
+    /// <summary>
+    /// ONE CHARACTER OWNS A DECISION, bar edition (see the class doc). For every DOCKED bar:
+    /// resolve the owners from the game's model and render-hide the bar while the player has
+    /// FOCUSED somebody who is not among them.
+    ///
+    /// <para>Both clauses are required, and each on purpose. <c>Focused</c> non-null means the
+    /// player has taken an explicit focus override — merely following the game is never "looking
+    /// elsewhere", so a player who never touches the feature can never lose sight of a bar. A
+    /// non-empty owner set means the bar's attribution is KNOWN; an empty one (bar raised for an
+    /// enemy/object, or not raised at all yet) fails open and stays visible.</para>
+    ///
+    /// <para>Interaction with the requirement-C items split, verified: the split keys on
+    /// <c>_itemsDock.Docked != null</c> and on slot <c>activeSelf</c>, and this hide writes
+    /// neither — so a hidden items bar keeps its dock, keeps its plain slots suppressed, and
+    /// keeps its choice slots active. <see cref="ItemsPopulated"/> reads the same
+    /// <c>activeSelf</c> flags, so <c>WantConverted</c> does not flip either: no release, no
+    /// re-convert, and returning to the owner needs no second card placement.</para>
+    /// </summary>
+    private void UpdateFocusVisibility()
+    {
+        CPlayerActor? focused = Board.CharacterFocus.Focused;
+        for (int i = 0; i < _docks.Length; i++)
+        {
+            BarDock dock = _docks[i];
+            if (dock.Docked == null)
+                continue; // nothing converted — BarDock.Tick already restored any hide
+
+            OwnerScratch.Clear();
+            dock.ResolveOwners(OwnerScratch);
+            bool owned = false;
+            for (int o = 0; o < OwnerScratch.Count && !owned; o++)
+                owned = ReferenceEquals(OwnerScratch[o], focused);
+            bool hide = focused != null && OwnerScratch.Count > 0 && !owned;
+
+            if (hide)
+                dock.ApplyFocusHide(OwnerScratch, focused);
+            else
+                dock.NoteFocusVisible(OwnerScratch, focused);
+            OwnerScratch.Clear();
+        }
+    }
+
+    /// <summary>Log-safe owner list — built ONLY when a line is actually emitted (the callers
+    /// change-dedup on cheap instance ids first), so a per-tick resolve allocates nothing.</summary>
+    private static string DescribeOwners(List<CPlayerActor> owners)
+    {
+        if (owners.Count == 0)
+            return "nobody resolvable";
+        if (owners.Count == 1)
+            return Board.CharacterFocus.Describe(owners[0]);
+        var sb = new System.Text.StringBuilder(48);
+        for (int i = 0; i < owners.Count; i++)
+        {
+            if (i > 0)
+                sb.Append(", ");
+            sb.Append(Board.CharacterFocus.Describe(owners[i]));
+        }
+        return sb.ToString();
+    }
+
     // ---- requirement C: hide PLAIN item slots while the (mixed) items bar is docked ---------
 
     // The plain-use slots this surface hid while the items bar is docked (a mixed bar: choice
@@ -449,10 +633,15 @@ internal sealed class UseBarsSurface
     /// </summary>
     private void StackDocked()
     {
+        // Count only the bars that are actually SHOWN: a bar render-hidden because its owner is
+        // not in view must not consume a stack lane, or the visible ones would sit under a gap.
+        // Its host keeps its last pose (invisible), and this method re-derives every lane from
+        // the mount + fitted rect each tick, so a returning bar takes its place the same frame
+        // it is shown — nothing has to be remembered across the hide.
         int docked = 0;
         for (int i = 0; i < _docks.Length; i++)
         {
-            if (_docks[i].Docked != null)
+            if (_docks[i].Docked != null && !_docks[i].FocusHidden)
                 docked++;
         }
         if (docked == 0)
@@ -469,7 +658,7 @@ internal sealed class UseBarsSurface
             for (int i = 0; i < _docks.Length; i++)
             {
                 ConvertedPanel? p = _docks[i].Docked;
-                if (p != null)
+                if (p != null && !_docks[i].FocusHidden)
                     p.OrderCluster = null; // floating stack — not part of the board's draw cluster
             }
             PlaceFloatingStack(docked); // a pending decision must never be invisible
@@ -520,8 +709,8 @@ internal sealed class UseBarsSurface
         for (int i = 0; i < _docks.Length; i++)
         {
             ConvertedPanel? panel = _docks[i].Docked;
-            if (panel == null)
-                continue;
+            if (panel == null || _docks[i].FocusHidden)
+                continue; // hidden for another character's focus — no lane, no cursor advance
             // Docked on the control board: the board's furniture stays structurally below the
             // bars at every viewing angle — see ConvertedPanel.OrderCluster.
             panel.OrderCluster = PlayTray.Current;
@@ -574,8 +763,8 @@ internal sealed class UseBarsSurface
         for (int i = 0; i < _docks.Length; i++)
         {
             ConvertedPanel? panel = _docks[i].Docked;
-            if (panel == null)
-                continue;
+            if (panel == null || _docks[i].FocusHidden)
+                continue; // hidden for another character's focus — no lane in the float stack either
             if (!panel.HostGo.activeSelf)
                 panel.HostGo.SetActive(true);
             CanvasConversion.PlaceHost(panel,
@@ -598,6 +787,13 @@ internal sealed class UseBarsSurface
     ///   exact gate <c>CanTakeDamage</c>/the confirm refuses on) → <c>bars_waiting_bonus</c>.
     /// Pushed/cleared strictly on CHANGE: the banner seam is shared with the CardsDriver
     /// card-pick flows (mutually exclusive game phases), so this writer never tick-fights.
+    ///
+    /// <para>DELIBERATELY KEYED ON <c>Docked</c>, NOT ON VISIBILITY: the hint keeps running while
+    /// a bar is render-hidden for another character's focus. That is the point — the banner is
+    /// then the only thing telling the player why the flow is not advancing, i.e. the cue to look
+    /// back at the character who owes the answer. Hiding the hint with the bar would turn a
+    /// visible wait into a silent one, which is the failure mode this whole drawer exists to
+    /// prevent.</para>
     /// </summary>
     private void UpdateWaitingHint()
     {
@@ -693,8 +889,15 @@ internal sealed class UseBarsSurface
         private readonly System.Func<RectTransform?> _root;
         private readonly System.Func<bool> _populated;
         private readonly System.Func<RectTransform?> _container;
+        private readonly System.Action<List<CPlayerActor>> _owners;
         private readonly UseBarsSurface _owner;
         private bool _conflictWarned;
+
+        // One character owns a decision (see the class doc): canvases WE disabled to render-hide
+        // this bar, held by reference so the restore lands even after the conversion released.
+        private readonly List<Canvas> _focusHiddenCanvases = new(4);
+        private static readonly List<Canvas> HostCanvasScratch = new(8);
+        private int _loggedFocusHash;
 
         // Fit-stability hold state (see the FIT STABILITY class doc).
         private float _fitLiveUntil;
@@ -710,13 +913,30 @@ internal sealed class UseBarsSurface
 
         internal BarDock(string name, System.Func<RectTransform?> root,
             System.Func<bool> populated, System.Func<RectTransform?> container,
-            UseBarsSurface owner)
+            System.Action<List<CPlayerActor>> owners, UseBarsSurface owner)
         {
             Name = name;
             _root = root;
             _populated = populated;
             _container = container;
+            _owners = owners;
             _owner = owner;
+        }
+
+        /// <summary>Fill <paramref name="into"/> with the characters this bar was raised FOR
+        /// (empty = not attributable — see <see cref="UseBarsSurface.UpdateFocusVisibility"/>).</summary>
+        internal void ResolveOwners(List<CPlayerActor> into)
+        {
+            try
+            {
+                _owners(into);
+            }
+            catch (System.Exception)
+            {
+                // Attribution is a PRESENTATION question: a half-torn bar must never make a live
+                // decision disappear. An empty list fails open (bar stays visible).
+                into.Clear();
+            }
         }
 
         public override string Name { get; }
@@ -736,7 +956,124 @@ internal sealed class UseBarsSurface
         public override void Tick()
         {
             base.Tick(); // convert / release (level-triggered)
+            if (Panel == null)
+                RestoreFocusHide("the bar released (its last slot hid)");
             TickFitStability();
+        }
+
+        public override void Shutdown()
+        {
+            RestoreFocusHide("the use-bars surface is shutting down"); // BEFORE the release
+            base.Shutdown();
+            _loggedFocusHash = 0;
+        }
+
+        // ---- one character owns a decision (user ruling 2026-08-08) ----------------------
+
+        /// <summary>True while this bar is render-hidden because its owner is not the focused
+        /// character. Read by the stack so a hidden bar consumes no lane.</summary>
+        internal bool FocusHidden { get; private set; }
+
+        /// <summary>
+        /// RENDER-HIDE this bar — and NOTHING ELSE. The only thing written is
+        /// <c>Canvas.enabled = false</c> on the mod's own converted host and on any nested canvas
+        /// beneath it. No game method is called and no GameObject the game owns is deactivated,
+        /// which is the whole point here: these slots ARE <c>ExtendedButton</c>s, and
+        /// <c>ExtendedButton.OnDisable</c> raises <c>ActiveChanged(false)</c>, un-highlights and
+        /// can clear the EventSystem selection + invoke <c>onDeselected</c>
+        /// (ExtendedButton.cs:300-320) — a mid-choice element picker must not be poked like that.
+        /// Idempotent and re-asserted every tick, so a canvas the game adds under an opening
+        /// picker is caught on the next frame.
+        /// </summary>
+        internal void ApplyFocusHide(List<CPlayerActor> owners, CPlayerActor? focused)
+        {
+            ConvertedPanel? panel = Panel;
+            if (panel == null)
+                return;
+            FocusHidden = true;
+
+            HostCanvasScratch.Clear();
+            panel.HostGo.GetComponentsInChildren(includeInactive: true, HostCanvasScratch);
+            for (int i = 0; i < HostCanvasScratch.Count; i++)
+            {
+                Canvas c = HostCanvasScratch[i];
+                if (c == null || !c.enabled)
+                    continue;
+                c.enabled = false;
+                if (!_focusHiddenCanvases.Contains(c))
+                    _focusHiddenCanvases.Add(c);
+            }
+            HostCanvasScratch.Clear();
+
+            if (!FocusStateChanged(hidden: true, owners, focused))
+                return;
+            string ownerNote = DescribeOwners(owners);
+            VRLog.Info("WorldUI", $"USE BARS: '{Name}' belongs to '{ownerNote}' and the player is " +
+                                  $"looking at '{Board.CharacterFocus.Describe(focused)}' — the bar is " +
+                                  "RENDER-HIDDEN (mod-owned host canvases disabled) and takes no stack " +
+                                  "lane. The decision itself is untouched: no slot was deactivated, an " +
+                                  "open element/option picker keeps its state, the items split still " +
+                                  "holds, and it reappears unchanged the moment the owner is focused " +
+                                  "again — no second card placement needed.");
+        }
+
+        /// <summary>The bar is (or becomes) visible: lift any hide and log the transition once.</summary>
+        internal void NoteFocusVisible(List<CPlayerActor> owners, CPlayerActor? focused)
+        {
+            RestoreFocusHide(null);
+            if (!FocusStateChanged(hidden: false, owners, focused))
+                return;
+            VRLog.Info("WorldUI", $"USE BARS: '{Name}' VISIBLE — " +
+                                  (owners.Count == 0
+                                      ? "the bar is not attributable to a character, so it is shown to " +
+                                        "whoever is looking (an unanswerable decision is the worse failure)."
+                                      : $"owner '{DescribeOwners(owners)}' is the character in view" +
+                                        (focused == null ? " (no focus override — following the game)." : ".")));
+        }
+
+        /// <summary>
+        /// Change-dedup on (hidden, owner set, focused) using instance ids only — no string is
+        /// built unless the state genuinely moved, so the per-tick resolve stays allocation-free.
+        /// </summary>
+        private bool FocusStateChanged(bool hidden, List<CPlayerActor> owners, CPlayerActor? focused)
+        {
+            // CActor.ID is the game's own actor identity (the id its own network paths send —
+            // UIUseItemsBar.cs:198/215), so this key is stable and needs no string.
+            int hash = hidden ? 1 : 2;
+            for (int i = 0; i < owners.Count; i++)
+                hash = hash * 31 + owners[i].ID;
+            hash = hash * 31 + (focused != null ? focused.ID : 0);
+            if (_loggedFocusHash == hash)
+                return false;
+            _loggedFocusHash = hash;
+            return true;
+        }
+
+        /// <summary>Undo <see cref="ApplyFocusHide"/>. Idempotent, and safe after the conversion was
+        /// released — the canvases are held by reference and belong enabled wherever they now
+        /// live (their restored 2D home has them enabled too).</summary>
+        internal void RestoreFocusHide(string? reason)
+        {
+            if (_focusHiddenCanvases.Count == 0 && !FocusHidden)
+                return;
+            for (int i = 0; i < _focusHiddenCanvases.Count; i++)
+            {
+                if (_focusHiddenCanvases[i] != null)
+                    _focusHiddenCanvases[i].enabled = true;
+            }
+            _focusHiddenCanvases.Clear();
+            bool was = FocusHidden;
+            FocusHidden = false;
+            // Re-arm the fit briefly: it was frozen for the whole hidden period (see
+            // TickFitStability), so give it a window to pick up anything that changed meanwhile.
+            if (was)
+                _fitLiveUntil = Mathf.Max(_fitLiveUntil, Time.unscaledTime + SlotsSettleSeconds);
+            if (reason != null)
+            {
+                _loggedFocusHash = 0;
+                VRLog.Info("WorldUI", $"USE BARS: '{Name}' focus hide lifted ({reason}) — every canvas " +
+                                      "the mod disabled is enabled again; the bar was never touched.");
+            }
         }
 
         /// <summary>
@@ -762,6 +1099,18 @@ internal sealed class UseBarsSurface
             ConvertedPanel? panel = Panel;
             if (panel == null)
                 return;
+
+            // RENDER-HIDDEN for another character's focus: freeze the fit outright. The measure
+            // rejects graphics whose CanvasRenderer is culled/disabled, and a hidden bar has no
+            // business re-measuring anyway — freezing means the panel comes back at EXACTLY the
+            // geometry it left with, and RestoreFocusHide re-arms a settle window so anything that
+            // legitimately changed meanwhile is picked up on return.
+            if (FocusHidden)
+            {
+                if (panel.FitEnabled)
+                    panel.FitEnabled = false;
+                return;
+            }
 
             float now = Time.unscaledTime;
 
