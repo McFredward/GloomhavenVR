@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using BepInEx.Configuration;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using ScenarioRuleLibrary;
 using Script.GUI.Popups;
 using TMPro;
 using UnityEngine;
@@ -66,6 +67,31 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// logged once per flip. Decisions are sequential (the burn-confirm opens only after
 /// the take-damage panel handed off), so this surface docks ONE prompt at a time.
 ///
+/// ONE CHARACTER OWNS A DECISION (user ruling 2026-08-08: "Die Entscheidung soll auch
+/// nur für den jeweiligen Character angezeigt werden! Wechsle ich den Character, während
+/// ich eine Entscheidung treffen muss, soll auch die Entscheidung nicht mehr angezeigt
+/// werden bei dem neuen Character. Erst wenn ich wieder zum aktuellen Character wechsle
+/// … will ich wieder, dass sie entsprechend angezeigt wird."). The docked row is no longer
+/// a fixture of the BOARD — it belongs to the character the prompt was RAISED FOR, read
+/// from the game's own model (<see cref="PromptOwner"/>: the attacked actor, the
+/// short-resting hand, the hand whose pick opened the confirm — never from turn state,
+/// because a decision outlives a turn boundary). While the player has FOCUSED somebody
+/// else (<c>Board.CharacterFocus.Focused</c>), the row is render-hidden; the moment they
+/// look back at the owner it is shown again, unchanged, in the very same place.
+///
+/// AND HIDING CANNOT DISTURB IT — structurally, not by care (see
+/// <see cref="ApplyFocusHide"/>). The hide toggles <c>Canvas.enabled</c> on the MOD-OWNED
+/// converted host (and any nested canvas under it), and nothing else: no game method is
+/// called, no GameObject the game owns is deactivated — so not one game widget's
+/// <c>OnDisable</c> runs (<c>ExtendedButton.OnDisable</c> raises <c>ActiveChanged</c>/
+/// <c>onDeselected</c>, which is exactly why SetActive is NOT the mechanism), no
+/// <c>onClick</c> is invoked, no <c>UIWindow</c> is closed. The prompt stays OPEN, the
+/// Choreographer stays parked in its wait state, and the row's widgets keep every bit of
+/// their state (toggles, selection, pooled labels). Input cannot reach a hidden row either,
+/// which is the point: both the laser (<c>RayUguiDriver</c>) and the fingertip
+/// (<c>PokeInteractor</c>) skip a canvas that is not <c>isActiveAndEnabled</c>, so the
+/// answer can only ever be given while the owner is in view.
+///
 /// SAFETY NET (task 5): while a claim holds the generic fallback stands down — but if
 /// the row cannot be isolated (widgets missing/not yet pooled, common ancestor
 /// degenerates to the window root, Convert failure) the claim is RELEASED after a short
@@ -111,7 +137,8 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <see cref="UseBarsSurface"/> reads this to shift its bar stack below the decision
     /// row's zone — the two co-occur during take-damage and must never collide.
     /// </summary>
-    internal static bool RowDocked => Instance != null && Instance.Panel != null;
+    internal static bool RowDocked => Instance != null && Instance.Panel != null
+                                      && !Instance._rowHiddenForFocus;
 
     /// <summary>
     /// Live world-metre offset (along <c>DecisionMount.up</c>, relative to the mount
@@ -189,6 +216,24 @@ internal sealed class DecisionDockSurface : WorldSurface
     private InputButton? _hiddenCancelButton;
     private bool _cancelSuppressionLogged;
     private static readonly List<Canvas> CanvasScratch = new(8);
+
+    // ---- one character owns a decision (user ruling 2026-08-08; see the class doc) -------
+
+    /// <summary>Canvases WE disabled to render-hide the docked row while the player is looking at
+    /// another character. Held by reference, so the restore lands even if the conversion was
+    /// released in between (the canvases are then back in their 2D home, where they belong
+    /// enabled).</summary>
+    private readonly List<Canvas> _focusHiddenCanvases = new(4);
+
+    /// <summary>True while the docked row is render-hidden because the focused character is not
+    /// the one the prompt belongs to.</summary>
+    private bool _rowHiddenForFocus;
+
+    /// <summary>Change-dedup for the hide/show line: last (owner, looked-at) pair logged.</summary>
+    private string? _loggedFocusVisibility;
+
+    /// <summary>Scratch for the host-subtree canvas walk (single instance per driver).</summary>
+    private static readonly List<Canvas> HostCanvasScratch = new(8);
 
     // ---- docked-row adjustments (user #5 antique tint; user #14 placement-driven gap) ---
 
@@ -346,6 +391,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             if (Panel != null || _suppressedWindow != null)
             {
                 UnregisterDeliberateCanvas();
+                RestoreFocusHide("the active prompt changed");
                 RestoreRowAdjustments();
                 RestorePickCancelSuppression();
                 RestoreSuppression();
@@ -399,14 +445,29 @@ internal sealed class DecisionDockSurface : WorldSurface
             ApplySuppression(_activeWindow!); // non-null: WantConverted required IsOpen
             ApplyPickCancelSuppression();     // user ruling 2026-08-04: no "choose another card" button on the dock
             SampleWireButtonLines();          // MP: publish the docked buttons' labels (record 12)
+            // ONE CHARACTER OWNS A DECISION (user ruling 2026-08-08): render-hide the row while
+            // the player is looking at somebody else. Level-triggered, like every other
+            // suppression here — see ApplyFocusHide for why it cannot disturb the prompt.
+            //
+            // Deliberately AFTER the three above: the game-side suppressions and the MP wire
+            // sample must keep running while the row is hidden, because none of them is about
+            // what THIS player is looking at. The window must stay alpha-0 (or the flat prompt
+            // would reappear in the HMD the moment the row hides), the pooled cancel option must
+            // stay hidden (or it would flash back on return), and peers must keep seeing the
+            // owner's buttons mirrored on their copy of this board — a local view change may
+            // never edit what other machines see.
+            UpdateFocusVisibility();
             // The one surface that must accept input even under the game's UI-lock
-            // raycaster mirror — the ModalFallback floating-modal exemption.
-            if (Panel.HostRaycaster != null && !Panel.HostRaycaster.enabled)
+            // raycaster mirror — the ModalFallback floating-modal exemption. Skipped while the
+            // row is hidden: a hidden row must not be clickable, and the canvas hide already
+            // stops both interactors (this only avoids re-arming the raycaster behind them).
+            if (!_rowHiddenForFocus && Panel.HostRaycaster != null && !Panel.HostRaycaster.enabled)
                 Panel.HostRaycaster.enabled = true;
         }
         else
         {
             _hmdFloatPlaced = false;
+            RestoreFocusHide("the row undocked");
             if (WireButtonLines != null)
             {
                 WireButtonLines = null; // record 12 stops riding the moment the row undocks
@@ -580,7 +641,11 @@ internal sealed class DecisionDockSurface : WorldSurface
         // Publish the row's MEASURED bottom edge (mount-relative, along up) for the
         // UseBarsSurface stack — the bars hang a small clearance below the row the player
         // actually SEES instead of the mount's worst-case extent (see RowBottomUpMeters doc).
-        RowBottomUpMeters = d + blockBottomAbovePivot;
+        // A row that is render-hidden for another character's focus is not SEEN, so it publishes
+        // nothing and the bar stack falls back to the zone top. Place itself keeps running while
+        // hidden on purpose: the geometry stays live, so looking back at the owner reveals the row
+        // already in its final place (the "never reveal before the final geometry" rule above).
+        RowBottomUpMeters = _rowHiddenForFocus ? null : d + blockBottomAbovePivot;
 
         if (!_placementLogged || float.IsNaN(_lastLoggedGapPx)
             || Mathf.Abs(gapBoardMeters - _lastLoggedGapPx) >= 0.0005f)
@@ -999,6 +1064,229 @@ internal sealed class DecisionDockSurface : WorldSurface
         }
     }
 
+    // ---- one character owns a decision (user ruling 2026-08-08) --------------------------
+
+    /// <summary>
+    /// WHICH CHARACTER does the open prompt belong to — resolved from the GAME'S OWN MODEL, never
+    /// from turn state. That distinction is the requirement, not a preference: a decision routinely
+    /// outlives the turn that raised it (a take-damage prompt is raised DURING an enemy's turn for
+    /// a hero who is not acting; the boots' ± choice walks the party outside anybody's turn;
+    /// <c>CheckForForgoActionActiveBonuses</c> is a phase of its own the game SITS IN until the
+    /// prompt is answered), so <c>Choreographer.CurrentActor</c> would attribute half of them to
+    /// the wrong character or to nobody.
+    ///
+    /// <list type="bullet">
+    /// <item><b>TakeDamagePanel</b> → <c>actorToShowCardsFor ?? actorBeingAttacked</c>. Both are
+    ///   serialized on the panel (TakeDamagePanel.cs:97/99, publicized) and they are the very pair
+    ///   the game's own control test keys on (<c>ThisPlayerHasTakeDamageControl</c>, :133-141):
+    ///   when they differ, the burn pick targets <c>actorToShowCardsFor</c>'s hand, so that is the
+    ///   character the decision is FOR. A summon resolves to its Summoner through
+    ///   <see cref="CardsGameApi.TakeDamageSubject"/>, the same mapping the initiative track uses.</item>
+    /// <item><b>YesNoDialog</b> (short-rest confirmation) → the hand whose <c>ShortRest</c> owns
+    ///   this very dialog instance (<c>CardsHandUI.shortRest.yesNoDialog</c>, instantiated per hand
+    ///   by <c>ShortRest.Init</c>, ShortRest.cs:94-98). Identity match, not a name or a guess.</item>
+    /// <item><b>DialogPopup</b> → first the SHORT-REST burn/redraw confirm: the hand the game is
+    ///   short-resting is the one whose <c>ShortRestedCard</c> is non-null (set synchronously right
+    ///   before the popup is shown, CardsHandUI.cs:826/850, nulled in FinalizeShortRest :973 — so
+    ///   there is no frame where the popup is up and the owner unknown). Otherwise the PICK confirm,
+    ///   whose owner is the hand whose <c>OnCardSelected</c> opened it —
+    ///   <c>CardsHandManager.CurrentHand</c> in a modal pick mode, the exact attribution
+    ///   <see cref="CardsGameApi.PickConfirmCancelButton"/> already relies on.</item>
+    /// </list>
+    ///
+    /// <para>Returns null when the prompt is NOT attributable to one character (a scenario-choice
+    /// DialogPopup, a half-torn model, an unknown future prompt). Null means "belongs to everyone"
+    /// and the row is ALWAYS shown — the failure direction has to be visible, because an invisible
+    /// prompt nobody can answer is the deadlock this whole surface exists to prevent.</para>
+    /// </summary>
+    private CPlayerActor? PromptOwner()
+    {
+        try
+        {
+            switch (_active?.Name)
+            {
+                case "TakeDamagePanel":
+                {
+                    TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
+                        ? Singleton<TakeDamagePanel>.Instance
+                        : null;
+                    if (p == null || !p.IsOpen)
+                        return null;
+                    CPlayerActor? cards = p.actorToShowCardsFor;
+                    return cards != null ? cards : CardsGameApi.TakeDamageSubject();
+                }
+
+                case "YesNoDialog":
+                {
+                    YesNoDialog? dialog = CardsGameApi.ShortRestDialog();
+                    if (dialog == null)
+                        return null;
+                    List<CardsHandUI>? hands = AllHands();
+                    if (hands == null)
+                        return null;
+                    for (int i = 0; i < hands.Count; i++)
+                    {
+                        CardsHandUI h = hands[i];
+                        if (h != null && h.shortRest != null
+                            && ReferenceEquals(h.shortRest.yesNoDialog, dialog))
+                            return h.PlayerActor;
+                    }
+                    return null;
+                }
+
+                case "DialogPopup":
+                {
+                    List<CardsHandUI>? hands = AllHands();
+                    if (hands != null)
+                    {
+                        for (int i = 0; i < hands.Count; i++)
+                        {
+                            CardsHandUI h = hands[i];
+                            if (h != null && h.ShortRestedCard != null)
+                                return h.PlayerActor;
+                        }
+                    }
+                    CardsHandManager manager = CardsHandManager.Instance;
+                    CardsHandUI? current = manager != null ? manager.CurrentHand : null;
+                    if (current != null && CardsGameApi.IsPickConfirmDialogOpen(current))
+                        return current.PlayerActor;
+                    return null;
+                }
+            }
+        }
+        catch (System.Exception)
+        {
+            // Attribution is a PRESENTATION question; a half-torn model must never make a live
+            // prompt disappear. Unknown owner ⇒ always shown (see the doc).
+            return null;
+        }
+        return null;
+    }
+
+    /// <summary>Every hand widget the game built on this client (one per player actor —
+    /// <c>CardsHandManager.CardHandsUI</c>, public). Null while the manager is gone.</summary>
+    private static List<CardsHandUI>? AllHands()
+    {
+        CardsHandManager manager = CardsHandManager.Instance;
+        return manager != null ? manager.CardHandsUI : null;
+    }
+
+    /// <summary>
+    /// Level-triggered visibility of the docked row against the FOCUSED character. Hides only
+    /// while BOTH facts hold: the player has taken an explicit focus
+    /// (<c>Board.CharacterFocus.Focused</c> non-null — following the game is never "looking
+    /// elsewhere"), and the prompt has a resolvable owner that is not that character. Either fact
+    /// missing ⇒ shown, which keeps every pre-feature situation byte-for-byte as it was: a player
+    /// who never touches the focus feature can never lose sight of a prompt.
+    ///
+    /// <para>The way back is automatic and needs no special case: focusing the owner makes
+    /// <c>CharacterFocus.ResolveHand</c> drop the override the moment the game presents that hand
+    /// ("the game now presents the focused character"), so <c>Focused</c> returns to null and this
+    /// shows the row again — at the same geometry, since <see cref="Place"/> kept running.</para>
+    /// </summary>
+    private void UpdateFocusVisibility()
+    {
+        CPlayerActor? owner = PromptOwner();
+        CPlayerActor? focused = Board.CharacterFocus.Focused;
+        bool hide = focused != null && owner != null && !ReferenceEquals(focused, owner);
+
+        if (hide)
+            ApplyFocusHide();
+        else
+            RestoreFocusHide(null);
+
+        string state = $"{(hide ? "hidden" : "shown")}|{Board.CharacterFocus.Describe(owner)}|" +
+                       $"{Board.CharacterFocus.Describe(focused)}";
+        if (_loggedFocusVisibility == state)
+            return;
+        _loggedFocusVisibility = state;
+        if (hide)
+            VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' belongs to " +
+                                  $"'{Board.CharacterFocus.Describe(owner)}' and the player is looking at " +
+                                  $"'{Board.CharacterFocus.Describe(focused)}' — the row is RENDER-HIDDEN " +
+                                  "(mod-owned host canvases disabled). The prompt itself is untouched: its " +
+                                  "UIWindow is still open, its widgets keep their state, nothing was " +
+                                  "answered, cancelled or closed, and it reappears unchanged the moment the " +
+                                  "owner is focused again.");
+        else
+            VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' row VISIBLE — " +
+                                  (owner == null
+                                      ? "the prompt is not attributable to a single character, so it is " +
+                                        "shown to whoever is looking (the safe direction: an unanswerable " +
+                                        "prompt is a deadlock)."
+                                      : $"owner '{Board.CharacterFocus.Describe(owner)}' is the character in " +
+                                        "view" + (focused == null ? " (no focus override — following the game)." : ".")));
+    }
+
+    /// <summary>
+    /// RENDER-HIDE the docked row — and NOTHING ELSE. The only thing written is
+    /// <c>Canvas.enabled = false</c> on the mod's own converted host and on any nested canvas
+    /// underneath it (a nested canvas renders independently of its ancestors, the CanvasConversion
+    /// lesson that <see cref="ApplySuppression"/> already applies to the window).
+    ///
+    /// <para>WHY NOT <c>SetActive(false)</c>, which would be the obvious hide. The row's children
+    /// ARE the game's live widgets, so deactivating the host deactivates them, and the game's
+    /// buttons have real <c>OnDisable</c> behaviour: <c>ExtendedButton.OnDisable</c> raises
+    /// <c>ActiveChanged(false)</c>, un-highlights, and — when the EventSystem's selected object is
+    /// that button — clears the selection and invokes <c>onDeselected</c> (ExtendedButton.cs:300-320).
+    /// None of that is an answer, but all of it is the mod reaching into the prompt, which is
+    /// exactly the property the focus feature is not allowed to lose. Disabling a Canvas COMPONENT
+    /// runs no game code at all.</para>
+    ///
+    /// <para>WHY IT IS ALSO INPUT-TIGHT: both VR interactors skip a canvas that is not
+    /// <c>isActiveAndEnabled</c> (<c>RayUguiDriver</c>:132/312 for the laser,
+    /// <c>PokeInteractor</c>:298 for the fingertip), so a hidden row cannot be pressed by
+    /// accident — the decision can only be answered while its owner is in view.</para>
+    ///
+    /// <para>Idempotent and re-asserted every docked tick, so a canvas the conversion adds later
+    /// (a pooled option button bringing its own) is caught on the next frame.</para>
+    /// </summary>
+    private void ApplyFocusHide()
+    {
+        GameObject? host = Panel?.HostGo;
+        if (host == null)
+            return;
+        _rowHiddenForFocus = true;
+        RowBottomUpMeters = null; // the use-bars stack must not hang off a row nobody can see
+
+        HostCanvasScratch.Clear();
+        host.GetComponentsInChildren(includeInactive: true, HostCanvasScratch);
+        for (int i = 0; i < HostCanvasScratch.Count; i++)
+        {
+            Canvas c = HostCanvasScratch[i];
+            if (c == null || !c.enabled)
+                continue;
+            c.enabled = false;
+            if (!_focusHiddenCanvases.Contains(c))
+                _focusHiddenCanvases.Add(c);
+        }
+        HostCanvasScratch.Clear();
+    }
+
+    /// <summary>
+    /// Undo <see cref="ApplyFocusHide"/>: re-enable every canvas WE disabled. Idempotent, and safe
+    /// after the conversion was already released — the canvases are held by reference and belong
+    /// enabled wherever they now live (their 2D home restores them enabled too).
+    /// </summary>
+    private void RestoreFocusHide(string? reason)
+    {
+        if (_focusHiddenCanvases.Count == 0 && !_rowHiddenForFocus)
+            return;
+        for (int i = 0; i < _focusHiddenCanvases.Count; i++)
+        {
+            if (_focusHiddenCanvases[i] != null)
+                _focusHiddenCanvases[i].enabled = true;
+        }
+        _focusHiddenCanvases.Clear();
+        _rowHiddenForFocus = false;
+        if (reason != null)
+        {
+            _loggedFocusVisibility = null;
+            VRLog.Info("WorldUI", $"DECISION DOCK: focus hide lifted ({reason}) — every canvas the " +
+                                  "mod disabled is enabled again; the prompt was never touched.");
+        }
+    }
+
     // ---- window-remainder suppression (HandSuppression pattern; nothing destroyed) -----
 
     /// <summary>
@@ -1181,6 +1469,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             }
         bool hadPanel = Panel != null;
         UnregisterDeliberateCanvas();
+        RestoreFocusHide("the surface is shutting down"); // BEFORE the release: never strand a disabled canvas
         base.Shutdown(); // releases the conversion → row back in its 2D home
         if (hadPanel)
         {
@@ -1188,6 +1477,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             RestorePickCancelSuppression();
             RestoreSuppression();
         }
+        _loggedFocusVisibility = null;
         _active = null;
         _activeWindow = null;
         _wantSince = 0f;

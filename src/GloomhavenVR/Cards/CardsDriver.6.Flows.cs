@@ -631,8 +631,10 @@ internal sealed partial class CardsDriver
                                 "free slot placement live.");
         else
             VRLog.Info("Cards", $"Selection LOCKED — mode still CardsSelection but phase is " +
-                                $"{PhaseManager.PhaseType} (not selection): played cards docked read-only, fan unbound, " +
-                                "nothing reclaimable until the next card-selection phase.");
+                                $"{PhaseManager.PhaseType} (not selection): played cards docked read-only, and the " +
+                                "hand fan is SHOWN but read-only (user ruling 2026-08-08 — the cards are visible " +
+                                "in every phase; the lock removes the affordance, not the sight). Nothing is " +
+                                "grabbable, pokeable or laser-clickable until the next card-selection phase.");
     }
 
     // Change-dedup for the action-turn board-clear diagnostic (task #5): last logged actionTurn.

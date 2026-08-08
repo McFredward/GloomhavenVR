@@ -364,25 +364,7 @@ internal sealed partial class CardsDriver
             halfVisible = _halfBuffer.Count > 0;
             LogFocusSlotCards(hand, dockOpen, dockSource);
 
-            for (int i = 0; i < _widgetBuffer.Count; i++)
-            {
-                AbilityCardUI widget = _widgetBuffer[i];
-                if (widget == null || widget.AbilityCard == null || widget.IsLongRest)
-                    continue;
-                if (widget.CardType != CardPileType.Hand)
-                    continue;
-                // A card has exactly ONE VR visual, so it must land in exactly one zone: a chosen
-                // round card now lying in a board slot may never ALSO be a fan card, or the fan and
-                // the dock would fight over its home every rebuild (both call VRCard.SetHome).
-                // AbilityCardUI.cardType already flips to Round on selection (AbilityCardUI.cs:
-                // 1098/1186, driven on EVERY client — ProxySelectCard → ToggleSelect,
-                // CardsHandUI.cs:2714), so the CardType test above normally settles it; this is the
-                // exact belt: whatever the dock actually took, the fan does not.
-                VRCard? already = _factory.Find(widget);
-                if (already != null && _halfBuffer.Contains(already))
-                    continue;
-                _fanBuffer.Add(AdoptedCard(widget));
-            }
+            FillHandFan();
             _tray.ClearSlots(); // no slot OCCUPANCY belongs to a character we are only watching —
                                 // the dock parents the cards to the slot transforms without ever
                                 // claiming a recess, so nothing becomes laser-pluckable
@@ -407,17 +389,16 @@ internal sealed partial class CardsDriver
                 //   card is reclaimable until the next real card-selection phase.
                 bool selecting = CardsGameApi.IsSelectionPhase(hand);
                 grabbable = selecting;
-                if (selecting)
-                {
-                    for (int i = 0; i < _widgetBuffer.Count; i++)
-                    {
-                        AbilityCardUI widget = _widgetBuffer[i];
-                        if (widget.AbilityCard == null || widget.IsLongRest)
-                            continue;
-                        if (widget.CardType == CardPileType.Hand)
-                            _fanBuffer.Add(AdoptedCard(widget));
-                    }
-                }
+                // THE HAND IS ALWAYS SHOWN — the LOCK only removes the AFFORDANCE (user ruling
+                // 2026-08-08, see FillHandFan). The fan used to be filled only while `selecting`,
+                // which is precisely the "keine Handkarten" bug: after the player confirms, the
+                // hand's currentMode STAYS CardsSelection (the stale-mode trap documented above)
+                // while IsSelectionPhase goes false, so the character the GAME presents — the one
+                // that was selected when the phase began — got an EMPTY fan and the empty-hand
+                // placard, while every FOCUSED character kept its cards (the read-only branch above
+                // never had the phase gate). Same fill for both now; `grabbable` alone still carries
+                // the lock, so nothing is reclaimable outside the real selection phase.
+                FillHandFan();
                 _tray.SyncFromGameState(hand, _factory);
                 // Tray occupants were created by the sync — hook + re-adopt them too (both
                 // while selecting AND locked, so the docked played cards keep their face).
@@ -530,10 +511,22 @@ internal sealed partial class CardsDriver
                     halfVisible = true;
                     CollectRoundCards(hand, _halfBuffer);
                 }
+                // The remaining HAND is shown here too (user ruling 2026-08-08: the cards must be
+                // visible "egal in welcher Phase"). AFTER the round-card collection above, so a card
+                // that is lying in a board slot is never also a fan card. `grabbable` stays false:
+                // during an action turn the hand is a picture, exactly as in a focus view.
+                FillHandFan();
                 LogActionTurnLock(hand, actionTurn);
                 break;
 
             default:
+                // The remaining modes the game can park a hand in — CardHandMode.DeckSelection and
+                // CardHandMode.Preview (CardHandMode.cs) — are NON-PICK modes, so the fan is the
+                // hand fan and the hand is shown, read-only (grabbable is false here). This branch
+                // is what makes the rule ABSOLUTE rather than "in the phases we happened to list":
+                // a hand parked in any mode the mod does not name still shows its cards, so the
+                // empty-hand placard can never be the answer to "the mod has no case for this".
+                FillHandFan();
                 break;
         }
 
@@ -747,10 +740,19 @@ internal sealed partial class CardsDriver
         // and keep game order.
         if (mode == CardHandMode.CardsSelection)
             ReorderFanBuffer();
-        // READ-ONLY FOCUS: tell the fan before its content, so the very first frame of a focus
-        // view is already laser-inert (a fan that learned it was read-only one frame late would be
+        // READ-ONLY FAN: told BEFORE its content, so the very first frame of a read-only view is
+        // already laser-inert (a fan that learned it was read-only one frame late would be
         // clickable for exactly that frame).
-        _fan.SetReadOnly(readOnly);
+        //
+        // TWO reasons a fan is a PICTURE, and they are the same reason: nothing in it may be
+        // driven. (1) A focus OVERRIDE — the player is looking at a character the game does not
+        // present. (2) `grabbable` false — the hand is shown outside an interactive window
+        // (selection locked / confirmed, an action turn, any other phase). The second case is new
+        // with the "show the hand in every phase" rule and it MUST latch here: the hand fan is
+        // populated in those states now, and CardFan.TryRaycast is the ONE laser path into a hand
+        // card, so leaving the fan interactive would hand the laser cards the game would refuse.
+        // Pick modes keep grabbable=true and stay fully interactive, unchanged.
+        _fan.SetReadOnly(readOnly || !grabbable);
         _fan.SetCards(_fanBuffer);
         _tray.SetVisible(trayVisible);
         // READ-ONLY FOCUS, slot cards: told BEFORE the content for the same reason as the fan. The
@@ -911,6 +913,49 @@ internal sealed partial class CardsDriver
     {
         try { return hand.cardsUI != null ? hand.cardsUI.Count : 0; }
         catch { return 0; }
+    }
+
+    /// <summary>
+    /// THE ONE HAND-FAN FILL — "a character's hand cards are shown, in every phase, for every
+    /// character" (user ruling 2026-08-08: "'Keine Handkarten' soll wirklich nur dann kommen, wenn
+    /// der Character auch wirklich keine Handkarten hat, egal in welcher Phase — ansonsten sollen
+    /// die Handkarten angezeigt werden").
+    ///
+    /// <para>WHY IT IS ONE METHOD. The mod used to have TWO hand fills with different rules: the
+    /// read-only FOCUS branch, which took every <c>CardPileType.Hand</c> widget unconditionally,
+    /// and the vanilla <c>CardsSelection</c> branch, which took them only while
+    /// <c>CardsGameApi.IsSelectionPhase</c> was true. That asymmetry IS the reported bug: after
+    /// "Fortfahren", the character the GAME still presents runs the vanilla branch with
+    /// <c>selecting == false</c> and got an empty fan (hardware log: <c>fan state:
+    /// mode=CardsSelection, widgets=23, fanBuffer=0</c>), while every character the player FOCUSED
+    /// ran the focus branch and kept its cards. One fill, one rule, no way for the two to drift.</para>
+    ///
+    /// <para>WHAT IS AND IS NOT FILTERED. Long-rest placeholders are not cards. Non-hand piles are
+    /// not the hand (a chosen ROUND card has already flipped to <c>CardPileType.Round</c> on every
+    /// client — AbilityCardUI.cs:1098/1186 via ProxySelectCard → ToggleSelect, CardsHandUI.cs:2714).
+    /// And a card has exactly ONE VR visual, so anything the ROUND-CARD DOCK already took this
+    /// rebuild is skipped — otherwise the fan and the dock would fight over its home every rebuild
+    /// (both call <c>VRCard.SetHome</c>). Callers therefore fill <c>_halfBuffer</c> FIRST.</para>
+    ///
+    /// <para>NO INTERACTION IS IMPLIED. This method decides VISIBILITY only. Whether the cards may
+    /// be touched is decided elsewhere and unchanged: <c>grabbable</c> (per-card stamp) plus
+    /// <c>CardFan.SetReadOnly</c> (the laser/remove veto). Showing a hand never opened an input
+    /// path — the same separation the focus view already relies on.</para>
+    /// </summary>
+    private void FillHandFan()
+    {
+        for (int i = 0; i < _widgetBuffer.Count; i++)
+        {
+            AbilityCardUI widget = _widgetBuffer[i];
+            if (widget == null || widget.AbilityCard == null || widget.IsLongRest)
+                continue;
+            if (widget.CardType != CardPileType.Hand)
+                continue;
+            VRCard? already = _factory.Find(widget);
+            if (already != null && _halfBuffer.Contains(already))
+                continue;
+            _fanBuffer.Add(AdoptedCard(widget));
+        }
     }
 
     private VRCard AdoptedCard(AbilityCardUI widget)

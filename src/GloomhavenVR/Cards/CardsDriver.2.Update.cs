@@ -1001,22 +1001,84 @@ internal sealed partial class CardsDriver
             PlayFanEdgeSound(open: false);
         }
 
-        // Task #9 (empty-fan feedback): the palm rolled open but there is nothing to
-        // fan — show the ghost "no hand cards" placard at the fan spot so the gesture
-        // visibly worked (it used to show NOTHING, which read as a bug). Edge-triggered
-        // on the reveal gesture; only in the real hand-fan context (CardsSelection with
-        // a bound hand, no modal, not the dev fake hand) so pick flows / dialogs, where
-        // an empty fan is expected, never flash it.
-        if (revealed && !_gateWasRevealed && !allowFan && !gateHandHolds
-            && !_modalInputBlocked && !_fakeActive && _boundHand != null
-            && CardsGameApi.Mode(_boundHand) == CardHandMode.CardsSelection)
-        {
-            _emptyFanHint.Show(_gateHand);
-            PlayFanEdgeSound(open: false); // the soft hide tick, same listener-anchored path
-            VRLog.Info("Cards", "Empty fan: palm gate opened with ZERO hand cards — ghost " +
-                                "\"no hand cards\" placard shown at the fan spot (fades ~1.5 s).");
-        }
+        // Task #9 (empty-fan feedback), re-ruled 2026-08-08: the placard may claim an empty hand
+        // ONLY when the character genuinely has none. See MaybeShowEmptyFanHint.
+        if (revealed && !_gateWasRevealed)
+            MaybeShowEmptyFanHint(allowFan, gateHandHolds);
         _gateWasRevealed = revealed;
+    }
+
+    /// <summary>Change-dedup for the "the model has cards but the mod has no widgets yet" line,
+    /// so a hand that stays mid-build does not repeat it once per gate opening.</summary>
+    private string? _loggedEmptyHandDeferral;
+
+    /// <summary>
+    /// THE "KEINE HANDKARTEN" RULE (user ruling 2026-08-08: "'Keine Handkarten' soll wirklich nur
+    /// dann kommen, wenn der Character auch wirklich keine Handkarten hat, egal in welcher Phase —
+    /// ansonsten sollen die Handkarten angezeigt werden").
+    ///
+    /// <para>The placard used to be raised from a MOD-side fact — the fan buffer is empty — which
+    /// is a statement about what the mod BUILT this frame, not about the character. It now asks the
+    /// game's own model (<c>CCharacterClass.HandAbilityCards</c> via
+    /// <c>CharacterFocus.ModelHandCardCount</c>) and this client's live widget list
+    /// (<c>CharacterFocus.HandWidgetCount</c>). Three outcomes, and only the first shows anything:</para>
+    /// <list type="number">
+    /// <item>model 0 AND widgets 0 ⇒ the character really holds no hand cards — placard, with the
+    ///   counts in the log so the claim is checkable;</item>
+    /// <item>model &gt; 0 (or widgets &gt; 0) but the fan is empty ⇒ the mod has nothing BUILT yet,
+    ///   which is never the same statement. No placard: a rebuild is requested and the fan opens on
+    ///   its own the moment the cards exist (wait/retry, not a wrong verdict). Logged with both
+    ///   counts, change-deduped;</item>
+    /// <item>a PICK mode ⇒ the fan is the pick CANDIDATE set (burn/discard/recover), not the hand,
+    ///   so an empty one says nothing about the hand and the placard has no business firing. The
+    ///   old gate said <c>Mode == CardsSelection</c>, which excluded the pick modes but ALSO
+    ///   excluded every other phase — the reason the rule now reads "not a pick mode" instead.</item>
+    /// </list>
+    /// </summary>
+    private void MaybeShowEmptyFanHint(bool allowFan, bool gateHandHolds)
+    {
+        if (allowFan || gateHandHolds || _gateHand == null || _modalInputBlocked || _fakeActive
+            || _boundHand == null)
+            return;
+        CardHandMode mode = CardsGameApi.Mode(_boundHand);
+        if (IsPickMode(mode))
+            return; // outcome 3 — the fan is a candidate set, not the hand
+
+        int inModel = Board.CharacterFocus.ModelHandCardCount(_boundHand);
+        int widgets = Board.CharacterFocus.HandWidgetCount(_boundHand);
+        string who = Board.CharacterFocus.Describe(_boundHand.PlayerActor);
+
+        if (inModel > 0 || widgets > 0)
+        {
+            // Outcome 2: the hand is NOT empty — never say it is. Ask for a rebuild instead; the
+            // fan fill (CardsDriver.FillHandFan) runs in every non-pick mode, so the cards appear
+            // as soon as their widgets do.
+            _dirty = true;
+            string note = $"{who}|{inModel}|{widgets}|{mode}";
+            if (_loggedEmptyHandDeferral != note)
+            {
+                _loggedEmptyHandDeferral = note;
+                VRLog.Info("Cards", $"Empty fan SUPPRESSED for '{who}': the placard was NOT shown " +
+                                    $"because the hand is not empty — the model names {inModel} hand " +
+                                    $"card(s) (CCharacterClass.HandAbilityCards) and this client holds " +
+                                    $"{widgets} live hand widget(s), but the mod had built 0 fan card(s) " +
+                                    $"this frame (mode={mode}, phase={PhaseManager.PhaseType}, " +
+                                    $"readOnlyView={Board.CharacterFocus.ReadOnlyView}). A rebuild is " +
+                                    "requested; the fan opens by itself once the cards are built. " +
+                                    "'Keine Handkarten' may only ever mean an empty MODEL.");
+            }
+            return;
+        }
+
+        _loggedEmptyHandDeferral = null;
+        _emptyFanHint.Show(_gateHand);
+        PlayFanEdgeSound(open: false); // the soft hide tick, same listener-anchored path
+        VRLog.Info("Cards", $"Empty fan: palm gate opened and '{who}' GENUINELY has no hand cards — " +
+                            $"model hand count 0 (CCharacterClass.HandAbilityCards), live hand widgets " +
+                            $"0, fan buffer 0 (mode={mode}, phase={PhaseManager.PhaseType}, " +
+                            $"readOnlyView={Board.CharacterFocus.ReadOnlyView}). Ghost \"no hand cards\" " +
+                            "placard shown at the fan spot (fades ~1.5 s). If this line ever appears " +
+                            "with a non-zero model count, the placard is wrong and the counts say why.");
     }
 
     // ------------------------------------------------------------------ card audio --
