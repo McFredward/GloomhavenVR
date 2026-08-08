@@ -422,13 +422,23 @@ internal sealed class RemoteInitiativeTrack
                     node.ScaleClone = scaleSrc != null
                         ? _mirror.CloneOf(scaleSrc) as RectTransform
                         : null;
-                    node.HighlightScale = btn.highlightScaleFactor;
-                    if (btn.hoverMovement != Vector3.zero && btn.TargetRect != null)
+                    // The AUTHORED amplitudes, not the live fields: while the track is adopted into
+                    // world space WorldUI.Surfaces.InitiativePortraitPin zeroes
+                    // highlightScaleFactor/hoverMovement on the LOCAL buttons so vanilla's hover and
+                    // press writers all land on the rect's rest value (user 2026-08-08: the
+                    // portraits must not move on the Y axis, "auch nicht beim Anklicken"). That
+                    // neutralisation is a LOCAL-presentation decision and must not delete the PEER's
+                    // cue on their mirrored track, so the grow is re-decided from what the prefab
+                    // authored. Falls through to the live field when nothing is pinned (flat/[Dev]
+                    // play, or the track not adopted).
+                    node.HighlightScale = WorldUI.Surfaces.InitiativePortraitPin.VanillaHighlightScale(btn);
+                    Vector3 hoverMove = WorldUI.Surfaces.InitiativePortraitPin.VanillaHoverMovement(btn);
+                    if (hoverMove != Vector3.zero && btn.TargetRect != null)
                     {
                         node.MoveClone = _mirror.CloneOf(btn.TargetRect) as RectTransform;
                         node.MoveSource = btn.TargetRect;
                         node.MoveButton = btn;
-                        node.HoverMove = new Vector2(btn.hoverMovement.x, btn.hoverMovement.y);
+                        node.HoverMove = new Vector2(hoverMove.x, hoverMove.y);
                     }
                 }
 
