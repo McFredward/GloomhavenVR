@@ -52,6 +52,39 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// THE DECIDING-ACTOR CHAIN, in priority order — the hand a currently OPEN interactive
+    /// decision flow claims, or <c>null</c> when no flow is running and presentation therefore
+    /// falls back to <see cref="ActiveHand"/>. Extracted verbatim from
+    /// <c>CardsDriver.CurrentHand</c> (which is still its only presentation consumer, as
+    /// <c>DecidingHand() ?? ActiveHand()</c>) so a SECOND caller can ask the question that method
+    /// only answers implicitly: <b>is the presented hand a claim, or a leftover?</b>
+    ///
+    /// <para>Why the distinction is worth a method. Every entry below is non-null ONLY while its
+    /// own flow is open, and each one names a character the game is genuinely waiting on: the
+    /// attacked/burning actor (<see cref="TakeDamageHand"/>), the actor whose ability halves the
+    /// click-gate is bound to (<see cref="ActionSelectionHand"/>), the actor owing an item
+    /// surrender (<see cref="ItemPickHand"/>), the local anchor for a party reward forfeit
+    /// (<see cref="LoseRewardPickHand"/>) and the actor stepping through the boots' ± phase
+    /// (<see cref="InitiativeAdjustHand"/>). <see cref="ActiveHand"/> names nobody: it is
+    /// <c>CardsHandManager.CurrentHand</c>, whatever character tab the game last happened to
+    /// switch to — which is exactly why it can be STALE (the reason three of the entries above
+    /// exist at all). So "the chain claimed it" and "the fallback produced it" are two different
+    /// statements about ownership, and <c>PlayTray.ConfirmCapsForeignView</c> needs the second
+    /// one to tell an owned decision from a party-wide step advance.</para>
+    ///
+    /// <para>Cheap by construction: every entry short-circuits on a phase compare or a
+    /// singleton/window null check before it touches anything (<see cref="ActionSelectionHand"/>
+    /// and <see cref="InitiativeAdjustHand"/> are a single <c>PhaseManager.PhaseType</c>
+    /// comparison outside their phase), so a per-frame caller allocates nothing.</para>
+    /// </summary>
+    internal static CardsHandUI? DecidingHand() =>
+        TakeDamageHand()
+        ?? ActionSelectionHand()
+        ?? ItemPickHand()
+        ?? LoseRewardPickHand()
+        ?? InitiativeAdjustHand();
+
+    /// <summary>
     /// The hand the game's ACTION-SELECTION click-gate is bound to. During the
     /// <c>ActionSelection</c> phase, <c>FullAbilityCard.OnAbilityClick</c> SILENTLY rejects
     /// every top/bottom click whose card owner is not <c>Choreographer.CurrentActor</c>

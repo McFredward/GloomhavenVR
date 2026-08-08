@@ -281,7 +281,7 @@ internal sealed partial class PlayTray
     /// current, and comparing it to the owner reconstructs the same predicate live. Both docked
     /// surfaces above use exactly this pair (<c>Focused</c> + resolved owner) for the same reason.</para>
     ///
-    /// <para>FAIL-OPEN, THREE WAYS — every clause is a reason to SHOW:</para>
+    /// <para>FAIL-OPEN, FOUR WAYS — every clause is a reason to SHOW:</para>
     /// <list type="bullet">
     /// <item>no focus override (<c>Focused == null</c>) ⇒ shown. Merely following the game is never
     ///   "looking elsewhere", so a player who never touches the focus feature sees byte-for-byte
@@ -293,7 +293,60 @@ internal sealed partial class PlayTray
     ///   no live scenario, or the secret card-selection window) ⇒ shown. This is the DEADLOCK
     ///   INTERLOCK: the keycap is only ever hidden when the very click that brings it back is
     ///   available. See below.</item>
+    /// <item>the confirm is NOT ATTRIBUTABLE to any character ⇒ shown, on every board. The
+    ///   ModBuild 85 follow-up; see the next paragraph.</item>
     /// </list>
+    ///
+    /// <para>NOT ATTRIBUTABLE ⇒ EVERYBODY'S (user, ModBuild 85 hardware test: "In der Phase in dem
+    /// man die Karten abgelegt hat und dann die Gegnerinformation angezeigt wird hat nach deinem Fix
+    /// nur ein einziger character den 'Fortfahren' Knopf - aber in dieser Phase macht eine
+    /// Differenzierung weniger Sinn, da kein fester Character gerade am Zug ist und nur dieser
+    /// fortfahren kann. In diesem Fall soll jeder Character den Fortfahren Knopf haben."). The
+    /// reported step is the ENEMY-INFORMATION reveal, and it is <c>CPhase.PhaseType.
+    /// MonsterClassesSelectAbilityCards</c>: the Choreographer's <c>MonsterClassesToSelectAbilityCards</c>
+    /// branch runs <c>m_CurrentActor = null</c> and then arms the global ReadyButton as
+    /// <c>EREADYBUTTONCONTINUE</c> / "GUI_CONTINUE" with
+    /// <c>disregardTurnControlForInteractability: true</c> (Choreographer.cs:3708/3715-3717), while
+    /// the initiative track drives the same state through the reveal animation
+    /// (InitiativeTrack.cs:401/483/504, all <c>AlternativeAction(…, EREADYBUTTONCONTINUE,
+    /// GUI_CONTINUE)</c>). A press there lands in <c>ReadyButton.OnClickInternal</c>'s
+    /// <c>state &gt;= EREADYBUTTONCONTINUE</c> arm, i.e. <c>ScenarioRuleClient.StepComplete()</c>
+    /// (ReadyButton.cs:317-323) — a PARTY-WIDE step advance, not one character's action. The user's
+    /// own diagnosis is literally the game's line of code: nobody is at turn
+    /// (<c>m_CurrentActor = null</c> ⇒ <c>Choreographer.CurrentPlayerActor</c> null ⇒
+    /// <c>CharacterFocus.TurnActor</c> null), so the confirm cannot belong to anybody, so it belongs
+    /// to everybody.</para>
+    ///
+    /// <para>THE PREDICATE, and why it is not a phase name. "Nobody at turn" ALONE would be wrong:
+    /// during an ENEMY's turn <c>m_CurrentActor</c> is that enemy, so <c>CurrentPlayerActor</c> is
+    /// null too — and a take-damage burn or an item-surrender demand raised in that window DOES have
+    /// exactly one owner, the character the gate exists to protect. What separates the two is
+    /// visible in <see cref="CardsGameApi.DecidingHand"/>: an owned decision CLAIMS the presented
+    /// hand through the deciding-actor chain, while the enemy-information step claims nothing and
+    /// <see cref="CardsGameApi.ActiveHand"/> supplies a leftover character tab. So the gate asks the
+    /// general question — <b>is this confirm attributable at all?</b> — as
+    /// <c>TurnActor != null || DecidingHand() != null</c>, and falls open when it is not. That
+    /// covers the reported step, every other between-turns "Continue" (round-start effects, the
+    /// end-of-round advance, the post-enemy-animation proceed) and nothing that has an owner. It
+    /// can only ever turn a HIDE into a SHOW: <c>foreign</c> gains a conjunct, so no state that
+    /// showed the keycap before can stop showing it.</para>
+    ///
+    /// <para>MULTIPLAYER, and why there is NO host/client branch here. In that phase the game itself
+    /// disarms the press for a non-host client, twice over:
+    /// <c>ReadyButton.CheckButtonInteractability</c> forces <c>readyButton.interactable = false</c>
+    /// whenever <c>FFSNetwork.IsOnline &amp;&amp; IsClient &amp;&amp; PhaseManager.CurrentPhase.Type
+    /// == MonsterClassesSelectAbilityCards</c> (ReadyButton.cs:500-501), and
+    /// <c>OnClickInternal</c> early-returns on the same test even if a click got through
+    /// (ReadyButton.cs:255-258); the Choreographer additionally passes <c>interactable:
+    /// !FFSNetwork.IsClient</c> when it arms the button (Choreographer.cs:3717) and shows the client
+    /// a "wait for host" tip instead (Choreographer.cs:3727). <see cref="CardsGameApi.CanConfirm"/>
+    /// reads <c>ReadyButton.IsInteractable</c> ⇒ <c>readyButton.interactable</c>
+    /// (ReadyButton.cs:87), so <c>canConfirm</c> is already false on every non-host client and the
+    /// existing <c>show = canConfirm || confirmed</c> test hides the keycap there with no extra
+    /// work. On the HOST it is true for every one of that host's characters — which is exactly the
+    /// user's second sentence ("Im Multiplayer muss der host fortfahren drücken, daher soll das auch
+    /// bei jedem Character des Hosts in der Phase angezeigt werden"). Duplicating the game's host
+    /// test in the mod would only risk disagreeing with it.</para>
     ///
     /// <para>DEADLOCK ARGUMENT (the critical review point). The keycap is hidden only when
     /// <c>CharacterFocus.CanFocus(owner)</c> is true, i.e. the owner is a live player character AND
@@ -313,6 +366,20 @@ internal sealed partial class PlayTray
     /// at turn and are looking at another one. Belt: nothing here writes game state, so even a
     /// hidden keycap leaves the game's own <c>ReadyButton</c>/<c>UndoButton</c> fully armed and the
     /// 2D path (and every other commit affordance) untouched.</para>
+    ///
+    /// <para>…AND WHY THE ATTRIBUTION CLAUSE MAKES THAT ARGUMENT STRONGER RATHER THAN WEAKER. In the
+    /// enemy-information step the interlock held only barely: <c>CharacterFocus.Refusal</c> refuses
+    /// nothing but <c>SelectAbilityCardsOrLongRest</c>, so <c>recoverable</c> was TRUE there and the
+    /// keycap really did hide (the user's report) — yet the game raises a full-track raycast blocker
+    /// over that very reveal (<c>enemyCardsBlocker.raycastTarget = true</c>,
+    /// InitiativeTrack.cs:747, cleared again only in <c>PostEnemyCardAnimationProceed</c>, :519) and
+    /// deselects every player portrait one line earlier, and <c>InitiativeTrack.IsSelectable</c> is
+    /// hard-false for the whole phase (InitiativeTrack.cs:114-127). The mod's own bypasses
+    /// (<c>InitiativeTrackPlayerAvatar_OnClick_Guard</c>, <c>InteractabilityManager_PortraitFocus-
+    /// Bypass</c>) route around the interceptor and vanilla's select, but a <c>Graphic</c> in front
+    /// of the portraits is a plain uGUI raycast the laser has to get past. Falling open removes the
+    /// question entirely: in the one phase where the recovery click is least certain, the keycap is
+    /// never taken away in the first place.</para>
     ///
     /// <para>MULTIPLAYER (standing rule — a peer must see EXACTLY what the owner sees). The hide
     /// runs through <c>BoardButton.SetVisible(false)</c>, which clears <c>_logicalVisible</c>
@@ -334,15 +401,24 @@ internal sealed partial class PlayTray
         CPlayerActor? focused = Board.CharacterFocus.Focused;
         // The way back must EXIST before we take the button away (see the deadlock argument).
         bool recoverable = owner != null && Board.CharacterFocus.CanFocus(owner);
+        // Is this confirm anybody's at all? Somebody at turn, or a decision flow that has CLAIMED
+        // the presented hand — otherwise the press is a party-wide step advance and belongs to
+        // every character (see "NOT ATTRIBUTABLE ⇒ EVERYBODY'S"). TurnActor is a single field read
+        // and short-circuits the chain in the common case, so the walk only runs while nobody is
+        // at turn; every entry of it is a phase compare or a window null check.
+        bool attributable = Board.CharacterFocus.TurnActor != null
+                            || CardsGameApi.DecidingHand() != null;
         bool foreign = focused != null && owner != null
                        && !ReferenceEquals(focused, owner)
-                       && recoverable;
+                       && recoverable
+                       && attributable;
 
         // Change-gate on the game's own actor ids (CActor.ID — the identity its network paths
         // send), so a per-frame resolve allocates nothing and the log only moves on a transition.
         int key = (foreign ? 1 : 2) * 31 + (owner != null ? owner.ID : 0);
         key = key * 31 + (focused != null ? focused.ID : 0);
         key = key * 31 + (recoverable ? 1 : 0);
+        key = key * 31 + (attributable ? 1 : 0);
         if (key == _capOwnerLogKey)
             return foreign;
         _capOwnerLogKey = key;
@@ -369,7 +445,17 @@ internal sealed partial class PlayTray
                                               "(exhausted / no live scenario / card selection), so " +
                                               "the keycaps stay reachable rather than strand the " +
                                               $"player while looking at '{focusName}'."
-                                            : $"owner '{ownerName}' is the character in view."));
+                                            : !attributable
+                                                ? "the confirm is NOT ATTRIBUTABLE to any " +
+                                                  "character — nobody is at turn " +
+                                                  "(Choreographer.CurrentPlayerActor null) and no " +
+                                                  "decision flow claims the presented hand, so the " +
+                                                  "press is a PARTY-WIDE step advance and the " +
+                                                  "keycaps show on EVERY character's board " +
+                                                  $"(presented hand '{ownerName}', looking at " +
+                                                  $"'{focusName}'). phase={PhaseManager.PhaseType}, " +
+                                                  $"{CardsGameApi.DescribeConfirmGate()}"
+                                                : $"owner '{ownerName}' is the character in view."));
         return foreign;
     }
 
