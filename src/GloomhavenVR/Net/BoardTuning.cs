@@ -63,8 +63,9 @@ internal static class BoardTuningSampler
     /// payload above it is refused by the writer, silently.</summary>
     private const int TlvCeiling = 255;
 
-    /// <summary>One-shot guard so the ceiling above cannot be crossed unnoticed by a later dial.</summary>
-    private static bool s_ceilingChecked;
+    /// <summary>One-shot log guard for the ceiling check at the end of <see cref="Sample"/> — the
+    /// sampler runs on every config edit, and a crossed ceiling would otherwise repeat forever.</summary>
+    private static bool s_ceilingLogged;
 
     /// <summary>
     /// Build the record-28 payload for <paramref name="style"/> into <paramref name="payload"/>
@@ -83,21 +84,6 @@ internal static class BoardTuningSampler
     {
         if (payload == null || payload.Length < MaxPayloadBytes)
             return 0;
-
-        if (!s_ceilingChecked)
-        {
-            s_ceilingChecked = true;
-            if (MaxPayloadBytes > TlvCeiling)
-            {
-                Core.VRLog.Error("Net", $"BOARD TUNING record 28 can now reach {MaxPayloadBytes} bytes, " +
-                                        $"past the extension tail's {TlvCeiling}-byte per-record ceiling. A " +
-                                        "fully-tuned player's record would be dropped SILENTLY by " +
-                                        "PresenceSerializer, i.e. every one of their dials would go missing on " +
-                                        "every other screen with nothing in any log. Free bytes (move a dial " +
-                                        "into a narrower id range) or split the record — see " +
-                                        "NetProtocol.BoardTuneMaxFields.");
-            }
-        }
 
         int i = 1;                     // byte 0 is the field count, back-filled below
         int n = 0;
@@ -258,6 +244,31 @@ internal static class BoardTuningSampler
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
+
+        // THE TLV CEILING, CHECKED ON THE BYTES WE ACTUALLY PRODUCED. A `MaxPayloadBytes >
+        // TlvCeiling` test would have been constant-folded away — both are compile-time consts, so
+        // it can never fire and the compiler says so. This one is reachable, and it catches the
+        // real failure: a dial appended WITHOUT growing MaxPayloadBytes. That case would otherwise
+        // walk off the end of NetAvatarDriver's buffer, which is sized from the same constant —
+        // except the appenders bounds-check and quietly stop instead, so the record would go out
+        // TRUNCATED and the receiver would read a torn field list. Refusing the record entirely is
+        // the safe direction (every dial falls back to the shipped default, i.e. the previous
+        // build's picture) and the line says which change caused it.
+        if (i > TlvCeiling)
+        {
+            if (!s_ceilingLogged)
+            {
+                s_ceilingLogged = true;
+                Core.VRLog.Error("Net", $"BOARD TUNING record 28 built {i} bytes, past the extension tail's " +
+                                        $"{TlvCeiling}-byte per-record ceiling (MaxPayloadBytes says " +
+                                        $"{MaxPayloadBytes}). PresenceSerializer refuses a payload that big " +
+                                        "WITHOUT A WORD, so this would have been an invisible desync for any " +
+                                        "player who had moved enough dials. The record is dropped instead — " +
+                                        "peers see this player at the shipped defaults. A dial was added " +
+                                        "without freeing bytes: see NetProtocol.BoardTuneMaxFields.");
+            }
+            return 0;
+        }
         payload[0] = (byte)n;
         return i;
     }

@@ -946,10 +946,13 @@ internal sealed partial class CardsDriver
                 if (!_pendingFaceRestore.Contains(was))
                     _pendingFaceRestore.Add(was);
                 // The deadline only has to bound the OUTGOING wave — that is the half whose cards
-                // still need their faces — so both counts are the outgoing hand's. It is a backstop
-                // anyway: the real gate is "no card is still leaving".
+                // still need their faces — so both counts are the outgoing hand's. Read off
+                // LeavingCount, not Count: BeginSwapOut ran a moment ago and has already moved that
+                // hand out of the fan's own list. It is a backstop anyway; the real gate is "no card
+                // is still leaving".
                 _faceRestoreDeadline = Time.unscaledTime
-                    + CardFan.SwapTotalSeconds(_fan.Count, _fan.Count) + FaceRestoreDeadlineSlack;
+                    + CardFan.SwapTotalSeconds(_fan.LeavingCount, _fan.LeavingCount)
+                    + FaceRestoreDeadlineSlack;
                 VRLog.Info("Cards", $"[Focus] RESTORE DEFERRED for '{Board.CharacterFocus.Describe(was.PlayerActor)}': " +
                                     $"{CountFocusAdopted(was)} adopted card face(s) stay borrowed while that hand " +
                                     "flies out of the fan (character-swap exchange). Handing them back now would " +
@@ -1036,6 +1039,17 @@ internal sealed partial class CardsDriver
         bool waveBusy = _fan.HasLeavingCards;
         if (waveBusy && Time.unscaledTime < _faceRestoreDeadline)
             return;
+        if (waveBusy)
+        {
+            // ONE line per expiry, not one per queued hand — scrubbing the initiative row queues
+            // several, and the same sentence four times reads as four events.
+            VRLog.Warn("Cards", "[Focus] the character-swap exchange had not drained when the deferred " +
+                                "face restore's deadline expired — the faces go back now. A borrowed hand " +
+                                "must never outlive its animation; if this line appears, the fan's outgoing " +
+                                "wave is not landing (CardFan.TryTakeLandedOutgoing). Cards still in flight " +
+                                "are held back one at a time by FocusHandCardStillInPlay, so nothing " +
+                                "visible is destroyed even here.");
+        }
 
         for (int i = _pendingFaceRestore.Count - 1; i >= 0; i--)
         {
@@ -1059,37 +1073,37 @@ internal sealed partial class CardsDriver
             //     as long as it takes one rebuild to drop it. Waiting for that rebuild — and asking
             //     for it, below, so it cannot be waited on forever — means the card is already
             //     PARKED and invisible when it is destroyed, instead of blinking out of the arc.
-            if (FocusHandCardStillInPlay(hand, out bool anyHeld))
+            //   * STILL FLYING OUT. Normally the wave-drained gate above covers this, but it is
+            //     overridden by the deadline — and the case the deadline exists for is a STALLED
+            //     wave (CardFan.Tick bails before the swap tick when the hand or its palm anchor
+            //     goes away, so the clock freezes and no card ever reaches progress 1). Past the
+            //     deadline the restore would then delete cards that are still on screen. Checked
+            //     per card here so the deadline can still release everything that HAS landed.
+            if (FocusHandCardStillInPlay(hand, out bool needsRebuild))
             {
-                if (!anyHeld)
+                if (needsRebuild)
                     _dirty = true; // ask for the rebuild that drops it from the fan and parks it
                 continue;
             }
             RestoreFocusHandNow(hand);
             _pendingFaceRestore.RemoveAt(i);
-            if (waveBusy)
-            {
-                VRLog.Warn("Cards", "[Focus] the character-swap exchange had not drained when the deferred " +
-                                    "face restore's deadline expired — the faces went back anyway. A borrowed " +
-                                    "hand must never outlive its animation; if this line appears, the fan's " +
-                                    "outgoing wave is not landing (CardFan.TryTakeLandedOutgoing).");
-            }
         }
     }
 
     /// <summary>
-    /// Is any VR card of <paramref name="hand"/> still somewhere the player can see it — held, or
-    /// sitting in the hand fan? The gate on <see cref="DrainSwapExit"/>'s face restore, which
-    /// destroys exactly those cards. <paramref name="anyHeld"/> distinguishes the two cases because
-    /// they call for different answers: a hold is the player's business and is simply waited out, a
-    /// card back in the fan only needs the next rebuild to park it. Every game deref is guarded —
+    /// Is any VR card of <paramref name="hand"/> still somewhere the player can see it — held,
+    /// sitting in the hand fan, or still flying out of it? The gate on <see cref="DrainSwapExit"/>'s
+    /// face restore, which destroys exactly those cards. <paramref name="anyHeld"/> distinguishes
+    /// the hold from the other two because it calls for a different answer: a hold is the player's
+    /// business and is simply waited out, while the other two resolve on their own (a rebuild parks
+    /// a returned card, the wave lands a flying one). Every game deref is guarded —
     /// this is a per-frame gate, and a half-torn hand must read as "nothing of mine is in play"
     /// rather than throw inside Update.
     /// </summary>
-    private bool FocusHandCardStillInPlay(CardsHandUI hand, out bool anyHeld)
+    private bool FocusHandCardStillInPlay(CardsHandUI hand, out bool needsRebuild)
     {
-        anyHeld = false;
-        bool inFan = false;
+        needsRebuild = false;
+        bool inPlay = false;
         try
         {
             List<AbilityCardUI> cards = hand.cardsUI;
@@ -1103,17 +1117,27 @@ internal sealed partial class CardsDriver
                 VRCard? card = _factory.Find(widget);
                 if (card == null)
                     continue;
-                if (card.IsHeld)
-                    anyHeld = true;
+                if (card.IsHeld || _fan.IsLeaving(card))
+                {
+                    // A hold ends when the player lets go; a flight ends when it lands. Neither
+                    // needs anything from us, so neither asks for a rebuild.
+                    inPlay = true;
+                }
                 else if (_fan.Contains(card))
-                    inFan = true;
+                {
+                    // THIS one is stuck until a rebuild re-fills the fan from the new character's
+                    // widgets and the park sweep pools it — so ask for that rebuild.
+                    inPlay = true;
+                    needsRebuild = true;
+                }
             }
         }
         catch
         {
+            needsRebuild = false;
             return false;
         }
-        return anyHeld || inFan;
+        return inPlay;
     }
 
     /// <summary>How many of <paramref name="hand"/>'s widgets the mod currently holds a VR card

@@ -1731,7 +1731,7 @@ internal sealed class CardFan
             {
                 float t = InProgress(i);
                 float e = EaseOutBack(t, swapBack);
-                SwapEnterSeed(card, n, out Vector3 seedPos, out Quaternion seedRot, out float seedScale);
+                SwapEnterSeed(card, out Vector3 seedPos, out Quaternion seedRot, out float seedScale);
                 pos = Vector3.LerpUnclamped(seedPos, pos, e);
                 pos.z -= swapArc * Mathf.Sin(t * Mathf.PI);
                 rot = Quaternion.Slerp(seedRot, rot, Mathf.Clamp01(e));
@@ -2176,8 +2176,31 @@ internal sealed class CardFan
         }
 
         ReindexLeaving();
+        // AND THE FAN NO LONGER HOLDS THEM. Without this the outgoing hand would sit in BOTH lists
+        // for the ~570 lines of rebuild between here and SetCards, which is not merely untidy — the
+        // driver calls SetMode in that window, and StampMode writes Grabbable back to TRUE on a
+        // Picture→Inspect transition (scrubbing from a teammate to one of your own mercs), undoing
+        // the "makes no promises" flag two lines above and letting the player grab a card that is
+        // already flying away. Clearing here makes the one-list-only invariant hold at every
+        // instant instead of at most instants; SetCards replaces the list unconditionally a moment
+        // later, and a HELD card is dropped from it exactly as it was before this feature existed.
+        _cards.Clear();
         _swapElapsed = 0f;
     }
+
+    /// <summary>How many cards are still on their way out — the driver's own count for the
+    /// exchange, read AFTER <see cref="BeginSwapOut"/> has emptied <see cref="Count"/>.</summary>
+    internal int LeavingCount => _leaving.Count;
+
+    /// <summary>
+    /// The card count the exchange's two end points are derived from: the LARGER of the two hands.
+    /// Both the gather and the deal point must be built from the SAME span or they are not mirror
+    /// images — a 4-card hand leaving and a 9-card hand arriving would otherwise put them at
+    /// different |x| and different y, which is exactly what the region header and the config
+    /// description promise they are not. Taking the larger span also guarantees both points sit a
+    /// full <c>FanSwapTravel</c> clear of BOTH arcs rather than inside the wider one.
+    /// </summary>
+    private int SwapArcSpan() => Mathf.Max(1, Mathf.Max(_swapOutCount, _cards.Count));
 
     /// <summary>
     /// THE ONE WAY A CARD LEAVES THE OUTGOING WAVE OTHER THAN BY LANDING: it turns around. If
@@ -2345,7 +2368,7 @@ internal sealed class CardFan
 
         if (_leaving.Count > 0)
         {
-            SwapGatherPoint(Mathf.Max(_swapOutCount, 1), 1f, out Vector3 gather, out Quaternion gatherRot);
+            SwapGatherPoint(SwapArcSpan(), 1f, out Vector3 gather, out Quaternion gatherRot);
             float seed = Mathf.Clamp(CardsConfig.FanSwapSeedScale.Value, 0.02f, 1f);
             float arc = Mathf.Max(0f, CardsConfig.FanSwapArc.Value);
             float s = SwapOvershoot;
@@ -2391,7 +2414,7 @@ internal sealed class CardFan
             return;
         if (_root != null && _leaving.Count > 0)
         {
-            SwapGatherPoint(Mathf.Max(_swapOutCount, 1), 1f, out Vector3 gather, out Quaternion gatherRot);
+            SwapGatherPoint(SwapArcSpan(), 1f, out Vector3 gather, out Quaternion gatherRot);
             float seed = Mathf.Clamp(CardsConfig.FanSwapSeedScale.Value, 0.02f, 1f);
             for (int i = 0; i < _leaving.Count; i++)
             {
@@ -2414,7 +2437,7 @@ internal sealed class CardFan
     /// start line. The rescued lookup is a linear scan of a list that is empty in every ordinary
     /// swap, and is skipped entirely when it is.
     /// </summary>
-    private void SwapEnterSeed(VRCard card, int n, out Vector3 pos, out Quaternion rot, out float scale)
+    private void SwapEnterSeed(VRCard card, out Vector3 pos, out Quaternion rot, out float scale)
     {
         if (_rescued.Count > 0)
         {
@@ -2427,7 +2450,7 @@ internal sealed class CardFan
                 return;
             }
         }
-        SwapGatherPoint(Mathf.Max(n, 1), -1f, out pos, out rot);
+        SwapGatherPoint(SwapArcSpan(), -1f, out pos, out rot);
         scale = Mathf.Clamp(CardsConfig.FanSwapSeedScale.Value, 0.02f, 1f);
     }
 

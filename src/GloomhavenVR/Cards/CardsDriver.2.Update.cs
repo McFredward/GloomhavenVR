@@ -283,6 +283,10 @@ internal sealed partial class CardsDriver
         _gateContactWinner = null; // gate-hand dock election dies with the driver too
         _contactSuppressed.Clear(); // flags themselves die with the cards (OnDisable clears)
         _emptyFanHint.Destroy(); // task #9: ghost placard teardown
+        // The deferred face restores are moot from here: _factory.Dispose() below restores EVERY
+        // adopted face, which is a superset of what this list names. Dropping it explicitly so the
+        // queue cannot outlive the driver that drains it and hand a dead CardsHandUI to a rebuilt one.
+        _pendingFaceRestore.Clear();
         _fan.Destroy();
         _browser.Destroy();
         _half.Destroy();

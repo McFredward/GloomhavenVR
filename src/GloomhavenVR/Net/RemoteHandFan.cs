@@ -284,10 +284,17 @@ internal sealed class RemoteHandFan
     /// while the fan is up IS the exchange edge.</summary>
     private int _shownActorId;
 
+    /// <summary>…and the actor object behind it, carried forward one frame so that when the edge
+    /// fires the wave can be handed the character it is WEARING rather than the one replacing it.</summary>
+    private CPlayerActor? _shownActor;
+
+    /// <summary>One-shot guard for the displayed-actor resolve failure line.</summary>
+    private bool _loggedShownActorError;
+
     /// <summary>The slabs of the hand being replaced, and the pose each of them started from.
     /// Parented under the same root as the live ones, so they ride the owner's hand while they fly.</summary>
     private readonly List<GameObject> _leaving = new(MaxCards);
-    private readonly List<RemoteCardArt> _leavingFaces = new(MaxCards);
+    private readonly List<RemoteCardArt?> _leavingFaces = new(MaxCards);
     private readonly List<Vector3> _leavePos = new(MaxCards);
     private readonly List<Quaternion> _leaveRot = new(MaxCards);
     private readonly List<float> _leaveScale = new(MaxCards);
@@ -311,6 +318,11 @@ internal sealed class RemoteHandFan
         float delay = (1f - Mathf.Clamp01(_swapOverlap)) * dur;
         return Mathf.Clamp01((_swapElapsed - delay - j * _swapStagger) / dur);
     }
+
+    /// <summary>The card count the exchange's two end points are derived from: the LARGER of the two
+    /// hands, so the gather and the deal point are true mirror images and both sit a full
+    /// FanSwapTravel clear of BOTH arcs — CardFan.SwapArcSpan.</summary>
+    private int SwapArcSpan() => Mathf.Max(1, Mathf.Max(_swapOutCount, _cards.Count));
 
     /// <summary>Whole-exchange length for the two hand sizes — CardFan.SwapTotalSeconds.</summary>
     private float SwapTotalSeconds(int outCount, int inCount)
@@ -347,28 +359,61 @@ internal sealed class RemoteHandFan
     }
 
     /// <summary>
-    /// Arm the exchange: the slabs the fan is showing become the outgoing wave (captured at their
-    /// current local pose, so nothing jumps if a second switch lands mid-wipe), and
+    /// Arm the exchange: the slabs the fan is showing become the outgoing wave, and
     /// <see cref="_builtCount"/> is invalidated so the caller builds a fresh set for the incoming
     /// hand — necessary even when the two hands happen to be the same SIZE, which is exactly the
     /// case where the old code would have silently reused the slabs and shown no exchange at all.
+    ///
+    /// <para>SLABS ALREADY LEAVING FROM A PREVIOUS SWITCH ARE RE-CAPTURED WHERE THEY ARE, and then
+    /// the whole list is renumbered — <c>CardFan.BeginSwapOut</c> + <c>ReindexLeaving</c>, term for
+    /// term, and for the same reason. The clock restarts at 0, so an old entry left holding the
+    /// pose it had at the FIRST switch would be yanked back to it; an old entry left holding its
+    /// old wave place would push the new slabs a whole generation's worth of stagger later; and
+    /// <see cref="_swapOutCount"/> summed over both generations would move the gather point. All
+    /// three are the common path — scrubbing the initiative row is the reported gesture.</para>
     /// </summary>
-    private void BeginSwap()
+    private void BeginSwap(CPlayerActor? leavingActor)
     {
         _openElapsed = -1f; // the exchange supersedes a reveal still in the air (CardFan.BeginSwapOut)
-        for (int i = 0; i < _cards.Count; i++)
+
+        // (1) the previous generation keeps going from where it IS.
+        for (int i = 0; i < _leaving.Count; i++)
         {
-            GameObject slab = _cards[i];
+            GameObject slab = _leaving[i];
             if (slab == null)
                 continue;
             Transform t = slab.transform;
+            _leavePos[i] = t.localPosition;
+            _leaveRot[i] = t.localRotation;
+            _leaveScale[i] = t.localScale.x;
+        }
+
+        // (2) the hand on screen joins it, behind the stragglers.
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            GameObject slab = _cards[i];
+            RemoteCardArt? face = i < _faces.Count ? _faces[i] : null;
+            if (slab == null)
+            {
+                // The slab died under us (external destruction — see EnsureRoot). Its face's clone
+                // went with it, but release the bookkeeping rather than drop it on the Clear below.
+                face?.Destroy();
+                continue;
+            }
+            Transform t = slab.transform;
             _leaving.Add(slab);
-            _leavingFaces.Add(i < _faces.Count ? _faces[i] : null!);
+            _leavingFaces.Add(face);
             _leavePos.Add(t.localPosition);
             _leaveRot.Add(t.localRotation);
             _leaveScale.Add(t.localScale.x);
-            _leaveIndex.Add(_leaveIndex.Count);
+            _leaveIndex.Add(0); // renumbered across the whole wave below
         }
+
+        // (3) one wave, numbered 0..n-1 however many generations built it.
+        for (int i = 0; i < _leaving.Count; i++)
+            _leaveIndex[i] = i;
+        _swapOutCount = _leaving.Count;
+
         // Hand the slabs over WITHOUT destroying them: Rebuild only ever destroys what these lists
         // still name, so emptying them here is what keeps the outgoing wave alive.
         _cards.Clear();
@@ -376,9 +421,19 @@ internal sealed class RemoteHandFan
         _builtCount = -1;
         _frontsShown = false;
         ClearPops();
-        _swapOutCount = _leaving.Count;
+        // ANTI-CHEAT: the wave wears the OUTGOING character's faces, so it stays under the OUTGOING
+        // character's reveal gate — not the arriving one's. See UpdateFaces.
+        _leavingActor = leavingActor;
         _swapElapsed = 0f;
     }
+
+    /// <summary>The character whose faces the outgoing wave is wearing (null = none / unresolved).
+    /// Kept for exactly one reason: <see cref="RevealGate.ShowRoundCardFronts"/> is PER ACTOR — it
+    /// folds in that actor's own <c>IsUnderMyControl</c> — so gating the leaving slabs on the
+    /// ARRIVING character's verdict would be gating them on the wrong rule. Latched here rather than
+    /// re-derived because by the time the wave is flying the fan is already displaying somebody
+    /// else.</summary>
+    private CPlayerActor? _leavingActor;
 
     /// <summary>Advance the exchange and drive the outgoing wave; destroy each slab (and release its
     /// cloned front) the moment its own flight ends, so nothing lingers shrunk at the gather point.
@@ -391,7 +446,7 @@ internal sealed class RemoteHandFan
 
         if (_leaving.Count > 0 && _root != null)
         {
-            SwapGatherPoint(Mathf.Max(_swapOutCount, 1), 1f, out Vector3 gather, out Quaternion gatherRot);
+            SwapGatherPoint(SwapArcSpan(), 1f, out Vector3 gather, out Quaternion gatherRot);
             float seed = Mathf.Clamp(_swapSeedScale, 0.02f, 1f);
             float arc = Mathf.Max(0f, _swapArc);
             float s = Mathf.Clamp(_swapSettleOvershoot, 0f, 3f);
@@ -401,8 +456,8 @@ internal sealed class RemoteHandFan
                 float t = OutProgress(_leaveIndex[i]); // wave place, not list place — see _leaveIndex
                 if (slab == null || t >= 1f)
                 {
-                    if (i < _leavingFaces.Count && _leavingFaces[i] != null)
-                        _leavingFaces[i].Destroy();
+                    if (i < _leavingFaces.Count)
+                        _leavingFaces[i]?.Destroy();
                     if (slab != null)
                         Object.Destroy(slab);
                     _leaving.RemoveAt(i);
@@ -434,8 +489,8 @@ internal sealed class RemoteHandFan
     {
         for (int i = 0; i < _leaving.Count; i++)
         {
-            if (i < _leavingFaces.Count && _leavingFaces[i] != null)
-                _leavingFaces[i].Destroy();
+            if (i < _leavingFaces.Count)
+                _leavingFaces[i]?.Destroy();
             if (_leaving[i] != null)
                 Object.Destroy(_leaving[i]);
         }
@@ -445,6 +500,7 @@ internal sealed class RemoteHandFan
         _leaveRot.Clear();
         _leaveScale.Clear();
         _leaveIndex.Clear();
+        _leavingActor = null; // no wave, no outgoing character to gate
         _swapElapsed = -1f;
     }
 
@@ -503,7 +559,7 @@ internal sealed class RemoteHandFan
         }
 
         int count = Mathf.Clamp(_owner.HandCardCount, 0, MaxCards);
-        if (count == 0)
+        if (count == 0 && _leaving.Count == 0)
         {
             Hide();
             return;
@@ -512,6 +568,20 @@ internal sealed class RemoteHandFan
         EnsureRoot(holder);
         if (_root == null)
             return;
+
+        // AN EMPTY INCOMING HAND STILL GETS ITS WIPE. count == 0 is a real switch target (every card
+        // burnt, or a long rest) and the owner's own fan plays the full gather for it —
+        // CardsDriver's swap edge fires on `_fan.Count > 0 || the incoming hand has widgets`. Hiding
+        // here on the frame the wave sets off would have destroyed it outright (Hide -> EndSwap), so
+        // the owner would see a wipe and every peer a blink. Once the wave has drained the count is
+        // still 0, the branch above takes over, and the now-empty fan hides silently.
+        if (count == 0)
+        {
+            TickSwap(dt);
+            PoseFan(holder, dt);
+            UpdateFaces(0, null);
+            return;
+        }
 
         // WHICH CHARACTER'S HAND IS THIS? Resolved ONCE per tick and handed to both consumers — the
         // exchange edge below and the front-art gate at the bottom — because those two disagreeing
@@ -526,10 +596,22 @@ internal sealed class RemoteHandFan
             if (shownActor != null)
                 shownId = NetFigures.StableActorId(shownActor);
         }
-        catch
+        catch (System.Exception ex)
         {
             shownActor = null;
             shownId = 0;
+            // NEVER SILENT. A permanently-throwing resolve would disable the exchange AND pin this
+            // fan to backs forever, with nothing anywhere to say why — the same class of defect the
+            // EnsureRoot self-heal was written about. Once per instance, like every other latched
+            // diagnostic here.
+            if (!_loggedShownActorError)
+            {
+                _loggedShownActorError = true;
+                VRLog.Warn("Net", $"Remote hand fan [player {_owner.PlayerId}]: could not resolve which " +
+                                  $"character the owner is displaying ({ex.Message}). The fan falls back to " +
+                                  "BACKS and plays no character-swap exchange — both are the pre-feature " +
+                                  "behaviour, so this degrades rather than breaks.");
+            }
         }
 
         // THE EXCHANGE EDGE, mirroring CardsDriver.Rebuild's: a DIFFERENT character is being shown,
@@ -538,14 +620,17 @@ internal sealed class RemoteHandFan
         if (shownId != 0 && _shownActorId != 0 && shownId != _shownActorId
             && _root.activeSelf && _cards.Count > 0)
         {
-            BeginSwap();
+            // The wave keeps the OUTGOING character's faces, so it is handed that character — the
+            // one the fan was showing until this frame — for its own reveal-gate check.
+            BeginSwap(_shownActor);
             VRLog.Info("Net", $"Remote hand fan EXCHANGE [player {_owner.PlayerId}]: {_swapOutCount} slab(s) " +
                               $"gather off the arc while {count} deal in — the owner switched which character " +
                               "they are looking at (extension record 22's actor id, already on the wire). The " +
                               "MOTION is mirrored; no card identity is transmitted for it, and the leaving " +
-                              "slabs stay under the same RevealGate every frame as the arriving ones.");
+                              "slabs are re-gated every frame on their OWN character's RevealGate verdict.");
         }
         _shownActorId = shownId;
+        _shownActor = shownActor;
         TickSwap(dt);
 
         // Rebuild the card slabs only when the count actually changes (cheap; the sizes/poses of
@@ -629,16 +714,32 @@ internal sealed class RemoteHandFan
             face.HideFront();
         }
 
-        // THE LEAVING HALF IS UNDER THE SAME GATE, EVERY FRAME. Slabs on their way out of a
-        // character exchange keep the faces the gate had already granted them — that is the whole
-        // point of the wipe being legible — but the instant the gate shuts (the phase turns into
-        // the secret SelectAbilityCardsOrLongRest window, the actor stops resolving, anything at
-        // all throws) they turn to BACKS in the same frame the arriving half does. An animation
-        // must never be a window in which a rule is briefly not enforced.
-        if (!showFronts)
+        // THE LEAVING HALF IS RE-GATED EVERY FRAME TOO — ON ITS OWN CHARACTER'S VERDICT, NOT THIS
+        // ONE'S. Slabs on their way out of a character exchange keep the faces the gate had already
+        // granted them (that is the whole point of the wipe being legible), but they are wearing the
+        // OUTGOING character's cards, and RevealGate.ShowRoundCardFronts is PER ACTOR: it folds in
+        // that actor's own IsUnderMyControl. Reusing `showFronts` — computed for the ARRIVING
+        // character — would therefore have left a teammate's fronts on screen for the ~0.4 s of the
+        // wipe in the one combination that matters (they are not under my control, the character I
+        // just switched to is, and the phase turns secret mid-wipe). An animation must never be a
+        // window in which a rule is briefly not enforced, and it must be THE rule.
+        if (_leavingFaces.Count > 0)
         {
-            for (int i = 0; i < _leavingFaces.Count; i++)
-                _leavingFaces[i]?.HideFront();
+            bool leavingFronts = false;
+            try
+            {
+                leavingFronts = _leavingActor != null && RevealGate.InScenario
+                                && RevealGate.ShowRoundCardFronts(_leavingActor);
+            }
+            catch
+            {
+                leavingFronts = false; // any failure -> backs, like every other gate here
+            }
+            if (!leavingFronts)
+            {
+                for (int i = 0; i < _leavingFaces.Count; i++)
+                    _leavingFaces[i]?.HideFront();
+            }
         }
 
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
@@ -808,7 +909,7 @@ internal sealed class RemoteHandFan
         Vector3 dealPos = default;
         Quaternion dealRot = Quaternion.identity;
         if (swapping)
-            SwapGatherPoint(n, -1f, out dealPos, out dealRot);
+            SwapGatherPoint(SwapArcSpan(), -1f, out dealPos, out dealRot);
 
         // The owner's head IN FAN-LOCAL SPACE — the toe-in target and the frame the gaze is measured
         // in, exactly as CardFan.TryGetHeadLocal / UpdateCardPresentation do it locally. The root was
@@ -1128,6 +1229,7 @@ internal sealed class RemoteHandFan
             // exists for, one list over).
             EndSwap();
             _shownActorId = 0;
+            _shownActor = null;
             _builtCount = -1;
             _frontsShown = false;
             ClearPops();
@@ -1291,6 +1393,7 @@ internal sealed class RemoteHandFan
         // animation for a hand being raised) rather than resuming a wipe nobody can see the start of.
         EndSwap();
         _shownActorId = 0;
+        _shownActor = null;
         // Presentation state resets exactly like CardFan.Open does: the apex starts centred (a fan
         // that popped open already leaning would read as a glitch) and the next appearance logs its
         // geometry once so a hardware log has a line per fan, not one per session.
@@ -1302,6 +1405,7 @@ internal sealed class RemoteHandFan
     {
         EndSwap(); // any outgoing wave dies with the fan — no orphaned slabs, no leaked clones
         _shownActorId = 0;
+        _shownActor = null;
         for (int i = _faces.Count - 1; i >= 0; i--)
             _faces[i].Destroy();
         _faces.Clear();

@@ -2080,9 +2080,9 @@ internal static class NetProtocol
     /// re-tunes how their item fan opens must be seen re-tuning it.</summary>
     public const byte TuneItemFanOpenArc = 76;
 
-    // The HAND FAN's CHARACTER-SWAP EXCHANGE (ids 77..78 here, plus 150..154 and 198). Same reason
-    // as the item-fan set above — the ruling names ANIMATIONS — and the same shape: written only
-    // when the owner has moved the dial, absent for everybody else.
+    // The HAND FAN's CHARACTER-SWAP EXCHANGE (ids 77..78 here, plus 150..153 and 226..227). Same
+    // reason as the item-fan set above — the ruling names ANIMATIONS — and the same shape: written
+    // only when the owner has moved the dial, absent for everybody else.
 
     /// <summary>[Cards] FanSwapTravel — how far past the arc's end the swap's gather/deal point sits.</summary>
     public const byte TuneFanSwapTravel = 77;
