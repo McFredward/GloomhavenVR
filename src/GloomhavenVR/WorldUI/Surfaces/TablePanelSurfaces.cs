@@ -432,6 +432,14 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// </summary>
     private readonly InitiativeReorderSlide _slide = new();
 
+    /// <summary>
+    /// Pins every portrait on the row's Y axis while the track is adopted, by zeroing vanilla's own
+    /// hover/press AMPLITUDES so its three geometry writers all write the rect's rest value — and
+    /// watches the result (see <see cref="InitiativePortraitPin"/>). Driven from
+    /// <see cref="LateTick"/> after the slide, which owns the entry roots this measures against.
+    /// </summary>
+    private readonly InitiativePortraitPin _pin = new();
+
     // ---- fit hold: the row must NOT move when a portrait is hovered ------------------------
     /// <summary>
     /// ROOT CAUSE of "Die Initiativreihenfolge 'Hüpft' ein klein wenig nach oben und nach unten
@@ -460,19 +468,51 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// doc), and it has the same answer.
     ///
     /// THE FIX — hold the fit frozen unless the LAYOUT TRUTH changed. Time-based hysteresis cannot
-    /// work (a hover lasts seconds and would simply "stabilise" into a re-fit), and suppressing the
-    /// hover feedback is not allowed (the highlight must stay visible — the user asked for a fixed
-    /// PANEL, not a dead one). So <see cref="ConvertedPanel.FitEnabled"/> is a surface-side policy
-    /// here: it is armed only for a short settle window after something that genuinely changes what
-    /// the row CONTAINS — a different set of entries, a different selected actor, a finished reorder
-    /// slide, or the first conversion — and is off the rest of the time. Between those windows the
-    /// host rect is LATCHED, so <see cref="Place"/> reproduces the identical pose every frame no
-    /// matter what the pointer does to a portrait. Hover scaling still plays; it just cannot move
-    /// the dock any more.
+    /// work (a hover lasts seconds and would simply "stabilise" into a re-fit). So
+    /// <see cref="ConvertedPanel.FitEnabled"/> is a surface-side policy here: it is armed only for a
+    /// short settle window after something that genuinely changes what the row CONTAINS — a
+    /// different set of entries, a finished reorder slide, or the first conversion — and is off the
+    /// rest of the time. Between those windows the host rect is LATCHED, so <see cref="Place"/>
+    /// reproduces the identical pose every frame no matter what the pointer does to a portrait.
+    ///
+    /// ─── ROUND 2 (hardware 2026-08-08): "Beim DRÜCKEN auf ein Bild … rücken die Bilder minimal
+    /// nach oben und unten, aber merkbar" ───────────────────────────────────────────────────────
+    ///
+    /// The round-1 hold was correct but it left the ARMED window reachable from a pointer action,
+    /// and the armed window is a window in which anything that changes the measured union moves the
+    /// whole dock. Two corrections, both derived from the fresh log:
+    ///
+    /// <list type="number">
+    /// <item><b>The selected actor is no longer part of the signature.</b> It used to be, so a
+    ///   character switch — a CLICK — re-armed the fit for the full 2 s. Inside that window sat the
+    ///   press-up scale write, the pointer-exit tween back to 1, AND the mod's own cue rings.
+    ///   MEASURED, not inferred — the fresh hardware log (2026-08-08) carries <b>37</b> "row layout
+    ///   changed" arms and <b>26 APPLIED</b> re-fits of this one panel, oscillating
+    ///   182 ↔ 188 ↔ 182 ↔ 190 ↔ 186 px host height, and the rects named as the union's bottom edge
+    ///   in EVERY one of them are <c>'Avatar/GloomhavenVR.FocusRing'</c> and
+    ///   <c>'Avatar/GloomhavenVR.SelectionRing'</c> — measured at 146x156, 147x157, 161x172 and
+    ///   143x153, 152x163, 155x166, 156x167 px across those lines, i.e. the same ring caught at
+    ///   different points of its swell. <c>Board.UiRing</c> breathes by
+    ///   <c>FocusCue.ScalePulseAmount</c> = 5 % ⇒ ±7.8 px on a 178 px union — 4.4 %, past the fit's
+    ///   2 % dirty threshold, with GROWTH fast-pathing the churn damping. Each applied re-fit moves
+    ///   the dock by half the height change × 0.4167 mm/px ≈ 3 mm: "minimal aber merkbar", 26 times
+    ///   a session, and re-armed by every click. Selection changes only toggle the entry's own
+    ///   selection frame, a graphic that already sits inside the union the rings bound; the row's
+    ///   real size is decided by how many entries it holds, and THAT still arms the fit.</item>
+    /// <item><b>An armed window now ends at the first APPLIED fit</b> (<c>FitAppliedGeneration</c>),
+    ///   not at the 2 s timeout. One genuine layout change deserves exactly one re-measure and one
+    ///   re-place; the remaining time was only ever an opportunity for a blinking ring or an
+    ///   in-flight tween to be measured a second time. The timeout stays as the upper bound for the
+    ///   case where nothing measurable ever lands.</item>
+    /// </list>
+    ///
+    /// Both are belt to <see cref="InitiativePortraitPin"/>'s braces: with the hover/press
+    /// amplitudes zeroed the pointer cannot change the union at all any more, so an armed window is
+    /// no longer dangerous — it is merely no longer needed on a click.
     ///
     /// The signature is deliberately built from LAYOUT TRUTH only (entry count, active row
-    /// children, selected actor) — three cheap reads of the game's own state that hover, press and
-    /// tween can never touch — mirroring the use-bar precedent (the bar's slot container).
+    /// children) — cheap reads of the game's own state that hover, press, tween and cue rings can
+    /// never touch — mirroring the use-bar precedent (the bar's slot container).
     /// </summary>
     private const float FitSettleSeconds = 2f;
 
@@ -481,6 +521,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     /// <summary><see cref="Time.unscaledTime"/> until which the content fit stays armed.</summary>
     private float _fitArmedUntil;
+
+    /// <summary><see cref="ConvertedPanel.FitAppliedGeneration"/> as of the last ARMING. The window
+    /// closes the moment it advances — one genuine layout change, one applied re-fit, one
+    /// re-place (-1 = no window has been opened against the current host).</summary>
+    private int _fitArmGeneration = -1;
 
     /// <summary>
     /// Mip-bake rescan cadence while converted (mirrors <c>CardFace.MipRescanInterval</c>, the
@@ -518,9 +563,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         else if (wasConverted)
         {
             _slide.Abort("panel released"); // layout writers back to the game before anything else
+            _pin.Release("panel released"); // …and the buttons their authored hover/press amplitudes
             _reorderActive = false; // host gone — the next conversion starts a fresh hold
             _fitSignature = -1;     // …and a fresh settle window for the new host
             _fitArmedUntil = 0f;
+            _fitArmGeneration = -1;
             RestoreDepth(); // panel released this tick — hand the 2D row its authored z back
             RestoreEnemyInfoFlatten(); // …and the hover popup its authored rotation/z
             UnregisterDepthPick();
@@ -548,6 +595,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         if (Panel != null)
         {
             _slide.Tick(InitiativeTrack.Instance);
+            // AFTER the slide: it owns the entry roots, and the pin's integrity watch measures the
+            // portraits against the pose the slide (or the layout group) left behind. The pin's own
+            // writes never touch an entry root — see InitiativePortraitPin.IsRowFrame.
+            _pin.Tick(InitiativeTrack.Instance, _reorderActive || _slide.Active);
             FlattenEnemyInfo();
         }
         else
@@ -795,6 +846,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 // The settled order IS a real content change (entries added/removed/re-sorted):
                 // arm the fit so the final row gets measured once.
                 _fitArmedUntil = now + FitSettleSeconds;
+                _fitArmGeneration = Panel.FitAppliedGeneration;
                 VRLog.Info("WorldUI", "Initiative reorder animation complete — resuming content re-fit " +
                                       "and depth normalization on the final order.");
             }
@@ -806,32 +858,52 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             bool first = _fitSignature == -1;
             _fitSignature = signature;
             _fitArmedUntil = now + FitSettleSeconds;
+            _fitArmGeneration = Panel.FitAppliedGeneration;
             if (!first)
             {
-                VRLog.Info("WorldUI", "Initiative row layout changed (entries/selection) — content fit " +
-                                      $"re-armed for {FitSettleSeconds:F1} s. Outside these windows the " +
-                                      "fitted rect is LATCHED so a hovered portrait's highlight scaling " +
-                                      "cannot move the docked track (user: 'sie soll fix stehen bleiben').");
+                VRLog.Info("WorldUI", "Initiative row layout changed (entry set) — content fit " +
+                                      $"re-armed for at most {FitSettleSeconds:F1} s, and only until the " +
+                                      "FIRST applied re-fit. Outside these windows the fitted rect is " +
+                                      "LATCHED, so neither a portrait's highlight scaling nor a blinking " +
+                                      "focus/turn ring can move the docked track (user: 'sie soll fix " +
+                                      "stehen bleiben' / 'sie sollen sich gar nicht bewegen').");
             }
         }
 
         // Compared against the LIVE flag, never a shadow copy: the fit machinery owns this switch
         // too (it freezes a committed one-shot rect), so a shadow would eventually disagree with
         // reality and hand the panel a state nobody asked for.
-        bool arm = !_reorderActive && now < _fitArmedUntil;
+        bool applied = Panel.FitAppliedGeneration != _fitArmGeneration;
+        bool arm = !_reorderActive && now < _fitArmedUntil && !applied;
         if (Panel.FitEnabled != arm)
+        {
             Panel.FitEnabled = arm;
+            if (!arm && applied && !_reorderActive)
+            {
+                VRLog.Info("WorldUI", "Initiative content fit disarmed after ONE applied re-fit " +
+                                      $"({_fitArmedUntil - now:F1} s of the window unused). The rest of " +
+                                      "the window could only ever have re-measured the SAME row through " +
+                                      "a blinking focus/turn ring or an in-flight hover tween, which is " +
+                                      "what made the dock bob after a click.");
+            }
+        }
     }
 
     /// <summary>
     /// Cheap signature of everything about the row that legitimately changes its measured size:
     /// how many entries the track holds (<c>actorsUI</c> — the game's own list, the row's layout
-    /// truth), how many of the holder's direct children are actually shown (covers the pooled-in
-    /// avatars and the gamepad hotkey tips toggling with the input device) and WHICH actor is
-    /// selected (the acting portrait's selection frame is switched on/off, which changes the union).
-    /// Nothing here can be moved by a pointer: hover/press only tween a portrait's localScale and
-    /// position, they never add, remove, show or hide an entry. Returns 0 while the track is not
-    /// built yet, which the caller treats as "no information", never as a change.
+    /// truth) and how many of the holder's direct children are actually shown (covers the pooled-in
+    /// avatars and the gamepad hotkey tips toggling with the input device). Nothing here can be
+    /// reached by a POINTER: hover, press and the mod's cue rings never add, remove, show or hide an
+    /// entry. Returns 0 while the track is not built yet, which the caller treats as "no
+    /// information", never as a change.
+    ///
+    /// THE SELECTED ACTOR IS DELIBERATELY NOT IN HERE ANY MORE (round 2, see the fit-hold block):
+    /// it made a CLICK — the character switch — open a 2 s armed window, and an armed window is a
+    /// window in which the mod's own blinking focus/turn ring (the rect the fresh log names as the
+    /// union's bottom edge) re-fits and re-places the whole dock. Selection only toggles the entry's
+    /// selection frame, which already lies inside the union the rings bound, so its size effect is
+    /// nil while its cost was the reported bob.
     /// </summary>
     private static int RowLayoutSignature(InitiativeTrack? track)
     {
@@ -847,19 +919,20 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 active++;
         }
         int entries = track.actorsUI != null ? track.actorsUI.Count : 0;
-        int selected = track.selectedActor != null ? track.selectedActor.GetInstanceID() : 0;
-        // 0 is the caller's "not built yet" sentinel, and an instance ID is an arbitrary (often
-        // negative) int, so the fold is forced away from it rather than assumed to miss it.
-        int sig = unchecked((entries + 1) * 31 + active * 7 + selected);
+        // 0 is the caller's "not built yet" sentinel, so the fold is forced away from it rather
+        // than assumed to miss it.
+        int sig = unchecked((entries + 1) * 31 + active * 7);
         return sig == 0 ? 1 : sig;
     }
 
     public override void Shutdown()
     {
         _slide.Abort("surface shutdown"); // layout writers back to the game while the row still lives
+        _pin.Release("surface shutdown"); // …same window: the buttons are still alive here
         _reorderActive = false; // the panel is about to be released — drop any active hold
         _fitSignature = -1;     // …and let the next conversion measure the row from scratch
         _fitArmedUntil = 0f;
+        _fitArmGeneration = -1;
         RestoreDepth(); // before base releases the panel (holder still alive here)
         RestoreEnemyInfoFlatten(); // …same window for the hover popup's authored rotation/z
         UnregisterDepthPick();
