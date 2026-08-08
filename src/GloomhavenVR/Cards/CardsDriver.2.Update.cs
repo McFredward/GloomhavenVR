@@ -1131,39 +1131,23 @@ internal sealed partial class CardsDriver
     /// <c>IsValidAudioID</c> at call time, played = <c>Play</c> returned an AudioObject
     /// (null ⇒ audio disabled / MinTimeBetweenPlayCalls throttle). An empty/unknown
     /// configured item falls back to the first verified-valid game item and says so.
+    ///
+    /// <para>THE RESOLVE-VALIDATE-PLAY BODY NOW LIVES IN <see cref="GameAudio.PlayListenerAnchored"/>
+    /// (ModBuild 19, initiative-refusal-sound task). It was extracted, not copied: the listener
+    /// trap above is the kind of knowledge a second call site re-learns on hardware if it is
+    /// allowed to write its own version, and this repo lints mirrored constants
+    /// (<c>scripts/check-mirrors.sh</c>) precisely because copies drift. Behaviour is unchanged —
+    /// same order, same <c>IsValidAudioID</c> gate, same fallback note text, same
+    /// <c>AudioController.Play(item)</c> call, same catch-all — so the FAN SOUND proof line below
+    /// still reads exactly as it did in every previous hardware log.</para>
     /// </summary>
     private void PlayFanEdgeSound(bool open)
     {
         string edge = open ? "open" : "close";
         string configured = (open ? CardsConfig.FanRevealSound.Value : CardsConfig.FanHideSound.Value) ?? string.Empty;
-        string item = configured;
-        bool valid = false;
-        bool played = false;
-        string note = string.Empty;
-        try
-        {
-            valid = item.Length > 0 && AudioController.IsValidAudioID(item);
-            if (!valid)
-            {
-                string[] fallbacks = open ? FanOpenSoundFallbacks : FanCloseSoundFallbacks;
-                for (int i = 0; i < fallbacks.Length; i++)
-                {
-                    if (AudioController.IsValidAudioID(fallbacks[i]))
-                    {
-                        item = fallbacks[i];
-                        valid = true;
-                        note = $" — configured '{configured}' empty/unknown, fell back to verified game item";
-                        break;
-                    }
-                }
-            }
-            if (valid)
-                played = AudioController.Play(item) != null;
-        }
-        catch (System.Exception ex)
-        {
-            note = $" — threw {ex.GetType().Name}: {ex.Message}";
-        }
+        string[] fallbacks = open ? FanOpenSoundFallbacks : FanCloseSoundFallbacks;
+        bool played = GameAudio.PlayListenerAnchored(configured, fallbacks,
+            out string item, out bool valid, out string note);
 
         float now = Time.unscaledTime;
         if (now - _lastFanSoundLog >= 0.25f)
