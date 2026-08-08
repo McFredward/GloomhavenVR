@@ -108,7 +108,54 @@ internal sealed class RayInteractor : IPickProvider
     private float _cardContactUntil;
     private string _cardContactZone = "";
     private string _cardContactCard = "";
+    private CardContact _cardContactGeometry = new("no probe", 0f, 0f, 0f);
     private bool _loggedCardContact;
+
+    /// <summary>
+    /// The MEASURED geometry of the contact that stood the beam down — everything the next
+    /// hardware log needs to check the threshold itself instead of taking "the hand was in a
+    /// card" on trust.
+    ///
+    /// <para>WHY IT IS CARRIED HERE AT ALL (user report 2026-08-08, round 2: "Sei strenger mit
+    /// dem Deaktivieren des Lasers — das will ich wirklich nur, wenn die Hand die Karte physisch
+    /// berührt; aktuell ist es immer wenn auch eine Karte nur gehighlighted ist, das führt dazu
+    /// dass der Laser auch nicht da ist obwohl die Hand weiter über der Karte ist"). The first
+    /// round stood the beam down on the mere HOVER ELECTION, which is a proximity/reach verdict
+    /// ("which card would this hand take", true from several centimetres out), so the log line
+    /// naming the card could not distinguish "touching it" from "hovering a hand's breadth above
+    /// it". The producer now runs a real geometric test and hands its two numbers over: with them
+    /// in the line, one grep says whether a stand-down the player felt was early was a millimetre
+    /// away or a centimetre, and whether the tolerance is the thing to move.</para>
+    ///
+    /// All distances are REAL millimetres (world distance ÷ the hand's world scale), so they read
+    /// the same at any rig zoom or board scale. A plain struct, copied by value — nothing here
+    /// allocates.
+    /// </summary>
+    public readonly struct CardContact
+    {
+        /// <summary>Which hand point made contact — a literal ("index tip" / "palm").</summary>
+        public readonly string Probe;
+
+        /// <summary>Signed distance from that point to the card's PLANE, real mm (0 = dead on the
+        /// face; positive is behind the card, negative in front of it).</summary>
+        public readonly float DepthMm;
+
+        /// <summary>How far INSIDE the card's face the point projected, real mm — the smaller of the
+        /// two edge clearances. Never negative for an accepted contact.</summary>
+        public readonly float MarginMm;
+
+        /// <summary>The depth tolerance that accepted it, real mm — printed alongside so the line
+        /// carries its own yardstick.</summary>
+        public readonly float LimitMm;
+
+        public CardContact(string probe, float depthMm, float marginMm, float limitMm)
+        {
+            Probe = probe;
+            DepthMm = depthMm;
+            MarginMm = marginMm;
+            LimitMm = limitMm;
+        }
+    }
 
     /// <summary>
     /// TRUE while this hand is physically inside a grabbable card of a fan/pile and its laser
@@ -139,15 +186,30 @@ internal sealed class RayInteractor : IPickProvider
     /// with NOBODY CALLING THIS, and the beam is back <see cref="CardContactGraceSeconds"/>
     /// later without anyone having to remember to clear anything. There is no "off" call to
     /// miss.
+    /// PHYSICAL TOUCH ONLY (user report 2026-08-08, round 2 — see <see cref="CardContact"/>): the
+    /// caller must have proved actual OVERLAP with the card's face, not merely that the card is the
+    /// one this hand has elected/highlighted. The election is a reach verdict and answers "which
+    /// card would this hand take" from several centimetres away; standing the beam down on it took
+    /// the laser away while the hand was still hovering well ABOVE the card.
+    ///
     /// <paramref name="zone"/> must be a literal (it is logged, never per-frame formatted);
     /// <paramref name="card"/> is read for its name ONLY on the stand-down edge.
+    /// <paramref name="contact"/> is the measurement that justified the call, kept for that same
+    /// edge so the log line can print the threshold it cleared.
     /// </summary>
-    public void StandDownForCardContact(string zone, Object? card)
+    public void StandDownForCardContact(string zone, Object? card, in CardContact contact)
     {
         _cardContactUntil = Time.unscaledTime + CardContactGraceSeconds;
         _cardContactZone = zone;
+        // Frozen together on the logging edge (see TickCardContactLog): the name, the zone and the
+        // geometry must describe ONE frame — the frame the stand-down actually began — or the line
+        // would report a card from one moment and a distance from another. Reading card.name
+        // allocates, which is the other reason this is edge-gated.
         if (!_loggedCardContact)
+        {
             _cardContactCard = card != null ? card.name : "a card";
+            _cardContactGeometry = contact;
+        }
     }
 
     /// <summary>
@@ -164,16 +226,26 @@ internal sealed class RayInteractor : IPickProvider
         _loggedCardContact = standDown;
         if (standDown)
         {
+            // The MEASUREMENT is the point of this line (user report 2026-08-08, round 2 — the
+            // stand-down fired while the hand was still hovering above the card). Naming the card
+            // proves nothing; depth-to-plane against the tolerance that accepted it, plus how far
+            // inside the face the point landed, proves whether this was a touch or a hover.
             Core.VRLog.Info("Hands", $"{_hand.Side} laser STAND-DOWN — the hand is physically in " +
-                                     $"'{_cardContactCard}' ({_cardContactZone}); the beam points THROUGH " +
-                                     "that card, so it is switched off for this hand: no hover, no press, " +
-                                     "no grab on anything behind it. The proximity grab still takes the card.");
+                                     $"'{_cardContactCard}' ({_cardContactZone}): {_cardContactGeometry.Probe} " +
+                                     $"{_cardContactGeometry.DepthMm:F1} mm off the card plane " +
+                                     $"(tolerance ±{_cardContactGeometry.LimitMm:F1} mm), " +
+                                     $"{_cardContactGeometry.MarginMm:F1} mm inside its face — real mm at the " +
+                                     "hand's own world scale. The beam points THROUGH that card, so it is " +
+                                     "switched off for this hand: no hover, no press, no grab on anything " +
+                                     "behind it. The proximity grab still takes the card.");
         }
         else
         {
             Core.VRLog.Info("Hands", $"{_hand.Side} laser RESTORED — no card contact for " +
                                      $"{CardContactGraceSeconds:F2}s (last '{_cardContactCard}', " +
-                                     $"{_cardContactZone}); hover/press/grab are live again.");
+                                     $"{_cardContactZone}, {_cardContactGeometry.Probe} " +
+                                     $"{_cardContactGeometry.DepthMm:F1} mm off the plane); " +
+                                     "hover/press/grab are live again.");
         }
     }
 

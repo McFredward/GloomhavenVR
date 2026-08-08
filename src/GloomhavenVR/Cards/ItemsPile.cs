@@ -3673,6 +3673,68 @@ internal sealed class ItemsPile
 
         string IFanSweepTarget.SweepName => name;
 
+        // ---- hand-CONTACT geometry (laser stand-down, user report 2026-08-08 round 2) ----
+
+        /// <summary>
+        /// The chip's FACE as a world-space rectangle — centre, plane normal, unit right/up axes and
+        /// world-metre half-extents — either where the chip VISIBLY IS right now
+        /// (<paramref name="resting"/> false: the live transform, hover pop and ×1.18 grow included)
+        /// or where it RESTS in the arc (true: the home pose under the current parent, pop excluded).
+        /// The item-fan twin of <see cref="VRCard.TryGetLiveLaserRect"/> /
+        /// <see cref="VRCard.TryGetRestingLaserRect"/>, sized to the chip's OWN near-square face
+        /// (<see cref="FaceWidth"/>/<see cref="FaceHeight"/>) — an item card is not the tall ability
+        /// rect, and a rect built from the ability aspect would be a centimetre too tall on every
+        /// chip. A rolled ("tapped", spent) chip needs no special case: the roll lives in the
+        /// transform/home rotation, and the face still spans local X by <see cref="FaceWidth"/>.
+        ///
+        /// <para>WHY BOTH POSES (the lesson <c>CardsDriver.TryHitLiftedCard</c> already learned for
+        /// the ability fan): the chip pops 2 cm toward the viewer and grows the instant the hand
+        /// elects it, which is exactly the moment the contact test below is asked whether the hand is
+        /// touching it. Testing only the resting rect asks about a rectangle the chip has already
+        /// left; testing only the live rect loses the chip mid-glide (release glide, arc relayout).
+        /// Accepting either keeps it contactable throughout.</para>
+        ///
+        /// <para>The RESTING pose is refused for a held or clipped-in chip: its home is still the
+        /// ARC slot while the chip itself rides a hand or sits in the board's use slot, so that rect
+        /// is a phantom somewhere else in the world and a hand passing through it must not read as a
+        /// touch. The live rect stays valid in both cases.</para>
+        /// </summary>
+        internal bool TryGetFaceRect(bool resting, out Vector3 center, out Vector3 normal,
+            out Vector3 right, out Vector3 up, out float halfWidth, out float halfHeight)
+        {
+            center = default;
+            normal = default;
+            right = default;
+            up = default;
+            halfWidth = 0f;
+            halfHeight = 0f;
+            Transform t = transform;
+            float lossy;
+            if (resting)
+            {
+                Transform? parent = t.parent;
+                if (parent == null || Holder != null || PendingUse)
+                    return false;
+                center = parent.TransformPoint(_homePos);
+                Quaternion rot = parent.rotation * _homeRot;
+                right = rot * Vector3.right;
+                up = rot * Vector3.up;
+                normal = rot * Vector3.forward; // chips face the viewer with −Z, like the cards
+                lossy = parent.lossyScale.x * _homeScale;
+            }
+            else
+            {
+                center = t.position;
+                right = t.right;
+                up = t.up;
+                normal = t.forward;
+                lossy = t.lossyScale.x;
+            }
+            halfWidth = FaceWidth * 0.5f * lossy;
+            halfHeight = FaceHeight * 0.5f * lossy;
+            return halfWidth > 1e-5f && halfHeight > 1e-5f;
+        }
+
         private void Update()
         {
             if (_collapsing)
