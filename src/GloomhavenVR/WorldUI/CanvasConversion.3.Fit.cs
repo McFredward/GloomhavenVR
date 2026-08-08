@@ -623,6 +623,16 @@ internal static partial class CanvasConversion
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
             Graphic g = GraphicScratch[i];
+            // Mod-owned cue art (focus rings, frames, tints) is a PRESENTATION overlay on the
+            // game's content, not content. It also BREATHES — Board.FocusCue pulses a ring's
+            // scale — so measuring it makes the union oscillate and re-place the whole panel
+            // every few frames. Hardware log 2026-08-08: 26 applied re-fits of
+            // Panel_InitiativeTrack whose union bottom edge was 'GloomhavenVR.FocusRing' /
+            // 'GloomhavenVR.SelectionRing' caught at different points of their swell, host
+            // height oscillating 182/186/188/190 px — which the user felt as the portraits
+            // stepping up and down. The panel must be sized by what the GAME draws.
+            if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                continue;
             if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax,
                     out Vector2 aMin, out Vector2 aMax))
             {
