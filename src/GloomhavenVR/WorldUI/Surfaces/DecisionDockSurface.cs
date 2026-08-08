@@ -1189,11 +1189,24 @@ internal sealed class DecisionDockSurface : WorldSurface
         CPlayerActor? owner = PromptOwner();
         CPlayerActor? focused = Board.CharacterFocus.Focused;
         bool hide = focused != null && owner != null && !ReferenceEquals(focused, owner);
+        bool was = _rowHiddenForFocus;
 
         if (hide)
+        {
             ApplyFocusHide();
+        }
         else
+        {
             RestoreFocusHide(null);
+            // Re-place IMMEDIATELY on the un-hide tick. This method runs AFTER base.Tick's Place,
+            // which — while the flag was still set — published RowBottomUpMeters as null; without
+            // this, RowDocked would read true with no measured edge for the rest of the Update and
+            // UseBarsSurface (which ticks after us) would stack against the worst-case fallback for
+            // one frame. LateTick would correct it before the frame is drawn, but publishing the
+            // real edge here keeps the two surfaces consistent within a single tick.
+            if (was && Panel != null)
+                Place();
+        }
 
         string state = $"{(hide ? "hidden" : "shown")}|{Board.CharacterFocus.Describe(owner)}|" +
                        $"{Board.CharacterFocus.Describe(focused)}";
