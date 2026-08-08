@@ -234,9 +234,11 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("UseBarsSurface", _useBars.Tick)); // after the dock: reads RowDocked for the same tick
             update.Add(("DoomPickerSurface", _doomPicker.Tick));           // flow 2: doom slot/transfer picker
             update.Add(("DistributePointsSurface", _distributePoints.Tick)); // flows 3+4: select/assign popups
-            // After the dock, and it MUST stay after it: the prompt text seats itself from the row's
-            // freshly placed top edge (DecisionDockSurface.RowTopUpMeters) — running first would
-            // hang the text off last frame's row on a moving board.
+            // After the dock in the UPDATE pass, and it must stay there: this surface can only
+            // convert while the dock reports DockingTakeDamage, and the cross-surface focus roll-up
+            // (PromptFocus.Flush, at the top of the dock's own Tick) is only one settled frame if
+            // every decision surface reports after it. The area's top-down GEOMETRY order is applied
+            // in the LateTick pass below, which writes the poses that actually render.
             update.Add(("DamageTooltipSurface", _damageTooltip.Tick));
             update.Add(("DamagePreviewSurface", _damagePreview.Tick)); // after the dock: mirrors flat HP-cost preview onto the adopted bar (bug #3)
             update.Add(("TrayControlDockSurface", _trayControls.Tick));
@@ -280,9 +282,16 @@ internal sealed class WorldUIModule : IVRModule
                 WorldSurface surface = _slotSurfaces[i];
                 late.Add(($"Surface:{surface.GetType().Name}.Late", surface.LateTick));
             }
-            late.Add(("DecisionDockSurface.Late", _decisionDock.LateTick));
+            // THE DECISION AREA IS WRITTEN TOP-DOWN IN THIS PASS (ModBuild 91), because that is the
+            // order it is laid out in: the prompt TEXT takes the area's ceiling (a height derived
+            // from the mount alone, so it depends on nothing here), the widget ROW hangs one
+            // DecisionGap under the text's freshly measured bottom edge, and the use-bar drawer hangs
+            // under the row's freshly measured bottom edge. Running the text last — as this list did
+            // while the area was anchored bottom-up — would seat the row on LAST frame's line on a
+            // moving board, which is exactly the staleness this whole LateTick pass exists to remove.
+            late.Add(("DamageTooltipSurface.Late", _damageTooltip.LateTick));
+            late.Add(("DecisionDockSurface.Late", _decisionDock.LateTick)); // after the text: seats off its re-placed bottom
             late.Add(("UseBarsSurface.Late", _useBars.LateTick)); // after the dock: reads its re-placed row edge
-            late.Add(("DamageTooltipSurface.Late", _damageTooltip.LateTick)); // after the dock: seats off its re-placed row top
             late.Add(("TrayControlDockSurface.Late", _trayControls.LateTick));
             // TRANSPARENCY ROUND, and it must stay LAST. CanvasConversion.TickPanelOrder assigns
             // every converted panel's draw order from its measured eye distance (far = painted

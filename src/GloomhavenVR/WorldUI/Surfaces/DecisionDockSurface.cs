@@ -132,6 +132,26 @@ internal sealed class DecisionDockSurface : WorldSurface
     private const float ClaimGraceSeconds = 1.5f;
 
     /// <summary>
+    /// The one prompt of the registry that draws a PROMPT TEXT above its widgets — the take-damage
+    /// panel, whose HelpBox line <see cref="DamageTooltipSurface"/> converts. Named once here and
+    /// read wherever the row has to reserve the text's slice of the area, so "does this prompt have
+    /// a line?" is a single comparison instead of a literal repeated per call site.
+    /// </summary>
+    private const string TakeDamagePromptName = "TakeDamagePanel";
+
+    /// <summary>
+    /// How long the row waits for the prompt TEXT to publish its measured bottom edge before
+    /// seating itself as if the prompt had no line (see <see cref="Place"/>). The text converts one
+    /// tick after the row docks — <see cref="DamageTooltipSurface.WantConverted"/> gates on
+    /// <see cref="DockingTakeDamage"/>, which this surface only sets once its own row is up — so the
+    /// row would otherwise reveal at the ceiling and drop by the text's height a frame later, which
+    /// is the "aufplopped … dann lädt die richtige Position nach" the user ruled out. Holding the
+    /// REVEAL (never the placement) removes the jump; the grace makes sure a tip that never converts
+    /// cannot leave the decision invisible.
+    /// </summary>
+    private const float TextSeatGraceSeconds = 0.75f;
+
+    /// <summary>
     /// Density-scale guards, mirroring <see cref="TrayMountedPanelSurface"/>
     /// (test #16): max 1 keeps small content content-true, min 0.5 keeps a
     /// misfired-huge measurement readable (slight dock overflow over shrinking
@@ -212,6 +232,17 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// feeds the mount's own up-axis displacement back into the seat solve, so this value is
     /// unchanged by the offset while the MOUNT it is measured from carries the whole area — row,
     /// text and use bars — the distance the player dialled.</para>
+    ///
+    /// <para>SINCE ModBuild 91 THIS IS A RESULT, NOT AN ANCHOR (user hardware test: "Die Anzeige der
+    /// Initiativ-Schuhe war mir zu niedrig also habe ich es höher gemacht, dann später kam eine
+    /// Schadens-Entscheidung — der Text war damit viel zu hoch … Ich hätte erwartet, dass der höchste
+    /// Punkt bei den Initiativ-Schuhen auch der höchste Punkt ist, an dem der Text angezeigt wird").
+    /// The area used to be solved BOTTOM-UP from this edge, so every element a prompt added grew the
+    /// display UPWARD and one offset could not fit two prompts. It is solved TOP-DOWN from
+    /// <see cref="AreaCeilingUp"/> now: the text (if the prompt has one) takes the ceiling, the row's
+    /// top hangs one <c>DecisionGap</c> under the text's measured bottom, and this value is whatever
+    /// that produces. The gap between the two — the only thing this seam ever expressed — is
+    /// untouched.</para>
     ///
     /// <para>UNLIKE <see cref="RowBottomUpMeters"/> THIS SURVIVES THE FOCUS HIDE. The bars must
     /// fall back when the row is not SEEN (they would hang off a phantom edge); the prompt text
@@ -316,6 +347,11 @@ internal sealed class DecisionDockSurface : WorldSurface
     private float _wantSince;
     private bool _targetWarned;
     private bool _hmdFloatPlaced;
+
+    /// <summary>Unscaled time the row started waiting for the prompt TEXT's measured bottom edge
+    /// (0 = not waiting) — see <see cref="TextSeatGraceSeconds"/> and <see cref="HeldTooLongForText"/>.</summary>
+    private float _textWaitSince;
+    private bool _textWaitWarned;
 
     // Suppression records (restored on undock; nothing destroyed).
     private UIWindow? _suppressedWindow;
@@ -537,6 +573,8 @@ internal sealed class DecisionDockSurface : WorldSurface
             _active = open ? active : null;
             _wantSince = 0f;
             _targetWarned = false;
+            _textWaitSince = 0f;   // a new prompt waits for ITS OWN line, from scratch
+            _textWaitWarned = false;
         }
         else if (!open)
         {
@@ -656,7 +694,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         // Hover-thrash guard flag (task A): the take-damage widget row is docked and
         // driven by the VR laser/poke, so its mouse-hover preview handlers must stand
         // down (see the property doc). Only ever true while its row is actually docked.
-        DockingTakeDamage = Panel != null && _active != null && _active.Name == "TakeDamagePanel";
+        DockingTakeDamage = Panel != null && _active != null && _active.Name == TakeDamagePromptName;
     }
 
     /// <summary>
@@ -737,9 +775,9 @@ internal sealed class DecisionDockSurface : WorldSurface
         host.rotation = mount.rotation;
         host.localScale = Vector3.one * scale;
 
-        // Prompt reference (world m above the mount along up): the grab-bar bottom minus
-        // clearance — the board's lower edge under which the game draws the prompt text.
-        float promptRefUp = PromptReferenceUp(mount, up, trayScale, out string refNote);
+        // THE AREA'S CEILING (world m above the mount along up) — the ONE anchor every piece of
+        // this display is laid out downward from since ModBuild 91. See AreaCeilingUp.
+        float ceilingUp = AreaCeilingUp(mount, up, trayScale, out string refNote);
 
         // Top/bottom-most VISIBLE widget graphics, world m above the host pivot (fall back
         // to the fitted row edges when a prompt has no resolvable widgets).
@@ -764,37 +802,63 @@ internal sealed class DecisionDockSurface : WorldSurface
         // between the text and the buttons. One setting, one distance.
         //
         // AND SINCE ModBuild 89 THE TEXT IS ON THE OTHER END OF THAT SAME NUMBER (user: the prompt
-        // text "reagiert wie ein Element das nicht zu dem Bereich dazugehört"). DamageTooltipSurface
-        // hangs the HelpBox line's BOTTOM edge one gap above the row top this solve produces
-        // (RowTopUpMeters), so the line lands exactly ON the prompt reference — the board's lower
-        // edge, where every doc in this file says the prompt text belongs — and the row and the text
-        // are now placed from ONE seat: whatever moves one (offset X/Z, DecisionScale, the gap
-        // itself, the board itself) moves the other by the same amount in the same frame.
+        // text "reagiert wie ein Element das nicht zu dem Bereich dazugehört"). The HelpBox line and
+        // this row are placed from ONE seat with exactly this gap between them, so whatever moves one
+        // (offset, DecisionScale, the gap itself, the board) moves the other by the same amount in
+        // the same frame. THAT COUPLING IS UNCHANGED HERE — only which end of it is anchored moved.
         //
-        // AND THE OFFSET MOVES THE WHOLE AREA (user, ModBuild 90: "Wenn ich den ganzen
-        // Entscheidungsbereich nach unten verschiebe mit dem Offset, dann soll der Text … auch
-        // entsprechend mit nach unten verschoben werden"). [Cards] DecisionOffset_<board> already
-        // moves the MOUNT — and every part of this area is placed relative to that mount, so X and
-        // Z have always slid the row, the text and the use bars together. Y did not: it moved the
-        // mount too, but `promptRefUp` is measured FROM the mount, so the mount's own Y walked
-        // straight back out of `mount.position + up * d` and the Y component was a no-op. It is put
-        // back below as `offsetUp` — the mount's own up-axis displacement, re-added to the target so
-        // it survives the cancellation. The result is exactly what X/Z do: the block rides its
-        // mount, `d` is unchanged by the offset, the published row edges are unchanged by it, and
-        // therefore the prompt text (seated from RowTopUpMeters) and the use-bars drawer (seated
-        // from RowBottomUpMeters) ride along with the buttons, as ONE area, by the same millimetres.
-        // The gap is untouched by all of it: it is the distance WITHIN the area.
+        // THE AREA HANGS FROM ITS CEILING NOW (user, ModBuild 90 hardware test: "Die Anzeige der
+        // Initiativ-Schuhe war mir zu niedrig also habe ich es höher gemacht, dann später kam eine
+        // Schadens-Entscheidung — der Text war damit viel zu hoch … Ich hätte erwartet, dass der
+        // höchste Punkt bei den Initiativ-Schuhen auch der höchste Punkt ist, an dem der Text
+        // angezeigt wird, und nicht darüber hinaus — also dass die Offsets für die gesamte Area
+        // gelten"). ModBuild 90 anchored the ROW under the prompt reference and hung everything else
+        // off it, so the display was solved BOTTOM-UP: a prompt with a text line put that line one
+        // gap ABOVE the row, i.e. the area's top edge was `+ text height` higher than the top edge of
+        // a prompt without one, and the tallest prompt overshot by exactly the pieces it added. One
+        // offset therefore could not fit two prompts — tune it for the short one (the initiative
+        // boots' ± bar, which is use bars alone) and the damage decision's sentence lands far above
+        // it.
+        //
+        // The solve runs TOP-DOWN from AreaCeilingUp instead: the ceiling is the same world height
+        // whatever prompt is open, and the contents are laid out DOWNWARD from it — first the prompt
+        // TEXT (which takes the ceiling itself and publishes its measured bottom edge), then one
+        // DecisionGap, then this widget row, then the use-bar drawer under that. A prompt with no
+        // line simply starts at the row, so its top edge is the ceiling too. That is what makes the
+        // offset one dial for the whole area: it moves the MOUNT, the ceiling is mount-relative
+        // (unlike the old prompt-reference anchor, whose measurement from the mount cancelled the
+        // mount's own Y back out — the ModBuild 90 MountOffsetUp correction that this replaces), so
+        // Y now displaces the ceiling exactly as X and Z displace the area sideways and proud, and
+        // every element rides along because every element descends from the ceiling.
         float gapBoardMeters = GapBoardMeters;
         float gapMeters = gapBoardMeters * trayScale;
-        float offsetUp = MountOffsetUp(mount, up);
-        float targetBlockTopUp = promptRefUp - gapMeters + offsetUp;
+        float offsetUp = MountOffsetUp(mount, up); // DIAGNOSTIC ONLY (the mount already carries it)
+
+        // The prompt TEXT's own measured bottom edge, when this prompt has a line and the surface
+        // that draws it has placed it. WHY THE ROW WAITS FOR IT: the text converts one tick AFTER
+        // this row docks (DamageTooltipSurface gates on DockingTakeDamage), so on the first frames
+        // the row would take the ceiling and then drop by the line's height — see TextSeatGraceSeconds.
+        bool wantsText = _active != null && _active.Name == TakeDamagePromptName
+                         && DamageTooltipSurface.TipWindowOpen;
+        float? textBottomUp = wantsText ? DamageTooltipSurface.TextBottomUpMeters : null;
+        bool textPending = false;
+        if (wantsText && !textBottomUp.HasValue)
+            textPending = !HeldTooLongForText();
+        else
+            _textWaitSince = 0f; // the wait ended (measured, or this prompt has no line)
+
+        float targetBlockTopUp = textBottomUp.HasValue ? textBottomUp.Value - gapMeters : ceilingUp;
         float d = targetBlockTopUp - blockTopAbovePivot; // shift along up from mount.position
         Vector3 pos = mount.position + up * d;
 
         host.position = pos;
 
-        // Fitted, placed, and only NOW visible (see the note above the rect check).
-        if (!Panel.HostGo.activeSelf)
+        // Fitted, placed, and only NOW visible (see the note above the rect check) — and not even
+        // then while the prompt's own text line has yet to measure: the row's seat is that line's
+        // bottom edge minus the gap, so revealing first would show the row at the ceiling for a frame
+        // and then drop it (the "never reveal before the final geometry" rule). An ALREADY visible
+        // row is never re-hidden: a line that appears mid-prompt is a genuine re-layout, not a pop-in.
+        if (!Panel.HostGo.activeSelf && !textPending)
             Panel.HostGo.SetActive(true);
 
         // Publish the row's MEASURED bottom edge (mount-relative, along up) for the
@@ -821,18 +885,60 @@ internal sealed class DecisionDockSurface : WorldSurface
             _placementLogged = true;
             _lastLoggedGapPx = gapBoardMeters;
             _lastLoggedOffsetUp = offsetUp;
-            VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' gap placement — [Cards] " +
-                                  $"DecisionGap_{CardsConfig.CurrentBoard}={gapBoardMeters * 1000f:F1} mm " +
-                                  $"→ widget block top {gapMeters * 1000f:F0} mm (world) below the prompt " +
-                                  $"reference ({refNote}, {promptRefUp * 1000f:F0} mm above the mount); " +
-                                  $"[Cards] DecisionOffset_{CardsConfig.CurrentBoard} then moves the WHOLE " +
-                                  $"area {offsetUp * 1000f:F1} mm along the dock up-axis, so the block top is " +
-                                  $"set {targetBlockTopUp * 1000f:F0} mm above the mount, host shifted " +
-                                  $"{d * 1000f:F0} mm along that axis at row scale {scale:F5} " +
-                                  $"(tray {trayScale:F3}). The gap is board-local metres, so this distance " +
-                                  "does NOT move with the dock size or its offset — the offset moves the " +
-                                  "area, the gap spaces it.");
+            float topmostUp = textBottomUp.HasValue ? ceilingUp : RowTopUpMeters!.Value;
+            float areaHeight = topmostUp - (d + blockBottomAbovePivot);
+            VRLog.Info("WorldUI", $"DECISION DOCK SEAT: '{_active?.Name}' — the decision AREA's CEILING is " +
+                                  $"{ceilingUp * 1000f:F0} mm above the decision mount ({refNote}); the " +
+                                  "TOPMOST element of this prompt is " +
+                                  (textBottomUp.HasValue
+                                      ? $"the prompt TEXT, whose top edge sits AT the ceiling and whose " +
+                                        $"measured bottom is {textBottomUp.Value * 1000f:F0} mm — a line " +
+                                        $"{(ceilingUp - textBottomUp.Value) * 1000f:F0} mm tall — with the " +
+                                        $"widget row's top one gap under it"
+                                      : "the widget ROW itself (this prompt draws no text line), whose top " +
+                                        "sits AT the ceiling") +
+                                  $" at {RowTopUpMeters!.Value * 1000f:F0} mm; the row's measured bottom is " +
+                                  $"{(d + blockBottomAbovePivot) * 1000f:F0} mm, so the whole area is " +
+                                  $"{areaHeight * 1000f:F0} mm tall (budget " +
+                                  $"{PlayTray.DecisionMountMaxHeight * trayScale * 1000f:F0} mm — an over-tall " +
+                                  "prompt keeps the ceiling and grows DOWNWARD into the free air below the " +
+                                  $"board, never up past it). [Cards] DecisionGap_{CardsConfig.CurrentBoard}=" +
+                                  $"{gapBoardMeters * 1000f:F1} mm = {gapMeters * 1000f:F0} mm world spaces the " +
+                                  $"text from the buttons and NOTHING else; [Cards] " +
+                                  $"DecisionOffset_{CardsConfig.CurrentBoard} has displaced the mount — and " +
+                                  $"therefore this ceiling and everything under it — {offsetUp * 1000f:F1} mm " +
+                                  $"along the dock up-axis. Host shifted {d * 1000f:F0} mm at row scale " +
+                                  $"{scale:F5} (tray {trayScale:F3}). THE CEILING IS PROMPT-INDEPENDENT: this " +
+                                  "number must read the same for the initiative-boots bar and for the damage " +
+                                  "decision.");
         }
+    }
+
+    /// <summary>
+    /// Has the row waited past <see cref="TextSeatGraceSeconds"/> for a prompt text that never
+    /// measured? Level-triggered from <see cref="Place"/>: the first pending frame starts the clock,
+    /// any frame that is not pending clears it (see <see cref="_textWaitSince"/>). A tip window that
+    /// is open but whose surface cannot convert must never leave the decision invisible, so the row
+    /// gives up waiting, seats itself at the ceiling and says so once.
+    /// </summary>
+    private bool HeldTooLongForText()
+    {
+        if (_textWaitSince <= 0f)
+        {
+            _textWaitSince = Time.unscaledTime;
+            return false;
+        }
+        if (Time.unscaledTime - _textWaitSince <= TextSeatGraceSeconds)
+            return false;
+        if (!_textWaitWarned)
+        {
+            _textWaitWarned = true;
+            VRLog.Warn("WorldUI", "DECISION DOCK: the prompt's HelpBox line is open but has published no " +
+                                  $"measured geometry within {TextSeatGraceSeconds:F2}s — the widget row " +
+                                  "takes the area CEILING itself rather than staying hidden. The text, if it " +
+                                  "arrives later, will re-seat the row one gap below it in that frame.");
+        }
+        return true;
     }
 
     /// <summary>The live text↔buttons gap, <c>[Cards] DecisionGap_&lt;board&gt;</c> in BOARD-LOCAL
@@ -864,19 +970,60 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
+    /// THE DECISION AREA'S CEILING: world metres above <paramref name="mount"/> along
+    /// <paramref name="up"/> at which the TOPMOST pixel of the whole decision display sits — the
+    /// prompt text if the prompt has one, otherwise the widget row, otherwise the use-bar drawer.
+    /// The single anchor every one of those three surfaces lays itself out DOWNWARD from
+    /// (<see cref="Place"/>, <see cref="DamageTooltipSurface.Place"/>,
+    /// <c>UseBarsSurface.StackDocked</c>), so the display's top edge is at the same height whatever
+    /// prompt is open — the ModBuild 90 report, in one number.
+    ///
+    /// <para>IT IS THE DRAWER ZONE'S OWN TOP EDGE, <c>DecisionMountMaxHeight/2</c> above the mount —
+    /// which is exactly where the use-bar stack has always started when no decision row was up, i.e.
+    /// where the user has already tuned the initiative-boots bar to sit. Choosing the authored zone
+    /// top rather than the old prompt reference is what makes the offset ONE dial: the mount carries
+    /// <c>[Cards] DecisionOffset_&lt;board&gt;</c>, and a mount-relative ceiling therefore carries it
+    /// natively on all three axes — no <see cref="MountOffsetUp"/> correction, no cancellation to
+    /// undo (see the block in <see cref="Place"/>).</para>
+    ///
+    /// <para>CLAMPED AT THE BOARD'S LOWER EDGE (<see cref="PromptReferenceUp"/>: the grab-bar bottom
+    /// minus <see cref="BarClearanceMeters"/>). Dialling the offset far enough up would otherwise
+    /// push the area into the tray's brass grab bar and then over the board itself. The clamp is
+    /// applied HERE, in the one place all three surfaces read, precisely so that hitting it moves
+    /// them together — a limit that stopped the row while the bars kept climbing would re-open the
+    /// very disagreement this method exists to close.</para>
+    /// </summary>
+    internal static float AreaCeilingUp(Transform mount, Vector3 up, float trayScale,
+                                        out string note)
+    {
+        float zoneTop = PlayTray.DecisionMountMaxHeight * 0.5f * trayScale;
+        float barLimit = PromptReferenceUp(mount, up, trayScale, out string barNote);
+        if (zoneTop <= barLimit)
+        {
+            note = "drawer-zone top";
+            return zoneTop;
+        }
+        note = $"CLAMPED to the {barNote} — the offset would have pushed the area into the board";
+        return barLimit;
+    }
+
+    /// <summary>Overload for call sites that do not log the note.</summary>
+    internal static float AreaCeilingUp(Transform mount, Vector3 up, float trayScale) =>
+        AreaCeilingUp(mount, up, trayScale, out _);
+
+    /// <summary>
     /// The up-axis displacement <c>[Cards] DecisionOffset_&lt;board&gt;</c> has already applied to
     /// <paramref name="mount"/> itself (world metres along <paramref name="up"/>) — literally the
     /// authored offset carried into world space by the mount's own parent, so it is exact under any
     /// board scale and cannot drift from what <c>PlayTray.SetDecisionLayout</c> wrote.
     ///
-    /// <para>WHY IT IS ADDED BACK rather than simply left to the mount: the whole decision area is
-    /// placed relative to the mount, so the mount's displacement already carries the row, the prompt
-    /// text and the use-bars stack sideways and proud (X/Z). The UP axis is the one direction the
-    /// mount cannot carry them, because the seat is solved against the PROMPT REFERENCE measured
-    /// FROM the mount (<see cref="PromptReferenceUp"/>) — the mount's own Y cancels out of
-    /// <c>mount.position + up * d</c> and the Y dial was a no-op. Re-adding this term restores the
-    /// symmetry: Y now displaces the area exactly as X and Z do, as one rigid body, and the
-    /// row-relative geometry (the gap, the published row edges) is untouched by it.</para>
+    /// <para>SINCE ModBuild 91 IT IS A DIAGNOSTIC, NOT A TERM OF THE SOLVE. ModBuild 90 added it back
+    /// into the seat because that seat was measured FROM the mount against the prompt reference, so
+    /// the mount's own Y cancelled out of <c>mount.position + up * d</c> and the Y dial was a no-op.
+    /// The area now hangs from <see cref="AreaCeilingUp"/>, which is mount-relative by construction,
+    /// so Y rides along exactly as X and Z always did and there is nothing left to correct. It stays
+    /// because the LOG has to be able to state how far the player's dial has moved the area — the one
+    /// question the mount-relative numbers deliberately cannot answer.</para>
     ///
     /// <para>The shipped default is 0 on every board: the 157 mm this dial used to carry lives in
     /// <c>PlayTray.DecisionMountBase</c> since the dial went live, so honouring it moved nothing.
@@ -888,22 +1035,6 @@ internal sealed class DecisionDockSurface : WorldSurface
         Transform? parent = mount.parent; // Unity-null aware
         return Vector3.Dot(parent != null ? parent.TransformVector(off) : off, up);
     }
-
-    /// <summary>
-    /// The seat a docked row TAKES — or WOULD take — at this mount: the block top,
-    /// <see cref="GapBoardMeters"/> below the prompt reference and displaced by
-    /// <see cref="MountOffsetUp"/>, in world metres above the mount along its up axis.
-    /// <see cref="Place"/> solves the host position from exactly this, so the measured
-    /// <see cref="RowTopUpMeters"/> is equal to it while a row is docked and measured.
-    ///
-    /// <para>It exists for the ONE case the prompt text can be up while no measured row is:
-    /// the tip window opens on a prompt whose row has not been fitted yet (or a prompt with no
-    /// pressable widgets at all). The text then lands where the buttons are ABOUT to land instead
-    /// of at a seat of its own invention — same formula, same references, no second opinion.</para>
-    /// </summary>
-    internal static float RowSeatTopUp(Transform mount, float trayScale) =>
-        PromptReferenceUp(mount, mount.up, trayScale, out _) - GapBoardMeters * trayScale
-        + MountOffsetUp(mount, mount.up);
 
     /// <summary>
     /// Sample the docked row for the multiplayer wire: the PRESSABLE-widget labels (record 12, see
@@ -2046,6 +2177,8 @@ internal sealed class DecisionDockSurface : WorldSurface
         _wantSince = 0f;
         _targetWarned = false;
         _hmdFloatPlaced = false;
+        _textWaitSince = 0f;
+        _textWaitWarned = false;
         _placementLogged = false;
         _lastLoggedGapPx = float.NaN;
         RowBottomUpMeters = null;

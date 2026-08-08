@@ -977,6 +977,8 @@ internal sealed class UseBarsSurface
         // breathe with them (same jump family as the fit hold, see the class doc). No
         // feedback loop: the row measures only its own subtree, never the bar hosts.
         float cursor;
+        string ceilNote = "hung below the docked decision row";
+        bool atCeiling = false;
         if (DecisionDockSurface.RowDocked)
         {
             float? rowBottom = DecisionDockSurface.RowBottomUpMeters;
@@ -998,9 +1000,19 @@ internal sealed class UseBarsSurface
         }
         else
         {
+            // NO DECISION ROW ⇒ THE BARS *ARE* THE TOP OF THE DECISION AREA, so they take its
+            // CEILING (ModBuild 91). That is still the drawer zone's own top edge — the height the
+            // bars have always started at here — but it is now read from the ONE place all three
+            // decision surfaces read it (DecisionDockSurface.AreaCeilingUp), so the prompt text and
+            // the widget row start at exactly the same height when they exist. This is the case the
+            // user tuned: the initiative-boots ± bar is use bars ALONE, and its top is the topmost
+            // pixel of the whole display for that prompt.
             _rowBottomValid = false;
-            cursor = PlayTray.DecisionMountMaxHeight * 0.5f * trayScale;
+            cursor = DecisionDockSurface.AreaCeilingUp(mount, up, trayScale, out ceilNote);
+            atCeiling = true;
         }
+
+        LogStackSeat(mount, up, trayScale, cursor, ceilNote, atCeiling, docked);
 
         int index = 0;
         for (int i = 0; i < _docks.Length; i++)
@@ -1035,6 +1047,40 @@ internal sealed class UseBarsSurface
             _docks[i].LogDockedRect(mount);
         }
     }
+
+    /// <summary>
+    /// ONE line, change-gated on the rounded millimetres, stating where this stack's TOP sits and
+    /// what put it there — the decision area's CEILING when no prompt row is up (the
+    /// initiative-boots case: the bars are then the topmost element of the whole decision display),
+    /// or the docked row's measured bottom edge when one is. It shares the <c>DECISION DOCK SEAT:</c>
+    /// prefix with the row's and the prompt text's lines ON PURPOSE: one grep over a hardware log
+    /// then shows the ceiling reported by every prompt that came up, and they must all be equal
+    /// (user, ModBuild 90: "der höchste Punkt bei den Initiativ-Schuhen [soll] auch der höchste
+    /// Punkt [sein], an dem der Text angezeigt wird").
+    /// </summary>
+    private void LogStackSeat(Transform mount, Vector3 up, float trayScale, float cursor,
+                              string note, bool atCeiling, int docked)
+    {
+        float ceilingUp = DecisionDockSurface.AreaCeilingUp(mount, up, trayScale);
+        string key = $"{ceilingUp * 1000f:F0}|{cursor * 1000f:F0}|{atCeiling}|{docked}";
+        if (_loggedStackSeat == key)
+            return;
+        _loggedStackSeat = key;
+        VRLog.Info("WorldUI", $"DECISION DOCK SEAT: the decision AREA's CEILING is " +
+                              $"{ceilingUp * 1000f:F0} mm above the decision mount; the use-bar drawer " +
+                              $"({docked} visible bar(s)) starts at {cursor * 1000f:F0} mm — " +
+                              (atCeiling
+                                  ? "AT the ceiling, because no prompt row is docked, so these bars ARE the " +
+                                    "topmost element of the decision display (this is the initiative-boots " +
+                                    "± case)"
+                                  : note + ", i.e. below the prompt text and the buttons that sit between " +
+                                    "them and the ceiling") +
+                              ". The ceiling is prompt-independent: it must read the same here as in the " +
+                              "row's and the prompt text's own DECISION DOCK SEAT lines.");
+    }
+
+    /// <summary>Change-dedup for <see cref="LogStackSeat"/> (never per frame — a settled stack logs once).</summary>
+    private string? _loggedStackSeat;
 
     /// <summary>
     /// No usable mount (Cards module off, tray hidden/destroyed): float the whole stack
