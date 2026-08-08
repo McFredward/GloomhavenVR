@@ -17,9 +17,18 @@ namespace GloomhavenVR.Net;
 /// their board). This is that missing widget, driven by the additive 2-byte pile-browse block
 /// (<see cref="NetProtocol.FlagPileBrowse"/>).
 ///
-/// ANTI-CHEAT / bandwidth: BACKS only, exactly like <see cref="RemoteHandFan"/>'s default and
-/// <see cref="RemoteItemFan"/>. The wire carries a pile KIND, a COUNT and a placement — never a card
-/// identity, never a transform stream.
+/// ANTI-CHEAT / bandwidth: the WIRE carries a pile KIND, a COUNT and a placement — never a card
+/// identity, never a transform stream, and that is unchanged.
+///
+/// CARD FRONTS (user ruling 2026-08-08, "Die Oberseiten der Karten des remote Spielers soll auch
+/// überall sichtbar sein … NUR in der Auswahlphase sieht man überall nur die Rückseiten"): this arc
+/// used to be card BACKS UNCONDITIONALLY, which made the secrecy rule a PLACE rule and put it in
+/// direct conflict with the phase rule the round-card slots and the hand fan already obeyed. The
+/// slabs now carry real card faces whenever <see cref="RevealGate.ShowRoundCardFronts"/> is open for
+/// the displayed actor, drawn by <see cref="RemotePileFronts"/> from the peer's OWN host-replicated
+/// piles (<c>CCharacterClass.Discarded/Lost/PermanentlyLostAbilityCards</c> for discard/burnt,
+/// <c>Inventory.AllItems</c> for the items browse). Zero new wire bytes: the identities were already
+/// on this client, they were simply never drawn.
 ///
 /// WHY THE ANIMATIONS ARE DRIVEN BY THE RECEIVER'S STATE TRANSITION, and not by the card-FX event
 /// channel: the receiver already knows everything the two animations need. It knows where the
@@ -49,9 +58,11 @@ namespace GloomhavenVR.Net;
 /// NEW stack and re-emerges them. This mirrors that — a kind change restarts the emerge from the new
 /// stack.
 /// </summary>
-/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes: the extras trailing block (byte A kind +
-/// placement bits, byte B count) behind <c>FlagPileBrowse</c>. Card IDENTITY is DELIBERATELY-NOT
-/// transmitted — backs only. The emerge/collapse ANIMATIONS are DERIVED locally from the same
+/// <remarks>CLASSIFICATION: VR-ONLY (the fan's existence, size and placement) + PER-ACTOR MODEL (its
+/// card faces) — costs wire bytes: the extras trailing block (byte A kind + placement bits, byte B
+/// count) behind <c>FlagPileBrowse</c>. Card IDENTITY is DELIBERATELY-NOT transmitted; the FACES are
+/// resolved locally off the host-replicated model behind <see cref="RevealGate"/>
+/// (<see cref="RemotePileFronts"/>). The emerge/collapse ANIMATIONS are DERIVED locally from the same
 /// constants the sender uses, so no per-frame transform rides the wire. See INVARIANTS-Net-Rig.md
 /// "Net — content classification".</remarks>
 internal sealed class RemoteBrowserFan
@@ -94,6 +105,12 @@ internal sealed class RemoteBrowserFan
 
     private GameObject? _root;
     private readonly List<GameObject> _cards = new(MaxCards);
+
+    /// <summary>The FRONT layer over those slabs (user ruling 2026-08-08) — one overlay per slab,
+    /// gated on <see cref="RevealGate.ShowRoundCardFronts"/> and fed from the peer's own replicated
+    /// pile. Owned here, destroyed with the fan.</summary>
+    private readonly RemotePileFronts _fronts;
+
     private Mesh? _mesh;
     private int _builtCount = -1;
 
@@ -123,7 +140,16 @@ internal sealed class RemoteBrowserFan
     public RemoteBrowserFan(RemoteAvatar owner)
     {
         _owner = owner;
+        _fronts = new RemotePileFronts(owner, "pile browse fan");
     }
+
+    /// <summary>Map the wire's pile-kind byte onto the model source the front layer reads.</summary>
+    private static RemotePileFronts.Content ContentFor(int kind) => kind switch
+    {
+        NetProtocol.PileBrowseKindBurnt => RemotePileFronts.Content.Burnt,
+        NetProtocol.PileBrowseKindItems => RemotePileFronts.Content.Items,
+        _ => RemotePileFronts.Content.Discard,
+    };
 
     // ------------------------------------------------------------------ per frame --
 
@@ -157,7 +183,7 @@ internal sealed class RemoteBrowserFan
                 _open = false;
                 _shownKind = -1;
                 _collapseKind = -1;
-                Hide(); // also clears the emerge/collapse timers
+                Hide(); // also clears the emerge/collapse timers AND every cloned front
             }
             return;
         }
@@ -206,6 +232,11 @@ internal sealed class RemoteBrowserFan
         }
 
         Layout(count, dt);
+
+        // THE FRONT LAYER (user ruling 2026-08-08). Runs after the layout so a face is only ever
+        // asked for on a slab that already sits where it belongs. The gate inside is evaluated every
+        // frame; the model resolve behind it rides the board-content cadence — see RemotePileFronts.
+        _fronts.Tick(ContentFor(_shownKind));
     }
 
     // ------------------------------------------------------------------ open / emerge --
@@ -267,7 +298,9 @@ internal sealed class RemoteBrowserFan
         VRLog.Info("Net", $"Remote pile browse [player {_owner.PlayerId}]: {KindName(kind)} fan OPEN with " +
                           $"{count} card(s), {(_owner.PileBrowseHeld ? $"held in their {(_owner.PileBrowseLeftHand ? "LEFT" : "RIGHT")} hand" : "above their board")} " +
                           $"— cards emerge {(seeded ? "out of that pile stack" : "from the fan centre (no board pose yet)")}" +
-                          $"{(switching ? " (pile switch — matches the local re-emerge, no collapse)" : string.Empty)}. Backs only.");
+                          $"{(switching ? " (pile switch — matches the local re-emerge, no collapse)" : string.Empty)}. " +
+                          "Whether the slabs show FRONTS or BACKS is stated separately by the " +
+                          "\"Remote pile browse fan faces\" line (RevealGate decides, per phase).");
     }
 
     /// <summary>Arc the slabs into the browse layout, easing out of the emerge seed on the same
@@ -591,6 +624,10 @@ internal sealed class RemoteBrowserFan
         }
         _builtCount = count;
         VRLayers.Apply(_root!);
+        // Re-bind the front overlays onto the NEW slabs (the old ones died with their hosts above).
+        // The card size handed over is the UNSCALED slab size: the overlay is a child of the slab, so
+        // it inherits CardScale and the pop enlargement for free, exactly like the slab's own mesh.
+        _fronts.Rebuild(_cards, CardW, CardH);
     }
 
     private void Hide()
@@ -598,12 +635,14 @@ internal sealed class RemoteBrowserFan
         _emergeElapsed = -1f;
         _collapseElapsed = -1f;
         _collapseFrom.Clear();
+        _fronts.HideAll(); // a hidden fan keeps no game-widget clones alive
         if (_root != null && _root.activeSelf)
             _root.SetActive(false);
     }
 
     public void Destroy()
     {
+        _fronts.Destroy();
         _cards.Clear();
         _collapseFrom.Clear();
         _builtCount = -1;

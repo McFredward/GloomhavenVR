@@ -985,7 +985,22 @@ internal sealed class RemoteAvatar
     /// <see cref="NetProtocol.FlagHeldCard"/> field — a single card physically held in a peer's
     /// hand, e.g. plucked from their fan or a pile viewer). Built lazily on first use, eased
     /// exactly like the other parts, hidden while the sender holds nothing. Shows a BACK only:
-    /// no card identity rides the wire (same anti-cheat stance as <see cref="RemoteHandFan"/>).
+    /// no card identity rides the wire.
+    ///
+    /// THE ONE CARD SURFACE THE 2026-08-08 RULING COULD NOT REACH, and why that is a data fact rather
+    /// than a decision. The ruling ("Die Oberseiten der Karten des remote Spielers soll auch überall
+    /// sichtbar sein … NUR in der Auswahlphase … nur die Rückseiten") turned every other remote card
+    /// surface face-up outside the secret window, and every one of them could be turned face-up for
+    /// FREE because the identities were already on this client in the host-replicated model: the hand
+    /// fan reads <c>CCharacterClass.HandAbilityCards</c>, the browse arcs read the discard/lost lists,
+    /// the item fan reads <c>Inventory.AllItems</c>, the board slots read <c>RoundAbilityCards</c>. A
+    /// HELD card has no such list. "Which of my cards is currently pinched between my fingers" is a VR
+    /// fact that exists nowhere in the game model — the model still has the card in whatever pile it
+    /// came from — so the only way to name it on a receiver would be to put a card id in a packet,
+    /// which is the one thing the wire rule forbids outright. The slab therefore stays a back, and the
+    /// card becomes readable again the instant its owner puts it down. <see cref="RemoteCardFx"/>'s
+    /// in-flight card slab is backs-only for exactly the same reason and would be fixed by exactly the
+    /// same (forbidden) field.
     ///
     /// ORIENTATION (multiplayer half of user report 2): a held card is not rigid in the owner's
     /// hand — <see cref="Cards.VRCard"/>.TickHeldPose re-billboards it to the OWNER's head every

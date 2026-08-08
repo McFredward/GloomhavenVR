@@ -460,9 +460,11 @@ internal sealed class WorldTooltips
                     _wireLoggedSuppressed = true;
                     VRLog.Info("WorldUI",
                         $"Board tooltip NOT sent to peers (identity gate): hovered " +
-                        $"'{(hovered != null ? hovered.name : "?")}' resolves to a card whose face " +
-                        "peers cannot see (hand/item/pile/held card, secret selection phase, or " +
-                        "ambiguous ownership) — suppression is the designed failure direction.");
+                        $"'{(hovered != null ? hovered.name : "?")}' resolves to a CARD, and " +
+                        "Net.RevealGate.PeersSeeOurCardFronts is false — i.e. the game's own secret " +
+                        "SelectAbilityCardsOrLongRest window, the ONE phase in which peers see nothing " +
+                        "but our card backs (user ruling 2026-08-08). Suppression is the designed " +
+                        "failure direction.");
                 }
             }
         }
@@ -485,49 +487,62 @@ internal sealed class WorldTooltips
     /// THE CARD-IDENTITY GATE (binding wire rule: no card identity on the wire, ever; reveals
     /// only through <c>Net.RevealGate</c>). A tooltip is TEXT ABOUT the hovered thing, and for a
     /// card that text names the card as surely as its face does — so the tooltip may only ride
-    /// the wire when the hovered thing is ALREADY public to peers:
+    /// the wire when the hovered thing is ALREADY public to peers.
+    ///
+    /// ─── THE PLACE TEST IS RETIRED (user ruling, 2026-08-08) ───────────────────────────────────
+    /// "Die Oberseiten der Karten des remote Spielers soll auch überall sichtbar sein, sei es Karten
+    /// in der Hand, der Hand-Karten-Pile oder einer der Piles aus dem Board (Items/Abgeworfen/
+    /// Verbrannt). … NUR in der Auswahlphase sieht man überall nur die Rückseiten von remote
+    /// spielern, in allen anderen Phasen, ist alles sichtbar."
+    ///
+    /// <para>This method used to ask WHERE the card was: public only while parked in a round-card
+    /// SLOT, "the one place peers draw our cards face-up", and never for the hand fan, item fan, pile
+    /// browser or a held card. That was a true statement about the renderers of the day and it is now
+    /// false — <c>Net.RemoteHandFan</c>, <c>Net.RemoteBrowserFan</c> and <c>Net.RemoteItemFan</c> all
+    /// draw FRONTS behind the same <c>Net.RevealGate</c> the slots use. Keeping the place test would
+    /// have left the two halves of one feature contradicting each other: a peer reading our discard
+    /// pile card-for-card while our tooltip about that very card was withheld as a secret.</para>
+    ///
+    /// <para>So the question is no longer a place, it is the PHASE — asked of the one class that owns
+    /// it, <c>Net.RevealGate.PeersSeeOurCardFronts</c>, which is <c>ShowRoundCardFronts</c> read from
+    /// a peer's seat. Card or not, the tooltip rides the wire exactly when a peer can see the fronts
+    /// of our cards at all.</para>
     ///
     /// <list type="bullet">
     /// <item><description>No anchor (the map's cursor-follow hex tooltips) or board furniture
     /// (keycaps, decision buttons, piles, element board): public — every client renders these
-    /// from replicated state.</description></item>
-    /// <item><description>A card (<see cref="VRCard"/> ancestor of the anchor — the card face
-    /// raycaster reparents the game's 2D card under the VR card, so the ancestry is the
-    /// ownership): public ONLY while it is parked in a round-card SLOT
-    /// (<see cref="PlayTray.IsRoundSlotCard"/> — the one place peers draw our cards face-up,
-    /// via the board-UI occupancy record + <c>Net.RemoteBoardCard</c>) AND fronts are shown to
-    /// peers, i.e. NOT during the online secret-selection phase (the inverse of the
-    /// <c>Net.RevealGate</c> hide rule, evaluated from the peers' perspective on OUR actor).
-    /// Hand-fan, item-fan, pile-browser and held cards are backs-only on every peer forever —
-    /// never public.</description></item>
-    /// <item><description>A card face with no resolvable <see cref="VRCard"/> (a
-    /// <c>FullAbilityCard</c> ancestor alone): AMBIGUOUS — suppressed. The failure direction is
-    /// always suppression: a missing remote tooltip is cosmetic, a leaked identity breaks the
-    /// game's hidden-information rule.</description></item>
+    /// from replicated state, in every phase.</description></item>
+    /// <item><description>Anything that resolves to a CARD — a <see cref="VRCard"/> ancestor of the
+    /// anchor (the card-face raycaster reparents the game's 2D card under the VR card, so the
+    /// ancestry is the ownership), or a bare <c>FullAbilityCard</c> ancestor whose VR host cannot be
+    /// resolved: public exactly while <c>Net.RevealGate.PeersSeeOurCardFronts</c> is true. The bare
+    /// card face no longer needs its own "ambiguous ownership ⇒ suppress" clause, because the answer
+    /// no longer depends on WHOSE card it is or where it lies: during the secret window nobody's
+    /// card fronts are shown to anybody, and outside it everybody's are.</description></item>
     /// </list>
+    ///
+    /// <para>The failure direction is unchanged and still suppression: a missing remote tooltip is
+    /// cosmetic, a leaked identity breaks the game's hidden-information rule. The one surface a peer
+    /// still renders as a BACK outside the secret window is the transient HELD-card slab
+    /// (<c>Net.RemoteAvatar</c>'s card in flight), whose identity genuinely is not derivable on a
+    /// receiver from anything but a packet — and it is not a secret either: vanilla lets any player
+    /// open any other player's full card overview from the initiative track
+    /// (<c>InitiativeTrackPlayerAvatar.OnClick → CardsHandManager.ToggleViewAllCards</c>), so outside
+    /// the selection window there is nothing about a card identity left to protect.</para>
     /// </summary>
     private static bool ContentPublicToPeers(Transform? hovered)
     {
         if (hovered == null)
             return true; // cursor-anchored world tooltip (hex/map info — on every client's screen)
 
-        VRCard? card = hovered.GetComponentInParent<VRCard>();
-        if (card == null)
-        {
-            // A game card face whose VR host we cannot resolve is ambiguous ownership → suppress.
-            if (hovered.GetComponentInParent<FullAbilityCard>() != null)
-                return false;
+        bool isCard = hovered.GetComponentInParent<VRCard>() != null
+                      || hovered.GetComponentInParent<FullAbilityCard>() != null;
+        if (!isCard)
             return true; // board furniture / docked buttons — always public
-        }
 
-        PlayTray? tray = PlayTray.Current;
-        if (tray == null || !tray.IsRoundSlotCard(card))
-            return false; // hand fan / item fan / pile browser / held: peers see backs only
-
-        // A slot card is public exactly when peers render its FRONT: everywhere except the
-        // online in-scenario secret-selection phase (Net.RevealGate's rule, peers' perspective).
-        return !(FFSNetwork.IsOnline && Net.RevealGate.InScenario
-                 && Net.RevealGate.IsSecretSelectionPhase);
+        // ONE predicate, owned by Net.RevealGate, so "what a peer renders" and "what we may say about
+        // it" can never drift apart again.
+        return Net.RevealGate.PeersSeeOurCardFronts;
     }
 
     /// <summary>

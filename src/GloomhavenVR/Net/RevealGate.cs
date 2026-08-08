@@ -63,6 +63,32 @@ internal static class RevealGate
           && !actor.IsUnderMyControl
           && PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest);
 
+    /// <summary>
+    /// THE SAME RULE, FROM THE OTHER END OF THE WIRE: do our PEERS currently see the fronts of OUR
+    /// cards? It is <see cref="ShowRoundCardFronts"/> evaluated on our own actor from a peer's seat,
+    /// where <c>!actor.IsUnderMyControl</c> is true by construction (every one of our characters is
+    /// "somebody else's" to them) and therefore folds out — leaving the two terms a remote client can
+    /// still check for itself: online, in a scenario, in the secret selection window.
+    ///
+    /// <para>WHY IT EXISTS AS A NAMED PREDICATE RATHER THAN AN INLINE EXPRESSION. It is the gate on
+    /// what the mod may SAY about our own cards over the side channel — today the board tooltip's text
+    /// (<c>WorldUI.WorldTooltips.ContentPublicToPeers</c>), because a tooltip names the card as surely
+    /// as the card's face does. That decision must not be able to drift away from what the peers are
+    /// actually RENDERING, and it did: the tooltip used to be gated on a PLACE (only a card parked in
+    /// a round-card slot could be described), because at the time the round slots were the only local
+    /// cards whose faces peers ever drew. The user ruling of 2026-08-08 retired that — a peer's hand
+    /// fan, their pile-browse arcs and their item fan all show FRONTS now, and the only thing that
+    /// hides anything is the PHASE. With one predicate, "what a peer can see" and "what we may say"
+    /// are the same sentence in the same class.</para>
+    ///
+    /// <para>Note it is not a secrecy loosening either: vanilla itself lets any player open any other
+    /// player's complete card overview from the initiative track
+    /// (<c>InitiativeTrackPlayerAvatar.OnClick → CardsHandManager.ToggleViewAllCards</c>), so outside
+    /// the selection window a card identity is public information in the base game.</para>
+    /// </summary>
+    public static bool PeersSeeOurCardFronts =>
+        !(FFSNetwork.IsOnline && InScenario && IsSecretSelectionPhase);
+
     // ============================================================================================
     //  PER-CHARACTER GOALS — the SECOND secret this game has, and the one the free character focus
     //  put within reach. Researched from the game's OWN code (2026-08-08); the findings and their
