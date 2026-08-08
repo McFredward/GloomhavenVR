@@ -89,6 +89,18 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private readonly HashSet<VRCard> _flyingToPile = new();
     private const float FlyToPileSeconds = 0.4f;
 
+    // FLIGHT TRIGGER IS THE MODEL, NOT THE DOCK (user report 2026-08-08: "Wenn ich in der
+    // Aktionsphase von dem aktiven Character zu einem anderen Character wechsel ... wird die
+    // Animation abgespielt dass beide Karten des aktiven Characters in den 'abgeworfen' pile gehen
+    // - das ist definitiv falsch"). _lastHalfCards only says the dock's CONTENT changed, and a
+    // focus switch changes the content without moving a single card. The verdict a docked card that
+    // left every zone gets is therefore read from the OWNER's authoritative CCharacterClass lists
+    // (CardsDriver.RoundCardExitOf) and this dictionary remembers the last REFUSAL that was logged
+    // per widget, so a repeated switch stays one line per switch and a stuck state stays one line
+    // in total. The entry is dropped the moment the card docks again (CollectRoundCards), so the
+    // table can never hold more than the character's own cards.
+    private readonly Dictionary<AbilityCardUI, RoundCardExit> _loggedFlightRefusal = new(8);
+
     // Issue 1 (fly-to-pile "suddenly somewhere else" glitch): the last-known WORLD pose of every
     // adopted card while it was still visible in a zone, keyed by its game widget. When a card is
     // burned via damage its live VR card is often already parked (position lost) or recycled by the
