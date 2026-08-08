@@ -958,7 +958,12 @@ classification wrong produces either a desync-looking display bug or wasted wire
 1. Is it already identical on every client (game world state, host-replicated)? → **GLOBAL**:
    render it locally at the peer's synced board pose. **Zero wire.**
 2. Is it derivable from `CPlayerActor` / `CharacterClass` (host-replicated per actor)? →
-   **PER-ACTOR MODEL**: look it up from `NetPlayerActors.ActorFor(playerId)`. **Zero wire.**
+   **PER-ACTOR MODEL**: look it up from `RemoteBoardFocus.DisplayedActor(owner)`. **Zero wire.**
+   *(Not `NetPlayerActors.ActorFor(playerId)` directly any more: since ModBuild 84 a peer's board
+   is about the character that peer is **looking at** — extension record 22 used as a SELECTOR into
+   the replicated model — and falls back to their owned character when the focus is absent,
+   unresolvable, or suppressed by the secret card-selection window. `ActorFor` is now the fallback
+   inside that one resolver, not a call site of its own.)*
 3. Is it a *VR-only* fact that exists nowhere in the game model — a pose, a VR gesture, a
    cosmetic the user picked in the VR settings? → **VR-ONLY**: it needs wire bytes.
 4. Would transmitting it leak information or cost more than it is worth? → **DELIBERATELY-NOT.**
@@ -973,11 +978,35 @@ to RENDER it at their pose."*
 | Objectives + quest header + progress bars | `RemoteObjectivesPanel` → `RemoteWidgetMirror` over `UIManager.MissionObjectiveContainer` | a live **CLONE** of the game's own container, driven per frame from the original. Fallback (container absent): the mod-drawn rows, from `ScenarioManager.CurrentScenarioState.WinObjectives/LoseObjectives` filtered by `MissionObjectiveContainer.InitialiseObjective`'s rule; text via `LocalizationObjectiveConveter.LocalizeText`; progress via `CObjective.GetObjectiveProgress` |
 | Element infusion strip | `RemoteElementStrip` (`Refresh`, `ColorFor`) | `ElementInfusionBoardManager.ElementColumn` |
 | Round number | `RemoteStatusReadouts` (`RoundText`) | `CardsGameApi.RoundNumber()` |
-| Initiative track — the whole widget (portraits, order, numbers, selection, reorder animation) | `RemoteInitiativeTrack` → `RemoteWidgetMirror` over `InitiativeTrack.Instance` | a live **CLONE** of the game's own track, driven per frame from the original. Fallback (track absent): the mod-drawn chip strip over `InitiativeTrack.actorsUI` in sibling order, then `ScenarioManager.Scenario.AllAliveActors` deduped by `CActor.Class` and sorted by initiative with unknowns last |
+| Initiative track — the whole widget (portraits, order, numbers, reorder animation) | `RemoteInitiativeTrack` → `RemoteWidgetMirror` over `InitiativeTrack.Instance` | a live **CLONE** of the game's own track, driven per frame from the original. Fallback (track absent): the mod-drawn chip strip over `InitiativeTrack.actorsUI` in sibling order, then `ScenarioManager.Scenario.AllAliveActors` deduped by `CActor.Class` and sorted by initiative with unknowns last |
+| ⚠ **NOT global: the track's HOVER and its SELECTION frame** | `RemoteInitiativeTrack.ApplyHoverOverrides` (record 16) and `ApplySelectionOverride` (record 22) | Both are per-PLAYER state that the clone copies from the LOCAL widget, so both must be stripped and re-decided from the peer's own synced value — otherwise MY mouseover / MY selected portrait appears on every peer's board. Vanilla's `InitiativeTrackActorAvatar.selectionObject` is client-local and never networked; record 22's `LookingAt` id **is** "which character this player has selected", so the game's selection visual and the mod's focus ring are two renderings of one synced fact. Enemy/object selections are not on the wire ⇒ no frame rather than mine |
 | Panel SEATS (where every dock sits on a peer's board) | `RemoteBoardLayout` | `PlayTray.{Objectives,Element,Pile,Active}MountBase` / `ReadoutBase` + the authored per-board offset/scale from `CardsConfig.BoardDefaults`, keyed by the peer's **synced** board style |
 
 **PER-ACTOR MODEL — read off the host-replicated `CPlayerActor` / `CharacterClass`, ZERO wire.**
-Reached via `NetPlayerActors.ActorFor(playerId)`.
+Reached via `RemoteBoardFocus.DisplayedActor(owner)` — *the character that peer is looking at*,
+falling back to `NetPlayerActors.ActorFor(playerId)`.
+
+> **PER-CHARACTER SECRETS (researched from the game's own code, 2026-08-08).** Two things a
+> character carries are NOT free to render just because the model holds them, and the rule is not
+> the one board-game folklore predicts:
+> * **BATTLE GOAL** (`UIScenarioPlayerBattleGoal` / `UIBattleGoalProgress`) — hard secret online.
+>   `ActorStatPanel.cs:566` and `BattleGoalContainer.cs:44/73/81` both gate on
+>   `!FFSNetwork.IsOnline || actor.IsUnderMyControl`. The data itself is broadcast in the clear
+>   (`BattleGoalService.cs:31-43`), so the mod must re-implement the *render* rule, not assume the
+>   data is unreachable. → `RevealGate.ShowBattleGoal`.
+> * **PERSONAL QUEST** (`UIPersonalQuestProgress`) — **public by default**; secret only when its
+>   owner ticked conceal. `ActorStatPanel.cs:557`:
+>   `pq.IsConcealed && FFSNetwork.IsOnline && !actor.IsUnderMyControl`; `IsConcealed` resets to
+>   `false` (`CPersonalQuestState.cs:271`). → `RevealGate.ShowPersonalQuest`.
+> * **SCENARIO OBJECTIVES + the quest header** are party-wide and PUBLIC — no ownership test exists
+>   in `MissionObjectiveContainer` at all, and `CObjective.IsHidden` is a scenario-design flag the
+>   game desync-checks across clients (`CObjective.cs:573-588`), i.e. deliberately identical for
+>   everybody. `RemoteObjectivesPanel` stays GLOBAL.
+>
+> A mirrored board must show **what its owner sees, but never more than the VIEWER is allowed to
+> see**; where the two conflict, secrecy wins. `RemoteWidgetMirror.SuppressSecretBranches` enforces
+> that structurally: any cloned branch carrying one of the two components above is killed at build
+> time and can never be re-activated by the drive.
 
 | Content | Renderer | Gate |
 |---|---|---|
