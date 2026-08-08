@@ -86,8 +86,9 @@ namespace GloomhavenVR.Board;
 ///   that could miss a feature.</item>
 /// <item><b>No "Versprengung" is expressible.</b> The output is one vertex per bucket walked once
 ///   around the hull — exactly ONE closed polygon. There is no second ring and no free vertex to
-///   shed. Verified offline on all three shipped assets: zero self-intersections in the contour and
-///   in both offset rings of the stroke.</item>
+///   shed. Re-verified offline on all three shipped assets AFTER the filtering below: zero
+///   self-intersections in the contour (635 / 658 / 555 vertices) and zero in both offset rings the
+///   stroke is built from, at the shipped −1 mm bite and +2 mm outer radius.</item>
 /// <item><b>It degrades to the hull, not to garbage.</b> A bucket with no evidence is interpolated
 ///   from its populated neighbours; a hull with no evidence at all, or a degenerate one, skips the
 ///   trace entirely. The log states which contour was used and the mean and max sag it applied.</item>
