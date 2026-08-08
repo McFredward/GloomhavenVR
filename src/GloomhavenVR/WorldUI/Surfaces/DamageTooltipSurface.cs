@@ -441,8 +441,8 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// (the grab-bar bottom) in a solve the mount's own position cancels out of
     /// (DecisionDockSurface.Place, the "TEXT→BUTTON DISTANCE" block). Two seats, two anchors, one
     /// dial moving only one of them: <c>[Cards] DecisionOffset_&lt;board&gt;.y</c> slid the TEXT down
-    /// the board and left the buttons pinned under the bar — and its shipped default is −0.157,
-    /// i.e. the drift is in every install.
+    /// the board and left the buttons pinned under the bar — and it shipped at −0.157 on every
+    /// board, i.e. the drift was in every install.
     ///
     /// NOW: the seat comes FROM the row's placed geometry —
     /// <see cref="DecisionDockSurface.RowTopUpMeters"/>, the row's own measured top edge, the same
@@ -453,6 +453,14 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// reference — the board's lower edge. Nothing is recomputed here that the row already
     /// computed: whatever moves the row (its offset, DecisionScale, the gap, the board) moves this
     /// text by the same amount in the same frame, because it IS the row's number.
+    ///
+    /// <para>SINCE ModBuild 90 that includes the offset's Y (user: "Wenn ich den ganzen
+    /// Entscheidungsbereich nach unten verschiebe mit dem Offset, dann soll der Text … auch
+    /// entsprechend mit nach unten verschoben werden"). The Y component used to cancel out of the
+    /// row's own solve, so coupling this text to the row made it a no-op for BOTH halves;
+    /// <see cref="DecisionDockSurface.MountOffsetUp"/> now feeds it back into that solve and the
+    /// whole area — mount, row, this line, the use bars — travels together. Nothing changes here:
+    /// this seat is still one gap above the row's top edge, which is the point.</para>
     ///
     /// ROOT CAUSE of the ModBuild-46 regression this reverts ("Der Text der
     /// Entscheidungsknoepfe ... ist ploetzlich Teil der Tooltip-Section"): commit 6cfab0f
@@ -516,7 +524,8 @@ internal sealed class DamageTooltipSurface : WorldSurface
         host.SetPositionAndRotation(mount.position + mount.up * seatUp, mount.rotation);
         host.localScale = Vector3.one * worldPerPx;
 
-        LogSeat(rowTopUp, seatUp + rect.yMin * worldPerPx, clearance, measured);
+        LogSeat(rowTopUp, seatUp + rect.yMin * worldPerPx, clearance, measured,
+                DecisionDockSurface.MountOffsetUp(mount, mount.up));
     }
 
     /// <summary>
@@ -525,10 +534,19 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// same up axis, so a hardware log shows the two halves of the decision area agreeing (or, if
     /// this ever regresses, disagreeing, in one grep). Never per frame: the values are static while
     /// a dock is settled, and the surface only lives while a prompt is open.
+    ///
+    /// <para>It also states the OFFSET actually applied and the seat it produced (ModBuild 90).
+    /// <c>[Cards] DecisionOffset_&lt;board&gt;.y</c> displaces the mount AND the block together, so
+    /// the mount-relative numbers above are deliberately blind to it — the proof that the dial is
+    /// live has to be read against something the offset does NOT move, and that is the prompt
+    /// reference (the grab-bar bottom, i.e. the board's lower edge): the block top sits the gap
+    /// MINUS the applied offset below it. Zero offset ⇒ exactly the gap ⇒ the shipped picture.</para>
     /// </summary>
-    private void LogSeat(float rowTopUp, float textBottomUp, float clearance, bool measured)
+    private void LogSeat(float rowTopUp, float textBottomUp, float clearance, bool measured,
+                         float offsetUp)
     {
-        string key = $"{rowTopUp * 1000f:F0}|{textBottomUp * 1000f:F0}|{clearance * 1000f:F0}|{measured}";
+        string key = $"{rowTopUp * 1000f:F0}|{textBottomUp * 1000f:F0}|{clearance * 1000f:F0}" +
+                     $"|{offsetUp * 1000f:F0}|{measured}";
         if (_loggedSeat == key)
             return;
         _loggedSeat = key;
@@ -541,9 +559,15 @@ internal sealed class DamageTooltipSurface : WorldSurface
                               $", and the prompt TEXT's bottom edge sits at {textBottomUp * 1000f:F0} mm, " +
                               $"a clearance of {clearance * 1000f:F0} mm = [Cards] " +
                               $"DecisionGap_{Cards.CardsConfig.CurrentBoard} × the dock scale. The text is " +
-                              "seated FROM the row, so every dial that moves the row (DecisionOffset X/Z, " +
+                              "seated FROM the row, so every dial that moves the row (DecisionOffset, " +
                               "DecisionScale, the gap itself) moves both by the same amount in the same " +
-                              "frame — text and buttons are one decision area.");
+                              "frame — text and buttons are one decision area. [Cards] " +
+                              $"DecisionOffset_{Cards.CardsConfig.CurrentBoard} applied " +
+                              $"{offsetUp * 1000f:F1} mm along that up axis to the area AS A WHOLE " +
+                              "(mount + row + this text + the use bars under it), which puts the block " +
+                              $"top {(clearance - offsetUp) * 1000f:F1} mm below the prompt reference " +
+                              "(the grab-bar bottom, which the offset does not move) = the gap minus the " +
+                              "offset. 0.0 mm applied ⇒ that distance IS the gap ⇒ the shipped seat.");
     }
 
     /// <summary>

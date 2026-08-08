@@ -232,7 +232,7 @@ internal sealed partial class PlayTray
             _followAnchor.localPosition = PinBase + offset;
     }
 
-    // WHY THE FIVE MOUNT BASES BELOW ARE `internal` AND NOT `private`
+    // WHY SOME OF THE MOUNT BASES BELOW ARE `internal` AND NOT `private`
     // ---------------------------------------------------------------
     // A remote player's control board (Net/RemoteBoardLayout) must dock ITS copies of these panels
     // where the OWNER's board docks them, and the only way to guarantee that without hand-tuning is
@@ -264,8 +264,24 @@ internal sealed partial class PlayTray
     /// <summary>Fixed base local position of the turn-flow ButtonCluster mount (under the slots).</summary>
     private static Vector3 ClusterMountBase => new(0f, ButtonClusterMountY, -0.006f);
 
-    /// <summary>Item C: fixed base local position of the shared DECISION DOCK mount (hangs below the board).</summary>
-    private static Vector3 DecisionMountBase => new(0f, -0.29f, -0.020f);
+    /// <summary>
+    /// Item C: fixed base local position of the shared DECISION DOCK mount (hangs below the board).
+    ///
+    /// <para>THE Y IS −0.447, NOT THE AUTHORED −0.290, AND THAT IS DELIBERATE (ModBuild 90). Every
+    /// shipped board carried <c>[Cards] DecisionOffset_&lt;board&gt;</c> = (0, −0.157, 0), so the
+    /// mount has always SAT at −0.447 — but the Y of that offset could not move the decision area
+    /// itself (the dock's up-axis solve cancelled the mount's Y out; see
+    /// <c>WorldUI.Surfaces.DecisionDockSurface.MountOffsetUp</c>). The moment that dial went live,
+    /// leaving the 157 mm inside it would have dropped the area 157 mm below the shipped picture on
+    /// first launch. So the shipped displacement moved DOWN here, into the base where it always
+    /// belonged, and the offset defaults to 0 on all three boards: same mount seat to the
+    /// micrometre, same area, and the dial now starts from "no displacement" and means it.</para>
+    ///
+    /// <para>INTERNAL for the same reason as the other bases (see the note above): a remote player's
+    /// board reads THIS expression — <c>Net.RemoteBoardFurniture.DecisionMount</c> aliases it — so
+    /// the mirrored drawer cannot drift from the local one through a hand-copied number.</para>
+    /// </summary>
+    internal static Vector3 DecisionMountBase => new(0f, -0.447f, -0.020f);
 
     /// <summary>
     /// Fixed base local position of the ITEM-USE clip-in slot (items rework, requirement 3):

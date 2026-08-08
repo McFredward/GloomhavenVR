@@ -223,6 +223,7 @@ internal static partial class Loc
             ["Cards/Board"] = Pair("Control board", "Kontrollbrett"),
             ["Cards/GrabButton"] = Pair("Grab button", "Greif-Taste"),
             ["Cards/BoardScaleDefault04Applied"] = Pair("Internal marker", "Interne Marke"),
+            ["Cards/DecisionOffsetYRebased"] = Pair("Internal marker", "Interne Marke"),
             // Fan behaviour & shape.
             ["Cards/FanCurveByFill"] = Pair("Fan: curve by hand size", "Fächer: Bogen je Anzahl"),
             ["Cards/FanMaxHandForCurve"] = Pair("Fan: full curve at N", "Fächer: Bogen voll ab N"),

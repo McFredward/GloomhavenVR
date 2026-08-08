@@ -899,6 +899,14 @@
 - **Breaks if:** anyone re-derives the text seat from the mount, or nulls the top edge on the focus hide.
 - **Confidence:** high
 
+### The decision OFFSET moves the whole area; the decision GAP spaces it. Never the other way round
+- **Where:** `DecisionDockSurface.MountOffsetUp` (fed into `Place`'s target and into `RowSeatTopUp`), `PlayTray.DecisionMountBase` (y −0.447), `Defaults.DecisionOffset_*` (y 0), the one-shot `[Cards] DecisionOffsetYRebased` migration, mirrored by `Net/RemoteBoardFurniture` (`promptRefY += decisionOff.y`)
+- **Rule:** `[Cards] DecisionOffset_<board>` displaces the decision area **as one rigid body** — buttons, prompt text and the use-slot bars, by the same millimetres, on all three axes. X/Z do it by moving the mount everything is placed relative to; Y needs `MountOffsetUp` re-added to the up-axis solve, because that solve is anchored to the grab bar and the mount's own Y cancels out of it. `[Cards] DecisionGap_<board>` remains the ONLY dial that changes a distance *inside* the area (text ↔ button top). Neither dial may ever acquire the other's job.
+- **Why:** the ModBuild-89 coupling made the text follow the row, which turned the Y dial from "moves the text only" into "moves nothing at all" — the user's sentence ("wenn ich den ganzen Entscheidungsbereich nach unten verschiebe … soll der Text mit") was still not true of the build. Making the dial live at its shipped −0.157 would have dropped the area 157 mm, so the displacement moved into the mount's base and the default became 0: identical geometry, live dial.
+- **Breaks if:** anyone "simplifies" `DecisionMountBase.y` back to −0.290 (the area drops 157 mm), restores −0.157 in `Defaults`, or scales the offset by `DecisionScale` (resizing the dock would then move it — the ruling the gap already answers).
+- **Proof in a log:** `DECISION DOCK SEAT:` states the applied offset and the block top *below the prompt reference* (= gap − offset), the one number the offset cannot move by moving the mount.
+- **Confidence:** high
+
 ### `PropInfoSurface` release hysteresis and churn warning
 - **Where:** `PropInfoSurface.ReleaseDelaySeconds` (0.3), `ChurnWindowSeconds` (2), `ChurnWarnCount` (5)
 - **Rule:** a re-show within the window cancels the pending release instead of re-converting; more than 5 conversions in 2 s logs a warning.

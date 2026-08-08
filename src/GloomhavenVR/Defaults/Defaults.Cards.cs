@@ -271,7 +271,17 @@ internal static partial class Defaults
     internal static readonly Vector3 ReadoutOffset_Oak = new Vector3(0.008f, -0.004f, -0.024f);       // => [Cards] ReadoutOffset_Oak
     internal static readonly Vector3 ReadoutOffset_Steel = new Vector3(-0.04f, 0.022f, -0.044f);      // => [Cards] ReadoutOffset_Steel
     internal static readonly Vector3 ReadoutOffset_Bronze = new Vector3(-0.04f, 0.022f, -0.004f);     // => [Cards] ReadoutOffset_Bronze
-    internal static readonly Vector3 DecisionOffset_Oak = new Vector3(1e-10f, -0.157f, 1e-10f);       // => [Cards] DecisionOffset_Oak
-    internal static readonly Vector3 DecisionOffset_Steel = new Vector3(0f, -0.157f, 0f);         // => [Cards] DecisionOffset_Steel
-    internal static readonly Vector3 DecisionOffset_Bronze = new Vector3(1e-10f, -0.157f, 0f);        // => [Cards] DecisionOffset_Bronze
+    // The Y of these three is 0 BY RE-BASING, not by never having been tuned (ModBuild 90): the
+    // shipped −0.157 moved to PlayTray.DecisionMountBase, where it always belonged, on the build
+    // that made this dial actually displace the decision area. Same seat, same picture; the dial
+    // now starts from "no displacement". CardsConfig.DecisionOffsetYRebased carries an existing
+    // config file across the same step. Do not "restore" the −0.157 — it would drop the whole
+    // area (row + prompt text + use bars) 157 mm below the shipped seat.
+    internal static readonly Vector3 DecisionOffset_Oak = new Vector3(1e-10f, 0f, 1e-10f);            // => [Cards] DecisionOffset_Oak
+    internal static readonly Vector3 DecisionOffset_Steel = new Vector3(0f, 0f, 0f);              // => [Cards] DecisionOffset_Steel
+    internal static readonly Vector3 DecisionOffset_Bronze = new Vector3(1e-10f, 0f, 0f);             // => [Cards] DecisionOffset_Bronze
+
+    /// <summary>One-shot marker for the DecisionOffset_*.y re-base above — a fresh install must
+    /// start false so the (no-op on a fresh file) migration runs once and stamps itself.</summary>
+    internal const bool DecisionOffsetYRebased = false;                                              // => [Cards] DecisionOffsetYRebased  (pinned: one-shot migration marker — a fresh install must start false)
 }

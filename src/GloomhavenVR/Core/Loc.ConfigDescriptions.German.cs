@@ -1237,11 +1237,20 @@ internal static partial class Loc
                 + "Dock-Skalierung von 0.7x). Startwert 1 (Oak).",
             ["Cards/DecisionOffset_*"] =
                 "Versatz, der zur lokalen Position der Aufhängung des gemeinsamen ENTSCHEIDUNGS-DOCKS ADDIERT "
-                + "wird (die Zeile mit Entscheidungs-/Bestätigungsabfragen, die unter dem Board hängt), "
-                + "board-lokale Meter. Startwert 0 (Oak).",
+                + "wird, board-lokale Meter — er verschiebt den GESAMTEN Entscheidungsbereich als einen Block: "
+                + "die Knöpfe, den Text darüber und die Benutzungs-Leisten darunter, alle um denselben Betrag. "
+                + "Y = hoch/runter (NEGATIV = weiter unter dem Board), X = seitlich, Z = nach vorne zum Spieler. "
+                + "Den Abstand INNERHALB des Bereichs ändert er nie — das macht allein DecisionGap. Startwert 0 "
+                + "auf jedem Board (die 157 mm, die hier früher standen, stecken jetzt in der festen Basis der "
+                + "Aufhängung, seit das Y wirklich wirkt).",
             ["Cards/DecisionScale_*"] =
                 "Größen-MULTIPLIKATOR des gemeinsamen ENTSCHEIDUNGS-DOCKS (seine angedockte Abfragezeile "
                 + "folgt in der Pose der lossyScale des Mounts). Startwert 1 (Oak).",
+            ["Cards/DecisionOffsetYRebased"] =
+                "Interne Einmal-Migrationsmarke: das Y von DecisionOffset_* wurde in dieser "
+                + "Konfigurationsdatei auf den Stand gebracht, ab dem dieser Regler den ganzen "
+                + "Entscheidungsbereich verschiebt (die früher hier stehenden 157 mm sind in die feste "
+                + "Basis der Aufhängung gewandert). Nicht bearbeiten.",
             ["Cards/BoardScaleDefault04Applied"] =
                 "Interne Einmal-Migrationsmarke: der Standardwert 0.4x für BoardScale (im Gespann mit dem "
                 + "Standard-Tischmaßstab 2.5x) wurde dieser Konfigurationsdatei angeboten. Nicht bearbeiten.",
