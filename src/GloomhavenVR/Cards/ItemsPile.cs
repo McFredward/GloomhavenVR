@@ -111,6 +111,41 @@ internal sealed class ItemsPile
     /// <summary>Drop-into-use capture radius (world metres at board scale 1; scaled by the slot's live scale).</summary>
     private const float UseSlotRadius = 0.13f;
 
+    /// <summary>Inner-plate factor of the item-use recess — <c>PlayTray.BuildItemUseSlot</c>'s
+    /// FrameInner quad, 1.04× the card box inside the 1.12× gold frame. That dark plate IS the clear
+    /// area a placed card has to sit inside.</summary>
+    private const float UseSlotInnerFactor = 1.04f;
+
+    /// <summary>How much of that clear area a placed card fills, so the gold rim stays visible all
+    /// the way round instead of being covered by the card's own edge.</summary>
+    private const float UseSlotFillFraction = 0.94f;
+
+    /// <summary>
+    /// The SLOT-LOCAL scale a placed card comes to rest at (requirement 5a): its own face fitted
+    /// into the recess's inner plate, keeping its aspect, with the rim left showing.
+    ///
+    /// <para>THE SECOND HALF OF "die Karte liegt nicht perfekt auf dem Bereich". The card used to
+    /// land at the FAN's chip scale (×1.25), and an item card's face is NEAR-SQUARE
+    /// (CardWidth × CardWidth — see ItemChip.TryHostRealCard's fit) while the recess is authored at
+    /// the tall ABILITY card box. At the shipped sizes that is a 79 mm-wide card dropped onto a
+    /// 71 mm-wide gold frame: even dead-centre it hung over BOTH sides, which is the overhang in
+    /// .planning/debug/item_area.png. Deriving the scale from the recess's own geometry instead of
+    /// from the fan's makes the fit hold for any card size, any board and any future item aspect —
+    /// and because both quantities are in the same board-local metres, this IS the chip's local
+    /// scale under the slot; no fan/slot scale-chain conversion is involved any more.</para>
+    ///
+    /// <para>The drop GHOST is sized from this very number (see <see cref="TickUseGhost"/>), so what
+    /// is previewed and what lands are the same rectangle by construction.</para>
+    /// </summary>
+    internal static float UseSlotFitScale(ItemChip chip)
+    {
+        float boxW = CardsConfig.CardWidth.Value * UseSlotInnerFactor;
+        float boxH = CardsConfig.CardHeight * UseSlotInnerFactor;
+        float w = Mathf.Max(chip.FaceWidth, 1e-4f);
+        float h = Mathf.Max(chip.FaceHeight, 1e-4f);
+        return Mathf.Min(boxW / w, boxH / h) * UseSlotFillFraction;
+    }
+
     private readonly List<ItemChip> _chips = new(12);
     private Transform? _root;
     private TextMeshPro? _title;
@@ -122,10 +157,13 @@ internal sealed class ItemsPile
     private string _signature = string.Empty; // last-built inventory state, for cheap live refresh
     private bool _boardAnchored; // fan parented under the board root (mirrors PileBrowser)
 
-    // Hand-sweep single-winner state: the chip the physical hand currently lifts (null = none)
-    // and WHICH hand elected it (either hand may sweep — see UpdateHandSweep).
-    private ItemChip? _handWinner;
-    private VRHand? _handWinnerHand;
+    // Hand-sweep single-winner state, PER HAND (see UpdateHandSweep's "TWO ELECTIONS" note): the
+    // chip each physical hand currently lifts, null = that hand lifts nothing. Two fields, not one
+    // global winner + "which hand elected it", because that single slot was the drift from the
+    // ability cards' arbitration — it could only ever describe ONE hand's candidate, so the other
+    // hand swept the item fan without a lift and without a single-winner grab gate.
+    private ItemChip? _handWinnerLeft;
+    private ItemChip? _handWinnerRight;
     private float _nextHandLogAt;
     private float _nextHandMissLogAt;
 
@@ -593,7 +631,7 @@ internal sealed class ItemsPile
             if (_chips[i] != null)
                 Object.DestroyImmediate(_chips[i].gameObject);
         _chips.Clear();
-        _handWinner = null;
+        ForgetSweepWinners();
     }
 
     /// <summary>World anchor the fan emerges from / collapses into (req #5): the ITEMS stack
@@ -691,7 +729,7 @@ internal sealed class ItemsPile
                             spinSign: fromCentre >= 0f ? 1f : -1f);
         }
         _chips.Clear();
-        _handWinner = null;
+        ForgetSweepWinners();
     }
 
     /// <summary>Cheap change key: item count + each item's slot-state (drives live refresh).
@@ -795,7 +833,27 @@ internal sealed class ItemsPile
         for (int i = 0; i < n; i++)
         {
             ItemChip chip = _chips[i];
-            if (chip == null || chip.Holder != null)
+            // A HELD chip rides a hand and a CLIPPED chip lies in the board's use recess: neither is
+            // at an arc position, so neither may be given one.
+            //
+            // ROOT CAUSE of "Die Karte liegt nicht perfekt angeordnet auf dem Bereich, sondern
+            // schräg" (user report 2026-08-08, .planning/debug/item_area.png). The clipped chip used
+            // to be skipped only for `Holder != null`. ItemChip.OnRelease runs, in this order:
+            // OnChipReleased (which CLIPS the chip onto the slot at an exact zero local pose) and
+            // then RefreshFanLayout — i.e. THIS loop — which called SetHome on the chip that had
+            // just been clipped. SetHome writes the transform whenever nothing holds the chip, and
+            // by then the chip's parent is the SLOT: the fan-arc pose (a lateral chord offset plus
+            // the arc's own −angle·0.85 roll, and for a SPENT item a further 90°) was stamped into
+            // SLOT-local space. That is exactly the screenshot — the card sitting a chord's width
+            // off centre and rolled a few degrees against the recess frame, overhanging one corner.
+            // Update() then returns early for a PendingUse chip, so nothing ever corrected it; every
+            // later Relayout (any sweep winner change) re-stamped it.
+            //
+            // This is the item-fan edition of the load-bearing hand-transfer lesson in CardFan
+            // (SetCards stamping AllowsGateHand onto a HELD card): while a card is HELD — or, here,
+            // while it is CLIPPED — write nothing its hold depends on. Belt at the far end too:
+            // SetHome itself refuses to move a PendingUse chip.
+            if (chip == null || chip.Holder != null || chip.PendingUse)
                 continue;
 
             float angle = start + step * i;
@@ -814,12 +872,10 @@ internal sealed class ItemsPile
             chip.SetHome(pos, rot, ChipScale);
             // The last chip in the arc is fully exposed and the split pivot has room on both
             // sides — both keep their full grab box; everything else wears its visible strip.
-            // A chip CLIPPED into the use slot (#6) is not in the arc at all and keeps its full
-            // box, or pulling it back out of the slot would get harder the moment the sweep
-            // re-laid the fan out around some other chip.
-            chip.SetGrabStrip(chip.PendingUse || i == n - 1 || i == hovered
-                ? float.MaxValue
-                : stripFanLocal);
+            // (A chip CLIPPED into the use slot never reaches this line — it left the loop above —
+            // and keeps the FULL box its grab gave it, so pulling it back out of the recess never
+            // gets harder because the sweep re-laid the arc out around some other chip.)
+            chip.SetGrabStrip(i == n - 1 || i == hovered ? float.MaxValue : stripFanLocal);
         }
     }
 
@@ -857,6 +913,30 @@ internal sealed class ItemsPile
     /// drifted apart — which let a chip the PALM brushed outrank the chip the index finger was
     /// pointing at. With the colliders now tiling the arc (see <see cref="Relayout"/>) the tip
     /// distance is a clean partition, so tip-first is both correct and the shared behaviour.
+    ///
+    /// <para>TWO ELECTIONS, ONE PER HAND (user ruling 2026-08-08: "Auch Item-Karten sollen (wie die
+    /// normalen Karten auch) in die linke Hand genommen werden können … Sie sollen also wie normale
+    /// Karten reagieren"). THIS is where the item mirror had drifted from the ability cards'
+    /// original. Both fans sweep with both hands, but the ability side keeps a SEPARATE winner per
+    /// hand (<c>CardsDriver.UpdateHandContactArbitration</c>: <c>_handContactWinner</c> for the
+    /// dominant hand, <c>_gateContactWinner</c> for the gate hand, each with its OWN incumbent), and
+    /// a card that loses BOTH elections refuses BOTH hands — which is exactly why
+    /// <see cref="VRCard"/> carries TWO refused-hand slots. The item fan ran the two hands into ONE
+    /// global winner and then asked "which hand elected it": a single slot that can only ever
+    /// describe one hand. Consequences, both of them the user's report:
+    /// <list type="bullet">
+    /// <item>only ONE hand at a time could lift anything. Reach in with the left hand while the
+    /// right is anywhere near the arc and the right's better score takes the global winner, so the
+    /// left hand sweeps the fan in silence — no pop, no promise, and the player concludes the left
+    /// hand cannot take item cards;</item>
+    /// <item>the losers refused only the winning hand, so the OTHER hand had no single-winner grab
+    /// gate at all — its ProximityGrabber could land on any chip it brushed, i.e. "what lights up is
+    /// not what I get" for that hand, the very defect this election exists to prevent.</item>
+    /// </list>
+    /// Now each hand runs its own election with its own incumbent, each hand's winner POPS, and each
+    /// loser refuses every hand that elected somebody else (<see cref="ItemChip.SetHandSuppressed"/>
+    /// is accumulative over two hands, mirroring <c>VRCard.SetHandPopSuppressed</c>). A chip that
+    /// both hands elect simply pops once.</para>
     /// </summary>
     private void UpdateHandSweep()
     {
@@ -864,137 +944,200 @@ internal sealed class ItemsPile
         for (int i = 0; i < _handSuppressed.Count; i++)
         {
             if (_handSuppressed[i] != null)
-                _handSuppressed[i].SetHandSuppressed(null);
+                _handSuppressed[i].ClearHandSuppressed();
         }
         _handSuppressed.Clear();
 
-        FanSweepPick<ItemChip> pick = FanSweepPick<ItemChip>.Empty;
-        VRHand? winnerHand = null;
-        VRHand? missHand = null;
-        float winnerScale = 1f, missScale = 1f;
+        ItemChip? prevLeft = _handWinnerLeft;
+        ItemChip? prevRight = _handWinnerRight;
 
-        // BOTH hands sweep (see doc): a hand qualifies while it is tracked and NOT holding
-        // anything. A hand holding a chip is excluded on purpose — the held chip already rides
-        // that hand, and popping a second one under it reads as a phantom. Each hand runs its own
-        // election and the better of the two wins, so "which hand" is never guessed.
-        for (int h = 0; h < 2; h++)
+        VRHand? left = VRHands.Left;
+        VRHand? right = VRHands.Right;
+        FanSweepPick<ItemChip> leftPick = Elect(left, prevLeft, out float leftScale);
+        FanSweepPick<ItemChip> rightPick = Elect(right, prevRight, out float rightScale);
+        _handWinnerLeft = leftPick.Winner;
+        _handWinnerRight = rightPick.Winner;
+
+        // POP set = the union of the two winners. Drop a former winner only when it is no longer
+        // ANY hand's winner (a chip both hands are on must keep its lift while either hand holds
+        // it), then raise both current winners — idempotent, so a steady frame writes two bools.
+        if (prevLeft != null && !ReferenceEquals(prevLeft, _handWinnerLeft)
+            && !ReferenceEquals(prevLeft, _handWinnerRight))
+            prevLeft.SetFingertipPop(false);
+        if (prevRight != null && !ReferenceEquals(prevRight, _handWinnerRight)
+            && !ReferenceEquals(prevRight, _handWinnerLeft))
+            prevRight.SetFingertipPop(false);
+        _handWinnerLeft?.SetFingertipPop(true);
+        _handWinnerRight?.SetFingertipPop(true);
+
+        // ARC SPLIT / MP index: one pivot, because splitting an arc around two pivots at once is
+        // not a layout. The DOMINANT hand's winner is the pivot when it has one (it is the hand the
+        // laser and every other single-owner rule already defer to), else the other hand's — so a
+        // one-handed sweep behaves exactly as before, whichever hand it is.
+        ItemChip? pivot = DominantWinner() ?? _handWinnerLeft ?? _handWinnerRight;
+        int index = pivot != null ? _chips.IndexOf(pivot) : -1;
+        if (index != _handWinnerIndex)
         {
-            VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
-            if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
-                continue;
-
-            Vector3 tip = hand.Rig.IndexTip.position;
-            Vector3 palm = hand.Rig.PalmCenter.position;
-            float scale = Mathf.Max(hand.WorldScale, 1e-4f);
-
-            FanSweepPick<ItemChip> handPick = FanSweepPick<ItemChip>.Empty;
-            for (int i = 0; i < _chips.Count; i++)
-            {
-                ItemChip c = _chips[i];
-                if (c == null)
-                    continue;
-                // Reach from the chip's OWN live world width — the fix for "same build, different
-                // board scale, different behaviour". Held / clipped chips are rejected inside
-                // Score via IFanSweepTarget.SweepEligible.
-                FanReach reach = FanSweep.ResolveReach(scale, ((IFanSweepTarget)c).SweepFaceWidthWorld);
-                FanSweep.Score(c, tip, palm, reach, _handWinner, tipFirst: true, ref handPick);
-            }
-
-            if (handPick.Winner != null && handPick.BestScore < pick.BestScore)
-            {
-                ItemChip? keptMiss = pick.Miss;
-                float keptMissContact = pick.MissContact;
-                float keptMissTip = pick.MissTip, keptMissPalm = pick.MissPalm;
-                pick = handPick;
-                winnerHand = hand;
-                winnerScale = scale;
-                if (keptMiss != null && keptMissContact < pick.MissContact)
-                {
-                    pick.Miss = keptMiss;
-                    pick.MissContact = keptMissContact;
-                    pick.MissTip = keptMissTip;
-                    pick.MissPalm = keptMissPalm;
-                }
-            }
-            else if (handPick.Miss != null && handPick.MissContact < pick.MissContact)
-            {
-                pick.Miss = handPick.Miss;
-                pick.MissContact = handPick.MissContact;
-                pick.MissTip = handPick.MissTip;
-                pick.MissPalm = handPick.MissPalm;
-                missHand = hand;
-                missScale = scale;
-            }
+            _handWinnerIndex = index;
+            Relayout(); // re-split the arc around the new pivot (hand-fan parity), only on a CHANGE
         }
 
-        ItemChip? winner = pick.Winner;
-        _handWinnerHand = winner != null ? winnerHand : null;
-        if (!ReferenceEquals(winner, _handWinner))
+        float now = Time.unscaledTime;
+        bool changed = !ReferenceEquals(prevLeft, _handWinnerLeft)
+                       || !ReferenceEquals(prevRight, _handWinnerRight);
+        if (changed && now >= _nextHandLogAt)
         {
-            _handWinner?.SetFingertipPop(false);
-            _handWinner = winner;
-            _handWinner?.SetFingertipPop(true);
-            // Re-split the arc around the new pivot (hand-fan parity). Only on a CHANGE.
-            int index = winner != null ? _chips.IndexOf(winner) : -1;
-            if (index != _handWinnerIndex)
-            {
-                _handWinnerIndex = index;
-                Relayout();
-            }
-
-            float now = Time.unscaledTime;
-            if (winner != null && winnerHand != null && now >= _nextHandLogAt)
+            if (_handWinnerLeft != null && left != null)
             {
                 _nextHandLogAt = now + 0.5f;
-                FanSweep.LogWinner("Item-fan", winnerHand.Side.ToString(), pick,
-                    FanSweep.ResolveReach(winnerScale, ((IFanSweepTarget)winner).SweepFaceWidthWorld));
+                FanSweep.LogWinner("Item-fan", left.Side.ToString(), leftPick,
+                    FanSweep.ResolveReach(leftScale, ((IFanSweepTarget)_handWinnerLeft).SweepFaceWidthWorld));
+            }
+            if (_handWinnerRight != null && right != null)
+            {
+                _nextHandLogAt = now + 0.5f;
+                FanSweep.LogWinner("Item-fan", right.Side.ToString(), rightPick,
+                    FanSweep.ResolveReach(rightScale, ((IFanSweepTarget)_handWinnerRight).SweepFaceWidthWorld));
             }
         }
 
-        if (winner == null)
+        if (_handWinnerLeft == null && _handWinnerRight == null)
         {
             // NEAR-MISS diagnostic (throttled, only while a hand is genuinely reaching): name the
             // hand, the chip, both probe distances and the EFFECTIVE reaches they failed, all in
             // real centimetres. This is the line that decides "the sweep is broken" versus "the
             // hand was never close enough" on the next hardware log without any arithmetic.
-            if (pick.Miss != null && missHand != null && Time.unscaledTime >= _nextHandMissLogAt)
+            bool leftCloser = leftPick.Miss != null && leftPick.MissContact <= rightPick.MissContact;
+            FanSweepPick<ItemChip> missPick = leftCloser ? leftPick : rightPick;
+            VRHand? missHand = leftCloser ? left : right;
+            float missScale = leftCloser ? leftScale : rightScale;
+            if (missPick.Miss != null && missHand != null && Time.unscaledTime >= _nextHandMissLogAt)
             {
                 FanReach missReach = FanSweep.ResolveReach(missScale,
-                    ((IFanSweepTarget)pick.Miss).SweepFaceWidthWorld);
-                if (pick.MissContact <= missReach.Palm * 2f)
+                    ((IFanSweepTarget)missPick.Miss).SweepFaceWidthWorld);
+                if (missPick.MissContact <= missReach.Palm * 2f)
                 {
                     _nextHandMissLogAt = Time.unscaledTime + 2f;
-                    FanSweep.LogNearMiss("Item-fan", missHand.Side.ToString(), pick, missReach);
+                    FanSweep.LogNearMiss("Item-fan", missHand.Side.ToString(), missPick, missReach);
                 }
             }
             return;
         }
 
         // SINGLE-WINNER for the GRAB too (user report "what lights up is not what I get"): every
-        // other chip refuses the winning hand in ItemChip.AllowsHand, so the ProximityGrabber —
+        // other chip refuses the electing hand in ItemChip.AllowsHand, so the ProximityGrabber —
         // which picks the nearest collider by the very same ClosestPoint metric — cannot land on
-        // a chip the hand merely brushed while sweeping. Scoped to the WINNING hand only: the
-        // other hand keeps its own, independent candidate.
+        // a chip that hand merely brushed while sweeping. Per hand, and ACCUMULATIVE: a chip that
+        // lost both elections refuses both hands (the VRCard two-slot rule), where the old single
+        // slot let the second write silently re-open the first hand's gate.
+        //
+        // A chip CLIPPED into the use slot is never suppressed. It is not in the arc — it lies in
+        // the board's recess — so no arc election has any business refusing the hand that reaches
+        // for it, and refusing it is exactly what stopped a placed card from being picked back up
+        // (requirement 5b: the recess is emptied by GRABBING the card, see ItemChip.OnPoke).
         for (int i = 0; i < _chips.Count; i++)
         {
             ItemChip c = _chips[i];
-            if (c == null || c.Holder != null || ReferenceEquals(c, winner))
+            if (c == null || c.Holder != null || c.PendingUse)
                 continue;
-            c.SetHandSuppressed(winnerHand);
-            _handSuppressed.Add(c);
+            bool touched = false;
+            if (_handWinnerLeft != null && !ReferenceEquals(c, _handWinnerLeft))
+            {
+                c.SetHandSuppressed(left);
+                touched = true;
+            }
+            if (_handWinnerRight != null && !ReferenceEquals(c, _handWinnerRight))
+            {
+                c.SetHandSuppressed(right);
+                touched = true;
+            }
+            if (touched)
+                _handSuppressed.Add(c);
         }
+    }
+
+    /// <summary>
+    /// ONE hand's election over the arc — the per-hand half of <see cref="UpdateHandSweep"/>'s two
+    /// elections, with that hand's OWN incumbent so the two can never steal each other's
+    /// hysteresis (the same separation <c>CardsDriver</c> keeps between its dominant-hand and
+    /// gate-hand picks). A hand qualifies while it is tracked and NOT holding anything: the held
+    /// chip already rides that hand, and popping a second one under it reads as a phantom.
+    /// </summary>
+    private FanSweepPick<ItemChip> Elect(VRHand? hand, ItemChip? incumbent, out float worldScale)
+    {
+        worldScale = 1f;
+        FanSweepPick<ItemChip> pick = FanSweepPick<ItemChip>.Empty;
+        if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+            return pick;
+
+        Vector3 tip = hand.Rig.IndexTip.position;
+        Vector3 palm = hand.Rig.PalmCenter.position;
+        worldScale = Mathf.Max(hand.WorldScale, 1e-4f);
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c == null)
+                continue;
+            // Reach from the chip's OWN live world width — the fix for "same build, different
+            // board scale, different behaviour". Held / clipped chips are rejected inside
+            // Score via IFanSweepTarget.SweepEligible.
+            FanReach reach = FanSweep.ResolveReach(worldScale, ((IFanSweepTarget)c).SweepFaceWidthWorld);
+            FanSweep.Score(c, tip, palm, reach, incumbent, tipFirst: true, ref pick);
+        }
+        return pick;
+    }
+
+    /// <summary>The DOMINANT hand's sweep winner (null when that hand lifts nothing) — the pivot
+    /// preference for the arc split and for the mirrored highlight index.</summary>
+    private ItemChip? DominantWinner()
+    {
+        VRHand? dom = VRHands.Primary;
+        if (dom == null)
+            return null;
+        return ReferenceEquals(dom, VRHands.Left) ? _handWinnerLeft : _handWinnerRight;
+    }
+
+    /// <summary>This hand's own sweep winner (null = it lifts nothing / it is neither hand).</summary>
+    private ItemChip? WinnerFor(VRHand? hand)
+    {
+        if (hand == null)
+            return null;
+        if (ReferenceEquals(hand, VRHands.Left))
+            return _handWinnerLeft;
+        return ReferenceEquals(hand, VRHands.Right) ? _handWinnerRight : null;
+    }
+
+    /// <summary>Drop BOTH sweep winners without touching the chips — for the teardown paths that
+    /// have already destroyed (or handed off) the chip objects, where clearing the pop on them would
+    /// dereference a dead MonoBehaviour.</summary>
+    private void ForgetSweepWinners()
+    {
+        _handWinnerLeft = null;
+        _handWinnerRight = null;
+        _handWinnerIndex = -1;
+    }
+
+    /// <summary>Drop ONE chip from whichever hand(s) elected it (it is leaving the arc — used,
+    /// surrendered, collapsing). Untouched otherwise; the next sweep re-derives everything.</summary>
+    private void ForgetSweepWinner(ItemChip chip)
+    {
+        if (ReferenceEquals(_handWinnerLeft, chip))
+            _handWinnerLeft = null;
+        if (ReferenceEquals(_handWinnerRight, chip))
+            _handWinnerRight = null;
     }
 
     private void ClearHandSweep()
     {
-        _handWinner?.SetFingertipPop(false);
-        _handWinner = null;
-        _handWinnerHand = null;
+        _handWinnerLeft?.SetFingertipPop(false);
+        _handWinnerRight?.SetFingertipPop(false);
+        _handWinnerLeft = null;
+        _handWinnerRight = null;
         _handWinnerIndex = -1; // the split closes with the lift
         for (int i = 0; i < _handSuppressed.Count; i++)
         {
             if (_handSuppressed[i] != null)
-                _handSuppressed[i].SetHandSuppressed(null);
+                _handSuppressed[i].ClearHandSuppressed();
         }
         _handSuppressed.Clear();
     }
@@ -1043,6 +1186,15 @@ internal sealed class ItemsPile
     /// so the transmitted index is by construction the ONE chip the owner sees popped — hand and
     /// laser can never contribute two different indices, and a hover held across a hand→laser
     /// handover emits no packet at all while the chip is unchanged.</para>
+    ///
+    /// <para>TWO HANDS, ONE WIRE FIELD. Since the sweep runs a per-hand election (see
+    /// <see cref="UpdateHandSweep"/>) the owner can lift TWO chips at once, one per hand, while the
+    /// wire carries a single fan POSITION and must not grow a second one. The tie-break is the one
+    /// the arc split already uses, so it is not a second rule: the DOMINANT hand's winner is what
+    /// travels (<see cref="_handWinnerIndex"/> is written from it), falling back to the other hand's
+    /// when the dominant hand lifts nothing. Deterministic, so a peer never sees the highlight
+    /// flicker between two chips, and a one-handed sweep — either hand — is byte-identical to
+    /// before.</para>
     /// </summary>
     internal int HighlightedIndex
     {
@@ -1066,8 +1218,12 @@ internal sealed class ItemsPile
     {
         if (hand == null || !IsOpen)
             return null;
-        if (_handWinner != null && ReferenceEquals(_handWinnerHand, hand))
-            return _handWinner;
+        // THIS hand's own election result (see UpdateHandSweep's two-elections note) — not "the
+        // global winner if this hand happened to be the one that elected it", which reported
+        // nothing at all for whichever hand lost the old single-slot race.
+        ItemChip? mine = WinnerFor(hand);
+        if (mine != null)
+            return mine;
         return hand.Grabber.Highlighted as ItemChip;
     }
 
@@ -1364,6 +1520,19 @@ internal sealed class ItemsPile
                 _useGhost = BuildUseGhost(slot);
             if (_useGhost != null && !_useGhost.activeSelf)
                 _useGhost.SetActive(true);
+            // THE GHOST IS THE PROMISE, SO IT MUST BE THE TRUTH (requirement 5a). It used to be
+            // built once at the ABILITY card's tall w×h, while what actually lands is THIS chip's
+            // near-square face fitted to the recess — so the preview and the settled card were two
+            // different rectangles, and the preview was the honest-looking one. It is now sized from
+            // the very call ItemChip.ClipIntoSlot settles to, so "where it will land" is literally
+            // where it lands.
+            if (_useGhost != null && heldUsable != null)
+            {
+                float fit = UseSlotFitScale(heldUsable);
+                var want = new Vector3(heldUsable.FaceWidth * fit, heldUsable.FaceHeight * fit, 1f);
+                if (_useGhost.transform.localScale != want)
+                    _useGhost.transform.localScale = want;
+            }
         }
         else if (_useGhost != null && _useGhost.activeSelf)
         {
@@ -1371,7 +1540,9 @@ internal sealed class ItemsPile
         }
     }
 
-    /// <summary>Requirement 8 — the translucent gold card-shaped ghost, parented at the use-slot pose.</summary>
+    /// <summary>Requirement 8 — the translucent gold card-shaped ghost, parented at the use-slot
+    /// pose. Built at a placeholder size; <see cref="TickUseGhost"/> fits it to the HELD chip's own
+    /// face every time it is shown (see the note there).</summary>
     private static GameObject BuildUseGhost(Transform slot)
     {
         float w = CardsConfig.CardWidth.Value;
@@ -1456,8 +1627,7 @@ internal sealed class ItemsPile
         // Bolt it to the slot (see ClipIntoSlot): rigid by hierarchy, not chased by a lerp — the
         // fan root billboards to the head, the slot does not, and chasing across that boundary is
         // what made the clipped card swim behind head movement.
-        if (_root != null)
-            chip.ClipIntoSlot(slot, _root, ChipScale);
+        chip.ClipIntoSlot(slot);
         PlayTray.Current?.SetItemUseSlotVisible(true);
 
         // Does the placed card owe an element choice? Classify ONCE, here, from the item data —
@@ -1539,8 +1709,8 @@ internal sealed class ItemsPile
         // the hierarchy holds it exactly, whatever the head and the board do. Re-assert the parent
         // only if something else stole it (a board rebuild re-creating the slot transform).
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
-        if (slot != null && _root != null && chip.transform.parent != slot)
-            chip.ClipIntoSlot(slot, _root, ChipScale);
+        if (slot != null && chip.transform.parent != slot)
+            chip.ClipIntoSlot(slot);
     }
 
     // ----------------------------------------- the element choice, in the decision area --
@@ -1789,6 +1959,90 @@ internal sealed class ItemsPile
             Relayout();
     }
 
+    // ---------------------------------------------------- hand-to-hand chip transfer (req 6) --
+
+    /// <summary>The chip mid-handover — non-null ONLY inside <see cref="TransferHeldChip"/>'s
+    /// release+grab call stack, and read by <see cref="ItemChip.OnRelease"/> so that release skips
+    /// the whole drop routing (the card never left the hands).</summary>
+    private ItemChip? _transferChip;
+    private VRHand? _transferTo;
+
+    /// <summary>True while <paramref name="chip"/> is the card being handed from one hand to the
+    /// other (see <see cref="TransferHeldChip"/>).</summary>
+    internal bool IsTransferring(ItemChip chip) =>
+        _transferChip != null && ReferenceEquals(_transferChip, chip);
+
+    /// <summary>
+    /// Requirement 6 — HAND-TO-HAND transfer of a held item card (user ruling 2026-08-08: "Auch
+    /// Item-Karten sollen (wie die normalen Karten auch) … Hände getauscht werden können. Sie sollen
+    /// also wie normale Karten reagieren").
+    ///
+    /// <para>The ITEM twin of <c>CardsDriver.TransferHeldCard</c>, and deliberately the same
+    /// ordering: the release from <paramref name="from"/> and the adoption into
+    /// <paramref name="to"/> happen in ONE call stack, so no frame — and no net rig sample — can
+    /// ever observe the card un-held (which would flash it back into the fan on peers and in the
+    /// mirror), and the chip keeps its world pose through both re-parents, so it eases into the new
+    /// hand instead of teleporting. The receiving hold is trigger-held exactly like a pluck.</para>
+    ///
+    /// <para>The DETECTION (free hand in touch reach of the held card, hover haptic, trigger) lives
+    /// where it already lived for ability cards — <c>CardsDriver.UpdateHeldCardTransfer</c> — so the
+    /// two card kinds share one gesture and one set of hysteresis constants. This method is only the
+    /// commit.</para>
+    ///
+    /// <para>ABORT RULE, copied from the ability side for the same reason: if the adoption is
+    /// refused the chip is re-adopted into the ORIGINAL hand rather than released, because a refusal
+    /// that falls through to the drop routing would glide the card back to the fan mid-handover —
+    /// the "the card vanished out of my hands" failure. Only if BOTH hands refuse does the normal
+    /// release routing run.</para>
+    /// </summary>
+    internal void TransferHeldChip(ItemChip chip, VRHand from, VRHand to)
+    {
+        if (chip == null || from == null || to == null)
+            return;
+        _transferChip = chip;
+        _transferTo = to;
+        try
+        {
+            from.Grabber.CancelAll(); // → ItemChip.OnRelease → CompleteChipTransfer (adopt in-stack)
+        }
+        finally
+        {
+            bool adopted = ReferenceEquals(to.Grabber.Held, chip);
+            bool aborted = !adopted && ReferenceEquals(from.Grabber.Held, chip);
+            _transferChip = null;
+            _transferTo = null;
+            if (adopted)
+                VRLog.Info("Cards", $"ITEM hand transfer: '{chip.name}' handed {from.Side} → {to.Side} " +
+                                    "(trigger on the held card) — release routing skipped, the hold " +
+                                    "continues on the receiving hand's trigger.");
+            else if (aborted)
+                VRLog.Warn("Cards", $"ITEM hand transfer: adoption of '{chip.name}' into the {to.Side} hand " +
+                                    $"was refused — ABORTED, the card stays held in the {from.Side} hand.");
+            else
+                VRLog.Warn("Cards", $"ITEM hand transfer: adoption of '{chip.name}' into the {to.Side} hand " +
+                                    $"AND the re-adoption into the {from.Side} hand were refused — the card " +
+                                    "took the normal release routing instead (no limbo).");
+        }
+    }
+
+    /// <summary>
+    /// Requirement 6 — the adoption half of <see cref="TransferHeldChip"/>, called from inside the
+    /// releasing <see cref="ItemChip.OnRelease"/> so the card is never observed un-held. Returns
+    /// true when SOME hand holds the chip afterwards (adopted, or safely re-adopted into the
+    /// releasing hand); false means both refused and the caller must run the normal routing.
+    /// </summary>
+    internal bool CompleteChipTransfer(ItemChip chip, VRHand from)
+    {
+        VRHand? to = _transferTo;
+        if (to == null)
+            return false;
+        if (to.Grabber.ForceGrab(chip, releaseOnTriggerUp: true))
+            return true;
+        // Refused — keep the card in the hand that was holding it, on whichever button is still
+        // physically down (a grip hold re-adopted trigger-held would release itself next Tick).
+        return from.Grabber.ForceGrab(chip, releaseOnTriggerUp: from.TriggerPressed);
+    }
+
     /// <summary>Requirement 6 — drop the pending state + hide the Confirm button. Clears the chip's own
     /// PendingUse flag so a chip GRABBED back out glides home on release (instead of re-clipping); the
     /// invalidation path already called <see cref="ItemChip.ReturnToFan"/> to start that glide.</summary>
@@ -1817,6 +2071,67 @@ internal sealed class ItemsPile
         PlayTray.Current?.SetItemUseSlotVisible(false);
         _useSlotShownLogged = false;
         VRLog.Info("Cards", $"ITEM clip-in CANCEL ({why}) — card returns to the deck, NOT used.");
+    }
+
+    /// <summary>
+    /// Requirement 5b — the FAR-LASER half of "take the placed card back": put the card lying in
+    /// the recess back on the pile in ONE deliberate gesture, animated, without the phantom hop
+    /// through the hand. The rule this belongs to (hand = take, laser = put back) is written out in
+    /// full at <see cref="ItemChip.OnPoke"/>, which is the fork that chooses between them.
+    ///
+    /// <para>Every flow that can own the recess is backed out through ITS OWN game seam, because a
+    /// placed card is never only a visual: the surrender pick has a SELECTION in the game's
+    /// <c>ItemCardPicker</c> and the take-damage place has a TOGGLED shield item on the panel's
+    /// items bar. Returning the card without undoing those would leave the game holding a choice the
+    /// player can no longer see — the exact "card and state disagree" class the grab-back paths in
+    /// <see cref="TickDemandPick"/> / <see cref="TickTakeDamagePick"/> already guard. So this is the
+    /// same inverse those two run, reached by the laser instead of by a physical grab.</para>
+    /// </summary>
+    internal void ReturnPlacedChip(ItemChip chip, VRHand hand)
+    {
+        if (chip == null)
+            return;
+
+        string flow;
+        if (ReferenceEquals(chip, _demandChip))
+        {
+            ItemCardPicker? picker = ActiveDemandPicker();
+            if (picker != null && chip.Item != null)
+                CardsGameApi.ItemPickDeselect(picker, chip.Item);
+            _demandChip = null;
+            flow = "item-surrender pick — DESELECTED through the game's own ItemCardPickerSlot seam";
+        }
+        else if (ReferenceEquals(chip, _tdChip))
+        {
+            _tdChip = null;
+            if (chip.Item != null && chip.Item.SlotState == CItem.EItemSlotState.Selected)
+            {
+                UIUseItemScenario? barSlot = CardsGameApi.LiveItemsBarSlot(chip.Item);
+                if (barSlot != null)
+                    CardsGameApi.ClickItemsBarSlot(barSlot);
+            }
+            flow = "take-damage shield place — UNTOGGLED through the panel's own slot seam";
+        }
+        else if (ReferenceEquals(chip, _pendingUseChip))
+        {
+            // Releases the element choice too (AbandonChoice) and drops the Confirm button.
+            CancelPendingUse("laser click on the placed card — put back on the pile");
+            flow = "pending USE decision — cancelled, nothing was used";
+        }
+        else
+        {
+            flow = "no owning flow (stale clip) — returned visually";
+        }
+
+        UnclipChip(chip);      // back into the fan's frame BEFORE the fan-local glide starts
+        chip.PendingUse = false;
+        chip.ReturnToFan();    // the SAME animated home glide every refused drop uses — never a pop
+        RefreshFanLayout();    // it rejoins the arc: re-derive the tiling collider strips
+        hand.SendHaptic(HapticPreset.HoverTick);
+        VRLog.Info("Cards", $"ITEM recess: laser click on the placed card '{chip.name}' ({hand.Side}) — " +
+                            $"it glides back to the fan. {flow}. To take it INTO your hand instead, " +
+                            "reach for it and grab it (either hand) — that is the physical route, and " +
+                            "where you let go decides whether it clips back in or returns to the pile.");
     }
 
     /// <summary>Release the game's half of an element choice: close an open picker (a second slot
@@ -1954,8 +2269,7 @@ internal sealed class ItemsPile
         if (keep != null)
             chip.transform.SetParent(keep, worldPositionStays: true);
         _chips.Remove(chip);
-        if (ReferenceEquals(_handWinner, chip))
-            _handWinner = null;
+        ForgetSweepWinner(chip);
         chip.PlayUseThenCollapse(consumed, spent, converge);
 
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
@@ -2095,11 +2409,11 @@ internal sealed class ItemsPile
                                 "game's ItemCardPickerSlot seam; drop an item again to choose.");
             chip = null;
         }
-        if (chip != null && _root != null)
+        if (chip != null)
         {
             Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
             if (slot != null && chip.transform.parent != slot)
-                chip.ClipIntoSlot(slot, _root, ChipScale); // re-assert after a board rebuild
+                chip.ClipIntoSlot(slot); // re-assert after a board rebuild
         }
 
         // Demand confirm: shown exactly while the PICKER reports the full selection (survives a
@@ -2159,8 +2473,7 @@ internal sealed class ItemsPile
         _demandChip = chip;
         chip.PendingUse = true;
         chip.CancelReleaseGlide();
-        if (_root != null)
-            chip.ClipIntoSlot(slot, _root, ChipScale);
+        chip.ClipIntoSlot(slot);
         vrHand.SendHaptic(HapticPreset.HoverTick);
         CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
         VRLog.Info("Cards", $"ITEM SURRENDER clip-in: '{chip.name}' SELECTED through the game's " +
@@ -2222,8 +2535,7 @@ internal sealed class ItemsPile
         if (keep != null)
             chip.transform.SetParent(keep, worldPositionStays: true);
         _chips.Remove(chip);
-        if (ReferenceEquals(_handWinner, chip))
-            _handWinner = null;
+        ForgetSweepWinner(chip);
         chip.PendingUse = false;
         chip.PlayUseThenCollapse(consumed, spent, converge);
         PlayTray.Current?.SetItemUseSlotVisible(false);
@@ -2367,7 +2679,7 @@ internal sealed class ItemsPile
         // Re-assert the clip after a board rebuild recreated the slot transform.
         Transform? useSlot = PlayTray.Current?.ItemUseSlotTransform;
         if (useSlot != null && _root != null && chip.transform.parent != useSlot)
-            chip.ClipIntoSlot(useSlot, _root, ChipScale);
+            chip.ClipIntoSlot(useSlot);
     }
 
     /// <summary>The single HELD chip that is a live take-damage candidate — its item has a
@@ -2438,8 +2750,7 @@ internal sealed class ItemsPile
         _tdChip = chip;
         chip.PendingUse = true;
         chip.CancelReleaseGlide();
-        if (_root != null)
-            chip.ClipIntoSlot(slot, _root, ChipScale);
+        chip.ClipIntoSlot(slot);
         vrHand.SendHaptic(HapticPreset.HoverTick);
         CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
         VRLog.Info("Cards", $"TAKE-DAMAGE item place: '{chip.name}' TOGGLED through the panel's own slot seam " +
@@ -2512,6 +2823,13 @@ internal sealed class ItemsPile
         private const float ColliderDepth = 0.02f;
 
         private ItemsPile? _owner; // for the clip-in-to-use callback on release
+
+        /// <summary>The pile that built this chip. Published so the hand-to-hand transfer detector
+        /// (<c>CardsDriver.UpdateHeldCardTransfer</c>) commits through THIS chip's owner rather than
+        /// through the static <see cref="Current"/> — the two are the same object today, and a
+        /// handover that set the mid-transfer flag on the wrong instance would silently drop the
+        /// card instead of handing it over.</summary>
+        internal ItemsPile? Owner => _owner;
         private Vector3 _homePos;
         private Quaternion _homeRot;
         private float _homeScale = 1f;
@@ -2648,6 +2966,14 @@ internal sealed class ItemsPile
         // (There is no _hasClip flag any more: the clip/unclip rework left behind a field that was
         // written false in three places and never read — CS0414. The hierarchy owns the clipped
         // pose now, so there is nothing for a flag to gate.)
+
+        /// <summary>Requirement 5a — unscaled seconds the clip-in SETTLE runs (same family as
+        /// <see cref="ReleaseGlideSeconds"/>): the window in which the card eases from the release
+        /// pose into the recess's own frame. Short enough to read as "it snaps into place", long
+        /// enough that it is a movement and not a pop.</summary>
+        private const float ClipSettleSeconds = 0.28f;
+        private float _clipSettle;
+        private float _clipScale = 1f;
 
         // Requirement 6 (use FX): after a CONFIRM the owner detaches the chip and plays a brief flourish
         // reflecting the result — a burn plume (Consumed) or a "tap" roll to 90° with a scale pulse
@@ -3416,22 +3742,55 @@ internal sealed class ItemsPile
         ///
         /// Re-parenting removes the chase entirely instead of tuning it: once the chip IS a child of the
         /// slot, Unity's transform hierarchy holds it there for free, at zero cost and with no residual
-        /// error, however the head or the board moves. The world SIZE is preserved across the re-parent
-        /// by dividing the fan's world scale out of the chip's local scale, since the two parents sit at
-        /// different points in the board's scale chain.
+        /// error, however the head or the board moves.
+        ///
+        /// The SIZE it lands at is no longer the fan's chip scale carried across the scale chain but the
+        /// recess's own fit (<see cref="ItemsPile.UseSlotFitScale"/>) — see requirement 5a there; and the
+        /// pose it lands at is reached by a short SETTLE (<see cref="TickClipSettle"/>) rather than by an
+        /// instant snap, because everything that moves has to be seen moving.
         /// </summary>
-        internal void ClipIntoSlot(Transform slot, Transform fanRoot, float fanLocalScale)
+        internal void ClipIntoSlot(Transform slot)
         {
             if (slot == null)
                 return;
             _releaseGlide = 0f; // and no glide may fight the parent
-            transform.SetParent(slot, worldPositionStays: false);
-            transform.localPosition = Vector3.zero;
-            transform.localRotation = Quaternion.identity;
-            float fan = fanRoot != null ? fanRoot.lossyScale.x : 1f;
-            float host = slot.lossyScale.x;
-            float ratio = host > 1e-5f ? fan / host : 1f;
-            transform.localScale = Vector3.one * (fanLocalScale * ratio);
+            // Re-parent keeping the WORLD pose, then SETTLE into the slot frame over
+            // ClipSettleSeconds (TickClipSettle). The target is the slot's own frame exactly —
+            // centred, square, unrotated, and scaled to FIT the recess
+            // (<see cref="ItemsPile.UseSlotFitScale"/>) — so the card comes to rest aligned to the
+            // recess and to the gold drop GHOST that previewed it, which is the whole of
+            // requirement 5a. The motion exists because the user's standing rule is that everything
+            // that moves moves WITH an animation: this used to be a hard teleport onto the slot
+            // (worldPositionStays: false), i.e. the card popped from the fingers into the recess.
+            transform.SetParent(slot, worldPositionStays: true);
+            _clipScale = UseSlotFitScale(this);
+            _clipSettle = ClipSettleSeconds;
+        }
+
+        /// <summary>
+        /// Requirement 5a — advance the clip-in settle: ease the chip's SLOT-LOCAL pose toward the
+        /// slot's own frame (zero position, identity rotation, <see cref="_clipScale"/>), then land
+        /// on it exactly. Runs only while the settle window is open; once it closes the transform
+        /// hierarchy holds the card rigidly at the slot with no per-frame work at all, which is the
+        /// property ClipIntoSlot's re-parent was introduced for (see its ROOT CAUSE note).
+        /// Unscaled time, like every other card glide, so it plays while the game is paused.
+        /// </summary>
+        private void TickClipSettle()
+        {
+            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            _clipSettle -= dt;
+            if (_clipSettle <= 0f)
+            {
+                _clipSettle = 0f;
+                transform.localPosition = Vector3.zero;
+                transform.localRotation = Quaternion.identity;
+                transform.localScale = Vector3.one * _clipScale;
+                return;
+            }
+            float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * dt);
+            transform.localPosition = Vector3.Lerp(transform.localPosition, Vector3.zero, t);
+            transform.localRotation = Quaternion.Slerp(transform.localRotation, Quaternion.identity, t);
+            transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _clipScale, t);
         }
 
         /// <summary>
@@ -3442,6 +3801,7 @@ internal sealed class ItemsPile
         /// </summary>
         internal void UnclipFromSlot(Transform? fanRoot)
         {
+            _clipSettle = 0f; // the settle targets SLOT-local zero — it must not survive the exit
             if (fanRoot == null || transform.parent == fanRoot)
                 return;
             transform.SetParent(fanRoot, worldPositionStays: true);
@@ -3512,18 +3872,30 @@ internal sealed class ItemsPile
             _homePos = pos;
             _homeRot = rot;
             _homeScale = scale;
-            if (Holder != null)
-                return; // held — the base restores this home on release
-            if (_emerging)
-            {
-                // MID-FLY-OUT: record the new home and let the fly-out keep flying TO it. Snapping
-                // here would be a pop, and it is a reachable one — Relayout runs on every hand-sweep
-                // winner change, and the presence pass made the flight long enough (a 12-item fan
-                // deals for ~0.64 s) that a fingertip can easily arrive inside it. TickEmerge reads
-                // _homePos/_homeRot/_homeScale fresh every frame precisely so this case costs
-                // nothing: the target moves, the chip keeps travelling, nothing jumps.
+            // RECORD the home, but do NOT move a chip whose pose somebody else owns. Four owners,
+            // and the two rounds of 2026-08-08/09 found them from opposite ends — the presence pass
+            // (fly-out) and the item-area pass (clip/glide) each discovered one half of the same
+            // rule, so they are stated together here rather than as two guards that could drift:
+            //   • HELD — the base restores this home on release;
+            //   • CLIPPED (PendingUse) — the chip is parented to the board's use slot, so writing a
+            //     FAN-arc pose here would place it in SLOT-local space: the "die Karte liegt schräg"
+            //     defect (full root cause on the skip in Relayout, which this belt backs up);
+            //   • GLIDING (_releaseGlide) — the chip is flying home, and Update's lerp is already
+            //     aimed at the very fields written above. Teleporting it here CANCELS that
+            //     animation: ItemChip.OnRelease starts the glide and then, one line later, asks the
+            //     owner to RefreshFanLayout (it must — the chip rejoins the arc and the tiling
+            //     collider strips have to be re-derived), which landed straight in this method and
+            //     snapped the card home. So the FIX-2 glide-back-don't-snap never actually played,
+            //     and neither would the animated return this method's other callers promise;
+            //   • EMERGING (_emerging) — the same argument for the OPEN animation, and it is a
+            //     reachable case rather than a theoretical one: Relayout runs on every hand-sweep
+            //     winner change, and the presence pass made the flight long enough (a 12-item fan
+            //     deals for ~0.64 s) that a fingertip easily arrives inside it. TickEmerge re-reads
+            //     _homePos/_homeRot/_homeScale every frame precisely so this costs nothing.
+            // In every case the animation keeps converging on the NEW home, which is what a
+            // relayout mid-flight should mean anyway.
+            if (Holder != null || PendingUse || _releaseGlide > 0f || _emerging)
                 return;
-            }
             transform.localPosition = pos;
             transform.localRotation = rot;
             transform.localScale = Vector3.one * scale;
@@ -3575,6 +3947,14 @@ internal sealed class ItemsPile
             // root first (world pose preserved) keeps the whole grab/release path in one frame of
             // reference, so a cancel really does return the card to the deck.
             _owner?.UnclipChip(this);
+            // PendingUse means EXACTLY "this card is lying in the board's recess". A card in a hand
+            // is not, so the flag drops at the grab rather than one tick later, when the owner's
+            // per-tick service notices Holder != null and backs the decision out through its game
+            // seam (which still happens, and is still what un-does the game-side half — all three
+            // flows detect the take-back by Holder, never by this flag). Without the clear there is
+            // a window in which a grabbed chip is "clipped": Update would take the settle branch and
+            // freeze it, and Relayout would skip it, for a card the player is holding.
+            PendingUse = false;
             // Drop the pop so the grabbed chip starts from a clean pose.
             _fingerPopped = false;
             _laserPopped = false;
@@ -3583,7 +3963,7 @@ internal sealed class ItemsPile
             // it its FULL grab box back so pulling it out of the slot again stays easy, and clear
             // any sweep suppression it was carrying. Relayout re-strips it when it rejoins the arc.
             SetGrabStrip(float.MaxValue);
-            SetHandSuppressed(null);
+            ClearHandSuppressed();
             // FIX 1 — keep the world pose across the base re-parent so TickHeldPose flies the chip from
             // its fan slot INTO the hand instead of teleporting (mirror of VRCard.OnGrab). The base snap
             // seats GetHeldPose; we capture that local target, then restore the pre-grab world pose and
@@ -3622,6 +4002,28 @@ internal sealed class ItemsPile
             // back to its fan home over ReleaseGlideSeconds (unscaled, so it plays even while paused).
             Quaternion worldRot = transform.rotation;
             Vector3 worldScale = transform.localScale;
+
+            // HAND-TO-HAND TRANSFER (requirement 6): this release is the FIRST half of a handover —
+            // the card never left the hands, so NONE of the drop routing below may run (no clip-in
+            // offer, no glide home, no arc relayout) and no frame may observe the chip un-held. Keep
+            // the world pose across the base re-parent and let the receiving hand adopt it inside
+            // this very call stack; its OnGrab then eases the chip from exactly here into the new
+            // pinch. Mirrors CardsDriver.OnCardReleased's transfer branch for ability cards.
+            if (_owner != null && _owner.IsTransferring(this))
+            {
+                base.OnRelease(hand, velocity);
+                transform.position = dropWorldPos;
+                transform.rotation = worldRot;
+                transform.localScale = worldScale;
+                _releaseGlide = 0f; // the adopting hold owns the pose now — no fan glide may start
+                if (_owner.CompleteChipTransfer(this, hand))
+                    return;
+                // Both hands refused: fall through to the normal routing as the last honest resort.
+                _releaseGlide = ReleaseGlideSeconds;
+                _owner.RefreshFanLayout();
+                return;
+            }
+
             base.OnRelease(hand, velocity); // detach + restore fan home (pre-grab local pose)
             transform.position = dropWorldPos;
             transform.rotation = worldRot;
@@ -3816,15 +4218,58 @@ internal sealed class ItemsPile
         /// both hands and each hand must keep its own independent candidate.</summary>
         private VRHand? _suppressedForHand;
 
-        /// <summary>Set by <see cref="ItemsPile.UpdateHandSweep"/>: this chip lost the election for
+        /// <summary>
+        /// SECOND refused hand — filled when a second suppressor names a different hand while the
+        /// first is already up. This is the slot the mirror was MISSING (user ruling 2026-08-08,
+        /// "Item-Karten … sollen wie normale Karten reagieren"): the item fan runs TWO per-hand
+        /// elections in the same tick (<see cref="ItemsPile.UpdateHandSweep"/>), so one chip can
+        /// lose BOTH and must refuse BOTH hands — with a single slot the second write silently
+        /// re-opened the first hand's grab gate on a chip that hand had NOT elected. Byte-for-byte
+        /// the shape <see cref="VRCard"/> already carries
+        /// (<c>_handPopSuppressedFor</c> / <c>_handPopSuppressedFor2</c>) and for the same reason.
+        /// </summary>
+        private VRHand? _suppressedForHand2;
+
+        /// <summary>
+        /// Set by <see cref="ItemsPile.UpdateHandSweep"/>: this chip lost the election for
         /// <paramref name="hand"/> and must stay out of that hand's proximity grab, so the chip
-        /// that POPPED is the chip the trigger takes ("what lights up is what I get").</summary>
-        internal void SetHandSuppressed(VRHand? hand) => _suppressedForHand = hand;
+        /// that POPPED is the chip the trigger takes ("what lights up is what I get").
+        /// ACCUMULATIVE, exactly like <c>VRCard.SetHandPopSuppressed</c>: a second call naming a
+        /// DIFFERENT hand ADDS it instead of replacing the first. The suppressor re-derives its
+        /// whole set from scratch every tick and clears through
+        /// <see cref="ClearHandSuppressed"/>, so the pair can never go stale.
+        /// </summary>
+        internal void SetHandSuppressed(VRHand? hand)
+        {
+            if (hand == null)
+                return;
+            if (_suppressedForHand == null || ReferenceEquals(_suppressedForHand, hand))
+                _suppressedForHand = hand;
+            else if (!ReferenceEquals(_suppressedForHand2, hand))
+                _suppressedForHand2 = hand;
+        }
+
+        /// <summary>Drop both refused hands (the per-tick re-derive, and every point where this chip
+        /// leaves the arc — a grab, an explicit pluck, the fan closing).</summary>
+        internal void ClearHandSuppressed()
+        {
+            _suppressedForHand = null;
+            _suppressedForHand2 = null;
+        }
 
         /// <summary>Per-hand grab/hover gate (<see cref="IGrabbableHandFilter"/>): a chip that lost
         /// the hand sweep is invisible to that hand's <c>ProximityGrabber</c> — no highlight, no
-        /// grab, no haptic. The laser path is untouched (it arbitrates itself).</summary>
-        public bool AllowsHand(VRHand hand) => !ReferenceEquals(hand, _suppressedForHand);
+        /// grab, no haptic. The laser path is untouched (it arbitrates itself).
+        ///
+        /// <para>A chip CLIPPED into the use slot (<see cref="PendingUse"/>) allows EVERY hand,
+        /// unconditionally. It lies in the board's recess, not in the arc, so an arc election can
+        /// never be a statement about it — and refusing it is exactly what made a placed card
+        /// un-pickable by hand (requirement 5b). The owner already skips it when it re-derives the
+        /// suppression set; this is the belt, because a single stale flag here would silently cost
+        /// the player their card back.</para></summary>
+        public bool AllowsHand(VRHand hand) =>
+            PendingUse
+            || (!ReferenceEquals(hand, _suppressedForHand) && !ReferenceEquals(hand, _suppressedForHand2));
 
         /// <summary>
         /// Shrink this chip's grab box to its VISIBLE strip in FAN-local metres (see
@@ -3983,12 +4428,18 @@ internal sealed class ItemsPile
                 return;
             }
 
-            // Req #6 — clipped into the use slot, waiting for the decision: NOTHING to do. The chip is
-            // a child of the slot with an exact zero local pose (ClipIntoSlot), so it is held there by
-            // the transform hierarchy — rigid, free, and with no residual error. Any per-frame pose
-            // work here would be the swim-behind-the-head bug coming back.
+            // Req #6 — clipped into the use slot, waiting for the decision: nothing to do ONCE the
+            // settle has landed. The chip is a child of the slot at an exact zero local pose, so it
+            // is held there by the transform hierarchy — rigid, free, and with no residual error.
+            // Any per-frame pose work in the settled state would be the swim-behind-the-head bug
+            // coming back, which is why the settle is a bounded window (requirement 5a) and not a
+            // permanent chase: it converges on the slot frame and then stops writing entirely.
             if (PendingUse)
+            {
+                if (_clipSettle > 0f)
+                    TickClipSettle();
                 return;
+            }
 
             float udt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // unscaled: pop/glide play while paused
             bool popped = _fingerPopped || _laserPopped;
@@ -4064,11 +4515,45 @@ internal sealed class ItemsPile
             if (Holder != null || !CanGrab)
                 return;
             _laserPopped = false;
+
+            // ─── THE PLACED CARD: THE FAR LASER PUTS IT BACK, THE HAND TAKES IT ───────────────
+            //
+            // USER REPORT (2026-08-08): "Von dort möchte ich auch in der Lage sein die Karte wieder
+            // in die Hand zu nehmen, aktuell geht sie mit trigger direkt zurück zum pile/Fächer."
+            //
+            // ROOT CAUSE of the "direkt zurück" half: a laser pluck is a press-and-HOLD hold
+            // (ForceGrab(releaseOnTriggerUp: true) — the ability fans work the same way). Aimed at a
+            // card lying in the recess, the beam click grabbed it, the grab cancelled the pending
+            // decision, and the trigger-up of that same click released it IN MID-AIR, metres from
+            // the slot — where the release routing can only glide it home to the fan. The card
+            // therefore appeared to jump from the recess straight back to the pile without ever
+            // being in the hand, and the player had no way to keep it.
+            //
+            // THE RULE (documented here because this is the fork):
+            //   • THE HAND TAKES IT. Reaching to the recess and grabbing — either hand, trigger or
+            //     grip, ProximityGrabber — takes the placed card INTO that hand, where it is an
+            //     ordinary held item chip: readable, hand-swappable, and re-placeable. WHERE it is
+            //     released decides what happens next, exactly as for the first placement: over the
+            //     recess it clips back in (ItemsPile.OnChipReleased), anywhere else it glides home
+            //     to the fan. A clipped chip is deliberately never sweep-suppressed and always
+            //     AllowsHand, so that grab can never be refused.
+            //   • THE FAR LASER PUTS IT BACK, in one deliberate gesture, and never takes it into
+            //     the hand. The recess must stay clearable from reading distance without walking the
+            //     hand down to the board, and a beam click cannot express a hold anyway (see the
+            //     root cause above). So instead of the grab/mid-air-release round trip it now runs
+            //     the return DIRECTLY — same cancel, same animated glide home, no phantom hop
+            //     through the hand, and one honest log line.
+            if (PendingUse && _owner != null)
+            {
+                _owner.ReturnPlacedChip(this, hand);
+                return;
+            }
+
             // An EXPLICIT pluck overrides the hand sweep's arbitration for this chip. Without this
             // the pull-jerk grace path could hand ForceGrab a chip the sweep had meanwhile
             // suppressed for that very hand (AllowsHand=false → ForceGrab refuses), turning a
             // promised pluck into a silent refusal. The sweep re-derives its set next tick anyway.
-            SetHandSuppressed(null);
+            ClearHandSuppressed();
             hand.Grabber.ForceGrab(this, releaseOnTriggerUp: true);
         }
 

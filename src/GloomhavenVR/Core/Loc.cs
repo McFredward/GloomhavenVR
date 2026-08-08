@@ -192,6 +192,14 @@ internal static partial class Loc
         // (consumed as a malus), so the keycap says "abgeben" (surrender); the refresh
         // variant is a positive pick and says so. Banner fallbacks used only when the
         // game's own picker hint title is empty.
+        // The engraved caption UNDER the board's item-use recess — a ZONE NAME in the same voice as
+        // the pile captions beside it ("ABGEWORFEN" / "VERBRANNT" / "GEGENSTÄNDE"), not a button.
+        // It used to be pulled from the GAME key GUI_USE, which does not exist in this build: the
+        // English fallback shipped, so a German player read a bare "USE" engraved on their board
+        // (user report 2026-08-08). A mod string is the only honest source for a caption the game
+        // itself has no word for — the game's use-item widgets carry no label at all (see
+        // NetProtocol's note on UIUseSlot<T>).
+        ["item_use_area"] = Pair("USE", "BENUTZEN"),
         ["item_surrender"] = Pair("SURRENDER ITEM", "ITEM ABGEBEN"),
         ["item_refresh_confirm"] = Pair("REFRESH ITEM", "ITEM AUFFRISCHEN"),
         ["item_surrender_demand"] = Pair("Surrender an item", "Gib einen Gegenstand ab"),

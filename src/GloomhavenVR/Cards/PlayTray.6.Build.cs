@@ -354,7 +354,12 @@ internal sealed partial class PlayTray
         {
             _itemUseConfirm = BoardButton.Create(confirmParent, rectSize,
                 new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
-                _itemUseConfirmLabel ?? Core.Loc.Game("GUI_USE", "USE"), // surrender picks override the label
+                // Same MOD string the recess caption below now carries (Loc "item_use_area"): the
+                // game key GUI_USE does not resolve in this build, so BOTH used to ship the English
+                // fallback and a German board read "USE" on the cap and "USE" on the engraving. The
+                // cap's live wording still rides wire record 13, so peers keep seeing the owner's
+                // word — and the surrender picks still override the label entirely.
+                _itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"),
 
                 () => _itemUseConfirmAction?.Invoke(),
                 round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
