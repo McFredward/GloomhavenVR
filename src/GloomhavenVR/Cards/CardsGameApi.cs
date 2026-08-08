@@ -2454,7 +2454,20 @@ internal static class CardsGameApi
     /// (<see cref="SelectActor"/> / take-damage) — that calls <c>InitiativeTrack.Select</c>
     /// DIRECTLY, whereas this guard only sits on the HUMAN avatar-click seam
     /// (<c>InitiativeTrackPlayerAvatar.OnClick</c>), so last round's attacked-actor select still
-    /// works. Verified: <c>public CActor CurrentActor</c> (Choreographer.cs:490),
+    /// works.
+    ///
+    /// <para>RE-SCOPED 2026-08-08 (user ruling "das Wechseln zu einem anderen Character darf nie
+    /// blockiert sein"). This predicate can NO LONGER refuse a character-focus switch, and that is
+    /// structural rather than a promise: its only caller
+    /// (<c>Board/Patches/SelectionGuardPatches.cs</c>) now returns as soon as
+    /// <c>Board.CharacterFocus.TryFocus</c> succeeds, so this line is reached only when the focus
+    /// gate refused — i.e. during <c>SelectAbilityCardsOrLongRest</c>, where the phase test on the
+    /// second line makes this method return false anyway — or for an actor that is not a focus
+    /// target at all (an exhausted hero's stale portrait). It therefore guards exactly what it was
+    /// written to guard, the vanilla SELECT that re-points the docked cards, and never the view.
+    /// Do not re-widen it and do not call it before the focus attempt.</para>
+    ///
+    /// Verified: <c>public CActor CurrentActor</c> (Choreographer.cs:490),
     /// <c>CPhase.PhaseType.ActionSelection/Action</c> (CPhase.cs:16-17),
     /// <c>CPlayerActor.IsUnderMyControl</c>.
     /// </summary>
