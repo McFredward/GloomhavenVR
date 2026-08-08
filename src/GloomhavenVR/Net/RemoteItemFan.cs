@@ -15,11 +15,19 @@ namespace GloomhavenVR.Net;
 /// nothing. The item fan is now broadcast as an additive count + a held/board-anchored flag
 /// (<see cref="NetProtocol.FlagItemFan"/>), and this renders it.
 ///
-/// ANTI-CHEAT / bandwidth: BACKS only, exactly like <see cref="RemoteHandFan"/>'s default. No item
-/// identity, art or state ever rides the wire; a peer sees how many item cards are up and where the
-/// fan is, nothing more. Item cards are near-square rather than 63.5×88, so the slab uses its own
-/// dimensions — the real per-card face size is deliberately NOT transmitted (it would be per-card
-/// data for a back-only visual).
+/// ANTI-CHEAT / bandwidth: no item identity, art or state ever rides the WIRE — a peer transmits how
+/// many item cards are up and where the fan is, nothing more. Item cards are near-square rather than
+/// 63.5×88, so the slab uses its own dimensions; the real per-card face size is deliberately NOT
+/// transmitted (it would be per-card data for something the receiver can measure itself).
+///
+/// CARD FRONTS (user ruling 2026-08-08, "Die Oberseiten der Karten des remote Spielers soll auch
+/// überall sichtbar sein … NUR in der Auswahlphase sieht man überall nur die Rückseiten"): this arc
+/// used to be BACKS UNCONDITIONALLY. That made the secrecy rule a PLACE rule, in direct conflict with
+/// the PHASE rule the round-card slots and the hand fan already obeyed. Each slab now carries the REAL
+/// item card face whenever <see cref="RevealGate.ShowRoundCardFronts"/> is open for the displayed
+/// actor, drawn by <see cref="RemotePileFronts"/> from that peer's own host-replicated
+/// <c>CInventory.AllItems</c> — the identical list the LOCAL <see cref="ItemsPile"/> reads. Zero new
+/// wire bytes: the item identities were already on this client, they were simply never drawn.
 ///
 /// PLACEMENT mirrors the local fan's two modes: HAND-HELD → floating a palm standoff above the
 /// sender's DOMINANT hand (the hand that pinch-grabbed the item stack); BOARD-ANCHORED → floating
@@ -27,10 +35,12 @@ namespace GloomhavenVR.Net;
 /// Faces away from the owner's head so the owner's side reads as the "front" and everyone else sees
 /// backs — the same convention as every other remote card visual.
 /// </summary>
-/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes: extras <c>FlagItemFan</c> + one count byte,
-/// plus the two pure flags <c>FlagItemFanHeld</c> / <c>FlagItemFanLeft</c> (0 B each). Item
-/// IDENTITY and per-item face size are DELIBERATELY-NOT transmitted — backs only; the item's real
-/// effect syncs authoritatively through <c>UseItemService</c>, not through here. See
+/// <remarks>CLASSIFICATION: VR-ONLY (the fan's existence, size and placement) + PER-ACTOR MODEL (its
+/// card faces) — costs wire bytes: extras <c>FlagItemFan</c> + one count byte, plus the two pure flags
+/// <c>FlagItemFanHeld</c> / <c>FlagItemFanLeft</c> (0 B each). Item IDENTITY and per-item face size
+/// are DELIBERATELY-NOT transmitted; the FACES are resolved locally off the host-replicated
+/// <c>Inventory.AllItems</c> behind <see cref="RevealGate"/> (<see cref="RemotePileFronts"/>). The
+/// item's real effect syncs authoritatively through <c>UseItemService</c>, not through here. See
 /// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteItemFan
 {
@@ -50,6 +60,12 @@ internal sealed class RemoteItemFan
     private readonly RemoteAvatar _owner;
     private GameObject? _root;
     private readonly List<GameObject> _cards = new(MaxCards);
+
+    /// <summary>The FRONT layer over those slabs (user ruling 2026-08-08) — one overlay per slab,
+    /// gated on <see cref="RevealGate.ShowRoundCardFronts"/> and fed from the peer's own replicated
+    /// inventory. Owned here, destroyed with the fan.</summary>
+    private readonly RemotePileFronts _fronts;
+
     private Mesh? _mesh;
     private int _builtCount = -1;
     private bool _poseInit;
@@ -82,6 +98,7 @@ internal sealed class RemoteItemFan
     public RemoteItemFan(RemoteAvatar owner)
     {
         _owner = owner;
+        _fronts = new RemotePileFronts(owner, "item fan");
     }
 
     public void Tick(float dt)
@@ -178,13 +195,20 @@ internal sealed class RemoteItemFan
 
         Layout(count, dt);
 
+        // THE FRONT LAYER (user ruling 2026-08-08). After the layout, so a face is only ever asked for
+        // on a slab that already sits where it belongs. The gate inside is evaluated every frame; the
+        // model resolve behind it rides the board-content cadence — see RemotePileFronts.
+        _fronts.Tick(RemotePileFronts.Content.Items);
+
         if (count != _loggedCount || _owner.ItemFanHeld != _loggedHeld)
         {
             _loggedCount = count;
             _loggedHeld = _owner.ItemFanHeld;
             VRLog.Info("Net", $"Remote ITEM fan [player {_owner.PlayerId}]: {count} item card(s), " +
                               $"{(_owner.ItemFanHeld ? $"hand-held above their {(_owner.ItemFanLeftHand ? "LEFT" : "RIGHT")} palm" : "anchored above their board")} " +
-                              "— backs only (no item identity on the wire).");
+                              "— no item identity on the wire; whether the slabs show FRONTS or BACKS " +
+                              "is stated separately by the \"Remote item fan faces\" line (RevealGate " +
+                              "decides, per phase).");
         }
     }
 
@@ -489,10 +513,15 @@ internal sealed class RemoteItemFan
         }
         _builtCount = count;
         VRLayers.Apply(_root!);
+        // Re-bind the front overlays onto the NEW slabs (the old ones died with their hosts above).
+        // The card size handed over is the UNSCALED slab size: the overlay is a child of the slab, so
+        // it inherits the emerge seed scale and the pop enlargement for free, like the slab's own mesh.
+        _fronts.Rebuild(_cards, CardW, CardH);
     }
 
     private void Hide()
     {
+        _fronts.HideAll(); // a hidden fan keeps no game-widget clones alive
         if (_loggedCount > 0)
         {
             _loggedCount = 0;
@@ -508,6 +537,7 @@ internal sealed class RemoteItemFan
 
     public void Destroy()
     {
+        _fronts.Destroy();
         _cards.Clear();
         _collapseFrom.Clear();
         _builtCount = -1;

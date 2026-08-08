@@ -6,19 +6,27 @@ using UnityEngine;
 namespace GloomhavenVR.Net;
 
 /// <summary>
-/// The cloned FRONT-art overlay for ONE slot of a <see cref="RemoteHandFan"/> slab.
+/// The cloned FRONT-art overlay for ONE card slot of a remote surface — a <see cref="RemoteHandFan"/>
+/// slab, a <see cref="RemoteBoardCard"/> recess, or (since the user ruling of 2026-08-08) a slab of
+/// the pile-browse and item fans via <see cref="RemotePileFronts"/>.
 ///
-/// When (and ONLY when) <see cref="RevealGate.ShowRoundCardFronts"/> permits, the remote hand fan
-/// asks each slot to show the REAL card face — art + enhancement stickers — of the corresponding
-/// remote-actor hand card. We render it by CLONING the game's own
-/// <c>AbilityCardUI.fullAbilityCard</c> widget (<c>Object.Instantiate</c>) onto a world-space canvas
+/// When (and ONLY when) <see cref="RevealGate.ShowRoundCardFronts"/> permits, the owning surface asks
+/// each slot to show the REAL card face — art + enhancement stickers — of the corresponding card. We
+/// render it by CLONING the game's own widget (<c>Object.Instantiate</c>) onto a world-space canvas
 /// that floats a hair in front of the slab's owner-facing (−Z) side, matching the fan convention
 /// "fronts look toward the owner". We NEVER adopt/reparent the LIVE widget (that would rip the face
 /// out of the remote actor's own hidden hand UI and corrupt the game's bookkeeping) — always a
 /// throwaway clone we fully own and destroy.
 ///
-/// ANTI-CHEAT: this class holds NO gate logic of its own — it renders a face only when
-/// <see cref="RemoteHandFan"/> hands it a source widget, and the fan gates that strictly on
+/// TWO KINDS OF SOURCE, ONE MECHANISM. An ABILITY card arrives as a <c>FullAbilityCard</c> (the
+/// dedicated overload below, which also re-hands the runtime skin). Anything else arrives through the
+/// generic <c>ShowFront(GameObject, key, …)</c> overload with a caller-supplied dedup key and an
+/// optional "configure the clone before it activates" hook — which is what an ITEM card needs, because
+/// its widget has to be manufactured from the pool per call and its model reference re-planted before
+/// <c>OnEnable</c> dereferences it (see <see cref="RemoteItemCardSource"/>).
+///
+/// ANTI-CHEAT: this class holds NO gate logic of its own — it renders a face only when its owner
+/// hands it a source widget, and every owner gates that strictly on
 /// <see cref="RevealGate.ShowRoundCardFronts"/>. Every game deref here is null-guarded and the whole
 /// clone is wrapped so that ANY failure leaves the slot showing NO front (the slab's card BACK
 /// remains) — fail-safe = no leak. The clone is made fully NON-INTERACTIVE (raycasters removed +
@@ -80,6 +88,16 @@ internal sealed class RemoteCardArt
     }
 
     /// <summary>
+    /// Is a front currently up that was built for <paramref name="key"/>? The dedup question asked
+    /// from OUTSIDE, so a caller whose source widget does not exist yet (an ITEM card, which the game
+    /// only ever manufactures from the pool — see <see cref="RemoteItemCardSource"/>) can skip the
+    /// whole borrow when the right face is already showing. Without it every such caller would have
+    /// to spawn a widget just to learn its instance id, which is precisely the per-frame cost the
+    /// dedup exists to avoid.
+    /// </summary>
+    public bool ShowsKey(int key) => _clone != null && _host != null && _shownSourceId == key;
+
+    /// <summary>
     /// Show the cloned face of <paramref name="source"/> (a remote hand card's live
     /// <c>fullAbilityCard</c>). Dedups by instance id — a no-op if the same source is already shown.
     /// Any failure clears the front (fail-safe to the slab back). Returns true iff a front is shown.
@@ -91,9 +109,39 @@ internal sealed class RemoteCardArt
             HideFront();
             return false;
         }
+        return ShowFront(source.gameObject, source.GetInstanceID(), source);
+    }
 
-        int id = source.GetInstanceID();
-        if (_clone != null && id == _shownSourceId && _host != null)
+    /// <summary>
+    /// The GENERIC clone path: show a throwaway copy of <paramref name="sourceGo"/>, dedup'd on a
+    /// CALLER-supplied <paramref name="key"/>.
+    ///
+    /// <para>WHY THE KEY IS A PARAMETER RATHER THAN <c>sourceGo.GetInstanceID()</c>: an ITEM card has
+    /// no long-lived widget anywhere on this client (the game manufactures one from the pool on
+    /// demand), so its source object is a different instance on every call and would defeat instance-id
+    /// dedup entirely — a clone rebuilt every frame, for every chip, for every peer. The item source
+    /// keys on the ITEM instead, which is stable for as long as the peer keeps that item equipped, and
+    /// so never rebuilds a settled fan. Keys from different KINDS of source must never meet on the same
+    /// overlay: the pile-browse fan, which is the one surface that can switch between ability and item
+    /// content on the same slabs, calls <see cref="HideFront"/> on every overlay when its content kind
+    /// changes (see <see cref="RemotePileFronts.Tick"/>), so the key space is cleared with it.</para>
+    ///
+    /// <paramref name="skinSource"/> is the ability-card widget whose runtime <c>_skin</c> the clone
+    /// needs re-handed (see <see cref="TryReapplySkin"/>); null for non-ability sources.
+    /// <paramref name="beforeActivate"/> runs on the clone while it is still INACTIVE — the seam where
+    /// a caller re-plants the non-serialized model reference its widget dereferences in
+    /// <c>OnEnable</c> (an <c>ItemCardUI</c> reads <c>item.ID</c> the instant it activates).
+    /// </summary>
+    public bool ShowFront(GameObject sourceGo, int key, FullAbilityCard? skinSource = null,
+        System.Action<GameObject>? beforeActivate = null)
+    {
+        if (sourceGo == null)
+        {
+            HideFront();
+            return false;
+        }
+
+        if (_clone != null && key == _shownSourceId && _host != null)
         {
             if (!_host.activeSelf)
                 _host.SetActive(true);
@@ -115,13 +163,24 @@ internal sealed class RemoteCardArt
 
             // Build the clone UNDER the inactive host so the cloned widget's Awake/OnEnable does not
             // run until we have neutralized interaction and re-applied the skin.
-            var clone = Object.Instantiate(source.gameObject, _host.transform, worldPositionStays: false);
+            var clone = Object.Instantiate(sourceGo, _host.transform, worldPositionStays: false);
             clone.name = "FrontArtClone";
             _clone = clone;
 
             Neutralize(clone);
             StripFragileEffects(clone);
-            TryReapplySkin(source, clone);
+            if (skinSource != null)
+                TryReapplySkin(skinSource, clone);
+            beforeActivate?.Invoke(clone);
+
+            // A clone copies the source's own activeSelf, and a widget BORROWED from the pool is
+            // handed out deactivated (activate:false) so it can never render before the gate. Flip the
+            // clone on here — it is still under the INACTIVE host, so nothing runs yet — rather than
+            // leaving it to FitClone below: that way the host activation is what runs the widget's
+            // OnEnable, and FitClone's pose write stays the FINAL one on every path, not just on the
+            // paths whose source happened to be active.
+            if (!clone.activeSelf)
+                clone.SetActive(true);
 
             // Owned head camera renders the mod layer only; put the whole clone subtree on it (the
             // game face was on a game UI layer). It's a throwaway clone we own, so re-layering is safe.
@@ -140,7 +199,7 @@ internal sealed class RemoteCardArt
             // versa. The clone is a throwaway we own, so no restore pass is ever needed.
             RescanMips();
 
-            _shownSourceId = id;
+            _shownSourceId = key;
             return true;
         }
         catch (System.Exception ex)
@@ -244,7 +303,8 @@ internal sealed class RemoteCardArt
     }
 
     /// <summary>
-    /// Strip the <c>CardEffects</c> FX driver from the clone BEFORE it activates. CardEffects'
+    /// Strip the <c>CardEffects</c> / <c>ItemCardEffects</c> FX drivers from the clone BEFORE it
+    /// activates. CardEffects'
     /// <c>Initialize</c> (Awake) swaps the card's image materials to a CUSTOM screen-space shader keyed
     /// by a <c>_PosAndBounds</c> that is only valid for the card's ORIGINAL hand-canvas position — on a
     /// detached world-space clone that shader is the known "card renders DEEP BLACK" hazard
@@ -255,6 +315,17 @@ internal sealed class RemoteCardArt
     /// Uses <c>DestroyImmediate</c> because a deferred Destroy would still let Awake run this frame; safe
     /// here since the clone has never been active (no Awake yet) and all game refs to cardEffects are
     /// null-guarded in the widget code we let run.
+    ///
+    /// <para><c>ItemCardEffects</c> is the ITEM card's twin of the same hazard and is stripped for the
+    /// same reason: it drives the identical <c>_PosAndBounds</c> screen-space material (ItemCardEffects.cs:15)
+    /// plus a particle emitter whose size is only valid at the card's original canvas scale —
+    /// <c>Cards.ItemsPile</c> keeps it alive only because it hosts the widget at a measured scale and
+    /// clamps that emitter (<c>ClampCardEffectSmoke</c>). A detached clone has neither. The cost is the
+    /// "spent"/"consumed" tint, which is a STATE decoration, not the card's identity — the art, title,
+    /// symbol and condition icon all survive, so the card stays fully readable, which is what the
+    /// ruling asks for. The strip also removes the one component <c>ItemCardUI.OnReturnedToPool</c>
+    /// dereferences without a null check — harmless here because a clone is never recycled, and the
+    /// BORROWED source is never touched by this method.</para>
     /// </summary>
     private static void StripFragileEffects(GameObject clone)
     {
@@ -265,6 +336,12 @@ internal sealed class RemoteCardArt
             {
                 if (effects[i] != null)
                     Object.DestroyImmediate(effects[i]);
+            }
+            var itemEffects = clone.GetComponentsInChildren<ItemCardEffects>(includeInactive: true);
+            for (int i = 0; i < itemEffects.Length; i++)
+            {
+                if (itemEffects[i] != null)
+                    Object.DestroyImmediate(itemEffects[i]);
             }
         }
         catch (System.Exception ex)

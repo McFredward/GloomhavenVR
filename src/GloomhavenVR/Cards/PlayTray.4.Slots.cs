@@ -492,30 +492,31 @@ internal sealed partial class PlayTray
         return false;
     }
 
-    /// <summary>
-    /// True when <paramref name="card"/> is currently PARKED in one of the two round-card slots
-    /// (physically parented under a slot anchor, not held). The same "physical truth" question
-    /// <see cref="OccupiedSlotMask"/> asks, from the card's side: peers render exactly the cards
-    /// that satisfy this predicate on the remote board (occupancy rides the board-UI record), and
-    /// they are the ONLY local cards whose faces peers ever see. That makes this the load-bearing
-    /// half of the tooltip identity gate (<c>WorldUI.WorldTooltips</c>): a card that fails it —
-    /// hand fan, item fan, pile browser, held — is backs-only on every peer forever, so its
-    /// tooltip must never ride the wire.
-    /// </summary>
-    internal bool IsRoundSlotCard(VRCard? card)
-    {
-        if (card == null || card.IsHeld)
-            return false;
-        Transform? parent = card.transform.parent;
-        if (parent == null)
-            return false;
-        for (int i = 0; i < _slots.Length; i++)
-        {
-            if (_slots[i] != null && ReferenceEquals(parent, _slots[i]))
-                return true;
-        }
-        return false;
-    }
+    // =============================================================================================
+    //  IsRoundSlotCard(VRCard) is REMOVED — the invariant it encoded was RETIRED, not just unused.
+    //
+    //  It answered "is this card parked in a round-card slot", and its whole reason for existing was
+    //  the sentence in its own doc: round-slot cards "are the ONLY local cards whose faces peers ever
+    //  see", which made it the load-bearing half of the tooltip identity gate
+    //  (WorldUI.WorldTooltips.ContentPublicToPeers) — a card that failed it was "backs-only on every
+    //  peer forever", so its tooltip could never ride the wire.
+    //
+    //  The user ruling of 2026-08-08 makes that sentence FALSE:
+    //      "Die Oberseiten der Karten des remote Spielers soll auch überall sichtbar sein, sei es
+    //       Karten in der Hand, der Hand-Karten-Pile oder einer der Piles aus dem Board (Items/
+    //       Abgeworfen/Verbrannt). … NUR in der Auswahlphase sieht man überall nur die Rückseiten von
+    //       remote spielern, in allen anderen Phasen, ist alles sichtbar."
+    //  Peers now draw FRONTS for the hand fan (Net.RemoteHandFan), for the discard/burnt/items browse
+    //  arcs (Net.RemoteBrowserFan) and for the item fan (Net.RemoteItemFan), all behind the same
+    //  Net.RevealGate the two slots already used. Secrecy is a PHASE, not a PLACE — so the tooltip
+    //  gate asks Net.RevealGate.PeersSeeOurCardFronts and asks nothing at all about WHERE the card
+    //  lies, which left this predicate with no callers and, more importantly, no meaning.
+    //
+    //  The "physical truth, not a flag" idea it shared with OccupiedSlotMask is NOT retired — that
+    //  mask still rides the board-UI record so a peer's recess shows an occupied back. Only the
+    //  card-side question, and only its secrecy role, is gone. Beware a bare-name grep: nothing else
+    //  in the mod ever called it.
+    // =============================================================================================
 
     /// <summary>True while a CONFIRM control is visible on this board — the mod keycap, or the
     /// docked native Continue widget that replaces it at the same spot (either way the owner

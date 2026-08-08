@@ -357,13 +357,20 @@ internal sealed class RemoteHandFan
         }
 
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
+        // The line NAMES the predicate on purpose: the same sentence appears on every other remote
+        // card surface ("Remote pile browse fan faces", "Remote item fan faces", the board's
+        // "Remote board content … fronts="), so one hardware log proves the phase rule across all of
+        // them at once and a surface that disagrees is visible without a screenshot.
         bool nowFronts = frontCount > 0;
         if (nowFronts != _frontsShown)
         {
             _frontsShown = nowFronts;
             VRLog.Info("Net", nowFronts
-                ? $"Remote hand fan [player {_owner.PlayerId}] flipped to FRONTS (reveal gate open, {frontCount} card(s))."
-                : $"Remote hand fan [player {_owner.PlayerId}] flipped back to BACKS (reveal gate closed).");
+                ? $"Remote hand fan faces [player {_owner.PlayerId}]: FRONTS — content=HAND, " +
+                  $"{frontCount} card(s), gate: RevealGate.ShowRoundCardFronts(actor)=true."
+                : $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — content=HAND, gate: " +
+                  "RevealGate.ShowRoundCardFronts(actor)=false (the game's own secret " +
+                  "SelectAbilityCardsOrLongRest phase) or no hand widget resolved.");
         }
     }
 
