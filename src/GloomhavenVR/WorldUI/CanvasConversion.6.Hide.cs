@@ -160,6 +160,15 @@ internal static partial class CanvasConversion
         panel.ExtraRenderRoots.Add(root);
         if (panel.RenderHidden)
             HideTree(panel, root, out _, out _);
+        // DELIBERATELY NOT the same immediate hide for OwnerRenderHidden (the surface-owned hide):
+        // the restore set for that hide lives on the SURFACE, not on the panel, and is unreachable
+        // from here — hiding the new root into panel.HiddenCanvases/HiddenRenderers would hand it
+        // to the reveal gate's restore instead of the surface's, i.e. the gate would switch it back
+        // on while the surface still wants it hidden. The surface re-asserts its hide every tick and
+        // walks ExtraRenderRoots itself (CanvasConversion.ApplyOwnerRenderHide), so a late root is
+        // caught on the next tick. That one frame is unreachable in practice today: only
+        // GrabbableModal registers a render root, and the only OwnerRenderHidden panels are the
+        // board-docked decision row and use bars, which are never grabbable windows.
     }
 
     /// <summary>
@@ -265,5 +274,143 @@ internal static partial class CanvasConversion
             panel.HiddenRenderers.Add(r);
             renderersChanged++;
         }
+    }
+
+    // ---- the SURFACE-owned render hide (character focus, user ruling 2026-08-08) -------------
+    //
+    // Same mechanism as the reveal gate above, different OWNER — see
+    // ConvertedPanel.OwnerRenderHidden for why the two may not share a flag or a restore set. A
+    // surface calls Apply every tick it wants the panel invisible and Lift when it wants it back;
+    // the recorded sets live on the SURFACE (passed in), so the gate's reveal can never clear them
+    // and the surface's restore can never clear the gate's.
+    //
+    // WHAT THIS ADDS OVER THE `Canvas.enabled = false` THE SURFACES DID BEFORE (the bug, hardware
+    // report ModBuild 84): "Der mixed-reality Hintergrund für die decision ist auch bei den anderen
+    // Characteren noch zu sehen aber leer." The MR backing plate is NOT a Canvas — it is an opaque
+    // plate MeshRenderer MrBacking parents under the host rect — so a canvas-only hide left an
+    // empty dark rectangle floating where the row had been. Renderers are now switched off here,
+    // and MrBacking additionally refuses to BUILD a plate for an OwnerRenderHidden panel.
+
+    // Sweep scratch for the surface-owned hide. Deliberately its own pair rather than the reveal
+    // gate's: the two hides are independent passes and must never be able to alias each other's
+    // in-flight buffer if one ever ends up running inside the other's call stack.
+    private static readonly List<Canvas> OwnerHideCanvasScratch = new(16);
+    private static readonly List<Renderer> OwnerHideRendererScratch = new(16);
+
+    /// <summary>
+    /// Render-hide everything that belongs to <paramref name="panel"/> ON BEHALF OF ITS SURFACE:
+    /// every enabled <see cref="Canvas"/> and every enabled <see cref="Renderer"/> in the host
+    /// subtree AND in every registered <see cref="ConvertedPanel.ExtraRenderRoots"/> (the
+    /// <see cref="GrabbableModal"/> grab bar lives outside the host, so a canvas-only hide would
+    /// leave it floating). Nothing is deactivated and no game method is called — disabling a Canvas
+    /// or Renderer COMPONENT runs no game code, which is the property the focus feature may never
+    /// lose (the game's <c>ExtendedButton.OnDisable</c> raises <c>ActiveChanged(false)</c> and can
+    /// clear the EventSystem selection; see the surfaces' own ApplyFocusHide docs).
+    ///
+    /// <para>IDEMPOTENT, and meant to be re-asserted every tick: a component already disabled is
+    /// skipped and never double-recorded, so a plate or a pooled button's canvas built a frame
+    /// later is caught on the next tick. EXACT RESTORE: only components whose <c>enabled</c> was
+    /// TRUE at hide time are recorded, so <see cref="LiftOwnerRenderHide"/> can never switch on
+    /// something that was deliberately off.</para>
+    ///
+    /// <para>Walks INACTIVE children too (unlike the reveal gate, which re-runs every frame while
+    /// pending and can afford to skip them): a focus hide can last for minutes, and a GameObject
+    /// the game activates during that time must not get one visible frame before the next tick's
+    /// re-assert.</para>
+    /// </summary>
+    /// <param name="canvases">The surface's record of canvases IT disabled (appended to).</param>
+    /// <param name="renderers">The surface's record of renderers IT disabled (appended to).</param>
+    /// <param name="canvasesChanged">How many Canvas components this call actually switched off.</param>
+    /// <param name="renderersChanged">How many Renderer components this call actually switched off.</param>
+    internal static void ApplyOwnerRenderHide(ConvertedPanel? panel, List<Canvas> canvases,
+        List<Renderer> renderers, out int canvasesChanged, out int renderersChanged)
+    {
+        canvasesChanged = 0;
+        renderersChanged = 0;
+        if (panel == null)
+            return;
+        AssertNotInRenderPhase("surface-owned hide");
+
+        // Set FIRST, before any component is touched: MrBacking.TickPanels reads this flag to
+        // refuse building a plate at all, and it ticks LATER in the same Update than the surfaces
+        // (WorldUIModule.BuildTickSteps: DecisionDockSurface/UseBarsSurface -> CanvasConversion ->
+        // MrBacking), so a hide applied here is always in force before the plate sweep runs. That
+        // ordering is what makes the fix flash-free: on the very first hidden tick there is no
+        // plate to switch off because none is ever created.
+        panel.OwnerRenderHidden = true;
+
+        if (panel.HostGo != null)
+            HideOwnerTree(panel.HostGo.transform, canvases, renderers,
+                ref canvasesChanged, ref renderersChanged);
+        for (int i = panel.ExtraRenderRoots.Count - 1; i >= 0; i--)
+        {
+            Transform root = panel.ExtraRenderRoots[i];
+            if (root == null)
+            {
+                panel.ExtraRenderRoots.RemoveAt(i); // holder destroyed with the grab
+                continue;
+            }
+            HideOwnerTree(root, canvases, renderers, ref canvasesChanged, ref renderersChanged);
+        }
+    }
+
+    /// <summary>
+    /// Undo <see cref="ApplyOwnerRenderHide"/>: re-enable EXACTLY the recorded set and clear it.
+    /// Safe (and required) even after the conversion was released — the components are held by
+    /// reference and belong enabled wherever they now live, so a row restored into its 2D home is
+    /// never stranded invisible. <paramref name="panel"/> may be null for that reason; the flag is
+    /// cleared when it is not.
+    /// </summary>
+    internal static void LiftOwnerRenderHide(ConvertedPanel? panel, List<Canvas> canvases,
+        List<Renderer> renderers)
+    {
+        AssertNotInRenderPhase("surface-owned reveal");
+        for (int i = 0; i < canvases.Count; i++)
+        {
+            Canvas c = canvases[i];
+            if (c == null || c.enabled)
+                continue;
+            c.enabled = true;
+        }
+        canvases.Clear();
+        for (int i = 0; i < renderers.Count; i++)
+        {
+            Renderer r = renderers[i];
+            if (r == null || r.enabled)
+                continue;
+            r.enabled = true;
+        }
+        renderers.Clear();
+        if (panel != null)
+            panel.OwnerRenderHidden = false;
+    }
+
+    /// <summary>One render root's surface-owned hide pass (see <see cref="ApplyOwnerRenderHide"/>).</summary>
+    private static void HideOwnerTree(Transform root, List<Canvas> canvases, List<Renderer> renderers,
+        ref int canvasesChanged, ref int renderersChanged)
+    {
+        root.GetComponentsInChildren(true, OwnerHideCanvasScratch);
+        for (int i = 0; i < OwnerHideCanvasScratch.Count; i++)
+        {
+            Canvas c = OwnerHideCanvasScratch[i];
+            if (c == null || !c.enabled)
+                continue; // already off (by us on an earlier pass, or by the game on purpose)
+            c.enabled = false;
+            canvases.Add(c);
+            canvasesChanged++;
+        }
+        OwnerHideCanvasScratch.Clear();
+
+        root.GetComponentsInChildren(true, OwnerHideRendererScratch);
+        for (int i = 0; i < OwnerHideRendererScratch.Count; i++)
+        {
+            Renderer r = OwnerHideRendererScratch[i];
+            if (r == null || !r.enabled)
+                continue;
+            r.enabled = false;
+            renderers.Add(r);
+            renderersChanged++;
+        }
+        OwnerHideRendererScratch.Clear();
     }
 }

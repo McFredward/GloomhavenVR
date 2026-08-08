@@ -198,8 +198,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // is not isActiveAndEnabled (PokeInteractor.TickCanvases / RayUguiDriver), and the hide
     // disables the host canvas — nested X hit-canvases are only ever consulted through a winning
     // host, so they cannot be reached either.
+    // OwnerRenderHidden gets the SAME treatment, by the same argument: a panel its own surface
+    // render-hid (the character focus — a decision row / use bar that belongs to somebody the
+    // player is not looking at) is just as invisible as one behind the reveal gate, and grabbing or
+    // resizing an invisible window is exactly the "grabbing something that is not there" the ruling
+    // above forbids. It is also the safe direction for the focus feature itself: the row must come
+    // back at the geometry it left with, and a grab is the one thing that would move it meanwhile.
     bool IPanelGrabOwner.GrabVisible =>
-        _panel != null && _panel.IsAlive && !_panel.RenderHidden
+        _panel != null && _panel.IsAlive && !_panel.RenderHidden && !_panel.OwnerRenderHidden
         && _holder != null && _holder.gameObject.activeInHierarchy;
 
     // Carry the yaw with the hand like the combat log — nothing else authors the

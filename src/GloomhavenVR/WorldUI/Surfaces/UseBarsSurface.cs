@@ -121,9 +121,12 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// focused again. Unresolvable owner ⇒ shown (an unanswerable decision is worse than a
 /// visible one — the same fail-open direction as everywhere else in this drawer).
 ///
-/// THE HIDE CANNOT DISTURB THE PENDING CHOICE — structurally. It disables
-/// <c>Canvas.enabled</c> on the MOD-OWNED converted host (and any nested canvas under it)
-/// and writes nothing else: no game method, no <c>SetActive</c> on a game object. That
+/// THE HIDE CANNOT DISTURB THE PENDING CHOICE — structurally. It clears
+/// <c>Canvas.enabled</c> and <c>Renderer.enabled</c> on the MOD-OWNED converted host subtree
+/// (nested canvases and the mixed-reality backing plate included — that plate is a
+/// MeshRenderer, and leaving it on is what produced the ModBuild 84 report of an empty dark
+/// rectangle where the bar had been) and writes nothing else: no game method, no
+/// <c>SetActive</c> on a game object. That
 /// matters here more than anywhere: the slots ARE <c>ExtendedButton</c>s, whose
 /// <c>OnDisable</c> raises <c>ActiveChanged(false)</c>, un-highlights and can clear the
 /// EventSystem selection + invoke <c>onDeselected</c> (ExtendedButton.cs:300-320), and an
@@ -893,11 +896,20 @@ internal sealed class UseBarsSurface
         private readonly UseBarsSurface _owner;
         private bool _conflictWarned;
 
-        // One character owns a decision (see the class doc): canvases WE disabled to render-hide
-        // this bar, held by reference so the restore lands even after the conversion released.
+        // One character owns a decision (see the class doc): canvases and renderers WE disabled to
+        // render-hide this bar, held by reference so the restore lands even after the conversion
+        // released. The RENDERER list is what killed the ModBuild 84 bug — the mixed-reality
+        // backing plate is a MeshRenderer under the host, not a Canvas, so a canvas-only hide left
+        // an empty dark rectangle floating where the bar had been.
         private readonly List<Canvas> _focusHiddenCanvases = new(4);
-        private static readonly List<Canvas> HostCanvasScratch = new(8);
+        private readonly List<Renderer> _focusHiddenRenderers = new(4);
         private int _loggedFocusHash;
+
+        // Totals switched off by the CURRENT hide (summed over its re-asserting ticks) + whether
+        // the MR plate was among them, for the log line the next hardware log is read against.
+        private int _focusHiddenCanvasCount;
+        private int _focusHiddenRendererCount;
+        private bool _focusHiddenPlate;
 
         // Fit-stability hold state (see the FIT STABILITY class doc).
         private float _fitLiveUntil;
@@ -975,42 +987,60 @@ internal sealed class UseBarsSurface
         internal bool FocusHidden { get; private set; }
 
         /// <summary>
-        /// RENDER-HIDE this bar — and NOTHING ELSE. The only thing written is
-        /// <c>Canvas.enabled = false</c> on the mod's own converted host and on any nested canvas
-        /// beneath it. No game method is called and no GameObject the game owns is deactivated,
-        /// which is the whole point here: these slots ARE <c>ExtendedButton</c>s, and
-        /// <c>ExtendedButton.OnDisable</c> raises <c>ActiveChanged(false)</c>, un-highlights and
-        /// can clear the EventSystem selection + invoke <c>onDeselected</c>
-        /// (ExtendedButton.cs:300-320) — a mid-choice element picker must not be poked like that.
-        /// Idempotent and re-asserted every tick, so a canvas the game adds under an opening
-        /// picker is caught on the next frame.
+        /// RENDER-HIDE this bar — and NOTHING ELSE. The only things written are
+        /// <c>Canvas.enabled = false</c> and <c>Renderer.enabled = false</c> on the mod's own
+        /// converted host subtree and on the panel's registered extra render roots. No game method
+        /// is called and no GameObject the game owns is deactivated, which is the whole point here:
+        /// these slots ARE <c>ExtendedButton</c>s, and <c>ExtendedButton.OnDisable</c> raises
+        /// <c>ActiveChanged(false)</c>, un-highlights and can clear the EventSystem selection +
+        /// invoke <c>onDeselected</c> (ExtendedButton.cs:300-320) — a mid-choice element picker
+        /// must not be poked like that. Idempotent and re-asserted every tick, so a canvas the game
+        /// adds under an opening picker is caught on the next frame.
+        ///
+        /// <para>WHY RENDERERS TOO (hardware report ModBuild 84, the empty MR rectangle): the
+        /// mixed-reality backing plate <see cref="MrBacking"/> parents under the host rect is a
+        /// <c>MeshRenderer</c>, not a Canvas, so the canvas-only hide left it drawing behind
+        /// nothing. <see cref="CanvasConversion.ApplyOwnerRenderHide"/> switches every renderer off
+        /// as well and sets <c>ConvertedPanel.OwnerRenderHidden</c>, which additionally makes the
+        /// plate sweep refuse to BUILD one for a hidden panel — and this surface ticks earlier in
+        /// the same Update than that sweep, so there is not even a one-frame plate.</para>
         /// </summary>
         internal void ApplyFocusHide(List<CPlayerActor> owners, CPlayerActor? focused)
         {
             ConvertedPanel? panel = Panel;
             if (panel == null)
                 return;
+            if (!FocusHidden)
+            {
+                _focusHiddenCanvasCount = 0;
+                _focusHiddenRendererCount = 0;
+                _focusHiddenPlate = false;
+            }
             FocusHidden = true;
 
-            HostCanvasScratch.Clear();
-            panel.HostGo.GetComponentsInChildren(includeInactive: true, HostCanvasScratch);
-            for (int i = 0; i < HostCanvasScratch.Count; i++)
+            int before = _focusHiddenRenderers.Count;
+            CanvasConversion.ApplyOwnerRenderHide(panel, _focusHiddenCanvases, _focusHiddenRenderers,
+                out int canvases, out int renderers);
+            _focusHiddenCanvasCount += canvases;
+            _focusHiddenRendererCount += renderers;
+            // Diagnostic only (MrBacking.PlateObjectName): the hide is name-blind, the LOG is not.
+            for (int i = before; i < _focusHiddenRenderers.Count && !_focusHiddenPlate; i++)
             {
-                Canvas c = HostCanvasScratch[i];
-                if (c == null || !c.enabled)
-                    continue;
-                c.enabled = false;
-                if (!_focusHiddenCanvases.Contains(c))
-                    _focusHiddenCanvases.Add(c);
+                Renderer r = _focusHiddenRenderers[i];
+                if (r != null && r.gameObject.name == MrBacking.PlateObjectName)
+                    _focusHiddenPlate = true;
             }
-            HostCanvasScratch.Clear();
 
             if (!FocusStateChanged(hidden: true, owners, focused))
                 return;
             string ownerNote = DescribeOwners(owners);
             VRLog.Info("WorldUI", $"USE BARS: '{Name}' belongs to '{ownerNote}' and the player is " +
                                   $"looking at '{Board.CharacterFocus.Describe(focused)}' — the bar is " +
-                                  "RENDER-HIDDEN (mod-owned host canvases disabled) and takes no stack " +
+                                  $"RENDER-HIDDEN ({_focusHiddenCanvasCount} canvas(es) and " +
+                                  $"{_focusHiddenRendererCount} renderer(s) disabled on the mod-owned host " +
+                                  "subtree + extra render roots, MR backing plate " +
+                                  $"{(_focusHiddenPlate ? "INCLUDED (the empty dark rectangle is gone)" : "not present (no plate on this panel yet)")}) " +
+                                  "and takes no stack " +
                                   "lane. The decision itself is untouched: no slot was deactivated, an " +
                                   "open element/option picker keeps its state, the items split still " +
                                   "holds, and it reappears unchanged the moment the owner is focused " +
@@ -1043,27 +1073,34 @@ internal sealed class UseBarsSurface
             for (int i = 0; i < owners.Count; i++)
                 hash = hash * 31 + owners[i].ID;
             hash = hash * 31 + (focused != null ? focused.ID : 0);
+            // The hidden component tally is part of the key: the hide is re-asserted every tick, so
+            // a canvas/renderer that only appears LATER (an opening picker's canvas, an MR plate
+            // built a frame after the bar docked) genuinely changes what is hidden and earns one
+            // more line. Both sets are finite, so this can never turn into a per-frame log.
+            hash = hash * 31 + _focusHiddenCanvasCount;
+            hash = hash * 31 + _focusHiddenRendererCount;
             if (_loggedFocusHash == hash)
                 return false;
             _loggedFocusHash = hash;
             return true;
         }
 
-        /// <summary>Undo <see cref="ApplyFocusHide"/>. Idempotent, and safe after the conversion was
-        /// released — the canvases are held by reference and belong enabled wherever they now
-        /// live (their restored 2D home has them enabled too).</summary>
+        /// <summary>Undo <see cref="ApplyFocusHide"/>: re-enable exactly the canvases AND renderers
+        /// it disabled and clear <c>ConvertedPanel.OwnerRenderHidden</c>. Idempotent, and safe after
+        /// the conversion was released — the components are held by reference and belong enabled
+        /// wherever they now live (their restored 2D home has them enabled too).</summary>
         internal void RestoreFocusHide(string? reason)
         {
-            if (_focusHiddenCanvases.Count == 0 && !FocusHidden)
+            if (_focusHiddenCanvases.Count == 0 && _focusHiddenRenderers.Count == 0 && !FocusHidden)
                 return;
-            for (int i = 0; i < _focusHiddenCanvases.Count; i++)
-            {
-                if (_focusHiddenCanvases[i] != null)
-                    _focusHiddenCanvases[i].enabled = true;
-            }
-            _focusHiddenCanvases.Clear();
+            CanvasConversion.LiftOwnerRenderHide(Panel, _focusHiddenCanvases, _focusHiddenRenderers);
             bool was = FocusHidden;
             FocusHidden = false;
+            int shownCanvases = _focusHiddenCanvasCount;
+            int shownRenderers = _focusHiddenRendererCount;
+            _focusHiddenCanvasCount = 0;
+            _focusHiddenRendererCount = 0;
+            _focusHiddenPlate = false;
             // Re-arm the fit briefly: it was frozen for the whole hidden period (see
             // TickFitStability), so give it a window to pick up anything that changed meanwhile.
             if (was)
@@ -1071,8 +1108,10 @@ internal sealed class UseBarsSurface
             if (reason != null)
             {
                 _loggedFocusHash = 0;
-                VRLog.Info("WorldUI", $"USE BARS: '{Name}' focus hide lifted ({reason}) — every canvas " +
-                                      "the mod disabled is enabled again; the bar was never touched.");
+                VRLog.Info("WorldUI", $"USE BARS: '{Name}' focus hide lifted ({reason}) — all " +
+                                      $"{shownCanvases} canvas(es) and {shownRenderers} renderer(s) the " +
+                                      "mod disabled (the MR backing plate among them) are enabled again; " +
+                                      "the bar was never touched.");
             }
         }
 

@@ -118,6 +118,16 @@ internal static class MrBacking
         int BackingOrder { get; }
     }
 
+    /// <summary>
+    /// Name every plate GameObject carries (<see cref="CreatePlate"/>). Public so a surface that
+    /// render-hides a panel itself can REPORT, in its own log line, that the MR plate was among the
+    /// renderers it switched off — the one component the ModBuild 84 hardware report proved a
+    /// canvas-only hide leaves behind ("Der mixed-reality Hintergrund … ist auch bei den anderen
+    /// Characteren noch zu sehen aber leer"). Identification by name is diagnostic ONLY: the hide
+    /// itself is name-blind and switches off every Renderer it finds.
+    /// </summary>
+    internal const string PlateObjectName = "GloomhavenVR.MrBacking";
+
     /// <summary>World gap between a plate and the content it backs (meters). Big enough to
     /// clear z-fighting at HMD depth precision, small enough to read as one surface.</summary>
     private const float PlateGapMeters = 0.002f;
@@ -465,7 +475,22 @@ internal static class MrBacking
             // render hide would switch the plate's renderer off in LateUpdate anyway; refusing it
             // here means the plate is not even built at the wrong pose. (This Tick runs AFTER
             // CanvasConversion.Tick, so RenderHidden is this frame's settled value.)
-            bool visible = panel.HostGo.activeInHierarchy && !panel.RenderHidden
+            //
+            // OwnerRenderHidden — the SAME refusal for the surface-owned hide (hardware report
+            // ModBuild 84: "Der mixed-reality Hintergrund für die decision ist auch bei den anderen
+            // Characteren noch zu sehen aber leer"). A decision row / use bar that the character
+            // focus render-hid is still activeInHierarchy and still !RenderHidden — the surfaces
+            // deliberately hide CANVASES, never GameObjects, so the game's live widgets are never
+            // poked — and this plate is not a Canvas, so it kept drawing: an empty dark rectangle
+            // where the row had been. Reading BOTH flags is the whole fix on this side; the
+            // surfaces also switch the plate's Renderer off directly (belt and braces, and it
+            // covers a plate that exists before the hide starts). Ordering makes this leak-free
+            // rather than one frame late: the two surfaces tick EARLIER in the same Update than
+            // this sweep (WorldUIModule.BuildTickSteps: …DecisionDockSurface, UseBarsSurface, …
+            // CanvasConversion, MrBacking), so on the first hidden tick no plate is ever created,
+            // and an already-built one is deactivated below in that same frame.
+            bool visible = panel.HostGo.activeInHierarchy
+                           && !panel.RenderHidden && !panel.OwnerRenderHidden
                            && r.width > 2f && r.height > 2f;
             if (entry.Plate == null)
             {
@@ -717,7 +742,7 @@ internal static class MrBacking
     private static Transform CreatePlate(Transform parent)
     {
         GameObject go = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        go.name = "GloomhavenVR.MrBacking";
+        go.name = PlateObjectName;
         Object.Destroy(go.GetComponent<Collider>()); // never a poke/laser target
         go.transform.SetParent(parent, worldPositionStays: false);
         go.layer = parent.gameObject.layer;
