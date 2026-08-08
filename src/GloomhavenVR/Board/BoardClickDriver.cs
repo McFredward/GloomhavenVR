@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using AStar;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
@@ -40,18 +43,38 @@ namespace GloomhavenVR.Board;
 /// <see cref="Tick"/> reaches ONE of the two branches), so with the fingertip in range and
 /// the grip held the trigger is simply not a board click.
 ///
-/// FINGERTIP PING OUTSIDE SELECTION PHASES (user request 2026-08: "wenn KEINE Auswahlphase
-/// ist ... soll es dort pingen"). The SAME gesture and the SAME commit mechanics (grip gate,
-/// entry edge, cooldown, occluder/poke guards) — only the commit's MEANING branches at the
-/// last moment: when the touched target is a hex TILE and no selection phase is active
-/// (<see cref="SelectionPhaseActive"/>), the touch fires the game's own ping through
-/// <see cref="BoardPing.TryPingClientTile"/> INSTEAD of the click. During any selection
-/// phase the click path below runs untouched, byte-identical to before. Non-tile touches
-/// (miniatures, doors, chests) always keep the click + <see cref="MiniaturePokedEvent"/> —
-/// the user asked for tile pings only, and poking a miniature must keep opening its panel.
-/// Vanilla precedent for "same click, different meaning by state": Controller.LateUpdate
-/// itself branches the very same tile click into PingTile when s_ShouldPing is set
-/// (decompiled Controller.cs:178-183) — we branch on phase instead of a gamepad combo.
+/// FINGERTIP PING vs SELECT, DECIDED PER TARGET (user request 2026-08: "wird in der
+/// Auswahl-Phase ein Tile angetippt, das NICHT zur Auswahl steht, soll trotzdem ein Ping
+/// kommen; wird ein Feld angetippt, das ZUR AUSWAHL steht, soll kein Ping kommen und es
+/// stattdessen ausgewählt werden"). The SAME gesture and the SAME commit mechanics (grip
+/// gate, entry edge, cooldown, occluder/poke guards) — only the commit's MEANING branches at
+/// the last moment, and it branches on the TAPPED HEX, not on the phase:
+///
+/// - the tapped hex IS a valid target of the pending selection → the click path below runs
+///   untouched (SELECT), byte-identical to before;
+/// - the tapped hex is NOT a valid target, or nothing is pending at all, or the pending
+///   selection does not belong to a character we control → the touch fires the game's own
+///   ping through <see cref="BoardPing.TryPingClientTile"/> instead.
+///
+/// The predecessor of this rule (2026-08, same user) suppressed the ping WHOLESALE while a
+/// selection was pending; <see cref="DecideTapCore"/> replaces that single phase test with the
+/// per-target decision table documented on it. Non-tile touches (miniatures, doors, chests)
+/// always keep the click + <see cref="MiniaturePokedEvent"/> — the user asked for tile pings
+/// only, and poking a miniature must keep opening its panel. Vanilla precedent for "same
+/// click, different meaning by state": Controller.LateUpdate itself branches the very same
+/// tile click into PingTile when s_ShouldPing is set (decompiled Controller.cs:178-183) — we
+/// branch on the pending action's own accept set instead of a gamepad combo.
+///
+/// THE LASER TRIGGER IS DELIBERATELY NOT GIVEN THIS RULE (<see cref="TickFar"/> stays a pure
+/// click). The two paths are not symmetric in INPUT: the laser hand already owns a dedicated,
+/// explicit ping input — the dominant "A" press handled by <see cref="BoardPing"/>, which pings
+/// whatever the beam points at, in or out of a selection — whereas the fingertip has exactly
+/// one gesture and no second button to spend. Turning the trigger into a conditional ping would
+/// therefore not add an ability, it would REMOVE one (the laser could no longer deliver a plain
+/// click to a non-target hex, which vanilla self-gates harmlessly in Controller.LateUpdate) and
+/// it would collide with the A-press the same hand already has. Both paths do share the ONE
+/// ping seam (<see cref="BoardPing.TryPingClientTile"/>), so a ping is the same ping — same
+/// channel, same MP replication, same visual — whichever hand produced it.
 ///
 /// INJECTION STRATEGY — postfix on <c>Controller.CommonLoop</c> (the single input
 /// read the click dispatcher uses). Rationale, from the decompiled Controller.cs
@@ -232,14 +255,19 @@ internal static class BoardClickDriver
                 state.Armed = false;
                 state.LastCommitTime = Time.unscaledTime;
 
-                // Outside a selection phase a TILE touch means PING, not click (class remarks).
+                // PING or SELECT, decided per TAPPED HEX (class remarks + DecideTapCore).
                 // All commit gates above (grip, contact depth, poke/UI occluders, entry edge,
                 // per-hand cooldown) have already passed — only the meaning branches here.
-                CClientTile? pingTile = ResolveFingertipPingTile(target);
-                if (pingTile != null)
+                CClientTile? touchedTile = ResolveTouchedTile(target);
+                if (touchedTile != null)
                 {
-                    CommitFingertipPing(hand, pingTile);
-                    return;
+                    TapVerdict verdict = DecideTap(touchedTile);
+                    LogTapDecision(touchedTile, verdict);
+                    if (!verdict.Select)
+                    {
+                        CommitFingertipPing(hand, touchedTile, verdict.Detail);
+                        return;
+                    }
                 }
 
                 LogTouchCommit(hand);
@@ -265,29 +293,227 @@ internal static class BoardClickDriver
     }
 
     /// <summary>
-    /// The <c>CClientTile</c> to PING for this fingertip commit — or null when the commit must
-    /// stay a CLICK. Null when (a) a selection phase is active (today's behaviour, untouched)
-    /// or (b) the touched target is not a hex tile. Tile identification mirrors the game's own
-    /// click dispatch verbatim: Controller.LateUpdate resolves the interactable and asks
+    /// The <c>CClientTile</c> the fingertip is on, or null when the touched target is not a hex
+    /// tile. Tile identification mirrors the game's own click dispatch verbatim:
+    /// Controller.LateUpdate resolves the interactable and asks
     /// <c>cInteractable.GetComponent&lt;TileBehaviour&gt;()</c> — the SAME GameObject, not a
-    /// parent walk — so exactly the touches vanilla would treat as tile clicks become pings
-    /// (decompiled Controller.cs:170-176). Miniatures/doors/chests resolve no TileBehaviour
-    /// on their interactable and keep the click path.
+    /// parent walk — so exactly the touches vanilla would treat as tile clicks go through the
+    /// ping/select decision (decompiled Controller.cs:170-176). Miniatures/doors/chests resolve
+    /// no TileBehaviour on their interactable and keep the plain click path.
     /// </summary>
-    private static CClientTile? ResolveFingertipPingTile(Component? target)
+    private static CClientTile? ResolveTouchedTile(Component? target)
     {
-        if (SelectionPhaseActive())
-            return null;
         TileBehaviour? tile = target is CInteractable interactable
             ? interactable.GetComponent<TileBehaviour>()
             : null;
         return tile != null ? tile.m_ClientTile : null;
     }
 
+    // ---- PING vs SELECT, per tapped hex ------------------------------------------------
+
+    /// <summary>Ping reasons — the exact words the <c>[Tap]</c> log line prints.</summary>
+    private const string PingNoSelection = "no pending selection";
+    private const string PingNotTarget = "not a valid target";
+    private const string PingNotOurs = "not our character";
+
+    /// <summary>What one fingertip tap on a hex MEANS. <see cref="Detail"/> carries the acting
+    /// character for a SELECT and the ping reason for a PING — both go straight into the log
+    /// line, which is the only consumer.</summary>
+    private readonly struct TapVerdict
+    {
+        public readonly bool Select;
+        public readonly string Detail;
+
+        private TapVerdict(bool select, string detail)
+        {
+            Select = select;
+            Detail = detail;
+        }
+
+        public static TapVerdict Selecting(string actor) => new TapVerdict(true, actor);
+        public static TapVerdict Pinging(string reason) => new TapVerdict(false, reason);
+    }
+
     /// <summary>
-    /// "Is the game waiting for the player to pick a tile/target right now?" — the gate that
-    /// keeps the fingertip's SELECTION meaning exactly as it is today. Two game-owned signals,
-    /// OR'd (belt and braces, each covers cases the other misses):
+    /// <see cref="DecideTapCore"/> behind a hard failure floor. A throwing target test must never
+    /// eat a tap: it degrades to SELECT — i.e. to the pre-2026-08 behaviour where every tap during
+    /// a selection was a click — because the click then still runs the game's OWN gates
+    /// (Controller.LateUpdate + TileHandler), so the worst case is a click the game itself
+    /// refuses, never a wrong game action.
+    /// </summary>
+    private static TapVerdict DecideTap(CClientTile tile)
+    {
+        try
+        {
+            return DecideTapCore(tile);
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Board", "[Tap] valid-target test threw — falling back to SELECT (the game's " +
+                                $"own click gates still run, so a bad tap is merely ignored): {ex}");
+            return TapVerdict.Selecting("unknown (target test threw)");
+        }
+    }
+
+    /// <summary>
+    /// THE DECISION TABLE. Every row is read from the GAME's own model of the pending action —
+    /// the same data the game consults to accept or ignore a mouse click on that hex — never
+    /// from a mod-side guess about what "should" be targetable.
+    ///
+    /// <list type="number">
+    /// <item><b>Nothing pending</b> (<see cref="SelectionPhaseActive"/> false) → PING
+    /// "<c>no pending selection</c>". This is the 2026-08 behaviour the finger already had.</item>
+    ///
+    /// <item><b>The game would not accept ANY board click right now</b> —
+    /// <c>Choreographer.ThisPlayerHasTurnControl</c> is false → PING "<c>not our character</c>".
+    /// AUTHORITATIVE because it is the literal top-level gate on the game's own click dispatch:
+    /// <c>Controller.LateUpdate</c> only forwards a picked interactable to
+    /// <c>SelectNewObject</c>/<c>ShowNormalInterface</c> inside
+    /// <c>else if (Choreographer.s_Choreographer.ThisPlayerHasTurnControl)</c> (decompiled
+    /// Controller.cs:184). With it false a click is swallowed whole, so pinging instead removes
+    /// nothing and is exactly the "foreign / non-acting character" fallback the feature wants
+    /// (the property is <c>m_CurrentActor.IsUnderMyControl</c> plus the mind-control/summoner
+    /// derivations, Choreographer.cs:557-579; offline it is unconditionally true).</item>
+    ///
+    /// <item><b>A waypoint/path selection is installed</b> (<c>TileBehaviour.s_Callback</c> points
+    /// at <c>Waypoint.TileHandler</c> — move, push, pull, attack-path) → valid ⇔ the hex index is
+    /// in <c>Waypoint.s_ClearValidSelectionTiles</c>. AUTHORITATIVE because that list IS the
+    /// acceptance test the callback runs on the clicked tile:
+    /// <c>if (s_ClearValidSelectionTiles.Any(it =&gt; it.Equals(clientTile.m_Tile.m_ArrayIndex)))</c>
+    /// … <c>else</c> log "was not found in the valid selection tile list" and do nothing
+    /// (decompiled Waypoint.cs:775 / 921). The list is written by the star display itself while it
+    /// paints the reachable hexes (WorldspaceStarHexDisplay.cs:1438-1462, 2807), so it is exactly
+    /// the highlighted set — and it already folds in the straight-line / push / pull
+    /// restrictions that the raw star dictionaries do not.</item>
+    ///
+    /// <item><b>Card-selection phase, a character stands on the tapped hex</b> — vanilla's FIRST
+    /// TileHandler branch: wait state <c>WaitingForCardSelection</c> + <c>CardsHandManager.IsActive()</c>
+    /// + <c>FindPlayerAt(index) != null</c> → <c>InitiativeTrack.Select</c> + <c>SwitchHand</c>,
+    /// then RETURN (Choreographer.cs:1826-1839). So tapping your own figure's hex to switch to it
+    /// IS a valid selection and must keep clicking. Foreign-controlled → PING
+    /// "<c>not our character</c>", the same verdict the mod's own board-click ownership guard
+    /// <c>Choreographer_TileHandler_OwnershipGuard</c> reaches (it refuses that exact branch), so
+    /// the tap now falls back to a ping instead of a silently refused click.</item>
+    ///
+    /// <item><b>Hero placement</b> (<c>CurrentDisplayState == CharacterPlacement</c>) → valid ⇔
+    /// <c>s_PlacementStars.ContainsKey(tile)</c>, AND the character being placed is ours. Both are
+    /// the game's own predicates: the star dictionary is what <c>HighlightSelectedPlacementHex</c>
+    /// arms <c>Waypoint.s_PlacementTile</c> from (WorldspaceStarHexDisplay.cs:582 — the same test
+    /// <see cref="ArmPlacementTile"/> already mirrors), and TileHandler's placement branch refuses
+    /// outright when <c>!InitiativeTrack.SelectedActor().Actor.IsUnderMyControl</c>
+    /// (Choreographer.cs:1849).</item>
+    ///
+    /// <item><b>Anything else the star display is driving</b> (single/area target selection, long
+    /// rest, exits) → valid ⇔ the hex carries a live star in <c>s_CurrentlyActiveStars</c>, or the
+    /// game already counts it as chosen (<c>AlreadySelected(tile)</c> — the second-click-to-confirm
+    /// case, and the one the AOE branch of TileHandler keys on, Choreographer.cs:1943).
+    /// <c>s_CurrentlyActiveStars</c> is the game's OWN union of every star dictionary it is
+    /// currently painting: <c>CreateStar</c> registers each star in it alongside its per-kind
+    /// container (WorldspaceStarHexDisplay.cs:2913-2917) and the game itself queries it with
+    /// <c>ContainsKey</c> to answer "does this hex already stand for something?"
+    /// (<c>CanCursorHighlightTile</c> :3311, the summon target test :2613). It is deliberately the
+    /// UNION and not a hand-picked subset: over-inclusion (e.g. an out-of-reach chest star) only
+    /// reproduces today's behaviour — a click the game gates itself — whereas under-inclusion
+    /// would ping where the player meant to select, the one regression this feature must not
+    /// have. Corroboration that "no stars ⇒ no selection" is the game's own reading:
+    /// TileHandler drops a USER click outright on
+    /// <c>isUserClick &amp;&amp; CurrentDisplayState == ShowNone</c> (Choreographer.cs:1879).</item>
+    ///
+    /// <item><b>Otherwise</b> → PING "<c>not a valid target</c>".</item>
+    /// </list>
+    /// </summary>
+    private static TapVerdict DecideTapCore(CClientTile tile)
+    {
+        if (!SelectionPhaseActive())
+            return TapVerdict.Pinging(PingNoSelection);
+
+        Choreographer? choreographer = Choreographer.s_Choreographer;
+        if (choreographer == null || tile.m_Tile == null)
+            return TapVerdict.Pinging(PingNoSelection);
+
+        // (2) the game's own top-level gate on board clicks — see the table above.
+        if (!choreographer.ThisPlayerHasTurnControl)
+            return TapVerdict.Pinging(PingNotOurs);
+
+        Point index = tile.m_Tile.m_ArrayIndex;
+
+        // (3) waypoint / path selection: the callback's literal accept list.
+        if (WaypointSelectionInstalled())
+        {
+            List<Point> valid = Waypoint.s_ClearValidSelectionTiles;
+            if (valid != null)
+            {
+                for (int i = 0; i < valid.Count; i++)
+                {
+                    if (valid[i].X == index.X && valid[i].Y == index.Y)
+                        return TapVerdict.Selecting(LabelOf(Waypoint.s_MovingActor ?? choreographer.CurrentActor));
+                }
+            }
+            return TapVerdict.Pinging(PingNotTarget);
+        }
+
+        // (4) card-selection phase: tapping a character's hex switches to that character.
+        CardsHandManager hands = CardsHandManager.Instance;
+        if (choreographer.m_WaitState != null
+            && choreographer.m_WaitState.m_State == Choreographer.ChoreographerStateType.WaitingForCardSelection
+            && hands != null && hands.IsActive()
+            && ScenarioManager.Scenario != null)
+        {
+            CPlayerActor? standing = ScenarioManager.Scenario.FindPlayerAt(index);
+            if (standing != null)
+            {
+                return CardsGameApi.IsForeignControlledSelect(standing)
+                    ? TapVerdict.Pinging(PingNotOurs)
+                    : TapVerdict.Selecting(LabelOf(standing));
+            }
+        }
+
+        WorldspaceStarHexDisplay display = WorldspaceStarHexDisplay.Instance;
+        if (display == null)
+            return TapVerdict.Pinging(PingNotTarget);
+
+        // (5) hero placement.
+        if (display.CurrentDisplayState == WorldspaceStarHexDisplay.WorldSpaceStarDisplayState.CharacterPlacement)
+        {
+            CActor? placing = CardsGameApi.SelectedActor();
+            if (placing == null || CardsGameApi.IsForeignControlledSelect(placing))
+                return TapVerdict.Pinging(PingNotOurs);
+            return display.s_PlacementStars.ContainsKey(tile)
+                ? TapVerdict.Selecting(LabelOf(placing))
+                : TapVerdict.Pinging(PingNotTarget);
+        }
+
+        // (6) every other star-driven selection.
+        if (display.s_CurrentlyActiveStars.ContainsKey(tile) || display.AlreadySelected(tile))
+            return TapVerdict.Selecting(LabelOf(choreographer.CurrentActor));
+
+        return TapVerdict.Pinging(PingNotTarget);
+    }
+
+    /// <summary>
+    /// Is the pending selection a WAYPOINT one? Read from the game's own dispatch switch:
+    /// <c>CInteractableTile.ShowNormalInterface</c> invokes whatever <c>TileBehaviour.s_Callback</c>
+    /// currently holds (decompiled CInteractableTile.cs:14-47), and the Choreographer swaps that
+    /// static between its own <c>TileHandler</c> and the static <c>Waypoint.TileHandler</c> as the
+    /// move/push/pull/attack-path selections come and go (Choreographer.cs:4324, 4752, 9898, …).
+    /// So the delegate's declaring type IS the game's answer to "which acceptance test would a
+    /// click run right now?".
+    /// </summary>
+    private static bool WaypointSelectionInstalled()
+    {
+        TileBehaviour.CallbackType? callback = TileBehaviour.s_Callback;
+        return callback != null
+            && callback.Method != null
+            && callback.Method.DeclaringType == typeof(Waypoint);
+    }
+
+    /// <summary>Log-only actor name (never per frame — one tap, one line).</summary>
+    private static string LabelOf(CActor? actor) => actor != null ? CardsGameApi.ActorLabel(actor) : "?";
+
+    /// <summary>
+    /// "Is the game waiting for the player to pick a tile/target right now?" — row 1 of
+    /// <see cref="DecideTapCore"/>'s table, i.e. "is there a pending selection AT ALL". Two
+    /// game-owned signals, OR'd (belt and braces, each covers cases the other misses):
     ///
     /// - <see cref="VRModeStateMachine.TargetingActive"/> — the Choreographer sits in a
     ///   targeting wait state (waypoint / area-attack focus / push / pull / tile selection).
@@ -310,13 +536,30 @@ internal static class BoardClickDriver
     }
 
     /// <summary>
+    /// ONE line per fingertip tap on a hex, stating the decision AND the reason, so the next
+    /// hardware log shows the rule working without guesswork. Not throttled on purpose: the
+    /// commit edge plus <see cref="TouchCooldownSeconds"/> already bound it to one line per hex
+    /// ENTRY, and a rule this new is worth one line per deliberate tap.
+    /// </summary>
+    private static void LogTapDecision(CClientTile tile, TapVerdict verdict)
+    {
+        string hex = tile.m_Tile != null
+            ? $"({tile.m_Tile.m_ArrayIndex.X},{tile.m_Tile.m_ArrayIndex.Y})"
+            : "(?)";
+        VRLog.Info("Board", verdict.Select
+            ? $"[Tap] hex {hex} → SELECT (valid target for {verdict.Detail})"
+            : $"[Tap] hex {hex} → PING ({verdict.Detail})");
+    }
+
+    /// <summary>
     /// Fire the ping for a fingertip tile touch: the shared <see cref="FingertipPingCooldownSeconds"/>
     /// debounce (see its doc — hex-border jitter is the enemy), then the SAME proven seam the
     /// A-press uses (<see cref="BoardPing.TryPingClientTile"/>: replicated online, local-only
     /// offline, name attached by the game itself). Haptic: the same <see cref="HapticPreset.ClickPulse"/>
-    /// every other fingertip commit fires, keyed on the ping actually going out.
+    /// every other fingertip commit fires, keyed on the ping actually going out. Reached ONLY on a
+    /// PING verdict, so a SELECT never puts a ping on the wire for anyone.
     /// </summary>
-    private static void CommitFingertipPing(VRHand hand, CClientTile tile)
+    private static void CommitFingertipPing(VRHand hand, CClientTile tile, string reason)
     {
         float now = Time.unscaledTime;
         if (now - _lastFingertipPingTime < FingertipPingCooldownSeconds)
@@ -331,7 +574,7 @@ internal static class BoardClickDriver
             _lastFingertipPingTime = now;
             hand.SendHaptic(HapticPreset.ClickPulse);
             VRLog.Info("Board", $"FINGERTIP PING: hex {DescribeTouchedHex()}, {hand.Side} hand, " +
-                                $"grip HELD, no selection phase (mode={VRModeStateMachine.CurrentMode}) — " +
+                                $"grip HELD, {reason} (mode={VRModeStateMachine.CurrentMode}) — " +
                                 "routed through the same game PingTile path as the laser A-press.");
         }
     }
