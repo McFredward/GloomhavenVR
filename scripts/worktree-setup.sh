@@ -73,5 +73,10 @@ link_contents libs/RuntimeDeps
 link_contents libs/Natives
 link ressources
 link Directory.Build.props.user
+# The tuned dev cfgs `scripts/rebase-defaults.py check` reads. Gitignored like the rest, so a
+# fresh worktree has none and that gate — one of the four every change must pass — cannot run
+# at all. Two workers in a row hit this and linked it by hand before reporting; linking it here
+# costs a line and removes the stumble.
+link .planning/debug/default
 
 echo "worktree ready — 'bash scripts/build.sh Release' should now work"

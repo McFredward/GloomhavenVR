@@ -416,7 +416,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 91;
+    public const ushort ModBuild = 92;
+    // (The note list below lapsed around build 36 while the counter kept climbing; resumed here
+    // because this build claims a wire id, and a claim nobody wrote down is how record 23 got
+    // taken twice. Notes are newest-first.)
+    // Build 92: hardware round — the laser stands down only on a REAL card touch (an election is
+    // reach-scored to 13 cm, not a touch); ONE grip chord for every physical fingertip press,
+    // gated before the ARMING so a deliberate-withdrawal dock cannot fire without it; the MR plate
+    // measures only what the panel FIT judged visible (it was unioning back the culled/faint rows
+    // the fit had rejected) and free-floating card cues rank against the plate ladder by measured
+    // eye distance; the item-use recess seats its card square and hands it back to either hand;
+    // the item fan opens with presence. WIRE: record 28 gains the item fan's 8 animation dials
+    // (the 1:1 ruling names animations), and NEW RECORD 26 carries the fan index of the chip
+    // clipped into the use recess so peers see it LYING there. Additive TLV, wire Version still 3.
     // Build 36: per-pile fan spread/radius (items, discard, burnt) in the debug menu; the ITEM fan
     // finally feeds the card-highlight record so peers see a lifted chip; the duplicate hand<->slot
     // card flights peers were replaying are gone. Local + existing wire record — no format change.
