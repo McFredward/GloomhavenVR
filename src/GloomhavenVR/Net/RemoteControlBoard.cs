@@ -621,8 +621,7 @@ internal sealed class RemoteControlBoard
             // hard false here because occupancy was a per-ACTOR read; since it rides the wire, an
             // actorless peer's recesses are knowable too, so the masks SeatSlots just resolved are
             // passed through unchanged and the join-time board gets its snap glow like any other.
-            _furniture?.Refresh(null, _owner, showFronts: false,
-                _slotOccupiedMask, faceMask: 0);
+            _furniture?.Refresh(null, _owner, _slotOccupiedMask);
             // Pile counts are wire-fed too (extension record 15), so an ACTORLESS peer's stacks
             // can already show the owner's real numbers — before this the actor path was the
             // only writer and a join-time board stood at 0/0/0 regardless.
@@ -664,11 +663,13 @@ internal sealed class RemoteControlBoard
             _cards[0]?.MaintainMips();
             _cards[1]?.MaintainMips();
 
-            // The inert furniture layer. It is fed the SAME reveal answer and the SAME slot state
-            // the board is already rendering (the masks SeatSlots resolved, not a second derivation
-            // of its own) — see RemoteBoardFurniture for why nothing derived from those can leak
-            // anything the board does not already show.
-            _furniture?.Refresh(actor, _owner, showFronts, _slotOccupiedMask, _slotFaceMask);
+            // The inert furniture layer. It is fed the SAME slot state the board is already
+            // rendering (the mask SeatSlots resolved, not a second derivation of its own) — see
+            // RemoteBoardFurniture for why nothing derived from it can leak anything the board does
+            // not already show. It no longer needs the reveal answer or the face mask: their only
+            // consumer was the half-card divider, which the 1:1 round deleted (the owner's own
+            // half-poke zones are invisible by design, so a peer must not see a marker either).
+            _furniture?.Refresh(actor, _owner, _slotOccupiedMask);
 
             // Pile counts. PREFERRED SOURCE since the count-lag defect (hardware MP test
             // 2026-08-04, 'ABGEWORFEN 0' standing while the owner's board read 2): the OWNER's

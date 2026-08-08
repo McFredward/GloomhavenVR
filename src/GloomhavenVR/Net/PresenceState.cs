@@ -188,11 +188,28 @@ internal struct PresenceState
     /// <summary>Overlay byte: bits 0..1 are the wanted-slot glow mask
     /// (<see cref="NetProtocol.BoardUiWantedMask"/>), bit 2 is the FOLLOW/PIN state
     /// (<see cref="NetProtocol.BoardUiPinnedBit"/>), bits 3..4 are the live CARD-SLOT OCCUPANCY
-    /// (<see cref="NetProtocol.BoardUiSlotMask"/>) and bit 5 says that nibble is state rather than
-    /// a pre-field sender's zeroes (<see cref="NetProtocol.BoardUiSlotsValidBit"/>); the rest is
-    /// reserved (0). Masked with <see cref="NetProtocol.BoardUiOverlayMask"/> on write AND on read.
+    /// (<see cref="NetProtocol.BoardUiSlotMask"/>), bit 5 says that nibble is state rather than
+    /// a pre-field sender's zeroes (<see cref="NetProtocol.BoardUiSlotsValidBit"/>) and bits 6..7
+    /// are the SNAP-GLOW hover telegraph (<see cref="NetProtocol.BoardUiSnapMask"/>).
+    /// Masked with <see cref="NetProtocol.BoardUiOverlayMask"/> on write AND on read.
     /// Meaningful only when <see cref="HasBoardUi"/>.</summary>
     public byte BoardOverlayMask;
+
+    /// <summary>
+    /// True when the board-UI record carried its THIRD byte, the cap STATES
+    /// (<see cref="NetProtocol.BoardUiRecordBytes"/>). False for a sender that predates the byte —
+    /// the receiver then keeps every mirrored cap at the colour it was BUILT with, which is exactly
+    /// what those builds rendered. The record's TLV LENGTH is this flag's only source; no wire bit
+    /// is spent on it (see <see cref="NetProtocol.BoardUiCapConfirmAccentBit"/>).
+    /// </summary>
+    public bool HasBoardCapStates;
+
+    /// <summary>Cap-state byte: the ACCENT / CONFIRMED / ENABLED bits of the owner's CONFIRM cap,
+    /// their two rest discs and their turn-flow SKIP cap
+    /// (<see cref="NetProtocol.BoardUiCapConfirmAccentBit"/> …). Masked with
+    /// <see cref="NetProtocol.BoardUiCapStateDefinedMask"/> on write AND on read. Meaningful only
+    /// when <see cref="HasBoardCapStates"/>.</summary>
+    public byte BoardCapStateMask;
 
     /// <summary>
     /// True when this packet carries the board-local anchor POSITION of the sender's open
@@ -370,6 +387,25 @@ internal struct PresenceState
     public byte HalfSelect1;
 
     /// <summary>
+    /// True when the half-hover record's byte 0 names a board keycap the sender has just PRESSED
+    /// (<see cref="NetProtocol.CapPressCapMask"/> — bits 3..5 of a record that already rides).
+    /// False both while no press is in its hold window and for a sender that predates the field,
+    /// whose reserved bits are zero and therefore decode to
+    /// <see cref="NetProtocol.CapPressNone"/> — which is exactly why the sentinel is 0 and the cap
+    /// ids run 1..7.
+    /// </summary>
+    public bool HasCapPress;
+
+    /// <summary>WHICH cap was pressed (<see cref="NetProtocol.CapPressConfirm"/> …), meaningful
+    /// only when <see cref="HasCapPress"/>.</summary>
+    public byte CapPressCap;
+
+    /// <summary>The 2-bit press SEQUENCE (bits 6..7). The receiver animates a press only when this
+    /// pair (cap, seq) DIFFERS from the last one it played — see
+    /// <see cref="NetProtocol.CapPressNone"/> for why the field is a latch and not a pulse.</summary>
+    public byte CapPressSeq;
+
+    /// <summary>
     /// True when this packet names the INITIATIVE-TRACK entry the sender is hovering (extension
     /// record <see cref="NetProtocol.ExtIdTrackHover"/>). Written ONLY while they hover one, so an
     /// idle packet stays byte-identical; absence means "no hover", which is what pre-record peers
@@ -477,6 +513,32 @@ internal struct PresenceState
     public string? SkipCapLabel;
 
     /// <summary>
+    /// True when this packet names what the sender's UNDO board cap actually reads (extension
+    /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 2). Absence keeps the receiver's
+    /// neutral GUI_UNDO fallback — exactly what peers predating the bit render.
+    /// </summary>
+    public bool HasUndoCapLabel;
+
+    /// <summary>The sender's live UNDO cap wording — the game's undo string, or the pick flow's
+    /// dialog-cancel override ("Wähle eine andere Karte") — in THEIR language (meaningful only when
+    /// <see cref="HasUndoCapLabel"/>). Capped at <see cref="NetProtocol.CapLabelMaxBytes"/> UTF8
+    /// bytes.</summary>
+    public string? UndoCapLabel;
+
+    /// <summary>
+    /// True when this packet names what the sender's item-USE cap actually reads (extension record
+    /// <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 3). Absence keeps the receiver's neutral
+    /// uppercased GUI_USE fallback.
+    /// </summary>
+    public bool HasItemUseCapLabel;
+
+    /// <summary>The sender's live item-USE cap wording — "USE", or an item-SURRENDER demand's own
+    /// wording (meaningful only when <see cref="HasItemUseCapLabel"/>). A widget label, never an
+    /// item name: the surrender wording names the DEMAND, and nothing here reads a card. Capped at
+    /// <see cref="NetProtocol.CapLabelMaxBytes"/> UTF8 bytes.</summary>
+    public string? ItemUseCapLabel;
+
+    /// <summary>
     /// True when this packet names the character the sender is currently FOCUSED on (extension
     /// record <see cref="NetProtocol.ExtIdCharFocus"/>). Written only while a focus is actually
     /// known (a non-zero actor id); absence means "no focus known", which renders as no
@@ -561,8 +623,10 @@ internal struct PresenceState
 ///                        1 hand scale (1 B), 2 ghost sides (1 B),
 ///                        3 MOD VERSION ([u16 build LE][UTF8 display ≤ 20 B] — sent on EVERY
 ///                        packet; its absence marks a pre-handshake peer, see NetProtocol.ModBuild),
-///                        4 BOARD UI ([buttons][overlays] — sent on every packet with a board pose;
-///                        see NetProtocol.ExtIdBoardUi for the bit layout),
+///                        4 BOARD UI ([buttons][overlays][cap states] — sent on every packet with a
+///                        board pose; the third byte is length-gated, so a sender that predates it
+///                        writes 2 and its receiver keeps the built-colour caps; see
+///                        NetProtocol.ExtIdBoardUi for the bit layout),
 ///                        5 FAN ANCHOR (3 × f32 LE board-local position of the open board-anchored
 ///                        fan; absent = the authored default spot, see NetProtocol.ExtIdFanAnchor),
 ///                        6 CARD HIGHLIGHT ([hand-fan index][board-fan index], 255 = none — only
@@ -587,14 +651,16 @@ internal struct PresenceState
 ///                        dialog's description text; written ONLY while a decision row is docked,
 ///                        see NetProtocol.ExtIdDecisionLines),
 ///                        13 CAP LABELS ([mask][per set bit: len + UTF8] — the live wording of the
-///                        sender's CONFIRM cap (bit0) and docked SKIP button (bit1), each capped;
-///                        written ONLY while a cap is visible with a known label, see
-///                        NetProtocol.ExtIdCapLabels),
-///                        14 HALF HOVER + SELECTION (2 B: byte0 hover — bits0..1 board slot with
-///                        3 = no hover, bit2 top half; byte1 the persistent CLICK state — one
-///                        2-bit none/top/bottom field per slot — the game's steady half highlight
-///                        after a click, cleared by undo; written while a half is hovered OR
-///                        selected, see NetProtocol.ExtIdHalfHover),
+///                        sender's CONFIRM cap (bit0), docked SKIP button (bit1), UNDO cap (bit2)
+///                        and item-USE cap (bit3), each capped; written ONLY while a cap is visible
+///                        with a known label, see NetProtocol.ExtIdCapLabels),
+///                        14 HALF HOVER + SELECTION + CAP PRESS (2 B: byte0 — bits0..1 board slot
+///                        with 3 = no hover, bit2 top half, bits3..5 the board keycap just PRESSED
+///                        (0 = none), bits6..7 that press's 2-bit sequence; byte1 the persistent
+///                        CLICK state — one 2-bit none/top/bottom field per slot — the game's steady
+///                        half highlight after a click, cleared by undo; written while a half is
+///                        hovered OR selected OR a press is in its hold window, see
+///                        NetProtocol.ExtIdHalfHover),
 ///                        15 PILE COUNTS ([discard][burnt][items] — the numbers the sender's own
 ///                        stack labels display; sent on EVERY packet while those stacks are shown,
 ///                        absence = pre-record peer ⇒ legacy model-read counts, see
@@ -655,17 +721,25 @@ internal static class PresenceSerializer
     /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
-    /// (mod version, the largest record) + 4 (board UI) + 14 (fan anchor) + 4 (card highlight)
+    /// (mod version, the largest record) + 5 (board UI: 2 + 3) + 14 (fan anchor) + 4 (card highlight)
     /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
     /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
-    /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 4 (half hover+select: 2 + 2)
+    /// + 199 (cap labels: 2 + mask 1 + 4 × (len 1 + 48-byte cap))
+    /// + 4 (half hover+select+cap press: 2 + 2 — the press field costs no byte, it fills byte 0's
+    /// five reserved bits)
     /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5)
     /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap)
     /// + 11 (character focus: 2 + its 9-byte maximum — the 5-byte form plus the flag-guarded
     /// attention-actor id)
     /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap)
-    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap) = 859.
+    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap) = 958.
+    ///
+    /// <para>859 → 958 on 2026-08-08 by the mirrored-cap round: the board-UI record grew its
+    /// cap-STATE byte (4 → 5) and the cap-labels record grew from two label slots to four
+    /// (101 → 199, the UNDO and item-USE wordings). The cap-PRESS field added nothing — it fills
+    /// bits that record 14 already reserved. Margin to the 1280 bound: 322 bytes, comfortably more
+    /// than the largest record.</para>
     ///
     /// <para>RAISED 848 → 1280 on 2026-08-08, deliberately and ahead of need rather than on a crash.
     /// Three records landed in one round (22's attention tail, 23 track selection, 24 decision state)
@@ -712,7 +786,7 @@ internal static class PresenceSerializer
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
                           || state.HasSlotCardSize
-                          || state.HasPileCounts || state.HasHalfHover
+                          || state.HasPileCounts || state.HasHalfHover || state.HasCapPress
                           // A zero actor id writes no record (0 = "none" everywhere), so it must
                           // not open the tail either — same rule as the empty pick-banner line.
                           || (state.HasTrackHover && state.TrackHoverActorId != 0)
@@ -737,7 +811,9 @@ internal static class PresenceSerializer
                           // must not open the tail either.
                           || (state.HasDecisionState && DecisionStatePayload(in state) > 0)
                           || (state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel))
-                          || (state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel));
+                          || (state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel))
+                          || (state.HasUndoCapLabel && !string.IsNullOrEmpty(state.UndoCapLabel))
+                          || (state.HasItemUseCapLabel && !string.IsNullOrEmpty(state.ItemUseCapLabel));
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -836,18 +912,26 @@ internal static class PresenceSerializer
                 }
                 if (state.HasBoardUi)
                 {
-                    // BOARD UI: [buttons][overlays]. Like the mod version it is written whenever
-                    // its source exists (a live PlayTray) rather than only when non-default: the
-                    // receiver must tell "the owner's board shows no dynamic controls" apart from
-                    // "the sender predates the field" — the latter keeps the legacy furniture.
+                    // BOARD UI: [buttons][overlays][cap states]. Like the mod version it is written
+                    // whenever its source exists (a live PlayTray) rather than only when
+                    // non-default: the receiver must tell "the owner's board shows no dynamic
+                    // controls" apart from "the sender predates the field" — the latter keeps the
+                    // legacy furniture.
+                    //
+                    // The THIRD byte is the cap-state byte, and the record's LENGTH is its validity
+                    // flag: a reader that requires BoardUiRecordBytes before trusting byte 2 keeps
+                    // the built-colour look for any sender that writes the legacy 2 (see
+                    // NetProtocol.BoardUiCapConfirmAccentBit for why no wire BIT was spent on it).
                     buffer[i++] = NetProtocol.ExtIdBoardUi;
-                    buffer[i++] = 2;
+                    buffer[i++] = (byte)NetProtocol.BoardUiRecordBytes;
                     buffer[i++] = state.BoardButtonsMask;
                     // Masked to the DEFINED overlay bits (wanted glow + FOLLOW/PIN + card-slot
-                    // occupancy + its validity bit): an undefined bit must never be pre-claimed by
-                    // garbage, or widening the mask later would decode old packets as if they had
-                    // opted into the new state.
+                    // occupancy + its validity bit + the snap-glow hover field): an undefined bit
+                    // must never be pre-claimed by garbage, or widening the mask later would decode
+                    // old packets as if they had opted into the new state.
                     buffer[i++] = (byte)(state.BoardOverlayMask & NetProtocol.BoardUiOverlayMask);
+                    buffer[i++] = (byte)(state.BoardCapStateMask
+                                         & NetProtocol.BoardUiCapStateDefinedMask);
                     records++;
                 }
                 if (state.HasFanAnchor)
@@ -976,26 +1060,38 @@ internal static class PresenceSerializer
                 }
                 {
                     // CAP LABELS: [mask][per set bit, in mask-bit order: len + UTF8] — what the
-                    // sender's CONFIRM cap and docked SKIP button actually read. Written only
-                    // while at least one label exists, so an idle packet stays byte-identical.
-                    // Each label runs through its own one-entry encode cache (they change on
-                    // game-state edges, not per packet).
+                    // sender's CONFIRM cap, docked SKIP button, UNDO cap and item-USE cap actually
+                    // read. Written only while at least one label exists, so an idle packet stays
+                    // byte-identical. Each label runs through its own one-entry encode cache (they
+                    // change on game-state edges, not per packet). The two NEW slots (undo, item
+                    // use) are the HIGH mask bits and ride LAST, so a reader that knows only the
+                    // first two stops exactly where it always did.
                     byte[] confirm = state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel)
                         ? EncodeConfirmCapLabel(state.ConfirmCapLabel!)
                         : System.Array.Empty<byte>();
                     byte[] skip = state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel)
                         ? EncodeSkipCapLabel(state.SkipCapLabel!)
                         : System.Array.Empty<byte>();
+                    byte[] undo = state.HasUndoCapLabel && !string.IsNullOrEmpty(state.UndoCapLabel)
+                        ? EncodeUndoCapLabel(state.UndoCapLabel!)
+                        : System.Array.Empty<byte>();
+                    byte[] use = state.HasItemUseCapLabel && !string.IsNullOrEmpty(state.ItemUseCapLabel)
+                        ? EncodeItemUseCapLabel(state.ItemUseCapLabel!)
+                        : System.Array.Empty<byte>();
                     int payload = 1 + (confirm.Length > 0 ? 1 + confirm.Length : 0)
-                                  + (skip.Length > 0 ? 1 + skip.Length : 0);
-                    if ((confirm.Length > 0 || skip.Length > 0) && payload <= 255
-                        && i + 2 + payload <= buffer.Length)
+                                  + (skip.Length > 0 ? 1 + skip.Length : 0)
+                                  + (undo.Length > 0 ? 1 + undo.Length : 0)
+                                  + (use.Length > 0 ? 1 + use.Length : 0);
+                    if ((confirm.Length > 0 || skip.Length > 0 || undo.Length > 0 || use.Length > 0)
+                        && payload <= 255 && i + 2 + payload <= buffer.Length)
                     {
                         buffer[i++] = NetProtocol.ExtIdCapLabels;
                         buffer[i++] = (byte)payload;
                         byte capMask = 0;
                         if (confirm.Length > 0) capMask |= NetProtocol.CapLabelConfirmBit;
                         if (skip.Length > 0) capMask |= NetProtocol.CapLabelSkipBit;
+                        if (undo.Length > 0) capMask |= NetProtocol.CapLabelUndoBit;
+                        if (use.Length > 0) capMask |= NetProtocol.CapLabelItemUseBit;
                         buffer[i++] = (byte)(capMask & NetProtocol.CapLabelDefinedMask);
                         if (confirm.Length > 0)
                         {
@@ -1009,27 +1105,51 @@ internal static class PresenceSerializer
                             for (int b = 0; b < skip.Length; b++)
                                 buffer[i++] = skip[b];
                         }
+                        if (undo.Length > 0)
+                        {
+                            buffer[i++] = (byte)undo.Length;
+                            for (int b = 0; b < undo.Length; b++)
+                                buffer[i++] = undo[b];
+                        }
+                        if (use.Length > 0)
+                        {
+                            buffer[i++] = (byte)use.Length;
+                            for (int b = 0; b < use.Length; b++)
+                                buffer[i++] = use[b];
+                        }
                         records++;
                     }
                 }
-                if (state.HasHalfHover
+                if ((state.HasHalfHover || state.HasCapPress)
                     && i + 2 + NetProtocol.HalfHoverRecordBytes <= buffer.Length)
                 {
-                    // HALF HOVER + SELECTION (14): [byte0 hover][byte1 selection]. Byte 0 is the
-                    // transient pointer hover — board slot (bits 0..1, the HalfHoverNoneSlot
-                    // sentinel when the record rides for a selection alone) + top-half bit.
-                    // Byte 1 is the persistent CLICK state, one 2-bit none/top/bottom field per
-                    // slot. Slot POSITIONS and halves, never a card identity. Written only while
-                    // a half is hovered OR selected, so an idle packet stays byte-identical to
-                    // the previous build's. Appended in id order behind every existing record.
-                    byte half = state.HalfHoverActive
+                    // HALF HOVER + SELECTION + CAP PRESS (14): [byte0 hover|press][byte1 selection].
+                    // Byte 0 is the transient pointer hover — board slot (bits 0..1, the
+                    // HalfHoverNoneSlot sentinel when the record rides without one) + top-half bit —
+                    // PLUS the keycap-press edge in bits 3..7 (which cap, and a 2-bit sequence so a
+                    // repeat press of the same cap is a distinguishable event; see
+                    // NetProtocol.CapPressNone). Byte 1 is the persistent CLICK state, one 2-bit
+                    // none/top/bottom field per slot. Slot POSITIONS, halves and a cap id — never a
+                    // card identity. Written only while a half is hovered OR selected OR a press is
+                    // in its hold window, so an idle packet stays byte-identical to the previous
+                    // build's. Appended in id order behind every existing record.
+                    byte half = state.HasHalfHover && state.HalfHoverActive
                         ? (byte)(state.HalfHoverSlot & NetProtocol.HalfHoverSlotMask)
                         : NetProtocol.HalfHoverNoneSlot;
-                    if (state.HalfHoverActive && state.HalfHoverTop)
+                    if (state.HasHalfHover && state.HalfHoverActive && state.HalfHoverTop)
                         half |= NetProtocol.HalfHoverTopBit;
-                    byte select = (byte)(NetProtocol.EncodeHalfSelect(state.HalfSelect0)
-                                         | NetProtocol.EncodeHalfSelect(state.HalfSelect1)
-                                           << NetProtocol.HalfSelectBitsPerSlot);
+                    if (state.HasCapPress && state.CapPressCap != NetProtocol.CapPressNone)
+                    {
+                        half |= (byte)((state.CapPressCap << NetProtocol.CapPressShift)
+                                       & NetProtocol.CapPressCapMask);
+                        half |= (byte)((state.CapPressSeq << NetProtocol.CapPressSeqShift)
+                                       & NetProtocol.CapPressSeqMask);
+                    }
+                    byte select = state.HasHalfHover
+                        ? (byte)(NetProtocol.EncodeHalfSelect(state.HalfSelect0)
+                                 | NetProtocol.EncodeHalfSelect(state.HalfSelect1)
+                                   << NetProtocol.HalfSelectBitsPerSlot)
+                        : (byte)0;
                     buffer[i++] = NetProtocol.ExtIdHalfHover;
                     buffer[i++] = (byte)NetProtocol.HalfHoverRecordBytes;
                     buffer[i++] = (byte)(half & NetProtocol.HalfHoverDefinedMask);
@@ -1390,6 +1510,8 @@ internal static class PresenceSerializer
     private static readonly CappedUtf8Codec DecisionLinesCodec = new(NetProtocol.DecisionLinesMaxBytes);
     private static readonly CappedUtf8Codec ConfirmLabelCodec = new(NetProtocol.CapLabelMaxBytes);
     private static readonly CappedUtf8Codec SkipLabelCodec = new(NetProtocol.CapLabelMaxBytes);
+    private static readonly CappedUtf8Codec UndoLabelCodec = new(NetProtocol.CapLabelMaxBytes);
+    private static readonly CappedUtf8Codec ItemUseLabelCodec = new(NetProtocol.CapLabelMaxBytes);
 
     /// <summary>UTF8-encode the '\n'-joined decision-button labels, capped at
     /// <see cref="NetProtocol.DecisionLinesMaxBytes"/> on a character boundary.</summary>
@@ -1402,6 +1524,14 @@ internal static class PresenceSerializer
     /// <summary>UTF8-encode the live SKIP label, capped at
     /// <see cref="NetProtocol.CapLabelMaxBytes"/> on a character boundary.</summary>
     internal static byte[] EncodeSkipCapLabel(string text) => SkipLabelCodec.Encode(text);
+
+    /// <summary>UTF8-encode the live UNDO cap label (record 13 mask bit 2), capped at
+    /// <see cref="NetProtocol.CapLabelMaxBytes"/> on a character boundary.</summary>
+    internal static byte[] EncodeUndoCapLabel(string text) => UndoLabelCodec.Encode(text);
+
+    /// <summary>UTF8-encode the live item-USE cap label (record 13 mask bit 3), capped at
+    /// <see cref="NetProtocol.CapLabelMaxBytes"/> on a character boundary.</summary>
+    internal static byte[] EncodeItemUseCapLabel(string text) => ItemUseLabelCodec.Encode(text);
 
     internal static byte[] EncodeModVersionText(string text)
     {
@@ -1576,10 +1706,22 @@ internal static class PresenceSerializer
                         int textLen = System.Math.Min(len - 2, NetProtocol.ModVersionTextMaxBytes);
                         state.ModVersionText = DecodeModVersionText(buffer, i + 2, textLen);
                     }
-                    else if (id == NetProtocol.ExtIdBoardUi && len >= 2)
+                    else if (id == NetProtocol.ExtIdBoardUi
+                             && len >= NetProtocol.BoardUiRecordBytesLegacy)
                     {
                         state.HasBoardUi = true;
                         state.BoardButtonsMask = buffer[i];
+                        // CAP STATES: the record's own LENGTH is the validity flag. A sender that
+                        // predates the byte writes BoardUiRecordBytesLegacy and this stays false,
+                        // so the mirrored caps keep the colour they were BUILT with — exactly what
+                        // every build before this one drew. Masked to the bits THIS build defines,
+                        // same discipline as the overlay byte below.
+                        if (len >= NetProtocol.BoardUiRecordBytes)
+                        {
+                            state.HasBoardCapStates = true;
+                            state.BoardCapStateMask =
+                                (byte)(buffer[i + 2] & NetProtocol.BoardUiCapStateDefinedMask);
+                        }
                         // Mask to the bits THIS build defines (wanted glow + FOLLOW/PIN + card-slot
                         // occupancy and its validity bit). A future sender's extra overlay bits are
                         // dropped here rather than mis-rendered, which is the same contract that let
@@ -1690,6 +1832,12 @@ internal static class PresenceSerializer
                         // 3 degrades to "none" (never trust the wire). A record whose hover AND
                         // both selections all decode to nothing is dropped whole — identical to
                         // "record absent", which is what the writer emits for that state anyway.
+                        //
+                        // The CAP-PRESS field (byte 0 bits 3..7) is decoded INDEPENDENTLY of the
+                        // hover/selection triple: the record can legitimately ride for a press
+                        // alone, and a hover-only record legitimately carries CapPressNone. An id
+                        // above CapPressMaxId cannot occur in three bits, but the bound is asserted
+                        // anyway — never trust the wire, and the next cap id widening will need it.
                         byte half = (byte)(buffer[i] & NetProtocol.HalfHoverDefinedMask);
                         int slot = half & NetProtocol.HalfHoverSlotMask;
                         bool hover = slot < NetProtocol.BoardUiSlotCount;
@@ -1708,6 +1856,15 @@ internal static class PresenceSerializer
                             state.HalfHoverTop = hover && (half & NetProtocol.HalfHoverTopBit) != 0;
                             state.HalfSelect0 = sel0;
                             state.HalfSelect1 = sel1;
+                        }
+                        byte pressed = (byte)((half & NetProtocol.CapPressCapMask)
+                                              >> NetProtocol.CapPressShift);
+                        if (pressed != NetProtocol.CapPressNone && pressed <= NetProtocol.CapPressMaxId)
+                        {
+                            state.HasCapPress = true;
+                            state.CapPressCap = pressed;
+                            state.CapPressSeq = (byte)((half & NetProtocol.CapPressSeqMask)
+                                                       >> NetProtocol.CapPressSeqShift);
                         }
                     }
                     else if (id == NetProtocol.ExtIdPileCounts
@@ -1948,6 +2105,36 @@ internal static class PresenceSerializer
                                 {
                                     state.HasSkipCapLabel = true;
                                     state.SkipCapLabel = label;
+                                }
+                            }
+                            j += l;
+                        }
+                        if ((capMask & NetProtocol.CapLabelUndoBit) != 0 && j < end)
+                        {
+                            int l = buffer[j++];
+                            if (l > 0 && j + l <= end)
+                            {
+                                string label = UndoLabelCodec.Decode(buffer, j,
+                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                                if (!string.IsNullOrEmpty(label))
+                                {
+                                    state.HasUndoCapLabel = true;
+                                    state.UndoCapLabel = label;
+                                }
+                            }
+                            j += l;
+                        }
+                        if ((capMask & NetProtocol.CapLabelItemUseBit) != 0 && j < end)
+                        {
+                            int l = buffer[j++];
+                            if (l > 0 && j + l <= end)
+                            {
+                                string label = ItemUseLabelCodec.Decode(buffer, j,
+                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                                if (!string.IsNullOrEmpty(label))
+                                {
+                                    state.HasItemUseCapLabel = true;
+                                    state.ItemUseCapLabel = label;
                                 }
                             }
                             j += l;

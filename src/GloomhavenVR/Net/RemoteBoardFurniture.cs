@@ -18,6 +18,17 @@ namespace GloomhavenVR.Net;
 /// keycaps, the rest discs, the pin toggle, the handle bar, the turn-flow cap, the item-use recess
 /// and the decision drawer are what makes it read as one — while remaining completely untouchable.
 ///
+/// THE CAPS ARE ANIMATED, not just drawn (2026-08-08 ruling: "alle Interaktionen, ANIMATIONEN und
+/// Anzeigen des Controllboards … so wie der Spieler sie sieht"). A local keycap crumbles into a dust
+/// burst when it is taken away, assembles back out of that dust when it returns, dips its full
+/// authored travel on a press and springs back, and switches between four state colours. Every one
+/// of those used to be a POP or a fixed colour on a peer's board. They are reproduced here by
+/// <see cref="RemoteCapFx"/> — and three of the four cost NOTHING on the wire, because the
+/// transitions they animate (show/hide, state) were already synced by the board-UI record; only the
+/// PRESS is an event with no state behind it, and it rides five reserved bits of a record that
+/// already exists. An ANIMATION IS NOT INTERACTIVITY: the animator writes a transform, a scale and
+/// material colours, and the inertness guarantee below is unchanged and unweakened.
+///
 /// SINCE THE 3D-PARITY PASS ("komisch 2D" rejection) the caps are REAL 3D GEOMETRY, built from the
 /// very meshes the local board's <c>PlayTray.BoardButton</c> uses — the beveled keycap
 /// (<c>CardMesh.BuildBeveledKeycap</c>: state-coloured plateau, bright chamfer ring, dark warm
@@ -66,14 +77,19 @@ namespace GloomhavenVR.Net;
 /// GONE — the local board removed its pick field outright, so a copy of it had become a picture
 /// of a widget that no longer exists.
 ///
-/// ANTI-CHEAT is unchanged: nothing here reads a card identity, and the two pieces that DO depend
-/// on the peer's card state (the wanted-slot pulse and the half-card divider) derive strictly from
-/// information the remote board already draws — see their notes.
+/// ANTI-CHEAT is unchanged: nothing here reads a card identity, and the pieces that DO depend on the
+/// peer's card state (the wanted-slot pulse and the snap-glow hover rim) are slot POSITIONS the
+/// remote board already draws — see their notes. The HALF-CARD DIVIDER that used to be the third
+/// such piece is gone: it drew a hairline across every face-up round card, standing in for poke
+/// zones the owner's own board deliberately never draws, so under the 1:1 rule it was a widget peers
+/// saw and the owner did not. Deleted, not gated — there is no owner-side state to gate it by.
 ///
 /// COST. Built once, torn down with the board root, and refreshed on the shared
 /// <see cref="RemoteBoardContent.RefreshSeconds"/> (4 Hz) cadence with change-gated writes. The
-/// only per-frame work is the single <see cref="RemoteGlowPulse"/> component, and only while a
-/// pulse is actually visible.
+/// per-frame work is the single <see cref="RemoteGlowPulse"/> component (only while a pulse is
+/// visible) plus one <see cref="RemoteCapFx"/> per cap, which early-returns on the first line
+/// unless that cap is mid-press or mid-dissolve — an idle board does no per-frame work at all, and
+/// nothing here logs per frame.
 /// </summary>
 /// <remarks>CLASSIFICATION: MIXED (PER-ACTOR MODEL + VR-ONLY-derived + one small record of its
 /// own). The old "NEUTRAL LOOKS" / "LOCAL-ONLY STATE" reading of this file — button
@@ -86,8 +102,10 @@ namespace GloomhavenVR.Net;
 /// definition in <see cref="RemoteBoardContent"/>). What is left of DELIBERATELY-NOT here is the
 /// safety half alone: no card identity, ever. Personal TUNING offsets are not that class either —
 /// every client renders a given board style at its shipped layout, which is a rendering
-/// convention, not a hidden display. Slot occupancy
-/// and the pile stacks are PER-ACTOR MODEL; the wanted-slot pulse, snap glow and half divider are
+/// convention, not a hidden display. The cap STATES and the snap-glow HOVER left the list this
+/// round, through the board-UI record's byte 2 and its byte 1 bits 6..7; the cap PRESS left it
+/// through record 14's reserved byte-0 bits; and the UNDO / item-USE wordings through record 13's
+/// mask bits 2..3. Slot occupancy and the pile stacks are PER-ACTOR MODEL; the wanted-slot pulse is
 /// DERIVED from state the board already draws. The wire inputs are the already-synced
 /// <see cref="RemoteAvatar"/> passed to <c>Refresh</c> and the board STYLE the ctor keys the
 /// authored layout from — neither costs a new byte. See INVARIANTS-Net-Rig.md "Net — content
@@ -181,6 +199,25 @@ internal sealed class RemoteBoardFurniture
     private const float TransientCapR = Defaults.RoundButtons_CapSize; // cap RADIUS
     private const float TransientCapD = Defaults.RoundButtons_Depth;
 
+    // ---- authored PRESS TRAVEL, per cap category ----------------------------------------------
+    // How far the local cap of each category sinks under a press (the [*] Travel entries). Like
+    // every other number on this board these are the SHIPPED defaults, never the peer's private
+    // tuning: a mirrored press must look the same on every client that renders that board style.
+    private const float BoardCapTravel = Defaults.BoardButtons_Travel;
+    private const float DashCapTravel = Defaults.BoardDashboard_Travel;
+    private const float RestCapTravel = Defaults.RestButtons_Travel;
+    private const float TransientCapTravel = Defaults.RoundButtons_Travel;
+
+    /// <summary>Authored seconds a vanishing cap's dust dissolve runs
+    /// (<c>[ButtonAnim] DisappearSeconds</c> — the duration <c>PlayTray.BoardButton.SetVisible</c>
+    /// shrinks the local cap out over). Authored, not the viewer's tuned value, for the same reason
+    /// every geometry constant here is authored.</summary>
+    internal const float DissolveSeconds = Defaults.DisappearSeconds;
+
+    /// <summary>Authored seconds an appearing cap's materialize-from-dust fade runs
+    /// (<c>[ButtonAnim] AppearSeconds</c>).</summary>
+    internal const float AppearSeconds = Defaults.AppearSeconds;
+
     /// <summary>LEGACY slot metric (authored card width × the local board's 1.3 SlotScale) — the
     /// fallback the live fields below take when the owner's real sizes are not on the wire.
     /// Identical to <see cref="NetProtocol.SlotCardWidthLegacy"/> by construction.</summary>
@@ -193,10 +230,10 @@ internal sealed class RemoteBoardFurniture
     private readonly float _slotFrameW;
     private readonly float _slotFrameH;
 
-    /// <summary>The width a CARD parked in the owner's recess actually renders at (their
-    /// <c>… × SlotCardFill</c>, extension record 11) — the half-poke divider spans THIS, because
-    /// it marks the split on the rendered card, not on the recess.</summary>
-    private readonly float _slotCardW;
+    // The owner's live CARD width (record 11) is no longer read here: its only consumer was the
+    // half-poke divider, which the 1:1 round deleted. The ctor still ACCEPTS it — the parameter is
+    // part of the board's construction contract and the frame metric beside it is very much in use
+    // — it simply has nothing to size any more.
 
     /// <summary>Authored card size for the item-use RECESS (the recess is card-sized at the
     /// UNSCALED card metric on the local board).</summary>
@@ -219,6 +256,40 @@ internal sealed class RemoteBoardFurniture
     private static readonly Color HandleColor = new(0.62f, 0.50f, 0.28f);  // brass bar
     private static readonly Color ShortRestColor = new(0.62f, 0.52f, 0.30f); // parchment-gold
     private static readonly Color LongRestColor = new(0.37f, 0.44f, 0.56f);  // antique slate-blue
+
+    // ---- the STATE palette every mirrored keycap now switches through (gap: "every cap looks
+    //      enabled and un-accented"). The local caps have four looks and a peer saw ONE: the
+    //      colour the cap was constructed with. These three are the shared statics
+    //      PlayTray.BoardButton.StateColor picks between; they are private there and are Color
+    //      values, which scripts/check-mirrors.sh (a float/string extractor) cannot lint — so, like
+    //      the PIN pair above, they are called out as MIRRORS in both doc comments instead.
+
+    /// <summary>Verbatim <c>PlayTray.BoardButton.IdleColor</c> — the warm parchment every ENABLED,
+    /// un-accented keycap rests at. Identical to <see cref="PinIdleColor"/> by construction (that
+    /// constant is this one, discovered first, for the FOLLOW/PIN cap alone).</summary>
+    private static readonly Color CapIdleColor = PinIdleColor;
+
+    /// <summary>Verbatim <c>PlayTray.BoardButton.DisabledColor</c> — plain dark wood, "an unlit
+    /// carved plaque". What a rest disc that is up but dead looks like on the owner's board.</summary>
+    private static readonly Color CapDisabledColor = new(0.21f, 0.16f, 0.11f);
+
+    /// <summary>Verbatim <c>PlayTray.BoardButton.ConfirmedColor</c> — worn brass, the "you ARE
+    /// ready, pressing this REVOKES" look of the CONFIRM cap.</summary>
+    private static readonly Color CapConfirmedColor = new(0.68f, 0.52f, 0.24f);
+
+    /// <summary>Verbatim the dark wood <c>ButtonCluster.PhysicalButton</c> lerps a DISABLED cluster
+    /// cap toward — a different recipe from the board keycaps' flat
+    /// <see cref="CapDisabledColor"/> (it keeps a trace of the cap's own accent), which is why the
+    /// mirrored SKIP cap needs its own branch rather than the shared palette.</summary>
+    private static readonly Color ClusterDisabledWood = new(0.17f, 0.13f, 0.09f);
+
+    /// <summary>Mirror of the lerp factor <c>ButtonCluster.PhysicalButton</c> disables a cap
+    /// with.</summary>
+    private const float ClusterDisabledLerp = 0.75f;
+
+    /// <summary>Mirror of the alpha <c>ButtonCluster.PhysicalButton</c> fades a DISABLED cap's
+    /// label to.</summary>
+    private const float ClusterDisabledLabelAlpha = 0.35f;
 
     // ---------------------------------------------------------------- authored per-style seats --
     // The SHIPPED per-board layout (Defaults.*_Oak/Steel/Bronze) keyed by the PEER's synced style.
@@ -414,9 +485,16 @@ internal sealed class RemoteBoardFurniture
     /// <summary>Last synced SKIP wording applied to the cap — same contract as
     /// <see cref="_appliedConfirmWire"/>.</summary>
     private string? _appliedSkipWire;
+
+    /// <summary>Last synced UNDO wording applied to the cap (record 13 mask bit 2) — same contract
+    /// as <see cref="_appliedConfirmWire"/>.</summary>
+    private string? _appliedUndoWire;
+
+    /// <summary>Last synced item-USE wording applied to the cap (record 13 mask bit 3) — same
+    /// contract as <see cref="_appliedConfirmWire"/>.</summary>
+    private string? _appliedUseWire;
     private readonly GameObject?[] _wanted = new GameObject?[2];
     private readonly GameObject?[] _snap = new GameObject?[2];
-    private readonly GameObject?[] _halves = new GameObject?[2];
 
     // ---- change gates (a TMP/material write per tick is exactly the churn the 4 Hz cadence is
     //      there to avoid; every setter below no-ops until the value really moves) --------------
@@ -425,11 +503,23 @@ internal sealed class RemoteBoardFurniture
     private int _shownSnapMask = -1;
     /// <summary>Last applied synced buttons mask (-2 = nothing applied yet, -1 = legacy sender).</summary>
     private int _shownButtonsMask = -2;
-    /// <summary>Per-slot half-divider visibility as a bit mask (−1 = nothing written yet). A plain
-    /// bool would miss the case where the dividers stay shown but the OCCUPANCY moves from one slot
-    /// to the other.</summary>
-    private int _shownHalfMask = -1;
     private string _langShown = string.Empty;
+
+    /// <summary>Last applied cap-STATE byte (record 4 byte 2); -2 = nothing applied yet, -1 = a
+    /// sender without the byte (every cap keeps its built colour).</summary>
+    private int _shownCapStates = -2;
+
+    /// <summary>The last cap-press key (cap | seq &lt;&lt; 8) this board ANIMATED. The wire field is
+    /// a latch that rides several packets, so the dip plays on the value CHANGING; -1 = none seen.
+    /// Seeded from the owner's current key on the first refresh so a board built mid-press does not
+    /// replay a press that already happened.</summary>
+    private int _playedPressKey = -1;
+
+    /// <summary>False until the first <see cref="Refresh"/> has seeded every cap's visibility. The
+    /// mirror of the local button's own <c>_ticked</c> guard: a board is BUILT with its caps shown
+    /// and the first refresh applies the owner's real mask, which without this gate would crumble
+    /// four caps into dust the instant a peer's board appears.</summary>
+    private bool _settled;
 
     /// <summary>Per-slot unscaled time the snap glow was lit (a card just landed there). Negative
     /// infinity = never.</summary>
@@ -454,18 +544,20 @@ internal sealed class RemoteBoardFurniture
     /// <paramref name="tray"/>, caps seat on the prefab anchors + the authored per-style offsets
     /// (see the class note); without one, on the legacy flat-board constants.
     /// <paramref name="slot0CardLocal"/>/<paramref name="slot1CardLocal"/> are the board-local
-    /// positions the two round CARDS render at — the slot overlays (wanted pulse / snap glow /
-    /// half divider) centre on them so glow and card agree on every board style.
+    /// positions the two round CARDS render at — the slot overlays (wanted pulse / snap glow)
+    /// centre on them so glow and card agree on every board style.
     /// </summary>
     public RemoteBoardFurniture(Transform boardRoot, Cards.ControlBoard style, RemoteTrayVisual? tray,
         Vector3 slot0CardLocal, Vector3 slot1CardLocal,
         float slotFrameWidth = 0f, float slotCardWidth = 0f)
     {
         // The owner's synced slot metrics (extension record 11); 0 = not on the wire, keep the
-        // legacy constant — the exact size every build before the record drew.
+        // legacy constant — the exact size every build before the record drew. Only the FRAME
+        // metric is consumed now (the glow rims); see the field block above for where the CARD
+        // metric's consumer went.
+        _ = slotCardWidth;
         _slotFrameW = slotFrameWidth > 0f ? slotFrameWidth : CardW;
         _slotFrameH = _slotFrameW * (88f / 63.5f);
-        _slotCardW = slotCardWidth > 0f ? slotCardWidth : CardW;
 
         _root = new GameObject("Furniture").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
@@ -484,10 +576,19 @@ internal sealed class RemoteBoardFurniture
         Vector3 undoPos = tray?.UndoAnchor != null
             ? cuOff + new Vector3(0f, -cuSpacing * 0.5f, 0f)
             : UndoMount;
+        // BUILT AT THE IDLE COLOUR, NOT THE ACCENT — half of the "every cap looks accented" gap,
+        // and it costs nothing. The colour a local keycap is CREATED with is its _accentColor, the
+        // look it wears only while SetState(accent: true); its resting look is the shared parchment
+        // IdleColor. These two mirrors were built in the accent and left there, so a peer's CONFIRM
+        // sat permanently in the sage "go" accent and their UNDO in worn leather — a colour the
+        // owner's undo cap never wears at all, since every SetState on it is (enabled, !accent).
+        // The accent is passed alongside so the state pass can switch back to it.
         _confirm = InertCap.Square(confirmParent, "Confirm", confirmPos,
-            new Vector2(BoardCapW, BoardCapH), BoardCapD, ConfirmColor);
+            new Vector2(BoardCapW, BoardCapH), BoardCapD, CapIdleColor,
+            travel: BoardCapTravel, accent: ConfirmColor);
         _undo = InertCap.Square(undoParent, "Undo", undoPos,
-            new Vector2(BoardCapW, BoardCapH), BoardCapD, UndoColor);
+            new Vector2(BoardCapW, BoardCapH), BoardCapD, CapIdleColor,
+            travel: BoardCapTravel, accent: UndoColor);
 
         // The item "USE" confirm is a DYNAMIC member of that same generic cluster (PlayTray
         // requirement 9a): while a usable item card is clipped into the use recess it joins as
@@ -496,8 +597,13 @@ internal sealed class RemoteBoardFurniture
         // anchors too), which is where a sanely tuned three-stack puts it.
         Vector3 useMidLocal = confirmParent.InverseTransformPoint(
             (_confirm.WorldPosition + _undo.WorldPosition) * 0.5f);
+        // …and this one IS accented, permanently: every SetState on the local item-USE cap is
+        // (enabled: true, accent: true) — "always pressable while shown (no game gate)" — so its
+        // look is a BUILD fact, not a state fact, and it costs no wire bit (see
+        // NetProtocol.BoardUiCapConfirmAccentBit's "what is not here" note).
         _use = InertCap.Square(confirmParent, "ItemUse", useMidLocal,
-            new Vector2(BoardCapW, BoardCapH), BoardCapD, ConfirmColor);
+            new Vector2(BoardCapW, BoardCapH), BoardCapD, ConfirmColor,
+            travel: BoardCapTravel, accent: ConfirmColor);
         // Starts hidden and in step with the _shownArmed seed below: the local cluster only holds
         // this member while an item decision is pending, and Refresh() early-outs while nothing
         // changed — so a board that never sees an item fan must not be left showing a USE cap.
@@ -506,24 +612,34 @@ internal sealed class RemoteBoardFurniture
         // ---- rest discs (real-tray board only — they seat in the prefab's rest notches) --------
         // The local board's short/long rest BoardButtons: round discs at the ShortRestToken /
         // LongRestToken anchors + the authored per-style offset ± spacing/2 (RestControls
-        // EnsureBuilt/SetOffset). NEUTRAL LOOK: drawn at their authored accent colours; whether
-        // the peer has actually selected a rest is a separate readout
-        // (RemoteStatusReadouts.RestText), not a cap state.
+        // EnsureBuilt/SetOffset).
+        //
+        // THE "NEUTRAL LOOK" NOTE THAT USED TO STAND HERE IS GONE. It said the discs are "drawn at
+        // their authored accent colours; whether the peer has actually selected a rest is a
+        // separate readout, not a cap state". That was the defect: RestControls.TickStatus drives
+        // these two caps with SetState(canShort, accent: shortSelected) — three visibly different
+        // looks (dark-wood dead, parchment available, accented selected) — and a peer saw the
+        // ACCENT one always, i.e. every visible rest disc read as "selected". The states ride the
+        // board-UI record's cap-state byte now and are applied in ApplyCapStates; the discs are
+        // built IDLE and switch to their authored accent when the owner's do.
         if (tray?.ShortRestAnchor != null && tray.LongRestAnchor != null)
         {
             Vector3 restOff = RestOffsetFor(style);
             float restSpacing = RestSpacingFor(style);
             float restD = RestDiameterFor(style);
             _shortRest = InertCap.Round(tray.ShortRestAnchor, "ShortRest",
-                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, RestCapD, ShortRestColor);
+                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, RestCapD, CapIdleColor,
+                travel: RestCapTravel, accent: ShortRestColor);
             _longRest = InertCap.Round(tray.LongRestAnchor, "LongRest",
-                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, RestCapD, LongRestColor);
+                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, RestCapD, CapIdleColor,
+                travel: RestCapTravel, accent: LongRestColor);
         }
 
         // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced
         // state every refresh (SetPinned) — label AND cap colour, exactly like their own cap.
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + PinOffsetFor(style),
-            new Vector2(PinCapW, DashCapH), DashCapD, PinIdleColor);
+            new Vector2(PinCapW, DashCapH), DashCapD, PinIdleColor,
+            travel: DashCapTravel, accent: PinAccentColor);
 
         // ---- grab-handle bar -------------------------------------------------------------------
         // The local handle is a brass Cube PLUS a 62 %-wide trigger BoxCollider and a
@@ -555,10 +671,12 @@ internal sealed class RemoteBoardFurniture
                            + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + Defaults.OffsetZ));
         _skip = Defaults.RoundButtons_Shape == Cards.ButtonShape.Round
             ? InertCap.Round(_root, "TurnFlowSkip", skipSeat,
-                TransientCapR * 2f * clusterScale, TransientCapD * clusterScale, SkipColor)
+                TransientCapR * 2f * clusterScale, TransientCapD * clusterScale, SkipColor,
+                travel: TransientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true)
             : InertCap.Square(_root, "TurnFlowSkip", skipSeat,
                 new Vector2(Defaults.RoundButtons_Width, Defaults.RoundButtons_Height) * clusterScale,
-                Defaults.RoundButtons_Depth * clusterScale, SkipColor);
+                Defaults.RoundButtons_Depth * clusterScale, SkipColor,
+                travel: TransientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
         _itemUse = BuildItemUseRecess(ItemUseMount + ItemUseOffsetFor(style), out _itemUseGlowMat);
@@ -590,10 +708,22 @@ internal sealed class RemoteBoardFurniture
             DecisionMount.y + decisionOff.y + PromptAboveMountY,
             DecisionMount.z + decisionOff.z), style);
 
-        // ---- slot overlays: wanted pulse, snap glow, half-poke divider ------------------------
+        // ---- slot overlays: wanted pulse + snap glow ------------------------------------------
         // Centred on the CARD positions handed in by the board (the real recess anchors when the
         // 3D asset is up) PLUS the authored per-board SLOT-OVERLAY seat — see SlotOverlayLocal for
         // why dropping that term is what pushed every overlay off-centre inside the recess.
+        //
+        // THE HALF-POKE DIVIDER IS GONE (this round, deliberately, zero wire). A third quad used to
+        // be drawn across the middle of every face-up round card here — a hairline standing in for
+        // the HalfSelection poke zones, on the argument that "a literally faithful copy would draw
+        // nothing at all and the element would be missing from the peer's board". Under the 1:1
+        // ruling that argument inverts: the local zones are INVISIBLE BY DESIGN ("the game's own
+        // on-card highlight is the only hover/selection feedback"), so drawing nothing is not a
+        // missing element, it IS the element — and the divider was a widget every peer could see
+        // and the owner could not. The half states themselves are not lost: hover and click both
+        // ride record 14 and are drawn as the game's own two-state on-card highlight, which is
+        // exactly what the owner sees. Deleted rather than gated, because there is no owner-side
+        // state that could gate it: the zones are never visible.
         for (int i = 0; i < 2; i++)
         {
             Vector3 card = (i == 0 ? slot0CardLocal : slot1CardLocal) + SlotOverlayLocal(style, i);
@@ -601,7 +731,6 @@ internal sealed class RemoteBoardFurniture
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
             _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, 1.24f, -0.005f,
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
-            _halves[i] = BuildHalfDivider($"HalfDivider{i}", card);
         }
 
         ApplyLabels();
@@ -616,21 +745,19 @@ internal sealed class RemoteBoardFurniture
     /// board-UI state below is wire-fed, so an actorless peer's board still mirrors its owner's
     /// controls; only the slot-occupancy-derived pieces need the actor-fed slot flags).
     ///
-    /// <paramref name="showFronts"/> is the shared <see cref="RevealGate"/> answer for this actor;
-    /// <paramref name="slotMask"/> says which of that peer's card slots currently hold a card and
-    /// <paramref name="faceMask"/> which of those are drawn FACE-UP (a strict subset). Both are the
-    /// masks <c>RemoteControlBoard.SeatSlots</c> already resolved for the slots themselves —
-    /// handed down rather than re-derived, so the glows can never disagree with the cards, and
-    /// nothing derived from them can leak anything the board does not already show.
+    /// <paramref name="slotMask"/> says which of that peer's card slots currently hold a card — the
+    /// mask <c>RemoteControlBoard.SeatSlots</c> already resolved for the slots themselves, handed
+    /// down rather than re-derived, so nothing here can disagree with the cards or leak anything
+    /// the board does not already show. It feeds ONE thing now: the LEGACY snap-glow fallback for a
+    /// sender that carries no board-UI record (a synced sender's gold rim follows their actual
+    /// hover — see the snap block below).
     ///
-    /// WHY THE FACE MASK IS SEPARATE. Since the owner's recess occupancy rides the wire, a slot can
-    /// legitimately show a card whose IDENTITY this client does not have (an anonymous back — see
-    /// <see cref="RemoteBoardCard.SetAnonymousBack"/>). The half-card divider marks where a face-up
-    /// card's two action halves split, so it must follow the faces, not the occupancy; one flag for
-    /// both would draw a divider across a card back.
+    /// <para>The <c>showFronts</c> / <c>faceMask</c> pair this method used to take is GONE with the
+    /// half-card divider that was their only consumer (see the ctor's slot-overlay block for why
+    /// that widget was deleted). The reveal gate itself is untouched — it still governs the CARDS,
+    /// upstream in <see cref="RemoteControlBoard"/>, exactly as before.</para>
     /// </summary>
-    public void Refresh(CPlayerActor? actor, RemoteAvatar owner, bool showFronts,
-        int slotMask, int faceMask)
+    public void Refresh(CPlayerActor? actor, RemoteAvatar owner, int slotMask)
     {
         bool slot0 = (slotMask & 1) != 0;
         bool slot1 = (slotMask & 2) != 0;
@@ -653,13 +780,26 @@ internal sealed class RemoteBoardFurniture
         if (buttons != _shownButtonsMask)
         {
             _shownButtonsMask = buttons;
+            // THE SHOW/HIDE ANIMATION IS ZERO-WIRE (this round's first gap). Locally a keycap does
+            // not pop: it crumbles into a sideways dust burst on the way out and assembles back out
+            // of that dust on the way in (PlayTray.BoardButton.SetVisible). Every peer saw a pop —
+            // yet the transition itself was ALREADY synced, right here, by the visibility bits.
+            // So the same two animations are simply played on this copy off the same edge. Nothing
+            // new goes on the wire, and nothing on this board becomes interactive: the animator is
+            // a rendering component (see RemoteCapFx).
+            //
+            // Suppressed on the FIRST refresh (_settled): the caps are built shown, so the first
+            // application of the owner's real mask is state SEEDING, not a transition the owner
+            // made — the same reason the local button silences its own animation until it has
+            // ticked once.
+            bool animate = _settled;
             if (synced)
             {
-                _confirm.SetShown((buttons & NetProtocol.BoardUiConfirmBit) != 0);
-                _undo.SetShown((buttons & NetProtocol.BoardUiUndoBit) != 0);
-                _shortRest?.SetShown((buttons & NetProtocol.BoardUiShortRestBit) != 0);
-                _longRest?.SetShown((buttons & NetProtocol.BoardUiLongRestBit) != 0);
-                _skip.SetShown((buttons & NetProtocol.BoardUiSkipBit) != 0);
+                _confirm.SetShown((buttons & NetProtocol.BoardUiConfirmBit) != 0, animate);
+                _undo.SetShown((buttons & NetProtocol.BoardUiUndoBit) != 0, animate);
+                _shortRest?.SetShown((buttons & NetProtocol.BoardUiShortRestBit) != 0, animate);
+                _longRest?.SetShown((buttons & NetProtocol.BoardUiLongRestBit) != 0, animate);
+                _skip.SetShown((buttons & NetProtocol.BoardUiSkipBit) != 0, animate);
                 SetShown(_itemUse, (buttons & NetProtocol.BoardUiItemRecessBit) != 0);
                 // The decision drawer: drawn only while a prompt is actually docked on the
                 // owner's board — an idle local board shows nothing at that mount.
@@ -668,15 +808,21 @@ internal sealed class RemoteBoardFurniture
             else
             {
                 // Legacy sender: the pre-record look (everything drawn, drawer always out).
-                _confirm.SetShown(true);
-                _undo.SetShown(true);
-                _shortRest?.SetShown(true);
-                _longRest?.SetShown(true);
-                _skip.SetShown(true);
+                _confirm.SetShown(true, animate);
+                _undo.SetShown(true, animate);
+                _shortRest?.SetShown(true, animate);
+                _longRest?.SetShown(true, animate);
+                _skip.SetShown(true, animate);
                 SetShown(_itemUse, true);
                 SetShown(_decision, true);
             }
         }
+
+        // ---- SYNCED CAP STATES (record 4 byte 2 — "every cap looks enabled and un-accented") --
+        ApplyCapStates(owner);
+
+        // ---- SYNCED CAP PRESS (record 14 byte 0 bits 3..7) ------------------------------------
+        ApplyCapPress(owner);
 
         // ---- SYNCED CAP LABELS (wire record 13 — task 4 "der Button-Text muss immer korrekt
         //      synchronisiert sein"). The owner's actually-displayed CONFIRM/SKIP wording, shown
@@ -723,7 +869,9 @@ internal sealed class RemoteBoardFurniture
             _itemUseGlowMat.color = armed
                 ? new Color(1f, 0.82f, 0.35f, 0.80f)
                 : new Color(0.30f, 0.25f, 0.12f, 0.35f);
-            _use.SetShown(armed);
+            // The USE cap is a real keycap that appears and disappears with the item decision, so
+            // it takes the same mirrored dust transition as the rest of the column.
+            _use.SetShown(armed, _settled);
         }
 
         // ---- wanted-slot pulse ----------------------------------------------------------------
@@ -762,46 +910,63 @@ internal sealed class RemoteBoardFurniture
         }
         SetWanted(wantedMask);
 
-        // ---- snap glow ------------------------------------------------------------------------
-        // The local gold snap glow is a HOVER telegraph ("the held card lands here on release") and
-        // the hovering hand is local-only. The moment it is actually FOR, though — a card arriving
-        // in a slot — is perfectly knowable: the model transition empty→occupied. So the remote
-        // glow lights on that edge and fades after SnapGlowSeconds, which reproduces the flash the
-        // peer saw at the instant of their own drop. A remote hover is not reproduced (and cannot be).
-        int snapMask = 0;
-        for (int i = 0; i < 2; i++)
+        // ---- snap glow: the HOVER TELEGRAPH, synced ------------------------------------------
+        // THE COMMENT THAT USED TO STAND HERE SAID "a remote hover is not reproduced (and cannot
+        // be)". Both halves of that were wrong, and the sentence is what kept the defect alive.
+        //
+        // It is not the same event. Locally the gold rim is a HOVER telegraph — "the held card
+        // lands HERE on release" (PlayTray.SetHighlightedSlot ← CardsDriver.UpdateSlotHighlight):
+        // the owner sees it while they are still holding the card, it FOLLOWS their hand across the
+        // two recesses, and it goes out again if they pull away without dropping. This mirror lit
+        // its rim on the model's empty→occupied edge instead and faded it after 0.6 s, so a peer
+        // saw the telegraph AFTER the drop it was telegraphing, and never at all for a hover that
+        // ended without one.
+        //
+        // And it was never impossible: the hovered recess is one small integer the owner's own
+        // board already renders, and the record it belongs in had two RESERVED bits sitting in the
+        // very byte the wanted-glow mask rides. It costs zero extra bytes (board-UI byte 1 bits
+        // 6..7). Anti-cheat is unchanged and strictly weaker than the occupancy nibble two bits
+        // below it: a recess POSITION for a card the peer is already watching the owner carry.
+        //
+        // LEGACY senders (no board-UI record at all) keep the old occupancy-edge flash, so an
+        // old peer's board renders exactly as it always did.
+        int snapMask;
+        if (synced)
         {
-            bool filled = i == 0 ? slot0 : slot1;
-            if (filled && !_wasFilled[i])
-                _snapLitAt[i] = Time.unscaledTime;
-            _wasFilled[i] = filled;
-            if (Time.unscaledTime - _snapLitAt[i] < SnapGlowSeconds)
-                snapMask |= 1 << i;
+            int hovered = owner.SnapGlowSlot;
+            snapMask = hovered >= 0 && hovered < 2 ? 1 << hovered : 0;
+            // Keep the occupancy edge detector fed so a mid-session fallback (a sender that stops
+            // carrying the record) resumes from a truthful state rather than re-flashing history.
+            _wasFilled[0] = slot0;
+            _wasFilled[1] = slot1;
+        }
+        else
+        {
+            snapMask = 0;
+            for (int i = 0; i < 2; i++)
+            {
+                bool filled = i == 0 ? slot0 : slot1;
+                if (filled && !_wasFilled[i])
+                    _snapLitAt[i] = Time.unscaledTime;
+                _wasFilled[i] = filled;
+                if (Time.unscaledTime - _snapLitAt[i] < SnapGlowSeconds)
+                    snapMask |= 1 << i;
+            }
         }
         SetSnap(snapMask);
 
-        // ---- HalfSelection half-poke zones ----------------------------------------------------
-        // The LOCAL half zones are deliberately INVISIBLE (HalfSelection: "the mod zones ... stay
-        // INVISIBLE — the game's own on-card highlight is the only hover/selection feedback"), so a
-        // literally faithful copy would draw nothing at all and the element would be missing from
-        // the peer's board. The compromise: a hairline divider across the middle of each face-up
-        // round card, marking where the two action halves split. Inert, one quad per slot, shown
-        // exactly when the local zones are armed — i.e. while the cards are face-up in the action
-        // phase, never during the secret selection phase.
-        // The face mask is already the intersection of "a card is drawn here" with "it is drawn
-        // face-up", so the reveal gate is applied once, upstream, instead of twice with two
-        // different occupancy notions. Re-ANDed with showFronts purely as a belt-and-braces read of
-        // the same gate this method is handed.
-        int halfMask = showFronts ? faceMask & 0x3 : 0;
-        SetHalves(halfMask);
+        _settled = true;
 
         StateLine = $"use={(armed ? "armed" : "idle")}, " +
                     $"buttons={(synced ? "0x" + owner.BoardButtonsMask.ToString("X2") : "legacy")}, " +
-                    $"wanted={wantedMask}{(synced ? "(synced)" : string.Empty)}, snap={snapMask}, " +
-                    $"halves={halfMask}, " +
+                    $"capStates={(owner.HasCapStates ? "0x" + owner.CapStateMask.ToString("X2") : "legacy")}, " +
+                    $"wanted={wantedMask}{(synced ? "(synced)" : string.Empty)}, " +
+                    $"snap={snapMask}{(synced ? "(hover)" : "(occupancy edge)")}, " +
                     $"tray={(owner.TrayPinned ? "PINNED" : "FOLLOW")}{(synced ? "(synced)" : "(default)")}, " +
                     $"capLabels[confirm={(owner.ConfirmCapLabel != null ? "'" + owner.ConfirmCapLabel + "'" : "neutral")}, " +
-                    $"skip={(owner.SkipCapLabel != null ? "'" + owner.SkipCapLabel + "'" : "neutral")}], " +
+                    $"skip={(owner.SkipCapLabel != null ? "'" + owner.SkipCapLabel + "'" : "neutral")}, " +
+                    $"undo={(owner.UndoCapLabel != null ? "'" + owner.UndoCapLabel + "'" : "neutral")}, " +
+                    $"use={(owner.ItemUseCapLabel != null ? "'" + owner.ItemUseCapLabel + "'" : "neutral")}], " +
                     $"decision={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}" +
                     $"[{DescribeStates(_shownOptionStates, _decisionPlates.Count)}]" +
                     // Single quotes around the line, like the cap labels above: a nested \" inside
@@ -847,6 +1012,127 @@ internal sealed class RemoteBoardFurniture
             _appliedSkipWire = skip;
             _skip.SetLabel(skip ?? Loc.Game("GUI_SKIP_MOVEMENT", "Skip"));
         }
+        // THE TWO WORDINGS THAT NEVER TRAVELLED (record 13 mask bits 2/3, new this round).
+        //   • UNDO carries the pick flow's dialog-CANCEL override while the event-discard confirm
+        //     dialog is open ("Wähle eine andere Karte") — in that flow this cap IS the popup's
+        //     second button, and every peer read a flat "Rückgängig" instead.
+        //   • The item-USE cap carries an item-SURRENDER demand's own wording, precisely so that
+        //     "the user must never read a surrender as an ordinary use" — and the mirror wrote a
+        //     hardcoded GUI_USE, so peers watching a player hand an item over saw them USE it.
+        string? undo = owner.UndoCapLabel;
+        if (undo != _appliedUndoWire)
+        {
+            _appliedUndoWire = undo;
+            _undo.SetLabel(undo ?? Loc.Game("GUI_UNDO", "Undo"));
+        }
+        string? use = owner.ItemUseCapLabel;
+        if (use != _appliedUseWire)
+        {
+            _appliedUseWire = use;
+            _use.SetLabel(use ?? Loc.Game("GUI_USE", "USE").ToUpperInvariant());
+        }
+    }
+
+    /// <summary>
+    /// Apply the owner's live cap STATES (board-UI record byte 2): the CONFIRM cap's accent /
+    /// confirmed look, both rest discs' enabled + accent pair, and the SKIP cap's interactability.
+    ///
+    /// <para>WHAT A PEER USED TO SEE. Every mirrored cap wore the ONE colour it was constructed
+    /// with, for the whole session. A greyed-out rest disc, a rest disc the owner had SELECTED and
+    /// an available one were the same picture; so were a brass-accented pick-flow CONFIRM and a
+    /// gold "you are ready, press to revoke" CONFIRM; and a dead SKIP looked pressable. The local
+    /// caps have four looks (<c>BoardButton.SetState</c> → <c>StateColor</c>) and the cluster cap
+    /// two, all of which this now resolves out of the same palette in the same precedence.</para>
+    ///
+    /// <para>WHAT IS DELIBERATELY NOT HERE: UNDO and the item-USE cap. Every <c>SetState</c> call
+    /// on them in the whole mod is a constant — <c>(enabled, !accent)</c> for UNDO,
+    /// <c>(enabled, accent)</c> for USE — so their look is a BUILD fact and is applied by the
+    /// constructor for zero bits. The FOLLOW/PIN cap's accent is byte 1 bit 2 and is applied by
+    /// <see cref="SetPinned"/>, where it has ridden since the pinned bit shipped.</para>
+    ///
+    /// <para>A sender without the byte (<c>HasCapStates</c> false) leaves every cap exactly where
+    /// the constructor put it.</para>
+    /// </summary>
+    private void ApplyCapStates(RemoteAvatar owner)
+    {
+        int states = owner.HasCapStates ? owner.CapStateMask : -1;
+        if (states == _shownCapStates)
+            return;
+        _shownCapStates = states;
+        if (states < 0)
+            return;
+        _confirm.SetCapState(
+            enabled: true, // the board HIDES an unpressable confirm rather than greying it
+            accent: (states & NetProtocol.BoardUiCapConfirmAccentBit) != 0,
+            confirmed: (states & NetProtocol.BoardUiCapConfirmReadyBit) != 0);
+        _shortRest?.SetCapState(
+            enabled: (states & NetProtocol.BoardUiCapShortRestEnabledBit) != 0,
+            accent: (states & NetProtocol.BoardUiCapShortRestAccentBit) != 0,
+            confirmed: false);
+        _longRest?.SetCapState(
+            enabled: (states & NetProtocol.BoardUiCapLongRestEnabledBit) != 0,
+            accent: (states & NetProtocol.BoardUiCapLongRestAccentBit) != 0,
+            confirmed: false);
+        _skip.SetCapState(
+            enabled: (states & NetProtocol.BoardUiCapSkipEnabledBit) != 0,
+            accent: true, // a cluster cap has no idle look; its accent IS its enabled colour
+            confirmed: false);
+        VRLog.Info("Net", $"Remote cap states applied: 0x{states:X2} — confirm=" +
+                          ((states & NetProtocol.BoardUiCapConfirmReadyBit) != 0 ? "CONFIRMED"
+                              : (states & NetProtocol.BoardUiCapConfirmAccentBit) != 0 ? "accent"
+                              : "idle") +
+                          ", shortRest=" +
+                          ((states & NetProtocol.BoardUiCapShortRestEnabledBit) != 0 ? "enabled" : "DIMMED") +
+                          ((states & NetProtocol.BoardUiCapShortRestAccentBit) != 0 ? "+accent" : string.Empty) +
+                          ", longRest=" +
+                          ((states & NetProtocol.BoardUiCapLongRestEnabledBit) != 0 ? "enabled" : "DIMMED") +
+                          ((states & NetProtocol.BoardUiCapLongRestAccentBit) != 0 ? "+accent" : string.Empty) +
+                          ", skip=" +
+                          ((states & NetProtocol.BoardUiCapSkipEnabledBit) != 0 ? "enabled" : "DIMMED") +
+                          " (board-UI record byte 2). Colours only — the caps stay colliderless.");
+    }
+
+    /// <summary>
+    /// Replay the owner's keycap PRESS on this copy (record 14 byte 0 bits 3..7). The wire field is
+    /// a LATCH that rides several packets per press, so the dip plays when the (cap, sequence) pair
+    /// CHANGES, never merely when it is set — otherwise the same press would replay on every packet
+    /// of its hold window.
+    ///
+    /// <para>The first refresh SEEDS the key without animating: a board built while a press is
+    /// still latched must not open with a dip for something that already happened.</para>
+    ///
+    /// <para>An ANIMATION, not an interaction: the mapped cap sinks and springs back and nothing is
+    /// invoked. No collider, no registration, nothing added to the copy at all — the dip is a
+    /// transform write inside <see cref="RemoteCapFx"/>.</para>
+    /// </summary>
+    private void ApplyCapPress(RemoteAvatar owner)
+    {
+        int key = owner.CapPressKey;
+        if (key < 0 || key == _playedPressKey)
+            return;
+        bool seed = !_settled;
+        _playedPressKey = key;
+        if (seed)
+            return;
+        byte cap = (byte)(key & 0xFF);
+        InertCap? target = cap switch
+        {
+            NetProtocol.CapPressConfirm => _confirm,
+            NetProtocol.CapPressUndo => _undo,
+            NetProtocol.CapPressItemUse => _use,
+            NetProtocol.CapPressShortRest => _shortRest,
+            NetProtocol.CapPressLongRest => _longRest,
+            NetProtocol.CapPressSkip => _skip,
+            NetProtocol.CapPressFollowPin => _pin,
+            _ => null,
+        };
+        if (target == null)
+            return;
+        target.Press();
+        VRLog.Info("Net", $"Remote cap press animated: wire cap {cap} (sequence {(key >> 8) & 0x03}) " +
+                          "— the mirrored cap sinks its full authored travel and springs back at the " +
+                          "owner's own decay rate. Nothing was invoked and nothing became pressable: " +
+                          "the copy is still a picture of a button.");
     }
 
     /// <summary>Change-safe activeSelf flip for a plain furniture root.</summary>
@@ -863,13 +1149,16 @@ internal sealed class RemoteBoardFurniture
     /// loc keys where one exists, so a peer's board reads in the local player's language exactly
     /// like their own board does.
     ///
-    /// NEUTRAL LOOKS declared here, once, because none of these states cross the wire and none is
-    /// worth a wire field:
-    ///   • CONFIRM / UNDO / SKIP / REST enabled-vs-disabled — the local caps mirror the peer's OWN
-    ///     uGUI widget interactability, which is recomputed per frame on THEIR client only.
-    ///     Drawn ENABLED (the authored base colour), never dimmed.
+    /// THE "NEUTRAL LOOKS" LIST THIS METHOD USED TO CARRY IS EMPTY. It declared that "CONFIRM /
+    /// UNDO / SKIP / REST enabled-vs-disabled … are drawn ENABLED (the authored base colour), never
+    /// dimmed", on the argument that the states are recomputed per frame on the owner's client
+    /// only. That is true of the COMPUTATION and irrelevant to the RESULT: the result is four
+    /// distinct colours on a labelled control, and a peer seeing one of them while the owner sees
+    /// another is exactly the disagreement the 1:1 rule forbids. Seven bits of the board-UI record's
+    /// cap-state byte carry every one of them now (see <see cref="ApplyCapStates"/>), read off the
+    /// flags the owner's own renderer obeys.
     ///
-    /// The FOLLOW/PIN toggle is NO LONGER on that list: its label and accent are SYNCED (board-UI
+    /// The FOLLOW/PIN toggle left that list earlier: its label and accent are SYNCED (board-UI
     /// record byte 1 bit 2) and applied in <see cref="SetPinned"/>, so this method only seeds the
     /// wording. Calling <c>[Cards] TrayFollow</c> "a private VR preference" was the mistake — it is
     /// a labelled two-state control on a board the user requires to read 1:1 like its owner's.
@@ -887,6 +1176,8 @@ internal sealed class RemoteBoardFurniture
         // next refresh re-assert whichever synced label is live in place of the reseed.
         _appliedConfirmWire = null;
         _appliedSkipWire = null;
+        _appliedUndoWire = null;
+        _appliedUseWire = null;
         _use.SetLabel(Loc.Game("GUI_USE", "USE").ToUpperInvariant());
         // FOLLOW/PIN is SYNCED state now (see SetPinned), so a language switch must re-state the
         // CURRENT mode's word, not the FOLLOW one — and must re-arm the change gate so the next
@@ -1422,17 +1713,11 @@ internal sealed class RemoteBoardFurniture
         return mr.gameObject;
     }
 
-    /// <summary>The hairline that marks the top/bottom action-half split on a face-up round card —
-    /// the only way to depict the deliberately invisible <c>HalfSelection</c> poke zones at all
-    /// (see <see cref="Refresh"/>). A single inert quad; nothing to poke.</summary>
-    private GameObject BuildHalfDivider(string name, Vector3 cardLocal)
-    {
-        MeshRenderer mr = BoardVisual.Quad(_root, name, new Vector2(_slotCardW * 0.90f, 0.0012f),
-            BoardVisual.Unlit(new Color(0.20f, 0.16f, 0.12f, 0.75f)));
-        mr.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z - 0.002f);
-        mr.gameObject.SetActive(false);
-        return mr.gameObject;
-    }
+    // BuildHalfDivider / SetHalves are GONE (see the ctor's slot-overlay block for the argument):
+    // they drew a hairline across every face-up round card on a peer's board, standing in for poke
+    // zones the OWNER's board deliberately never draws. Under the 1:1 rule that is a widget peers
+    // see and the owner does not, and there is no owner-side state that could gate it, so it was
+    // deleted rather than gated. Zero wire either way.
 
     /// <summary>A collider-free LIT cube (BoardLit → Standard fallback) — the 3D handle bar and
     /// any future solid furniture piece, shaded like the local board's own primitives instead of
@@ -1479,18 +1764,6 @@ internal sealed class RemoteBoardFurniture
         }
     }
 
-    private void SetHalves(int mask)
-    {
-        if (mask == _shownHalfMask)
-            return;
-        _shownHalfMask = mask;
-        for (int i = 0; i < 2; i++)
-        {
-            bool on = (mask & (1 << i)) != 0;
-            if (_halves[i] != null && _halves[i]!.activeSelf != on)
-                _halves[i]!.SetActive(on);
-        }
-    }
 
     // ---------------------------------------------------------------- inert cap --
 
@@ -1526,6 +1799,36 @@ internal sealed class RemoteBoardFurniture
         private readonly TextMeshPro _label;
         private string _shown = string.Empty;
 
+        /// <summary>The travelling CAP holder — the transform the local
+        /// <c>BoardButton.Update</c> sinks along local +Z on a press, here driven by
+        /// <see cref="RemoteCapFx"/> from the synced press edge.</summary>
+        private Transform? _capMesh;
+
+        /// <summary>This cap's per-frame animator (press dip, dust dissolve, materialize fade). A
+        /// pure RENDERING component: it writes a transform, a scale and material colours, adds no
+        /// collider and registers nowhere. Null only in a shader-less environment where nothing
+        /// could animate anyway.</summary>
+        private RemoteCapFx? _fx;
+
+        /// <summary>The colour this cap was BUILT with, i.e. the <c>_accentColor</c> the local
+        /// <c>BoardButton.Create</c> was handed — the ACCENT entry of the state palette, and the
+        /// only one of the four looks a peer's board used to be able to show.</summary>
+        private Color _accentColor;
+
+        /// <summary>True for the turn-flow SKIP cap, which mirrors a <c>ButtonCluster</c>
+        /// PhysicalButton rather than a <c>BoardButton</c> and therefore has its OWN disabled
+        /// recipe (an accent-preserving lerp toward dark wood plus a faded label) instead of the
+        /// board keycaps' flat disabled plaque.</summary>
+        private bool _clusterStyle;
+
+        /// <summary>Last applied (enabled, accent, confirmed) triple, packed — the change gate for
+        /// <see cref="SetCapState"/>. -1 = nothing applied yet, so the first refresh always paints.</summary>
+        private int _shownState = -1;
+
+        /// <summary>The engraved label's authored colour, so the cluster-style disabled fade can be
+        /// applied and undone without drifting.</summary>
+        private Color _labelBase = Color.white;
+
         /// <summary>The cap's three live material instances (top plateau / bright bevel / dark
         /// warm wall) so a STATE colour change can be re-applied to all three at once — the local
         /// <c>BoardButton.SetCapColor</c> drives exactly the same trio, which is what makes an
@@ -1550,7 +1853,8 @@ internal sealed class RemoteBoardFurniture
         /// <summary>The square beveled keycap (Confirm/Undo/Use/Pin): dark base plate + the
         /// 3-submesh chamfered cap mesh (state top / bright bevel / dark warm walls).</summary>
         public static InertCap Square(Transform parent, string name, Vector3 localPos, Vector2 size,
-            float depth, Color color)
+            float depth, Color color, float travel = 0f, Color? accent = null,
+            bool clusterStyle = false)
         {
             GameObject go = NewRoot(parent, name, localPos);
 
@@ -1580,21 +1884,31 @@ internal sealed class RemoteBoardFurniture
                 mr.sharedMaterials = new[] { top, bevel, wall };
             }
 
-            TextMeshPro label = BuildLabel(go.transform, size,
-                new Vector3(0f, 0f, CapRestZ - capThick - 0.001f));
-            return new InertCap(go, label)
+            // The LABEL hangs off the CAP holder on the local board precisely so it travels with
+            // the cap on a press ("it used to hang off the static root while only the cap sank,
+            // reading as detached"). Same parenting here, so the mirrored dip moves the same parts.
+            TextMeshPro label = BuildLabel(capMesh.transform, size,
+                new Vector3(0f, 0f, -capThick - 0.001f));
+            var cap = new InertCap(go, label)
             {
                 _topMat = top,
                 _bevelMat = bevel,
                 _wallMat = wall,
                 _tint = color,
+                _capMesh = capMesh.transform,
+                _accentColor = accent ?? color,
+                _clusterStyle = clusterStyle,
+                _labelBase = label.color,
             };
+            cap.AttachFx(travel, Mathf.Max(size.x, size.y));
+            return cap;
         }
 
         /// <summary>The round disc cap (rest discs, turn-flow Skip): recessed well ring + smooth
         /// generated disc, in the same carved-grain keycap material family.</summary>
         public static InertCap Round(Transform parent, string name, Vector3 localPos, float diameter,
-            float thickness, Color color)
+            float thickness, Color color, float travel = 0f, Color? accent = null,
+            bool clusterStyle = false)
         {
             GameObject go = NewRoot(parent, name, localPos);
 
@@ -1614,15 +1928,29 @@ internal sealed class RemoteBoardFurniture
             var capMr = capDisc.AddComponent<MeshRenderer>();
 
             Shader? shader = CapShader();
+            Material? disc = null;
             if (shader != null)
             {
                 baseMr.sharedMaterial = new Material(shader) { color = new Color(0.15f, 0.12f, 0.08f) };
-                capMr.sharedMaterial = Cards.PlayTray.NewKeycapMaterial(shader, color);
+                disc = Cards.PlayTray.NewKeycapMaterial(shader, color);
+                capMr.sharedMaterial = disc;
             }
 
-            TextMeshPro label = BuildLabel(go.transform, new Vector2(diameter, diameter),
-                new Vector3(0f, 0f, CapRestZ - capThick * 0.5f - 0.001f));
-            return new InertCap(go, label);
+            TextMeshPro label = BuildLabel(capDisc.transform, new Vector2(diameter, diameter),
+                new Vector3(0f, 0f, -capThick * 0.5f - 0.001f));
+            var cap = new InertCap(go, label)
+            {
+                // A disc has ONE cap material (no bevel/wall submeshes) — exactly like the local
+                // round BoardButton, whose SetCapColor drives its top colour alone.
+                _topMat = disc,
+                _tint = color,
+                _capMesh = capDisc.transform,
+                _accentColor = accent ?? color,
+                _clusterStyle = clusterStyle,
+                _labelBase = label.color,
+            };
+            cap.AttachFx(travel, diameter);
+            return cap;
         }
 
         private static GameObject NewRoot(Transform parent, string name, Vector3 localPos)
@@ -1690,10 +2018,112 @@ internal sealed class RemoteBoardFurniture
             _label.text = text;
         }
 
-        public void SetShown(bool shown)
+        /// <summary>
+        /// Give this cap its per-frame animator. <paramref name="travel"/> is the AUTHORED press
+        /// travel of the cap's category (0 = a cap whose presses are not mirrored — it still gets
+        /// the show/hide dust, which needs no travel); <paramref name="footprint"/> sizes the dust
+        /// burst exactly as the local button sizes its own from its trigger box.
+        /// </summary>
+        private void AttachFx(float travel, float footprint)
         {
-            if (_go.activeSelf != shown)
-                _go.SetActive(shown);
+            _fx = _go.AddComponent<RemoteCapFx>();
+            _fx.Init(_capMesh, CapRestZ, travel, footprint, CurrentStateColor, PaintCap);
+        }
+
+        /// <summary>Replay the owner's press dip on this copy (synced press edge). A no-op on a cap
+        /// with no animator or no travel. NOTHING is invoked — this is the animation, not the
+        /// button.</summary>
+        public void Press() => _fx?.Press();
+
+        /// <summary>
+        /// Show or hide the cap. <paramref name="animate"/> false pops it (the build-time seeding
+        /// and the first refresh, mirroring the local button's own <c>_ticked</c> suppression of
+        /// the build-then-settle storm); true plays the owner's own transition — the dust dissolve
+        /// on the way out, the materialize-from-dust on the way in.
+        /// </summary>
+        public void SetShown(bool shown, bool animate = false)
+        {
+            if (_go.activeSelf == shown && !(shown && animate && _fx != null && _fx.Hiding))
+                return;
+            if (!animate || _fx == null || !WorldUI.ButtonTuning.ButtonAnimEnabled)
+            {
+                _fx?.CancelAnimations();
+                if (_go.activeSelf != shown)
+                    _go.SetActive(shown);
+                return;
+            }
+            if (shown)
+            {
+                if (!_go.activeSelf)
+                    _go.SetActive(true);
+                _fx.PlayAppear();
+            }
+            else
+            {
+                // The local hide is LOGICAL first and visual after; there is no logical half here
+                // (nothing was ever interactive), so this is the visual half alone — the cap stays
+                // active for the shrink and the animator deactivates it at the end.
+                if (!_go.activeInHierarchy)
+                {
+                    _go.SetActive(false);
+                    return;
+                }
+                _fx.PlayDissolve();
+            }
+        }
+
+        /// <summary>
+        /// Apply the owner's live cap STATE — the inert counterpart of
+        /// <c>PlayTray.BoardButton.SetState</c> + <c>UpdateColor</c>, resolving the same four looks
+        /// in the same precedence (disabled beats confirmed beats accent beats idle) out of the
+        /// same palette. The SKIP cap mirrors a cluster button instead and takes its accent-
+        /// preserving disabled lerp plus the faded label. Change-gated on the packed triple.
+        /// </summary>
+        public void SetCapState(bool enabled, bool accent, bool confirmed)
+        {
+            int key = (enabled ? 1 : 0) | (accent ? 2 : 0) | (confirmed ? 4 : 0);
+            if (key == _shownState)
+                return;
+            _shownState = key;
+            SetTint(StateColor(enabled, accent, confirmed));
+            if (_clusterStyle && _label != null)
+            {
+                Color c = _labelBase;
+                c.a = enabled ? _labelBase.a : ClusterDisabledLabelAlpha;
+                _label.color = c;
+            }
+        }
+
+        /// <summary>The colour this cap should rest at for a state triple — see
+        /// <see cref="SetCapState"/>.</summary>
+        private Color StateColor(bool enabled, bool accent, bool confirmed)
+        {
+            // A cluster cap has TWO looks, not four: its authored accent, or that accent lerped
+            // toward dark wood. ButtonCluster.PhysicalButton has no idle/confirmed states at all —
+            // MirrorSkip only ever hands it visible + interactable.
+            if (_clusterStyle)
+                return enabled
+                    ? _accentColor
+                    : Color.Lerp(_accentColor, ClusterDisabledWood, ClusterDisabledLerp);
+            return !enabled ? CapDisabledColor
+                : confirmed ? CapConfirmedColor
+                : accent ? _accentColor
+                : CapIdleColor;
+        }
+
+        /// <summary>The cap's resting STATE colour right now — what the materialize fade ramps up
+        /// to and what the dust burst is coloured with, exactly like the local button's
+        /// <c>CurrentCapColor</c>.</summary>
+        private Color CurrentStateColor() => _tint;
+
+        /// <summary>Write a colour onto the cap's live materials WITHOUT touching the change gate —
+        /// the animator's fade ramp uses this, so completing a fade restores the true state colour
+        /// through <see cref="SetTint"/>'s gate rather than fighting it.</summary>
+        private void PaintCap(Color color)
+        {
+            if (_topMat != null) _topMat.color = color;
+            if (_bevelMat != null) _bevelMat.color = BevelTint(color);
+            if (_wallMat != null) _wallMat.color = WallTint(color);
         }
 
         /// <summary>
@@ -1737,6 +2167,187 @@ internal sealed class RemoteBoardFurniture
         VRLog.Warn("Net", $"INERT-GUARD: {who} carried {found.Length} collider(s) — destroyed. " +
                           "A remote player's control board is a pure display: nothing on it may be " +
                           "pokeable, laser-targetable or grabbable.");
+    }
+}
+
+/// <summary>
+/// THE MIRRORED KEYCAP ANIMATIONS — the inert twin of what <c>PlayTray.BoardButton.Update</c> and
+/// <c>SetVisible</c> do to a real board button, run on a peer's colliderless copy.
+///
+/// <para>Locally a cap sinks under a fingertip, springs back on a click, crumbles into dust when it
+/// is taken away and assembles out of dust when it returns. On a peer's board every one of those
+/// was a POP. Under the 1:1 ruling ("alle Interaktionen, ANIMATIONEN und Anzeigen des
+/// Controllboards … so wie der Spieler sie sieht") the transitions have to look the same, and three
+/// of the four need no wire at all: the show/hide edge is already synced by the board-UI record, so
+/// the receiver plays the owner's own dissolve/materialize off a transition it can already see.
+/// Only the PRESS is an event with no state behind it, and that is the one field that was added
+/// (record 14 byte 0 bits 3..7).</para>
+///
+/// <para>THE PRESS SHAPE is copied term for term from the original: the local <c>_press</c> impulse
+/// is set to 1 at the moment of the press and decays linearly at <see cref="PressDecayPerSecond"/>,
+/// while the cap sits at <c>CapRestZ + Travel × depth</c>. So the cap drops to the bottom of its
+/// travel instantly and rises back over about 170 ms. The FINGER-FOLLOW half of the local motion
+/// (the cap tracking penetration depth continuously while a fingertip hovers) is deliberately NOT
+/// reproduced: it is a per-frame function of the owner's fingertip position, it would cost a
+/// per-frame stream to sync, and what it exists to telegraph — the commit — is exactly what the
+/// press edge already delivers.</para>
+///
+/// <para>IT IS A RENDERING COMPONENT AND NOTHING ELSE. It writes a transform, a local scale and
+/// material colours, and it emits into the SHARED, pooled, purely-visual
+/// <c>WorldUI.ButtonDissolveFx</c> particle system the local buttons use. It creates no collider,
+/// no rigidbody and no registration of any kind, so <c>RemoteBoardFurniture.StripColliders</c> has
+/// nothing to find — an ANIMATION is not interactivity.</para>
+///
+/// <para>The viewer's <c>[ButtonAnim] Enable</c> switch gates it, exactly as it gates their own
+/// board's caps: a player who has turned keycap animation off has turned it off, and a remote board
+/// is not the place to re-impose it. The DURATIONS, by contrast, are the AUTHORED ones and not the
+/// viewer's tuning — the same rule every geometry constant on this board follows.</para>
+/// </summary>
+internal sealed class RemoteCapFx : MonoBehaviour
+{
+    /// <summary>Mirror of the local press spring's decay rate (<c>BoardButton.Update</c>:
+    /// <c>Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f)</c>) — linted against drift by
+    /// scripts/check-mirrors.sh.</summary>
+    private const float PressDecayPerSecond = 6f;
+
+    /// <summary>Mirror of the brightness the local materialize fade starts its surface ramp from
+    /// (<c>BoardButton.Update</c>: <c>Mathf.SmoothStep(0.15f, 1f, k)</c>).</summary>
+    private const float AppearFadeFloor = 0.15f;
+
+    private Transform? _capMesh;
+    private float _restZ;
+    private float _travel;
+    private float _footprint;
+    private System.Func<Color>? _stateColor;
+    private System.Action<Color>? _paint;
+
+    private float _press;
+    private float _hideLeft;
+    private float _showLeft;
+    private Vector3 _shownScale = Vector3.one;
+    private Color _appearTarget = Color.white;
+
+    /// <summary>True while the dust dissolve is still shrinking the cap out — the window in which a
+    /// re-show has to CANCEL the shrink rather than no-op on "already active".</summary>
+    internal bool Hiding => _hideLeft > 0f;
+
+    internal void Init(Transform? capMesh, float restZ, float travel, float footprint,
+        System.Func<Color> stateColor, System.Action<Color> paint)
+    {
+        _capMesh = capMesh;
+        _restZ = restZ;
+        _travel = travel;
+        _footprint = footprint;
+        _stateColor = stateColor;
+        _paint = paint;
+        _shownScale = transform.localScale;
+    }
+
+    /// <summary>Replay the owner's press dip. Caps with no authored travel (nothing to sink) still
+    /// accept the call and simply have nothing to show.</summary>
+    internal void Press()
+    {
+        if (_travel <= 0f || _capMesh == null)
+            return;
+        _press = 1f;
+    }
+
+    /// <summary>Crumble the cap away, then deactivate it. Sized and coloured exactly like the local
+    /// burst: the cap's footprint through its own world scale, in its current state colour.</summary>
+    internal void PlayDissolve()
+    {
+        _showLeft = 0f;
+        _shownScale = transform.localScale;
+        _hideLeft = RemoteBoardFurniture.DissolveSeconds;
+        WorldUI.ButtonTuning.LogAnim(name, "disappear (dust dissolve) — MIRRORED");
+        WorldUI.ButtonDissolveFx.Play(CapWorldCenter(), -transform.forward,
+            _footprint * Mathf.Abs(transform.lossyScale.x), Current());
+    }
+
+    /// <summary>Assemble the cap out of dust in place — no scale pop, matching the local appear.</summary>
+    internal void PlayAppear()
+    {
+        _hideLeft = 0f;
+        transform.localScale = _shownScale;
+        _showLeft = RemoteBoardFurniture.AppearSeconds;
+        _appearTarget = Current();
+        WorldUI.ButtonTuning.LogAnim(name, "appear (materialize-from-dust) — MIRRORED");
+        if (WorldUI.ButtonTuning.AppearParticlesEnabled)
+            WorldUI.ButtonDissolveFx.PlayMaterialize(CapWorldCenter(), -transform.forward,
+                _footprint * Mathf.Abs(transform.lossyScale.x), _appearTarget);
+    }
+
+    /// <summary>Abandon any running transition and restore the cap's true scale and colour — used
+    /// when the animation is switched off, and on the silent build-time seeding.</summary>
+    internal void CancelAnimations()
+    {
+        _hideLeft = 0f;
+        _showLeft = 0f;
+        _press = 0f;
+        transform.localScale = _shownScale;
+        _paint?.Invoke(Current());
+        SeatCap(0f);
+    }
+
+    private Color Current() => _stateColor != null ? _stateColor() : Color.white;
+
+    private Vector3 CapWorldCenter() => _capMesh != null ? _capMesh.position : transform.position;
+
+    private void SeatCap(float depth01)
+    {
+        if (_capMesh == null || _travel <= 0f)
+            return;
+        Vector3 p = _capMesh.localPosition;
+        float z = _restZ + _travel * depth01;
+        if (Mathf.Approximately(p.z, z))
+            return;
+        p.z = z;
+        _capMesh.localPosition = p;
+    }
+
+    private void Update()
+    {
+        // An IDLE cap does no per-frame work — this is one branch on three floats, and it is the
+        // common case by a wide margin (a board's caps are mid-animation for a fraction of a second
+        // at a time). Nothing in here logs, per frame or otherwise.
+        if (_hideLeft <= 0f && _showLeft <= 0f && _press <= 0f)
+            return;
+
+        // Dust dissolve: the cap shrinks out under the burst, then really goes away.
+        if (_hideLeft > 0f)
+        {
+            _hideLeft -= Time.deltaTime;
+            float k = Mathf.Max(0f, _hideLeft / RemoteBoardFurniture.DissolveSeconds);
+            transform.localScale = _shownScale * k;
+            if (_hideLeft <= 0f)
+            {
+                transform.localScale = _shownScale; // restore for the next show
+                gameObject.SetActive(false);
+            }
+            return;
+        }
+
+        // Materialize: full scale IN PLACE while the opaque surface brightens from the dust up to
+        // the true state colour, which is then re-asserted exactly.
+        if (_showLeft > 0f)
+        {
+            _showLeft -= Time.deltaTime;
+            float k = 1f - Mathf.Max(0f, _showLeft / RemoteBoardFurniture.AppearSeconds);
+            transform.localScale = _shownScale;
+            float b = Mathf.SmoothStep(AppearFadeFloor, 1f, k);
+            Color faded = _appearTarget * b;
+            faded.a = _appearTarget.a;
+            _paint?.Invoke(faded);
+            if (_showLeft <= 0f)
+                _paint?.Invoke(Current());
+        }
+
+        // Press spring-back — the local impulse, decay rate and seat formula, unchanged.
+        if (_press > 0f)
+        {
+            _press = Mathf.MoveTowards(_press, 0f, Time.deltaTime * PressDecayPerSecond);
+            SeatCap(_press);
+        }
     }
 }
 

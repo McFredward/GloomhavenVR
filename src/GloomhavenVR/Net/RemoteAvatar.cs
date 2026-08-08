@@ -319,6 +319,16 @@ internal sealed class RemoteAvatar
     /// <see cref="ConfirmCapLabel"/>.</summary>
     public string? SkipCapLabel { get; private set; }
 
+    /// <summary>What the owner's UNDO keycap actually reads (extension record 13 bit 2) — their
+    /// live undo wording, or the pick flow's dialog-CANCEL override — or null for the neutral
+    /// GUI_UNDO fallback. Same contract as <see cref="ConfirmCapLabel"/>.</summary>
+    public string? UndoCapLabel { get; private set; }
+
+    /// <summary>What the owner's item-USE cap actually reads (extension record 13 bit 3) — "USE",
+    /// or an item-SURRENDER demand's own wording — or null for the neutral uppercased GUI_USE
+    /// fallback. A widget label, never an item name.</summary>
+    public string? ItemUseCapLabel { get; private set; }
+
     /// <summary>Visible-controls bitmask (<see cref="NetProtocol.BoardUiConfirmBit"/> …),
     /// meaningful only when <see cref="HasBoardUi"/>.</summary>
     public byte BoardButtonsMask { get; private set; }
@@ -327,6 +337,34 @@ internal sealed class RemoteAvatar
     /// only when <see cref="HasBoardUi"/>. The blink itself is animated locally at the shared
     /// period — synced state, local clock.</summary>
     public int WantedGlowMask { get; private set; }
+
+    /// <summary>
+    /// Which recess the sender's own GOLD SNAP GLOW is lit on (0/1), or -1 for none — the HOVER
+    /// telegraph "the card I am holding lands here on release" (board-UI record byte 1 bits 6..7).
+    /// -1 both when no rim is lit and for a sender that predates the field;
+    /// <see cref="RemoteBoardFurniture"/> tells the two apart by <see cref="HasBoardUi"/> and keeps
+    /// its legacy occupancy-edge flash for the latter.
+    /// </summary>
+    public int SnapGlowSlot { get; private set; } = -1;
+
+    /// <summary>
+    /// True when the board-UI record carried its cap-STATE byte (record 4 byte 2). False for a
+    /// sender that predates it — <see cref="RemoteBoardFurniture"/> then leaves every mirrored cap
+    /// at the colour it was BUILT with, exactly what those builds rendered.
+    /// </summary>
+    public bool HasCapStates { get; private set; }
+
+    /// <summary>The owner's live cap-STATE bits (<see cref="NetProtocol.BoardUiCapConfirmAccentBit"/>
+    /// …), meaningful only when <see cref="HasCapStates"/>.</summary>
+    public byte CapStateMask { get; private set; }
+
+    /// <summary>
+    /// The owner's most recent board keycap PRESS as a (cap id, sequence) pair packed
+    /// <c>cap | seq &lt;&lt; 8</c>, or -1 while none is in flight. The renderer plays the mirrored
+    /// dip when this value CHANGES — the field is a latch that rides several packets, so "set" is
+    /// not an event but "changed" is (see <see cref="NetProtocol.CapPressNone"/>).
+    /// </summary>
+    public int CapPressKey { get; private set; } = -1;
 
     /// <summary>
     /// True when the sender tells us which of its CARD SLOTS hold a card (board-UI record byte 1
@@ -775,13 +813,21 @@ internal sealed class RemoteAvatar
         // the cap it letters.
         string? confirmLabel = p.HasConfirmCapLabel ? p.ConfirmCapLabel : null;
         string? skipLabel = p.HasSkipCapLabel ? p.SkipCapLabel : null;
-        if (confirmLabel != ConfirmCapLabel || skipLabel != SkipCapLabel)
+        string? undoLabel = p.HasUndoCapLabel ? p.UndoCapLabel : null;
+        string? useLabel = p.HasItemUseCapLabel ? p.ItemUseCapLabel : null;
+        if (confirmLabel != ConfirmCapLabel || skipLabel != SkipCapLabel
+            || undoLabel != UndoCapLabel || useLabel != ItemUseCapLabel)
         {
             ConfirmCapLabel = confirmLabel;
             SkipCapLabel = skipLabel;
-            VRLog.Info("Net", $"Cap labels RECEIVED from player {PlayerId}: confirm=" +
-                              $"{(string.IsNullOrEmpty(confirmLabel) ? "<neutral fallback>" : "\"" + confirmLabel + "\"")}, " +
-                              $"skip={(string.IsNullOrEmpty(skipLabel) ? "<neutral fallback>" : "\"" + skipLabel + "\"")} — " +
+            UndoCapLabel = undoLabel;
+            ItemUseCapLabel = useLabel;
+            // Single quotes: a nested escaped quote inside an interpolation hole trips the
+            // patch-inventory source scanner.
+            string Cap(string? v) => string.IsNullOrEmpty(v) ? "<neutral fallback>" : "'" + v + "'";
+            VRLog.Info("Net", $"Cap labels RECEIVED from player {PlayerId}: " +
+                              $"confirm={Cap(confirmLabel)}, skip={Cap(skipLabel)}, " +
+                              $"undo={Cap(undoLabel)}, itemUse={Cap(useLabel)} — " +
                               "their mirrored caps read EXACTLY what the owner's do (record 13, " +
                               "sender language verbatim).");
         }
@@ -789,6 +835,52 @@ internal sealed class RemoteAvatar
         HasBoardUi = p.HasBoardUi;
         BoardButtonsMask = p.HasBoardUi ? p.BoardButtonsMask : (byte)0;
         WantedGlowMask = p.HasBoardUi ? p.BoardOverlayMask & NetProtocol.BoardUiWantedMask : 0;
+        // SNAP-GLOW HOVER (board-UI record byte 1 bits 6..7): WHICH recess the owner's own gold
+        // "lands here on release" rim is lit on. Absent record ⇒ -1, and RemoteBoardFurniture then
+        // keeps its legacy occupancy-edge flash for that peer.
+        int snapSlot = p.HasBoardUi
+            ? NetProtocol.DecodeSnapSlot(
+                (p.BoardOverlayMask & NetProtocol.BoardUiSnapMask) >> NetProtocol.BoardUiSnapShift)
+            : -1;
+        if (snapSlot != SnapGlowSlot)
+        {
+            SnapGlowSlot = snapSlot;
+            VRLog.Info("Net", $"Snap-glow hover RECEIVED from player {PlayerId}: " +
+                              (snapSlot >= 0
+                                  ? $"recess {snapSlot + 1} — their mirrored board lights the gold " +
+                                    "rim there NOW, i.e. while they are still holding the card, " +
+                                    "exactly as their own board does"
+                                  : "none — their mirrored board clears the gold rim") +
+                              " (board-UI record byte 1 bits 6..7; a recess POSITION, no identity).");
+        }
+        // CAP STATES (board-UI record byte 2 — length-gated, so an absent byte is a pre-record
+        // sender and every mirrored cap keeps its built colour).
+        bool capStates = p.HasBoardUi && p.HasBoardCapStates;
+        byte capStateMask = capStates ? p.BoardCapStateMask : (byte)0;
+        if (capStates != HasCapStates || capStateMask != CapStateMask)
+        {
+            HasCapStates = capStates;
+            CapStateMask = capStateMask;
+            VRLog.Info("Net", $"Cap states RECEIVED from player {PlayerId}: " +
+                              (capStates
+                                  ? $"0x{capStateMask:X2} — their mirrored CONFIRM cap, rest discs " +
+                                    "and skip cap now wear the owner's own disabled / idle / accent " +
+                                    "/ confirmed colours instead of the single colour they were built in"
+                                  : "none (record 4 carried no cap-state byte — pre-record sender; " +
+                                    "the mirrored caps keep their built colour, as before)") + ".");
+        }
+        // CAP PRESS (record 14 byte 0 bits 3..7). A LATCH: it rides several packets per press, so
+        // the renderer animates on the value CHANGING, never on it being set. -1 = none in flight.
+        int pressKey = p.HasCapPress ? p.CapPressCap | (p.CapPressSeq << 8) : -1;
+        if (pressKey >= 0 && pressKey != CapPressKey)
+        {
+            VRLog.Info("Net", $"Cap press RECEIVED from player {PlayerId}: wire cap " +
+                              $"{p.CapPressCap} (sequence {p.CapPressSeq}) — the matching cap on " +
+                              "their mirrored board sinks and springs back, the owner's own dip " +
+                              "replayed. Still a picture: nothing on that board is pressable.");
+        }
+        if (pressKey >= 0)
+            CapPressKey = pressKey;
         // CARD-SLOT OCCUPANCY (board-UI record byte 1 bits 3..4, validity bit 5). Absent record or
         // absent validity bit ⇒ "unknown", which is NOT "empty": the board then keeps rendering its
         // slots from the replicated model alone, the way every build before this one did.

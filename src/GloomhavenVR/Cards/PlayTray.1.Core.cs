@@ -922,6 +922,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             Core.Loc.Mod("follow"), ToggleFollow,
             thickness: capDepth, boxy: true, travel: capTravel,
             capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard);
+        _followToggle.WireCap = Net.NetProtocol.CapPressFollowPin;
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 

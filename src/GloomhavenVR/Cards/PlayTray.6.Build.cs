@@ -330,6 +330,7 @@ internal sealed partial class PlayTray
             () => ConfirmRequested?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
             capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+        _confirm.WireCap = Net.NetProtocol.CapPressConfirm; // mirror this cap's press dip to peers
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
         RegisterLaserTarget(_confirm.Collider!, _confirm);
@@ -340,6 +341,7 @@ internal sealed partial class PlayTray
             () => UndoRequested?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
             capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+        _undo.WireCap = Net.NetProtocol.CapPressUndo;
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
 
@@ -357,6 +359,7 @@ internal sealed partial class PlayTray
                 () => _itemUseConfirmAction?.Invoke(),
                 round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
                 capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+            _itemUseConfirm.WireCap = Net.NetProtocol.CapPressItemUse;
             _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
             RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
         }
