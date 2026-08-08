@@ -915,12 +915,10 @@ internal sealed partial class CardsDriver
         //    so CurrentHand is stale — the reported "fan showed the other character's items".
         // All entries are null OUTSIDE their flow, so normal presentation — including manual
         // portrait switching via the initiative track — is untouched between decisions.
-        CardsHandUI? hand = CardsGameApi.TakeDamageHand()
-                            ?? CardsGameApi.ActionSelectionHand()
-                            ?? CardsGameApi.ItemPickHand()
-                            ?? CardsGameApi.LoseRewardPickHand()
-                            ?? CardsGameApi.InitiativeAdjustHand()
-                            ?? CardsGameApi.ActiveHand();
+        // The chain itself lives in CardsGameApi.DecidingHand so a SECOND reader can ask the
+        // question this method answers implicitly — "is the presented hand a DECIDING claim, or
+        // merely the fallback ActiveHand?" (PlayTray.ConfirmCapsForeignView's attribution test).
+        CardsHandUI? hand = CardsGameApi.DecidingHand() ?? CardsGameApi.ActiveHand();
         return hand != null && CardsGameApi.IsLocalHand(hand) ? hand : null;
     }
 
