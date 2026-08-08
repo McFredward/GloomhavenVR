@@ -33,7 +33,20 @@ internal static class RevealGate
         get
         {
             SaveData? save = SaveData.Instance;
-            return save?.Global != null && save.Global.CurrentGameState == EGameState.Scenario;
+            GlobalData? global = save != null ? save.Global : null;
+            if (global == null)
+                return false;
+            // GlobalData.CurrentGameState (decompiled GH.Runtime/GlobalData.cs:563) reads
+            // AdventureState.MapState.IsInScenarioPhase in its Campaign branch with NO null
+            // check — the Guildmaster branch three lines below it HAS one — and MapState is
+            // null until StartAdventure and again after End(). So the GAME's own getter throws
+            // between "Campaign picked in the menu" and "save loaded". Observed 2026-08-08 as an
+            // every-frame NRE out of this property (Board.FocusDriver tick). The guard belongs
+            // here because this is the property every caller funnels through.
+            if (global.GameMode == EGameMode.Campaign
+                && MapRuleLibrary.Adventure.AdventureState.MapState == null)
+                return false;
+            return global.CurrentGameState == EGameState.Scenario;
         }
     }
 
