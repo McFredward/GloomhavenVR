@@ -148,6 +148,18 @@ internal sealed partial class CardsDriver
     {
         _transferCard = card;
         _transferTo = to;
+        // A HELD CARD IS NOT A FAN CARD — re-assert it at the adoption seam (user report
+        // 2026-08-08, "das Wechseln der Hand … soll immer möglich sein"). This is the SAME stamp
+        // OnCardGrabbed makes at every other point where a card becomes held, moved one step
+        // earlier for the one grab that starts while the card is already in a hand. The receiving
+        // hand is usually the GATE hand (the fan hangs off it), so a stale FALSE here is the one
+        // flag that can refuse the adoption outright (VRCard.AllowsHand → ProximityGrabber.
+        // ForceGrab). The root cause is fixed at its source (CardFan.StampMembership no longer
+        // writes fan verdicts onto a held card); this is the belt, and it is safe by construction:
+        // AllowsGateHand is a per-hand HOVER/GRAB filter only — it can never reach a game seam, so
+        // it cannot widen what may be COMMITTED (VRCard.InspectOnly, untouched here, still decides
+        // that).
+        card.AllowsGateHand = true;
         try
         {
             from.Grabber.CancelAll();
@@ -171,6 +183,29 @@ internal sealed partial class CardsDriver
                                     $"re-adoption into the {from.Side} hand were refused — the card " +
                                     "took the normal release routing instead (no limbo).");
         }
+    }
+
+    /// <summary>
+    /// Spell out WHICH gate refused a hand-to-hand adoption, in the exact order
+    /// <see cref="ProximityGrabber.ForceGrab"/> evaluates them. Called ONLY on the refusal path
+    /// (never per frame), with the card un-held, so every field reads the value ForceGrab saw.
+    ///
+    /// The original hardware hunt for this bug cost a whole session because the refusal was
+    /// invisible: ForceGrab's own diagnostic shares a 1 s per-hand throttle with the grabber's
+    /// no-candidate line, which the receiving hand's trigger press had just consumed. Naming the
+    /// gate HERE, in the Cards log, makes the next occurrence self-explaining.
+    /// </summary>
+    private static string DescribeAdoptionRefusal(VRCard card, VRHand to)
+    {
+        string blocked = VRCard.InteractionBlockedHand != null
+            ? VRCard.InteractionBlockedHand.Side.ToString()
+            : "none";
+        return $"receiver grabber enabled={to.Grabber.Enabled}, receiver pose={to.HasPose}, "
+             + $"receiver already holds={(to.Grabber.Held != null ? "yes" : "no")}, "
+             + $"CanGrab={card.CanGrab} (Grabbable={card.Grabbable}, held={card.IsHeld}, "
+             + $"vrMode={Core.Events.VRModeStateMachine.CurrentMode}), "
+             + $"AllowsHand({to.Side})={card.AllowsHand(to)} (AllowsGateHand={card.AllowsGateHand}, "
+             + $"fan/gate hand={blocked}), InspectOnly={card.InspectOnly}";
     }
 
     private void OnCardGrabbed(VRCard card, VRHand hand)
@@ -242,9 +277,19 @@ internal sealed partial class CardsDriver
         {
             if (_transferTo.Grabber.ForceGrab(card, releaseOnTriggerUp: true))
             {
+                // INSPECT-ONLY PROOF (user report 2026-08-08): this line is once per handover — no
+                // per-frame spam — and it is the one that says an inspect-only card really changed
+                // hands INSTEAD of taking the home-return branch further down. Seeing
+                // "handed … INSPECT-ONLY" without an "Inspect release" in the same breath is the
+                // whole fix in one grep.
                 VRLog.Info("Cards", $"Hand transfer: '{card.name}' handed {hand.Side} → " +
                                     $"{_transferTo.Side} (trigger on the held card) — release routing " +
-                                    "skipped, hold continues on the receiving hand's trigger.");
+                                    "skipped, hold continues on the receiving hand's trigger. " +
+                                    (card.InspectOnly
+                                        ? "Card is INSPECT-ONLY: it STAYS inspect-only in the receiving hand and " +
+                                          "the home-return branch was NOT taken (no _fan.Add, no game call at all) " +
+                                          "— its FINAL release will return it home."
+                                        : "Card is committable: its FINAL release routes normally."));
                 return;
             }
             // ADOPTION REFUSED — ABORT the transfer instead of releasing (fan-transfer vanish,
@@ -260,10 +305,16 @@ internal sealed partial class CardsDriver
             // grip-held otherwise (a grip-hold re-adopted trigger-held would release itself the
             // very next Tick and vanish through the routing after all). No frame observes the
             // card un-held either way.
+            // NAME THE GATE while the card is genuinely un-held (the re-adoption below flips
+            // IsHeld/CanGrab back and would make every field read misleading). ProximityGrabber's
+            // own ForceGrab refusal is Info-throttled 1/s PER HAND and the receiving hand has
+            // usually just spent that budget on its own no-candidate trigger diagnostic, so the
+            // reason was swallowed on hardware every single time — this is the line that survives.
+            string gate = DescribeAdoptionRefusal(card, _transferTo);
             if (hand.Grabber.ForceGrab(card, releaseOnTriggerUp: hand.TriggerPressed))
             {
                 VRLog.Warn("Cards", $"Hand transfer ABORTED: adoption of '{card.name}' into the " +
-                                    $"{_transferTo.Side} hand was refused — the card stays in the " +
+                                    $"{_transferTo.Side} hand was refused ({gate}) — the card stays in the " +
                                     $"{hand.Side} hand (no release routing, nothing vanishes).");
                 return;
             }
