@@ -470,6 +470,14 @@ internal sealed partial class CardsDriver
     {
         CardActionQueue.Pump();
         HandSuppression.Tick();
+        // Character-swap exchange tail: park each outgoing card once its own flight has landed, and
+        // give a deferred focus hand its borrowed faces back once the wave has drained. FIRST in the
+        // update, ahead of the anchor bail-out, because a borrowed hand must be handed back even on
+        // the frames this method does nothing else — the hands going down mid-exchange is exactly
+        // such a frame, and it would otherwise leave a character's 2D hand adopted indefinitely. The
+        // cost of being here rather than after the fan's tick is that a card is parked one frame
+        // after it stops moving, at the gather point, shrunk and off the end of the arc.
+        DrainSwapExit();
 
         Transform? anchor = AnchorParent();
         if (anchor == null)

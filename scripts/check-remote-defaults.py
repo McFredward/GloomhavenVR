@@ -95,6 +95,20 @@ PAIRS = [
     ("Net/RemoteHandFan.cs", "_popForward", "Cards", "FanSelectedPopForward"),
     ("Net/RemoteHandFan.cs", "OpenSeconds", "Cards", "FanOpenDuration"),
     ("Net/RemoteHandFan.cs", "OpenStagger", "Cards", "FanOpenStagger"),
+    # The HAND fan's character-SWAP exchange (2026-08-09 — "mach auch hier eine neue coolere
+    # Tauschanimation rein die den Fächer austauscht"). Wire-overridable fields (record 28, ids
+    # 77..78 / 150..153 / 226..227) whose INITIALISER is what an untuned peer's exchange is drawn
+    # with. On this list for the reason the header gives: re-tune how your own hand is exchanged and
+    # the mirrored fans must follow, or the swap wipes across the palm in half a second on one
+    # screen and a fifth of one on another — and nobody can see that from inside their own headset.
+    ("Net/RemoteHandFan.cs", "_swapDuration", "Cards", "FanSwapDuration"),
+    ("Net/RemoteHandFan.cs", "_swapStagger", "Cards", "FanSwapStagger"),
+    ("Net/RemoteHandFan.cs", "_swapOverlap", "Cards", "FanSwapOverlap"),
+    ("Net/RemoteHandFan.cs", "_swapTravel", "Cards", "FanSwapTravel"),
+    ("Net/RemoteHandFan.cs", "_swapArc", "Cards", "FanSwapArc"),
+    ("Net/RemoteHandFan.cs", "_swapSpinDegrees", "Cards", "FanSwapSpinDegrees"),
+    ("Net/RemoteHandFan.cs", "_swapSeedScale", "Cards", "FanSwapSeedScale"),
+    ("Net/RemoteHandFan.cs", "_swapSettleOvershoot", "Cards", "FanSwapSettleOvershoot"),
     # The ITEM fan's open/close ANIMATION (presence pass, 2026-08-08 — "Ich mag die Animation im
     # Item-Pile sehr aber sie ist (insbesondere in mixed Reality) etwas zu dezent."). Same shape as
     # the hand fan's geometry above: wire-overridable fields (record 28, ids 76 / 144..149 / 197)

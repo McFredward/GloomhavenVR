@@ -246,10 +246,35 @@ internal sealed partial class CardsDriver
         // character you are only looking at" a property of the objects rather than a convention.
         CardsHandUI? hand = Board.CharacterFocus.ResolveHand(CurrentHand());
 
+        // THE SWAP EDGE (user 2026-08-09, the hand-fan exchange — see the block on
+        // _lastPresentedActorId in part 1 for why THIS is the predicate and a list diff is not).
+        // ResolveHand has just re-derived PresentedActorId for this rebuild, so comparing it to the
+        // previous one asks exactly "is the board now showing a DIFFERENT character's hand than it
+        // was". Three further conditions, each of which would otherwise animate something nobody is
+        // looking at or something that is not an exchange:
+        //   * both ids non-zero — entering and leaving a scenario is not a character swap;
+        //   * the fan is OPEN — a hand the player is not holding up has nothing to exchange, and
+        //     the whole deferred-face-restore path below stays dormant, i.e. the risky part of this
+        //     feature does not exist unless the animation is actually on screen;
+        //   * the fan has cards, or the incoming hand does — otherwise there is nothing to move.
+        int presentedId = Board.CharacterFocus.PresentedActorId;
+        bool handSwap = presentedId != 0 && _lastPresentedActorId != 0
+                        && presentedId != _lastPresentedActorId
+                        && _fan.IsOpen && (_fan.Count > 0 || Board.CharacterFocus.HandWidgetCount(hand) > 0);
+        _lastPresentedActorId = presentedId;
+        // ARM THE OUTGOING HALF NOW, not at SetCards. The per-card park sweep further down teleports
+        // every VR card that ends this rebuild in no zone straight into the pool — and the hand we
+        // are replacing is in no zone by definition. Capturing the wave here is what makes
+        // CardFan.IsLeaving answer TRUE while that sweep runs, so the cards it is about to fly away
+        // are skipped instead of parked. (CardFan.BeginSwapOut states the same thing from its side.)
+        if (handSwap)
+            _fan.BeginSwapOut();
+
         // Give a previously focused character its faces back BEFORE this rebuild adopts anything —
         // and say so in the log. Runs first because it destroys VR cards, which must not happen
-        // once this pass has started filling its buffers.
-        ReleaseStaleFocusHand(hand);
+        // once this pass has started filling its buffers. DURING A SWAP it only QUEUES the restore:
+        // the outgoing cards are still flying and they still need their faces to fly with.
+        ReleaseStaleFocusHand(hand, handSwap);
 
         if (hand == null)
         {
@@ -609,6 +634,14 @@ internal sealed partial class CardsDriver
             // park sweep must not re-park it (double-hide) while it shrinks out.
             if (card.IsFlying || card.IsVanishing)
                 continue;
+            // Same rule, one more owner (character-swap exchange, 2026-08-09): a card the hand fan
+            // is currently flying OUT of itself owns its transform until it lands. Parking it here
+            // would teleport it into the pool mid-wipe — the exact pop the exchange exists to
+            // remove — and re-stamping its zone verdicts would fight the "makes no promises" flag
+            // CardFan.BeginSwapOut wrote. The fan hands each one back the moment its own flight ends
+            // (TryTakeLandedOutgoing → DrainSwapExit), and THAT is where it gets parked.
+            if (_fan.IsLeaving(card))
+                continue;
             // Issue 1: remember every visible card's true world pose so a later damage-burn can fly
             // its slab from where the card ACTUALLY was, never from a teleported pile position.
             // BURN ANIM: the predicate is "NOT parked" rather than "active in hierarchy" on purpose.
@@ -801,7 +834,9 @@ internal sealed partial class CardsDriver
             : CardFan.FanMode.Picture;
         LogFanMode(hand, fanMode, readOnly, grabbable, mode);
         _fan.SetMode(fanMode);
-        _fan.SetCards(_fanBuffer);
+        // handSwap: not "the list changed" but "this is the OTHER character's hand" — CardFan turns
+        // that into the exchange wipe instead of a plain relayout. See the swap-edge block above.
+        _fan.SetCards(_fanBuffer, handSwap);
         _tray.SetVisible(trayVisible);
         // READ-ONLY FOCUS, slot cards: told BEFORE the content for the same reason as the fan. The
         // round-card dock is the ONE zone that arms real input on its cards — fingertip HalfZone
@@ -882,9 +917,17 @@ internal sealed partial class CardsDriver
     ///   the character and the count, which is what a log has to do for a screenshot report.</item>
     /// </list>
     /// </summary>
-    private void ReleaseStaleFocusHand(CardsHandUI? nowHand)
+    private void ReleaseStaleFocusHand(CardsHandUI? nowHand, bool deferForSwap = false)
     {
         CardsHandUI? nowFocusHand = Board.CharacterFocus.ReadOnlyView ? nowHand : null;
+
+        // COMING STRAIGHT BACK (the A → B → A scrub, which the initiative row invites): a hand that
+        // is queued for restore and is ALSO the hand we are now adopting must be un-queued, or the
+        // drain would hand its faces back and destroy its VR cards moments after we re-adopted
+        // them. Checked before the identity early-out because the queue outlives a single rebuild.
+        if (nowFocusHand != null)
+            _pendingFaceRestore.Remove(nowFocusHand);
+
         if (ReferenceEquals(_focusAdoptedHand, nowFocusHand))
             return;
 
@@ -893,17 +936,30 @@ internal sealed partial class CardsDriver
 
         if (was != null)
         {
-            string wasName = Board.CharacterFocus.Describe(was.PlayerActor);
-            int held = CountFocusAdopted(was);
-            _factory.ReleaseHand(was);
-            int stillHeld = CountFocusAdopted(was);
-            int stillParented = CountFacesUnderVrCards(was);
-            VRLog.Info("Cards", $"[Focus] RESTORED '{wasName}': handed {held} adopted card face(s) back " +
-                                $"to the game (VR cards still held afterwards: {stillHeld}; faces still " +
-                                $"parented under a VR card: {stillParented} — both MUST be 0). " +
-                                "CardFace.Restore replays the recorded parent, sibling index, anchors, " +
-                                "pose and active flag, so the character's 2D hand is the object it was " +
-                                "before we borrowed it.");
+            if (deferForSwap)
+            {
+                // THE SWAP EXCHANGE OWNS THESE CARDS FOR THE NEXT ~HALF SECOND. Restoring now would
+                // strip the very faces the outgoing wave is flying away with (CardFace.Restore
+                // reparents the live widget back into the game's UI) and then destroy the VR cards
+                // mid-flight. Queued instead; DrainSwapExit hands them back as soon as the fan
+                // reports no card is still leaving, and the deadline below is the backstop.
+                if (!_pendingFaceRestore.Contains(was))
+                    _pendingFaceRestore.Add(was);
+                // The deadline only has to bound the OUTGOING wave — that is the half whose cards
+                // still need their faces — so both counts are the outgoing hand's. It is a backstop
+                // anyway: the real gate is "no card is still leaving".
+                _faceRestoreDeadline = Time.unscaledTime
+                    + CardFan.SwapTotalSeconds(_fan.Count, _fan.Count) + FaceRestoreDeadlineSlack;
+                VRLog.Info("Cards", $"[Focus] RESTORE DEFERRED for '{Board.CharacterFocus.Describe(was.PlayerActor)}': " +
+                                    $"{CountFocusAdopted(was)} adopted card face(s) stay borrowed while that hand " +
+                                    "flies out of the fan (character-swap exchange). Handing them back now would " +
+                                    "make the leaving cards faceless mid-animation and delete them under it. The " +
+                                    "matching [Focus] RESTORED line follows when the wave has landed.");
+            }
+            else
+            {
+                RestoreFocusHandNow(was);
+            }
         }
 
         if (nowFocusHand != null)
@@ -915,6 +971,149 @@ internal sealed partial class CardsDriver
                                 "copied and never mutated; the matching [Focus] RESTORED line reports the " +
                                 "hand-back.");
         }
+    }
+
+    /// <summary>
+    /// Hand ONE character's borrowed card faces back to the game and say whether the restore landed
+    /// — the body <see cref="ReleaseStaleFocusHand"/> used to run inline, now also reachable from
+    /// <see cref="DrainSwapExit"/> once a deferred exchange has finished. Unchanged in what it does;
+    /// only WHEN it runs moved.
+    /// </summary>
+    private void RestoreFocusHandNow(CardsHandUI was)
+    {
+        string wasName = Board.CharacterFocus.Describe(was.PlayerActor);
+        int held = CountFocusAdopted(was);
+        _factory.ReleaseHand(was);
+        int stillHeld = CountFocusAdopted(was);
+        int stillParented = CountFacesUnderVrCards(was);
+        VRLog.Info("Cards", $"[Focus] RESTORED '{wasName}': handed {held} adopted card face(s) back " +
+                            $"to the game (VR cards still held afterwards: {stillHeld}; faces still " +
+                            $"parented under a VR card: {stillParented} — both MUST be 0). " +
+                            "CardFace.Restore replays the recorded parent, sibling index, anchors, " +
+                            "pose and active flag, so the character's 2D hand is the object it was " +
+                            "before we borrowed it.");
+    }
+
+    /// <summary>
+    /// PER-FRAME TAIL OF THE CHARACTER-SWAP EXCHANGE (user 2026-08-09). Two jobs, both of which have
+    /// to happen outside <c>Rebuild</c> because the exchange outlives the frame that started it:
+    ///
+    /// <list type="number">
+    /// <item>PARK each outgoing card the moment ITS OWN flight ends. The fan hands them back one by
+    ///   one rather than all at the end, so a card that has reached the gather point is disposed of
+    ///   while it is invisible instead of sitting there shrunk until the last one arrives. This is
+    ///   also the ONLY place a card leaves the fan's outgoing list, which is what makes "no card is
+    ///   stuck and none is duplicated" checkable rather than hoped for.</item>
+    /// <item>RESTORE the deferred focus hands' borrowed faces, once NO card is still leaving (any
+    ///   generation — scrubbing the initiative row can queue several) or the deadline bites. Both
+    ///   conditions are needed: the fan's own land-everything paths (close / re-open / destroy)
+    ///   satisfy the first immediately, and the deadline covers anything that satisfies neither.</item>
+    /// </list>
+    ///
+    /// Allocation-free: one reused buffer, no closures, and the whole method is a no-op (two field
+    /// reads) on every frame in which nothing is being exchanged — which is nearly all of them.
+    /// </summary>
+    private void DrainSwapExit()
+    {
+        if (_fan.HasLeavingCards)
+        {
+            _swapLanded.Clear();
+            _fan.TryTakeLandedOutgoing(_swapLanded);
+            for (int i = 0; i < _swapLanded.Count; i++)
+            {
+                VRCard card = _swapLanded[i];
+                // A card the player GRABBED out of the leaving wave is theirs now — parking it
+                // would yank it out of their hand. The standing rule: while a card IsHeld, write
+                // nothing a hold depends on. It re-enters the fan through the normal release path.
+                if (card == null || card.IsHeld)
+                    continue;
+                _factory.Park(card);
+            }
+        }
+
+        if (_pendingFaceRestore.Count == 0)
+            return;
+        bool waveBusy = _fan.HasLeavingCards;
+        if (waveBusy && Time.unscaledTime < _faceRestoreDeadline)
+            return;
+
+        for (int i = _pendingFaceRestore.Count - 1; i >= 0; i--)
+        {
+            CardsHandUI hand = _pendingFaceRestore[i];
+            if (hand == null)
+            {
+                _pendingFaceRestore.RemoveAt(i);
+                continue;
+            }
+            // THE RESTORE DESTROYS THIS HAND'S VR CARDS (VRCardFactory.ReleaseWidget), so it may
+            // only run once none of them is somewhere the player would SEE one disappear. Two such
+            // places, and the first is the one the brief calls out by name:
+            //   * IN THEIR HAND. Switching character while holding one of the old character's cards
+            //     is a real gesture — the card is deliberately left out of the exchange (CardFan's
+            //     capture skips IsHeld) precisely so it stays where the player put it. Destroying it
+            //     half a second later would be the same vanish by a slower route, so the restore
+            //     simply waits: the hold may last as long as it likes, and the deadline above does
+            //     NOT override this (it bounds the ANIMATION, not the player).
+            //   * BACK IN THE FAN. Releasing that card returns it home (VRCard.InspectOnly's
+            //     return-to-fan), which puts a card of the OLD character into the new one's fan for
+            //     as long as it takes one rebuild to drop it. Waiting for that rebuild — and asking
+            //     for it, below, so it cannot be waited on forever — means the card is already
+            //     PARKED and invisible when it is destroyed, instead of blinking out of the arc.
+            if (FocusHandCardStillInPlay(hand, out bool anyHeld))
+            {
+                if (!anyHeld)
+                    _dirty = true; // ask for the rebuild that drops it from the fan and parks it
+                continue;
+            }
+            RestoreFocusHandNow(hand);
+            _pendingFaceRestore.RemoveAt(i);
+            if (waveBusy)
+            {
+                VRLog.Warn("Cards", "[Focus] the character-swap exchange had not drained when the deferred " +
+                                    "face restore's deadline expired — the faces went back anyway. A borrowed " +
+                                    "hand must never outlive its animation; if this line appears, the fan's " +
+                                    "outgoing wave is not landing (CardFan.TryTakeLandedOutgoing).");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Is any VR card of <paramref name="hand"/> still somewhere the player can see it — held, or
+    /// sitting in the hand fan? The gate on <see cref="DrainSwapExit"/>'s face restore, which
+    /// destroys exactly those cards. <paramref name="anyHeld"/> distinguishes the two cases because
+    /// they call for different answers: a hold is the player's business and is simply waited out, a
+    /// card back in the fan only needs the next rebuild to park it. Every game deref is guarded —
+    /// this is a per-frame gate, and a half-torn hand must read as "nothing of mine is in play"
+    /// rather than throw inside Update.
+    /// </summary>
+    private bool FocusHandCardStillInPlay(CardsHandUI hand, out bool anyHeld)
+    {
+        anyHeld = false;
+        bool inFan = false;
+        try
+        {
+            List<AbilityCardUI> cards = hand.cardsUI;
+            if (cards == null)
+                return false;
+            for (int i = 0; i < cards.Count; i++)
+            {
+                AbilityCardUI widget = cards[i];
+                if (widget == null)
+                    continue;
+                VRCard? card = _factory.Find(widget);
+                if (card == null)
+                    continue;
+                if (card.IsHeld)
+                    anyHeld = true;
+                else if (_fan.Contains(card))
+                    inFan = true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+        return anyHeld || inFan;
     }
 
     /// <summary>How many of <paramref name="hand"/>'s widgets the mod currently holds a VR card

@@ -1963,12 +1963,27 @@ internal static class NetProtocol
     /// </summary>
     public const byte ExtIdBoardTuning = 28;
 
-    /// <summary>Field cap of <see cref="ExtIdBoardTuning"/> — the number of dials the record can
-    /// name (see the id table below; 58 are defined today, the last eight being the item fan's
-    /// open/close ANIMATION set added on the presence pass). It bounds the record at
-    /// 1 + 15×7 + 13×3 + 22×3 + 6×3 + 2×2 = 233 payload bytes, still under the 255-byte TLV
-    /// ceiling, and is re-clamped on read against the record's own length.</summary>
-    public const int BoardTuneMaxFields = 58;
+    /// <summary>
+    /// Field cap of <see cref="ExtIdBoardTuning"/> — the number of dials the record can name (see
+    /// the id table below; 66 are defined today, the last eight being the HAND fan's character-SWAP
+    /// exchange, which joins the item fan's open/close set under the same rule: the standing 1:1
+    /// ruling names ANIMATIONS outright). It bounds the record at
+    /// 1 + 15×7 + 15×3 + 26×3 + 6×3 + 4×2 = 255 payload bytes, and is re-clamped on read against
+    /// the record's own length.
+    ///
+    /// <para>THAT 255 IS THE CEILING ITSELF, NOT A COMFORTABLE NUMBER — read this before adding a
+    /// field. The extension tail writes each record's length as ONE BYTE, and
+    /// <c>PresenceSerializer.Write</c>'s board-tuning branch refuses a payload over 255 outright:
+    /// the record would then be dropped SILENTLY, and only for the player who had moved every dial,
+    /// which is the least likely person to be testing and the hardest case to reproduce. The swap
+    /// set landed at exactly 255 only because its last two dials were deliberately moved into the
+    /// COUNT range for a byte each (see <see cref="TuneFanSwapSpin"/>). The NEXT field to be added
+    /// here therefore cannot simply be appended: either free bytes by re-siting existing dials into
+    /// narrower containers, or split the tuning into a second record id. <see cref="BoardTuningSampler"/>
+    /// states the same thing at the one place that computes the worst case, and logs loudly if the
+    /// two ever disagree.</para>
+    /// </summary>
+    public const int BoardTuneMaxFields = 66;
 
     /// <summary>Minimum payload of <see cref="ExtIdBoardTuning"/> (the field-count byte alone). A
     /// reader requires at least this much before it looks at the record.</summary>
@@ -2065,6 +2080,15 @@ internal static class NetProtocol
     /// re-tunes how their item fan opens must be seen re-tuning it.</summary>
     public const byte TuneItemFanOpenArc = 76;
 
+    // The HAND FAN's CHARACTER-SWAP EXCHANGE (ids 77..78 here, plus 150..154 and 198). Same reason
+    // as the item-fan set above — the ruling names ANIMATIONS — and the same shape: written only
+    // when the owner has moved the dial, absent for everybody else.
+
+    /// <summary>[Cards] FanSwapTravel — how far past the arc's end the swap's gather/deal point sits.</summary>
+    public const byte TuneFanSwapTravel = 77;
+    /// <summary>[Cards] FanSwapArc — the swap's mid-flight depth amplitude (leaver back, arriver forward).</summary>
+    public const byte TuneFanSwapArc = 78;
+
     // FACTOR (2 B, thousandths): dimensionless multipliers.
 
     /// <summary>[Cards] ObjectivesScale_{board}.</summary>
@@ -2124,6 +2148,19 @@ internal static class NetProtocol
     /// <summary>[Cards] ItemFanCloseStagger — the reverse ripple's per-place delay, seconds.</summary>
     public const byte TuneItemFanCloseStagger = 149;
 
+    // The HAND FAN's CHARACTER-SWAP EXCHANGE (ids 150..153 here, plus 77..78 and 226..227). Two of
+    // the four are SECONDS in the factor range, for the reason stated above the item-fan block: the
+    // id range fixes the value WIDTH, not the unit.
+
+    /// <summary>[Cards] FanSwapDuration — seconds one card takes to leave or join during a swap.</summary>
+    public const byte TuneFanSwapDuration = 150;
+    /// <summary>[Cards] FanSwapStagger — the exchange wipe's per-card delay along the arc, seconds.</summary>
+    public const byte TuneFanSwapStagger = 151;
+    /// <summary>[Cards] FanSwapSeedScale — a card's size at the swap's gather/deal point.</summary>
+    public const byte TuneFanSwapSeedScale = 152;
+    /// <summary>[Cards] FanSwapSettleOvershoot — the swap's shared back-ease strength.</summary>
+    public const byte TuneFanSwapSettleOvershoot = 153;
+
     // ANGLE (2 B, hundredth-degrees).
 
     /// <summary>[Cards] AssetPitchDegrees_{board} — the board MESH's pitch inside the board root.</summary>
@@ -2145,6 +2182,27 @@ internal static class NetProtocol
     public const byte TuneFanMaxHandForCurve = 224;
     /// <summary>[Cards] FanCurveMinCards — hands at or below this stay flat.</summary>
     public const byte TuneFanCurveMinCards = 225;
+
+    // The last two dials of the HAND FAN's CHARACTER-SWAP EXCHANGE. They are here rather than in
+    // the angle / factor ranges FOR A BYTE EACH, and that byte is not a micro-optimisation: with
+    // them at three bytes the record's worst case would be 257, and the extension tail writes a
+    // record's length as a SINGLE BYTE (PresenceState's board-tuning writer refuses payload > 255)
+    // — so a player who had moved every dial would have had their WHOLE tuning record silently
+    // dropped. Both quantities survive integer resolution with room to spare, which is what makes
+    // the narrower container honest rather than a squeeze: see each field.
+
+    /// <summary>[Cards] FanSwapSpinDegrees — the roll the hand fan's two swap halves counter-rotate
+    /// through, in WHOLE degrees (0..180). One degree on a ~58° roll is far below what an eye
+    /// resolves on a 6 cm card at arm's length; the angle range's hundredth-degrees would be
+    /// spending two extra digits on nothing.</summary>
+    public const byte TuneFanSwapSpin = 226;
+
+    /// <summary>[Cards] FanSwapOverlap — how much of a slot's departure its arrival overlaps, in
+    /// WHOLE PERCENT (0..100). The dial is a 0..1 fraction and the shipped value is 0.66; one
+    /// percent of the per-card flight time is ~2 ms, i.e. under a frame at 90 Hz, so the
+    /// quantisation is invisible by construction. Same convention note as the item-fan seconds
+    /// above: an id range fixes the value WIDTH, never the unit.</summary>
+    public const byte TuneFanSwapOverlapPercent = 227;
 
     /// <summary>Payload width of a board-tuning field with this id — 6 / 2 / 1, or 0 for a
     /// RESERVED id whose width this build does not know (the reader then abandons the rest of the

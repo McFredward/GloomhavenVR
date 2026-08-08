@@ -187,6 +187,42 @@ internal static partial class Defaults
     internal const float FanOpenDuration = 0.14f;                                                     // => [Cards] FanOpenDuration
     internal const float FanOpenStagger = 0.02f;                                                      // => [Cards] FanOpenStagger
     internal const float FanCloseDuration = 0.12f;                                                    // => [Cards] FanCloseDuration
+
+    // ---- THE HAND FAN's CHARACTER-SWAP EXCHANGE (user report 2026-08-09: "Wenn man die Handkarten
+    // anschaut während man den Character wechselt gefällt mir die jetzige Animation nicht - mach
+    // auch hier eine neue coolere Tauschanimation rein die den Fächer austauscht.") --------------
+    //
+    // WHAT IT USED TO DO, and why it read wrong: nothing. CardsDriver.Rebuild simply handed the fan
+    // the OTHER character's cards (CardFan.SetCards), which cleared the list and re-laid it out —
+    // so the outgoing hand's VR cards were parked (teleported into the pool) in the same frame the
+    // incoming ones appeared at their arc slots. Whatever the counts happened to be, the player saw
+    // a CONTENT EDIT: n cards blinked out, m cards blinked in, and any card that existed in both
+    // frames just slid to a new slot. Nothing left, nothing arrived, nothing moved as one thing —
+    // which is exactly the standing ruling ("everything that moves must move WITH an animation")
+    // being broken at the one moment the player is staring straight at the fan.
+    //
+    // WHAT IT DOES NOW — ONE WIPE ACROSS THE PALM, not two animations glued together. The outgoing
+    // hand is GATHERED into a point one FanSwapTravel past the arc's high-index end; the incoming
+    // hand is DEALT OUT of the mirror-image point past the low-index end. Both waves are sequenced
+    // by card index with the SAME FanSwapStagger, so both moving fronts travel the same way across
+    // the hand, and FanSwapOverlap starts each slot's arrival while that slot's departure is still
+    // in the air. The two halves separate in DEPTH rather than colliding: the leaver ducks AWAY
+    // from the viewer by FanSwapArc, the arriver bows TOWARD them by the same amount, and their
+    // rolls (FanSwapSpinDegrees) are oppositely signed — so the new hand visibly passes in FRONT of
+    // the old one. See Cards/CardFan.cs's exchange region for the derivation of every one of those
+    // choices, and Cards/ItemsPile.cs for the five-axis vocabulary they are written in.
+    //
+    // The numbers below ARE the shipped look: nobody should have to tune anything to get what he
+    // asked for. Every amplitude reaches the previous (instant) behaviour at 0, which is the honest
+    // "turn it back down" position and is reachable from the debug steppers.
+    internal const float FanSwapDuration = 0.24f;                                                     // => [Cards] FanSwapDuration
+    internal const float FanSwapStagger = 0.024f;                                                     // => [Cards] FanSwapStagger
+    internal const float FanSwapOverlap = 0.66f;                                                      // => [Cards] FanSwapOverlap
+    internal const float FanSwapTravel = 0.075f;                                                      // => [Cards] FanSwapTravel
+    internal const float FanSwapArc = 0.06f;                                                          // => [Cards] FanSwapArc
+    internal const float FanSwapSpinDegrees = 58f;                                                    // => [Cards] FanSwapSpinDegrees
+    internal const float FanSwapSeedScale = 0.16f;                                                    // => [Cards] FanSwapSeedScale
+    internal const float FanSwapSettleOvershoot = 1.5f;                                               // => [Cards] FanSwapSettleOvershoot
     internal const string FanRevealSound = "PlaySound_EnemyCardDraw";                                 // => [Cards] FanRevealSound
     internal const string FanHideSound = "PlaySound_UICardTabSelect";                                 // => [Cards] FanHideSound
     internal const string CardGrabSound = "PlaySound_UICardTabSelect";                                // => [Cards] CardGrabSound

@@ -132,6 +132,9 @@ internal sealed class CardFan
         }
         _root.SetParent(hand.Rig.PalmCenter, worldPositionStays: false);
         _root.gameObject.SetActive(true);
+        // An exchange cannot survive the fan being raised again — the reveal below re-seeds every
+        // card at the centre stack, which is a different start pose for the same blend. Land it.
+        FinishSwap();
         _followInit = true; // G4: snap to the palm on the first Tick, don't ease in
         _gazeBiasYaw = 0f;  // edge-read fix: start facing the head squarely; ease into any bias
         // Card presentation: open with the bow apex at the fan centre (the symmetric, neutral shape)
@@ -159,6 +162,9 @@ internal sealed class CardFan
         ClearFingertipHover(); // test #9: drop any fingertip pop/split
         _insertGap = -1;       // hand reorder: drop any open gap so a reopen starts closed
         _openElapsed = -1f;
+        // A closed fan stops ticking, so an exchange in the air would be frozen — and its cards
+        // would never be handed back. Land it here; the driver's next drain collects them.
+        FinishSwap();
         if (_overlay != null)
             _overlay.SetActive(false);
         // Quick collapse (reverse of the Demeo fan-in): keep the root visible and let Tick
@@ -181,6 +187,20 @@ internal sealed class CardFan
             Current = null;
         ClearFingertipHover();
         _cards.Clear();
+        // The leaving cards are children of the root this is about to destroy, so there is nothing
+        // left to fly or to hand back — drop the bookkeeping rather than report dead objects to the
+        // driver. Its pending face restore is gated on HasLeavingCards, which now reads false.
+        _swapElapsed = -1f;
+        _leaving.Clear();
+        _leavePos.Clear();
+        _leaveRot.Clear();
+        _leaveScale.Clear();
+        _leaveGrab.Clear();
+        _leaveIndex.Clear();
+        _rescued.Clear();
+        _rescuePos.Clear();
+        _rescueRot.Clear();
+        _rescueScale.Clear();
         _insertGap = -1;
         _openElapsed = -1f;
         _closeElapsed = -1f;
@@ -344,8 +364,37 @@ internal sealed class CardFan
     }
 
     /// <summary>Replace the fan's card set (called on rebuilds; cards fly to their arc slots).</summary>
-    internal void SetCards(List<VRCard> cards)
+    internal void SetCards(List<VRCard> cards) => SetCards(cards, swap: false);
+
+    /// <summary>
+    /// Replace the fan's card set. <paramref name="swap"/> = "this is not a card being added or
+    /// removed, the WHOLE HAND was exchanged for another character's" — see the exchange region
+    /// below for what that turns into and why it is a separate animation from the open reveal.
+    /// The caller (<c>CardsDriver.Rebuild</c>) owns that verdict because only it knows which
+    /// character the board is presenting; the fan only knows its own list changed, and a list
+    /// change alone can never tell a swap from a draw.
+    /// </summary>
+    internal void SetCards(List<VRCard> cards, bool swap)
     {
+        // The outgoing wave was captured EARLIER, by the driver's BeginSwapOut at the top of the
+        // rebuild — it has to be, because the rebuild's park sweep runs before this call and would
+        // otherwise have teleported the whole outgoing hand into the pool (see BeginSwapOut). All
+        // that is left for a SWAP here is the half that needs the INCOMING list: which of the cards
+        // on their way out are named again and must turn around instead.
+        //
+        // A NON-SWAP SET DOES NOT CANCEL A RUNNING EXCHANGE, and that is not a nicety: while the
+        // player is WATCHING a character (which is exactly when they switch between them) the
+        // driver is marked dirty by that character's own turn churn over and over, so Rebuild — and
+        // therefore this method — runs at very nearly every frame. Landing the exchange on the first
+        // such call would have made the whole animation one frame long in the only situation it
+        // exists for. The incoming list on those frames is the SAME character's hand, so the running
+        // blend is still aimed at the right target and simply carries on.
+        bool exchange = _swapElapsed >= 0f && _root != null && IsOpen;
+        if (exchange && swap)
+            ArmSwapArrival(cards);
+        else if (_swapElapsed >= 0f && !IsOpen)
+            FinishSwap(); // a closed fan stops ticking — nothing may be left mid-flight
+
         ClearFingertipHover(); // card set/indices change — re-resolve on the next Tick scan
         _insertGap = -1;       // reorder: card set changed; the driver re-pushes the gap next frame
         // Collapse-in-flight: the card set changed under a hide animation — finish the hide
@@ -361,6 +410,11 @@ internal sealed class CardFan
         _cards.Clear();
         for (int i = 0; i < cards.Count; i++)
         {
+            // A card cannot be a fan card and an outgoing card at once. The swap path has already
+            // done this through ArmSwapArrival; repeating it here is a no-op then and closes the
+            // case where a card of an exchange still in the air is named by a NON-swap set.
+            if (cards[i] != null)
+                RescueFromLeaving(cards[i]);
             _cards.Add(cards[i]);
             // Membership → interaction verdicts (gate-hand veto + mode), and the held-card rule
             // that keeps a card the player is HOLDING transferable between the hands: see
@@ -372,7 +426,11 @@ internal sealed class CardFan
         }
         if (IsOpen)
         {
-            Relayout(instant: false);
+            // instant during an exchange: the swap-in blend below drives every incoming card's
+            // pose itself, exactly like the open reveal does, so VRCard's own home-lerp must not
+            // double-smooth it (Relayout forces `instant || opening || swapping` per card anyway;
+            // this only keeps the first frame consistent with the ones the Tick drives).
+            Relayout(instant: exchange);
         }
         else if (_root != null)
         {
@@ -417,6 +475,9 @@ internal sealed class CardFan
     /// <summary>Return a card to the fan (release outside a drop zone) — animated.</summary>
     internal void Add(VRCard card)
     {
+        // A card cannot be a fan card and an outgoing card at once — if this one is mid-exit, it
+        // turns around from where it is (RescueFromLeaving states the invariant).
+        RescueFromLeaving(card);
         if (!_cards.Contains(card))
             _cards.Add(card);
         // Fan entry = gate-hand veto (general rule 2026-08-04, see SetCards / VRCard.AllowsGateHand):
@@ -666,6 +727,18 @@ internal sealed class CardFan
         if (palm == null)
             return;
 
+        // CHARACTER EXCHANGE (see the exchange region): advance the wipe and drive the OUTGOING
+        // half; the incoming half rides the Relayout below, which therefore has to run every frame
+        // for as long as the exchange does. Mutually exclusive with the reveal by construction —
+        // BeginSwapOut drops _openElapsed — so the two blends can never both write a card's home.
+        bool swapping = _swapElapsed >= 0f;
+        if (swapping)
+        {
+            TickSwap();
+            if (_cards.Count > 0)
+                Relayout(instant: true);
+        }
+
         // Fan-out reveal: advance the open animation and re-blend the homes every frame
         // (Relayout applies the collapsed→slot lerp while _openElapsed >= 0). dt is capped
         // so a hitch cannot teleport the cards; unscaled so a paused game still animates.
@@ -687,8 +760,9 @@ internal sealed class CardFan
         // relayout uses instant:false (VRCard lerps each card to its new home) and Relayout skips
         // any card being plucked (IsHeld) + preserves the hover split — so this never stomps a grab
         // or fights the reveal/collapse animation. Allocation-free: one float compare per frame.
-        if (wasOpening)
+        if (wasOpening || swapping)
         {
+            // …and through the exchange, for the same reason: it relayouts every frame already.
             _lastFanParamSig = FanParamSignature(); // keep the baseline fresh through the reveal
         }
         else
@@ -1161,8 +1235,9 @@ internal sealed class CardFan
         float rate = Mathf.Clamp(CardsConfig.FanGazeSmoothing.Value, 1f, 30f);
         _gazeX = Mathf.Lerp(_gazeX, targetX, 1f - Mathf.Exp(-rate * dt));
 
-        // The reveal owns the layout while it runs (it relayouts every frame with the live apex).
-        if (_openElapsed >= 0f)
+        // The reveal — and the character exchange — own the layout while they run (both relayout
+        // every frame with the live apex, so a second gated relayout here would only duplicate it).
+        if (_openElapsed >= 0f || _swapElapsed >= 0f)
             return;
 
         bool moved = float.IsNaN(_layoutGazeX)
@@ -1562,6 +1637,14 @@ internal sealed class CardFan
                                       (Mathf.Cos(midRad) - 1f) * radius * archFactor);
         bool opening = _openElapsed >= 0f;
 
+        // Character EXCHANGE, arriving half (see the exchange region). The TARGET of every incoming
+        // card is its real arc home, which is what this method computes — so the blend lives here
+        // rather than in a second layout path that could drift from it. Mutually exclusive with the
+        // reveal (BeginSwapOut drops _openElapsed), so at most one of the two blends ever applies.
+        bool swapping = _swapElapsed >= 0f;
+        float swapArc = swapping ? Mathf.Max(0f, CardsConfig.FanSwapArc.Value) : 0f;
+        float swapBack = swapping ? SwapOvershoot : 0f;
+
         // Card presentation (see the region above): compose the per-card depth around the
         // gaze-following bow apex, and resolve the head in fan-local space for the per-card toe-in.
         // Both are recorded as the gate baseline so UpdateCardPresentation only re-lays out when the
@@ -1639,7 +1722,23 @@ internal sealed class CardFan
                 rot = Quaternion.Slerp(collapsedRot, rot, e);
             }
 
-            card.SetHome(_root, pos, rot, 1f, instant || opening);
+            // Exchange, arriving half: fly in from the deal point off the arc's LOW end (or, for a
+            // card that turned around mid-exit, from wherever it actually is), bowing TOWARD the
+            // viewer at mid-flight — the opposite of the leaving half's duck, so the two hands
+            // cross in depth — and settling with the back-ease overshoot.
+            float scale = 1f;
+            if (swapping)
+            {
+                float t = InProgress(i);
+                float e = EaseOutBack(t, swapBack);
+                SwapEnterSeed(card, n, out Vector3 seedPos, out Quaternion seedRot, out float seedScale);
+                pos = Vector3.LerpUnclamped(seedPos, pos, e);
+                pos.z -= swapArc * Mathf.Sin(t * Mathf.PI);
+                rot = Quaternion.Slerp(seedRot, rot, Mathf.Clamp01(e));
+                scale = Mathf.LerpUnclamped(seedScale, 1f, e);
+            }
+
+            card.SetHome(_root, pos, rot, scale, instant || opening || swapping);
 
             if (i == n - 1)
                 card.SetColliderRegion(w, 0f); // fully exposed — full width, exact-fit depth (no viewer-side apron)
@@ -1845,6 +1944,491 @@ internal sealed class CardFan
             if (_root != null)
                 _root.gameObject.SetActive(false);
         }
+    }
+
+    // ------------------------------------------------------- character-swap EXCHANGE --
+    //
+    // USER REPORT 2026-08-09: "Wenn man die Handkarten anschaut während man den Character wechselt
+    // gefällt mir die jetzige Animation nicht - mach auch hier eine neue coolere Tauschanimation
+    // rein die den Fächer austauscht."
+    //
+    // WHAT IT USED TO DO. Nothing at all. A focus switch is a plain Rebuild: the driver filled its
+    // buffer with the OTHER character's cards and called SetCards, which cleared _cards, re-laid
+    // the new set out, and left the old cards to the driver's park sweep — i.e. teleported into the
+    // pool in the same frame. The player, who is by definition staring straight at the fan when
+    // they do this, saw a CONTENT EDIT: n cards blinked away, m cards blinked in, and any card that
+    // happened to survive in both frames merely slid to a new slot. That is the standing ruling
+    // ("everything that moves must move WITH an animation; popping is unacceptable") broken at
+    // exactly the moment it is most visible.
+    //
+    // ────────────────────────────────────────────────────────────────────────────────────────────
+    // THE SHAPE, AND WHY THIS SHAPE. The vocabulary is the one ModBuild 92 established for the ITEM
+    // fan (Cards/ItemsPile.cs — centre-out stagger, arc toward the viewer, seed scale, signed spin,
+    // settle overshoot), because a second idiom for the same job would read as a different mod. But
+    // it is deliberately NOT that animation replayed:
+    //
+    //  • NOT CENTRE-OUT. The open/close ripple runs outward from the fan's middle, because a hand of
+    //    cards being RAISED unfolds from its middle. An exchange is not a raise. Sequencing it the
+    //    same way would make a swap look like "the fan closed and opened again", which is precisely
+    //    the two-unrelated-animations failure the brief names. This one is sequenced ALONG THE ARC,
+    //    by card index, so it is a WIPE and never a fold.
+    //
+    //  • THE TWO HALVES TRAVEL THE SAME WAY, AND SO DO THEIR FRONTS. The outgoing hand converges on
+    //    a gather point one FanSwapTravel past the arc's HIGH-index end; the incoming hand fans out
+    //    of the mirror-image point past the LOW-index end. Both waves are delayed by
+    //    index × FanSwapStagger, so both moving fronts run low-index → high-index. What the eye
+    //    tracks is therefore ONE front crossing the palm, with the old hand ahead of it and the new
+    //    hand behind it. The alternative — gathering right-to-left and then dealing left-to-right —
+    //    is two fronts in opposite directions, which is exactly how "glued together" looks.
+    //
+    //  • THE OVERLAP IS THE EXCHANGE. FanSwapOverlap starts each slot's ARRIVAL while that slot's
+    //    DEPARTURE is still in the air (the delay between them is (1 − overlap) × FanSwapDuration,
+    //    and the stagger term is shared, so the two waves stay in lockstep at every slot rather
+    //    than drifting apart along the hand). At the shipped 0.66 the hands visibly cross. At 0 the
+    //    same wipe still runs, one card at a time — that is the "refill an emptied hand" reading,
+    //    and it is the honest bottom of the range, not the default.
+    //
+    //  • THEY SEPARATE IN DEPTH INSTEAD OF COLLIDING. A leaver ducks AWAY from the viewer by
+    //    FanSwapArc at mid-flight; an arriver bows TOWARD them by the same amount. Two crossing
+    //    hands at the same depth would interpenetrate and z-fight; at opposite depths the new hand
+    //    unambiguously passes IN FRONT of the old one, which is what an exchange looks like — and
+    //    depth is the one cue a passthrough background cannot mask, because it is stereo.
+    //
+    //  • THE ROLLS ARE OPPOSITELY SIGNED. The gather winds one way, the deal unwinds the other
+    //    (FanSwapSpinDegrees, signed by which end of the arc the card is heading for). A rotation
+    //    changes a card's OUTLINE, and a cluttered room never supplies a coherent outline rotation
+    //    by accident; the opposite signs are what stop the whole thing reading as one shove.
+    //
+    //  • THE ARRIVAL OVERSHOOTS, THE DEPARTURE WINDS UP. EaseOutBack / EaseInBack on
+    //    FanSwapSettleOvershoot, the same pair and the same argument as ItemsPile: a reversal of
+    //    direction is the loudest event motion has and costs no extra travel.
+    //
+    // ────────────────────────────────────────────────────────────────────────────────────────────
+    // THE THREE THINGS THAT MUST NOT BREAK, and how each is closed:
+    //
+    //  1. THE FAN STAYS USABLE. Nothing here gates input for a single frame. The incoming cards are
+    //     in _cards from the first frame of the exchange, so TryRaycast, SetHovered and the
+    //     fingertip scan see them exactly as they always do — and because those all read the card's
+    //     HOME pose (which the blend writes every frame), the laser tracks a card THROUGH its
+    //     flight instead of pointing at where it will end up. A grab mid-exchange simply wins: every
+    //     loop in this class already skips IsHeld, so the grabbed card drops out of the wave and the
+    //     rest carries on. That is also why a swap can never "block" — worst case the player pulls a
+    //     card out of a hand that is still arriving, which is the same gesture as any other pluck.
+    //
+    //  2. SWITCHING AGAIN MID-SWAP. This WILL happen (the initiative portraits are a row and people
+    //     scrub along it), so it is the case the state machine is built around rather than guarded
+    //     against. A second exchange does not restart anything: every card still on its way out
+    //     keeps its place in the wave and is RE-SEEDED AT ITS CURRENT POSE (never at where it
+    //     started), so the clock restarting cannot teleport it; the cards the fan holds now join the
+    //     same outgoing list behind them. And a card named again by the INCOMING list — the
+    //     A → B → A scrub, the one way a card can be in both halves at once — is pulled out of the
+    //     outgoing list into _rescued and turns around from where it is, mid-air. It is therefore
+    //     impossible for one card to be animated by both halves, and impossible for one to be left
+    //     behind: the ONLY exits from _leaving are "landed, handed to the driver" and "rescued".
+    //
+    //  3. POOLED CARDS ARE NOT DESTROYED UNDER SOMEBODY. The fan does not own card lifetime and does
+    //     not try to: it hands each leaver back through TryTakeLandedOutgoing THE MOMENT that card's
+    //     own flight ends, and the driver parks it / restores its adopted face then (CardsDriver's
+    //     deferred focus release). A HELD card never enters the outgoing list at all — the capture
+    //     loop skips IsHeld, exactly like every other loop here, so a card the player is holding
+    //     when they switch character stays in their hand and cannot vanish. Close(), Open() and
+    //     Destroy() all force the exchange to land, so a card can never be stranded mid-flight by a
+    //     fan that stopped ticking.
+
+    /// <summary>Cards on their way OUT (the hand being replaced), parallel to the four seed lists
+    /// below. A card is in exactly one of <c>_cards</c> and this list, never both.</summary>
+    private readonly List<VRCard> _leaving = new(12);
+    private readonly List<Vector3> _leavePos = new(12);
+    private readonly List<Quaternion> _leaveRot = new(12);
+    private readonly List<float> _leaveScale = new(12);
+
+    /// <summary>Each leaver's place IN THE WAVE, which is NOT its place in the list: cards are
+    /// handed back as they land, and the earliest ones land first, so using the list position for
+    /// the stagger delay would shorten every remaining card's delay by one place each time one was
+    /// removed — and the tail of the wipe would snap to the gather point in a single frame. The
+    /// index is assigned once and travels with the card.</summary>
+    private readonly List<int> _leaveIndex = new(12);
+
+    /// <summary>The <see cref="VRCard.Grabbable"/> a leaver had when it was captured. A leaving card
+    /// makes no promises (same rule as <c>VRCard.Vanish</c>), so the capture drops the flag — and a
+    /// card that turns around mid-exit gets its exact previous verdict back rather than waiting for
+    /// the next rebuild's zone stamp to notice.</summary>
+    private readonly List<bool> _leaveGrab = new(12);
+
+    /// <summary>Cards that were leaving and are named again by the incoming hand (the A→B→A scrub):
+    /// they fly IN from where they actually are instead of from the deal point. Parallel lists,
+    /// normally empty — the lookup below only runs when it is not.</summary>
+    private readonly List<VRCard> _rescued = new(2);
+    private readonly List<Vector3> _rescuePos = new(2);
+    private readonly List<Quaternion> _rescueRot = new(2);
+    private readonly List<float> _rescueScale = new(2);
+
+    /// <summary>Seconds since the exchange began (-1 = none). UNSCALED, like every other animation
+    /// here: the game pauses simulation time during card phases and the swap must still run.</summary>
+    private float _swapElapsed = -1f;
+
+    /// <summary>How many cards the OUTGOING wave started with — it fixes the wipe's rhythm and the
+    /// gather point's place on the arc even as cards land and leave <see cref="_leaving"/>.</summary>
+    private int _swapOutCount;
+
+    /// <summary>True while at least one card is still flying OUT — the driver's gate for handing a
+    /// focused character's adopted card faces back to the game.</summary>
+    internal bool HasLeavingCards => _leaving.Count > 0;
+
+    /// <summary>Is this card currently flying out of the fan? The driver's park sweep must skip it
+    /// for the same reason it skips <c>IsFlying</c>/<c>IsVanishing</c> cards: the animation owns the
+    /// transform until it lands.</summary>
+    internal bool IsLeaving(VRCard card) => _leaving.Count > 0 && _leaving.Contains(card);
+
+    /// <summary>
+    /// Hand back every outgoing card whose flight has ENDED (appended to <paramref name="into"/>,
+    /// which is NOT cleared). Called once per frame by the driver, which then parks each one and —
+    /// once the whole exchange has drained — restores the outgoing character's adopted faces.
+    /// Per-card rather than per-exchange so a card is disposed of the instant it is invisible,
+    /// instead of sitting shrunk at the gather point until the last one arrives.
+    /// </summary>
+    internal void TryTakeLandedOutgoing(List<VRCard> into)
+    {
+        for (int i = _leaving.Count - 1; i >= 0; i--)
+        {
+            VRCard c = _leaving[i];
+            // A destroyed card (an external release we did not drive) drops out silently — it is
+            // already gone, and reporting it would only make the driver park a dead object.
+            if (c != null)
+            {
+                if (_swapElapsed >= 0f && OutProgress(_leaveIndex[i]) < 1f)
+                    continue;
+                into.Add(c);
+            }
+            RemoveLeavingAt(i);
+        }
+    }
+
+    /// <summary>Drop entry <paramref name="i"/> from the six parallel outgoing lists at once — the
+    /// single place they are mutated together, so they cannot drift.</summary>
+    private void RemoveLeavingAt(int i)
+    {
+        _leaving.RemoveAt(i);
+        _leavePos.RemoveAt(i);
+        _leaveRot.RemoveAt(i);
+        _leaveScale.RemoveAt(i);
+        _leaveGrab.RemoveAt(i);
+        _leaveIndex.RemoveAt(i);
+    }
+
+    /// <summary>
+    /// Arm the exchange's OUTGOING half: everything the fan currently shows becomes the wave that
+    /// gathers off the arc.
+    ///
+    /// <para>WHY THIS IS A SEPARATE, PUBLIC STEP RATHER THAN PART OF <see cref="SetCards"/>. The
+    /// driver's rebuild does its per-card PARK SWEEP (every VR card that ends this rebuild in no
+    /// zone is teleported into the pool) BEFORE it hands the fan its new list. On a swap frame the
+    /// outgoing hand is in no zone by definition, so by the time SetCards ran the whole wave would
+    /// already have been parked — the exact pop the exchange exists to remove, and invisible in a
+    /// code read because the two steps live 200 lines apart. Capturing here, at the top of the
+    /// rebuild, is what makes <see cref="IsLeaving"/> answer TRUE while that sweep runs.</para>
+    /// </summary>
+    internal void BeginSwapOut()
+    {
+        if (_root == null || !IsOpen)
+            return;
+
+        // A reveal that is still running is superseded: the two blends write the same home pose, and
+        // "the fan is still unfolding" is no longer true the moment its content is being exchanged.
+        _openElapsed = -1f;
+        _rescued.Clear();
+        _rescuePos.Clear();
+        _rescueRot.Clear();
+        _rescueScale.Clear();
+
+        // (1) cards ALREADY leaving (a second switch landed mid-wipe) keep their place in the wave,
+        //     re-seeded where they ARE — never where they started, or the restarting clock would
+        //     teleport them back. Their Grabbable was dropped when they were first captured, so the
+        //     recorded value is kept: re-reading it here would only record the false we wrote.
+        for (int i = 0; i < _leaving.Count; i++)
+        {
+            VRCard c = _leaving[i];
+            if (c == null)
+                continue;
+            CaptureLocal(c, out Vector3 p, out Quaternion r, out float s);
+            _leavePos[i] = p;
+            _leaveRot[i] = r;
+            _leaveScale[i] = s;
+        }
+
+        // (2) the hand the fan is showing joins them, in arc order, behind the stragglers.
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            VRCard c = _cards[i];
+            // A HELD card is not exchanged. The player is holding it; it stays in their hand and is
+            // not ours to fly away or hand back (the standing rule at StampMembership: while a card
+            // IsHeld this class writes nothing a hold depends on).
+            if (c == null || c.IsHeld || _leaving.Contains(c))
+                continue;
+            CaptureLocal(c, out Vector3 p, out Quaternion r, out float s);
+            _leaving.Add(c);
+            _leavePos.Add(p);
+            _leaveRot.Add(r);
+            _leaveScale.Add(s);
+            _leaveGrab.Add(c.Grabbable);
+            _leaveIndex.Add(0); // re-assigned in wave order below
+            c.Grabbable = false; // a card on its way out makes no promises (VRCard.Vanish's rule)
+        }
+
+        ReindexLeaving();
+        _swapElapsed = 0f;
+    }
+
+    /// <summary>
+    /// THE ONE WAY A CARD LEAVES THE OUTGOING WAVE OTHER THAN BY LANDING: it turns around. If
+    /// <paramref name="card"/> is flying out, pull it out of that wave and record where it ACTUALLY
+    /// IS (not where the wave started it), so the arriving half seeds from there and the turnaround
+    /// is a change of direction rather than a teleport back to the start line. Its pre-exit
+    /// <see cref="VRCard.Grabbable"/> comes back with it, so it is immediately as usable as it was.
+    ///
+    /// <para>This is what makes "a card is in exactly one of <c>_cards</c> and <c>_leaving</c>"
+    /// STRUCTURAL rather than a timing argument: every route by which a card can (re-)enter the
+    /// fan's own list — <see cref="ArmSwapArrival"/> on a swap, <see cref="Add"/> on a release —
+    /// goes through here first, so it is impossible for one card to end up driven by both halves of
+    /// an exchange at once, or handed to the driver for disposal while it is also on screen.</para>
+    /// </summary>
+    private void RescueFromLeaving(VRCard card)
+    {
+        if (_leaving.Count == 0 || _root == null)
+            return;
+        int i = _leaving.IndexOf(card);
+        if (i < 0)
+            return;
+        CaptureLocal(card, out Vector3 p, out Quaternion r, out float s);
+        _rescued.Add(card);
+        _rescuePos.Add(p);
+        _rescueRot.Add(r);
+        _rescueScale.Add(s);
+        card.Grabbable = _leaveGrab[i]; // exactly the verdict it had before it started leaving
+        RemoveLeavingAt(i);
+    }
+
+    /// <summary>Re-number the wave and record its size. Run whenever the outgoing list is (re)built,
+    /// so the stagger runs 0, 1, 2 … along the list however many generations it was assembled from.</summary>
+    private void ReindexLeaving()
+    {
+        for (int i = 0; i < _leaving.Count; i++)
+            _leaveIndex[i] = i;
+        _swapOutCount = _leaving.Count;
+    }
+
+    /// <summary>
+    /// The half of the arming that needs the INCOMING list: any card on its way out that the new
+    /// hand names again turns around from where it is, mid-air, instead of leaving. That is the
+    /// A → B → A scrub — the one way a single card can belong to both halves of an exchange — and
+    /// resolving it HERE, by moving the card out of the outgoing list, is what makes "no card is
+    /// ever driven by both halves" true by construction rather than by timing.
+    /// </summary>
+    private void ArmSwapArrival(List<VRCard> incoming)
+    {
+        for (int i = 0; i < incoming.Count; i++)
+        {
+            VRCard c = incoming[i];
+            if (c != null)
+                RescueFromLeaving(c);
+        }
+        ReindexLeaving();
+        Core.VRLog.Info("Cards",
+            $"Fan EXCHANGE: {_swapOutCount} card(s) gather off the arc's high end while " +
+            $"{incoming.Count} deal out of the low end ({_rescued.Count} turned around mid-exit), " +
+            $"one wipe of {SwapTotalSeconds(_swapOutCount, incoming.Count):F2}s at " +
+            $"{CardsConfig.FanSwapDuration.Value:F2}s/card + {CardsConfig.FanSwapStagger.Value:F3}s " +
+            $"stagger, overlap {CardsConfig.FanSwapOverlap.Value:F2}. The two halves pass in depth " +
+            "(±FanSwapArc) and counter-roll; held cards are untouched.");
+    }
+
+    /// <summary>This card's pose IN THE FAN ROOT's frame, read off its live transform rather than
+    /// its recorded home — the capture must be where the card actually IS, or a re-seed mid-flight
+    /// (or a card mid-pop) would jump.</summary>
+    private void CaptureLocal(VRCard card, out Vector3 pos, out Quaternion rot, out float scale)
+    {
+        Transform root = _root!;
+        Transform t = card.transform;
+        pos = root.InverseTransformPoint(t.position);
+        rot = Quaternion.Inverse(root.rotation) * t.rotation;
+        float rootScale = root.lossyScale.x;
+        scale = rootScale > 1e-5f ? t.lossyScale.x / rootScale : 1f;
+    }
+
+    // ---- timing. One duration and one stagger drive BOTH halves; the only asymmetry is the
+    // arrival's head start, which is what the overlap dial means.
+
+    private static float SwapDuration => Mathf.Max(0.02f, CardsConfig.FanSwapDuration.Value);
+    private static float SwapStagger => Mathf.Max(0f, CardsConfig.FanSwapStagger.Value);
+    private static float SwapOvershoot => Mathf.Clamp(CardsConfig.FanSwapSettleOvershoot.Value, 0f, 3f);
+
+    /// <summary>How long after a slot's card starts LEAVING its replacement starts ARRIVING.
+    /// Expressed against the per-card duration (not against the whole wave) on purpose: the stagger
+    /// term is shared by both halves, so this keeps the two waves in lockstep at EVERY slot instead
+    /// of letting them drift apart along the hand.</summary>
+    private static float SwapArriveDelay =>
+        (1f - Mathf.Clamp01(CardsConfig.FanSwapOverlap.Value)) * SwapDuration;
+
+    /// <summary>Progress (0..1) of outgoing card <paramref name="i"/>.</summary>
+    private float OutProgress(int i) =>
+        Mathf.Clamp01((_swapElapsed - i * SwapStagger) / SwapDuration);
+
+    /// <summary>Progress (0..1) of incoming card <paramref name="j"/>.</summary>
+    private float InProgress(int j) =>
+        Mathf.Clamp01((_swapElapsed - SwapArriveDelay - j * SwapStagger) / SwapDuration);
+
+    /// <summary>Total length of the whole exchange for the two hand sizes (the driver uses it as
+    /// the hard deadline on its deferred face restore, so it must be an upper bound).</summary>
+    internal static float SwapTotalSeconds(int outCount, int inCount) =>
+        SwapArriveDelay + SwapDuration
+        + Mathf.Max(0, Mathf.Max(outCount, inCount) - 1) * SwapStagger;
+
+    /// <summary>Ease-out BACK — overshoots 1 near the end and settles onto it. Verbatim the curve
+    /// <c>ItemsPile.ItemChip</c> uses, so the two fans settle with the same character; s = 0
+    /// degenerates to a plain ease-out, which is what FanSwapSettleOvershoot = 0 restores.</summary>
+    private static float EaseOutBack(float t, float s)
+    {
+        float u = t - 1f;
+        return 1f + u * u * ((s + 1f) * u + s);
+    }
+
+    /// <summary>Ease-in BACK — dips slightly the WRONG way first (the leaver winds up into the fan
+    /// before it goes) and then accelerates out. The mirror of <see cref="EaseOutBack"/>.</summary>
+    private static float EaseInBack(float t, float s) => t * t * ((s + 1f) * t - s);
+
+    /// <summary>
+    /// The point a hand is GATHERED INTO (<paramref name="side"/> = +1, off the arc's high-index
+    /// end) or DEALT OUT OF (<paramref name="side"/> = −1, off its low-index end), in fan-local
+    /// metres, plus the pose a card holds there.
+    ///
+    /// <para>It is the arc's own outermost slot pushed one <c>FanSwapTravel</c> further along, so
+    /// the two points are mirror images and sit on the line the fan already describes — a hand
+    /// swept off the end of itself, not a card thrown at an arbitrary offset. The roll is that end
+    /// slot's roll plus the SIGNED <c>FanSwapSpinDegrees</c>, which is what makes the gather and the
+    /// deal counter-rotate.</para>
+    /// </summary>
+    private static void SwapGatherPoint(int n, float side, out Vector3 pos, out Quaternion rot)
+    {
+        float radius = Mathf.Max(0.02f, CardsConfig.FanEffectiveRadius.Value);
+        float maxArc = Mathf.Clamp(CardsConfig.FanArcSweepDegrees.Value, 5f, 180f);
+        float stepCap = Mathf.Clamp(CardsConfig.FanPerCardStepDegrees.Value, 1f, 60f);
+        float tiltFactor = CardsConfig.FanTiltFactor.Value;
+        float archFactor = CardsConfig.FanFlatCurvatureFactor.Value;
+        if (CardsConfig.FanCurveByFill.Value)
+        {
+            float fill = Mathf.Clamp01((float)Mathf.Max(n, 1) / Mathf.Max(1, CardsConfig.FanMaxHandForCurve.Value));
+            archFactor *= fill;
+            tiltFactor *= fill;
+        }
+        float step = n > 1 ? Mathf.Min(stepCap, maxArc / (n - 1)) : 0f;
+        float endAngle = step * (n - 1) * 0.5f;              // the +X end's arc angle
+        float rad = endAngle * Mathf.Deg2Rad;
+        float travel = Mathf.Max(0f, CardsConfig.FanSwapTravel.Value);
+        pos = new Vector3(side * (Mathf.Sin(rad) * radius + travel),
+                          (Mathf.Cos(rad) - 1f) * radius * archFactor,
+                          0f);
+        rot = Quaternion.Euler(0f, 0f,
+            -side * endAngle * tiltFactor + side * CardsConfig.FanSwapSpinDegrees.Value);
+    }
+
+    /// <summary>
+    /// Advance the exchange and drive the OUTGOING half. The incoming half is not here: it rides
+    /// <see cref="Relayout"/>, because its target is each card's real arc home and re-deriving that
+    /// in a second place is exactly how two layout paths drift apart.
+    /// Allocation-free; unscaled time with the same hitch cap as the reveal.
+    /// </summary>
+    private void TickSwap()
+    {
+        if (_swapElapsed < 0f || _root == null)
+            return;
+        _swapElapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+
+        if (_leaving.Count > 0)
+        {
+            SwapGatherPoint(Mathf.Max(_swapOutCount, 1), 1f, out Vector3 gather, out Quaternion gatherRot);
+            float seed = Mathf.Clamp(CardsConfig.FanSwapSeedScale.Value, 0.02f, 1f);
+            float arc = Mathf.Max(0f, CardsConfig.FanSwapArc.Value);
+            float s = SwapOvershoot;
+            for (int i = 0; i < _leaving.Count; i++)
+            {
+                VRCard c = _leaving[i];
+                // A grab mid-exit wins outright: the hand owns the pose from here, and the card
+                // stays in the list so the driver still hands it back when the wave drains.
+                if (c == null || c.IsHeld)
+                    continue;
+                float t = OutProgress(_leaveIndex[i]); // wave place, not list place — see _leaveIndex
+                float e = EaseInBack(t, s);
+                Vector3 p = Vector3.LerpUnclamped(_leavePos[i], gather, e);
+                // Duck AWAY from the viewer (fan-local +Z) at mid-flight, peaking at t = 0.5 and
+                // exactly 0 at both ends — the arriving half bows the other way, so the two hands
+                // cross in depth instead of through each other.
+                p.z += arc * Mathf.Sin(t * Mathf.PI);
+                // The ROLL eases on the CLAMPED progress: a card that overshoots its roll reads as
+                // a wobble, and it is the one axis where the reversal does not help (ItemsPile).
+                Quaternion r = Quaternion.Slerp(_leaveRot[i], gatherRot, Mathf.Clamp01(e));
+                float sc = Mathf.LerpUnclamped(_leaveScale[i], seed, e);
+                c.SetHome(_root, p, r, sc, instant: true);
+            }
+        }
+
+        if (_swapElapsed >= SwapTotalSeconds(_swapOutCount, _cards.Count))
+            _swapElapsed = -1f; // the wave is spent; TryTakeLandedOutgoing has already drained it
+    }
+
+    /// <summary>
+    /// End the exchange NOW, landing everything at its finished pose. Called on every path by which
+    /// the per-frame tick could stop running: the fan CLOSES, it re-OPENS (the reveal owns the
+    /// layout from there), or it is handed a card set while closed. Deliberately NOT called by an
+    /// ordinary open-fan <see cref="SetCards"/> — a watched character's own turn churn re-runs the
+    /// driver's rebuild at nearly every frame, so that would have cut the wipe to one frame in the
+    /// only situation it exists for. Nothing is left mid-air and nothing is left in
+    /// <see cref="_leaving"/> unreported: the cards stay there for the driver's next drain, which
+    /// now sees them at progress 1 (<see cref="_swapElapsed"/> is negative).
+    /// </summary>
+    private void FinishSwap()
+    {
+        if (_swapElapsed < 0f && _leaving.Count == 0)
+            return;
+        if (_root != null && _leaving.Count > 0)
+        {
+            SwapGatherPoint(Mathf.Max(_swapOutCount, 1), 1f, out Vector3 gather, out Quaternion gatherRot);
+            float seed = Mathf.Clamp(CardsConfig.FanSwapSeedScale.Value, 0.02f, 1f);
+            for (int i = 0; i < _leaving.Count; i++)
+            {
+                VRCard c = _leaving[i];
+                if (c != null && !c.IsHeld)
+                    c.SetHome(_root, gather, gatherRot, seed, instant: true);
+            }
+        }
+        _swapElapsed = -1f;
+        _rescued.Clear();
+        _rescuePos.Clear();
+        _rescueRot.Clear();
+        _rescueScale.Clear();
+    }
+
+    /// <summary>
+    /// Where incoming card <paramref name="i"/> flies IN FROM: the deal point off the arc's
+    /// low-index end, or — for a card that was on its way OUT and got named again — exactly where
+    /// it is right now, so a mid-air turnaround is continuous rather than a teleport back to the
+    /// start line. The rescued lookup is a linear scan of a list that is empty in every ordinary
+    /// swap, and is skipped entirely when it is.
+    /// </summary>
+    private void SwapEnterSeed(VRCard card, int n, out Vector3 pos, out Quaternion rot, out float scale)
+    {
+        if (_rescued.Count > 0)
+        {
+            int r = _rescued.IndexOf(card);
+            if (r >= 0)
+            {
+                pos = _rescuePos[r];
+                rot = _rescueRot[r];
+                scale = _rescueScale[r];
+                return;
+            }
+        }
+        SwapGatherPoint(Mathf.Max(n, 1), -1f, out pos, out rot);
+        scale = Mathf.Clamp(CardsConfig.FanSwapSeedScale.Value, 0.02f, 1f);
     }
 
     // ------------------------------------------------------------------ laser pick --
