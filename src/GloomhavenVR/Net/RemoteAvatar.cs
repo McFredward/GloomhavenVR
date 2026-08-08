@@ -420,6 +420,24 @@ internal sealed class RemoteAvatar
     /// reader never sees a half-updated set.</summary>
     public int[] TrackSelectionIds { get; private set; } = System.Array.Empty<int>();
 
+    /// <summary>How many PLAYER entries the sender's OWN initiative track shows (extension record
+    /// 27); 0 = no record, which means "outside the online card-selection phase" — the window in
+    /// which vanilla's <c>CompareTo</c> sorts player entries by <c>IsUnderMyControl</c> and the
+    /// only one in which the order is per-viewer at all. Consumed by
+    /// <see cref="RemoteInitiativeTrack"/>, which re-deals the row x of ITS clone.</summary>
+    public int TrackOrderCount { get; private set; }
+
+    /// <summary>Bit k = <see cref="TrackOrderIds"/>[k] is a character the SENDER controls — the
+    /// local flag no receiver can evaluate, and the gate on whose portraits the mirrored
+    /// selection-phase "still has to choose" ring may appear.</summary>
+    public byte TrackOrderOwnedMask { get; private set; }
+
+    /// <summary>Stable ids (the shared ActorGuid hash) of the sender's PLAYER track entries, in
+    /// THEIR on-screen order. Only the first <see cref="TrackOrderCount"/> entries are meaningful;
+    /// the array is replaced wholesale on every packet that carries the record, so a reader never
+    /// sees a half-updated order.</summary>
+    public int[] TrackOrderIds { get; private set; } = System.Array.Empty<int>();
+
     /// <summary>True when the sender transmitted the board-local anchor of their open
     /// BOARD-ANCHORED fan (extension record 5). Absent ⇒ the authored default spot.</summary>
     public bool HasFanAnchor { get; private set; }
@@ -885,6 +903,26 @@ internal sealed class RemoteAvatar
         else
         {
             TrackSelectionCount = 0;
+        }
+
+        // TRACK ORDER (extension record 27): the on-screen order of the PLAYER entries on the
+        // sender's OWN track, plus which of them they control. Absent ⇒ count 0 ⇒ NO order
+        // override and NO mirrored selection-phase ring, which is right on both counts: outside
+        // the online card-selection phase every client's track sorts identically (so the mirrored
+        // arrangement is already the owner's), and outside it the cue does not exist. Never a
+        // stale permutation — the absence IS the release.
+        if (p.HasTrackOrder && p.TrackOrderIds != null && p.TrackOrderCount > 0)
+        {
+            TrackOrderIds = p.TrackOrderIds;
+            TrackOrderCount = p.TrackOrderCount < p.TrackOrderIds.Length
+                ? p.TrackOrderCount
+                : p.TrackOrderIds.Length;
+            TrackOrderOwnedMask = p.TrackOrderOwnedMask;
+        }
+        else
+        {
+            TrackOrderCount = 0;
+            TrackOrderOwnedMask = 0;
         }
 
         // WALL FADES (extension record 17): the sender's currently-faded wall set by

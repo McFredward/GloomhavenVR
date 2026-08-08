@@ -532,6 +532,38 @@ internal struct PresenceState
     /// <see cref="TrackSelectionCount"/> (the sender passes its persistent sample buffer); only the
     /// first count entries go on the wire.</summary>
     public int[]? TrackSelectionIds;
+
+
+    /// <summary>
+    /// True when this packet names the ON-SCREEN ORDER of the PLAYER entries on the sender's own
+    /// initiative track (extension record <see cref="NetProtocol.ExtIdTrackOrder"/>). Written only
+    /// inside vanilla's own per-viewer window — online AND the card-selection phase, the exact
+    /// condition <c>InitiativeTrackActorBehaviour.CompareTo</c> sorts by <c>IsUnderMyControl</c>
+    /// under — so absence means "the track order is the same on every client", which is both true
+    /// outside that window and exactly what peers predating the record render.
+    /// </summary>
+    public bool HasTrackOrder;
+
+    /// <summary>Number of valid entries in <see cref="TrackOrderIds"/> (≤
+    /// <see cref="NetProtocol.TrackOrderMaxIds"/> after clamping on both ends). Meaningful only
+    /// when <see cref="HasTrackOrder"/>.</summary>
+    public int TrackOrderCount;
+
+    /// <summary>Bit k = <see cref="TrackOrderIds"/>[k] is a character the SENDER controls
+    /// (<c>CActor.IsUnderMyControl</c>, a local flag no receiver can evaluate). Drives the mirrored
+    /// selection-phase "still has to choose" ring: whether each named character has COMMITTED is
+    /// derived on the receiver from the replicated model, so only this half rides the wire.
+    /// Meaningful only when <see cref="HasTrackOrder"/>; masked to
+    /// <see cref="NetProtocol.TrackOrderOwnedDefinedMask"/> on write and on read.</summary>
+    public byte TrackOrderOwnedMask;
+
+    /// <summary>Stable ids (<c>NetFigures.StableActorId</c> — the ActorGuid hash, the one id space
+    /// that agrees across machines) of the sender's PLAYER track entries, in THEIR on-screen order.
+    /// Player entries only: vanilla's ownership branch requires both sides to be player actors, so
+    /// the enemy block never permutes and costs nothing. May be longer than
+    /// <see cref="TrackOrderCount"/> (the sender passes its persistent sample buffer); only the
+    /// first count entries go on the wire.</summary>
+    public int[]? TrackOrderIds;
 }
 
 /// <summary>
@@ -624,6 +656,13 @@ internal struct PresenceState
 ///                        wire because it can embed active-bonus card names), and per option
 ///                        offered / dimmed / chosen, index-aligned with record 12's lines; written
 ///                        on record 12's own gate, see NetProtocol.ExtIdDecisionState)
+///                        27 TRACK ORDER ([count][ownedMask][count × int32 actorId LE] — the
+///                        on-screen order of the PLAYER entries on the sender's OWN initiative
+///                        track, by the stable ActorGuid hash, plus which of them they control;
+///                        written only while online AND in the card-selection phase, the exact
+///                        window vanilla's CompareTo sorts by IsUnderMyControl in, ≤6 ids, see
+///                        NetProtocol.ExtIdTrackOrder. Ids 25 and 26 are assigned to records
+///                        developed in parallel.)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -665,7 +704,8 @@ internal static class PresenceSerializer
     /// + 11 (character focus: 2 + its 9-byte maximum — the 5-byte form plus the flag-guarded
     /// attention-actor id)
     /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap)
-    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap) = 859.
+    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap)
+    /// + 28 (track order: 2 + count 1 + owned mask 1 + 4 × its 6-id cap) = 887.
     ///
     /// <para>RAISED 848 → 1280 on 2026-08-08, deliberately and ahead of need rather than on a crash.
     /// Three records landed in one round (22's attention tail, 23 track selection, 24 decision state)
@@ -679,7 +719,9 @@ internal static class PresenceSerializer
     /// only stops the cap itself from being the thing that silently drops a record.</para>
     ///
     /// <para>THE RULE THAT COMES WITH IT: every new record adds its worst case to the sum above IN
-    /// ITS OWN COMMIT, and keeps a margin of at least one record's worth.</para></summary>
+    /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
+    /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
+    /// every optional record on the tail put together.</para></summary>
     public const int MaxSize = 1280;
 
     // ---- write --------------------------------------------------------------------------
@@ -727,6 +769,12 @@ internal static class PresenceSerializer
                           // either — same rule as the wall-fade set.
                           || (state.HasTrackSelection && state.TrackSelectionCount > 0
                               && state.TrackSelectionIds != null)
+                          // An EMPTY order writes no record, so it must not open the tail either.
+                          // The sampler already returns 0 outside the online card-selection phase,
+                          // which is what keeps every packet of every other phase byte-identical
+                          // to a pre-record-27 sender's.
+                          || (state.HasTrackOrder && state.TrackOrderCount > 0
+                              && state.TrackOrderIds != null)
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
@@ -1171,6 +1219,34 @@ internal static class PresenceSerializer
                         for (int o = 0; o < n; o++)
                             buffer[i++] = (byte)(state.DecisionOptionFlags![o]
                                                  & NetProtocol.DecisionOptionDefinedMask);
+                        records++;
+                    }
+                }
+                if (state.HasTrackOrder && state.TrackOrderIds != null && state.TrackOrderCount > 0)
+                {
+                    // TRACK ORDER (27): [count][ownedMask][count × int32 actorId LE] — the
+                    // on-screen order of the PLAYER entries on the sender's OWN track, read off
+                    // the live widget's sibling order, plus which of them they control. The order
+                    // is per-viewer for exactly one reason and in exactly one window: vanilla's
+                    // CompareTo sorts player entries by IsUnderMyControl while online AND in
+                    // SelectAbilityCardsOrLongRest (InitiativeTrackActorBehaviour.cs:160-171), so
+                    // the sampler writes nothing outside it and an idle packet is byte-identical
+                    // to a pre-record sender's. Count is clamped to the cap AND the caller's
+                    // buffer, and the mask to the bits the cap can define, before a byte goes out.
+                    int n = state.TrackOrderCount;
+                    if (n > NetProtocol.TrackOrderMaxIds)
+                        n = NetProtocol.TrackOrderMaxIds;
+                    if (n > state.TrackOrderIds.Length)
+                        n = state.TrackOrderIds.Length;
+                    if (n > 0 && i + 2 + 2 + 4 * n <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdTrackOrder;
+                        buffer[i++] = (byte)(2 + 4 * n);
+                        buffer[i++] = (byte)n;
+                        buffer[i++] = (byte)(state.TrackOrderOwnedMask
+                                             & NetProtocol.TrackOrderOwnedDefinedMask);
+                        for (int k = 0; k < n; k++)
+                            AvatarSerializer.WriteI32(buffer, ref i, state.TrackOrderIds[k]);
                         records++;
                     }
                 }
@@ -1809,6 +1885,52 @@ internal static class PresenceSerializer
                                 state.HasTrackSelection = true;
                                 state.TrackSelectionCount = kept;
                                 state.TrackSelectionIds = ids;
+                            }
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdTrackOrder
+                             && len >= NetProtocol.TrackOrderMinRecordBytes)
+                    {
+                        // TRACK ORDER: [count][ownedMask][count × int32 actorId LE]. The count is
+                        // re-clamped against the record LENGTH and the cap (never trust the wire),
+                        // and the mask against the bits the cap can define.
+                        //
+                        // THE MASK IS INDEX-ALIGNED WITH THE IDS, which is why a dropped sentinel
+                        // id has to take its bit with it: id 0 is "none" everywhere in this system
+                        // and can never name an entry, so it is compacted out — and the mask is
+                        // REBUILT over the surviving indices rather than passed through, because a
+                        // pass-through would silently shift ownership onto the wrong character.
+                        // Zero surviving ids degrade to "record absent" = no order override and no
+                        // mirrored selection ring, which is exactly what a pre-record sender
+                        // produces.
+                        int n = buffer[i];
+                        byte ownedWire = (byte)(buffer[i + 1] & NetProtocol.TrackOrderOwnedDefinedMask);
+                        int fit = (len - 2) / 4;
+                        if (n > fit)
+                            n = fit;
+                        if (n > NetProtocol.TrackOrderMaxIds)
+                            n = NetProtocol.TrackOrderMaxIds;
+                        if (n > 0)
+                        {
+                            var ids = new int[n];
+                            int j = i + 2;
+                            int kept = 0;
+                            byte owned = 0;
+                            for (int k = 0; k < n; k++)
+                            {
+                                int actorId = AvatarSerializer.ReadI32(buffer, ref j);
+                                if (actorId == 0)
+                                    continue;
+                                if ((ownedWire & (1 << k)) != 0)
+                                    owned |= (byte)(1 << kept);
+                                ids[kept++] = actorId;
+                            }
+                            if (kept > 0)
+                            {
+                                state.HasTrackOrder = true;
+                                state.TrackOrderCount = kept;
+                                state.TrackOrderOwnedMask = owned;
+                                state.TrackOrderIds = ids;
                             }
                         }
                     }

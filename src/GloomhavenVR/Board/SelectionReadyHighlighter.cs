@@ -52,6 +52,26 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
     private const float MinAlpha = 0.40f;
     private const float MaxAlpha = 0.90f;
 
+    /// <summary>
+    /// The breathing alpha of the "still has to choose" ring at this instant — extracted from
+    /// <see cref="Tick"/> so there is exactly ONE clock and ONE amplitude for this cue.
+    ///
+    /// <para>The second reader is <c>Net.RemoteInitiativeTrack</c>: a peer's MIRRORED track has to
+    /// draw the ring for the characters THAT board's owner still owes cards for, and a copy that
+    /// breathed on its own clock would read as two different cues on two surfaces of one table.
+    /// Its period is <c>PulsePeriod</c>, i.e. the 1.5 s every attention cue in the mod shares
+    /// (<c>Board.FocusCue.BlinkHz</c>), on <c>Time.unscaledTime</c> so it keeps animating while the
+    /// game is time-paused during the selection camera move.</para>
+    /// </summary>
+    internal static float PulseAlpha
+    {
+        get
+        {
+            float t = (Mathf.Sin(Time.unscaledTime * (2f * Mathf.PI / PulsePeriod)) + 1f) * 0.5f;
+            return Mathf.Lerp(MinAlpha, MaxAlpha, t);
+        }
+    }
+
     private static ConfigEntry<bool>? _enabled;
 
     private readonly List<CPlayerActor> _pending = new(8);
@@ -139,9 +159,7 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
         }
 
         // Highlight the pending actors' initiative-bar entries, clearing any that just committed.
-        float t = (Mathf.Sin(Time.unscaledTime * (2f * Mathf.PI / PulsePeriod)) + 1f) * 0.5f;
-        float alpha = Mathf.Lerp(MinAlpha, MaxAlpha, t);
-        InitiativeSelectionGlow.Apply(_pending, alpha);
+        InitiativeSelectionGlow.Apply(_pending, PulseAlpha);
 
         LogIfChanged(players);
     }

@@ -2121,6 +2121,20 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 /// Entries are pooled/reused by the game, so we re-resolve pending → entry every tick and hide any
 /// ring whose entry is no longer pending; rings are kept (deactivated) for cheap reuse and only
 /// destroyed on <see cref="Reset"/> (module hot-reload).
+///
+/// <para>MULTIPLAYER — THIS CUE IS PER-VIEWER, and it leaked (1:1 board audit, 2026-08-08). The
+/// pending set comes from <c>SelectionReadyHighlighter</c> filtered by
+/// <c>IsUnderControlOrSingle()</c>, so these rings exist ONLY for actors the LOCAL player controls.
+/// They are plain <c>Image</c>s parented under the track's portraits, and a peer's mirrored board
+/// clones that whole track (<c>Net.RemoteWidgetMirror</c>) — so <c>Instantiate</c> copied them and
+/// <c>Pair.Apply</c> drove their active flag and colour, putting the OBSERVER's ring set on every
+/// peer's board while the board owner's never appeared. <c>Net.RemoteInitiativeTrack</c> fixes both
+/// halves: it forces the cloned ring OFF (resolved by reference through
+/// <see cref="LiveRingRectOf"/>, never by name) and lights its own for the OWNER's still-choosing
+/// characters, using <see cref="PendingRingTint"/> and <see cref="RingOutsetPixels"/> so the copy
+/// is the same amber, the same size and the same breath as this original. Anything added here that
+/// changes what the ring LOOKS like should go through those two members, or the mirror will drift
+/// from the cue it is a picture of.</para>
 /// </summary>
 internal static class InitiativeSelectionGlow
 {
@@ -2129,6 +2143,47 @@ internal static class InitiativeSelectionGlow
 
     /// <summary>Ring outset (uGUI px) past the portrait rect, so the frame sits in the margin band.</summary>
     private const float OutsetPixels = 8f;
+
+    /// <summary>The same outset, for the ONE other surface that has to reproduce this cue at the
+    /// same size: a peer's MIRRORED initiative track (<c>Net.RemoteInitiativeTrack</c>), which
+    /// builds the board owner's ring with <c>Board.UiRing</c> and must not draw it at that class's
+    /// own wider 13 px band — see <c>UiRing.Build</c>'s outset parameter.</summary>
+    internal const float RingOutsetPixels = OutsetPixels;
+
+    /// <summary>
+    /// The ring colour at its current breathing alpha — the exact pixel this cue is showing on the
+    /// LOCAL track this frame, for the one surface that has to REPRODUCE it: a peer's mirrored
+    /// track. One palette (<see cref="GlowColor"/>) and one clock
+    /// (<c>SelectionReadyHighlighter.PulseAlpha</c>), so the mirrored ring and the local one can
+    /// never breathe out of step or in different ambers.
+    /// </summary>
+    internal static Color PendingRingTint()
+    {
+        Color c = GlowColor;
+        c.a = Board.SelectionReadyHighlighter.PulseAlpha;
+        return c;
+    }
+
+    /// <summary>
+    /// The LIVE ring this cue has built on <paramref name="entry"/>, or null when it never lit one
+    /// (the common case for an entry the LOCAL player does not control — which is exactly the
+    /// asymmetry that made this cue leak).
+    ///
+    /// <para>Its ONE caller is <c>Net.RemoteInitiativeTrack</c>, which needs the SOURCE node in
+    /// order to ask <c>RemoteWidgetMirror.CloneOf</c> for the clone of it and force that clone OFF:
+    /// the mirror clones the whole track subtree, this ring included, and <c>Pair.Apply</c> copies
+    /// its active flag and colour like any other Graphic — so without this the OBSERVER's amber
+    /// rings stood on every peer's board while the owner's never did. Resolved by REFERENCE from
+    /// this class's own table, never by searching the hierarchy for a name.</para>
+    /// </summary>
+    internal static RectTransform? LiveRingRectOf(InitiativeTrackActorBehaviour? entry)
+    {
+        if (entry == null)
+            return null;
+        return s_rings.TryGetValue(entry, out Image ring) && ring != null
+            ? ring.transform as RectTransform
+            : null;
+    }
 
     /// <summary>Peak of the breathing scale pulse (1 = portrait+outset size). Subtle, in-theme.</summary>
     private const float ScalePulse = 0.05f;
