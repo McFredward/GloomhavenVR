@@ -1189,7 +1189,7 @@ internal sealed class RemoteBoardFurniture
         if (use != _appliedUseWire)
         {
             _appliedUseWire = use;
-            _use.SetLabel(use ?? Loc.Game("GUI_USE", "USE").ToUpperInvariant());
+            _use.SetLabel(use ?? Loc.Mod("item_use_area").ToUpperInvariant());
         }
     }
 
@@ -1338,7 +1338,7 @@ internal sealed class RemoteBoardFurniture
         _appliedSkipWire = null;
         _appliedUndoWire = null;
         _appliedUseWire = null;
-        _use.SetLabel(Loc.Game("GUI_USE", "USE").ToUpperInvariant());
+        _use.SetLabel(Loc.Mod("item_use_area").ToUpperInvariant());
         // FOLLOW/PIN is SYNCED state now (see SetPinned), so a language switch must re-state the
         // CURRENT mode's word, not the FOLLOW one — and must re-arm the change gate so the next
         // refresh re-applies it in the new language.
@@ -1377,11 +1377,16 @@ internal sealed class RemoteBoardFurniture
             BoardVisual.Unlit(new Color(0.12f, 0.10f, 0.08f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
 
+        // LABEL, not keycap — the mirror of the local restyle (user report 2026-08-08, "Das 'Use'
+        // unten drunter erscheint eher wie ein button"): the pile captions' muted parchment tone,
+        // their 0.095 × 0.024 fit box at a 0.22 ceiling, and NO bold. The peer's board must show the
+        // owner's board, so the two builders keep the same numbers — the full styling rationale is
+        // written once, at PlayTray.BuildItemUseSlot.
         TextMeshPro caption = RemoteBoardContent.Label(root, "Label",
             new Vector3(0f, -(ItemCardH * 0.5f + 0.026f), -0.001f),
-            new Vector2(ItemCardW * 1.1f, 0.030f), 0.05f,
-            new Color(1f, 0.92f, 0.72f), TextAlignmentOptions.Center, FontStyles.Bold);
-        caption.text = Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+            new Vector2(0.095f, 0.024f), 0.22f,
+            new Color(0.85f, 0.8f, 0.7f), TextAlignmentOptions.Center);
+        caption.text = Loc.Mod("item_use_area").ToUpperInvariant();
         // MR readability parity with the owner's board: the local item-use caption below the
         // recess is MrBacking.Label'd (PlayTray.4.Slots), because it hangs below the recess in
         // open air — over the passthrough room in MR. Same treatment for its mirror; the fitted

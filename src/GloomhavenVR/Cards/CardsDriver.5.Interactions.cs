@@ -67,17 +67,30 @@ internal sealed partial class CardsDriver
     /// the board nor proximity-grab a bystander card, and it yields to a live game-UI hit like
     /// every other trigger owner. Runs BEFORE <see cref="UpdatePalmGate"/> in the tick so a
     /// dominant→gate handover blocks the fan the very same frame. Allocation-free.
+    ///
+    /// <para>ITEM CARDS TOO (user ruling 2026-08-08: "Auch Item-Karten sollen (wie die normalen
+    /// Karten auch) in die linke Hand genommen werden können und Hände getauscht werden können. Sie
+    /// sollen also wie normale Karten reagieren"). The detector used to type-test <see cref="VRCard"/>
+    /// and nothing else, so a held <c>ItemsPile.ItemChip</c> was simply not a transferable object —
+    /// there was no gesture at all, in either direction. Everything this method needs is already on
+    /// the shared <see cref="IFanSweepTarget"/> surface both card kinds implement (a live collider
+    /// to touch, a world face width for the reach), so the whole gesture — hover, haptic,
+    /// hysteresis, trigger claim — is now literally the same code for both; only the COMMIT forks,
+    /// because the two kinds route their release through different owners
+    /// (<see cref="TransferHeldCard"/> vs <c>ItemsPile.TransferHeldChip</c>).</para>
     /// </summary>
     private void UpdateHeldCardTransfer()
     {
         VRHand? left = VRHands.Left;
         VRHand? right = VRHands.Right;
-        VRCard? leftCard = left != null ? left.Grabber.Held as VRCard : null;
-        VRCard? rightCard = right != null ? right.Grabber.Held as VRCard : null;
+        // The transferable shapes: an ability card or an item chip, in EITHER hand. Both are
+        // GrabbableBehaviours implementing IFanSweepTarget, which is the only surface used below.
+        IFanSweepTarget? leftCard = HeldTransferable(left);
+        IFanSweepTarget? rightCard = HeldTransferable(right);
         // Exactly one hand must hold a card and the other must be free — two held cards
         // (possible since the both-hands rule) simply means no hand is free to receive.
         VRHand? holder = leftCard != null ? left : rightCard != null ? right : null;
-        VRCard? held = leftCard != null ? leftCard : rightCard;
+        IFanSweepTarget? held = leftCard ?? rightCard;
         VRHand? free = ReferenceEquals(holder, left) ? right : left;
         if (held == null || holder == null || free == null || !free.HasPose
             || free.Grabber.Held != null || _modalInputBlocked)
@@ -88,7 +101,7 @@ internal sealed partial class CardsDriver
 
         // Touch test against the held card's own collider (enabled while held — the grab keeps
         // it live for exactly this kind of physical query), scale-aware via the shared reach.
-        var target = (IFanSweepTarget)held;
+        IFanSweepTarget target = held;
         if (!target.TrySweepDistance(free.Rig.IndexTip.position, out float tipDist)
             || !target.TrySweepDistance(free.Rig.PalmCenter.position, out float palmDist))
         {
@@ -114,7 +127,7 @@ internal sealed partial class CardsDriver
             if (Time.unscaledTime >= _nextTransferLogAt)
             {
                 _nextTransferLogAt = Time.unscaledTime + 1f;
-                VRLog.Info("Cards", $"Hand transfer hover: {free.Side} hand at '{held.name}' held by " +
+                VRLog.Info("Cards", $"Hand transfer hover: {free.Side} hand at '{target.SweepName}' held by " +
                                     $"{holder.Side} (tip {reach.Cm(tipDist):F1} cm / palm " +
                                     $"{reach.Cm(palmDist):F1} cm) — trigger hands the card over.");
             }
@@ -126,8 +139,25 @@ internal sealed partial class CardsDriver
             free.Ray.SuppressFarClick();
         if (free.RayUgui.HasHit)
             return; // genuinely nearer game UI keeps the trigger, as everywhere else
-        if (free.TriggerDown)
-            TransferHeldCard(held, holder, free);
+        if (!free.TriggerDown)
+            return;
+        // ONE gesture, two owners: an ability card is handed over by this driver (it owns the
+        // release routing that must be skipped), an item chip by its pile (same reason — its
+        // OnRelease is where the clip-in / glide-home routing lives). See both methods.
+        if (held is VRCard card)
+            TransferHeldCard(card, holder, free);
+        else if (held is ItemsPile.ItemChip chip)
+            chip.Owner?.TransferHeldChip(chip, holder, free);
+    }
+
+    /// <summary>The held object of <paramref name="hand"/> when it is a card the player may hand to
+    /// the other hand — an ability <see cref="VRCard"/> or an <c>ItemsPile.ItemChip</c> — else null.
+    /// Both expose the physical surface the transfer gesture needs through
+    /// <see cref="IFanSweepTarget"/>, so the detector never needs their concrete types again.</summary>
+    private static IFanSweepTarget? HeldTransferable(VRHand? hand)
+    {
+        IGrabbable? held = hand != null ? hand.Grabber.Held : null;
+        return held is VRCard or ItemsPile.ItemChip ? held as IFanSweepTarget : null;
     }
 
     /// <summary>

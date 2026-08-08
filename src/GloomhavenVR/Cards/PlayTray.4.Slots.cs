@@ -315,19 +315,37 @@ internal sealed partial class PlayTray
         // footprint, one half-card below the recess plus a margin, so there is no overlap left to
         // fight over at any viewing angle. It is a label for the slot, and a slot's label belongs
         // under it — which is also what the user asked for ("er soll fix unter der Karte bleiben").
+        //
+        // …AND IT IS A LABEL, NOT A KEYCAP (user report 2026-08-08: "Das 'Use' unten drunter
+        // erscheint eher wie ein button (was er nicht ist), überarbeite daher nochmal die visuelle
+        // Darstellung"). The caption was styled in the mod's BUTTON voice — bright keycap cream
+        // (1, 0.92, 0.72), the same tone the Confirm/Undo/Use caps wear, fitted into a 3 cm-tall box
+        // so the glyphs came out roughly twice the height of the pile captions right beside it. Next
+        // to a REAL "USE" keycap in the Confirm/Undo column carrying the very same word, that read as
+        // a second, pressable button — and poking it does nothing, because it is engraving.
+        //
+        // It now wears the board's CAPTION voice, byte-for-byte the one the three pile stacks use
+        // ("ABGEWORFEN" / "VERBRANNT" / "GEGENSTÄNDE" — PileViewer.PileStack.Create): the same muted
+        // parchment colour, the same native HUD font, and the SAME fit box and font ceiling, so at
+        // the shipped pile scale the glyphs come out the same physical size. One glance now sorts the
+        // board into "things you press" (bright caps, raised faces) and "things that name a zone"
+        // (muted engraving under the zone) — and this is the latter.
         var labelGo = new GameObject("Label");
         labelGo.transform.SetParent(go.transform, worldPositionStays: false);
         labelGo.transform.localPosition = new Vector3(0f, -(h * 0.5f + ItemUseLabelDrop), -0.002f);
         var label = labelGo.AddComponent<TextMeshPro>();
-        // "USE" — localized from the game's own use-item bar key, safe English fallback, uppercased.
-        label.text = Core.Loc.Game("GUI_USE", "USE").ToUpperInvariant();
+        // MOD string, not Loc.Game("GUI_USE"): that key does not resolve in this build, so the
+        // English fallback shipped and a German board read "USE" (see Loc's item_use_area note).
+        label.text = Core.Loc.Mod("item_use_area").ToUpperInvariant();
         label.alignment = TextAlignmentOptions.Center;
-        label.color = new Color(1f, 0.92f, 0.72f);
+        label.color = ItemUseLabelColor;
         WorldUI.NativeButtonSkin.ApplyFont(label);
-        // Fit into the strip BELOW the card, not into the card's own height — a box as tall as the
-        // card would let TMP grow the glyphs back up across the recess and undo the separation.
-        Core.TmpFit.Fit(label, w * 1.1f, ItemUseLabelHeight, maxFontSize: 0.16f, wrap: false);
-        // Parked OUTSIDE the recess (above) means nothing is behind it any more — back it in MR.
+        // The pile captions' own fit call. Note it is WIDER and SHORTER than the card-width box that
+        // used to be here: the width is what stops a long word ("BENUTZEN") from being squeezed, and
+        // the 2.4 cm height is what keeps the glyphs at caption size instead of letting TMP grow them
+        // to keycap size in the empty strip below the recess.
+        Core.TmpFit.Fit(label, ItemUseLabelWidth, ItemUseLabelHeight, maxFontSize: 0.22f, wrap: false);
+        // Parked OUTSIDE the recess (below) means nothing is behind it any more — back it in MR.
         WorldUI.MrBacking.Label(label);
 
         // Requirement 9a: the item "Use" confirm is no longer a bespoke keycap beside the slot — it is a

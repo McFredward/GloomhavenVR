@@ -295,10 +295,24 @@ internal sealed partial class PlayTray
     /// as the card itself, so nothing ever overlaps the clipped-in card — see BuildItemUseSlot.</summary>
     private const float ItemUseLabelDrop = 0.026f;
 
-    /// <summary>Height budget the "USE" caption is fitted into — the strip BELOW the recess, not the
-    /// card's own height (see BuildItemUseSlot for why fitting it to the card height re-created the
-    /// overlap the drop is there to prevent).</summary>
-    private const float ItemUseLabelHeight = 0.030f;
+    /// <summary>Height budget the item-use caption is fitted into — the strip BELOW the recess, not
+    /// the card's own height (see BuildItemUseSlot for why fitting it to the card height re-created
+    /// the overlap the drop is there to prevent).
+    ///
+    /// <para>The value is the PILE CAPTIONS' own (PileViewer.PileStack.Create fits "ABGEWORFEN" /
+    /// "VERBRANNT" / "GEGENSTÄNDE" into 0.095 × 0.024 at a 0.22 ceiling, on stacks whose shipped
+    /// scale is 1). Sharing the box is what makes the recess caption the same physical size as the
+    /// pile captions instead of the keycap-sized text the user read as a button — see the styling
+    /// note in BuildItemUseSlot.</para></summary>
+    private const float ItemUseLabelHeight = 0.024f;
+
+    /// <inheritdoc cref="ItemUseLabelHeight"/>
+    private const float ItemUseLabelWidth = 0.095f;
+
+    /// <summary>The board's CAPTION colour — muted parchment, the pile captions' own tone. The
+    /// bright keycap cream (1, 0.92, 0.72) it replaced is reserved for things that are actually
+    /// pressable (see BuildItemUseSlot).</summary>
+    private static readonly Color ItemUseLabelColor = new(0.85f, 0.8f, 0.7f);
 
     /// <summary>Fixed base local position of the round readout ('Runde N', top-right).</summary>
     internal static Vector3 ReadoutBase => new(ButtonZoneX, 0.125f, -FixedProudZ);
