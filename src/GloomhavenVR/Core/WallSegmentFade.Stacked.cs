@@ -111,6 +111,15 @@ namespace GloomhavenVR.Core;
 ///   changes, so the unfadeable-wall TRIPWIRE (shader names of such masonry) finally
 ///   reaches the log.</item>
 /// </list>
+///
+/// ROUND 15 SUPERSEDES THE "DELIVERY TRUTH" BULLET ABOVE. <c>renderer.enabled = false</c> is
+/// still the final guarantee, but it is no longer the visible mechanism: every stacked piece
+/// now gets a real dissolve first (see WallSegmentFade.Dissolve.cs). The masonry DOES carry the
+/// Amp fade subgraph behind a live <c>_WallFade_On</c> toggle — it was simply being driven with
+/// the foliage <c>_Cutoff</c> lerp instead of the wall renderers' map/_Cutoff ramp, which is
+/// exactly why the gate's courses popped. Toggle-native pieces are driven natively now, the
+/// rest get the material swap, and the per-segment DISSOLVE CENSUS line names anything that
+/// still cannot dissolve, with the reason.
 /// </summary>
 internal static partial class WallSegmentFade
 {
@@ -352,8 +361,11 @@ internal static partial class WallSegmentFade
                     if (p.Renderer.enabled)
                     {
                         // Fresh arrival during the held state: park the material/particle
-                        // ramp at the hidden end first, then the guaranteed disable.
+                        // ramp at the hidden end first, then the guaranteed disable. The
+                        // channel is established HERE too (round 15) so the piece is parked in
+                        // the native held look and its RETURN edge animates from frame one.
                         _mountedTouched[p.Renderer] = p;
+                        EnsureDissolveChannel(p);
                         DriveProp(p, 1f);
                         p.Renderer.enabled = false;
                     }
@@ -361,7 +373,7 @@ internal static partial class WallSegmentFade
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
-                    TryBeginSwap(p); // round 11: everything that fades animates
+                    EnsureDissolveChannel(p); // round 15: everything that fades animates
                     DriveProp(p, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
@@ -501,6 +513,7 @@ internal static partial class WallSegmentFade
                     NoteOwnershipChange(r,
                         $"corner-fast:'{(corner.Anchor != null ? corner.Anchor.name : "?")}'");
                     _mountedTouched[r] = cprop;
+                    EnsureDissolveChannel(cprop); // round 15: parked native, animates on return
                     DriveProp(cprop, 1f);
                     r.enabled = false;
                     claimed++;
@@ -527,6 +540,7 @@ internal static partial class WallSegmentFade
                 NoteOwnershipChange(r,
                     $"stacked-fast:'{(best.Anchor != null ? best.Anchor.name : "?")}'");
                 _mountedTouched[r] = prop;
+                EnsureDissolveChannel(prop); // round 15: parked native, animates on return
                 DriveProp(prop, 1f);
                 r.enabled = false;
                 claimed++;
@@ -1014,8 +1028,7 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 _mountedTouched[r] = cp.Prop;
-                if (fade < FoliageHideFade)
-                    TryBeginSwap(cp.Prop); // round 11: corner pieces animate too
+                EnsureDissolveChannel(cp.Prop); // round 15: corner pieces animate too
                 DriveProp(cp.Prop, fade);
                 if (fade >= FoliageHideFade)
                 {

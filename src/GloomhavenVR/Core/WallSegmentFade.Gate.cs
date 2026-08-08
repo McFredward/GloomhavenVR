@@ -76,6 +76,19 @@ namespace GloomhavenVR.Core;
 /// segment still hiding pieces while the live coverage says off, and which mechanism is
 /// holding it. The arch itself (door leaf, frame trims, sign, arch torches) is untouched by
 /// all of this — it never fades.
+///
+/// ROUND 15 — THE ANIMATION (user: "Die Mauer über dem Torbogen verschwindet jetzt und taucht
+/// wieder auf wie gewollt, allerdings OHNE Animation!"). Rounds 10–14 got the gate's six
+/// embedding courses to hide and return; they did it by popping. A gate column owns ZERO wall
+/// renderers, so <c>Apply</c>'s native MPB ramp (which writes <c>Segment.Renderers</c>) reaches
+/// nothing, and its pieces were delivered as <see cref="MountedProp"/>s through
+/// <c>DriveProp</c>'s foliage <c>_Cutoff</c> lerp — a clip value with no occlusion map and no
+/// fade gate, which the Amp masonry subgraph does not read as a dissolve. The round-11 material
+/// swap declined them for the very reason that made them pop: their materials DO carry a live
+/// wall-fade toggle, so it deferred to a "native path" that no gate column has. The channel
+/// decision now lives in WallSegmentFade.Dissolve.cs and drives such pieces with the wall
+/// renderers' own map/_Cutoff ramp, so the gate's masonry dissolves on both edges like every
+/// other wall. The arch is unaffected — it still never fades.
 /// </summary>
 internal static partial class WallSegmentFade
 {

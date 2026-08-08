@@ -608,6 +608,7 @@ internal static partial class WallSegmentFade
             _ownershipChanges.Clear();       // fresh churn ledger per scene
             _masonryFadeShader = null;       // re-capture the dissolve-swap template
             _swapTotal = 0;
+            _nativeTotal = 0;
             _nextSwapLog = 0f;
             _archRects.Clear();              // arch protection dies with the scene…
             _gateMemory.Clear();             // …and so does the reborn-gate state memory
@@ -1207,7 +1208,7 @@ internal static partial class WallSegmentFade
         /// name(s) + variant and which held-state math therefore applies (rare event —
         /// unthrottled on purpose so hardware logs pin each fade to its variant).
         /// </summary>
-        private static void LogStateFlip(Segment seg)
+        private void LogStateFlip(Segment seg)
         {
             string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
             if (!seg.FromWallCache)
@@ -1236,7 +1237,12 @@ internal static partial class WallSegmentFade
                     $"{rl}; +{seg.Foliage.Count} foliage, " +
                     $"+{seg.Siblings.Count} asset-sibling(s), +{seg.Mounted.Count} mounted " +
                     $"prop(s) [{MountedNames(seg)}], +{seg.Stacked.Count} stacked shell " +
-                    $"piece(s), +{seg.Body.Count} plain body mesh(es) [enabled-only]) — " +
+                    $"piece(s), +{seg.Body.Count} plain body mesh(es); " +
+                    // ROUND 15: the blanket '[enabled-only]' marker was a lie once the
+                    // attachments learned to dissolve — it is now the live channel breakdown,
+                    // and 'enabled-only 0' is the proof that nothing in this fade pops. The
+                    // DISSOLVE CENSUS line names any remainder and why.
+                    $"delivery: {DissolveBreakdown(seg)}) — " +
                     $"held state: " +
                     cutoff + " → " +
                     (seg.VariantHigh
@@ -1370,34 +1376,79 @@ internal static partial class WallSegmentFade
             }
         }
 
+        /// <summary>Put ONE asset sibling back exactly as authored: its dissolve channel undone
+        /// (authored materials back, our copies destroyed), property block cleared, renderer
+        /// visible again. Round 15 — before that, siblings were a pure enabled toggle.</summary>
+        private static void RestoreSiblingProp(Segment seg, MeshRenderer? r)
+        {
+            if (r == null)
+                return;
+            if (seg.SiblingProps.TryGetValue(r, out MountedProp? p))
+            {
+                seg.SiblingProps.Remove(r);
+                bool wroteBlock = p.NativeFade || p.ColorId >= 0 || p.CutoffId >= 0
+                    || p.DissolveControlId >= 0;
+                RestorePropSwap(p, r);
+                if (wroteBlock)
+                    r.SetPropertyBlock(null);
+            }
+            if (!r.enabled)
+                r.enabled = true;
+        }
+
         /// <summary>Restore ALL of a segment's asset siblings (doors/trim of a mixed asset) —
         /// called on every path where the segment stops owning them (unfade, segment drop,
         /// group split, toggle-off, teardown), so no door can stay hidden without an owner.
-        /// enabled-toggle only; nothing else was ever touched on these renderers.</summary>
+        /// Round 15: also undoes their dissolve channel, and sweeps records whose renderer died
+        /// so a material copy can never leak.</summary>
         private static void RestoreSegmentSiblings(Segment seg)
         {
             if (seg.SiblingState == 0)
                 return;
             seg.SiblingState = 0;
             foreach (MeshRenderer s in seg.Siblings)
+                RestoreSiblingProp(seg, s);
+            // Anything still recorded is no longer in the sibling list (asset churn / a dead
+            // renderer): our copies must die with it either way, and a survivor is fully
+            // re-authorized here rather than left swapped with no owner.
+            foreach (MountedProp p in seg.SiblingProps.Values)
             {
-                if (s != null && !s.enabled)
-                    s.enabled = true;
+                Renderer r = p.Renderer;
+                bool wroteBlock = p.NativeFade || p.ColorId >= 0 || p.CutoffId >= 0
+                    || p.DissolveControlId >= 0;
+                RestorePropSwap(p, r);
+                if (r == null)
+                    continue;
+                if (wroteBlock)
+                    r.SetPropertyBlock(null);
+                if (!r.enabled)
+                    r.enabled = true;
             }
+            seg.SiblingProps.Clear();
         }
 
         /// <summary>
-        /// Hide the segment's asset siblings exactly while the segment holds fully faded
-        /// (Torbogen ruling: the WHOLE doorway asset disappears, not just its shader-matched
-        /// frame/pillars). No dissolve ramp — siblings run arbitrary opaque shaders where a
-        /// cutoff MPB means nothing, so they switch off at the END of the wall's dissolve
-        /// (same threshold as the foliage held state) and back on the moment the fade drops.
+        /// Dissolve the segment's asset siblings alongside its fade (Torbogen ruling: the WHOLE
+        /// doorway asset disappears, not just its shader-matched frame/pillars).
+        ///
+        /// ROUND 15 — siblings were the last enabled-only class: they stayed fully solid through
+        /// the dissolve and switched off at the end, on the (round-3) assumption that "siblings
+        /// run arbitrary opaque shaders where a cutoff MPB means nothing". That assumption is
+        /// what the gate bug disproved for every attachment type — a channel-less material gets
+        /// COPIES on the game's masonry fade shader, a toggle-native one gets the wall's own
+        /// map/_Cutoff ramp (see WallSegmentFade.Dissolve.cs). So they ramp now, on both edges,
+        /// with the guaranteed renderer-disable still at the end of the sweep.
         /// </summary>
         private void ApplySiblings(Segment seg)
         {
             if (seg.Siblings.Count == 0)
+            {
+                if (seg.SiblingState != 0)
+                    RestoreSegmentSiblings(seg);
                 return;
-            if (seg.Fade < FoliageHideFade)
+            }
+            int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
+            if (want == 0)
             {
                 RestoreSegmentSiblings(seg);
                 return;
@@ -1406,10 +1457,26 @@ internal static partial class WallSegmentFade
             // steady state this is one enabled compare per sibling.
             foreach (MeshRenderer s in seg.Siblings)
             {
-                if (s != null && s.enabled)
-                    s.enabled = false;
+                if (s == null)
+                    continue;
+                if (!seg.SiblingProps.TryGetValue(s, out MountedProp? p))
+                {
+                    p = ClassifyProp(s);
+                    seg.SiblingProps[s] = p;
+                }
+                EnsureDissolveChannel(p);
+                DriveProp(p, seg.Fade);
+                if (want == 2)
+                {
+                    if (s.enabled)
+                        s.enabled = false;
+                }
+                else if (!s.enabled)
+                {
+                    s.enabled = true;
+                }
             }
-            seg.SiblingState = 2;
+            seg.SiblingState = want;
         }
 
         /// <summary>
@@ -1466,6 +1533,14 @@ internal static partial class WallSegmentFade
             ApplyMounted(seg);
             ApplyStacked(seg);
             ApplyBody(seg);
+            // ROUND-15 DISSOLVE CENSUS: the appliers above have just established each piece's
+            // dissolve channel, so this is the moment the breakdown is true. Logged once per
+            // fade episode (whatever drove it — local decision, peer sync, gate lift), re-logged
+            // only when the enabled-only count changes. See WallSegmentFade.Dissolve.cs.
+            if (seg.Fade > 0f)
+                LogDissolveCensus(seg);
+            else
+                seg.DissolveCensusLogged = false;
             if (seg.Fade <= 0f)
             {
                 if (seg.HasBlock)
@@ -2436,11 +2511,13 @@ internal static partial class WallSegmentFade
                 }
                 if (seg.SiblingState != 0)
                 {
-                    // Restore leavers NOW — nothing else ever points at them again.
+                    // Restore leavers NOW — nothing else ever points at them again (round 15:
+                    // including their dissolve channel, so no authored material stays swapped
+                    // once nothing points at the renderer).
                     foreach (MeshRenderer prev in seg.PrevSiblings)
                     {
-                        if (prev != null && !seg.Siblings.Contains(prev) && !prev.enabled)
-                            prev.enabled = true;
+                        if (prev != null && !seg.Siblings.Contains(prev))
+                            RestoreSiblingProp(seg, prev);
                     }
                     if (seg.Siblings.Count == 0)
                         seg.SiblingState = 0;
