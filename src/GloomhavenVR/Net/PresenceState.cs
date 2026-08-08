@@ -421,6 +421,38 @@ internal struct PresenceState
     public string? DecisionLinesText;
 
     /// <summary>
+    /// True when this packet carries the STATE of the sender's docked decision display (extension
+    /// record <see cref="NetProtocol.ExtIdDecisionState"/>): which prompt is docked, which prompt
+    /// TEXT variant it shows, and per option offered / dimmed / chosen. Written on exactly the
+    /// same gate as <see cref="HasDecisionLines"/> (a row really docked AND visible on the owner's
+    /// board), so the wordings and their states can never disagree. Absence renders as the
+    /// pre-record look: mirrored plates with no state and no prompt text.
+    /// </summary>
+    public bool HasDecisionState;
+
+    /// <summary>Which prompt is docked — one of <see cref="NetProtocol.DecisionKindNone"/> …
+    /// <see cref="NetProtocol.DecisionKindDialogPopup"/> (meaningful only when
+    /// <see cref="HasDecisionState"/>).</summary>
+    public byte DecisionPromptKind;
+
+    /// <summary>Which prompt-TEXT variant the owner's tip window shows — one of
+    /// <see cref="NetProtocol.DecisionTextNone"/> … <see cref="NetProtocol.DecisionTextMandatoryUse"/>.
+    /// A NUMBER, never the text: the receiver composes the line from its own localization table
+    /// (see the record doc for why the composed string may never ride the wire).</summary>
+    public byte DecisionTextVariant;
+
+    /// <summary>Number of valid entries in <see cref="DecisionOptionFlags"/> (≤
+    /// <see cref="NetProtocol.DecisionStateMaxOptions"/> after clamping on both ends), index-aligned
+    /// with <see cref="DecisionLinesText"/>'s '\n'-separated lines.</summary>
+    public int DecisionOptionCount;
+
+    /// <summary>Per-option state bytes (<see cref="NetProtocol.DecisionOptionOfferedBit"/> …
+    /// <see cref="NetProtocol.DecisionOptionChosenBit"/>). May be longer than
+    /// <see cref="DecisionOptionCount"/> — the sender passes its persistent sample buffer, exactly
+    /// like <see cref="WallFadesKeys"/>; only the first count entries go on the wire.</summary>
+    public byte[]? DecisionOptionFlags;
+
+    /// <summary>
     /// True when this packet names what the sender's CONFIRM board cap actually reads (extension
     /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 0). Absence keeps the receiver's
     /// neutral GUI_CONFIRM fallback — exactly what peers predating the record render.
@@ -586,6 +618,12 @@ internal struct PresenceState
 ///                        by the stable ActorGuid hash; players, ENEMIES and objects alike; ≤4 ids
 ///                        because an extra-turn actor can leave a second frame standing; written
 ///                        only while a frame really stands, see NetProtocol.ExtIdTrackSelection)
+///                        24 DECISION STATE ([flags][n][n × option byte] — which prompt is docked
+///                        (flags bits 0..2), which prompt-TEXT variant it shows (bits 3..5, a
+///                        NUMBER the receiver localizes itself; the composed text never rides the
+///                        wire because it can embed active-bonus card names), and per option
+///                        offered / dimmed / chosen, index-aligned with record 12's lines; written
+///                        on record 12's own gate, see NetProtocol.ExtIdDecisionState)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -626,20 +664,22 @@ internal static class PresenceSerializer
     /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap)
     /// + 11 (character focus: 2 + its 9-byte maximum — the 5-byte form plus the flag-guarded
     /// attention-actor id)
-    /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap) = 847,
-    /// which had left exactly ONE byte under the previous 848 bound — see below. Local buffer bound
-    /// only — nothing on the wire depends on it, and every variable-length record still
-    /// bounds-checks against the real buffer before writing.
+    /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap)
+    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap) = 859.
     ///
     /// <para>RAISED 848 → 1280 on 2026-08-08, deliberately and ahead of need rather than on a crash.
-    /// The 1:1 mirroring ruling put two more board surfaces on the roadmap (the take-damage prompt
-    /// TEXT and the four USE BARS), each of which is a capped-UTF8 record on the scale of record 12's
-    /// 162 bytes, and the worst case had just reached 847 of 848. This constant sizes ONE local send
-    /// buffer (<c>NetAvatarDriver._sendBuffer</c>) and appears in no packet, no header and no
-    /// contract, so raising it is invisible to every peer including older builds: what actually goes
-    /// out is the byte count each writer returns. Raising it does NOT authorise bigger packets —
-    /// every record still bounds-checks — it only stops the cap itself from being the thing that
-    /// silently drops a record.</para></summary>
+    /// Three records landed in one round (22's attention tail, 23 track selection, 24 decision state)
+    /// and the worst case went 824 → 859; at the old 848 bound the margin had been ONE byte, less
+    /// than any record, so the next additive record would have discovered the ceiling by overflowing
+    /// it. The 1:1 mirroring ruling still has the four USE BARS on the roadmap. This constant sizes
+    /// ONE local send buffer (<c>NetAvatarDriver._sendBuffer</c>) and appears in no packet, no header
+    /// and no contract, so raising it is invisible to every peer including older builds: what
+    /// actually goes out is the byte count each writer returns. Raising it does NOT authorise bigger
+    /// packets — every record still bounds-checks against the real buffer before writing a byte — it
+    /// only stops the cap itself from being the thing that silently drops a record.</para>
+    ///
+    /// <para>THE RULE THAT COMES WITH IT: every new record adds its worst case to the sum above IN
+    /// ITS OWN COMMIT, and keeps a margin of at least one record's worth.</para></summary>
     public const int MaxSize = 1280;
 
     // ---- write --------------------------------------------------------------------------
@@ -692,6 +732,10 @@ internal static class PresenceSerializer
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
                           || (state.HasBoardTooltip && !string.IsNullOrEmpty(state.BoardTooltipText))
                           || (state.HasDecisionLines && !string.IsNullOrEmpty(state.DecisionLinesText))
+                          // The decision STATE record rides record 12's own gate; with nothing to
+                          // state (no kind, no text variant, no options) it writes no record, so it
+                          // must not open the tail either.
+                          || (state.HasDecisionState && DecisionStatePayload(in state) > 0)
                           || (state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel))
                           || (state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel));
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
@@ -1103,10 +1147,60 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
+                if (state.HasDecisionState)
+                {
+                    // DECISION STATE (23): [flags][n][n × option byte]. flags bits 0..2 name the
+                    // docked prompt, bits 3..5 the prompt-TEXT variant (a NUMBER — the receiver
+                    // localizes the line itself; the composed string may never ride this wire, it
+                    // can embed active-bonus card names), and each option byte says whether that
+                    // option is offered / dimmed / chosen. Options are index-aligned with record
+                    // 12's lines and clamped to the record's own cap before a byte goes out. Both
+                    // byte kinds are masked to their DEFINED bits so an undefined bit can never be
+                    // pre-claimed by garbage. Written on record 12's gate only, so an idle packet
+                    // stays byte-identical to the previous build's; appended in id order, last.
+                    int payload = DecisionStatePayload(in state);
+                    if (payload > 0 && i + 2 + payload <= buffer.Length)
+                    {
+                        int n = payload - 2;
+                        buffer[i++] = NetProtocol.ExtIdDecisionState;
+                        buffer[i++] = (byte)payload;
+                        buffer[i++] = (byte)(NetProtocol.EncodeDecisionFlags(
+                            state.DecisionPromptKind, state.DecisionTextVariant)
+                            & NetProtocol.DecisionStateDefinedMask);
+                        buffer[i++] = (byte)n;
+                        for (int o = 0; o < n; o++)
+                            buffer[i++] = (byte)(state.DecisionOptionFlags![o]
+                                                 & NetProtocol.DecisionOptionDefinedMask);
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
         return i;
+    }
+
+    /// <summary>
+    /// Payload size record <see cref="NetProtocol.ExtIdDecisionState"/> would occupy for
+    /// <paramref name="state"/> — <c>2 + option count</c>, with the count clamped to the record cap
+    /// AND to the caller's buffer length (the sender passes a persistent buffer that may be longer
+    /// than the live count). Returns 0 when there is nothing to state at all — no kind, no text
+    /// variant, no options — so an empty record can never open the extension tail and an idle
+    /// packet stays byte-identical to the previous build's.
+    /// </summary>
+    private static int DecisionStatePayload(in PresenceState state)
+    {
+        int n = state.DecisionOptionCount;
+        if (n > NetProtocol.DecisionStateMaxOptions)
+            n = NetProtocol.DecisionStateMaxOptions;
+        if (state.DecisionOptionFlags == null || n < 0)
+            n = 0;
+        else if (n > state.DecisionOptionFlags.Length)
+            n = state.DecisionOptionFlags.Length;
+        byte flags = (byte)(NetProtocol.EncodeDecisionFlags(
+            state.DecisionPromptKind, state.DecisionTextVariant)
+            & NetProtocol.DecisionStateDefinedMask);
+        return flags == 0 && n == 0 ? 0 : 2 + n;
     }
 
     // ---- mod-version text (en/de)coding caches ------------------------------------------
@@ -1785,6 +1879,37 @@ internal static class PresenceSerializer
                         {
                             state.HasDecisionLines = true;
                             state.DecisionLinesText = lines;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdDecisionState
+                             && len >= NetProtocol.DecisionStateMinRecordBytes)
+                    {
+                        // DECISION STATE: [flags][n][n × option byte]. The claimed option count is
+                        // re-clamped against the record's OWN length AND the cap (never trust the
+                        // wire), so a hostile n can neither overrun the record nor bleed into the
+                        // next one; the flags byte and every option byte are masked to their
+                        // DEFINED bits, so a newer sender's extra bits can never light a meaning
+                        // here. A record that survives all of that still delivers only enumerations
+                        // and a bitfield — there is no text and no identity in it to leak.
+                        byte dsFlags = (byte)(buffer[i] & NetProtocol.DecisionStateDefinedMask);
+                        int n = buffer[i + 1];
+                        if (n > NetProtocol.DecisionStateMaxOptions)
+                            n = NetProtocol.DecisionStateMaxOptions;
+                        if (n > len - 2)
+                            n = len - 2;
+                        if (n < 0)
+                            n = 0;
+                        state.HasDecisionState = true;
+                        state.DecisionPromptKind = NetProtocol.DecodeDecisionKind(dsFlags);
+                        state.DecisionTextVariant = NetProtocol.DecodeDecisionTextVariant(dsFlags);
+                        state.DecisionOptionCount = n;
+                        if (n > 0)
+                        {
+                            byte[] opts = new byte[n];
+                            for (int o = 0; o < n; o++)
+                                opts[o] = (byte)(buffer[i + 2 + o]
+                                                 & NetProtocol.DecisionOptionDefinedMask);
+                            state.DecisionOptionFlags = opts;
                         }
                     }
                     else if (id == NetProtocol.ExtIdCapLabels && len >= 2)

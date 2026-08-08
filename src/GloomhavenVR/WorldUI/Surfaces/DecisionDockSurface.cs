@@ -7,6 +7,7 @@ using Script.GUI.Popups;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using NetProtocol = GloomhavenVR.Net.NetProtocol;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -90,6 +91,17 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// one <see cref="PromptOwner"/> switch below, so a further piece of a prompt is wired in by
 /// calling it — never by re-deriving the owner.
 ///
+/// AND THE HIDE TRAVELS (user ruling 2026-08-08: "generell gilt die Regel, das man alle
+/// Interaktionen, Animationen und Anzeigen des Controllboards in MP auch synchronisieren
+/// soll … so wie der Spieler sie sieht. Sie unterscheidet sich also ggf. von der Anzeige auf
+/// dem eigenen board."). A remote control board is a picture of ITS OWNER'S board, so while
+/// this row is hidden the mod publishes no decision at all — wire records 12 (labels) and 23
+/// (states + prompt kind) stop riding and the board-UI decision-drawer bit clears — and every
+/// peer's mirrored dock empties in the same frames this one does. That REVERSES the principle
+/// this file used to state at the <see cref="UpdateFocusVisibility"/> call site ("a local view
+/// change may never edit what other machines see"): under the ruling the owner's view IS what
+/// peers must see.
+///
 /// AND HIDING CANNOT DISTURB IT — structurally, not by care (see
 /// <see cref="ApplyFocusHide"/>). The hide toggles <c>Canvas.enabled</c> and
 /// <c>Renderer.enabled</c> on the MOD-OWNED converted host subtree (nested canvases and the
@@ -154,6 +166,15 @@ internal sealed class DecisionDockSurface : WorldSurface
                                       && !Instance._rowHiddenForFocus;
 
     /// <summary>
+    /// True while a docked row is RENDER-HIDDEN because the player is looking at a character the
+    /// prompt does not belong to. Read cross-module by the multiplayer sender: since the
+    /// 2026-08-08 ruling a peer's mirrored board must show what this board SHOWS, so a hidden row
+    /// clears the board-UI decision drawer bit as well as the two decision records — see
+    /// <see cref="UpdateFocusVisibility"/> and <c>Net.NetAvatarDriver</c>'s board-UI sampler.
+    /// </summary>
+    internal static bool RowFocusHidden => Instance != null && Instance._rowHiddenForFocus;
+
+    /// <summary>
     /// Live world-metre offset (along <c>DecisionMount.up</c>, relative to the mount
     /// position) of the docked decision row's visible BOTTOM edge — the lowest visible
     /// widget graphic of the active prompt, glyph/plate-true, produced by the SAME
@@ -185,9 +206,9 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <summary>
     /// MULTIPLAYER READ SEAM (wire record <c>NetProtocol.ExtIdDecisionLines</c>): the labels of
     /// the docked row's PRESSABLE widgets, one per line ('\n'-joined), or null while no row is
-    /// docked. Peers render one inert button plate per line at their copy of this board's
-    /// decision seat, so the remote dock shows the owner's ACTUAL choices instead of an empty
-    /// drawer (user report 2026-08-04: "die remote decision buttons ... 1:1").
+    /// VISIBLE on this board. Peers render one inert button plate per line at their copy of this
+    /// board's decision seat, so the remote dock shows the owner's ACTUAL choices instead of an
+    /// empty drawer (user report 2026-08-04: "die remote decision buttons ... 1:1").
     ///
     /// IDENTITY GATE, BY SAMPLING RULE: only TMP texts UNDER a <c>Selectable</c> are collected —
     /// action wordings authored from generic GUI_* keys ("Verbrennen", "Ja"/"Nein", the burn
@@ -196,8 +217,56 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// card identity; reveals only through <c>Net.RevealGate</c> — suppression is the designed
     /// failure direction). Recomputed on the shared content cadence (0.25 s) while docked, which
     /// also picks up the game re-labelling a pooled button mid-prompt.
+    ///
+    /// <para>WITHDRAWN WHILE THE ROW IS FOCUS-HIDDEN (user ruling 2026-08-08 — see
+    /// <see cref="UpdateFocusVisibility"/>): what rides the wire is what this board SHOWS, so a row
+    /// hidden because the player looked at another character publishes nothing and every peer's
+    /// mirrored dock empties with it.</para>
     /// </summary>
     internal static string? WireButtonLines { get; private set; }
+
+    /// <summary>
+    /// MULTIPLAYER READ SEAM (wire record <c>NetProtocol.ExtIdDecisionState</c>): WHICH prompt is
+    /// docked, as one of <c>NetProtocol.DecisionKind*</c>. 0 (<c>DecisionKindNone</c>) while no row
+    /// is visible or the prompt is one this build does not classify. Peers use it to decide whether
+    /// the take-damage instruction line belongs under their mirrored plates.
+    /// </summary>
+    internal static byte WirePromptKind { get; private set; }
+
+    /// <summary>Number of valid entries in <see cref="_wireOptionStates"/> — one per published
+    /// line of <see cref="WireButtonLines"/>, in the same order (the same walk fills both).</summary>
+    private static int _wireOptionCount;
+
+    /// <summary>
+    /// Per-option state bytes for wire record 23 (<c>NetProtocol.DecisionOptionOfferedBit</c> /
+    /// <c>DecisionOptionDimmedBit</c> / <c>DecisionOptionChosenBit</c>), index-aligned with
+    /// <see cref="WireButtonLines"/>. Read through <see cref="CopyWireOptionStates"/> so the
+    /// sender copies a snapshot instead of holding this buffer.
+    /// </summary>
+    private static readonly byte[] _wireOptionStates =
+        new byte[Net.NetProtocol.DecisionStateMaxOptions];
+
+    /// <summary>
+    /// Copy the published per-option states into <paramref name="into"/> and return how many were
+    /// written (never more than the shorter of the two buffers). The states describe the SAME
+    /// widgets, in the SAME order, as the lines in <see cref="WireButtonLines"/>: offered means the
+    /// owner can press it, dimmed is the game's 0.7-alpha "your character cannot" look, chosen is a
+    /// toggle that is already on. That triple is what makes a peer's mirrored row read like the
+    /// owner's instead of three equally-live plates.
+    /// </summary>
+    internal static int CopyWireOptionStates(byte[] into)
+    {
+        if (into == null)
+            return 0;
+        int n = _wireOptionCount;
+        if (n > into.Length)
+            n = into.Length;
+        if (n > _wireOptionStates.Length)
+            n = _wireOptionStates.Length;
+        for (int i = 0; i < n; i++)
+            into[i] = _wireOptionStates[i];
+        return n;
+    }
 
     /// <summary>Next unscaled time <see cref="WireButtonLines"/> is re-sampled while docked.</summary>
     private float _nextWireLinesAt;
@@ -474,19 +543,31 @@ internal sealed class DecisionDockSurface : WorldSurface
             }
             ApplySuppression(_activeWindow!); // non-null: WantConverted required IsOpen
             ApplyPickCancelSuppression();     // user ruling 2026-08-04: no "choose another card" button on the dock
-            SampleWireButtonLines();          // MP: publish the docked buttons' labels (record 12)
             // ONE CHARACTER OWNS A DECISION (user ruling 2026-08-08): render-hide the row while
             // the player is looking at somebody else. Level-triggered, like every other
             // suppression here — see ApplyFocusHide for why it cannot disturb the prompt.
             //
-            // Deliberately AFTER the three above: the game-side suppressions and the MP wire
-            // sample must keep running while the row is hidden, because none of them is about
-            // what THIS player is looking at. The window must stay alpha-0 (or the flat prompt
-            // would reappear in the HMD the moment the row hides), the pooled cancel option must
-            // stay hidden (or it would flash back on return), and peers must keep seeing the
-            // owner's buttons mirrored on their copy of this board — a local view change may
-            // never edit what other machines see.
+            // Deliberately AFTER the two GAME-SIDE suppressions above, which must keep running
+            // while the row is hidden because neither is about what THIS player is looking at: the
+            // window must stay alpha-0 (or the flat prompt would reappear in the HMD the moment the
+            // row hides) and the pooled cancel option must stay hidden (or it would flash back on
+            // return).
             UpdateFocusVisibility();
+            // …and deliberately BEFORE the MP publication, which IS about what this player sees.
+            //
+            // THE REVERSED PRINCIPLE (user ruling 2026-08-08, verbatim: "generell gilt die Regel,
+            // das man alle Interaktionen, Animationen und Anzeigen des Controllboards in MP auch
+            // synchronisieren soll … so wie der Spieler sie sieht. Sie unterscheidet sich also ggf.
+            // von der Anzeige auf dem eigenen board."). This call sequence used to be the other way
+            // round, on the stated principle that "a local view change may never edit what other
+            // machines see" — so record 12 kept riding while the row was focus-hidden and peers
+            // showed a decision the owner could not see. Under the ruling that is exactly backwards:
+            // a remote board is a picture of ITS OWNER'S board, and their board shows nothing here
+            // while the row is hidden. The sampler therefore publishes nothing while
+            // _rowHiddenForFocus, the board-UI drawer bit clears with it (NetAvatarDriver), and the
+            // whole decision display disappears from every peer's copy exactly as it disappeared
+            // from the owner's own.
+            SampleWireDecisionState();
             // The one surface that must accept input even under the game's UI-lock
             // raycaster mirror — the ModalFallback floating-modal exemption. Skipped while the
             // row is hidden: a hidden row must not be clickable, and the canvas hide already
@@ -504,10 +585,10 @@ internal sealed class DecisionDockSurface : WorldSurface
             RestoreFocusHide("the row undocked");
             if (WireButtonLines != null)
             {
-                WireButtonLines = null; // record 12 stops riding the moment the row undocks
+                // Records 12 and 23 stop riding the moment the row undocks (PublishWireDecision
+                // logs the withdrawal; the release line below states the undock itself).
                 _nextWireLinesAt = 0f;
-                VRLog.Info("WorldUI", "DECISION DOCK: wire button lines withdrawn (row undocked) — " +
-                                      "peers drop the mirrored decision buttons with it.");
+                PublishWireDecision(null, NetProtocol.DecisionKindNone, 0);
             }
             RowBottomUpMeters = null; // no docked row → the bar stack falls back to the zone top
             if (hadPanel)
@@ -698,19 +779,35 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
-    /// Sample the docked row's PRESSABLE-widget labels for the multiplayer wire (see
-    /// <see cref="WireButtonLines"/>): every active <c>Selectable</c> under the docked target, in
-    /// hierarchy order (which is the row's visual order), contributes its first TMP text. Runs on
-    /// the shared content cadence while a row is docked — a handful of GetComponentsInChildren
-    /// walks over a ≤6-widget subtree, allocation-free until the joined string actually changes.
-    /// Never throws its way out of Tick: a half-torn-down row degrades to "no lines".
+    /// Sample the docked row for the multiplayer wire: the PRESSABLE-widget labels (record 12, see
+    /// <see cref="WireButtonLines"/>) AND, in the same walk, each option's STATE plus the prompt
+    /// kind (record 23). Every active <c>Selectable</c> under the docked target, in hierarchy order
+    /// (which is the row's visual order), contributes its first TMP text and one state byte, so the
+    /// two records are index-aligned by construction — there is no second walk that could disagree
+    /// about what "option 2" is. Runs on the shared content cadence while a row is docked — a
+    /// handful of GetComponentsInChildren walks over a ≤6-widget subtree, allocation-free until the
+    /// joined string actually changes. Never throws its way out of Tick: a half-torn-down row
+    /// degrades to "nothing published", which peers render as no decision at all.
+    ///
+    /// <para>NOTHING IS PUBLISHED WHILE THE ROW IS RENDER-HIDDEN for another character's focus, and
+    /// the withdrawal bypasses the cadence so it lands on the very tick the row disappears — see
+    /// the call site for the ruling that reversed this.</para>
     /// </summary>
-    private void SampleWireButtonLines()
+    private void SampleWireDecisionState()
     {
+        // FOCUS-HIDDEN ⇒ WITHDRAW IMMEDIATELY (not on the next 0.25 s tick): the owner's board went
+        // blank at that seat this frame, and the peer copies must go blank with it.
+        if (_rowHiddenForFocus)
+        {
+            _nextWireLinesAt = 0f;
+            PublishWireDecision(null, NetProtocol.DecisionKindNone, 0);
+            return;
+        }
         if (Time.unscaledTime < _nextWireLinesAt)
             return;
         _nextWireLinesAt = Time.unscaledTime + 0.25f;
         string? lines = null;
+        int options = 0;
         try
         {
             RectTransform? root = Panel?.Target;
@@ -733,6 +830,8 @@ internal sealed class DecisionDockSurface : WorldSurface
                     // Labels are single-line wordings; a stray newline inside one would split it
                     // into two plates on the peer, so it is flattened to a space here.
                     WireLinesScratch.Append(text.Replace('\n', ' ').Replace('\r', ' ').Trim());
+                    if (options < _wireOptionStates.Length)
+                        _wireOptionStates[options++] = SampleOptionState(sel, root);
                 }
                 if (WireLinesScratch.Length > 0)
                     lines = WireLinesScratch.ToString();
@@ -740,20 +839,116 @@ internal sealed class DecisionDockSurface : WorldSurface
         }
         catch (System.Exception e)
         {
-            VRLog.Warn("WorldUI", $"DECISION DOCK: wire button-line sample failed ({e.Message}) — " +
+            VRLog.Warn("WorldUI", $"DECISION DOCK: wire decision sample failed ({e.Message}) — " +
                                   "peers keep the plain drawer this cadence.");
             lines = null;
+            options = 0;
         }
-        if (lines == WireButtonLines)
+        PublishWireDecision(lines, lines == null ? NetProtocol.DecisionKindNone : PromptKindCode(),
+            lines == null ? 0 : options);
+    }
+
+    /// <summary>
+    /// The state of ONE docked option, as wire record 23 describes it: OFFERED when the game says
+    /// the owner may press it (<c>Selectable.IsInteractable</c> — the very flag
+    /// <c>CardsDriver.TickTakeDamageOptions</c> re-asserts from the panel's own formula), DIMMED
+    /// when a <c>CanvasGroup</c> between the widget and the row root holds it below full alpha (the
+    /// game's 0.7 "your character does not have the cards for this" look, which is a DIFFERENT
+    /// picture from merely un-pressable and must not be collapsed into it), and CHOSEN when it is a
+    /// <c>Toggle</c> that is currently on (the burn option the owner has picked but not committed).
+    /// </summary>
+    private static byte SampleOptionState(Selectable sel, RectTransform root)
+    {
+        byte flags = 0;
+        if (sel.IsInteractable())
+            flags |= NetProtocol.DecisionOptionOfferedBit;
+        if (sel is Toggle toggle && toggle.isOn)
+            flags |= NetProtocol.DecisionOptionChosenBit;
+        // Walk widget → row root (never past it: the host's own group is the mod's, not the
+        // prompt's) and take the lowest alpha any group on the way imposes.
+        float alpha = 1f;
+        Transform? t = sel.transform;
+        while (t != null)
+        {
+            var group = t.GetComponent<CanvasGroup>();
+            if (group != null && group.alpha < alpha)
+                alpha = group.alpha;
+            if (ReferenceEquals(t, root))
+                break;
+            t = t.parent;
+        }
+        if (alpha < 0.999f)
+            flags |= NetProtocol.DecisionOptionDimmedBit;
+        return flags;
+    }
+
+    /// <summary>The wire code (<c>NetProtocol.DecisionKind*</c>) of the prompt currently docked.
+    /// A prompt this build does not classify publishes <c>DecisionKindNone</c>, which peers render
+    /// as "mirror the plates, draw no prompt text" — the safe direction.</summary>
+    private byte PromptKindCode() => _active?.Name switch
+    {
+        "TakeDamagePanel" => NetProtocol.DecisionKindTakeDamage,
+        "YesNoDialog" => NetProtocol.DecisionKindShortRestYesNo,
+        "DialogPopup" => NetProtocol.DecisionKindDialogPopup,
+        _ => NetProtocol.DecisionKindNone,
+    };
+
+    /// <summary>Publish (change-gated) what the two decision records carry, and log the change once.
+    /// The three values move together — the labels, their states and the prompt kind describe one
+    /// row — so they share one gate and one line.</summary>
+    private static void PublishWireDecision(string? lines, byte kind, int options)
+    {
+        bool same = lines == WireButtonLines && kind == WirePromptKind && options == _wireOptionCount;
+        if (same && lines != null)
+        {
+            // Same row, same count: the STATES may still have moved (a toggle flipped, the game
+            // re-asserted a gate) — that is a real change peers must see, so compare them too.
+            for (int i = 0; i < options; i++)
+            {
+                if (_wireOptionStates[i] != _publishedOptionStates[i])
+                {
+                    same = false;
+                    break;
+                }
+            }
+        }
+        if (same)
             return;
         WireButtonLines = lines;
-        VRLog.Info("WorldUI", lines == null
-            ? "DECISION DOCK: wire button lines cleared (no readable widget labels)."
-            : $"DECISION DOCK: wire button lines published — {lines.Split('\n').Length} label(s), " +
-              $"\"{lines.Replace('\n', '|')}\" (record 12: pressable-widget labels only, never a " +
-              "dialog's description text — peers mirror these as inert plates at their copy's " +
-              "decision seat).");
+        WirePromptKind = kind;
+        _wireOptionCount = options;
+        for (int i = 0; i < options; i++)
+            _publishedOptionStates[i] = _wireOptionStates[i];
+        if (lines == null)
+        {
+            VRLog.Info("WorldUI", "DECISION DOCK: wire decision cleared (no visible row) — records 12 " +
+                                  "and 23 stop riding, so every peer's mirrored decision empties too.");
+            return;
+        }
+        var states = new System.Text.StringBuilder(48);
+        for (int i = 0; i < options; i++)
+        {
+            if (i > 0)
+                states.Append(", ");
+            byte f = _wireOptionStates[i];
+            states.Append('#').Append(i).Append('=')
+                  .Append((f & NetProtocol.DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
+            if ((f & NetProtocol.DecisionOptionDimmedBit) != 0)
+                states.Append("+dim");
+            if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
+                states.Append("+CHOSEN");
+        }
+        VRLog.Info("WorldUI", $"DECISION DOCK: wire decision published — {lines.Split('\n').Length} " +
+                              $"label(s) \"{lines.Replace('\n', '|')}\", prompt kind {kind}, states " +
+                              $"[{states}] (record 12: pressable-widget labels only, never a dialog's " +
+                              "description text; record 23: the states + the prompt kind — peers " +
+                              "mirror these as inert plates at their copy's decision seat).");
     }
+
+    /// <summary>The option states last PUBLISHED — the change gate's memory, so a toggle flip is
+    /// detected without re-sampling twice per tick.</summary>
+    private static readonly byte[] _publishedOptionStates =
+        new byte[Net.NetProtocol.DecisionStateMaxOptions];
 
     /// <summary>HMD-anchored fallback float (the ModalFallback.PlaceAtHmd pattern). True when placed.</summary>
     private bool TryPlaceAtHmd()
@@ -1355,6 +1550,12 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <c>CharacterFocus.ResolveHand</c> drop the override the moment the game presents that hand
     /// ("the game now presents the focused character"), so <c>Focused</c> returns to null and this
     /// shows the row again — at the same geometry, since <see cref="Place"/> kept running.</para>
+    ///
+    /// <para>MULTIPLAYER: the flag this sets is <see cref="RowFocusHidden"/>, and since the
+    /// 2026-08-08 ruling it is a WIRE input, not a private view state — the sampler that runs right
+    /// after this publishes nothing while it holds, and <c>Net.NetAvatarDriver</c> clears the
+    /// board-UI decision-drawer bit on it. So the hide is not "local": it is a change to what this
+    /// board shows, and every peer's copy of this board follows it.</para>
     /// </summary>
     private void UpdateFocusVisibility()
     {
@@ -1407,7 +1608,10 @@ internal sealed class DecisionDockSurface : WorldSurface
                                   "The prompt itself is untouched: its " +
                                   "UIWindow is still open, its widgets keep their state, nothing was " +
                                   "answered, cancelled or closed, and it reappears unchanged the moment the " +
-                                  "owner is focused again.");
+                                  "owner is focused again. MULTIPLAYER (ruling 2026-08-08): this board now " +
+                                  "shows nothing at the decision seat, so it PUBLISHES nothing there either " +
+                                  "— wire records 12 and 23 stop riding and the board-UI decision-drawer bit " +
+                                  "clears, and every peer's mirrored copy of this board empties with it.");
         else
             VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' row VISIBLE — " +
                                   (owner == null
@@ -1715,7 +1919,9 @@ internal sealed class DecisionDockSurface : WorldSurface
         _placementLogged = false;
         _lastLoggedGapPx = float.NaN;
         RowBottomUpMeters = null;
-        WireButtonLines = null;    // record 12 must not survive a module re-init
+        WireButtonLines = null;    // records 12 and 23 must not survive a module re-init
+        WirePromptKind = NetProtocol.DecisionKindNone;
+        _wireOptionCount = 0;
         _nextWireLinesAt = 0f;
         _takeDamageDumped = false; // re-emit the one-time ground-truth dump after a module re-init
         DockingTakeDamage = false;

@@ -1,8 +1,10 @@
 using System.Collections.Generic;
+using System.Linq;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using ScenarioRuleLibrary;
 using UnityEngine;
+using NetProtocol = GloomhavenVR.Net.NetProtocol;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -107,6 +109,34 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// <summary>Change-dedup for the hide/show line.</summary>
     private string? _loggedFocusVisibility;
 
+    /// <summary>
+    /// MULTIPLAYER READ SEAM (wire record <c>NetProtocol.ExtIdDecisionState</c>, flags bits 3..5):
+    /// WHICH of <c>ShowDamageTooltip</c>'s branches the owner's tip window is showing right now, as
+    /// one of <c>NetProtocol.DecisionText*</c>. <c>DecisionTextNone</c> while no tip is on show.
+    ///
+    /// <para>A NUMBER, NEVER THE TEXT — and that is the whole design of the remote prompt line.
+    /// The receiver composes the sentence from its OWN localization table, because every input of
+    /// the game's branch selection except the branch itself is already replicated to it: in an
+    /// online game the non-controlling clients get the same damage message and their
+    /// <c>TakeDamagePanel.ShowOtherPlayer</c> stores the attacked actor, the damaging ability and
+    /// the numbers before hiding the window. What they CANNOT know is which branch the owner's
+    /// client took, because two of the four conditions are that client's own UI state (the
+    /// <c>UIActiveBonusBar</c> selection, the currently-toggled burn option) — so exactly that
+    /// travels, in three bits.</para>
+    ///
+    /// <para>WHY NOT SEND THE COMPOSED LINE, which is what records 7/9/12/13 do for their text: the
+    /// MANDATORY-USE branch builds its sentence by prefixing the NAMES OF ACTIVE-BONUS CARDS
+    /// (TakeDamagePanel.cs:325-333). The standing rule is absolute — no card identity on this wire,
+    /// ever; reveals only through <c>Net.RevealGate</c> — so that string may not travel, and a
+    /// record that carried the text "except in one branch" would be a rule with a hole in it. The
+    /// mirrored line therefore renders the mandatory hint WITHOUT the card names: less information
+    /// than the owner has, which is the designed failure direction.</para>
+    /// </summary>
+    internal static byte WireTextVariant { get; private set; }
+
+    /// <summary>Change gate for the wire-variant log line (never per frame).</summary>
+    private static byte _loggedWireVariant = 0xFF;
+
     public override string Name => "DamageTooltip";
     protected override bool ConfigEnabled => WorldUIConfig.DecisionDock.Value;
     protected override bool Flatten2D => true;
@@ -131,11 +161,21 @@ internal sealed class DamageTooltipSurface : WorldSurface
     private static bool IsOpen(HelpBox? box) =>
         box != null && box.myWindow != null && box.myWindow.IsOpen;
 
+    /// <summary>
+    /// Converted while the take-damage row is docked AND the tip window is open — plus, since the
+    /// 2026-08-08 ruling, only while that row is actually SHOWN. The tip is "der Text der
+    /// Entscheidungsknoepfe" (see the class doc): leaving it up over an empty seat while the row is
+    /// render-hidden for another character's focus would show half a decision that belongs to
+    /// somebody else — and it is that same half a peer's mirrored board would then have to draw. So
+    /// the text follows its buttons in both places; returning the focus re-converts it, at the same
+    /// seat, because <see cref="Place"/> is derived purely from the mount.
+    /// </summary>
     protected override bool WantConverted
     {
         get
         {
-            if (!base.WantConverted || FlatScreen.ManualScreenActive || !DecisionDockSurface.DockingTakeDamage)
+            if (!base.WantConverted || FlatScreen.ManualScreenActive
+                || !DecisionDockSurface.DockingTakeDamage || DecisionDockSurface.RowFocusHidden)
                 return false;
             return OpenTip() != null;
         }
@@ -151,6 +191,8 @@ internal sealed class DamageTooltipSurface : WorldSurface
     {
         bool hadPanel = Panel != null;
         base.Tick(); // convert / release / Place (level-triggered on WantConverted)
+
+        PublishWireVariant();
 
         if (Panel != null && !hadPanel)
             VRLog.Info("WorldUI", "DAMAGE TOOLTIP: HelpBox docked flat above the take-damage row " +
@@ -281,6 +323,103 @@ internal sealed class DamageTooltipSurface : WorldSurface
     }
 
     /// <summary>
+    /// Re-evaluate <see cref="WireTextVariant"/> and log it once per change. Published only while
+    /// this surface is really showing a tip on a VISIBLE take-damage row — the same gate
+    /// <c>DecisionDockSurface</c> publishes its labels on, so the peer can never draw a prompt line
+    /// over plates it does not have (or the reverse).
+    /// </summary>
+    private void PublishWireVariant()
+    {
+        byte variant = Panel != null ? ClassifyTip() : NetProtocol.DecisionTextNone;
+        WireTextVariant = variant;
+        if (_loggedWireVariant == variant)
+            return;
+        _loggedWireVariant = variant;
+        VRLog.Info("WorldUI", variant == NetProtocol.DecisionTextNone
+            ? "DAMAGE TOOLTIP: wire text variant cleared — peers draw no prompt line under their " +
+              "mirrored decision plates."
+            : $"DAMAGE TOOLTIP: wire text variant {variant} published (record 23 flags bits 3..5) — " +
+              "peers compose the SAME instruction line from their own localization; the composed " +
+              "text never rides the wire (the mandatory-use branch embeds active-bonus card names).");
+    }
+
+    /// <summary>
+    /// WHICH branch of the game's own <c>TakeDamagePanel.ShowDamageTooltip</c> (TakeDamagePanel.cs:319)
+    /// is on screen, re-evaluated here in the SAME order the game evaluates it — mandatory-use hint,
+    /// wound wording, companion/plain summon, plain deal-damage. Reading the panel's own fields
+    /// rather than the rendered string on purpose: the string is localized and rich-text-formatted,
+    /// so classifying it back would be a parser with a language dependency, while the fields are
+    /// the very inputs the game branched on.
+    ///
+    /// <para>Any failure — no panel, a half-torn model, a game-side API that moved — degrades to
+    /// <c>DecisionTextNone</c> (no line on the peer), never to a wrong line.</para>
+    /// </summary>
+    private static byte ClassifyTip()
+    {
+        try
+        {
+            TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
+                ? Singleton<TakeDamagePanel>.Instance
+                : null;
+            if (p == null || !p.IsOpen)
+                return NetProtocol.DecisionTextNone;
+
+            // 1. MANDATORY USE — the game's own expression, verbatim (the lethal variant drops the
+            //    "prevent only if lethal" exemption). Only shown while no burn option is toggled.
+            if (p.currentlyToggled == null && MandatoryActiveBonusPending(p))
+                return NetProtocol.DecisionTextMandatoryUse;
+
+            // 2. WOUND: the damaging ability's type, or — when the panel holds no ability — the
+            //    current damage data's source type, exactly as the game reads it.
+            CAbility? ability = p.damageAbility;
+            if (ability != null)
+            {
+                if (ability.AbilityType == CAbility.EAbilityType.Wound)
+                    return NetProtocol.DecisionTextWounded;
+            }
+            else if (GameState.CurrentDamageData != null
+                     && GameState.CurrentDamageData.DamageSourceAbilityType == CAbility.EAbilityType.Wound)
+            {
+                return NetProtocol.DecisionTextWounded;
+            }
+
+            // 3. SUMMON / COMPANION.
+            if (p.actorBeingAttacked is CHeroSummonActor summon)
+                return summon.IsCompanionSummon
+                    ? NetProtocol.DecisionTextCompanion
+                    : NetProtocol.DecisionTextSummon;
+
+            // 4. The plain instruction ("Schadensphase: Erleide entweder Schaden, verbrenne …").
+            return NetProtocol.DecisionTextDealDamage;
+        }
+        catch (System.Exception)
+        {
+            return NetProtocol.DecisionTextNone;
+        }
+    }
+
+    /// <summary>The game's own mandatory-active-bonus test (TakeDamagePanel.cs:321), re-evaluated
+    /// against the live bar. It is the one input of the tip's branch selection that is pure LOCAL UI
+    /// state — which is precisely why the resulting variant has to ride the wire.</summary>
+    private static bool MandatoryActiveBonusPending(TakeDamagePanel p)
+    {
+        if (!Singleton<UIActiveBonusBar>.IsInitialized)
+            return false;
+        UIActiveBonusBar bar = Singleton<UIActiveBonusBar>.Instance;
+        if (bar == null)
+            return false;
+        System.Collections.Generic.List<CActiveBonus> pending = bar.GetNonSelectedActiveBonus();
+        if (pending == null)
+            return false;
+        bool lethal = p.CalculateCurrentDamage() > 0 && p.IsLethalDamage;
+        return lethal
+            ? pending.Count(it => !it.Ability.ActiveBonusData.ToggleIsOptional) > 0
+            : pending.Count(it => !it.Ability.ActiveBonusData.ToggleIsOptional
+                                  && (!(it is CPreventDamageActiveBonus prevent)
+                                      || !prevent.PreventOnlyIfLethal)) > 0;
+    }
+
+    /// <summary>
     /// Park just above the docked widget-row mount (the buttons the tip describes),
     /// content-fitted into the same width budget and facing the player. While no mount
     /// exists the surface simply holds off (the dock itself has already floated to the
@@ -354,5 +493,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
         base.Shutdown(); // releases the conversion → HelpBox back in its 2D home
         _active = null;
         _loggedFocusVisibility = null;
+        WireTextVariant = NetProtocol.DecisionTextNone; // must not survive a module re-init
+        _loggedWireVariant = 0xFF;
     }
 }

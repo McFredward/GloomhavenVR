@@ -52,10 +52,31 @@ namespace GloomhavenVR.Net;
 ///     pose and scale, the chosen board style, hand/head poses, the reading fans, card-FX events.
 ///     Nothing in THIS file is VR-only; the pose everything here is drawn at comes from
 ///     <see cref="RemoteControlBoard"/>, which is.
-///   • DELIBERATELY-NOT (costs 0 B by decision) — knowable, but not worth a field or not safe to
-///     leak. <see cref="RemoteBoardFurniture"/>'s "NEUTRAL LOOKS" and "LOCAL-ONLY STATE" blocks are
-///     this class, not a fifth thing: button enabled-states, the local player's own tuning offsets,
-///     and card IDENTITY, which never crosses the wire in any form.
+///   • DELIBERATELY-NOT (costs 0 B by decision) — NOT SAFE TO LEAK, and nothing else.
+///
+///     THE "NOT WORTH A FIELD" HALF OF THIS CLASS IS VOID (user ruling 2026-08-08, verbatim: "Ich
+///     möchte das die Schadensabfrage 1:1 beim remote-board so angezeigt wird wie der Spieler es
+///     auch sieht. generell gilt die Regel, das man alle Interaktionen, Animationen und Anzeigen
+///     des Controllboards in MP auch synchronisieren soll. Die einzige Ausnahme ist hier die
+///     geheime Quest des characters und während der Auswahlphase die tatsächlichen Oberseiten der
+///     Karten."). "Knowable but not worth a byte" was a wire-economy judgement this project is no
+///     longer allowed to make on the user's behalf: if the owner's board SHOWS it, their remote
+///     board shows it too, and the extension tail
+///     (<see cref="NetProtocol.PileBrowseExtensionBit"/>) makes the cost of saying so a couple of
+///     bytes. It was that half of the definition that produced the neutral-look placeholders the
+///     user rejected one at a time — the always-drawn furniture, the fixed FOLLOW cap, the
+///     re-localized CONFIRM wording, the empty decision drawer, and finally the decision row that
+///     kept riding while its owner could not see it.
+///
+///     WHAT SURVIVES IS EXACTLY TWO THINGS, both named by the ruling itself: the character's
+///     SECRET BATTLE GOAL, and — during the selection phase — the actual FRONTS of the cards.
+///     Card IDENTITY in general remains what it always was: never on this wire in any form,
+///     reveals only through <see cref="RevealGate"/>.
+///
+///     Local PERSONAL TUNING (a peer's private offsets, their own board-size preference) is not in
+///     this class at all and never was — it is not a thing their board displays to them and then
+///     hides from others; every client renders a given board style at its shipped layout, which is
+///     a rendering convention, noted where it applies.
 ///
 /// WHY THE HEADER NAMES ALL FOUR AND NOT JUST THIS FILE'S TWO: the decision rule for new remote
 /// content is "GLOBAL or PER-ACTOR MODEL by default; VR-ONLY must be justified", and wire room is

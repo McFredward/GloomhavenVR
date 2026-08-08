@@ -544,6 +544,12 @@ internal static class NetProtocol
     public const byte BoardUiShortRestBit = 1 << 4;
     public const byte BoardUiLongRestBit = 1 << 5;
     public const byte BoardUiSkipBit = 1 << 6;
+
+    /// <summary>Board-UI byte 0 bit 7 — the decision DRAWER is out on the owner's board: a prompt
+    /// is docked AND the owner can actually see it. The second half is not pedantry: since the
+    /// 2026-08-08 ruling ("… so wie der Spieler sie sieht") a row render-hidden for another
+    /// character's focus clears this bit, so a peer's copy shows the same bare seat the owner's
+    /// board shows rather than an empty drawer for a decision that is not on screen.</summary>
     public const byte BoardUiDecisionBit = 1 << 7;
 
     /// <summary>Board-UI record byte 1: mask of the wanted-slot glow bits (bits 0..1).</summary>
@@ -1172,6 +1178,14 @@ internal static class NetProtocol
     // Ids 18..21 are DELIBERATELY SKIPPED here: they are reserved for records developed in
     // parallel with this one (a record id, once shipped, can never be renumbered, so two workers
     // must not both take "the next free id"). This record therefore starts at 22 rather than 18.
+    // Ids 23 and 24 are TAKEN since the 1:1 mirroring round — 23 INITIATIVE-TRACK SELECTION FRAME
+    // (declared just below) and 24 DECISION DISPLAY STATE (declared beside record 12 further down,
+    // because the two decision records belong together). 18..21 remain free.
+    //
+    // THE RESERVATION ABOVE EARNED ITSELF: both of those records were written in parallel and BOTH
+    // authors independently took "the next free id", 23. Caught at merge and 24 renumbered before
+    // either shipped — a record id, once out, can never be renumbered. If you are about to claim an
+    // id while other work is in flight, take one of 18..21 or say in your report which you took.
 
     /// <summary>
     /// Extension record id: WHICH CHARACTER THE SENDER IS CURRENTLY LOOKING AT — their EFFECTIVE
@@ -1381,10 +1395,20 @@ internal static class NetProtocol
     /// is about, and the standing rule is absolute (reveals only through <see cref="RevealGate"/>;
     /// suppression is the designed failure direction).</para>
     ///
-    /// <para>Written ONLY while a decision row is really docked on the owner's board, so an idle
-    /// packet stays byte-identical to the previous build's; absence means "no docked decision",
-    /// which is what peers predating the record render (the drawer, via the board-UI bit).
-    /// ADDITIVE TLV exactly like every record before it.</para>
+    /// <para>Written ONLY while a decision row is really docked AND VISIBLE on the owner's board,
+    /// so an idle packet stays byte-identical to the previous build's; absence means "no decision
+    /// on show", which is what peers predating the record render (the drawer, via the board-UI
+    /// bit). ADDITIVE TLV exactly like every record before it.</para>
+    ///
+    /// <para>THE "AND VISIBLE" HALF IS NEW (user ruling 2026-08-08: "generell gilt die Regel, das
+    /// man alle Interaktionen, Animationen und Anzeigen des Controllboards in MP auch
+    /// synchronisieren soll … so wie der Spieler sie sieht"). This record used to keep riding while
+    /// the owner's row was RENDER-HIDDEN for another character's focus, on the principle that "a
+    /// local view change may never edit what other machines see" — so peers showed a decision its
+    /// owner could not. Under the ruling that is backwards: a remote board is a picture of ITS
+    /// OWNER'S board, and while the row is hidden their board shows nothing at that seat. The
+    /// board-UI decision bit clears on the same condition, so the drawer does not stand in for the
+    /// withdrawn row either.</para>
     /// </summary>
     public const byte ExtIdDecisionLines = 12;
 
@@ -1394,6 +1418,159 @@ internal static class NetProtocol
     /// mid-sequence; a label that gets cut simply renders shortened on the peer. Must stay well
     /// under the 255-byte TLV length ceiling.</summary>
     public const int DecisionLinesMaxBytes = 160;
+
+    // ---- record 24: DECISION DISPLAY STATE --------------------------------------------------
+
+    /// <summary>
+    /// Extension record id: the STATE of the sender's docked decision display — which prompt is
+    /// docked, which prompt TEXT variant it is showing, and per option whether it is OFFERED,
+    /// GREYED or CHOSEN. Record 12 carries the option WORDINGS; this one carries everything about
+    /// them that is not a word, so a peer's mirrored dock reads the way the deciding player's own
+    /// dock reads instead of showing three equally-live-looking plates.
+    ///
+    /// <para>WHY (user ruling 2026-08-08, verbatim: "Ich möchte das die Schadensabfrage 1:1 beim
+    /// remote-board so angezeigt wird wie der Spieler es auch sieht. generell gilt die Regel, das
+    /// man alle Interaktionen, Animationen und Anzeigen des Controllboards in MP auch
+    /// synchronisieren soll."). The take-damage prompt is a THREE-WAY choice whose options are
+    /// individually gated by the game's own formula (hand &gt; 0, discard &gt; 1, take-damage
+    /// control — <c>Cards.CardsDriver.TickTakeDamageOptions</c>, log line "DECISION SURFACE
+    /// (take-damage)"), and one of them may already be toggled ON. Those three facts are LOCAL UI
+    /// on the deciding client (the whole <c>TakeDamagePanel</c> widget row lives only there —
+    /// every other client's game called <c>ShowOtherPlayer</c>, which hides the window), so they
+    /// can only reach a peer over the wire.</para>
+    ///
+    /// <para>LAYOUT — <c>[flags][n][n × option byte]</c>, at least
+    /// <see cref="DecisionStateMinRecordBytes"/> bytes:
+    /// <list type="bullet">
+    /// <item><c>flags</c> bits 0..2 = <see cref="DecisionPromptKindMask"/>, WHICH prompt is docked
+    ///   (<see cref="DecisionKindNone"/> / <see cref="DecisionKindTakeDamage"/> /
+    ///   <see cref="DecisionKindShortRestYesNo"/> / <see cref="DecisionKindDialogPopup"/>);
+    ///   bits 3..5 = <see cref="DecisionTextVariantMask"/>, WHICH prompt-text variant the owner's
+    ///   HelpBox is showing; bits 6..7 reserved, masked to
+    ///   <see cref="DecisionStateDefinedMask"/> on write AND on read.</item>
+    /// <item><c>n</c> = number of option bytes, clamped to <see cref="DecisionStateMaxOptions"/> on
+    ///   both ends. The options are INDEX-ALIGNED with record 12's '\n'-separated lines — same walk,
+    ///   same order, sampled in the same pass — so option <c>i</c> describes line <c>i</c>.</item>
+    /// <item>option byte: <see cref="DecisionOptionOfferedBit"/> (the widget is interactable — the
+    ///   owner can press it), <see cref="DecisionOptionDimmedBit"/> (the game's 0.7-alpha "your
+    ///   character cannot do this" dim), <see cref="DecisionOptionChosenBit"/> (a toggle that is
+    ///   currently ON). Masked to <see cref="DecisionOptionDefinedMask"/> both ways.</item>
+    /// </list></para>
+    ///
+    /// <para>NO CARD IDENTITY, BY CONSTRUCTION — AND NO PROMPT TEXT EITHER. The record carries
+    /// three small enumerations and a bitfield; not one byte of it is authored content. The prompt
+    /// TEXT is NOT sent: the receiver COMPOSES it from its own localization table, because every
+    /// input of the game's own branch selection except the branch itself is already replicated to
+    /// every client (<c>TakeDamagePanel.ShowOtherPlayer</c> hands each peer the attacked actor, the
+    /// damaging ability and the damage numbers). Sending the composed string instead would have put
+    /// ACTIVE-BONUS CARD NAMES on the wire — <c>ShowDamageTooltip</c> embeds them in the mandatory-use
+    /// variant (TakeDamagePanel.cs:325-333) — and the standing rule is absolute: no card identity,
+    /// ever; reveals only through <see cref="RevealGate"/>. So the variant travels as a number and
+    /// the mandatory-use hint renders on the peer WITHOUT the card names: a deliberate, documented
+    /// omission in the safe direction.</para>
+    ///
+    /// <para>Written ONLY while a decision row is really docked AND VISIBLE on the owner's board —
+    /// exactly the gate record 12 rides, so the two can never disagree — which also means an idle
+    /// packet stays byte-identical to the previous build's. Absence renders as the pre-record look:
+    /// mirrored plates with no state, no prompt text. ADDITIVE TLV exactly like every record before
+    /// it.</para>
+    /// </summary>
+    public const byte ExtIdDecisionState = 24;
+
+    /// <summary>Smallest payload <see cref="ExtIdDecisionState"/> can have: the flags byte + the
+    /// option count. A shorter record is not trusted (never trust the wire).</summary>
+    public const int DecisionStateMinRecordBytes = 2;
+
+    /// <summary>Option cap of <see cref="ExtIdDecisionState"/>. A decision row is a handful of
+    /// widgets (the take-damage panel's three, a Yes/No pair, a DialogPopup's option list); the cap
+    /// bounds the record at 2 + 8 = 10 payload bytes and is re-clamped on read against the record's
+    /// own length.</summary>
+    public const int DecisionStateMaxOptions = 8;
+
+    /// <summary>Decision-state flags bits 0..2 — WHICH prompt is docked.</summary>
+    public const byte DecisionPromptKindMask = 0x07;
+
+    /// <summary>Prompt kind: none / not attributable (also what a zero flags byte means).</summary>
+    public const byte DecisionKindNone = 0;
+
+    /// <summary>Prompt kind: the take-damage burn choice (<c>TakeDamagePanel</c>).</summary>
+    public const byte DecisionKindTakeDamage = 1;
+
+    /// <summary>Prompt kind: the short-rest confirmation (<c>YesNoDialog</c>).</summary>
+    public const byte DecisionKindShortRestYesNo = 2;
+
+    /// <summary>Prompt kind: a <c>DialogPopup</c> (the burn/redraw or pick confirm).</summary>
+    public const byte DecisionKindDialogPopup = 3;
+
+    /// <summary>Shift of the text-variant field inside the decision-state flags byte.</summary>
+    public const int DecisionTextVariantShift = 3;
+
+    /// <summary>Decision-state flags bits 3..5 — WHICH prompt-text variant the owner is reading.</summary>
+    public const byte DecisionTextVariantMask = 0x38;
+
+    /// <summary>Text variant: no prompt text is shown (the prompt has none — a short-rest Yes/No,
+    /// a pick confirm — or the owner's tip window is down). The peer draws no text line.</summary>
+    public const byte DecisionTextNone = 0;
+
+    /// <summary>Text variant: the plain take-damage instruction — the game's
+    /// <c>GUI_TOOLTIP_DEAL_DAMAGE</c> under the <c>GUI_TOOLTIP_TITLE_DEAL_DAMAGE</c> title
+    /// ("Schadensphase: Erleide entweder Schaden, verbrenne …").</summary>
+    public const byte DecisionTextDealDamage = 1;
+
+    /// <summary>Text variant: the WOUND wording (<c>GUI_TOOLTIP_PLAYER_WOUNDED</c>, formatted with
+    /// the attacked actor's name — which the receiver reads from its OWN replicated model).</summary>
+    public const byte DecisionTextWounded = 2;
+
+    /// <summary>Text variant: the SUMMON wording (<c>GUI_TOOLTIP_DEAL_DAMAGE_SUMMON</c> under its
+    /// own title).</summary>
+    public const byte DecisionTextSummon = 3;
+
+    /// <summary>Text variant: the COMPANION-summon wording
+    /// (<c>GUI_TOOLTIP_DEAL_DAMAGE_COMPANION</c>, formatted with the summon's and the summoner's
+    /// names — both read from the receiver's own model).</summary>
+    public const byte DecisionTextCompanion = 4;
+
+    /// <summary>Text variant: the MANDATORY-USE hint
+    /// (<c>GUI_TOOLTIP_DEAL_DAMAGE_MANDATORY_USE</c>). The owner's own line PREFIXES it with the
+    /// names of the non-selected mandatory active bonuses; the mirror renders the hint alone,
+    /// because those names are card names and card identity never rides this wire.</summary>
+    public const byte DecisionTextMandatoryUse = 5;
+
+    /// <summary>Every bit <see cref="ExtIdDecisionState"/>'s flags byte defines today (kind +
+    /// variant). Writer and reader both mask with it, so a future sender's extra bits can never
+    /// light a meaning here — the board-UI overlay discipline.</summary>
+    public const byte DecisionStateDefinedMask = DecisionPromptKindMask | DecisionTextVariantMask;
+
+    /// <summary>Option byte bit 0: the owner can actually PRESS this option right now
+    /// (<c>Selectable.IsInteractable()</c>). Clear = greyed.</summary>
+    public const byte DecisionOptionOfferedBit = 1 << 0;
+
+    /// <summary>Option byte bit 1: the option is DIMMED — the game's 0.7-alpha "the character does
+    /// not have what this option needs" look (<c>UpdateCardRemovalOptionVisuals</c>), which is a
+    /// different picture from a merely non-interactable option and must not be collapsed into it.</summary>
+    public const byte DecisionOptionDimmedBit = 1 << 1;
+
+    /// <summary>Option byte bit 2: this option is CHOSEN — a toggle that is currently ON (the burn
+    /// choice the owner has already picked, before they commit it).</summary>
+    public const byte DecisionOptionChosenBit = 1 << 2;
+
+    /// <summary>Every option-byte bit defined today; masked on write AND on read.</summary>
+    public const byte DecisionOptionDefinedMask =
+        DecisionOptionOfferedBit | DecisionOptionDimmedBit | DecisionOptionChosenBit;
+
+    /// <summary>Pack a prompt kind + text variant into the decision-state flags byte. Both fields
+    /// are clamped into their own field width, so a caller can never spill one into the other or
+    /// into the reserved bits.</summary>
+    public static byte EncodeDecisionFlags(byte kind, byte textVariant) =>
+        (byte)((kind & DecisionPromptKindMask)
+               | ((textVariant << DecisionTextVariantShift) & DecisionTextVariantMask));
+
+    /// <summary>The prompt kind carried by a decision-state flags byte.</summary>
+    public static byte DecodeDecisionKind(byte flags) => (byte)(flags & DecisionPromptKindMask);
+
+    /// <summary>The prompt-text variant carried by a decision-state flags byte.</summary>
+    public static byte DecodeDecisionTextVariant(byte flags) =>
+        (byte)((flags & DecisionTextVariantMask) >> DecisionTextVariantShift);
 
     /// <summary>
     /// Extension record id: the LIVE LABELS of the sender's turn-flow board caps — what their

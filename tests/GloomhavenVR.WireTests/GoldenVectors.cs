@@ -1673,6 +1673,155 @@ internal static class GoldenVectors
                "a truncated decision-lines record still parses the packet");
         t.True(!cutDlS.HasDecisionLines, "and the incomplete record is simply not delivered");
 
+        // -- 7o2. DECISION STATE (extension record 23) --------------------------------------
+        // Record 12 says WHAT the owner's decision options read; this one says everything about
+        // them that is not a word — which prompt is docked, which prompt-TEXT variant the owner is
+        // reading, and per option offered / dimmed / chosen. The text itself is NOT here on
+        // purpose: the receiver composes it from its own localization, because the game's
+        // mandatory-use branch embeds ACTIVE-BONUS CARD NAMES in the sentence and no card identity
+        // may ever ride this wire.
+        t.Case("7o2. extras, decision-state record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionLines = true, DecisionLinesText = "Ja",
+            HasDecisionState = true,
+            DecisionPromptKind = NetProtocol.DecisionKindTakeDamage,
+            DecisionTextVariant = NetProtocol.DecisionTextDealDamage,
+            DecisionOptionCount = 3,
+            DecisionOptionFlags = new byte[]
+            {
+                NetProtocol.DecisionOptionOfferedBit,                                  // pressable
+                NetProtocol.DecisionOptionDimmedBit,                                   // greyed + dim
+                (byte)(NetProtocol.DecisionOptionOfferedBit | NetProtocol.DecisionOptionChosenBit),
+            },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            02               // tail: 2 records
+            0C 02 4A 61      // id 12 decision lines: 'Ja'
+            18 05            // id 24 (decision state), len 5
+            09               // flags: kind 1 (take damage) | variant 1 (deal damage) << 3
+            03               // 3 options
+            01 02 05         // #0 offered, #1 dimmed, #2 offered+chosen
+            "), ext, m, "the decision-state record is [id 24][len][flags][n][n option bytes], "
+                        + "written AFTER record 12 in id order");
+        t.Equal(22, m, "header 7 + count 1 + block 2 + tail 1 + (2+2) + (2+5) = 22 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ds), "and it parses");
+        t.True(ds.HasDecisionState, "the decision state is delivered");
+        t.Equal(NetProtocol.DecisionKindTakeDamage, ds.DecisionPromptKind, "prompt kind intact");
+        t.Equal(NetProtocol.DecisionTextDealDamage, ds.DecisionTextVariant, "text variant intact");
+        t.Equal(3, ds.DecisionOptionCount, "all three option states are delivered");
+        t.Equal(NetProtocol.DecisionOptionOfferedBit, ds.DecisionOptionFlags![0],
+                "option 0 is OFFERED — the receiver draws a live plate");
+        t.Equal(NetProtocol.DecisionOptionDimmedBit, ds.DecisionOptionFlags[1],
+                "option 1 is greyed AND dimmed — two separate axes, not collapsed into one");
+        t.True((ds.DecisionOptionFlags[2] & NetProtocol.DecisionOptionChosenBit) != 0,
+               "option 2 carries the CHOSEN bit (the accent frame on the peer's plate)");
+
+        // KIND AND VARIANT SHARE ONE BYTE and must not bleed into each other: the highest defined
+        // variant with the highest defined kind still decodes as the pair that was written.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionState = true,
+            DecisionPromptKind = NetProtocol.DecisionKindDialogPopup,       // 3
+            DecisionTextVariant = NetProtocol.DecisionTextMandatoryUse,     // 5
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            18 02            // id 24, len 2
+            2B               // flags: kind 3 | variant 5 << 3 = 0x03 | 0x28
+            00               // no options
+            "), ext, m, "kind and variant pack into one byte without spilling into each other");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState kv), "and it parses");
+        t.Equal(NetProtocol.DecisionKindDialogPopup, kv.DecisionPromptKind, "kind 3 survives");
+        t.Equal(NetProtocol.DecisionTextMandatoryUse, kv.DecisionTextVariant, "variant 5 survives");
+        t.Equal(0, kv.DecisionOptionCount, "and an option-less record is legal (no plates to state)");
+
+        // NOTHING TO STATE ⇒ NO RECORD, NO TAIL, NO BLOCK: an idle packet stays byte-identical to
+        // the previous build's — the same contract every "only when non-default" record honours.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionState = true, HandCardCount = 5,
+            DecisionPromptKind = NetProtocol.DecisionKindNone,
+            DecisionTextVariant = NetProtocol.DecisionTextNone,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "an empty decision state writes no record at all");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noDs), "and it parses");
+        t.True(!noDs.HasDecisionState, "with HasDecisionState false (peers keep the plain plates)");
+
+        // MASKED ON WRITE AND ON READ: a sender that sets bits this build does not define must not
+        // light a meaning here, and must not corrupt the fields beside them.
+        byte[] wildDs = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            18 03            // id 24, len 3
+            C9               // flags: reserved bits 6+7 set, on top of kind 1 | variant 1
+            01               // 1 option
+            F9               // option: reserved bits 3..7 set, on top of OFFERED
+            ");
+        t.True(PresenceSerializer.TryRead(wildDs, wildDs.Length, out PresenceState wds),
+               "a record with undefined bits still parses");
+        t.Equal(NetProtocol.DecisionKindTakeDamage, wds.DecisionPromptKind,
+                "the kind is read through the mask, unaffected by the reserved bits");
+        t.Equal(NetProtocol.DecisionTextDealDamage, wds.DecisionTextVariant,
+                "and so is the variant");
+        t.Equal(NetProtocol.DecisionOptionOfferedBit, wds.DecisionOptionFlags![0],
+                "every undefined option bit is masked away");
+
+        // A LYING COUNT can neither overrun the record nor bleed into the next one: n is re-clamped
+        // against the record's OWN length, and the record behind it still reads.
+        byte[] lyingDs = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 02
+            18 04 09 FF 01 02          // id 24, len 4: claims 255 options, carries 2
+            03 07 01 00 30 2E 31 2E 30 // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(lyingDs, lyingDs.Length, out PresenceState liar),
+               "a decision-state record claiming more options than it carries still parses");
+        t.Equal(2, liar.DecisionOptionCount, "the count is clamped to what the record really holds");
+        t.True(liar.HasModVersion, "and the record behind it is read past it, undamaged");
+
+        // OVER-CAP: a sender offering more options than the cap is clamped on read, so a peer can
+        // never be made to allocate or draw past the record's own bound.
+        byte[] overCap = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            18 0D 09 0C 01 01 01 01 01 01 01 01 01 01 01 01
+            ");
+        t.True(PresenceSerializer.TryRead(overCap, overCap.Length, out PresenceState dsCapped),
+               "an over-cap decision-state record parses");
+        t.Equal(NetProtocol.DecisionStateMaxOptions, dsCapped.DecisionOptionCount,
+                "with the option count clamped to DecisionStateMaxOptions");
+
+        // OLD-STYLE PACKET (no record 23 at all — a build-86 sender): the decision LINES still
+        // arrive, and the receiver derives "no states, no prompt line", which is exactly the look
+        // every build before this one drew.
+        byte[] oldStyleDs = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            0C 07 4A 61 0A 4E 65 69 6E   // id 12 only: 'Ja\nNein'
+            ");
+        t.True(PresenceSerializer.TryRead(oldStyleDs, oldStyleDs.Length, out PresenceState preDs),
+               "a pre-record-23 packet parses");
+        t.True(preDs.HasDecisionLines, "its decision lines are delivered");
+        t.True(!preDs.HasDecisionState, "no decision state is invented");
+        t.Equal(NetProtocol.DecisionKindNone, preDs.DecisionPromptKind,
+                "the derived prompt kind is None — the receiver draws no prompt line");
+        t.True(preDs.DecisionOptionFlags == null,
+               "and no option states — every mirrored plate keeps the plain look");
+
+        // TRUNCATED record (claims 5 payload bytes, delivers 1): tail abandoned, nothing thrown.
+        byte[] cutDs = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 18 05 09");
+        t.True(PresenceSerializer.TryRead(cutDs, cutDs.Length, out PresenceState cutDsS),
+               "a truncated decision-state record still parses the packet");
+        t.True(!cutDsS.HasDecisionState, "and the incomplete record is simply not delivered");
+
         // -- 7p. CAP LABELS (extension record 13) ------------------------------------------
         // What the sender's CONFIRM cap and docked SKIP button ACTUALLY read — the fix for
         // "mein Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'": the receiver's neutral
@@ -2186,6 +2335,15 @@ internal static class GoldenVectors
                                   new PresenceState { HasDecisionLines = true, DecisionLinesText = "Ja\nNein" },
                                   new PresenceState
                                   {
+                                      HasDecisionLines = true, DecisionLinesText = "Ja\nNein",
+                                      HasDecisionState = true,
+                                      DecisionPromptKind = NetProtocol.DecisionKindTakeDamage,
+                                      DecisionTextVariant = NetProtocol.DecisionTextMandatoryUse,
+                                      DecisionOptionCount = 2,
+                                      DecisionOptionFlags = new byte[] { 1, 6 },
+                                  },
+                                  new PresenceState
+                                  {
                                       HasConfirmCapLabel = true, ConfirmCapLabel = "OK",
                                       HasSkipCapLabel = true, SkipCapLabel = "Skip",
                                   } })
@@ -2297,6 +2455,10 @@ internal static class GoldenVectors
         && x.SlotCardWidthCode == y.SlotCardWidthCode
         && x.HasDecisionLines == y.HasDecisionLines
         && x.DecisionLinesText == y.DecisionLinesText
+        && x.HasDecisionState == y.HasDecisionState
+        && x.DecisionPromptKind == y.DecisionPromptKind
+        && x.DecisionTextVariant == y.DecisionTextVariant
+        && x.DecisionOptionCount == y.DecisionOptionCount
         && x.HasConfirmCapLabel == y.HasConfirmCapLabel
         && x.ConfirmCapLabel == y.ConfirmCapLabel
         && x.HasSkipCapLabel == y.HasSkipCapLabel

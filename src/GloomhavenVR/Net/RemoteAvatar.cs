@@ -293,6 +293,22 @@ internal sealed class RemoteAvatar
     /// (<see cref="RemoteBoardFurniture"/>).</summary>
     public string? DecisionLines { get; private set; }
 
+    /// <summary>WHICH prompt the owner has docked (extension record 23 flags bits 0..2, one of
+    /// <see cref="NetProtocol.DecisionKindNone"/> …). <see cref="NetProtocol.DecisionKindNone"/>
+    /// while no state record rides — including for a sender that predates the record, whose
+    /// mirrored plates then carry no states and no prompt line, exactly as before.</summary>
+    public byte DecisionPromptKind { get; private set; }
+
+    /// <summary>WHICH prompt-TEXT variant the owner is reading (record 23 flags bits 3..5). The
+    /// receiver composes that line from its OWN localization — the composed text never rides the
+    /// wire, see <see cref="NetProtocol.ExtIdDecisionState"/>.</summary>
+    public byte DecisionTextVariant { get; private set; }
+
+    /// <summary>Per-option state bytes of the owner's docked row (record 23), index-aligned with
+    /// <see cref="DecisionLines"/>'s lines; null while no state record rides. Offered / dimmed /
+    /// chosen — the three facts that make a mirrored row read like the owner's.</summary>
+    public byte[]? DecisionOptionStates { get; private set; }
+
     /// <summary>What the owner's CONFIRM cap actually reads (extension record 13 bit 0), or null
     /// — the receiver then letters the mirrored cap with the neutral GUI_CONFIRM fallback,
     /// exactly what pre-record senders get.</summary>
@@ -713,17 +729,45 @@ internal sealed class RemoteAvatar
         // DECISION LINES (extension record 12): absent ⇒ null ⇒ the mirrored decision buttons
         // hide (the drawer alone remains while the board-UI decision bit still says a prompt is
         // docked — the pre-record look). Never a stale row from a prompt that has since resolved:
-        // the sender writes the record on every packet while a row is docked and omits it the
-        // moment it undocks.
+        // the sender writes the record on every packet while a row is docked AND VISIBLE on their
+        // board, and omits it the moment it undocks OR they look at another character (user ruling
+        // 2026-08-08 — their board shows nothing there, so neither does this copy).
         string? decision = p.HasDecisionLines ? p.DecisionLinesText : null;
         if (decision != DecisionLines)
         {
             DecisionLines = decision;
             VRLog.Info("Net", string.IsNullOrEmpty(decision)
-                ? $"Decision lines RECEIVED from player {PlayerId}: none (row undocked)."
+                ? $"Decision lines RECEIVED from player {PlayerId}: none (row undocked or hidden " +
+                  "on the owner's own board)."
                 : $"Decision lines RECEIVED from player {PlayerId}: " +
                   $"\"{decision!.Replace('\n', '|')}\" — mirrored as inert plates at their remote " +
                   "board's decision seat (labels only, no card identity on this wire).");
+        }
+
+        // DECISION STATE (extension record 23): the prompt kind, the prompt-TEXT variant and the
+        // per-option offered/dimmed/chosen bytes. Rides record 12's own gate, so it appears and
+        // disappears with the labels it describes; absence keeps the pre-record look (plates with
+        // no state, no prompt line).
+        byte kind = p.HasDecisionState ? p.DecisionPromptKind : NetProtocol.DecisionKindNone;
+        byte textVariant = p.HasDecisionState ? p.DecisionTextVariant : NetProtocol.DecisionTextNone;
+        byte[]? optionStates = p.HasDecisionState && p.DecisionOptionCount > 0
+            ? p.DecisionOptionFlags
+            : null;
+        if (kind != DecisionPromptKind || textVariant != DecisionTextVariant
+            || !SameOptionStates(optionStates, DecisionOptionStates))
+        {
+            DecisionPromptKind = kind;
+            DecisionTextVariant = textVariant;
+            DecisionOptionStates = optionStates;
+            VRLog.Info("Net", !p.HasDecisionState
+                ? $"Decision state RECEIVED from player {PlayerId}: none — their mirrored plates " +
+                  "carry no option states and no prompt line (record 23 absent: no visible " +
+                  "decision, or a sender predating the record)."
+                : $"Decision state RECEIVED from player {PlayerId}: prompt kind {kind}, text " +
+                  $"variant {textVariant}, {(optionStates?.Length ?? 0)} option state(s) " +
+                  $"[{DescribeOptionStates(optionStates)}] — their remote board greys, dims and " +
+                  "lights the mirrored plates exactly as the owner's own dock does, and composes " +
+                  "the prompt line locally (the text itself never rides this wire).");
         }
 
         // CAP LABELS (extension record 13): absent ⇒ null ⇒ the neutral-label fallback. The
@@ -1248,6 +1292,43 @@ internal sealed class RemoteAvatar
 
         // Keep the whole subtree on the mod layer so the owned head camera renders it.
         VRLayers.Apply(_root);
+    }
+
+    /// <summary>Value equality for the per-option state arrays (wire record 23) — the change gate
+    /// for the decision-state log, so a toggle flip logs once and a steady prompt logs never.</summary>
+    private static bool SameOptionStates(byte[]? a, byte[]? b)
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+        if (a == null || b == null || a.Length != b.Length)
+            return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i] != b[i])
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Human-readable per-option states for the received-log line (diagnostic only).</summary>
+    private static string DescribeOptionStates(byte[]? states)
+    {
+        if (states == null || states.Length == 0)
+            return "-";
+        var sb = new System.Text.StringBuilder(48);
+        for (int i = 0; i < states.Length; i++)
+        {
+            if (i > 0)
+                sb.Append(", ");
+            byte f = states[i];
+            sb.Append('#').Append(i).Append('=')
+              .Append((f & NetProtocol.DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
+            if ((f & NetProtocol.DecisionOptionDimmedBit) != 0)
+                sb.Append("+dim");
+            if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
+                sb.Append("+CHOSEN");
+        }
+        return sb.ToString();
     }
 
     /// <summary>Stable per-player tint so avatars are distinguishable at a glance.</summary>
