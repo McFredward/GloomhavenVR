@@ -277,6 +277,34 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     internal bool Grabbable { get; set; } = true;
 
     /// <summary>
+    /// INSPECTION GRAB (user ruling 2026-08-08: "Ich möchte das man jederzeit auch eine Karte aus
+    /// der Hand nehmen kann um sie sich genau anzuschauen, auch wenn man die Karte nirgendwo
+    /// ablegen kann. Das soll also niemals blockiert sein"). True while this card may be PICKED UP
+    /// AND READ but may NOT be COMMITTED — played into a board slot, selected, discarded, or any
+    /// other call that writes game state.
+    ///
+    /// <para>THE SPLIT THIS ENCODES. Before this flag the mod had exactly one verdict per card,
+    /// <see cref="Grabbable"/>, and it meant BOTH "you may hold this" and "you may place this".
+    /// Every phase in which a hand card cannot be PLAYED therefore also refused to let the player
+    /// LOOK at it (<c>CardsDriver.Rebuild</c>'s <c>grabbable</c> is <c>CardsGameApi.IsSelectionPhase</c>
+    /// in <c>CardsSelection</c> and plain <c>false</c> in every other mode). Inspection and play are
+    /// now two different questions: <see cref="Grabbable"/> answers "may I hold it", this answers
+    /// "and is holding it ALL I may do".</para>
+    ///
+    /// <para>WHO WRITES IT: the zone stamp in <c>CardsDriver.Rebuild</c> (the single per-card
+    /// funnel) plus the two between-rebuild fan seams (<c>CardFan.SetCards</c> / <c>CardFan.Add</c>),
+    /// exactly like <see cref="Grabbable"/> and <see cref="AllowsGateHand"/> — so a card that
+    /// changes zone between frames can never carry a stale verdict.</para>
+    ///
+    /// <para>WHO READS IT: <c>CardsDriver.OnCardReleased</c>, which returns an inspect-only card
+    /// HOME to the fan before any game seam is reachable. Deliberately a property of the CARD and
+    /// not of the fan: the release routing runs on the card long after the fan may have changed,
+    /// and a mid-hold rebuild never re-stamps a HELD card (the zone loop skips them), so the verdict
+    /// the player saw when they grabbed it is the verdict that decides their release.</para>
+    /// </summary>
+    internal bool InspectOnly { get; set; }
+
+    /// <summary>
     /// USER BUG B — the explicit ROOTED predicate: this card may not be grabbed in the
     /// current phase (committed/played cards docked during action execution, locked
     /// selection, modal block), so it must lie rooted — ZERO pop, ZERO scale change,

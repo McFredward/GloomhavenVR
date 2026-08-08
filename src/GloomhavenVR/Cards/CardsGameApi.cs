@@ -201,6 +201,42 @@ internal static class CardsGameApi
         return !FFSNetwork.IsOnline || hand.PlayerActor.IsUnderMyControl;
     }
 
+    /// <summary>
+    /// Does <paramref name="hand"/> actually LIST <paramref name="widget"/> among its own card
+    /// widgets? The game builds one <c>CardsHandUI</c> per player actor on every client
+    /// (Choreographer.cs:925/1112) and each holds its own character's widgets in
+    /// <c>CardsHandUI.cardsUI</c> — the same list <c>Board.CharacterFocus.HandWidgetCount</c>
+    /// counts — so this is the game's own answer to "is this card yours".
+    ///
+    /// <para>Used as the last belt before any commit seam in <c>CardsDriver.OnCardReleased</c>: the
+    /// hand a release resolves is the hand the GAME presents, which is not necessarily the hand the
+    /// released card came out of (free character focus renders another character's fan; a hand
+    /// teardown can swap the presented hand mid-hold). A false here means "return the card home",
+    /// never "call the seam anyway". Never throws — a half-torn hand answers false, which is the
+    /// safe direction.</para>
+    /// </summary>
+    internal static bool HandOwnsWidget(CardsHandUI? hand, AbilityCardUI? widget)
+    {
+        if (hand == null || widget == null)
+            return false;
+        try
+        {
+            List<AbilityCardUI>? cards = hand.cardsUI;
+            if (cards == null)
+                return false;
+            for (int i = 0; i < cards.Count; i++)
+            {
+                if (ReferenceEquals(cards[i], widget))
+                    return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>Verified: <c>public CardHandMode currentMode { get; private set; }</c> (CardsHandUI.cs:214).</summary>
     internal static CardHandMode Mode(CardsHandUI hand) => hand.currentMode;
 

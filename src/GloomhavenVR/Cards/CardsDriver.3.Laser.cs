@@ -1888,11 +1888,18 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
-    /// T2: cards adopted by a read-only pile viewer — the discard/burnt BROWSE arc or the
-    /// active-cards column. Their releases always return them to the viewer, never into the
-    /// select/slot seams, so no drop telegraph may ever glow for them.
+    /// T2: cards whose RELEASE always returns them where they came from, never into the
+    /// select/slot seams — so no drop telegraph may ever glow for them ("what glows is what
+    /// drops"). Three sources, one contract:
+    /// <list type="bullet">
+    /// <item>the discard/burnt BROWSE arc and the active-cards column (the original T2 case);</item>
+    /// <item>INSPECTION grabs (2026-08-08): a hand card picked up purely to be read while the
+    ///   placement is refused (<see cref="VRCard.InspectOnly"/>) — its release routes home before
+    ///   any game seam, so a glowing slot would promise a play that cannot happen.</item>
+    /// </list>
     /// </summary>
-    private bool IsReadOnlyViewerCard(VRCard card) => _browser.Contains(card) || _active.Contains(card);
+    private bool IsReadOnlyViewerCard(VRCard card) =>
+        card.InspectOnly || _browser.Contains(card) || _active.Contains(card);
 
     private static VRCard? HeldCard(out VRHand? holder)
     {

@@ -632,9 +632,77 @@ internal sealed partial class CardsDriver
         else
             VRLog.Info("Cards", $"Selection LOCKED — mode still CardsSelection but phase is " +
                                 $"{PhaseManager.PhaseType} (not selection): played cards docked read-only, and the " +
-                                "hand fan is SHOWN but read-only (user ruling 2026-08-08 — the cards are visible " +
-                                "in every phase; the lock removes the affordance, not the sight). Nothing is " +
-                                "grabbable, pokeable or laser-clickable until the next card-selection phase.");
+                                "hand fan is SHOWN (user ruling 2026-08-08 — the cards are visible in every phase; " +
+                                "the lock removes the PLACEMENT, not the sight and no longer the touch). The cards " +
+                                "stay grabbable for INSPECTION (user ruling 2026-08-08 — 'aus der Hand nehmen um " +
+                                "sie sich genau anzuschauen … soll niemals blockiert sein'); a release returns them " +
+                                "home and no card can be played until the next card-selection phase. Poke-select " +
+                                "stays off, as in every hand-fan state.");
+    }
+
+    // ------------------------------------------------- fan interaction mode (inspection) --
+
+    /// <summary>Change-dedup for the fan-mode diagnostic: last logged (mode, refusal reason).</summary>
+    private (CardFan.FanMode mode, string why)? _loggedFanMode;
+
+    /// <summary>
+    /// WHY THE LAST PLACEMENT WAS REFUSED, in one short phrase — set every rebuild by
+    /// <see cref="LogFanMode"/> and quoted verbatim by the inspection-release line in
+    /// <c>OnCardReleased</c>, so a hardware log shows the split the 2026-08-08 ruling asked for:
+    /// the GRAB was allowed, the PLACEMENT was refused, and by WHICH gate. Never a gate itself.
+    /// </summary>
+    private string _placementRefusal = "none (the fan is fully interactive)";
+
+    /// <summary>
+    /// THE ONE LINE that makes "kann ich die Karte anfassen?" answerable from the log alone
+    /// (user ruling 2026-08-08). Change-deduped on (mode, reason) so a per-frame rebuild is silent
+    /// while every genuine transition — selection opening/closing, a turn starting, a focus switch
+    /// — is logged exactly once. Names the gate that refused the PLACEMENT and states plainly that
+    /// the GRAB itself was not refused, which is the whole point of the split.
+    /// </summary>
+    private void LogFanMode(CardsHandUI hand, CardFan.FanMode fanMode, bool readOnly, bool grabbable,
+        CardHandMode mode)
+    {
+        // The gate that refused the placement, in the order the rebuild evaluates them.
+        string why =
+            fanMode == CardFan.FanMode.Interactive ? "none (the fan is fully interactive)"
+            : readOnly
+                ? "read-only focus view (Board.CharacterFocus.ReadOnlyView — the game presents a " +
+                  $"different character; looking at '{Board.CharacterFocus.Describe(hand.PlayerActor)}')"
+            : mode == CardHandMode.CardsSelection
+                ? $"selection LOCKED (CardsGameApi.IsSelectionPhase false — phase {PhaseManager.PhaseType})"
+            : mode == CardHandMode.ActionSelection
+                ? "action turn (CardHandMode.ActionSelection — the hand is a picture while the " +
+                  "character acts; cards are played from the board slots, not from the fan)"
+            : $"hand mode {mode} has no placement target";
+        _placementRefusal = why;
+
+        if (_loggedFanMode.HasValue && _loggedFanMode.Value.mode == fanMode
+            && _loggedFanMode.Value.why == why)
+            return;
+        _loggedFanMode = (fanMode, why);
+
+        switch (fanMode)
+        {
+            case CardFan.FanMode.Interactive:
+                VRLog.Info("Cards", "Hand fan INTERACTIVE — grab, laser-pluck and slot placement are all live.");
+                break;
+            case CardFan.FanMode.Inspect:
+                VRLog.Info("Cards", "Hand fan INSPECT-ONLY — the GRAB is ALLOWED (proximity, laser pluck, " +
+                                    "hand-to-hand transfer: pick a card up and read it, in any phase). The " +
+                                    $"PLACEMENT is refused by: {why}. A release returns the card HOME to the fan " +
+                                    "with no game call whatsoever (VRCard.InspectOnly → CardsDriver." +
+                                    "OnCardReleased's inspection branch, which runs before CurrentHand() is even " +
+                                    "resolved). Poke-select stays off, as in every hand-fan state.");
+                break;
+            default:
+                VRLog.Info("Cards", "Hand fan PICTURE — neither grabbable nor laser-clickable. This is the " +
+                                    "FOREIGN-character case and the only one left: the hand belongs to another " +
+                                    "player (CardsGameApi.IsLocalHand false), so the read-only focus guarantee " +
+                                    "stays absolute — no VR input can reach a game call for a character we are " +
+                                    $"only watching. Placement gate: {why}.");
+                break;
+        }
     }
 
     // Change-dedup for the action-turn board-clear diagnostic (task #5): last logged actionTurn.

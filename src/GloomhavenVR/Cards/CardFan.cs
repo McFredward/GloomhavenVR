@@ -196,42 +196,94 @@ internal sealed class CardFan
     // ------------------------------------------------------------------ content --
 
     /// <summary>
-    /// READ-ONLY MODE (feature "free character focus"): the fan is showing a character the player
-    /// may NOT drive — a teammate's hand, or one of their own characters that is not the one
-    /// acting. It is a picture, not a control.
+    /// What the player may DO with this fan — the whole interaction vocabulary of a hand fan, as
+    /// three states rather than the one bool ("read-only") this used to be.
+    /// </summary>
+    internal enum FanMode
+    {
+        /// <summary>Full play: grab, laser-pluck, reorder, and DROP into a board slot (the real
+        /// card-selection window, and the modal pick flows).</summary>
+        Interactive,
+
+        /// <summary>
+        /// INSPECTION ONLY (user ruling 2026-08-08: "Ich möchte das man jederzeit auch eine Karte
+        /// aus der Hand nehmen kann um sie sich genau anzuschauen, auch wenn man die Karte nirgendwo
+        /// ablegen kann. Das soll also niemals blockiert sein"). Everything that only MOVES the card
+        /// through the player's own hands works — laser hover/pluck, proximity grab, hand-to-hand
+        /// transfer, holding it up to read it — and NOTHING that writes game state does: the
+        /// release always returns the card HOME (<c>CardsDriver.OnCardReleased</c> routes on
+        /// <see cref="VRCard.InspectOnly"/> before any game seam is reachable).
+        /// </summary>
+        Inspect,
+
+        /// <summary>
+        /// A PICTURE: not even grabbable. Reserved for a hand this client is not entitled to
+        /// handle at all — a FOREIGN character's hand in a focus view (see
+        /// <c>Board.CharacterFocus.HandInspectable</c>). This is the old read-only behaviour,
+        /// unchanged, and it is now the exception rather than the rule.
+        /// </summary>
+        Picture,
+    }
+
+    /// <summary>
+    /// The fan's current interaction mode. Default <see cref="FanMode.Interactive"/> — a fan that
+    /// has not been told anything behaves exactly as it did before this concept existed.
     ///
     /// <para>WHY THE FAN ITSELF CARRIES THE FLAG rather than trusting the driver to hand it inert
     /// cards: the fan owns the ONE laser path into a hand card (<see cref="TryRaycast"/> — the
     /// laser driver asks the fan, it does not raycast colliders), and it owns
-    /// <see cref="Remove"/>, the seam a grab uses to pull a card out. Vetoing both HERE means the
-    /// read-only guarantee survives every route a card can take into this list, including the
-    /// between-rebuild seams (<see cref="Add"/> on a released card) where the driver's per-card
-    /// stamp has not run yet. Together with the driver forcing <c>VRCard.Grabbable</c> and
-    /// <c>PokeSelectEnabled</c> false, no interactor can find one of these cards at all.</para>
+    /// <see cref="Remove"/>, the seam a grab uses to pull a card out. Deciding both HERE means the
+    /// verdict survives every route a card can take into this list, including the between-rebuild
+    /// seams (<see cref="Add"/> on a released card) where the driver's per-card stamp has not run
+    /// yet.</para>
     /// </summary>
-    internal bool ReadOnly { get; private set; }
+    internal FanMode Mode { get; private set; } = FanMode.Interactive;
 
-    /// <summary>Set the read-only mode. Called by the driver BEFORE <see cref="SetCards"/> so the
-    /// first frame of a focus view is already inert.</summary>
-    internal void SetReadOnly(bool readOnly)
+    /// <summary>Set the interaction mode. Called by the driver BEFORE <see cref="SetCards"/> so the
+    /// first frame of a focus / locked view is already correct.</summary>
+    internal void SetMode(FanMode mode)
     {
-        if (ReadOnly == readOnly)
+        if (Mode == mode)
             return;
-        ReadOnly = readOnly;
-        // A read-only fan must not keep a live hover/highlight from the interactive fan it
-        // replaced — the laser can no longer clear it, because the laser can no longer see it.
-        if (readOnly)
-        {
+        Mode = mode;
+        // A fan that just became a PICTURE must not keep a live hover/highlight from the mode it
+        // replaced — the laser can no longer clear it, because it can no longer see it.
+        if (mode == FanMode.Picture)
             ClearFingertipHover();
-            for (int i = 0; i < _cards.Count; i++)
-            {
-                VRCard c = _cards[i];
-                if (c == null)
-                    continue;
-                c.Grabbable = false;
-                c.PokeSelectEnabled = false;
+        // Re-stamp the cards already in the list so a mode learned one frame late is never one
+        // frame of the wrong affordance.
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            VRCard c = _cards[i];
+            if (c == null)
+                continue;
+            StampMode(c);
+            if (mode == FanMode.Picture)
                 c.SetLaserHover(false);
-            }
+        }
+    }
+
+    /// <summary>Apply <see cref="Mode"/> to one card. The single place fan membership turns into an
+    /// interaction verdict, used by <see cref="SetMode"/>, <see cref="SetCards"/> and
+    /// <see cref="Add"/> alike so the three cannot drift. <c>PokeSelectEnabled</c> is forced OFF in
+    /// every mode — touching a hand card must never commit it (item 10), inspection included.</summary>
+    private void StampMode(VRCard card)
+    {
+        card.PokeSelectEnabled = false;
+        switch (Mode)
+        {
+            case FanMode.Picture:
+                card.Grabbable = false;
+                card.InspectOnly = false;
+                break;
+            case FanMode.Inspect:
+                card.Grabbable = true;
+                card.InspectOnly = true;
+                break;
+            default: // Interactive — the driver's zone stamp owns Grabbable here (a fan card may
+                     // still be non-grabbable for a reason that has nothing to do with the fan).
+                card.InspectOnly = false;
+                break;
         }
     }
 
@@ -263,13 +315,10 @@ internal sealed class CardFan
             if (cards[i] != null)
             {
                 cards[i].AllowsGateHand = false;
-                // READ-ONLY: re-assert inertness at the same seam that decides fan membership, so
-                // a card that entered the fan between rebuilds is never grabbable for a frame.
-                if (ReadOnly)
-                {
-                    cards[i].Grabbable = false;
-                    cards[i].PokeSelectEnabled = false;
-                }
+                // MODE: re-assert the fan's verdict at the same seam that decides fan membership,
+                // so a card that entered the fan between rebuilds never spends a frame with the
+                // wrong affordance (inert in Picture, inspect-only in Inspect).
+                StampMode(cards[i]);
             }
         }
         if (IsOpen)
@@ -296,11 +345,14 @@ internal sealed class CardFan
         }
     }
 
-    /// <summary>Remove a card (grabbed away); remaining cards close the gap. A READ-ONLY fan
-    /// refuses: nothing may be pulled out of a character's hand the player is only watching.</summary>
+    /// <summary>Remove a card (grabbed away); remaining cards close the gap. A
+    /// <see cref="FanMode.Picture"/> fan refuses: nothing may be pulled out of a character's hand
+    /// the player is not entitled to handle. <see cref="FanMode.Inspect"/> ALLOWS it — pulling a
+    /// card out to read it is the whole point of that mode, and the gap it leaves is what makes the
+    /// remaining fan legible while the card is up at the player's face.</summary>
     internal void Remove(VRCard card)
     {
-        if (ReadOnly)
+        if (Mode == FanMode.Picture)
             return;
         if (_cards.Remove(card))
         {
@@ -322,6 +374,10 @@ internal sealed class CardFan
         // a void-released card re-enters the fan HERE, often frames before the next Rebuild
         // re-stamps zones — without this the fan-owning hand could hover/grab its own fan card.
         card.AllowsGateHand = false;
+        // MODE: the RETURN-HOME seam of an inspection release lands here, frames before the next
+        // Rebuild re-stamps zones — re-assert the fan's verdict so the card is immediately
+        // re-grabbable for another look (Inspect) or immediately inert (Picture).
+        StampMode(card);
         if (IsOpen)
             Relayout(instant: false);
     }
@@ -1754,11 +1810,14 @@ internal sealed class CardFan
         point = default;
         distance = float.PositiveInfinity;
 
-        // READ-ONLY: the fan is the ONLY laser path into a hand card (the laser driver asks the
+        // PICTURE: the fan is the ONLY laser path into a hand card (the laser driver asks the
         // fan rather than raycasting colliders), so refusing here removes the whole route — the
         // laser reports no hit and falls through to whatever is behind the fan, exactly as it does
-        // when the fan is closed.
-        if (!IsOpen || ReadOnly || _root == null)
+        // when the fan is closed. FanMode.Inspect does NOT refuse: the laser pluck is one of the
+        // two ways a player picks a card up to read it (the other being the proximity grab), and
+        // inspection must never be blocked. What the pluck may not do — commit the card — is
+        // refused at the RELEASE instead (VRCard.InspectOnly), not by hiding the card from the ray.
+        if (!IsOpen || Mode == FanMode.Picture || _root == null)
             return false;
 
         // T2 (fan grab misses): a MODEST accept margin around each card's rect so a ray
