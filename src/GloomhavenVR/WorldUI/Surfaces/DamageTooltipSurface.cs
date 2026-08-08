@@ -37,7 +37,11 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// Entscheidungsknoepfe": together with the row it forms the decision dock, and the user's
 /// board-local <c>[Cards] DecisionGap_*</c> stepper tunes the distance between exactly this
 /// text and the buttons — a distance that only means anything while the text sits over the
-/// row. ModBuild 46 rerouted this surface through
+/// row. Since ModBuild 89 that is structural rather than hopeful: <see cref="Place"/> seats this
+/// line FROM the row's own placed top edge (<see cref="DecisionDockSurface.RowTopUpMeters"/>) at
+/// exactly that gap, so the text is a MEMBER of the decision area — no dial can move, scale or
+/// re-anchor it apart from its buttons, because it no longer computes a seat of its own.
+/// ModBuild 46 rerouted this surface through
 /// <c>WorldTooltips.TryGetBoardAreaPose</c> ("every board-owned tooltip in one area"), which
 /// tore the prompt text away from its buttons into the top-left tooltip corner and voided the
 /// tuned gap — the user's rule is narrower: the tooltip area is ONLY for true MOUSEOVER
@@ -81,8 +85,9 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// <summary>Tooltip text must stay readable under pressure — same density as the docked row.</summary>
     private const float DensityScale = 0.8f;
 
-    /// <summary>Park the tip this far ABOVE the widget-row mount (mount-local metres), so it sits just over the buttons.</summary>
-    private const float AboveRowMetres = 0.11f;
+    /// <summary>Change-dedup for the seat line (row edge / text seat / clearance), keyed on the
+    /// rounded millimetres so a settled dock logs it once.</summary>
+    private string? _loggedSeat;
 
     /// <summary>The HelpBox window currently converted (open + showing the damage tip).</summary>
     private HelpBox? _active;
@@ -201,6 +206,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
         {
             _active = null;
             _loggedFocusVisibility = null; // the next dock states its focus verdict afresh
+            _loggedSeat = null;            // …and its seat afresh
             VRLog.Info("WorldUI", "DAMAGE TOOLTIP: HelpBox released — restored to its 2D home.");
         }
 
@@ -420,10 +426,33 @@ internal sealed class DamageTooltipSurface : WorldSurface
     }
 
     /// <summary>
-    /// Park just above the docked widget-row mount (the buttons the tip describes),
-    /// content-fitted into the same width budget and facing the player. While no mount
-    /// exists the surface simply holds off (the dock itself has already floated to the
-    /// HMD in that case; a mispositioned tip is never a lock).
+    /// Park just above the docked widget ROW — measured, not guessed — content-fitted into the
+    /// same width budget and facing the player. While no mount exists the surface simply holds
+    /// off (the dock itself has already floated to the HMD in that case; a mispositioned tip is
+    /// never a lock).
+    ///
+    /// THE TEXT IS A MEMBER OF THE DECISION AREA, NOT A NEIGHBOUR OF IT (user, ModBuild 89
+    /// hardware test: "Wenn ich den ganzen Entscheidungsbereich nach unten verschiebe mit dem
+    /// Offset, dann soll der Text (der über den Buttons ist) auch entsprechend mit nach unten
+    /// verschoben werden — aktuell reagiert er wie ein Element das nicht zu dem Bereich dazugehört
+    /// bzw. entkoppelt ist"). WHY THE TWO DRIFTED APART: this method used to park the tip a fixed
+    /// <c>0.11 × trayScale</c> above the decision MOUNT, while
+    /// <see cref="DecisionDockSurface.Place"/> anchors the widget block to the PROMPT REFERENCE
+    /// (the grab-bar bottom) in a solve the mount's own position cancels out of
+    /// (DecisionDockSurface.Place, the "TEXT→BUTTON DISTANCE" block). Two seats, two anchors, one
+    /// dial moving only one of them: <c>[Cards] DecisionOffset_&lt;board&gt;.y</c> slid the TEXT down
+    /// the board and left the buttons pinned under the bar — and its shipped default is −0.157,
+    /// i.e. the drift is in every install.
+    ///
+    /// NOW: the seat comes FROM the row's placed geometry —
+    /// <see cref="DecisionDockSurface.RowTopUpMeters"/>, the row's own measured top edge, the same
+    /// walk that publishes its bottom edge for the use bars — and the line's BOTTOM edge hangs one
+    /// <c>[Cards] DecisionGap</c> above it. That is the stepper's literal documented meaning
+    /// ("distance between the decision PROMPT TEXT and the TOP of the decision buttons"), so the
+    /// player's tuned value keeps its exact effect, and it puts the line back on the prompt
+    /// reference — the board's lower edge. Nothing is recomputed here that the row already
+    /// computed: whatever moves the row (its offset, DecisionScale, the gap, the board) moves this
+    /// text by the same amount in the same frame, because it IS the row's number.
     ///
     /// ROOT CAUSE of the ModBuild-46 regression this reverts ("Der Text der
     /// Entscheidungsknoepfe ... ist ploetzlich Teil der Tooltip-Section"): commit 6cfab0f
@@ -434,9 +463,8 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// text from its buttons and (b) made the user-tuned <c>[Cards] DecisionGap_*</c>
     /// text-to-buttons distance meaningless (DecisionDockSurface.Place anchors the widget
     /// block a gap below the prompt reference at the board's lower edge — the spot this text
-    /// occupies). Restored verbatim to the pre-46 seat: AboveRowMetres over the
-    /// DecisionMount, at the mount's own rotation and tray scale. The tooltip area stays
-    /// reserved for the genuine hover tooltips WorldTooltips presents.
+    /// occupies). Seated back over its own buttons, at the mount's rotation and tray scale. The
+    /// tooltip area stays reserved for the genuine hover tooltips WorldTooltips presents.
     /// </summary>
     protected override void Place()
     {
@@ -467,11 +495,55 @@ internal sealed class DamageTooltipSurface : WorldSurface
             PlayTray.DecisionMountWidth * density / rect.width,
             PlayTray.DecisionMountMaxHeight * density / rect.height);
         float metersPerPx = Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale) / density;
+        float worldPerPx = metersPerPx * trayScale;
+
+        // THE SEAT, TAKEN FROM THE ROW (see the method doc). The row publishes its measured TOP
+        // edge as world metres above the mount along the mount's up axis; while it holds no
+        // measurement yet — the first frames of a dock, or a prompt whose row has no pressable
+        // widgets — the row's own class states the seat that block is ABOUT to take, from the same
+        // references. Either way there is exactly ONE seat computation and this is not it.
+        bool measured = DecisionDockSurface.RowTopUpMeters.HasValue;
+        float rowTopUp = measured
+            ? DecisionDockSurface.RowTopUpMeters!.Value
+            : DecisionDockSurface.RowSeatTopUp(mount, trayScale);
+        float clearance = DecisionDockSurface.GapBoardMeters * trayScale;
+        // Hang the line's BOTTOM edge (not its pivot) at the clearance, so the distance the player
+        // tuned is the distance they SEE, and a two-line prompt grows upward instead of down into
+        // its own buttons. rect.yMin is pivot-relative, so this solves the pivot from the edge.
+        float seatUp = rowTopUp + clearance - rect.yMin * worldPerPx;
 
         Transform host = Panel.HostTransform;
-        Vector3 pos = mount.position + mount.up * (AboveRowMetres * trayScale);
-        host.SetPositionAndRotation(pos, mount.rotation);
-        host.localScale = Vector3.one * (metersPerPx * trayScale);
+        host.SetPositionAndRotation(mount.position + mount.up * seatUp, mount.rotation);
+        host.localScale = Vector3.one * worldPerPx;
+
+        LogSeat(rowTopUp, seatUp + rect.yMin * worldPerPx, clearance, measured);
+    }
+
+    /// <summary>
+    /// One line, change-gated on the rounded millimetres, stating the ROW's placed top edge, the
+    /// text's own bottom edge and the clearance between them — all three mount-relative along the
+    /// same up axis, so a hardware log shows the two halves of the decision area agreeing (or, if
+    /// this ever regresses, disagreeing, in one grep). Never per frame: the values are static while
+    /// a dock is settled, and the surface only lives while a prompt is open.
+    /// </summary>
+    private void LogSeat(float rowTopUp, float textBottomUp, float clearance, bool measured)
+    {
+        string key = $"{rowTopUp * 1000f:F0}|{textBottomUp * 1000f:F0}|{clearance * 1000f:F0}|{measured}";
+        if (_loggedSeat == key)
+            return;
+        _loggedSeat = key;
+        VRLog.Info("WorldUI", "DECISION DOCK SEAT: the widget row's placed TOP edge is " +
+                              $"{rowTopUp * 1000f:F0} mm above the decision mount " +
+                              (measured
+                                  ? "(MEASURED — DecisionDockSurface.RowTopUpMeters, the row's own placement)"
+                                  : "(the row has published no measurement yet — using the seat its own " +
+                                    "placement is about to take)") +
+                              $", and the prompt TEXT's bottom edge sits at {textBottomUp * 1000f:F0} mm, " +
+                              $"a clearance of {clearance * 1000f:F0} mm = [Cards] " +
+                              $"DecisionGap_{Cards.CardsConfig.CurrentBoard} × the dock scale. The text is " +
+                              "seated FROM the row, so every dial that moves the row (DecisionOffset X/Z, " +
+                              "DecisionScale, the gap itself) moves both by the same amount in the same " +
+                              "frame — text and buttons are one decision area.");
     }
 
     /// <summary>
@@ -493,6 +565,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
         base.Shutdown(); // releases the conversion → HelpBox back in its 2D home
         _active = null;
         _loggedFocusVisibility = null;
+        _loggedSeat = null;
         WireTextVariant = NetProtocol.DecisionTextNone; // must not survive a module re-init
         _loggedWireVariant = 0xFF;
     }

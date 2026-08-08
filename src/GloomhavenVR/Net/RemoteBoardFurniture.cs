@@ -758,10 +758,19 @@ internal sealed class RemoteBoardFurniture
         // bar's authored seat, its zone half-height, the shared clearance and the AUTHORED
         // per-board DecisionGap. The mount contributes only its authored X/Z (sideways + proud),
         // exactly as it does locally.
+        //
+        // AT THE OWNER'S SCALE, TOO (ModBuild 89): the owner's two seat terms are mount-local
+        // metres multiplied by the MOUNT's lossyScale — root × [Cards] DecisionScale — while this
+        // root frame is the board root, so both have to carry the dock scale here or the mirrored
+        // row hangs (1 − scale) × (BarClearance + DecisionGap) too HIGH (30 mm at the shipped 1.6×).
+        // Every other length in this drawer already carries it (plate size, widths, the prompt
+        // line); these two were the exception.
         _decisionTuning = tuning;
         Vector3 decisionOff = tuning.DecisionOffset;
+        float decisionScale = tuning.DecisionScale;
         float barBottomY = HandleMount.y - HandleZoneHalfY;
-        float decisionTopY = barBottomY - BarClearanceMeters - tuning.DecisionGap;
+        float promptRefY = barBottomY - BarClearanceMeters * decisionScale;
+        float decisionTopY = promptRefY - tuning.DecisionGap * decisionScale;
         _decision = BuildDecisionDrawer(new Vector3(
             DecisionMount.x + decisionOff.x, decisionTopY, DecisionMount.z + decisionOff.z));
         // ---- the SECOND drawer: the mirrored use-slot bars (wire record 25) -------------------
@@ -777,14 +786,19 @@ internal sealed class RemoteBoardFurniture
             DecisionMount.z + decisionOff.z);
         _useBars.gameObject.SetActive(false);
 
-        // …and the PROMPT TEXT above it, at the seat the owner's own tip takes: their
-        // DamageTooltipSurface parks the converted HelpBox AboveRowMetres over the decision MOUNT
-        // (mount position + up × 0.11), so unlike the row — whose Y solve cancels the mount out —
-        // this one DOES follow the mount's authored Y offset. Built empty and hidden; filled from
-        // the wire-driven variant on every refresh (SetDecisionPrompt).
+        // …and the PROMPT TEXT above it, at the seat the owner's own tip takes — WHICH IS NOW THE
+        // ROW'S OWN SEAT PLUS THE GAP (ModBuild 89; the owner reported the line behaving "wie ein
+        // Element das nicht zu dem Bereich dazugehört"). Their DamageTooltipSurface used to park
+        // the HelpBox a fixed 0.11 m over the decision MOUNT, so — unlike the row, whose Y solve
+        // cancels the mount out — it was the one piece of the decision area that followed the
+        // mount's Y offset, and this mirror faithfully reproduced that split. Both ends are now
+        // hung off the row's top edge: the line's BOTTOM sits one DecisionGap above it, which is
+        // exactly the prompt reference (the board's lower edge). The label is centre-anchored, so
+        // half its authored height converts that edge into its seat. Built empty and hidden;
+        // filled from the wire-driven variant on every refresh (SetDecisionPrompt).
         _decisionPrompt = BuildDecisionPrompt(new Vector3(
             DecisionMount.x + decisionOff.x,
-            DecisionMount.y + decisionOff.y + PromptAboveMountY,
+            promptRefY + 0.5f * PromptLineHeight * decisionScale,
             DecisionMount.z + decisionOff.z), in tuning);
 
         // ---- slot overlays: wanted pulse + snap glow ------------------------------------------
@@ -1364,11 +1378,12 @@ internal sealed class RemoteBoardFurniture
         return root;
     }
 
-    /// <summary>Mirror of <c>WorldUI.Surfaces.DamageTooltipSurface.AboveRowMetres</c> — how far
-    /// above the decision MOUNT the owner's own prompt text is parked. Board-local metres at the
-    /// authored mount, so the mirrored line sits over the mirrored plates exactly as the original
-    /// sits over the real ones.</summary>
-    private const float PromptAboveMountY = 0.11f;
+    /// <summary>Authored height of the mirrored prompt line's label rect, board-local metres before
+    /// the owner's dock scale. The seat above is solved for the line's BOTTOM edge (one DecisionGap
+    /// over the mirrored row, exactly as the owner's own text hangs off their measured row top), and
+    /// a centre-anchored label needs half of this to turn that edge into a position — so the number
+    /// lives here instead of twice inside <see cref="BuildDecisionPrompt"/>.</summary>
+    private const float PromptLineHeight = 0.075f;
 
     /// <summary>
     /// The mirrored PROMPT TEXT of the decision dock — the line the owner reads above their docked
@@ -1382,7 +1397,7 @@ internal sealed class RemoteBoardFurniture
     {
         float scale = tuning.DecisionScale;
         TextMeshPro label = RemoteBoardContent.Label(_root, "DecisionPrompt", local,
-            new Vector2(Cards.PlayTray.DecisionMountWidth * scale, 0.075f * scale),
+            new Vector2(Cards.PlayTray.DecisionMountWidth * scale, PromptLineHeight * scale),
             0.17f * scale, new Color(0.82f, 0.80f, 0.76f),
             TextAlignmentOptions.Center, wrap: true);
         WorldUI.NativeButtonSkin.ApplyFont(label); // the game's HUD font, depth-honest material
@@ -1418,9 +1433,12 @@ internal sealed class RemoteBoardFurniture
         VRLog.Info("Net", show
             ? $"Remote decision prompt: line composed LOCALLY for prompt kind " +
               $"{owner.DecisionPromptKind} / text variant {owner.DecisionTextVariant} — " +
-              $"\"{StripRichText(text!)}\" — shown {PromptAboveMountY * 1000f:F0} mm above the " +
-              "decision mount, the same seat the owner's own HelpBox takes over their buttons. The " +
-              "wire carried the VARIANT, never the words (no card identity, ever)."
+              $"\"{StripRichText(text!)}\" — its bottom edge one DecisionGap " +
+              $"({_decisionTuning.DecisionGap * _decisionTuning.DecisionScale * 1000f:F0} mm) above " +
+              $"the mirrored row's top edge at board-local y {_decision.localPosition.y:F3}, which " +
+              "is the seat the owner's own HelpBox takes over their own buttons (they hang it off " +
+              "the row's measured top edge at the same gap). The wire carried the VARIANT, never " +
+              "the words (no card identity, ever)."
             : "Remote decision prompt: no line (no visible decision row, a prompt that has none, or " +
               "a sender predating record 23).");
     }
@@ -1611,7 +1629,9 @@ internal sealed class RemoteBoardFurniture
                           $"× {h:F3} m at the authored ×{scale:F2} dock scale, face = " +
                           $"{(native ? "the sampled GAME button sprite (9-sliced) × DecisionDockSurface.AntiqueTint" : "procedural fallback plate (no live button sampled yet)")}, " +
                           $"top edge at board-local y {_decision.localPosition.y:F3} (bar bottom − " +
-                          $"clearance − the owner's own DecisionGap for {_decisionTuning.Style}) — the seat, look and " +
+                          $"(clearance + the owner's own DecisionGap for {_decisionTuning.Style}) × their " +
+                          $"×{scale:F2} dock scale — the scale term the owner's mount carries and this " +
+                          "seat used to drop) — the seat, look and " +
                           "wording the OWNER's own docked row shows. Display-only: colliderless.");
     }
 
