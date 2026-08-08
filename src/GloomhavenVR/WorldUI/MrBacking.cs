@@ -177,6 +177,9 @@ internal static class MrBacking
     {
         public ConvertedPanel Panel = null!;
         public Transform? Plate;
+
+        /// <summary>Change-dedup for the plate-extent line (rounded px) — see <see cref="LogPlateExtent"/>.</summary>
+        public string? LoggedExtent;
     }
 
     private sealed class SurfaceEntry
@@ -513,9 +516,132 @@ internal static class MrBacking
 
             // Exactly the host rect (host units are canvas px; the host scale carries px→m):
             // no out-padding — a plate proud of the window edge would read as a frame the
-            // window never had.
-            Fit(entry.Plate, host, r.size, r.center);
+            // window never had. …UNLESS THE PANEL RENDERS TEXT OUTSIDE THAT RECT, which is not
+            // padding but measurement — see GlyphTrueRect.
+            Rect fitted = GlyphTrueRect(host, r, out int overflowing);
+            Fit(entry.Plate, host, fitted.size, fitted.center);
+            LogPlateExtent(entry, host, r, fitted, overflowing);
         }
+    }
+
+    /// <summary>Scratch for the per-panel glyph sweep (no steady-state allocation).</summary>
+    private static readonly List<TMP_Text> TextScratch = new(16);
+
+    /// <summary>
+    /// THE PLATE MUST COVER WHAT IS DRAWN, NOT WHAT WAS MEASURED (user hardware report, ModBuild 90:
+    /// "Der Schadenstext 'Schadensphase: Erleide […]' ist nicht vollständig von dem mixed-reality
+    /// Hintergrund abgedeckt, aktuell nur der mittlere Teil des Textes, an den äußeren Rändern fehlt
+    /// etwas vom Hintergrund").
+    ///
+    /// <para>ROOT CAUSE, and why no amount of out-padding was the answer: a converted panel's host
+    /// rect is the content FIT's union of the visible graphics' RECTANGLES, clamped to the window's
+    /// own frame (<c>CanvasConversion.TryMeasureContent</c>). A <see cref="TMP_Text"/> whose line is
+    /// longer than its box does not wrap or clip — uGUI has no implicit clipping — it simply RENDERS
+    /// WIDER THAN EVERY RECTANGLE IN THAT UNION. The take-damage HelpBox is exactly that: a
+    /// 479-px-wide window holding a full sentence, centred, so the host rect (and therefore an
+    /// exactly-host-rect-sized plate) covers the middle of the line and the ends hang off into the
+    /// passthrough room. The fix measures the RENDERED glyph bounds — the same <c>textBounds</c>
+    /// basis the free-floating label plates have always used (<see cref="TickLabels"/>) — and unions
+    /// them into the plate rect, with the same <see cref="LabelPadFraction"/>/
+    /// <see cref="LabelPadFloorMeters"/> margin those label plates use, so an overflowing line gets a
+    /// backing that looks like every other backing in the mod.</para>
+    ///
+    /// <para>NON-OVERFLOWING PANELS ARE BIT-IDENTICAL: a label whose glyphs sit inside the host rect
+    /// contributes nothing and the plate stays exactly <paramref name="hostRect"/>, so the "never a
+    /// frame the window never had" contract still holds for every panel that never had the bug.
+    /// CLIPPED text is skipped outright (a <c>RectMask2D</c>/<c>Mask</c> between the label and the
+    /// host means the renderer crops it to a viewport that is inside the host anyway) — a scrolled-out
+    /// row must never inflate a plate.</para>
+    /// </summary>
+    private static Rect GlyphTrueRect(RectTransform host, Rect hostRect, out int overflowing)
+    {
+        overflowing = 0;
+        TextScratch.Clear();
+        host.GetComponentsInChildren(includeInactive: false, TextScratch);
+        if (TextScratch.Count == 0)
+            return hostRect;
+
+        // The label margin in HOST units (canvas px): the floor is authored in real metres, and the
+        // host's own scale carries px→world — the PlateGapMeters conversion in Fit, same reasoning.
+        float unit = LabelPadFloorMeters * PanelLayout.WorldScale
+                     / Mathf.Max(Mathf.Abs(host.lossyScale.x), 1e-5f);
+        Vector2 min = hostRect.min;
+        Vector2 max = hostRect.max;
+        for (int i = 0; i < TextScratch.Count; i++)
+        {
+            TMP_Text t = TextScratch[i];
+            if (t == null || !t.isActiveAndEnabled || string.IsNullOrEmpty(t.text))
+                continue;
+            if (IsClipped(t.rectTransform, host))
+                continue;
+            Bounds b = t.textBounds;
+            if (b.size.x <= 0.0001f || b.size.y <= 0.0001f)
+                continue; // no mesh yet — the rect union already covers the authored box
+            Vector3 lo = host.InverseTransformPoint(
+                t.transform.TransformPoint(new Vector3(b.min.x, b.min.y, 0f)));
+            Vector3 hi = host.InverseTransformPoint(
+                t.transform.TransformPoint(new Vector3(b.max.x, b.max.y, 0f)));
+            Vector2 gMin = Vector2.Min(lo, hi);
+            Vector2 gMax = Vector2.Max(lo, hi);
+            if (gMin.x >= hostRect.xMin - 0.5f && gMax.x <= hostRect.xMax + 0.5f
+                && gMin.y >= hostRect.yMin - 0.5f && gMax.y <= hostRect.yMax + 0.5f)
+                continue; // drawn inside the host rect — the plate already backs it
+            overflowing++;
+            // Half the label margin on each side, so the total margin matches TickLabels exactly.
+            float padX = ((gMax.x - gMin.x) * LabelPadFraction + unit) * 0.5f;
+            float padY = ((gMax.y - gMin.y) * LabelPadFraction + unit) * 0.5f;
+            min = Vector2.Min(min, new Vector2(gMin.x - padX, gMin.y - padY));
+            max = Vector2.Max(max, new Vector2(gMax.x + padX, gMax.y + padY));
+        }
+        TextScratch.Clear();
+        return overflowing == 0 ? hostRect : Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+    }
+
+    /// <summary>Is <paramref name="rect"/> under a clipper (<see cref="RectMask2D"/> / stencil
+    /// <see cref="Mask"/>) between it and <paramref name="host"/>? Clipped glyphs are cropped to a
+    /// viewport that lives inside the host rect, so they can never be the uncovered content this
+    /// sweep is looking for — and treating them as such would inflate a plate to the size of a
+    /// scrolled-out list.</summary>
+    private static bool IsClipped(Transform rect, Transform host)
+    {
+        for (Transform? t = rect; t != null && !ReferenceEquals(t, host); t = t.parent)
+        {
+            if (t.GetComponent<RectMask2D>() != null)
+                return true;
+            Mask m = t.GetComponent<Mask>();
+            if (m != null && m.enabled)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// One line per panel whose plate had to be widened past its host rect, change-gated on the
+    /// rounded px — the hardware proof for the ModBuild 90 backdrop report: it states the MEASURED
+    /// text extent, the host rect the plate used to be, and the plate extent now.
+    /// </summary>
+    private static void LogPlateExtent(PanelEntry entry, RectTransform host, Rect hostRect,
+                                       Rect fitted, int overflowing)
+    {
+        if (overflowing == 0)
+        {
+            entry.LoggedExtent = null; // a panel that stops overflowing re-states it if it comes back
+            return;
+        }
+        string key = $"{hostRect.width:F0}x{hostRect.height:F0}|{fitted.width:F0}x{fitted.height:F0}";
+        if (entry.LoggedExtent == key)
+            return;
+        entry.LoggedExtent = key;
+        VRLog.Info("WorldUI", $"MR PLATE EXTENT: '{host.gameObject.name}' draws {overflowing} text " +
+                              $"line(s) OUTSIDE its fitted host rect ({hostRect.width:F0}x" +
+                              $"{hostRect.height:F0} px) — a TMP line does not wrap or clip at its box, " +
+                              "and the content fit measures rectangles, so an exactly-host-rect plate " +
+                              "covered only the middle of it. The plate is now fitted to the RENDERED " +
+                              $"glyph bounds plus the standard label margin: {fitted.width:F0}x" +
+                              $"{fitted.height:F0} px, centred at ({fitted.center.x:F0},{fitted.center.y:F0}) " +
+                              $"— {fitted.width - hostRect.width:F0} px wider and " +
+                              $"{fitted.height - hostRect.height:F0} px taller than the host rect, which is " +
+                              "exactly the part of the line that used to sit on the passthrough room.");
     }
 
     /// <summary>

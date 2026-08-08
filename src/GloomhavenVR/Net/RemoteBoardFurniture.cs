@@ -437,6 +437,16 @@ internal sealed class RemoteBoardFurniture
 
     private readonly Transform _itemUse;
     private readonly Material _itemUseGlowMat;
+    /// <summary>The mirrored decision AREA's CEILING in board-root-local metres — the owner's
+    /// <c>WorldUI.Surfaces.DecisionDockSurface.AreaCeilingUp</c> expressed in this frame. Every piece
+    /// of the mirrored display (prompt line, button row, use-bar drawer) descends from it, so a
+    /// peer's copy has the same prompt-independent top edge the owner's board has.</summary>
+    private readonly float _decisionCeilingY;
+
+    /// <summary>Whether the mirrored PROMPT LINE is currently shown — the one thing that decides
+    /// where the mirrored row sits under the ceiling (see <see cref="ApplyDecisionSeat"/>).</summary>
+    private bool _decisionPromptShown;
+
     private readonly Transform _decision;
 
     /// <summary>The OWNER's resolved tuning this furniture was built for — keys the decision row's
@@ -780,14 +790,33 @@ internal sealed class RemoteBoardFurniture
         // root-local metres, unscaled by the dock scale — the owner's offset is the mount's own
         // localPosition in the same frame, and its X/Z are applied unscaled two lines down for the
         // same reason.
+        //
+        // …AND SINCE ModBuild 91 IT HANGS FROM THE AREA'S CEILING, TOP-DOWN (user: "Ich hätte
+        // erwartet, dass der höchste Punkt bei den Initiativ-Schuhen auch der höchste Punkt ist, an
+        // dem der Text angezeigt wird … also dass die Offsets für die gesamte Area gelten"). The
+        // owner's three decision surfaces now derive every seat from ONE height —
+        // WorldUI.Surfaces.DecisionDockSurface.AreaCeilingUp: the drawer zone's own top edge,
+        // DecisionMountMaxHeight/2 above the (offset-carrying) mount, clamped so it can never rise
+        // into the grab bar — and lay themselves out downward from it. This mirror reproduces the
+        // same three terms in board-root-local metres: the authored mount Y plus the owner's offset
+        // Y, the zone half-height at the owner's dock scale, and the same bar-bottom clamp. What
+        // hangs where is then decided by whether the owner's prompt has a text line (see
+        // ApplyDecisionSeat), exactly as it is on their board.
         _decisionTuning = tuning;
         Vector3 decisionOff = tuning.DecisionOffset;
         float decisionScale = tuning.DecisionScale;
         float barBottomY = HandleMount.y - HandleZoneHalfY;
-        float promptRefY = barBottomY - BarClearanceMeters * decisionScale + decisionOff.y;
-        float decisionTopY = promptRefY - tuning.DecisionGap * decisionScale;
+        // The owner's clamp is measured from the mount they have ALREADY displaced, so in this frame
+        // it is the un-offset absolute board-lower-edge reference — the offset does not move the bar.
+        float promptRefY = barBottomY - BarClearanceMeters * decisionScale;
+        _decisionCeilingY = Mathf.Min(
+            DecisionMount.y + decisionOff.y
+                + Cards.PlayTray.DecisionMountMaxHeight * 0.5f * decisionScale,
+            promptRefY);
+        // Built at the no-text seat (the ceiling itself); ApplyDecisionSeat drops it by the prompt
+        // line's height + the gap for as long as the owner's prompt shows one.
         _decision = BuildDecisionDrawer(new Vector3(
-            DecisionMount.x + decisionOff.x, decisionTopY, DecisionMount.z + decisionOff.z));
+            DecisionMount.x + decisionOff.x, _decisionCeilingY, DecisionMount.z + decisionOff.z));
         // ---- the SECOND drawer: the mirrored use-slot bars (wire record 25) -------------------
         // The owner's UseBarsSurface stacks its bars BELOW the decision row: while a row is docked
         // the stack top hangs DecisionClearance under the row's measured bottom edge, otherwise it
@@ -795,9 +824,15 @@ internal sealed class RemoteBoardFurniture
         // already has — the decision root above (whose synced row is exactly one plate tall) and
         // the authored decision mount — see SetUseBars for the term-by-term derivation. Built empty
         // at the same X/Z as the decision drawer; content grows DOWN from its origin.
+        //
+        // ITS ORIGIN IS THE AREA'S CEILING and stays there (ModBuild 91): with no decision row the
+        // bars ARE the top of the display and start at 0 in this frame — the owner's initiative-boots
+        // case — and with a row up SetUseBars measures down from the row's live seat instead. Keeping
+        // this root fixed is what lets the row move (a prompt line appearing above it) without every
+        // bar row having to be rebuilt at a new origin.
         _useBars = new GameObject("UseBarsDrawer").transform;
         _useBars.SetParent(_root, worldPositionStays: false);
-        _useBars.localPosition = new Vector3(DecisionMount.x + decisionOff.x, decisionTopY,
+        _useBars.localPosition = new Vector3(DecisionMount.x + decisionOff.x, _decisionCeilingY,
             DecisionMount.z + decisionOff.z);
         _useBars.gameObject.SetActive(false);
 
@@ -811,9 +846,14 @@ internal sealed class RemoteBoardFurniture
         // exactly the prompt reference (the board's lower edge). The label is centre-anchored, so
         // half its authored height converts that edge into its seat. Built empty and hidden;
         // filled from the wire-driven variant on every refresh (SetDecisionPrompt).
+        //
+        // …AND ITS TOP EDGE IS THE CEILING (ModBuild 91). The owner's line is the TOPMOST element of
+        // a prompt that has one, so it takes the area ceiling and their row hangs one DecisionGap
+        // below its bottom edge. The label is centre-anchored, so half its authored height converts
+        // that top edge into a seat.
         _decisionPrompt = BuildDecisionPrompt(new Vector3(
             DecisionMount.x + decisionOff.x,
-            promptRefY + 0.5f * PromptLineHeight * decisionScale,
+            _decisionCeilingY - 0.5f * PromptLineHeight * decisionScale,
             DecisionMount.z + decisionOff.z), in tuning);
 
         // ---- slot overlays: wanted pulse + snap glow ------------------------------------------
@@ -1355,9 +1395,11 @@ internal sealed class RemoteBoardFurniture
     /// choice, the burn-confirm dialog and every other in-scenario prompt dock their REAL widgets
     /// on the local board (<c>DecisionDockSurface</c> on <c>PlayTray.DecisionMount</c>).
     ///
-    /// The root's local origin is the WIDGET-BLOCK TOP EDGE the owner's dock anchors at (bar
-    /// bottom − clearance − authored DecisionGap; computed at the ctor call site), horizontally
-    /// centred like the local dock; content grows DOWN from it. Two mutually exclusive children:
+    /// The root's local origin is the WIDGET-BLOCK TOP EDGE the owner's dock anchors at — since
+    /// ModBuild 91 the decision area's CEILING when their prompt has no text line, and one prompt
+    /// line plus one DecisionGap under it when it does (<see cref="ApplyDecisionSeat"/>) —
+    /// horizontally centred like the local dock; content grows DOWN from it. Two mutually exclusive
+    /// children:
     ///   • <see cref="_drawerIdle"/> — the slim captioned drawer, shown while the owner HAS a
     ///     docked prompt (board-UI decision bit) but this client holds no labels for it (legacy
     ///     sender, or a row whose labels could not be read);
@@ -1445,6 +1487,7 @@ internal sealed class RemoteBoardFurniture
             _decisionPrompt.text = text;
         if (_decisionPrompt.gameObject.activeSelf != show)
             _decisionPrompt.gameObject.SetActive(show);
+        ApplyDecisionSeat(show);
         VRLog.Info("Net", show
             ? $"Remote decision prompt: line composed LOCALLY for prompt kind " +
               $"{owner.DecisionPromptKind} / text variant {owner.DecisionTextVariant} — " +
@@ -1456,6 +1499,46 @@ internal sealed class RemoteBoardFurniture
               "the words (no card identity, ever)."
             : "Remote decision prompt: no line (no visible decision row, a prompt that has none, or " +
               "a sender predating record 23).");
+    }
+
+    /// <summary>
+    /// Seat the mirrored BUTTON ROW under the area ceiling, the way the owner's own row seats itself
+    /// (ModBuild 91): AT the ceiling when their prompt draws no text line, and one authored prompt
+    /// line plus one <c>DecisionGap</c> below it when it does. The use-bar drawer's root stays on the
+    /// ceiling and measures down from this row, so only one transform moves.
+    ///
+    /// <para>Rebuilding the bars is not optional when this moves: <see cref="SetUseBars"/> is
+    /// change-gated on the owner's bar STRUCTURE, and its rows are laid out from the row's seat, so a
+    /// seat that moved while the structure held would leave the mirrored bars behind. Dropping the
+    /// structure gate forces exactly one rebuild on the frame the owner's prompt line appears or
+    /// goes.</para>
+    /// </summary>
+    private void ApplyDecisionSeat(bool promptLineShown)
+    {
+        if (promptLineShown == _decisionPromptShown)
+            return;
+        _decisionPromptShown = promptLineShown;
+        float scale = _decisionTuning.DecisionScale;
+        float y = promptLineShown
+            ? _decisionCeilingY - (PromptLineHeight + _decisionTuning.DecisionGap) * scale
+            : _decisionCeilingY;
+        if (_decision != null)
+        {
+            Vector3 p = _decision.localPosition;
+            _decision.localPosition = new Vector3(p.x, y, p.z);
+        }
+        _shownUseBarStructure = int.MinValue; // force the bars to re-derive from the moved row
+        VRLog.Info("Net", $"Remote decision seat: the mirrored area's CEILING is board-local y " +
+                          $"{_decisionCeilingY:F3} (the owner's drawer-zone top at their offset/scale, " +
+                          "clamped at the grab bar) — the topmost element is " +
+                          (promptLineShown
+                              ? $"the PROMPT LINE, so the button row drops to y {y:F3}: one authored line " +
+                                $"({PromptLineHeight * scale:F3} m) plus one DecisionGap " +
+                                $"({_decisionTuning.DecisionGap * scale:F3} m) below the ceiling"
+                              : $"the BUTTON ROW itself, seated at the ceiling (y {y:F3}) because the " +
+                                "owner's prompt draws no text line") +
+                          ". The use-bar drawer measures down from that row, so the whole mirrored " +
+                          "display hangs from one prompt-independent top edge — as the owner's does.");
     }
 
     /// <summary>Strip TMP colour tags for a log line (the composed prompt is rich text).</summary>
@@ -1911,10 +1994,11 @@ internal sealed class RemoteBoardFurniture
     /// <para>SEAT — derived term-for-term from the owner's own stack (<c>UseBarsSurface.
     /// StackDocked</c>): while a decision row is up, the stack top hangs
     /// <see cref="UseBarDecisionClearance"/> below that row's bottom edge (here: the mirrored row's
-    /// own single-plate height below the decision anchor); with no row, it takes the drawer zone's
-    /// top edge, <c>PlayTray.DecisionMountMaxHeight/2</c> above the authored mount. Rows then stack
-    /// downward with <see cref="UseBarRowGap"/>, in the owner's own bar order — which is the wire's
-    /// bit order, so nothing has to describe it.</para>
+    /// own single-plate height below its live seat, which <see cref="ApplyDecisionSeat"/> has already
+    /// dropped by the prompt line when the owner shows one); with no row, it takes the decision
+    /// area's CEILING, which is this drawer root's own origin. Rows then stack downward with
+    /// <see cref="UseBarRowGap"/>, in the owner's own bar order — which is the wire's bit order, so
+    /// nothing has to describe it.</para>
     ///
     /// <para>Display-only by construction: no collider, no <c>IPokeable</c>, registered with no
     /// laser or poke router, and <see cref="StripColliders"/> sweeps the finished drawer.</para>
@@ -1957,21 +2041,16 @@ internal sealed class RemoteBoardFurniture
 
         // Stack top, in the drawer root's own local frame (its origin IS the decision row's top
         // edge, so a docked row's bottom sits exactly one mirrored plate below it).
-        float top;
-        if (_shownDecisionLines != null)
-        {
-            top = -(DecisionButtonH * scale) - UseBarDecisionClearance * scale;
-        }
-        else
-        {
-            // No row: the owner's stack takes the drawer zone's top edge, which is
-            // DecisionMountMaxHeight/2 above the MOUNT — expressed here relative to this root.
-            // × the authored dock scale for the same reason DecisionMountWidth is scaled above:
-            // both are MOUNT-local constants and the decision mount carries that scale.
-            float mountY = DecisionMount.y + _decisionTuning.DecisionOffset.y;
-            top = mountY + Cards.PlayTray.DecisionMountMaxHeight * 0.5f * scale
-                  - _useBars.localPosition.y;
-        }
+        // ModBuild 91: this root's origin IS the area ceiling, so the two cases are one subtraction.
+        // With a mirrored row up the stack hangs one plate height + the shared clearance below THAT
+        // ROW'S LIVE SEAT (which ApplyDecisionSeat has already dropped by the prompt line when the
+        // owner shows one) — never below a seat assumed here, which is how the mirror used to drift
+        // from the owner the moment a prompt added an element. With no row the bars ARE the top of
+        // the display and start at the ceiling itself, i.e. 0 in this frame.
+        float top = _shownDecisionLines != null
+            ? _decision.localPosition.y - _useBars.localPosition.y
+              - DecisionButtonH * scale - UseBarDecisionClearance * scale
+            : 0f;
 
         int rows = 0;
         int totalSlots = 0;
