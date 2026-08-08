@@ -359,7 +359,13 @@ internal sealed class UiRing
     /// Build a ring as a child of <paramref name="rect"/> (typically the entry's avatar
     /// <c>RawImage</c>). Returns null when the rect is not laid out yet — callers retry next tick.
     /// </summary>
-    internal static UiRing? Build(RectTransform? rect, string name)
+    /// <param name="outsetPixels">Margin band the ring occupies, defaulting to this class's own
+    /// <see cref="OutsetPixels"/>. A caller that is REPRODUCING an existing cue passes that cue's
+    /// outset instead, so the copy is the same size as the original: the mirrored selection-phase
+    /// ring (<c>Net.RemoteInitiativeTrack</c>) passes
+    /// <c>InitiativeSelectionGlow.RingOutsetPixels</c> — 8 px — which is also what keeps it NESTED
+    /// inside a focus ring on the same portrait instead of drawn exactly on top of one.</param>
+    internal static UiRing? Build(RectTransform? rect, string name, float outsetPixels = OutsetPixels)
     {
         if (rect == null)
             return null;
@@ -368,8 +374,8 @@ internal sealed class UiRing
         rt.SetParent(rect, worldPositionStays: false);
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(-OutsetPixels, -OutsetPixels);
-        rt.offsetMax = new Vector2(OutsetPixels, OutsetPixels);
+        rt.offsetMin = new Vector2(-outsetPixels, -outsetPixels);
+        rt.offsetMax = new Vector2(outsetPixels, outsetPixels);
         rt.localScale = Vector3.one;
         rt.localRotation = Quaternion.identity;
         // z == 0 ⇒ ignored by the initiative surface's depth passes (see the selection ring).

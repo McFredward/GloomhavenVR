@@ -1,3 +1,5 @@
+using ScenarioRuleLibrary;
+
 namespace GloomhavenVR.Net;
 
 /// <summary>
@@ -155,6 +157,111 @@ internal static class InitiativeHoverSampler
         catch
         {
             // Degrade to "no frame": a torn-down singleton mid-read is a frame-order artefact.
+            return 0;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// THE ON-SCREEN ORDER OF THIS CLIENT'S PLAYER TRACK ENTRIES, plus which of them this client
+    /// controls — extras record <see cref="NetProtocol.ExtIdTrackOrder"/>. Fills
+    /// <paramref name="into"/> with the stable actor ids of the PLAYER entries in display order and
+    /// returns how many were written; <paramref name="ownedMask"/> gets bit k set when
+    /// <c>into[k]</c> is a character this client controls. Returns 0 (⇒ no record) outside the
+    /// window in which the order is per-viewer at all.
+    ///
+    /// <para>THE WINDOW IS VANILLA'S OWN, not a guess: <c>FFSNetwork.IsOnline</c> and
+    /// <c>PhaseManager.PhaseType == SelectAbilityCardsOrLongRest</c> are literally the first two
+    /// conjuncts of the branch in <c>InitiativeTrackActorBehaviour.CompareTo</c> (decompiled
+    /// GH.Runtime/InitiativeTrackActorBehaviour.cs:160) that makes two player entries sort by
+    /// <c>IsUnderMyControl</c>. Outside it every client's <c>CompareTo</c> reduces to the same
+    /// <c>GetOrderPriority</c>/<c>SubInitiative</c> comparison over the same replicated model, so
+    /// the order is global and there is nothing to send — which is what keeps an idle packet
+    /// byte-identical to the previous build's.</para>
+    ///
+    /// <para>PLAYER ENTRIES ONLY. The branch requires <c>actor.IsPlayerByDefault() &amp;&amp;
+    /// other.IsPlayerByDefault()</c>, so an ENEMY entry is never compared by ownership: the enemy
+    /// block is identical on every client and paying four bytes per monster row to say so would be
+    /// waste. <c>InitiativeTrackPlayerBehaviour</c> is the type test, so an exhausted hero — which
+    /// vanilla appends to the very same track — is included exactly as vanilla includes it.</para>
+    ///
+    /// <para>DISPLAY ORDER = ASCENDING SIBLING INDEX under the track holder, which is where
+    /// vanilla's <c>UpdateSortingOrder</c> writes it (<c>actorsUI.Sort()</c> then
+    /// <c>SetAsFirstSibling()</c> per entry). It is the same convention
+    /// <c>RemoteInitiativeTrack.CollectFromGameTrack</c> already reads the track in, and the
+    /// receiver re-reads its own row the same way — so the two sides are comparing the same thing
+    /// and the record is a pure permutation, not a coordinate.</para>
+    ///
+    /// <para>Wrapped whole: a half-built track must read as "no order", never throw inside the
+    /// extras sender.</para>
+    /// </summary>
+    internal static int SampleTrackOrder(int[] into, out byte ownedMask)
+    {
+        ownedMask = 0;
+        if (into == null || into.Length == 0)
+            return 0;
+        int n = 0;
+        try
+        {
+            // Vanilla's own divergence window, verbatim (CompareTo:160). Outside it the order is
+            // global on every client and the record must not exist.
+            if (!FFSNetwork.IsOnline
+                || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+                return 0;
+
+            InitiativeTrack track = InitiativeTrack.Instance;
+            if (track == null || !track.gameObject.activeInHierarchy)
+                return 0;
+            System.Collections.Generic.List<InitiativeTrackActorBehaviour> ui = track.actorsUI;
+            if (ui == null)
+                return 0;
+
+            int cap = into.Length < NetProtocol.TrackOrderMaxIds
+                ? into.Length
+                : NetProtocol.TrackOrderMaxIds;
+
+            // Selection sort over the live list by sibling index — the display order — without
+            // allocating a sorted copy: this runs on the extras cadence with at most a handful of
+            // player rows, and the extras sender allocates nothing anywhere else either.
+            int taken = 0;
+            while (n < cap)
+            {
+                int bestIdx = -1;
+                int bestSibling = int.MaxValue;
+                for (int i = 0; i < ui.Count; i++)
+                {
+                    InitiativeTrackActorBehaviour beh = ui[i];
+                    if (beh == null || !beh.gameObject.activeSelf || beh.Actor == null)
+                        continue;
+                    if (beh is not InitiativeTrackPlayerBehaviour)
+                        continue; // the enemy block never permutes — see the doc
+                    if (i >= 32 || (taken & (1 << i)) != 0)
+                        continue; // the visited set is an int mask — 32 rows is far past any track
+                    int sibling = beh.transform.GetSiblingIndex();
+                    if (sibling < bestSibling)
+                    {
+                        bestSibling = sibling;
+                        bestIdx = i;
+                    }
+                }
+                if (bestIdx < 0)
+                    break;
+                taken |= 1 << bestIdx;
+                CActor actor = ui[bestIdx].Actor;
+                int id = NetFigures.StableActorId(actor);
+                if (id == 0)
+                    continue; // 0 is "none" everywhere in this system — not expressible
+                if (actor.IsUnderMyControl)
+                    ownedMask |= (byte)(1 << n);
+                into[n++] = id;
+            }
+        }
+        catch
+        {
+            // Degrade to "no order": a torn-down singleton mid-read is a frame-order artefact,
+            // and the receiver's fallback for "no record" is the mirrored arrangement it already
+            // shows — never a half-applied permutation.
+            ownedMask = 0;
             return 0;
         }
         return n;

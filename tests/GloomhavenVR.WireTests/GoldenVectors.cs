@@ -2482,6 +2482,193 @@ internal static class GoldenVectors
                 "and the selection id is confused with neither — the three are different facts");
 
 
+        // -- 7s. INITIATIVE-TRACK PLAYER ORDER (extension record 27) -------------------------
+        // Vanilla's InitiativeTrackActorBehaviour.CompareTo (:160-171) sorts two PLAYER entries by
+        // IsUnderMyControl while online AND in the card-selection phase — the foreign one first —
+        // so during that phase MY index 3 really is YOUR index 5, and the mirrored track (a clone
+        // of the OBSERVER's widget) showed the observer's arrangement on every peer's board. This
+        // record carries the sender's own on-screen order of the PLAYER entries plus a mask of
+        // which of them they control; the mask also pays for the mirrored "still has to choose"
+        // ring, whose other half (has this character committed) is derived on the receiver from
+        // the replicated model and never sent.
+        t.Case("7s. extras, initiative-track player order record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackOrder = true, TrackOrderCount = 2, TrackOrderOwnedMask = 0x02,
+            TrackOrderIds = new[] { 0x0A0B0C0D, 0x11, 0, 0, 0, 0 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only (bit 7)
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            1B 0A            // id 27 (track order), len 2 + 4*2
+            02               // count
+            02               // owned mask: ids[1] is the sender's own character
+            0D 0C 0B 0A      // ids[0] — a player they do NOT control, so vanilla sorts it FIRST
+            11 00 00 00      // ids[1] — theirs, last in the player block
+            "), ext, m, "the track-order record is [id 27][len 2+4n][count][ownedMask][n × actorId LE]");
+        t.Equal(23, m, "header 7 + count 1 + block 2 + tail 1 + 12 = 23 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState to), "and it parses");
+        t.True(to.HasTrackOrder, "the order is delivered");
+        t.Equal(2, to.TrackOrderCount, "with both player entries");
+        t.Equal(0x0A0B0C0D, to.TrackOrderIds![0], "the foreign entry first, exactly as vanilla sorts it");
+        t.Equal(0x11, to.TrackOrderIds![1], "and the sender's own character last");
+        t.Equal(0x02, to.TrackOrderOwnedMask, "with the owned mask index-aligned to the ids");
+
+        // MASKED READ: the owned mask is masked to the bits TrackOrderMaxIds can define, on write
+        // AND on read, so a newer sender's wider cap can never light ownership on an id this build
+        // never received. 0xFF on the wire, 0x3F after the mask, and only bits < count mean
+        // anything at all.
+        byte[] wideMask = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1B 06 01 FF 11 00 00 00");
+        t.True(PresenceSerializer.TryRead(wideMask, wideMask.Length, out PresenceState toMask),
+               "a hand-built record with every mask bit set still parses");
+        t.Equal(NetProtocol.TrackOrderOwnedDefinedMask & 0x01, toMask.TrackOrderOwnedMask & 0x01,
+                "the one id it carries reads as owned");
+        t.Equal(0, toMask.TrackOrderOwnedMask & ~NetProtocol.TrackOrderOwnedDefinedMask,
+                "and no bit outside the defined mask survives the read");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackOrder = true, TrackOrderCount = 1, TrackOrderOwnedMask = 0xFF,
+            TrackOrderIds = new[] { 0x11 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            01
+            1B 06            // id 27, len 2 + 4*1
+            01
+            3F               // owned mask, masked to TrackOrderOwnedDefinedMask on WRITE too
+            11 00 00 00
+            "), ext, m, "the owned mask is masked on write as well — the board-UI overlay discipline");
+
+        // COUNT CLAMP on write: a caller claiming more ids than the cap (or than its own buffer)
+        // can never make the record longer than TrackOrderMaxIds allows.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackOrder = true, TrackOrderCount = 99, TrackOrderOwnedMask = 0x01,
+            TrackOrderIds = new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            01
+            1B 1A            // id 27, len 2 + 4*6 — clamped to the 6-id cap
+            06
+            01
+            01 00 00 00
+            02 00 00 00
+            03 00 00 00
+            04 00 00 00
+            05 00 00 00
+            06 00 00 00
+            "), ext, m, "an over-claimed count is clamped to TrackOrderMaxIds on write");
+        t.Equal(39, m, "and the record's worst case really is 2 + 26 = 28 bytes on the tail");
+
+        // LENGTH CLAMP on read: a count that claims more ids than the record actually carries is
+        // re-clamped against the LENGTH (never trust the wire) — the surviving id still lands.
+        byte[] overOrd = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1B 06 04 01 11 00 00 00");
+        t.True(PresenceSerializer.TryRead(overOrd, overOrd.Length, out PresenceState toOver),
+               "an over-claimed count still parses");
+        t.True(toOver.HasTrackOrder, "the record is delivered");
+        t.Equal(1, toOver.TrackOrderCount, "clamped to what the record length can hold");
+        t.Equal(0x11, toOver.TrackOrderIds![0], "with the one real id intact");
+
+        // SENTINEL CLAMP on read, and the reason it is not a plain drop: actor id 0 is "none"
+        // everywhere in this system, and the owned mask is INDEX-ALIGNED with the ids — so a
+        // dropped id has to take its bit with it or ownership shifts onto the wrong character.
+        // Here ids[0] is the sentinel and the mask says "ids[1] is mine"; after compaction the
+        // surviving id is at index 0 and the mask must read 0x01, not 0x02.
+        byte[] holeOrd = Hex.Bytes(
+            "31 52 56 47 03 01 80 00 80 00 01 1B 0A 02 02 00 00 00 00 11 00 00 00");
+        t.True(PresenceSerializer.TryRead(holeOrd, holeOrd.Length, out PresenceState toHole),
+               "a record with a sentinel id still parses");
+        t.True(toHole.HasTrackOrder, "and is delivered with the survivor");
+        t.Equal(1, toHole.TrackOrderCount, "the sentinel is compacted out");
+        t.Equal(0x11, toHole.TrackOrderIds![0], "leaving the real id at index 0");
+        t.Equal(0x01, toHole.TrackOrderOwnedMask,
+                "and the owned mask is REBUILT over the survivors — a pass-through would have " +
+                "moved ownership onto the wrong character");
+        byte[] zeroOrd = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1B 06 01 01 00 00 00 00");
+        t.True(PresenceSerializer.TryRead(zeroOrd, zeroOrd.Length, out PresenceState toZero),
+               "an all-sentinel record still parses the packet");
+        t.True(!toZero.HasTrackOrder, "and is simply not delivered");
+
+        // TRUNCATED record (claims 10 payload bytes, delivers 3): tail abandoned, nothing throws.
+        byte[] cutOrd = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1B 0A 02 02 11");
+        t.True(PresenceSerializer.TryRead(cutOrd, cutOrd.Length, out PresenceState cutOrdS),
+               "a truncated order record still parses the packet");
+        t.True(!cutOrdS.HasTrackOrder, "and the incomplete record is simply not delivered");
+
+        // AN OLD-STYLE PACKET — no record 27 at all, which is ALSO what every in-window sender
+        // produces outside the online card-selection phase. WHAT THE RECEIVER DERIVES FROM IT is
+        // the point of this vector: count 0 and mask 0, i.e. NO order override (the mirrored
+        // arrangement stands, and outside that phase it is already the owner's, because every
+        // client's CompareTo then reduces to the same GetOrderPriority/SubInitiative comparison
+        // over the same replicated model) and NO mirrored selection-phase ring (the cue does not
+        // exist outside that phase either). The absence IS the release — nothing is ever latched.
+        byte[] oldStyleNoOrder = Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            02
+            10 05 00 11 00 00 00 // id 16 track hover
+            17 05 01 33 00 00 00 // id 23 track selection
+            ");
+        t.True(PresenceSerializer.TryRead(oldStyleNoOrder, oldStyleNoOrder.Length, out PresenceState toOld),
+               "a build-86 packet with records 16 and 23 but no 27 parses unchanged");
+        t.True(toOld.HasTrackHover && toOld.HasTrackSelection,
+               "its own records are delivered exactly as before");
+        t.True(!toOld.HasTrackOrder, "record 27 is absent");
+        t.Equal(0, toOld.TrackOrderCount, "so the receiver derives NO order override…");
+        t.Equal(0, toOld.TrackOrderOwnedMask, "…and NO owned set, hence no mirrored selection ring");
+
+        // IDLE IDENTITY: outside the card-selection phase the sampler returns 0, so no record —
+        // and the packet is byte-identical to what a sender predating record 27 produces.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 2 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 02"), ext, m,
+               "no track order -> no record: byte-identical to a pre-record-27 sender");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackOrder = true, TrackOrderCount = 0, TrackOrderOwnedMask = 0x01,
+            TrackOrderIds = new[] { 0x11 },
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "an EMPTY order does not even open the tail");
+
+        // ID ORDER: record 27 rides LAST, behind 16, 22, 23 and 24 — the tail is written in
+        // ascending id order and a peer predating any of them steps over it by length. All four
+        // track-widget records must stay distinct facts.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackHover = true, TrackHoverActorId = 0x11,
+            HasCharFocus = true, CharFocusActorId = 0x22, CharFocusOwnsAttention = true,
+            HasTrackSelection = true, TrackSelectionCount = 1, TrackSelectionIds = new[] { 0x33 },
+            HasTrackOrder = true, TrackOrderCount = 1, TrackOrderOwnedMask = 0x01,
+            TrackOrderIds = new[] { 0x44 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            04                      // tail: 4 records, in id order
+            10 05 00 11 00 00 00    // id 16 track hover
+            16 05 01 22 00 00 00    // id 22 character focus
+            17 05 01 33 00 00 00    // id 23 track selection
+            1B 06 01 01 44 00 00 00 // id 27 track order: one player entry, and it is theirs
+            "), ext, m, "record 27 rides the tail behind 16, 22 and 23 (id order 16, 22, 23, 27)");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState toCombo), "and the combo parses");
+        t.True(toCombo.HasTrackHover && toCombo.HasCharFocus && toCombo.HasTrackSelection
+               && toCombo.HasTrackOrder, "with all four track records delivered");
+        t.Equal(0x11, toCombo.TrackHoverActorId, "the hover id is its own");
+        t.Equal(0x33, toCombo.TrackSelectionIds![0], "the selection id is its own");
+        t.Equal(0x44, toCombo.TrackOrderIds![0],
+                "and the order id is confused with none of them — four different facts");
+
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
@@ -2663,7 +2850,10 @@ internal static class GoldenVectors
         && x.HasTrackSelection == y.HasTrackSelection
         && x.TrackSelectionCount == y.TrackSelectionCount
         && x.HasUseBars == y.HasUseBars
-        && x.UseBarsMask == y.UseBarsMask;
+        && x.UseBarsMask == y.UseBarsMask
+        && x.HasTrackOrder == y.HasTrackOrder
+        && x.TrackOrderCount == y.TrackOrderCount
+        && x.TrackOrderOwnedMask == y.TrackOrderOwnedMask;
 
     /// <summary>The three states of the attention cue, mirrored from <c>Board.FocusTurnMark</c> —
     /// that enum lives in the plugin assembly (UnityEngine types all the way down) and cannot be

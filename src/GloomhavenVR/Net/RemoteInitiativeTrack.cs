@@ -39,8 +39,18 @@ namespace GloomhavenVR.Net;
 /// not have to re-derive which of them are safe to copy off the LOCAL widget.
 ///
 /// GLOBAL (bit-identical on every client — copied straight off the mirrored widget, ZERO wire):
-///   • the ENTRY SET and their on-screen ORDER (<c>UpdateInitiativeTrack</c> + <c>CompareTo</c>);
-///   • the inter-round REORDER SLIDE (plain transform tweens, copied per frame by Pair.Apply);
+///   • the ENTRY SET (<c>UpdateInitiativeTrack</c>'s filter over the replicated actor list) and
+///     the ENEMY block's order. NOT the PLAYER block's order — that was wrong here for four
+///     builds and is defect (a) below;
+///   • the inter-round REORDER SLIDE's TIMING and GEOMETRY: <c>trackReorderDuration</c> is a
+///     serialized field of the one shared prefab, the trigger is <c>UpdateActors</c> off the
+///     replicated message stream, and the travel is holder-local uGUI pixels produced by the same
+///     <c>HorizontalLayoutGroup</c> over the same entry set at the same widths. The line in
+///     <c>WorldUI/Surfaces/InitiativeReorderSlide</c> about each client fixing "its own row at its
+///     own tray orientation" is about the panel's WORLD pose, which this mirror never copies — it
+///     clones the widget, re-fits it into <c>PlayTray.InitiativeMountWidth</c> and copies LOCAL
+///     rect state only. The slide's one per-viewer ingredient is which portrait STARTS in which
+///     slot, and that is defect (a), not a defect of the slide;
 ///   • GRAYSCALE — <c>SetGrayscale</c>, i.e. an exhausted hero and, during the action phases,
 ///     every character that is not at turn (InitiativeTrack.cs:614/625). Its inputs are the phase
 ///     and <c>Choreographer.m_CurrentActor</c>, both host-replicated. It is a MATERIAL swap, which
@@ -63,6 +73,18 @@ namespace GloomhavenVR.Net;
 ///     at turn, applied by <see cref="ApplyFocusRings"/>;
 ///   • vanilla's SELECTION FRAME — extension record 23, applied by
 ///     <see cref="ApplySelectionOverride"/>. See that method for why record 22 could not answer it.
+///   • the PLAYER BLOCK'S ON-SCREEN ORDER — extension record 27, applied by
+///     <see cref="ApplyOrderOverride"/>. Vanilla's <c>InitiativeTrackActorBehaviour.CompareTo</c>
+///     sorts two PLAYER entries by <c>IsUnderMyControl</c> while online and in the card-selection
+///     phase (decompiled GH.Runtime/InitiativeTrackActorBehaviour.cs:160-171), foreign first, so a
+///     clone of this client's widget put THIS client's arrangement on every peer's board;
+///   • the SELECTION-PHASE "still has to choose" RING — <see cref="ApplySelectionGlow"/>. The
+///     mod's own <c>WorldUI.Surfaces.InitiativeSelectionGlow</c> builds that amber ring ONLY for
+///     actors the LOCAL player controls, and it is a plain <c>Image</c> under the portrait, so
+///     <c>Instantiate</c> cloned it and <c>Pair.Apply</c> drove it: every peer's board wore the
+///     OBSERVER's ring set and never the owner's. It costs no wire of its own — record 27's owned
+///     mask names the owner's characters, and whether one has COMMITTED is read here from the
+///     replicated model (<c>CCharacterClass.RoundAbilityCards</c> / <c>LongRest</c>).
 ///
 /// DELIBERATELY NOT MIRRORED (the ruling's own exception, "während der Auswahlphase die
 /// tatsächlichen Oberseiten der Karten"): the INITIATIVE NUMBER and the initiative FX state of a
@@ -73,12 +95,21 @@ namespace GloomhavenVR.Net;
 /// of those two, which is the strictly less-informed one; carrying the owner's would leak their
 /// chosen initiative, i.e. their card.
 ///
+/// <para>THAT MASK IS NOW AN EXPLICIT USER-RULED EXCEPTION (2026-08-08) and NOT a gap to be closed
+/// later: a foreign player's initiative NUMBER reads "?" during card selection because the value
+/// narrows which card was played as surely as the face does. Records 23 and 27 both switch state
+/// on entries the number belongs to and NEITHER touches the number — record 27 carries a
+/// permutation and an ownership mask, and the selection ring it pays for says only "this character
+/// has not finished choosing", which vanilla's own multiplayer ready tracker broadcasts anyway.
+/// The one thing this class must never learn how to do is fill that "?" in.</para>
+///
 /// ─── WHAT IT DRAWS NOW ─────────────────────────────────────────────────────────────────────────
 /// PRIMARY — <see cref="RemoteWidgetMirror"/> over <c>InitiativeTrack.Instance.transform</c>: the
 /// REAL widget, cloned once and puppeteered per frame from the original (see that class for why the
 /// clone runs none of the game's code and can never be interacted with). This is the same single
-/// track instance the local board docks, so it is by construction the same ordering, the same
-/// numbers and the same "?"s the owner sees — including vanilla's own online gate
+/// track instance the local board docks, so it is by construction the same entry set, the same
+/// numbers and the same "?"s the owner sees — with the PLAYER ORDER re-decided on top from record
+/// 27 — including vanilla's own online gate
 /// (<c>InitiativeTrackPlayerAvatar.CalculateInitiative</c> returns "?" while
 /// <c>FFSNetwork.IsOnline &amp;&amp; phase == SelectAbilityCardsOrLongRest &amp;&amp;
 /// !actor.IsUnderMyControl</c>). No mod-side gate is needed or wanted: the pixels being copied are
@@ -99,10 +130,11 @@ namespace GloomhavenVR.Net;
 /// 9 mm up and 16 mm proud of where this used to draw it — part of defect (c).
 /// </summary>
 /// <remarks>CLASSIFICATION: MIXED. The mirrored WIDGET is GLOBAL — a scenario-wide singleton the
-/// local client already renders, at ZERO wire — and the three PER-VIEWER highlight families laid on
-/// top of it cost extension records 16 (hover), 22 (focus, shared with the board outlines) and 23
-/// (vanilla's selection frame). Each names a PUBLIC track entry by its stable ActorGuid hash and
-/// nothing else. The fallback's actor LIST is
+/// local client already renders, at ZERO wire — and the PER-VIEWER families laid on top of it cost
+/// extension records 16 (hover), 22 (focus, shared with the board outlines), 23 (vanilla's
+/// selection frame) and 27 (the player block's on-screen order plus the owner's controlled set,
+/// which also pays for the selection-phase ring). Each names a PUBLIC track entry by its stable
+/// ActorGuid hash and nothing else. The fallback's actor LIST is
 /// <c>ScenarioManager.Scenario.AllAliveActors</c> and its per-actor NUMBERS are PER-ACTOR MODEL
 /// gated by <see cref="RevealGate"/> exactly as vanilla gates its own. See INVARIANTS-Net-Rig.md
 /// "Net — content classification".</remarks>
@@ -169,14 +201,25 @@ internal sealed class RemoteInitiativeTrack
     /// content cadence — then re-assert every PER-VIEWER override on top, in a fixed order. The
     /// drive is a faithful copy of the LOCAL widget, so each override's job is to delete the
     /// observer's own state and re-apply the OWNER's: hover (record 16), vanilla's selection frame
-    /// (record 23), the mod's focus/turn rings (record 22), and the fallback strip's tint. The
-    /// order matters only in that the rings run last, so a ring is never seated on a node the
-    /// hover pass is still re-posing this frame. No-op while the fallback is live.</summary>
+    /// (record 23), the PLAYER BLOCK'S ORDER (record 27), the selection-phase "still has to choose"
+    /// ring (record 27's owned mask + the replicated model), the mod's focus/turn rings (record 22)
+    /// and the fallback strip's tint. No-op while the fallback is live.
+    ///
+    /// <para>THE ORDER OF THE PASSES IS LOAD-BEARING IN TWO PLACES, and only two. The ROW-X pass
+    /// runs AFTER the hover pass, so the row's arrangement is the last word on a row x: vanilla's
+    /// optional <c>hoverMovement</c> nudge writes an ABSOLUTE anchoredPosition and, on a prefab
+    /// where the button's TargetRect happens to BE the entry root, would otherwise land on top of
+    /// a permuted slot (in VR that nudge is zeroed by <c>InitiativePortraitPin</c> anyway, and on
+    /// the shipped prefab the TargetRect is a child — belt and braces, not a live bug). The RINGS
+    /// run LAST, so a ring is never seated on a node an earlier pass is still re-posing this
+    /// frame.</para></summary>
     public void TickLive()
     {
         _mirror.TickLive();
         ApplyHoverOverrides();
         ApplySelectionOverride();
+        ApplyOrderOverride();
+        ApplySelectionGlow();
         ApplyFocusRings();
         ApplyFallbackFocusTint();
     }
@@ -377,6 +420,97 @@ internal sealed class RemoteInitiativeTrack
         return false;
     }
 
+    // ------------------------------------------------------------ peer track ORDER --
+    // DEFECT (a) OF THE 1:1 BOARD AUDIT, and the one this class's own doc got WRONG for four
+    // builds: it listed "the ENTRY SET and their on-screen ORDER" as GLOBAL, zero wire. The set
+    // is. The order is not, and vanilla says so in one branch —
+    // InitiativeTrackActorBehaviour.CompareTo (decompiled GH.Runtime, :160-171):
+    //
+    //     if (FFSNetwork.IsOnline && PhaseManager.CurrentPhase.Type == SelectAbilityCardsOrLongRest
+    //         && actor.IsPlayerByDefault() && other.Actor.IsPlayerByDefault()
+    //         && (!actor.IsUnderMyControl || !other.Actor.IsUnderMyControl))
+    //     { … the one that is NOT under my control sorts FIRST … }
+    //
+    // So during the card-selection phase EVERY client's track reads [the players I do not
+    // control][the players I do], and this mirror — a per-frame clone of THIS client's widget —
+    // put THIS client's arrangement on every peer's board. The mod had already written the fact
+    // down twice, in NetProtocol.ExtIdTrackHover ("my index 3 can be your index 5") and in
+    // InitiativeHoverSampler, which is exactly why the hover and selection records name entries by
+    // stable id instead of by index. Nobody carried the ORDER itself.
+    //
+    // WHAT RIDES, AND WHY IT IS THE PIXEL. Record 27 carries the sender's own display order of the
+    // PLAYER entries (ascending sibling index — where UpdateSortingOrder writes it) and a mask of
+    // which of them they control. It is not re-derived here, although every INPUT is available: a
+    // receiver could read FFSNet's replicated MyControllables for the ownership and the replicated
+    // model for every initiative, and still be wrong, because CompareTo is an INCONSISTENT
+    // comparator (two foreign players compare 0 while each compares -1 against one of mine) and
+    // the outcome then depends on List<T>.Sort's introsort pivots and on the pre-sort input order.
+    // That is the ModBuild-84 mistake — a plausible derivation, wrong in the states the user
+    // watches most — and this is the third record in a row to refuse it.
+    //
+    // ENEMIES COST NOTHING: the branch requires BOTH sides to be player actors, so the enemy block
+    // is identical on every client and is left to the mirror.
+
+    /// <summary>The PEER's own on-screen order of their track's PLAYER entries, by stable actor id
+    /// (extension record 27). Only the first <see cref="_peerOrderCount"/> entries are
+    /// meaningful.</summary>
+    private int[] _peerOrderIds = System.Array.Empty<int>();
+
+    private int _peerOrderCount;
+
+    /// <summary>Bit k = <see cref="_peerOrderIds"/>[k] is a character the PEER controls — the local
+    /// flag no receiver can evaluate, and the gate on whose portrait the mirrored
+    /// "still has to choose" ring may appear.</summary>
+    private byte _peerOrderOwned;
+
+    /// <summary>Change-gate for the order log (an order-sensitive hash of ids + mask).</summary>
+    private int _loggedOrder = int.MinValue;
+
+    /// <summary>Hand the owner's synced track ORDER in (called per frame by the board next to
+    /// <see cref="SetPeerHover"/> / <see cref="SetPeerFocus"/> / <see cref="SetPeerSelection"/>).
+    /// Cheap: three field writes and a change-gated log.</summary>
+    public void SetPeerTrackOrder(int[]? ids, int count, byte ownedMask)
+    {
+        _peerOrderIds = ids ?? System.Array.Empty<int>();
+        _peerOrderCount = count > 0 && count <= _peerOrderIds.Length ? count : 0;
+        _peerOrderOwned = _peerOrderCount > 0 ? ownedMask : (byte)0;
+
+        int key = _peerOrderCount * 31 + _peerOrderOwned;
+        for (int i = 0; i < _peerOrderCount; i++)
+            key = key * 31 + _peerOrderIds[i];
+        if (key == _loggedOrder)
+            return;
+        _loggedOrder = key;
+        VRLog.Info("Net", "Remote initiative track order: " +
+                          (_peerOrderCount > 0
+                              ? $"{_peerOrderCount} player entr(y/ies) in THIS PEER's display order, " +
+                                $"owned mask 0x{_peerOrderOwned:X2} (extension record 27). Vanilla " +
+                                "sorts player entries by IsUnderMyControl while online and in the " +
+                                "card-selection phase (InitiativeTrackActorBehaviour.cs:160-171), so " +
+                                "the arrangement this client's own track shows is NOT the one the " +
+                                "board's owner sees; the mirrored row is permuted to theirs and the " +
+                                "owned mask decides whose portraits may wear the amber " +
+                                "'still has to choose' ring."
+                              : "none (no record 27 from this peer, or they are outside the online " +
+                                "card-selection phase — outside it every client's track sorts " +
+                                "identically, so the mirrored arrangement is already correct and no " +
+                                "override is applied)."));
+    }
+
+    /// <summary>True while <paramref name="actorId"/> is one of the entries record 27 names as
+    /// being under the PEER's control.</summary>
+    private bool PeerOwns(int actorId)
+    {
+        if (actorId == 0)
+            return false;
+        for (int i = 0; i < _peerOrderCount; i++)
+        {
+            if (_peerOrderIds[i] == actorId)
+                return (_peerOrderOwned & (1 << i)) != 0;
+        }
+        return false;
+    }
+
     /// <summary>Change-gate for the selection-override coverage line (one-shot per session).</summary>
     private bool _loggedSelectionCoverage;
 
@@ -454,6 +588,300 @@ internal sealed class RemoteInitiativeTrack
                               "their live widget's active flag — not re-derived from their character focus, " +
                               "which is a different fact). Enemies and object entries included.");
         }
+    }
+
+    // ---- the row-x permutation's scratch, sized to the clone's own entry cap -----------------
+    // Written and read inside ONE call of ApplyOrderOverride; fields only so the per-frame pass
+    // allocates nothing.
+
+    /// <summary>Indices into <see cref="_hoverNodes"/> of the PLAYER rows, in THIS client's
+    /// on-screen order (ascending source sibling index).</summary>
+    private readonly int[] _orderRow = new int[MaxChips];
+
+    /// <summary>The row x each of those slots is at THIS frame, sampled before any write.</summary>
+    private readonly float[] _orderSlotX = new float[MaxChips];
+
+    /// <summary>For rank r, the <see cref="_hoverNodes"/> index of the entry the PEER has at rank r
+    /// — resolved completely before a single transform is written, so a set mismatch bails with
+    /// nothing half-applied.</summary>
+    private readonly int[] _orderTarget = new int[MaxChips];
+
+    /// <summary>Change-gate for the order-override diagnostic (a mismatch reason code; 0 = the
+    /// override is applying cleanly).</summary>
+    private int _loggedOrderState = int.MinValue;
+
+    /// <summary>
+    /// THE PLAYER BLOCK'S ON-SCREEN ORDER, re-decided from the PEER's own track — defect (a).
+    ///
+    /// <para>The mirror's drive copies each entry row's <c>anchoredPosition3D</c> off THIS client's
+    /// widget, so the peer's board inherits THIS client's arrangement. During the online
+    /// card-selection phase that arrangement is genuinely different from theirs
+    /// (<c>InitiativeTrackActorBehaviour.CompareTo</c>:160-171 — foreign players first, mine last),
+    /// so this pass PERMUTES the mirrored player rows into the order record 27 names.</para>
+    ///
+    /// <para>IT IS A PERMUTATION OF SLOTS, NOT A LAYOUT. The slots are read back off the clone
+    /// itself — whatever x the drive just wrote for each player row — and re-dealt by the peer's
+    /// rank. Nothing computes a position, so entry widths, the layout group's spacing, the enemy
+    /// block and the panel fit are all untouched and cannot drift: the same set of x values goes
+    /// back onto the same set of rows, only paired differently. ONLY x is written; y and z are
+    /// carried through verbatim, which is the ModBuild-80 initiative-row discipline (that leak was
+    /// exactly a y/z write on this row).</para>
+    ///
+    /// <para>IT BAILS WHOLE, NEVER PARTIALLY. The peer's id set and this client's player rows must
+    /// correspond one-to-one; if they do not — a peer mid-round-transition, an exhausted hero that
+    /// has landed on one machine and not yet the other, a party larger than the record's cap — the
+    /// pass writes NOTHING and the board keeps the mirrored arrangement, which is the same "show
+    /// the honest thing, never a guess" choice the hover and selection passes make. That is why
+    /// the targets are resolved into <see cref="_orderTarget"/> in full before the first write.</para>
+    ///
+    /// <para>IT STANDS DOWN DURING THE REORDER SLIDE (<c>InitiativeTrack.isAnimating</c>). The
+    /// slide is the one moment the row's x is owned by a tween rather than by the settled layout,
+    /// and the two arrangements CONVERGE across it: the sort that starts the slide is the one that
+    /// leaves the selection phase, after which every client's order is identical again. Re-dealing
+    /// tweening positions would land the row in the wrong final slots, so the slide plays through
+    /// as the mirror copies it. STATED LIMITATION: for those ~0.5 s a peer's board sees the slide
+    /// START from this client's arrangement rather than the owner's. The destination, the duration
+    /// and the easing are the same on every client (see the class doc's GLOBAL list), so only the
+    /// first frames differ, and they differ into the correct final row.</para>
+    /// </summary>
+    private void ApplyOrderOverride()
+    {
+        if (Source != RemoteWidgetMirror.Fidelity.MirroredWidget)
+            return;
+        if (_peerOrderCount < 2)
+        {
+            LogOrderState(0, "no override wanted");
+            return;                  // nothing to permute (or no record at all)
+        }
+        EnsureHoverCache();
+        if (_hoverNodes.Count == 0)
+            return;
+
+        try
+        {
+            InitiativeTrack track = InitiativeTrack.Instance;
+            if (track != null && track.isAnimating)
+            {
+                LogOrderState(1, "the track is mid-reorder — the slide owns the row x this frame");
+                return;
+            }
+        }
+        catch { /* a torn-down singleton reads as "not animating"; the bails below still guard */ }
+
+        // 1. THIS client's player rows, in ITS on-screen order (ascending SOURCE sibling index —
+        //    the clone's own sibling order is frozen at Instantiate time and is not the display
+        //    order). Selection sort over a handful of rows; no allocation.
+        int n = 0;
+        int taken = 0;
+        while (n < _orderRow.Length)
+        {
+            int best = -1;
+            int bestSibling = int.MaxValue;
+            for (int i = 0; i < _hoverNodes.Count && i < 32; i++)
+            {
+                HoverNode node = _hoverNodes[i];
+                if (!node.IsPlayer || node.Entry == null || node.SourceRow == null || node.ActorId == 0)
+                    continue;
+                if ((taken & (1 << i)) != 0)
+                    continue;
+                int sibling = node.SourceRow.GetSiblingIndex();
+                if (sibling < bestSibling)
+                {
+                    bestSibling = sibling;
+                    best = i;
+                }
+            }
+            if (best < 0)
+                break;
+            taken |= 1 << best;
+            _orderRow[n] = best;
+            _orderSlotX[n] = _hoverNodes[best].Entry!.anchoredPosition3D.x;
+            n++;
+        }
+
+        if (n != _peerOrderCount)
+        {
+            LogOrderState(2, $"this client shows {n} player row(s), the peer named " +
+                             $"{_peerOrderCount} — the sets do not correspond, so the mirrored " +
+                             "arrangement is left alone rather than half-permuted");
+            return;
+        }
+
+        // 2. Resolve EVERY rank before writing anything.
+        for (int r = 0; r < n; r++)
+        {
+            int want = _peerOrderIds[r];
+            int found = -1;
+            for (int k = 0; k < n; k++)
+            {
+                if (_hoverNodes[_orderRow[k]].ActorId == want)
+                {
+                    found = _orderRow[k];
+                    break;
+                }
+            }
+            if (found < 0)
+            {
+                LogOrderState(3, $"the peer named an entry (id {want}) this client's track does " +
+                                 "not show — the mirrored arrangement is left alone");
+                return;
+            }
+            _orderTarget[r] = found;
+        }
+
+        // 3. Deal the slots. x only.
+        for (int r = 0; r < n; r++)
+        {
+            RectTransform? row = _hoverNodes[_orderTarget[r]].Entry;
+            if (row == null)
+                continue;
+            Vector3 p = row.anchoredPosition3D;
+            if (!Mathf.Approximately(p.x, _orderSlotX[r]))
+                row.anchoredPosition3D = new Vector3(_orderSlotX[r], p.y, p.z);
+        }
+        LogOrderState(4, $"{n} player row(s) re-dealt into the PEER's own on-screen order");
+    }
+
+    /// <summary>Change-gated one-liner for what the order override is doing right now. The state
+    /// code is the gate, so a stable state (the common one, "applying") logs once and then costs a
+    /// single compare per frame.</summary>
+    private void LogOrderState(int code, string what)
+    {
+        if (code == _loggedOrderState)
+            return;
+        _loggedOrderState = code;
+        VRLog.Info("Net", $"Remote initiative track order override: {what} (extension record 27 — " +
+                          "the PLAYER block's on-screen order is per-viewer during the online " +
+                          "card-selection phase, InitiativeTrackActorBehaviour.cs:160-171; the " +
+                          "ENEMY block never permutes and is left to the mirror).");
+    }
+
+    /// <summary>Change-gate for the selection-glow coverage line (one-shot per session).</summary>
+    private bool _loggedGlowCoverage;
+
+    /// <summary>
+    /// THE SELECTION-PHASE "STILL HAS TO CHOOSE" RING, re-decided from the PEER's own set —
+    /// defect (c), and the fourth member of the "the mirror copied MY state onto THEIR board"
+    /// family after the hover popup, the hover grow and vanilla's selection frame.
+    ///
+    /// <para>WHAT WAS WRONG. <c>WorldUI.Surfaces.InitiativeSelectionGlow</c> hangs an amber
+    /// <c>Image</c> under each portrait for every actor that still owes cards, and
+    /// <c>Board.SelectionReadyHighlighter</c> feeds it a pending list filtered by
+    /// <c>IsUnderControlOrSingle()</c> — i.e. the LOCAL player's characters and nobody else's. It
+    /// is a plain Graphic under the track, so <c>Instantiate</c> cloned it and <c>Pair.Apply</c>
+    /// drove its active flag and colour like any other: every peer's mirrored track wore the
+    /// OBSERVER's rings, and the owner's — the only ones that board is a picture of — never
+    /// appeared at all. Both halves are fixed here: the cloned ring is forced OFF, and a mod-owned
+    /// one is lit for the OWNER's still-choosing characters.</para>
+    ///
+    /// <para>ZERO WIRE OF ITS OWN, and the check that establishes it. The fact splits in two.
+    /// WHOSE characters they are is <c>CActor.IsUnderMyControl</c> — a local flag (CActor.cs:751,
+    /// a plain settable bool restored from the save state), which is why record 27 already carries
+    /// it as one mask byte alongside the order it had to send anyway. Whether a character has
+    /// COMMITTED is NOT sent, because it does not have to be: vanilla's own
+    /// <c>CPlayerActorExtensions.IsCardSelectionReady</c> tests
+    /// <c>CharacterClass.RoundAbilityCards.Count &lt; 2 &amp;&amp; !CharacterClass.LongRest</c>,
+    /// and that list is replicated LIVE through the selection phase
+    /// (<c>ProxySetStartRoundDeckState</c> — the same list <c>RemoteControlBoard.SeatSlots</c>
+    /// already draws a peer's played card BACKS from, and the same one
+    /// <c>CPlayerActor.Initiative()</c> reads with no ownership gate). The only reason
+    /// <c>IsCardSelectionReady</c> reports "ready" for a foreign actor is its explicit
+    /// <c>(!FFSNetwork.IsOnline || IsUnderMyControl)</c> clause — a deliberate LOCAL gate over data
+    /// that is present, not a data gap. So the receiver derives it.</para>
+    ///
+    /// <para>NO DISCLOSURE. "That character has not committed yet" is already broadcast by vanilla
+    /// twice over — the multiplayer ready tracker shows a per-character ready marker for the whole
+    /// selection phase, and the hand tabs print every player's live "selected/2" count with no
+    /// ownership gate (the argument <c>RemoteBoardFurniture</c>'s wanted-slot pulse already turns
+    /// on). No card IDENTITY is read: a count and a boolean. The initiative NUMBER is untouched and
+    /// still reads "?" for a foreign player, which is the user-ruled exception.</para>
+    ///
+    /// <para>ONE PALETTE, ONE CLOCK: the tint comes from
+    /// <c>InitiativeSelectionGlow.PendingRingTint()</c> and the ±5 % breath from
+    /// <c>Board.UiRing</c>'s shared <c>FocusCue.Phase</c>, which is the same 1.5 s unscaled sine
+    /// the local cue's own scale pulse rides — so the mirrored ring and the local one cannot drift
+    /// apart in colour, amplitude or phase. The ring is built at the local cue's own 8 px outset
+    /// rather than <c>UiRing</c>'s wider default, so it is the same size as the original and nests
+    /// INSIDE a focus ring on the same portrait instead of landing on top of one.</para>
+    /// </summary>
+    private void ApplySelectionGlow()
+    {
+        if (Source != RemoteWidgetMirror.Fidelity.MirroredWidget)
+            return;
+        EnsureHoverCache();
+        if (_hoverNodes.Count == 0)
+            return;
+
+        // Record 27 exists only inside the online card-selection phase, which is exactly the
+        // window SelectionReadyHighlighter runs its own cue in — so its ABSENCE clears every ring,
+        // and no separate phase read is needed or wanted (a local phase read would be this
+        // client's phase, not the owner's).
+        bool window = _peerOrderCount > 0;
+        Color tint = window ? WorldUI.Surfaces.InitiativeSelectionGlow.PendingRingTint() : default;
+
+        int lit = 0;
+        for (int i = 0; i < _hoverNodes.Count; i++)
+        {
+            HoverNode node = _hoverNodes[i];
+
+            // (1) THE OBSERVER'S OWN RING NEVER STANDS ON A PEER'S BOARD. Forced off every frame,
+            //     not once: Pair.Apply re-copies the source's active flag on every drive.
+            if (node.LocalGlow != null && node.LocalGlow.activeSelf)
+                node.LocalGlow.SetActive(false);
+
+            // (2) THE OWNER'S RING.
+            if (node.PendingRing == null)
+                continue;
+            bool want = window && PeerOwns(node.ActorId) && StillChoosing(node.Player);
+            if (want)
+            {
+                lit++;
+                node.PendingRing.Apply(tint, breathe: true);
+            }
+            else
+            {
+                node.PendingRing.Apply(null, false);
+            }
+        }
+
+        if (window && !_loggedGlowCoverage && _hoverNodes.Count > 0)
+        {
+            _loggedGlowCoverage = true;
+            VRLog.Info("Net", $"Remote initiative track selection glow: {lit}/{_hoverNodes.Count} " +
+                              "entr(y/ies) lit the amber 'still has to choose' ring for the BOARD " +
+                              "OWNER's characters. The LOCAL player's own rings are forced OFF on " +
+                              "this mirror (they rode the clone — InitiativeSelectionGlow builds " +
+                              "them only for actors THIS client controls). Zero wire of its own: " +
+                              "whose characters they are comes from record 27's owned mask, and " +
+                              "whether each has committed is read from the replicated model " +
+                              "(CCharacterClass.RoundAbilityCards / LongRest), never from the " +
+                              "local IsCardSelectionReady, which is gated to this client.");
+        }
+    }
+
+    /// <summary>
+    /// Does the game's REPLICATED model still owe this character a card selection? The commit half
+    /// of vanilla's own <c>CPlayerActorExtensions.IsCardSelectionReady</c> —
+    /// <c>RoundAbilityCards.Count &lt; 2 &amp;&amp; !LongRest</c> — minus its
+    /// <c>IsUnderMyControl</c> clause, which is a local VISIBILITY gate rather than a data one.
+    ///
+    /// <para>The refinements vanilla folds in on top (a short rest selected in the local hand UI,
+    /// <c>HaltMultiplayerProgression</c>, an open confirmation box) are LOCAL UI state on the
+    /// owner's machine and are deliberately not reproduced: each of them can only make a character
+    /// read "not ready" for a moment longer, so leaving them out can at worst clear a mirrored ring
+    /// slightly early — never light one for a character who has finished. Failure suppresses:
+    /// a half-torn actor reads as "done", i.e. no ring.</para>
+    /// </summary>
+    private static bool StillChoosing(CPlayerActor? actor)
+    {
+        try
+        {
+            CCharacterClass? cc = actor != null ? actor.CharacterClass : null;
+            if (cc == null)
+                return false;
+            return !cc.LongRest && (cc.RoundAbilityCards?.Count ?? 2) < 2;
+        }
+        catch { return false; }
     }
 
     /// <summary>
@@ -563,10 +991,43 @@ internal sealed class RemoteInitiativeTrack
         public Board.UiRing? FocusRing;
         public GameObject? Popup;      // clone of the entry's MonsterBaseUI root (enemies only)
         public Graphic? Name;          // clone of the entry's name label
-        public RectTransform? Entry;   // clone of the entry root (width override, enemies only)
+        public RectTransform? Entry;   // clone of the entry ROOT — the row this widens (enemies)
+                                       // and the row ApplyOrderOverride re-deals the x of
         public float FullWidth;        // vanilla _startWidth
         public float MinWidth;         // _startWidth × config.MinimalEnemyAvatarDesiredWidth
         public bool HasWidths;
+
+        // ---- the row's PLACE in the order (record 27) ----
+
+        /// <summary>The LIVE entry transform, read per frame for its SIBLING INDEX — the display
+        /// order vanilla's <c>UpdateSortingOrder</c> writes. The CLONE's sibling order is frozen at
+        /// <c>Instantiate</c> time and re-sorts do not touch it, so it is not the display order and
+        /// must never be read as one.</summary>
+        public Transform? SourceRow;
+
+        /// <summary>True for a player row. Vanilla's ownership branch requires BOTH sides to be
+        /// player actors, so only these permute; the enemy block is global.</summary>
+        public bool IsPlayer;
+
+        /// <summary>The live <c>CPlayerActor</c> of a player row, for the ONE thing the selection
+        /// glow derives locally: whether the game's replicated model still owes this character a
+        /// card selection (<see cref="StillChoosing"/>). It is a MODEL read of a host-replicated
+        /// list, not a re-derivation of anybody's per-viewer decision — the decision half
+        /// (whose character it is) rides record 27's owned mask. Null on an enemy row.</summary>
+        public CPlayerActor? Player;
+
+        /// <summary>Clone of the LOCAL <c>InitiativeSelectionGlow</c> ring, when this client's own
+        /// cue ever built one on this entry. Forced OFF every frame by
+        /// <see cref="ApplySelectionGlow"/>: it is the OBSERVER's ring and must never stand on a
+        /// peer's board. Null when this client never lit one here (the usual case for a character
+        /// it does not control) — in which case there is nothing to suppress.</summary>
+        public GameObject? LocalGlow;
+
+        /// <summary>Mod-owned amber ring on the CLONE of this entry's portrait, lit for the BOARD
+        /// OWNER's still-choosing characters. Built at the local cue's own outset so it is the same
+        /// size as the original. Not a mirrored node — the same argument as
+        /// <see cref="FocusRing"/>.</summary>
+        public Board.UiRing? PendingRing;
 
         // ---- hover GROW (ExtendedButton.ToggleHighlight) ----
         public RectTransform? ScaleClone;   // clone of `overridedTargetRectScale ?? TargetRect`
@@ -617,7 +1078,20 @@ internal sealed class RemoteInitiativeTrack
                 var node = new HoverNode
                 {
                     ActorId = NetFigures.StableActorId(beh.Actor),
+                    // The row itself: its CLONE is what the order override re-deals, and its LIVE
+                    // transform is the only place the display order can be read from.
+                    Entry = _mirror.CloneOf(beh.transform) as RectTransform,
+                    SourceRow = beh.transform,
+                    IsPlayer = beh is InitiativeTrackPlayerBehaviour,
+                    Player = beh.Actor as CPlayerActor,
                 };
+
+                // The LOCAL selection-phase ring, resolved BY REFERENCE from the cue that owns it
+                // (never by searching the clone for a name) so it can be forced off on the mirror.
+                RectTransform? localGlow =
+                    WorldUI.Surfaces.InitiativeSelectionGlow.LiveRingRectOf(beh);
+                Transform? localGlowClone = localGlow != null ? _mirror.CloneOf(localGlow) : null;
+                node.LocalGlow = localGlowClone != null ? localGlowClone.gameObject : null;
 
                 // The GAME's own selection frame on the CLONE (see ApplySelectionOverride).
                 GameObject? selection = beh.Avatar.selectionObject;
@@ -638,6 +1112,11 @@ internal sealed class RemoteInitiativeTrack
                     ? _mirror.CloneOf(portrait) as RectTransform
                     : null;
                 node.FocusRing = Board.UiRing.Build(portraitClone, "GloomhavenVR.RemoteFocusRing");
+                // The OWNER's selection-phase ring, at the LOCAL cue's own 8 px outset so it is the
+                // same size as the original and nests inside the focus ring above.
+                node.PendingRing = Board.UiRing.Build(
+                    portraitClone, "GloomhavenVR.RemoteSelectionGlow",
+                    WorldUI.Surfaces.InitiativeSelectionGlow.RingOutsetPixels);
 
                 // Hover GROW: the exact rect ExtendedButton tweens (see the override note above).
                 ExtendedButton? btn = beh.avatarButton;
@@ -675,7 +1154,8 @@ internal sealed class RemoteInitiativeTrack
                     Transform? popupClone = popup != null ? _mirror.CloneOf(popup.transform) : null;
                     node.Popup = popupClone != null ? popupClone.gameObject : null;
 
-                    node.Entry = _mirror.CloneOf(beh.transform) as RectTransform;
+                    // node.Entry (the row clone) is resolved for EVERY entry above — the order
+                    // override needs it on player rows too — so only the widths are enemy-only.
                     Script.GUI.Configuration.InitiativeTrackConfigUI? cfg = enemy._config;
                     if (node.Entry != null && cfg != null && enemy._startWidth > 0f)
                     {

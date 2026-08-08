@@ -599,6 +599,15 @@ internal sealed class RemoteControlBoard
         // turn or a mod focus is taken. Handed in on the same seam so the drive, the hover
         // override, the frame override and the rings all settle in one frame.
         _track?.SetPeerSelection(_owner.TrackSelectionIds, _owner.TrackSelectionCount);
+        // TRACK ORDER (extension record 27) — the fourth per-viewer fact of this widget, and the
+        // one that had been classified as GLOBAL: vanilla sorts PLAYER entries by IsUnderMyControl
+        // while online and in the card-selection phase, so this client's own track shows a
+        // different arrangement from the owner's and a clone of it was showing THIS client's. The
+        // same record's owned mask also decides whose portraits may wear the amber "still has to
+        // choose" ring, which rode the clone in exactly the same way. Handed in on the same seam
+        // so the drive, all four overrides and the rings settle in one frame.
+        _track?.SetPeerTrackOrder(_owner.TrackOrderIds, _owner.TrackOrderCount,
+                                  _owner.TrackOrderOwnedMask);
         _track?.TickLive();
         _objectives?.TickLive();
     }

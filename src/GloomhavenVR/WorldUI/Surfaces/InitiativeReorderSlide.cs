@@ -159,6 +159,27 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// (<c>_mirror.CloneOf(...)</c>, which returns null on a miss — verified) and cannot reach these
 /// entries. Because the repair is driven from THIS client's own settled layout, each client fixes
 /// its own row at its own tray orientation; nothing has to agree across the wire.
+///
+/// <para>AND THAT SENTENCE HAS BEEN MISREAD ONCE, so it is worth being exact (1:1 board audit,
+/// 2026-08-08, which listed the slide as a per-viewer divergence). "Its own tray orientation" is
+/// about the panel's WORLD pose — the metres and the yaw the surface docks it at, which differ per
+/// board style and per player. It is NOT about the animation, and the mirror never copies a world
+/// pose anyway: <c>RemoteWidgetMirror</c> clones the widget, re-fits it into
+/// <c>PlayTray.InitiativeMountWidth</c>, and <c>Pair.Apply</c> copies LOCAL rect state only. The
+/// slide's own three ingredients are GLOBAL: <c>trackReorderDuration</c> is a serialized field of
+/// the one shared prefab, the trigger is <c>InitiativeTrack.UpdateActors</c> off the replicated
+/// message stream, and the travel is holder-local uGUI pixels produced by the same
+/// <c>HorizontalLayoutGroup</c> over the same entry set at the same widths. So a peer's mirrored
+/// board sees this client's slide play out at the owner's own duration, easing and travel — with
+/// ONE exception, which belongs to a different defect: WHICH portrait starts in which slot. During
+/// the online card-selection phase vanilla orders the PLAYER rows per client
+/// (<c>InitiativeTrackActorBehaviour.CompareTo</c>:160-171), which is extension record 27 and
+/// <c>Net.RemoteInitiativeTrack.ApplyOrderOverride</c>'s job; that override deliberately stands
+/// down while <c>isAnimating</c> so it never re-deals a tweening x, and the two arrangements
+/// converge across this very slide (the sort that starts it is the one that leaves the selection
+/// phase). The consequence, stated rather than hidden: for the slide's duration a peer sees it
+/// START from this client's arrangement, and END — like every other client — in the correct
+/// one.</para>
 /// </summary>
 internal sealed class InitiativeReorderSlide
 {

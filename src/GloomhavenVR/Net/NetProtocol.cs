@@ -1706,6 +1706,94 @@ internal static class NetProtocol
     public const byte UseSlotDefinedMask = UseSlotOfferedBit | UseSlotDimmedBit | UseSlotChosenBit;
 
     /// <summary>
+    /// Extension record id: the SENDER'S OWN ON-SCREEN ORDER OF THE INITIATIVE TRACK'S PLAYER
+    /// ENTRIES, plus which of them they control — <c>[count][ownedMask][count × int32 actorId
+    /// LE]</c>, at most <see cref="TrackOrderMaxIds"/> ids. Read off the LIVE widget (ascending
+    /// sibling index under the track holder, which is where vanilla's <c>UpdateSortingOrder</c>
+    /// writes the display order), never re-derived.
+    ///
+    /// <para>THE DEFECT. <c>Net/RemoteInitiativeTrack</c> mirrors the track by CLONING THIS
+    /// CLIENT'S OWN widget, and its class doc listed "the ENTRY SET and their on-screen ORDER" as
+    /// GLOBAL — bit-identical on every client, zero wire. The entry SET is. The ORDER is NOT, and
+    /// vanilla says so in one branch: <c>InitiativeTrackActorBehaviour.CompareTo</c>
+    /// (decompiled GH.Runtime/InitiativeTrackActorBehaviour.cs:160-171) short-circuits the whole
+    /// initiative comparison while
+    /// <c>FFSNetwork.IsOnline &amp;&amp; PhaseManager.CurrentPhase.Type ==
+    /// SelectAbilityCardsOrLongRest</c> and both sides are player actors and at least one is NOT
+    /// <c>IsUnderMyControl</c> — the foreign one sorts FIRST, unconditionally. So during the card
+    /// selection phase every client's track reads <c>[the players I do not control][the players I
+    /// do]</c>, i.e. MY index 3 is genuinely YOUR index 5, and a clone of my widget put MY
+    /// arrangement on every peer's board. The mod already knew this and had written it down twice
+    /// — see <see cref="ExtIdTrackHover"/>'s "WHY A STABLE ACTOR ID AND NOT A TRACK INDEX" and
+    /// <c>Net/InitiativeHoverSampler</c>'s copy of the same paragraph — which is exactly why the
+    /// hover and selection records name entries by id: an INDEX would already have lifted the
+    /// wrong portrait. The ordering itself was never carried.</para>
+    ///
+    /// <para>WHY THE WIDGET AND NOT A RE-DERIVATION, which is the whole reason this costs bytes.
+    /// The receiver has every INPUT: the actor list is replicated, <c>CPlayerActor.Initiative()</c>
+    /// is a pure model read (CPlayerActor.cs:156 — <c>RoundAbilityCards</c> /
+    /// <c>InitiativeAbilityCard</c> / <c>LongRest</c>, no ownership gate), and FFSNet's
+    /// <c>NetworkPlayer.MyControllables</c> would even name the sender's characters. What it does
+    /// NOT have is the SORT: <c>CompareTo</c> is an INCONSISTENT comparator (two foreign players
+    /// compare 0 while each compares −1 against one of mine), so the result of
+    /// <c>List&lt;T&gt;.Sort()</c> depends on introsort's pivot choices and on the pre-sort input
+    /// order, neither of which is contract. Re-deriving it would be the ModBuild-84 mistake again
+    /// (see <see cref="ExtIdTrackSelection"/>'s "WHY RECORD 22 CANNOT ANSWER THIS"): a plausible
+    /// derivation that is wrong in states the user watches every single round. The ids ARE the
+    /// pixel.</para>
+    ///
+    /// <para>THE OWNED MASK, and why it is one byte rather than a second record. Bit k names
+    /// ids[k] as a character the SENDER controls (<c>CActor.IsUnderMyControl</c> — a purely local
+    /// flag, CActor.cs:751, set from the save state and never replicated). It pays for the OTHER
+    /// per-viewer thing this widget shows: <c>WorldUI/Surfaces/TablePanelSurfaces</c>'
+    /// <c>InitiativeSelectionGlow</c>, the amber "still has to choose" ring, which
+    /// <c>Board/SelectionReadyHighlighter</c> builds ONLY for actors the LOCAL player controls and
+    /// which therefore rode the clone onto every peer's board wearing the OBSERVER's set. Whether
+    /// a named character has COMMITTED is not sent and does not need to be: the game replicates
+    /// <c>CCharacterClass.RoundAbilityCards</c> live through the selection phase
+    /// (<c>ProxySetStartRoundDeckState</c> — the very list <c>Net/RemoteControlBoard.SeatSlots</c>
+    /// already draws a peer's played card backs from), so the receiver derives "pending" itself.
+    /// One byte buys the half that cannot be derived and nothing more.</para>
+    ///
+    /// <para>NO CARD IDENTITY, AND NO WIDENING OF THE NUMBER EXCEPTION. The payload is a
+    /// permutation of PUBLIC track entries in the same <c>NetFigures.StableActorId</c> space
+    /// records 16 and 23 already use, plus one ownership bit per entry — the same fact vanilla
+    /// broadcasts anyway (the multiplayer ready tracker shows a per-character ready marker for the
+    /// whole selection phase, and the hand tabs print every player's live "selected/2" count with
+    /// no <c>IsUnderMyControl</c> gate). The initiative NUMBER stays behind vanilla's own online
+    /// gate — a foreign player reads "?" during card selection — and this record does not touch
+    /// it. Note the ordering itself already told every observer "these are the entries that player
+    /// does not control"; carrying the owner's ordering discloses no more than the observer's did.
+    /// </para>
+    ///
+    /// <para>Written ONLY inside vanilla's own divergence window (online AND
+    /// <c>SelectAbilityCardsOrLongRest</c> AND at least one player entry), which is precisely the
+    /// condition at CompareTo:160 — so outside the card-selection phase an idle packet is
+    /// byte-identical to a pre-record sender's, and its ABSENCE is what releases the receiver's
+    /// override back to the mirrored arrangement. ADDITIVE TLV, appended in id order behind record
+    /// 24; an older reader steps over it by its length and keeps showing what it always did.</para>
+    /// </summary>
+    public const byte ExtIdTrackOrder = 27;
+
+    /// <summary>Id cap of <see cref="ExtIdTrackOrder"/>. A Gloomhaven party is four mercenaries;
+    /// the track can carry a few more player rows at once because exhausted heroes are appended
+    /// (<c>InitiativeTrack.UpdateInitiativeTrack</c> adds <c>ExhaustedPlayers</c>), so six is
+    /// headroom over every real table. It bounds the record at 2 + 6×4 = 26 payload bytes, and it
+    /// also bounds <see cref="TrackOrderOwnedMask"/>'s meaning: bit k for k &lt; 6, so the mask can
+    /// never be asked about an id that does not exist. Clamped on BOTH ends — the reader re-clamps
+    /// against the record length as well, never trusting the wire.</summary>
+    public const int TrackOrderMaxIds = 6;
+
+    /// <summary>Minimum payload of <see cref="ExtIdTrackOrder"/>: the count byte and the owned
+    /// mask. A reader requires at least this much before it looks at the record.</summary>
+    public const int TrackOrderMinRecordBytes = 2;
+
+    /// <summary>Every bit <see cref="ExtIdTrackOrder"/>'s owned mask can define, given
+    /// <see cref="TrackOrderMaxIds"/>. Masked on write AND on read, so a longer future cap can
+    /// never make an old receiver read ownership into an id it never got.</summary>
+    public const byte TrackOrderOwnedDefinedMask = (1 << TrackOrderMaxIds) - 1;
+
+    /// <summary>
     /// Extension record id: the LIVE LABELS of the sender's turn-flow board caps — what their
     /// CONFIRM keycap and their docked SKIP button ACTUALLY read right now — as
     /// <c>[byte mask][per set bit: byte len + UTF8]</c>, each label capped at

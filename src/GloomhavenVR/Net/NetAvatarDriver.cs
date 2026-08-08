@@ -154,6 +154,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private readonly int[] _lastSentTrackSelection = new int[NetProtocol.TrackSelectionMaxIds];
     private int _lastSentTrackSelectionCount = -1;
 
+    /// <summary>TRACK ORDER (extension record 27): the on-screen order of our OWN track's PLAYER
+    /// entries plus which of them we control. The order only changes when vanilla re-sorts the
+    /// track — a per-round event, not a pointer event — and the owned mask only when the host
+    /// hands out characters, so a plain change edge on the 5 Hz extras cadence is enough and no
+    /// pre-emption is warranted (unlike the hover and the selection frame, which follow a click).
+    /// -1 = never sent, so the first sample of a session is always an edge.</summary>
+    private readonly int[] _trackOrderSample = new int[NetProtocol.TrackOrderMaxIds];
+    private readonly int[] _lastSentTrackOrder = new int[NetProtocol.TrackOrderMaxIds];
+    private int _lastSentTrackOrderCount = -1;
+    private byte _lastSentTrackOrderOwned;
+
     /// <summary>Comma-joined id list for a change-gated log line (never per frame — only on the
     /// edge that already decided to log). Kept tiny and allocation-honest: the caller logs at most
     /// a handful of ids and only when the state really moved.</summary>
@@ -407,6 +418,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentFocusActor = int.MinValue;       // …and the character focus (record 22)
         _lastSentFocusAttentionActor = 0;         // …including who the game was waiting on
         _lastSentTrackSelectionCount = -1;        // …and the track's selection frames (record 23)
+        _lastSentTrackOrderCount = -1;            // …and the track's per-viewer player order (27)
+        _lastSentTrackOrderOwned = 0;
         Board.CharacterFocus.Reset();             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentDecisionState = -1;   // …including its option states + prompt-text variant
@@ -854,6 +867,29 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             }
         }
 
+        // TRACK ORDER (extension record 27, the third defect of the 1:1 board audit): the
+        // ON-SCREEN ORDER of our own track's PLAYER entries, plus which of them we control.
+        // Vanilla sorts player entries by IsUnderMyControl while online AND in the card-selection
+        // phase (InitiativeTrackActorBehaviour.cs:160-171), so in that window — and ONLY in that
+        // window, which is why the sampler returns 0 outside it — my index 3 really is your index
+        // 5, and a peer's mirrored track was showing the OBSERVER's arrangement. No pre-emption:
+        // the order moves when the track re-sorts, which is a per-round event.
+        int trackOrderCount = InitiativeHoverSampler.SampleTrackOrder(_trackOrderSample,
+                                                                     out byte trackOrderOwned);
+        bool trackOrderChanged = trackOrderCount != _lastSentTrackOrderCount
+                                 || trackOrderOwned != _lastSentTrackOrderOwned;
+        if (!trackOrderChanged)
+        {
+            for (int k = 0; k < trackOrderCount; k++)
+            {
+                if (_trackOrderSample[k] != _lastSentTrackOrder[k])
+                {
+                    trackOrderChanged = true;
+                    break;
+                }
+            }
+        }
+
         // WALL FADES (extension record 17): sample the local fade decision's ON set as
         // sorted keys and diff against the last sent set — see the field block's doc.
         int wallFadeCount = Core.WallSegmentFade.SampleFadedWallKeys(_wallFadeSample);
@@ -1016,7 +1052,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
             && !decisionChanged && !decisionStateChanged && !useBarsChanged
-            && !capLabelsChanged && !focusChanged && !trackSelChanged)
+            && !capLabelsChanged && !focusChanged && !trackSelChanged && !trackOrderChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1516,6 +1552,40 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "behind vanilla's own online gate on every client."
                 : "Track selection SENT: none — record omitted (peers draw no selection frame on " +
                   "our mirrored track, which is exactly what our own track shows).");
+        }
+
+        // TRACK ORDER (extension record 27): written only inside vanilla's own per-viewer window
+        // (online + card selection), so outside the selection phase an idle packet stays
+        // byte-identical to the previous build's — and its ABSENCE is what releases a receiver's
+        // order override back to the mirrored arrangement.
+        if (trackOrderCount > 0)
+        {
+            extras.HasTrackOrder = true;
+            extras.TrackOrderCount = trackOrderCount;
+            extras.TrackOrderOwnedMask = trackOrderOwned;
+            extras.TrackOrderIds = _trackOrderSample;
+        }
+        if (trackOrderChanged)
+        {
+            _lastSentTrackOrderCount = trackOrderCount;
+            _lastSentTrackOrderOwned = trackOrderOwned;
+            System.Array.Copy(_trackOrderSample, _lastSentTrackOrder, trackOrderCount);
+            VRLog.Info("Net", trackOrderCount > 0
+                ? $"Track order SENT: {trackOrderCount} player entr(y/ies) in OUR display order " +
+                  $"[{DescribeIds(_trackOrderSample, trackOrderCount)}], owned mask 0x" +
+                  $"{trackOrderOwned:X2} — extension record 27. Vanilla sorts player entries by " +
+                  "IsUnderMyControl while online AND in the card-selection phase " +
+                  "(InitiativeTrackActorBehaviour.cs:160-171), so OUR index 3 is a peer's index 5 " +
+                  "and a mirrored clone of our widget was showing them OUR arrangement. The ids " +
+                  "are read off the live widget's sibling order — the pixel, not a re-derivation " +
+                  "of a sort whose comparator is inconsistent. The mask names the characters WE " +
+                  "control (a local flag), which is also what re-decides the mirrored " +
+                  "'still has to choose' ring; whether each has COMMITTED is NOT sent — the " +
+                  "receiver reads that from the replicated RoundAbilityCards. NO card identity, " +
+                  "and the initiative NUMBER stays behind vanilla's own online gate."
+                : "Track order SENT: none — record omitted (outside the online card-selection " +
+                  "phase every client's track sorts identically, so there is nothing per-viewer " +
+                  "to carry and peers keep the mirrored arrangement).");
         }
 
         // WALL FADES (extension record 17): written only while the local decision fades at
