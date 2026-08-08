@@ -368,6 +368,63 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
+    /// THE FIT'S OWN VISIBILITY VERDICT, EXPOSED — so the MR backing plate can ask the question
+    /// instead of guessing at it (user hardware report 2026-08-08: "Der mixed Reality Hintergrund
+    /// für die Initiativreihenfolge ist nach deiner letzten Änderung vertikal zu lang - davor war
+    /// es besser, ich will nicht, dass große Hintergrund-Rechtecke existieren von denen der Platz
+    /// garnicht genutzt wird").
+    ///
+    /// <para>ROOT CAUSE OF THAT REPORT, and why this is a shared method rather than a second copy
+    /// of the test: <c>MrBacking.GlyphTrueRect</c> grows a panel's plate to cover TMP lines that
+    /// RENDER outside the fitted host rect (ModBuild 90's genuinely overflowing damage prompt), and
+    /// it judged "is this text on screen?" with its own, far weaker predicate — active + non-empty
+    /// text + not under a mask + non-degenerate textBounds. THIS method rejects a graphic for four
+    /// distinct reasons (<see cref="MeasureReject.Culled"/> / <see cref="MeasureReject.Faint"/> /
+    /// <see cref="MeasureReject.Empty"/> / <see cref="MeasureReject.ClippedOut"/>) and additionally
+    /// skips this mod's own cue art, and the plate then unioned EXACTLY the text the fit had judged
+    /// invisible back in. The initiative track's own hardware line says what that costs:
+    /// "1920x1080 → 1201x175 px … rejected 24 culled/disabled, 65 faint" for the fit, and one line
+    /// later "16 text line(s) OUTSIDE its fitted host rect … 1293x294 px, centred at (46,-59)" for
+    /// the plate — 119 px of extra height, almost all of it DOWNWARD, i.e. half a plate of empty
+    /// passthrough room hanging under a portrait row that is only 172 px tall.</para>
+    ///
+    /// <para>The plate keeps its own, STRICTER extra rule on top of this one (clipped text is
+    /// declined outright rather than clamped — see <c>MrBacking.IsClipped</c>); what it may never do
+    /// again is accept something the FIT rejected. One deliberate ORDER difference against
+    /// <see cref="TryMeasureContent"/>'s loop, which is behaviour-neutral because both are
+    /// unconditional rejects: the cue-art NAME check runs AFTER the visibility test here.
+    /// <c>Object.name</c> allocates a managed string on every read, the fit runs ~12x/second and
+    /// only while a fit is armed, but the plate sweep runs per panel per FRAME — so the invisible
+    /// rows must be rejected without ever touching it.</para>
+    /// </summary>
+    internal static bool CountsAsFitContent(ConvertedPanel? panel, Graphic? g)
+    {
+        if (panel == null || panel.HostRect == null || g == null)
+            return false;
+        if (!TryGetVisibleHostRect(panel, g, out _, out _))
+            return false;
+        // Mod-owned cue art (focus rings, frames, tints) is a PRESENTATION overlay on the game's
+        // content, not content — the identical skip TryMeasureContent applies, and for the identical
+        // reason (a breathing FocusRing must not size anything).
+        return !g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Open an EXTERNAL run of <see cref="CountsAsFitContent"/> queries (the MR plate sweep asks
+    /// once per panel per frame). <see cref="ClipperMemo"/> and <see cref="AuthoredOffsetMemo"/> are
+    /// per-MEASURE-PASS caches keyed by <see cref="Transform"/>, and a fit pass clears them at its
+    /// own start because transforms move between passes; an outside caller must do the same or it
+    /// would read answers cached against a layout that has since moved — and, with the initiative
+    /// fit deliberately DISARMED after its one applied re-fit, no fit pass may run for minutes to
+    /// clear them for it. Two Dictionary.Clear() on caches that hold at most one panel's transforms.
+    /// </summary>
+    internal static void BeginContentQuery()
+    {
+        ClipperMemo.Clear();
+        AuthoredOffsetMemo.Clear();
+    }
+
+    /// <summary>
     /// Per-pass memo of <see cref="AuthoredOffset"/> — the host-local position of a transform's
     /// local origin with every <c>localScale</c> in the chain treated as 1. Siblings share their
     /// whole ancestor chain, so the walk runs once per transform per measure pass. Cleared with
