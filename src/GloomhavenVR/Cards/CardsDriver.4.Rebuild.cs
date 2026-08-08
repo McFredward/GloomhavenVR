@@ -1126,6 +1126,11 @@ internal sealed partial class CardsDriver
                 VRCard card = AdoptedCard(widget);
                 if (!into.Contains(card))
                     into.Add(card);
+                // The card is on the board again, so its previous "left the dock without flying"
+                // verdict is spent: the NEXT time it leaves, that is a new event and may log again
+                // (one refusal line per focus switch — see LogFlightRefused). This is also what
+                // bounds the table: only cards that were docked can ever be in it.
+                _loggedFlightRefusal.Remove(widget);
             }
         }
     }
@@ -1133,16 +1138,59 @@ internal sealed partial class CardsDriver
     // ---------------------------------------------------------------- fly-to-pile (issue 5) --
 
     /// <summary>
+    /// Every destination a DOCKED ROUND CARD can have, read off the owner's authoritative
+    /// <c>CCharacterClass</c> lists. The game's own end-of-turn drain is
+    /// <c>CCharacterClass.DiscardRoundAbilityCards</c> (CCharacterClass.cs:505, called from
+    /// GameState.cs:2286/2271), which routes every round / extra-turn card through
+    /// <c>MoveAbilityCardToPile</c> (CCharacterClass.cs:418) into EXACTLY one of the lists below —
+    /// and <c>MoveAbilityCard</c> (CCharacterClass.cs:273) removes it from the source list first,
+    /// so the lists are mutually exclusive and this classification is total.
+    /// </summary>
+    private enum RoundCardExit
+    {
+        /// <summary>No CAbilityCard / no owning actor — the model cannot be asked. Never fly.</summary>
+        NoModel,
+        /// <summary>Still in <c>RoundAbilityCards</c> / <c>ExtraTurnCards</c>: the card did NOT move.
+        /// The dock's CONTENT changed (a character focus switch) — that is not a card going anywhere.</summary>
+        StillRound,
+        /// <summary><c>DiscardedAbilityCards</c> → the DISCARD stack.</summary>
+        Discarded,
+        /// <summary><c>LostAbilityCards</c> (a burn) → the BURNT stack.</summary>
+        Lost,
+        /// <summary><c>PermanentlyLostAbilityCards</c> → the BURNT stack (same stack as Lost; the 2D
+        /// hand shows both under one "burnt" header, CardsHandUI.cs:1333/1340).</summary>
+        PermanentlyLost,
+        /// <summary><c>ActivatedCards</c> — a persistent/round-long card went to the ACTIVE COLUMN,
+        /// not to a pile at all. No flight: the active-cards viewer picks it up.</summary>
+        Activated,
+        /// <summary><c>HandAbilityCards</c> — the selection was undone
+        /// (<c>ClearRoundAbilityCards</c>, CCharacterClass.cs:522): back in the fan, no flight.</summary>
+        Hand,
+        /// <summary>In none of the lists — a SUPPLY card is consumed and removed from the model
+        /// outright (CCharacterClass.cs:420-432), or the actor/widget went away. No flight.</summary>
+        OffModel,
+    }
+
+    /// <summary>
     /// Issue 5 (user): animate a just-cleared PLAYED round card flying into its destination pile
-    /// instead of instantly vanishing. Launched from the Rebuild park sweep for a card that was
-    /// docked as a round card in the PREVIOUS rebuild (<see cref="_lastHalfCards"/>) and is now
-    /// leaving every zone — i.e. the board is clearing at the end of this character's own action
-    /// turn (the <c>IsActionTurn</c> gate flipped false). The fate is read from the game's own
-    /// model piles (<see cref="PileFateOf"/>): a burned/lost card flies to the BURNT stack, every
-    /// other (incl. unclear) card to the DISCARD stack. Returns true only when the fly was actually
-    /// launched — the caller then skips the instant park; the fly's completion callback parks the
-    /// card on arrival. Returns false (→ instant hide fallback) when the card isn't a cleared round
-    /// card, is already flying, isn't visible, or the target pile is off / not built.
+    /// instead of instantly vanishing.
+    ///
+    /// <para>THE TRIGGER IS THE MODEL, NOT THE DOCK (user report 2026-08-08, bug 1). This used to
+    /// fire on "the card was docked last rebuild and is in no zone now", which is a statement about
+    /// the DOCK's contents — and a character focus switch empties the dock without moving a single
+    /// card, so merely LOOKING at another character replayed both round cards into the discard pile
+    /// (hardware log LogOutput.log:3300/3344/3384/3767/3803/3894/3930/4549, eight identical
+    /// turn-clear flights of the same two cards in one session, no turn ever ended between them).
+    /// The dock membership is still the pre-filter — only a card that was actually lying in the
+    /// board's round slots may fly — but the DECISION is now
+    /// <see cref="RoundCardExitOf"/>: the card flies only when it genuinely LEFT
+    /// <c>RoundAbilityCards</c> FOR a pile, and it flies to the pile it actually entered.</para>
+    ///
+    /// <para>Returns true only when the fly was actually launched — the caller then skips the
+    /// instant park; the fly's completion callback parks the card on arrival. Returns false (→ the
+    /// caller's shrink-and-fade / instant hide fallback) when the card isn't a cleared round card,
+    /// is already flying, isn't visible, did not move in the model, moved somewhere that is not a
+    /// pile, or the target pile is off / not built.</para>
     /// </summary>
     private bool TryStartFlyToPile(CardsHandUI hand, VRCard card)
     {
@@ -1153,7 +1201,26 @@ internal sealed partial class CardsDriver
         if (!card.gameObject.activeInHierarchy)
             return false; // already parked/pooled — nothing to animate from
 
-        PileKind fate = PileFateOf(hand, card);
+        RoundCardExit exit = RoundCardExitOf(hand, card, out CPlayerActor? owner);
+        PileKind fate;
+        switch (exit)
+        {
+            case RoundCardExit.Discarded:
+                fate = PileKind.Discard;
+                break;
+            case RoundCardExit.Lost:
+            case RoundCardExit.PermanentlyLost:
+                fate = PileKind.Burnt;
+                break;
+            default:
+                // The dock changed but the CARD did not go to a pile. Say so once, so a regression
+                // (a spurious flight, or a missing one) is visible in the next hardware log.
+                LogFlightRefused(card, exit, owner);
+                return false;
+        }
+        // The card really moved — a later dock change for it is a different event and may log again.
+        _loggedFlightRefusal.Remove(card.GameCard!);
+
         if (!_piles.TryGetPileWorld(fate, out Vector3 worldPos, out float slabWidth))
             return false; // pile offscreen / not built → fall back to the instant hide
 
@@ -1169,7 +1236,9 @@ internal sealed partial class CardsDriver
         VRCard flying = card;
         PileKind dest = fate;
         // MP parity (report 6): peers replay this exact flight (slot → discard/burnt stack) against
-        // THEIR copy of this player's board pose — 2 bytes, no per-frame transforms.
+        // THEIR copy of this player's board pose — 2 bytes, no per-frame transforms. Because the
+        // decision above is now the MODEL's, the peer's mirrored flight inherits both halves of the
+        // fix: it fires only for a real move, and its destination anchor is the real destination.
         ReportCardFx(SlotAnchor(_tray.SlotOf(card)), PileAnchor(fate));
         card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
@@ -1180,39 +1249,125 @@ internal sealed partial class CardsDriver
         // A played card whose fate is BURNT (a lost action) is a burn like any other — tag it with
         // the same BURN ANIM token the dedicated burn paths use so ONE grep proves every burn case.
         string tag = fate == PileKind.Burnt ? "BURN ANIM [turn-clear]" : "Fly-to-pile [turn-clear]";
-        VRLog.Info("Cards", $"{tag}: '{card.name}' → {fate} pile ({FlyToPileSeconds:F2}s, " +
-                            $"arc {arcHeight:F3} m over the board, orientation locked) — played round card cleared " +
-                            "from the board (VR presentation only; game pile state untouched).");
+        VRLog.Info("Cards", $"{tag}: CARD FLIGHT '{CardsGameApi.CardName(card.GameCard!)}' " +
+                            $"(owner '{(owner != null ? CardsGameApi.ActorLabel(owner) : "?")}') — WHY: it LEFT " +
+                            $"CCharacterClass.RoundAbilityCards/ExtraTurnCards and ENTERED " +
+                            $"CCharacterClass.{ModelListName(exit)}, so it flies to " +
+                            $"the {fate} stack ({FlyToPileSeconds:F2}s, arc {arcHeight:F3} m over the board, " +
+                            "orientation locked). Trigger and destination are both the authoritative model — a " +
+                            "dock/focus change alone can never produce this line. VR presentation only; the game's " +
+                            "own pile state is untouched.");
         return true;
     }
 
+    /// <summary>The <c>CCharacterClass</c> list name behind an exit, for the flight/refusal log.</summary>
+    private static string ModelListName(RoundCardExit exit) => exit switch
+    {
+        RoundCardExit.StillRound => "RoundAbilityCards/ExtraTurnCards",
+        RoundCardExit.Discarded => "DiscardedAbilityCards",
+        RoundCardExit.Lost => "LostAbilityCards",
+        RoundCardExit.PermanentlyLost => "PermanentlyLostAbilityCards",
+        RoundCardExit.Activated => "ActivatedCards",
+        RoundCardExit.Hand => "HandAbilityCards",
+        RoundCardExit.OffModel => "no CCharacterClass list (supply card consumed / actor gone)",
+        _ => "no readable model",
+    };
+
     /// <summary>
-    /// Issue 5: the destination pile for a cleared played card, from the game's AUTHORITATIVE
-    /// model piles. A card sitting in the character's LOST or PERMANENTLY-LOST list is a burned
-    /// card (BURNT stack); anything else — a normal discard, or a card whose fate is not yet
-    /// resolved in the model (still in the round pile) — defaults to the DISCARD stack, the fate a
-    /// non-lost ability card always ends at (task: "cards whose fate is unclear default to
-    /// discard"). Read-only: no game state is touched.
+    /// REFUSAL LINE (user report 2026-08-08, bug 1): a docked round card left every zone but the
+    /// model says it did not go to a pile — so there is NO flight, and that silence must be
+    /// provable in the log rather than merely observed. One line per widget per verdict change
+    /// (<see cref="_loggedFlightRefusal"/>), i.e. one per focus switch, never per frame: this whole
+    /// path only runs from Rebuild, and only for the ≤2 cards the dock held last rebuild.
     /// </summary>
-    private static PileKind PileFateOf(CardsHandUI hand, VRCard card)
+    private void LogFlightRefused(VRCard card, RoundCardExit exit, CPlayerActor? owner)
+    {
+        AbilityCardUI? widget = card.GameCard;
+        if (widget == null)
+            return;
+        if (_loggedFlightRefusal.TryGetValue(widget, out RoundCardExit previous) && previous == exit)
+            return;
+        _loggedFlightRefusal[widget] = exit;
+
+        string why = exit switch
+        {
+            RoundCardExit.StillRound =>
+                "the card is STILL in the owner's RoundAbilityCards/ExtraTurnCards — nothing moved, the " +
+                "round-card DOCK just changed its contents (a character focus switch does exactly that). " +
+                "A flight here would be the reported bug.",
+            RoundCardExit.Activated =>
+                "the card was ACTIVATED (CCharacterClass.ActivatedCards) — a persistent/round-long card goes " +
+                "to the ACTIVE COLUMN, not to a pile, so no pile flight exists to play.",
+            RoundCardExit.Hand =>
+                "the card went back to HandAbilityCards (the selection was undone) — it belongs in the hand " +
+                "fan again, not in a pile.",
+            RoundCardExit.OffModel =>
+                "the card is in NO CCharacterClass list any more (a SUPPLY card is removed from the model when " +
+                "used, CCharacterClass.cs:420-432) — there is no pile it entered.",
+            _ =>
+                "the model could not be read for this card (no CAbilityCard or no owning actor) — refusing " +
+                "rather than guessing a pile.",
+        };
+        VRLog.Info("Cards", $"Fly-to-pile REFUSED: '{CardsGameApi.CardName(widget)}' (owner " +
+                            $"'{(owner != null ? CardsGameApi.ActorLabel(owner) : "?")}') left the round-card dock " +
+                            $"but NOT for a pile — model says {ModelListName(exit)}. {why} The card is parked/faded " +
+                            "in place instead, and nothing is announced to peers.");
+    }
+
+    /// <summary>
+    /// Issue 5 / bug 1+2 (user 2026-08-08): where a docked round card stands in the game's
+    /// AUTHORITATIVE model RIGHT NOW — the single source for both "may it fly at all" and "to which
+    /// stack". Read-only: no game state is touched.
+    ///
+    /// <para>The card's OWN owner (<c>AbilityCardUI.PlayerActor</c>) is authoritative — in a
+    /// two-character sequential turn a card cleared during the OTHER character's turn belongs to a
+    /// different actor than the currently-presented hand, so its fate must be read from its own
+    /// character's lists. Falls back to the presented hand if the widget has no owner.</para>
+    /// </summary>
+    private static RoundCardExit RoundCardExitOf(CardsHandUI? hand, VRCard card, out CPlayerActor? owner)
     {
         AbilityCardUI? widget = card.GameCard;
         CAbilityCard? ac = widget != null ? widget.AbilityCard : null;
-        // The card's OWN owner (AbilityCardUI.PlayerActor) is authoritative — in a two-character
-        // sequential turn a card cleared during the OTHER character's turn belongs to a different
-        // actor than the currently-presented hand, so its lost/discard fate must be read from its
-        // own character's piles. Fall back to the presented hand if the widget has no owner.
-        CPlayerActor? actor = widget != null ? widget.PlayerActor : null;
-        if (actor == null && hand != null)
-            actor = hand.PlayerActor;
-        if (ac != null && actor != null)
-        {
-            CCharacterClass klass = actor.CharacterClass;
-            if (klass.LostAbilityCards.Contains(ac) || klass.PermanentlyLostAbilityCards.Contains(ac))
-                return PileKind.Burnt;
-        }
-        return PileKind.Discard;
+        owner = widget != null ? widget.PlayerActor : null;
+        if (owner == null && hand != null)
+            owner = hand.PlayerActor;
+        if (ac == null || owner == null)
+            return RoundCardExit.NoModel;
+
+        CCharacterClass klass = owner.CharacterClass;
+        // ORDER: the "did it move at all" question first — everything below is a destination, and a
+        // card that is still on the board has none.
+        if (klass.RoundAbilityCards.Contains(ac) || klass.ExtraTurnCards.Contains(ac))
+            return RoundCardExit.StillRound;
+        if (klass.DiscardedAbilityCards.Contains(ac))
+            return RoundCardExit.Discarded;
+        if (klass.LostAbilityCards.Contains(ac))
+            return RoundCardExit.Lost;
+        if (klass.PermanentlyLostAbilityCards.Contains(ac))
+            return RoundCardExit.PermanentlyLost;
+        // ActivatedCards is the RAW List<CBaseCard> field (CCharacterClass.cs:97). The public
+        // ActivatedAbilityCards property is a LINQ projection that allocates a new list on every
+        // read — never call it from a rebuild path.
+        if (klass.ActivatedCards.Contains(ac))
+            return RoundCardExit.Activated;
+        if (klass.HandAbilityCards.Contains(ac))
+            return RoundCardExit.Hand;
+        return RoundCardExit.OffModel;
     }
+
+    /// <summary>
+    /// Issue 5: the destination pile of a card that IS in a pile — a card sitting in the owner's
+    /// LOST or PERMANENTLY-LOST list is a burned card (BURNT stack); everything else answers
+    /// DISCARD. Kept as the burn watcher's question ("is this widget burnt in its owner's piles?",
+    /// <see cref="IsFreshBurn"/>); the fly-to-pile TRIGGER does NOT use it, because "not burnt"
+    /// must not be read as "therefore discarded" — see <see cref="RoundCardExitOf"/>.
+    /// </summary>
+    private static PileKind PileFateOf(CardsHandUI hand, VRCard card) =>
+        RoundCardExitOf(hand, card, out _) switch
+        {
+            RoundCardExit.Lost or RoundCardExit.PermanentlyLost => PileKind.Burnt,
+            _ => PileKind.Discard,
+        };
 
     /// <summary>
     /// BURN ANIM: is this VR card PARKED in the factory pool (invisible, pose meaningless)?
