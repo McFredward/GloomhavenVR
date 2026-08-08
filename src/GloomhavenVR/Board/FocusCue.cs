@@ -77,10 +77,16 @@ namespace GloomhavenVR.Board;
 ///   therefore distinguishable by movement alone, with the colour as reinforcement rather than as
 ///   the only channel.</item>
 /// </list>
-/// The board FRAME (<see cref="BoardFrame"/>) additionally gains a dark KEYLINE hugging its
-/// coloured band on both edges (<see cref="OutlineKeylineTint"/>): it is the one carrier that sits
-/// against the real room, and a white rim on a white wall is as invisible as a green one on green.
-/// The other two carriers sit on mod-drawn board geometry and need no backing.</para>
+/// <b>THE DARK KEYLINE IS GONE — USER RULING 2026-08-08, third round</b> ("den schwarzen Rahmen
+/// braucht es auch nicht um den Outline-Strich"). ModBuild 83 gave the board frame a near-black
+/// band on EACH side of its coloured rim, on the argument that a white rim can vanish on a white
+/// wall. The user has overruled that argument for the look it produced: three stacked bands read as
+/// a printed border, not as a highlight. What survives of the MR work is everything in the list
+/// above — opaque, key-safe white/amber, motion carrying the state — and that is what actually
+/// fixed the reported invisibility (the cue was being KEYED AWAY, not out-contrasted). The residual
+/// risk the keyline covered is honestly stated rather than hidden: on a bright, low-contrast wall
+/// the calm white "correct" state is the weakest of the three, and it is the state that matters
+/// least — the URGENT state is amber and pumps hard.</para>
 ///
 /// <para>WHY THE MR SWITCH LIVES HERE AND NOWHERE ELSE: all three carriers — the control boards,
 /// the Steam-avatar ring and the initiative-track rings, local and mirrored — read their colour
@@ -169,10 +175,6 @@ internal static class FocusCue
     /// player for something.</summary>
     internal static readonly Color MrAtTurnTint = new(1f, 0.80f, 0.30f);
 
-    /// <summary>The dark keyline drawn UNDER the board outline's coloured rim in MR. Nearly black
-    /// but not black, so it survives <see cref="KeySafe"/> under the Black preset too.</summary>
-    internal static readonly Color MrKeylineTint = new(0.05f, 0.04f, 0.07f);
-
     /// <summary>Blink floor of the CALM MR state ("at turn, right character"): a shallow breath.</summary>
     internal const float MrCalmMinLevel = 0.70f;
 
@@ -219,52 +221,47 @@ internal static class FocusCue
         Mathf.Clamp01(k < 0.5f ? Mathf.Max(v, k + MrKeyMargin * 1.2f)
                                : Mathf.Min(v, k - MrKeyMargin * 1.2f));
 
-    // ----------------------------------------------------------------- the board FRAME's bands --
+    // ------------------------------------------------------------------ the board FRAME's band --
 
-    // The board cue is a FRAME AROUND THE ASSET (see <see cref="BoardFrame"/>): three concentric
-    // band radii measured outward from the board's own outer contour, in board-LOCAL metres. They
+    // The board cue is ONE THIN STROKE ON THE ASSET'S OUTER EDGE (see <see cref="BoardFrame"/>):
+    // two radii measured from the board's own traced outer contour, in board-LOCAL metres. They
     // live here rather than in the geometry class for the same reason every colour does — one file
     // decides what the cue looks like, including the MR fork.
+    //
+    // USER RULING 2026-08-08, third round, two sentences that set both numbers:
+    //   "der Strich ist mir zu dick"  -> the 8 mm / 12 mm bands are gone (see below);
+    //   "wirklich am äußeren Rand des Assets ... nur am Rand"  -> the 6 mm of CLEAR AIR that used
+    //   to sit between the contour and the stroke is gone too, and replaced by a small INWARD bite
+    //   so the stroke lands ON the rim instead of hovering beside it.
 
-    /// <summary>Clear air between the board's contour and the frame's inner edge. 6 mm on a 0.64 m
-    /// board: enough that the frame reads as a frame AROUND the asset rather than as a highlight
-    /// painted onto its rim, and enough that the board's own bevel can never swallow it.</summary>
-    private const float GapLocal = 0.006f;
+    /// <summary>
+    /// How far INSIDE the traced contour the stroke's inner edge sits (board-local metres).
+    /// Positive = the stroke bites onto the board's own rim.
+    ///
+    /// <para>1 mm, and it replaces a 6 mm outward GAP. Measured, not guessed: the traced contour
+    /// (<see cref="BoardFrame"/>) is accurate to well under a millimetre at its vertices, so a
+    /// 1 mm bite guarantees the stroke touches the visible rim everywhere while covering almost
+    /// none of the board's art. The stroke is drawn just proud of the board's own face plane, so
+    /// the bitten millimetre paints ON the rim rather than being z-clipped by it.</para>
+    /// </summary>
+    private const float EdgeBiteLocal = 0.001f;
 
-    /// <summary>Width of the coloured band. 8 mm reads across the table without looking like
-    /// furniture — the brief the old 12 mm bars were written to.</summary>
-    private const float RimWidthLocal = 0.008f;
+    /// <summary>Width of the coloured stroke. 3 mm, down from 8 mm: on a 0.64 m board seen at the
+    /// mod's own board distance this is still a clean, continuous line and no longer a bar. The
+    /// user's word for the 8 mm version was "zu dick".</summary>
+    private const float RimWidthLocal = 0.003f;
 
-    /// <summary>The MR band is wider. It competes with a real room instead of with a dark void, and
-    /// it is the only mode where the cue may have to be seen out of the corner of an eye.</summary>
-    private const float MrRimWidthLocal = 0.012f;
+    /// <summary>The MR stroke is a hair wider (4 mm, down from 12 mm). It competes with a real room
+    /// instead of with a dark void, and it no longer has a dark keyline to lean on — but "dezenter"
+    /// is the ruling, so the MR premium is one millimetre, not four.</summary>
+    private const float MrRimWidthLocal = 0.004f;
 
-    /// <summary>Width of the dark keyline that hugs the coloured band on EACH side in MR, so a
-    /// 4 mm dark border separates the cue from an arbitrary real room on both edges.</summary>
-    private const float KeylineWidthLocal = 0.004f;
+    /// <summary>Live inward bite of the stroke's inner edge past the board's contour
+    /// (board-local metres).</summary>
+    internal static float OutlineEdgeBiteLocal => EdgeBiteLocal;
 
-    /// <summary>Live gap between the board's contour and the frame (board-local metres).</summary>
-    internal static float OutlineGapLocal => GapLocal;
-
-    /// <summary>Live width of the frame's coloured band (board-local metres).</summary>
+    /// <summary>Live width of the frame's coloured stroke (board-local metres).</summary>
     internal static float OutlineRimWidthLocal => MrActive ? MrRimWidthLocal : RimWidthLocal;
-
-    /// <summary>Live width of the dark keyline on each side of the coloured band (board-local
-    /// metres). Only read while <see cref="OutlineKeylineTint"/> is non-null.</summary>
-    internal static float OutlineKeylineWidthLocal => KeylineWidthLocal;
-
-    /// <summary>The dark contrast backing under the board frame's coloured band, or null outside
-    /// MR (where the cue is drawn against the game's own dark scene and needs none). STEADY on
-    /// purpose — it is a border, and a border that blinks with the rim would just re-encode the
-    /// same bit twice.</summary>
-    internal static Color? OutlineKeylineTint()
-    {
-        if (!MrActive)
-            return null;
-        Color c = KeySafe(MrKeylineTint);
-        c.a = 1f;
-        return c;
-    }
 
     // ------------------------------------------------------------------------------ the palette --
 

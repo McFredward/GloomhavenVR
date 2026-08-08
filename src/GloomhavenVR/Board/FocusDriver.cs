@@ -21,15 +21,15 @@ namespace GloomhavenVR.Board;
 ///   player owns that character and is looking at it, BLINKS red when they own it but are looking
 ///   elsewhere, and is a STEADY gold otherwise (a teammate's or a monster's turn: a fact, not a
 ///   demand);</item>
-/// <item>the same blinking green/red as a FRAME around the local player's own control board —
-///   the user's "the board gets a red blinking outline" and "the control board of the player who
-///   owns the character at turn gets a blinking outline". Since 2026-08-08 that is a frame around
-///   the board asset's OUTER CONTOUR (<see cref="BoardFrame"/>: one closed band offset from the
-///   convex hull of the board's own plan-view footprint) — not the rectangle it used to be, and
-///   explicitly NOT the inverted hull that briefly replaced it and drew a rim around every interior
-///   recess as well ("KEINE weiteren Outlines innerhalb des Assets"). The rectangle survives only
-///   as the fallback for the procedural board, which IS a rectangle and is therefore correctly
-///   framed by one.</item>
+/// <item>the same blinking green/red as a STROKE on the outer edge of the local player's own
+///   control board — the user's "the board gets a red blinking outline" and "the control board of
+///   the player who owns the character at turn gets a blinking outline". Since 2026-08-08 that is
+///   ONE thin closed line traced along the board asset's own outer edge (<see cref="BoardFrame"/>)
+///   — not the rectangle it used to be, not the inverted hull that drew a rim around every interior
+///   recess ("KEINE weiteren Outlines innerhalb des Assets"), and since the third round not the
+///   8–12 mm band standing 6 mm off the rim either ("der Strich ist mir zu dick" / "wirklich am
+///   äußeren Rand des Assets"). The rectangle survives only as the fallback for the procedural
+///   board, which IS a rectangle and is therefore correctly framed by one.</item>
 /// </list>
 ///
 /// <para>WHY THE TWO RINGS NEVER STACK: when the focused character IS the character at turn, only
@@ -229,12 +229,14 @@ internal sealed class FocusDriver : MonoBehaviour
             Color key = Core.MixedReality.KeyColor.Value;
             VRLog.Info("Board", "Focus cue → MIXED-REALITY palette. Chroma key is "
                                 + $"{Core.MixedReality.KeyColorName} (RGBA {key.r:0.##},{key.g:0.##},"
-                                + $"{key.b:0.##}); the cue is now OPAQUE (blink rides brightness, not "
-                                + "alpha), correct/wrong are white/amber instead of green/red, and the "
-                                + "board frame wears a dark keyline on both edges of its band. The "
+                                + $"{key.b:0.##}); the cue is OPAQUE (blink rides brightness, not "
+                                + "alpha) and correct/wrong are white/amber instead of green/red. The "
                                 + "old cue was a "
                                 + "TRANSLUCENT green over that green key: the compositor keyed the "
-                                + "blended pixel and replaced the outline with the room.");
+                                + "blended pixel and replaced the outline with the room. The dark "
+                                + "keyline ModBuild 83 hung on both edges of the board stroke is GONE "
+                                + "(user: 'den schwarzen Rahmen braucht es auch nicht um den "
+                                + "Outline-Strich') — the MR stroke is a single 4 mm line.");
         }
         else
         {
@@ -376,10 +378,11 @@ internal sealed class FocusDriver : MonoBehaviour
 
     /// <summary>
     /// The cue on the local player's own control board. The preferred renderer is
-    /// <see cref="BoardFrame"/> — ONE closed band offset outward from the board asset's own outer
-    /// contour, so the cue frames the real shape (rounded corners included) at any pose and any user
-    /// scale, and draws NOTHING inside it. The old <see cref="WorldFrame"/> rectangle is kept ONLY
-    /// for the procedural fallback board, whose contour genuinely is a rectangle.
+    /// <see cref="BoardFrame"/> — ONE thin closed stroke traced along the board asset's own outer
+    /// edge, so the cue follows the real shape (bowed edges and rounded corners included) at any
+    /// pose and any user scale, and draws NOTHING inside it. The old <see cref="WorldFrame"/>
+    /// rectangle is kept ONLY for the procedural fallback board, whose contour genuinely is a
+    /// rectangle.
     ///
     /// <para>Neither path ever writes the tray's transform — both build CHILDREN of the tray root,
     /// which is what keeps a FIXIERT (pinned, world-frozen) board legal: the freeze sentinel in
@@ -409,6 +412,17 @@ internal sealed class FocusDriver : MonoBehaviour
             _boardFrameHost = root;
 
             _boardFrame = BoardFrame.Build(root, "local control board");
+            // THE STROKE IS BOARD FURNITURE, and must be ordered like it (user 2026-08-08: "Es soll
+            // wie jedes andere Element auch die Perspektive respektieren"). It is a transparent,
+            // depth-less renderer sitting in the board's own plane, exactly like the status placard
+            // and the keycap labels, and it shipped at the default sortingOrder 0 while all of those
+            // ride the converted-panel DISTANCE ladder - so a menu spatially BEHIND the board still
+            // painted over it. AdoptFurniture puts it in the control board's distance-ranked band
+            // (CanvasConversion part 9), which is the one place that decision is made for this board.
+            // Registered ONCE per built stroke, right here: the group captures the renderer's
+            // creation-time sortingOrder as its in-band offset, so it must run before anything
+            // writes that order.
+            PlayTray.AdoptFurniture(_boardFrame?.RootObject);
             if (_boardFrame == null)
             {
                 float w = BoardHalfW * 2f + BoardFrameMargin * 2f;
