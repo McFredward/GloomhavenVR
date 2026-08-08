@@ -885,10 +885,18 @@
 - **Confidence:** high
 
 ### `DamageTooltipSurface` converts whichever HelpBox is showing
-- **Where:** `DamageTooltipSurface` (strict descendant of the take-damage dock), `AboveRowMetres` (0.11)
+- **Where:** `DamageTooltipSurface` (strict descendant of the take-damage dock)
 - **Rule:** convert **either** `InitiativeTrack.Instance.helpBox` **or** the global `Singleton<HelpBox>`, with `Flatten2D`, parked just above the docked widget row. Only ever converted during the take-damage dock.
 - **Why:** `TakeDamagePanel.ShowDamageTooltip` pushes its hint into *one of two* HelpBox windows depending on lethality. Both are self-contained `UIWindow`+`Canvas` boxes rendered by the perspective UI camera → 3D-tilted and floating up by the initiative track, nowhere near the buttons being read. Scoping the conversion to the dock keeps the global box's other uses untouched.
 - **Established by:** `1a06673`
+- **Confidence:** high
+
+### The prompt TEXT is seated FROM the row, never beside it
+- **Where:** `DecisionDockSurface.RowTopUpMeters` / `RowSeatTopUp` / `GapBoardMeters`, `DamageTooltipSurface.Place`, mirrored by `Net/RemoteBoardFurniture` (`promptRefY`)
+- **Rule:** the prompt line's **bottom edge** hangs one `[Cards] DecisionGap_<board>` above the row's **measured top edge**, which the row publishes from the same walk that publishes its bottom edge for the use bars. No second seat is ever computed from the shared constants; when no measured row exists yet, the fallback is the row's own `RowSeatTopUp` (the seat the block is about to take), not a formula of the text's own.
+- **Why:** the text used to be parked a fixed `0.11 × trayScale` above the decision **mount** while the row anchors to the grab bar in a solve the mount cancels out of — so `[Cards] DecisionOffset_<board>.y` (shipped default −0.157) moved the text and nothing else, and the user reported the line "reagiert wie ein Element das nicht zu dem Bereich dazugehört" (ModBuild 89). Two independent computations of one seat is how they drifted.
+- **Note:** `RowTopUpMeters` deliberately survives the focus hide (unlike `RowBottomUpMeters`): the text keeps placing while hidden so it returns at final geometry.
+- **Breaks if:** anyone re-derives the text seat from the mount, or nulls the top edge on the focus hide.
 - **Confidence:** high
 
 ### `PropInfoSurface` release hysteresis and churn warning

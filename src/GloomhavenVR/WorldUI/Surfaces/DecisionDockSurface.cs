@@ -191,6 +191,31 @@ internal sealed class DecisionDockSurface : WorldSurface
     internal static float? RowBottomUpMeters { get; private set; }
 
     /// <summary>
+    /// Live world-metre offset (along <c>DecisionMount.up</c>, relative to the mount position) of
+    /// the docked decision row's visible TOP edge — the same measurement walk that produces
+    /// <see cref="RowBottomUpMeters"/>, taken at the other end. Null while no row is MOUNT-docked
+    /// (HMD float, nothing docked, nothing measured yet).
+    ///
+    /// <para>THIS IS THE SEAM THE PROMPT TEXT SITS ON (user, ModBuild 89: "Wenn ich den ganzen
+    /// Entscheidungsbereich nach unten verschiebe mit dem Offset, dann soll der Text … auch
+    /// entsprechend mit nach unten verschoben werden — aktuell reagiert er wie ein Element das
+    /// nicht zu dem Bereich dazugehört"). <see cref="DamageTooltipSurface"/> hangs the HelpBox
+    /// line's BOTTOM edge one <c>[Cards] DecisionGap</c> above THIS value instead of computing a
+    /// second seat of its own from the same constants — two independent computations of one seat
+    /// is exactly how the text and its buttons drifted apart (the text used to be parked a fixed
+    /// 0.11 m over the decision MOUNT, which the row's placement deliberately cancels out of its
+    /// own solve, so the mount's Y offset moved the text and nothing else).</para>
+    ///
+    /// <para>UNLIKE <see cref="RowBottomUpMeters"/> THIS SURVIVES THE FOCUS HIDE. The bars must
+    /// fall back when the row is not SEEN (they would hang off a phantom edge); the prompt text
+    /// must do the opposite — it keeps placing while hidden so that focusing the owner again
+    /// reveals it at its FINAL geometry, never mid-placement (the "never reveal before the final
+    /// geometry" rule). Both surfaces still hide together on the one shared verdict
+    /// (<see cref="PromptFocus.ShouldHide"/>); what stays live here is geometry, not visibility.</para>
+    /// </summary>
+    internal static float? RowTopUpMeters { get; private set; }
+
+    /// <summary>
     /// True while THIS surface has the <c>TakeDamagePanel</c>'s widget row docked on the
     /// board (task A). The take-damage widgets carry the game's mouse-hover preview
     /// handlers (<c>OnMouseEnter*/OnMouseExit*</c> → <c>Preview*/ResetPreviewing</c>),
@@ -495,6 +520,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                 RestorePickCancelSuppression();
                 RestoreSuppression();
                 RowBottomUpMeters = null; // stale row gone; the next prompt's Place re-publishes
+                RowTopUpMeters = null;    // …and the prompt text falls back to the computed seat
                 if (Panel != null && ReleaseCurrentPanel())
                     VRLog.Info("WorldUI", "DECISION DOCK: active prompt changed — previous row " +
                                           "released so the next prompt's row can dock in its place.");
@@ -591,6 +617,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                 PublishWireDecision(null, NetProtocol.DecisionKindNone, 0);
             }
             RowBottomUpMeters = null; // no docked row → the bar stack falls back to the zone top
+            RowTopUpMeters = null;    // …and any prompt text falls back to the computed seat
             if (hadPanel)
             {
                 UnregisterDeliberateCanvas();
@@ -659,6 +686,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             if (!_hmdFloatPlaced)
                 _hmdFloatPlaced = TryPlaceAtHmd();
             RowBottomUpMeters = null; // HMD-floated, not on the mount — the bar stack must not hang off it
+            RowTopUpMeters = null;    // …and neither may the prompt text (there is no mount to seat it on)
             return;
         }
         _hmdFloatPlaced = false;
@@ -703,21 +731,7 @@ internal sealed class DecisionDockSurface : WorldSurface
 
         // Prompt reference (world m above the mount along up): the grab-bar bottom minus
         // clearance — the board's lower edge under which the game draws the prompt text.
-        string refNote;
-        float promptRefUp;
-        if (PlayTray.Current?.HandleZone is BoxCollider barZone)
-        {
-            Transform bt = barZone.transform;
-            float barCenterUp = Vector3.Dot(bt.TransformPoint(barZone.center) - mount.position, up);
-            float barHalfUp = 0.5f * barZone.size.y * Mathf.Abs(bt.lossyScale.y);
-            promptRefUp = barCenterUp - barHalfUp - BarClearanceMeters * trayScale;
-            refNote = "grab-bar bottom";
-        }
-        else
-        {
-            promptRefUp = NoBarPromptRefUp * trayScale;
-            refNote = "no-bar board-edge estimate";
-        }
+        float promptRefUp = PromptReferenceUp(mount, up, trayScale, out string refNote);
 
         // Top/bottom-most VISIBLE widget graphics, world m above the host pivot (fall back
         // to the fitted row edges when a prompt has no resolvable widgets).
@@ -741,7 +755,15 @@ internal sealed class DecisionDockSurface : WorldSurface
         // anchored to the PROMPT REFERENCE (the grab-bar bottom), and the mount position cancels
         // out of the up-axis solve — so the offset's X/Z still slide the dock sideways and proud
         // while its Y cannot pull the buttons away from the text. One setting, one distance.
-        float gapBoardMeters = Mathf.Max(0f, CardsConfig.DecisionGap(CardsConfig.CurrentBoard).Value);
+        //
+        // AND SINCE ModBuild 89 THE TEXT IS ON THE OTHER END OF THAT SAME NUMBER (user: the prompt
+        // text "reagiert wie ein Element das nicht zu dem Bereich dazugehört"). DamageTooltipSurface
+        // hangs the HelpBox line's BOTTOM edge one gap above the row top this solve produces
+        // (RowTopUpMeters), so the line lands exactly ON the prompt reference — the board's lower
+        // edge, where every doc in this file says the prompt text belongs — and the row and the text
+        // are now placed from ONE seat: whatever moves one (offset X/Z, DecisionScale, the gap
+        // itself, the board itself) moves the other by the same amount in the same frame.
+        float gapBoardMeters = GapBoardMeters;
         float gapMeters = gapBoardMeters * trayScale;
         float targetBlockTopUp = promptRefUp - gapMeters;
         float d = targetBlockTopUp - blockTopAbovePivot; // shift along up from mount.position
@@ -762,6 +784,12 @@ internal sealed class DecisionDockSurface : WorldSurface
         // already in its final place (the "never reveal before the final geometry" rule above).
         RowBottomUpMeters = _rowHiddenForFocus ? null : d + blockBottomAbovePivot;
 
+        // …and the MEASURED TOP edge, which is where the prompt TEXT hangs from (see
+        // RowTopUpMeters). It equals targetBlockTopUp by construction — d was solved to put the
+        // block top exactly there — so the text and the buttons are placed from ONE number, and it
+        // stays published through the focus hide so the text returns at its final geometry.
+        RowTopUpMeters = d + blockTopAbovePivot;
+
         if (!_placementLogged || float.IsNaN(_lastLoggedGapPx)
             || Mathf.Abs(gapBoardMeters - _lastLoggedGapPx) >= 0.0005f)
         {
@@ -777,6 +805,48 @@ internal sealed class DecisionDockSurface : WorldSurface
                                   "distance does NOT move with the dock size or its offset.");
         }
     }
+
+    /// <summary>The live text↔buttons gap, <c>[Cards] DecisionGap_&lt;board&gt;</c> in BOARD-LOCAL
+    /// metres (never negative). Read by <see cref="Place"/> for the row's seat and by
+    /// <see cref="DamageTooltipSurface"/> for the clearance it hangs the prompt line at — ONE
+    /// stepper, ONE distance, on both ends of it.</summary>
+    internal static float GapBoardMeters =>
+        Mathf.Max(0f, CardsConfig.DecisionGap(CardsConfig.CurrentBoard).Value);
+
+    /// <summary>
+    /// The PROMPT REFERENCE in world metres above <paramref name="mount"/> along
+    /// <paramref name="up"/>: the tray grab-bar's bottom edge minus <see cref="BarClearanceMeters"/>
+    /// — the board's lower edge, under which the whole decision area hangs. Falls back to
+    /// <see cref="NoBarPromptRefUp"/> when the tray exposes no bar zone.
+    /// </summary>
+    private static float PromptReferenceUp(Transform mount, Vector3 up, float trayScale,
+                                           out string refNote)
+    {
+        if (PlayTray.Current?.HandleZone is BoxCollider barZone)
+        {
+            Transform bt = barZone.transform;
+            float barCenterUp = Vector3.Dot(bt.TransformPoint(barZone.center) - mount.position, up);
+            float barHalfUp = 0.5f * barZone.size.y * Mathf.Abs(bt.lossyScale.y);
+            refNote = "grab-bar bottom";
+            return barCenterUp - barHalfUp - BarClearanceMeters * trayScale;
+        }
+        refNote = "no-bar board-edge estimate";
+        return NoBarPromptRefUp * trayScale;
+    }
+
+    /// <summary>
+    /// The seat a docked row TAKES — or WOULD take — at this mount: the block top,
+    /// <see cref="GapBoardMeters"/> below the prompt reference, in world metres above the mount
+    /// along its up axis. <see cref="Place"/> solves the host position from exactly this, so the
+    /// measured <see cref="RowTopUpMeters"/> is equal to it while a row is docked and measured.
+    ///
+    /// <para>It exists for the ONE case the prompt text can be up while no measured row is:
+    /// the tip window opens on a prompt whose row has not been fitted yet (or a prompt with no
+    /// pressable widgets at all). The text then lands where the buttons are ABOUT to land instead
+    /// of at a seat of its own invention — same formula, same references, no second opinion.</para>
+    /// </summary>
+    internal static float RowSeatTopUp(Transform mount, float trayScale) =>
+        PromptReferenceUp(mount, mount.up, trayScale, out _) - GapBoardMeters * trayScale;
 
     /// <summary>
     /// Sample the docked row for the multiplayer wire: the PRESSABLE-widget labels (record 12, see
@@ -1668,6 +1738,9 @@ internal sealed class DecisionDockSurface : WorldSurface
         bool first = !_rowHiddenForFocus;
         _rowHiddenForFocus = true;
         RowBottomUpMeters = null; // the use-bars stack must not hang off a row nobody can see
+        // RowTopUpMeters deliberately KEEPS its value here: the prompt text hides on this same
+        // verdict but keeps PLACING while hidden, so it must return at the row's final geometry
+        // rather than at a fallback seat computed for one frame (see RowTopUpMeters).
         if (first)
         {
             _focusHiddenCanvasCount = 0;
@@ -1919,6 +1992,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         _placementLogged = false;
         _lastLoggedGapPx = float.NaN;
         RowBottomUpMeters = null;
+        RowTopUpMeters = null;
         WireButtonLines = null;    // records 12 and 23 must not survive a module re-init
         WirePromptKind = NetProtocol.DecisionKindNone;
         _wireOptionCount = 0;

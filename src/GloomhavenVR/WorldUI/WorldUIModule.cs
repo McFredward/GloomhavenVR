@@ -234,7 +234,10 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("UseBarsSurface", _useBars.Tick)); // after the dock: reads RowDocked for the same tick
             update.Add(("DoomPickerSurface", _doomPicker.Tick));           // flow 2: doom slot/transfer picker
             update.Add(("DistributePointsSurface", _distributePoints.Tick)); // flows 3+4: select/assign popups
-            update.Add(("DamageTooltipSurface", _damageTooltip.Tick)); // after the dock
+            // After the dock, and it MUST stay after it: the prompt text seats itself from the row's
+            // freshly placed top edge (DecisionDockSurface.RowTopUpMeters) — running first would
+            // hang the text off last frame's row on a moving board.
+            update.Add(("DamageTooltipSurface", _damageTooltip.Tick));
             update.Add(("DamagePreviewSurface", _damagePreview.Tick)); // after the dock: mirrors flat HP-cost preview onto the adopted bar (bug #3)
             update.Add(("TrayControlDockSurface", _trayControls.Tick));
             update.Add(("WristHud", _wristHud.Tick));
@@ -279,7 +282,7 @@ internal sealed class WorldUIModule : IVRModule
             }
             late.Add(("DecisionDockSurface.Late", _decisionDock.LateTick));
             late.Add(("UseBarsSurface.Late", _useBars.LateTick)); // after the dock: reads its re-placed row edge
-            late.Add(("DamageTooltipSurface.Late", _damageTooltip.LateTick));
+            late.Add(("DamageTooltipSurface.Late", _damageTooltip.LateTick)); // after the dock: seats off its re-placed row top
             late.Add(("TrayControlDockSurface.Late", _trayControls.LateTick));
             // TRANSPARENCY ROUND, and it must stay LAST. CanvasConversion.TickPanelOrder assigns
             // every converted panel's draw order from its measured eye distance (far = painted
