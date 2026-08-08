@@ -1898,6 +1898,134 @@ internal static class GoldenVectors
                "with all three records delivered");
         t.Equal(0x22, cfCombo.CharFocusActorId, "and the focus id is not confused with the hover id");
 
+        // -- 7r. INITIATIVE-TRACK SELECTION FRAME (extension record 23) ----------------------
+        // Which entries the sender's OWN track is framing with vanilla's selectionObject, read off
+        // the live widget rather than re-derived. A LIST because an extra-turn actor can leave a
+        // second frame standing (InitiativeTrack.cs:340), and PLAYERS/ENEMIES/OBJECTS alike —
+        // which is what retires the "record 22 cannot name a monster" limitation.
+        t.Case("7r. extras, initiative-track selection record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackSelection = true, TrackSelectionCount = 1,
+            TrackSelectionIds = new[] { 0x0A0B0C0D, 0, 0, 0 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only (bit 7)
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            17 05            // id 23 (track selection), len 1 + 4*1
+            01               // count
+            0D 0C 0B 0A      // framed actor id LE
+            "), ext, m, "the track-selection record is [id 23][len 1+4n][count][n × actorId LE]");
+        t.Equal(18, m, "header 7 + count 1 + block 2 + tail 1 + 7 = 18 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ts), "and it parses");
+        t.True(ts.HasTrackSelection, "the selection is delivered");
+        t.Equal(1, ts.TrackSelectionCount, "with one framed entry");
+        t.Equal(0x0A0B0C0D, ts.TrackSelectionIds![0], "and the stable actor id intact");
+
+        // TWO frames at once — the extra-turn state vanilla can genuinely produce.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackSelection = true, TrackSelectionCount = 2,
+            TrackSelectionIds = new[] { 0x11, 0x22, 0, 0 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            01
+            17 09            // id 23, len 1 + 4*2
+            02
+            11 00 00 00
+            22 00 00 00
+            "), ext, m, "two standing frames ride one record, in sample order");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ts2), "and the pair parses");
+        t.Equal(2, ts2.TrackSelectionCount, "with both entries delivered");
+        t.Equal(0x22, ts2.TrackSelectionIds![1], "and the second id in the second slot");
+
+        // COUNT CLAMP on write: a caller claiming more ids than the cap (or than its own buffer)
+        // can never make the record longer than TrackSelectionMaxIds allows.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackSelection = true, TrackSelectionCount = 99,
+            TrackSelectionIds = new[] { 1, 2, 3, 4, 5, 6 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            01
+            17 11            // id 23, len 1 + 4*4 — clamped to the 4-id cap
+            04
+            01 00 00 00
+            02 00 00 00
+            03 00 00 00
+            04 00 00 00
+            "), ext, m, "an over-claimed count is clamped to TrackSelectionMaxIds on write");
+
+        // IDLE IDENTITY: no frame -> no record, and the packet is byte-identical to what a sender
+        // predating record 23 produces for the same state.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 2 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 02"), ext, m,
+               "no selection frame -> no record: byte-identical to a pre-record-23 sender");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackSelection = true, TrackSelectionCount = 0,
+            TrackSelectionIds = new[] { 0x11 },
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "an EMPTY selection does not even open the tail");
+
+        // SENTINEL CLAMP on read: actor id 0 is "none" everywhere in this system, so a hand-built
+        // record carrying one drops it — and an all-zero record is not delivered at all.
+        byte[] zeroSel = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 17 05 01 00 00 00 00");
+        t.True(PresenceSerializer.TryRead(zeroSel, zeroSel.Length, out PresenceState tsZero),
+               "a hand-built zero-id selection record still parses the packet");
+        t.True(!tsZero.HasTrackSelection, "and is simply not delivered");
+
+        // LENGTH CLAMP on read: a count that claims more ids than the record actually carries is
+        // re-clamped against the LENGTH (never trust the wire) — the surviving ids still land.
+        byte[] overSel = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 17 05 04 11 00 00 00");
+        t.True(PresenceSerializer.TryRead(overSel, overSel.Length, out PresenceState tsOver),
+               "an over-claimed count still parses");
+        t.True(tsOver.HasTrackSelection, "the record is delivered");
+        t.Equal(1, tsOver.TrackSelectionCount, "clamped to what the record length can hold");
+        t.Equal(0x11, tsOver.TrackSelectionIds![0], "with the one real id intact");
+
+        // TRUNCATED record (claims 9 payload bytes, delivers 2): tail abandoned, nothing throws.
+        byte[] cutSel = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 17 09 02 11");
+        t.True(PresenceSerializer.TryRead(cutSel, cutSel.Length, out PresenceState cutSelS),
+               "a truncated selection record still parses the packet");
+        t.True(!cutSelS.HasTrackSelection, "and the incomplete record is simply not delivered");
+
+        // ID ORDER: record 23 rides LAST, behind record 22 — and to a peer predating it, id 23 is
+        // an unknown record it steps over by length. The three track records must not be confused
+        // with one another: hover (16), focus (22) and selection (23) each carry their own id.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackHover = true, TrackHoverActorId = 0x11,
+            HasCharFocus = true, CharFocusActorId = 0x22, CharFocusOwnsTurn = true,
+            HasTrackSelection = true, TrackSelectionCount = 1, TrackSelectionIds = new[] { 0x33 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            03                   // tail: 3 records, in id order
+            10 05 00 11 00 00 00 // id 16 track hover: no popup, actor 0x11
+            16 05 01 22 00 00 00 // id 22 character focus: owns turn, actor 0x22
+            17 05 01 33 00 00 00 // id 23 track selection: one framed entry, actor 0x33
+            "), ext, m, "record 23 rides the tail behind records 16 and 22 (id order 16, 22, 23)");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState tsCombo), "and the combo parses");
+        t.True(tsCombo.HasTrackHover && tsCombo.HasCharFocus && tsCombo.HasTrackSelection,
+               "with all three track records delivered");
+        t.Equal(0x11, tsCombo.TrackHoverActorId, "the hover id is its own");
+        t.Equal(0x22, tsCombo.CharFocusActorId, "the focus id is its own");
+        t.Equal(0x33, tsCombo.TrackSelectionIds![0],
+                "and the selection id is confused with neither — the three are different facts");
+
 
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
@@ -2062,5 +2190,7 @@ internal static class GoldenVectors
         && x.SkipCapLabel == y.SkipCapLabel
         && x.HasCharFocus == y.HasCharFocus
         && x.CharFocusActorId == y.CharFocusActorId
-        && x.CharFocusOwnsTurn == y.CharFocusOwnsTurn;
+        && x.CharFocusOwnsTurn == y.CharFocusOwnsTurn
+        && x.HasTrackSelection == y.HasTrackSelection
+        && x.TrackSelectionCount == y.TrackSelectionCount;
 }

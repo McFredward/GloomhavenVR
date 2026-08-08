@@ -1226,6 +1226,74 @@ internal static class NetProtocol
     /// <summary>Payload size of <see cref="ExtIdCharFocus"/>: 1 flags byte + 4 actor-id bytes.</summary>
     public const int CharFocusRecordBytes = 5;
 
+    // ---- record 23: INITIATIVE-TRACK SELECTION FRAME ----------------------------------------
+
+    /// <summary>
+    /// Extension record id: WHICH INITIATIVE-TRACK ENTRIES THE SENDER'S OWN TRACK IS CURRENTLY
+    /// FRAMING — vanilla's <c>InitiativeTrackActorAvatar.selectionObject</c>, read off the live
+    /// widget as an ACTIVE-FLAG fact rather than re-derived. <c>[count][count × int32 actorId LE]</c>,
+    /// at most <see cref="TrackSelectionMaxIds"/> ids.
+    ///
+    /// <para>WHY RECORD 22 CANNOT ANSWER THIS, which is what ModBuild 84–86 assumed. That build
+    /// forced the mirrored frame onto the peer's record-22 focus id, on the argument that the focus
+    /// IS "the character this player has selected". It is not the same fact, and the two come apart
+    /// in the three most common states at the table:
+    /// <list type="bullet">
+    /// <item>an ENEMY or a foreign player is at turn — vanilla auto-selects
+    ///   <c>Choreographer.m_CurrentActor</c> (<c>InitiativeTrack.UpdateInitiativeTrack</c>,
+    ///   InitiativeTrack.cs:620), so the owner's own track frames that entry, while record 22
+    ///   carries their <c>PresentedActor</c> (their own character, or nothing at all);</item>
+    /// <item>the owner has taken a MOD focus — <c>Board/Patches/SelectionGuardPatches</c>
+    ///   suppresses vanilla's entire <c>OnClick</c> once <c>CharacterFocus.TryFocus</c> succeeds,
+    ///   so their vanilla frame STAYS on the at-turn actor and only the mod's own blue-white ring
+    ///   moves. Painting the frame on the focused entry showed a peer a state the owner's own
+    ///   track was not in;</item>
+    /// <item>the owner's selection is an ENEMY or an OBJECT entry — record 22 is a CHARACTER
+    ///   focus by construction and cannot name one. That was the "KNOWN LIMIT" the previous build
+    ///   recorded; this record retires it, because an id is an id and the enemy entries ride the
+    ///   very same <c>NetFigures.StableActorId</c> space record 16 (track hover) already uses.</item>
+    /// </list></para>
+    ///
+    /// <para>WHY IT IS GENUINELY PER-VIEWER and therefore worth wire bytes at all (the standing
+    /// preference is zero-wire). Most of vanilla's selects ARE global — the round-start auto-select
+    /// and <c>Choreographer</c>'s initiative-adjustment select run identically on every client off
+    /// the same replicated message stream. But not all: during
+    /// <c>SelectAbilityCardsOrLongRest</c> the focus gate is shut, so vanilla's own portrait click
+    /// runs again and a player leafs through THEIR OWN characters
+    /// (<c>InitiativeTrackPlayerAvatar.OnClick</c>), and <c>Choreographer.TileHandler</c>'s
+    /// card-selection branch selects a player from a MINIATURE click. Both are one client's
+    /// pointer, on one client's screen. A receiver cannot derive them, and under the 1:1 ruling it
+    /// must not guess.</para>
+    ///
+    /// <para>WHY A LIST AND NOT ONE ID: <c>InitiativeTrack.Select</c> skips the deselect of the
+    /// previous entry while the incoming actor <c>IsTakingExtraTurn</c> (InitiativeTrack.cs:340),
+    /// so two frames can legitimately stand at once. One id would have had to pick a winner and
+    /// would have been wrong half the time in exactly the state the user watches most closely.</para>
+    ///
+    /// <para>NO CARD IDENTITY: the payload names PUBLIC TRACK ENTRIES — the same widget, in the
+    /// same id space, that record 16 already names for hover, and every client renders the whole
+    /// track already. What a receiver does with it is switch a frame on. The initiative NUMBER
+    /// inside that frame is NOT touched and stays behind vanilla's own online gate (a foreign
+    /// player reads "?" during card selection) — that is the sanctioned card-front exception, and
+    /// this record does not widen it by a byte.</para>
+    ///
+    /// <para>Written ONLY while the sender's own track really shows at least one frame, so an idle
+    /// packet stays byte-identical to the previous build's; absence means "no frame", which is
+    /// exactly what peers predating the record render. ADDITIVE TLV, appended in id order behind
+    /// record 22 — an older reader steps over it by its length.</para>
+    /// </summary>
+    public const byte ExtIdTrackSelection = 23;
+
+    /// <summary>Id cap of <see cref="ExtIdTrackSelection"/>. Vanilla can stand at most two frames
+    /// at once (the normal selection plus an extra-turn actor that was never deselected); four is
+    /// headroom, and it bounds the record at 1 + 4×4 = 17 payload bytes. Clamped on BOTH ends —
+    /// the reader re-clamps against the record length as well, never trusting the wire.</summary>
+    public const int TrackSelectionMaxIds = 4;
+
+    /// <summary>Minimum payload of <see cref="ExtIdTrackSelection"/> (the count byte alone). A
+    /// reader requires at least this much before it looks at the record.</summary>
+    public const int TrackSelectionMinRecordBytes = 1;
+
     /// <summary>
     /// Extension record id: the BUTTON LABELS of the sender's DOCKED DECISION ROW — the real game
     /// widgets their <c>WorldUI.Surfaces.DecisionDockSurface</c> currently docks below their

@@ -1073,6 +1073,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                 // The fill amount IS the progress bar and the cooldown sweep — the one number whose
                 // omission would leave a mirrored panel looking right and reading wrong.
                 if (_dstImage.fillAmount != _srcImage.fillAmount) _dstImage.fillAmount = _srcImage.fillAmount;
+                CopyMaterial(_srcImage, _dstImage);
             }
             else if (_srcRaw != null && _dstRaw != null)
             {
@@ -1081,10 +1082,58 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                 // reason a mirrored initiative entry shows the real face.
                 if (!ReferenceEquals(_dstRaw.texture, _srcRaw.texture)) _dstRaw.texture = _srcRaw.texture;
                 if (_dstRaw.uvRect != _srcRaw.uvRect) _dstRaw.uvRect = _srcRaw.uvRect;
+                CopyMaterial(_srcRaw, _dstRaw);
             }
 
             if (_srcGroup != null && _dstGroup != null && _dstGroup.alpha != _srcGroup.alpha)
                 _dstGroup.alpha = _srcGroup.alpha;
+        }
+
+        /// <summary>
+        /// SHARE the source graphic's MATERIAL by reference — the state a colour/sprite/texture
+        /// copy provably cannot carry, and the last GLOBAL initiative-track highlight the mirror
+        /// was silently dropping.
+        ///
+        /// <para>WHAT IT FIXES, read from the game's own source:</para>
+        /// <list type="bullet">
+        /// <item>GRAYSCALE. <c>InitiativeTrack.UpdateInitiativeTrack</c> (InitiativeTrack.cs:614/625)
+        ///   calls <c>InitiativeTrackActorAvatar.SetGrayscale</c>, whose ENTIRE effect is
+        ///   <c>m_AvatarImage.material = grayscale ? grayscaleMaterial : regularMaterial</c>
+        ///   (InitiativeTrackActorAvatar.cs:123-126). It marks an EXHAUSTED hero and, during the
+        ///   action phases, every character that is not the one at turn. Both inputs (the phase and
+        ///   <c>Choreographer.m_CurrentActor</c>) are host-replicated, so this is GLOBAL state that
+        ///   was simply not being mirrored: a peer's board showed the whole party in full colour
+        ///   while every real track in the session had them greyed.</item>
+        /// <item>The UIFX INITIATIVE GLOW and the DAMAGE-WARNING animation. <c>UIFX_MaterialFX_Control</c>
+        ///   INSTANTIATES its own material per image in <c>Awake</c> (UIFX_MaterialFX_Control.cs:93-116)
+        ///   and then animates <c>material.SetFloat("_FXAnim", …)</c> on that instance
+        ///   (:528-544); <c>LeanTweenGuiAnimationSettingMaterial(PropertyFloat)</c> — the family
+        ///   <c>InitiativeTrackPlayerBehaviour.warningAnimation</c> is built from — does the same.
+        ///   Sharing the reference means the clone renders through the very instance the original is
+        ///   animating, so the effect plays on the mirror for free, at zero cost and with no second
+        ///   animator.</item>
+        /// </list>
+        ///
+        /// <para>WHY SHARING IS SAFE, and why it is not a write into game state: the clone carries
+        /// no behaviour at all (<see cref="Neutralize"/> destroyed every non-presentation
+        /// component before it ever woke), so nothing on this side can write to the material it now
+        /// points at. This is the identical contract the sprite and the portrait TEXTURE have been
+        /// shipping under since the mirror existed.</para>
+        ///
+        /// <para>DELIBERATELY IMAGE/RAWIMAGE ONLY. TMP overrides the <c>material</c> accessor and
+        /// re-derives sub-mesh materials from its font atlas; assigning across a clone boundary
+        /// there would fight TMP rather than mirror it, and no track or objectives highlight is
+        /// carried by a TMP material.</para>
+        ///
+        /// <para>Change-gated on reference equality: <c>Instantiate</c> already copied the field, so
+        /// a panel whose materials never change costs one reference compare per node per frame and
+        /// writes nothing (a <c>Graphic.material</c> setter dirties the graphic).</para>
+        /// </summary>
+        private static void CopyMaterial(Graphic src, Graphic dst)
+        {
+            Material s = src.material;
+            if (!ReferenceEquals(dst.material, s))
+                dst.material = s;
         }
     }
 }

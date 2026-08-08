@@ -141,6 +141,34 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentFocusActor = int.MinValue;
     private bool _lastSentFocusOwnsTurn;
 
+    /// <summary>TRACK SELECTION (extension record 23): the ids of the entries our OWN initiative
+    /// track is framing with vanilla's selection frame, sampled straight off the live widget. A
+    /// selection change is DISCRETE and human-paced (a portrait click, a turn hand-off, the
+    /// round-start auto-select), so like the half-SELECTION latch it pre-empts the 5 Hz gate
+    /// OUTRIGHT rather than at the capped rig interval — a frame that lands on a peer's mirrored
+    /// track 200 ms late reads as "not synced". -1 = never sent, so the first sample of a session
+    /// is always an edge.</summary>
+    private readonly int[] _trackSelectionSample = new int[NetProtocol.TrackSelectionMaxIds];
+    private readonly int[] _lastSentTrackSelection = new int[NetProtocol.TrackSelectionMaxIds];
+    private int _lastSentTrackSelectionCount = -1;
+
+    /// <summary>Comma-joined id list for a change-gated log line (never per frame — only on the
+    /// edge that already decided to log). Kept tiny and allocation-honest: the caller logs at most
+    /// a handful of ids and only when the state really moved.</summary>
+    private static string DescribeIds(int[] ids, int count)
+    {
+        if (ids == null || count <= 0)
+            return string.Empty;
+        var sb = new System.Text.StringBuilder(count * 12);
+        for (int i = 0; i < count && i < ids.Length; i++)
+        {
+            if (i > 0)
+                sb.Append(',');
+            sb.Append(ids[i]);
+        }
+        return sb.ToString();
+    }
+
     // WALL FADES (extension record 17, MP wall-fade sync): the set of walls the LOCAL fade
     // decision currently hides, as sorted cross-machine keys. A set CHANGE is an edge with
     // the capped pre-emption (fade flips are dwell-paced — a few per minute, never a
@@ -330,6 +358,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
         _lastSentWallFadeCount = -1;             // …and the synced wall-fade set
         _lastSentFocusActor = int.MinValue;       // …and the character focus (record 22)
+        _lastSentTrackSelectionCount = -1;        // …and the track's selection frames (record 23)
         Board.CharacterFocus.Reset();             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentConfirmLabel = null;  // and the live cap labels
@@ -741,6 +770,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool focusChanged = focusActorNow != _lastSentFocusActor
                             || focusOwnsTurnNow != _lastSentFocusOwnsTurn;
 
+        // TRACK SELECTION (extension record 23, user ruling "auch die highlights der
+        // Initiativreihenfolge auf dem remote board, so wie der Spieler sie sieht"): which entries
+        // our OWN track is FRAMING, read straight off vanilla's selectionObject. Deliberately not
+        // derived from record 22 — the focus and the frame are different facts and come apart the
+        // moment an enemy is at turn or a mod focus is taken (see NetProtocol.ExtIdTrackSelection).
+        int trackSelCount = InitiativeHoverSampler.SampleSelectedActorIds(_trackSelectionSample);
+        bool trackSelChanged = trackSelCount != _lastSentTrackSelectionCount;
+        if (!trackSelChanged)
+        {
+            for (int k = 0; k < trackSelCount; k++)
+            {
+                if (_trackSelectionSample[k] != _lastSentTrackSelection[k])
+                {
+                    trackSelChanged = true;
+                    break;
+                }
+            }
+        }
+
         // WALL FADES (extension record 17): sample the local fade decision's ON set as
         // sorted keys and diff against the last sent set — see the field block's doc.
         int wallFadeCount = Core.WallSegmentFade.SampleFadedWallKeys(_wallFadeSample);
@@ -850,7 +898,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
-            && !decisionChanged && !capLabelsChanged && !focusChanged)
+            && !decisionChanged && !capLabelsChanged && !focusChanged && !trackSelChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1200,6 +1248,33 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "identity: peers colour an outline from this and read any card they draw from " +
                   "the host-replicated model through RevealGate, exactly as before."
                 : "Character focus SENT: none — record omitted (peers show us no turn outline).");
+        }
+
+        // TRACK SELECTION (extension record 23): written only while our own track really shows a
+        // selection frame, so an idle packet stays byte-identical to the previous build's.
+        if (trackSelCount > 0)
+        {
+            extras.HasTrackSelection = true;
+            extras.TrackSelectionCount = trackSelCount;
+            extras.TrackSelectionIds = _trackSelectionSample;
+        }
+        if (trackSelChanged)
+        {
+            _lastSentTrackSelectionCount = trackSelCount;
+            System.Array.Copy(_trackSelectionSample, _lastSentTrackSelection, trackSelCount);
+            VRLog.Info("Net", trackSelCount > 0
+                ? $"Track selection SENT: {trackSelCount} framed entr(y/ies) " +
+                  $"[{DescribeIds(_trackSelectionSample, trackSelCount)}] — " +
+                  "extension record 23 (the stable ActorGuid hashes of the entries OUR OWN track " +
+                  "is framing with vanilla's selectionObject, read off the live widget's active " +
+                  "flag rather than re-derived). PLAYERS, ENEMIES and OBJECTS alike — this is what " +
+                  "lets a peer's mirrored track finally frame a selected MONSTER, which the " +
+                  "character-focus record (22) structurally cannot name. The edge PRE-EMPTED the " +
+                  "extras gate, so the frame lands with the click. NO card identity: a public " +
+                  "track entry and nothing else; the initiative NUMBER inside the frame stays " +
+                  "behind vanilla's own online gate on every client."
+                : "Track selection SENT: none — record omitted (peers draw no selection frame on " +
+                  "our mirrored track, which is exactly what our own track shows).");
         }
 
         // WALL FADES (extension record 17): written only while the local decision fades at

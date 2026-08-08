@@ -392,6 +392,18 @@ internal sealed class RemoteAvatar
     /// only while <see cref="TrackHoverActorId"/> is non-zero).</summary>
     public bool TrackHoverPopup { get; private set; }
 
+    /// <summary>How many entries the sender's OWN initiative track is framing with vanilla's
+    /// selection frame (extension record 23); 0 = no frame, which is also what a pre-record-23
+    /// sender reads as. Consumed by <see cref="RemoteInitiativeTrack"/>, which switches the SAME
+    /// frame on ITS clone of the public track widget — and only there.</summary>
+    public int TrackSelectionCount { get; private set; }
+
+    /// <summary>Stable ids (the shared ActorGuid hash) of those framed entries — players, ENEMIES
+    /// and object actors alike. Only the first <see cref="TrackSelectionCount"/> entries are
+    /// meaningful; the array is replaced wholesale on every packet that carries the record, so a
+    /// reader never sees a half-updated set.</summary>
+    public int[] TrackSelectionIds { get; private set; } = System.Array.Empty<int>();
+
     /// <summary>True when the sender transmitted the board-local anchor of their open
     /// BOARD-ANCHORED fan (extension record 5). Absent ⇒ the authored default spot.</summary>
     public bool HasFanAnchor { get; private set; }
@@ -815,6 +827,21 @@ internal sealed class RemoteAvatar
         // by stable actor id. Absent ⇒ 0 ⇒ un-hovered track — never a stale lift.
         TrackHoverActorId = p.HasTrackHover ? p.TrackHoverActorId : 0;
         TrackHoverPopup = p.HasTrackHover && p.TrackHoverPopup;
+
+        // TRACK SELECTION (extension record 23): the entries the sender's OWN track is framing.
+        // Absent ⇒ count 0 ⇒ NO frame on their mirrored track — never a stale one, and never the
+        // OBSERVER's own frame, which is the whole reason the record exists.
+        if (p.HasTrackSelection && p.TrackSelectionIds != null && p.TrackSelectionCount > 0)
+        {
+            TrackSelectionIds = p.TrackSelectionIds;
+            TrackSelectionCount = p.TrackSelectionCount < p.TrackSelectionIds.Length
+                ? p.TrackSelectionCount
+                : p.TrackSelectionIds.Length;
+        }
+        else
+        {
+            TrackSelectionCount = 0;
+        }
 
         // WALL FADES (extension record 17): the sender's currently-faded wall set by
         // cross-machine stable key, forwarded to the wall-fade driver — which composes it as

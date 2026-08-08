@@ -464,6 +464,29 @@ internal struct PresenceState
     /// actor at turn) or red (focus is some other character). Meaningful only when
     /// <see cref="HasCharFocus"/>.</summary>
     public bool CharFocusOwnsTurn;
+
+    /// <summary>
+    /// True when this packet names the initiative-track entries the sender's OWN track is currently
+    /// framing with vanilla's selection frame (extension record
+    /// <see cref="NetProtocol.ExtIdTrackSelection"/>). Written only while at least one frame really
+    /// stands on their screen; absence means "no frame", which is exactly what peers predating the
+    /// record render. Read off the live <c>selectionObject.activeSelf</c>, so it is what the owner
+    /// SEES rather than a re-derivation — see the record doc for the three states in which the
+    /// character-focus record (22) answers a different question.
+    /// </summary>
+    public bool HasTrackSelection;
+
+    /// <summary>Number of valid entries in <see cref="TrackSelectionIds"/> (≤
+    /// <see cref="NetProtocol.TrackSelectionMaxIds"/> after clamping on both ends). Meaningful only
+    /// when <see cref="HasTrackSelection"/>.</summary>
+    public int TrackSelectionCount;
+
+    /// <summary>Stable ids (<c>NetFigures.StableActorId</c> — the ActorGuid hash, the one id space
+    /// that agrees across machines) of the framed track entries. PLAYERS, ENEMIES and OBJECT actors
+    /// alike: the frame is a track fact, not a character fact. May be longer than
+    /// <see cref="TrackSelectionCount"/> (the sender passes its persistent sample buffer); only the
+    /// first count entries go on the wire.</summary>
+    public int[]? TrackSelectionIds;
 }
 
 /// <summary>
@@ -544,7 +567,12 @@ internal struct PresenceState
 ///                        = the sender OWNS the character at turn (a local-only fact, hence on the
 ///                        wire); written only while a focus is known; drives the green/red
 ///                        control-board + Steam-avatar outlines, see NetProtocol.ExtIdCharFocus.
-///                        Ids 18..21 are reserved for records developed in parallel.)
+///                        Ids 18..21 are reserved for records developed in parallel.),
+///                        23 TRACK SELECTION ([count][count × int32 actorId LE] — the initiative-track
+///                        entries the sender's OWN track is framing with vanilla's selectionObject,
+///                        by the stable ActorGuid hash; players, ENEMIES and objects alike; ≤4 ids
+///                        because an extra-turn actor can leave a second frame standing; written
+///                        only while a frame really stands, see NetProtocol.ExtIdTrackSelection)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -582,7 +610,8 @@ internal static class PresenceSerializer
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
     /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 4 (half hover+select: 2 + 2)
     /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5)
-    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap) + 7 (character focus: 2 + 5) = 824,
+    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap) + 7 (character focus: 2 + 5)
+    /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap) = 843,
     /// still inside the 848 headroom. Local buffer bound only — nothing on the wire depends on it, and every
     /// variable-length record still bounds-checks against the real buffer before writing.</summary>
     public const int MaxSize = 848;
@@ -628,6 +657,10 @@ internal static class PresenceSerializer
                           // A zero actor id writes no focus record (0 = "none" everywhere), so it
                           // must not open the tail either — same rule as the track-hover record.
                           || (state.HasCharFocus && state.CharFocusActorId != 0)
+                          // An EMPTY selection writes no record, so it must not open the tail
+                          // either — same rule as the wall-fade set.
+                          || (state.HasTrackSelection && state.TrackSelectionCount > 0
+                              && state.TrackSelectionIds != null)
                           // An EMPTY line writes no record, so it must not open the tail either —
                           // that is what keeps an idle packet byte-identical to the last build's.
                           || (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
@@ -1002,6 +1035,31 @@ internal static class PresenceSerializer
                     buffer[i++] = (byte)(cfFlags & NetProtocol.CharFocusDefinedMask);
                     AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusActorId);
                     records++;
+                }
+                if (state.HasTrackSelection && state.TrackSelectionIds != null
+                    && state.TrackSelectionCount > 0)
+                {
+                    // TRACK SELECTION (23): [count][count × int32 actorId LE] — the entries the
+                    // sender's OWN initiative track is framing right now (vanilla's
+                    // selectionObject, read as an active flag off the live widget). A LIST because
+                    // an extra-turn actor can leave a second frame standing (InitiativeTrack.cs:340).
+                    // Count is clamped to the cap AND the caller's buffer before a byte goes out;
+                    // an empty selection was already excluded above, so an idle packet is
+                    // byte-identical to a pre-record sender's.
+                    int n = state.TrackSelectionCount;
+                    if (n > NetProtocol.TrackSelectionMaxIds)
+                        n = NetProtocol.TrackSelectionMaxIds;
+                    if (n > state.TrackSelectionIds.Length)
+                        n = state.TrackSelectionIds.Length;
+                    if (n > 0 && i + 2 + 1 + 4 * n <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdTrackSelection;
+                        buffer[i++] = (byte)(1 + 4 * n);
+                        buffer[i++] = (byte)n;
+                        for (int k = 0; k < n; k++)
+                            AvatarSerializer.WriteI32(buffer, ref i, state.TrackSelectionIds[k]);
+                        records++;
+                    }
                 }
                 buffer[countAt] = records;
             }
@@ -1566,6 +1624,39 @@ internal static class PresenceSerializer
                             state.HasCharFocus = true;
                             state.CharFocusActorId = focusActor;
                             state.CharFocusOwnsTurn = (cfFlags & NetProtocol.CharFocusOwnsTurnBit) != 0;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdTrackSelection
+                             && len >= NetProtocol.TrackSelectionMinRecordBytes)
+                    {
+                        // TRACK SELECTION: [count][count × int32 actorId LE]. The count is
+                        // re-clamped against the record LENGTH and the cap (never trust the wire),
+                        // and ids of 0 are dropped — 0 is "none" everywhere in this system and can
+                        // never name a track entry. Zero surviving ids degrade to "record absent"
+                        // = no selection frame, which is exactly what a pre-record sender produces.
+                        int n = buffer[i];
+                        int fit = (len - 1) / 4;
+                        if (n > fit)
+                            n = fit;
+                        if (n > NetProtocol.TrackSelectionMaxIds)
+                            n = NetProtocol.TrackSelectionMaxIds;
+                        if (n > 0)
+                        {
+                            var ids = new int[n];
+                            int j = i + 1;
+                            int kept = 0;
+                            for (int k = 0; k < n; k++)
+                            {
+                                int actorId = AvatarSerializer.ReadI32(buffer, ref j);
+                                if (actorId != 0)
+                                    ids[kept++] = actorId;
+                            }
+                            if (kept > 0)
+                            {
+                                state.HasTrackSelection = true;
+                                state.TrackSelectionCount = kept;
+                                state.TrackSelectionIds = ids;
+                            }
                         }
                     }
                     else if (id == NetProtocol.ExtIdTrackHover
