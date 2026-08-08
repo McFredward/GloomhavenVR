@@ -221,6 +221,23 @@ internal sealed class PileBrowser
         Relayout(instant: false);
     }
 
+    /// <summary>
+    /// Re-arm the emerge seed on an ALREADY OPEN arc (character switch — see
+    /// <c>CardsDriver.UpdateBrowser</c>'s RE-TARGET branch). The fan now follows the focused
+    /// character instead of closing, so the newly borrowed visuals must enter the same way the
+    /// first ones did: seated on the pile stack and flown up into the arc by the per-card home
+    /// lerp. Without it a re-targeted card starts at the factory's pool root and sails across the
+    /// room into the arc. Same one-shot contract as <see cref="Open"/>'s <c>emergeFromWorld</c>:
+    /// consumed by the next non-instant <see cref="Relayout"/>. No-op while closed.
+    /// </summary>
+    internal void SeedEmerge(Vector3 stackWorld)
+    {
+        if (!IsOpen)
+            return;
+        _emergePending = true;
+        _emergeWorld = stackWorld;
+    }
+
     /// <summary>Close the browser. Cards are NOT touched — the driver's rebuild parks them.</summary>
     internal void Close()
     {

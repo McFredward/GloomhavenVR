@@ -729,7 +729,7 @@ internal sealed class RemoteControlBoard
             _piles[1]?.Set(burnt);
             _piles[2]?.Set(items);
 
-            LogContent(discard, burnt, items, showFronts);
+            LogContent(discard, burnt, items, showFronts, actor);
         }
         catch (System.Exception e)
         {
@@ -812,13 +812,17 @@ internal sealed class RemoteControlBoard
     /// rendering (grep: "Remote board content"). One line per actual change — the cadence tick
     /// itself is silent.
     /// </summary>
-    private void LogContent(int discard, int burnt, int items, bool showFronts)
+    private void LogContent(int discard, int burnt, int items, bool showFronts, CPlayerActor? actor)
     {
         // FIDELITY + ANTI-CHEAT in one greppable line: which mechanism drew each round card
         // (LiveWidget / PooledBorrow = the REAL game card face; None = the mod-drawn fallback panel),
         // together with the gate answer that allowed a face at all. Grep: "Remote board content".
         string slots = $"{FaceTag(0, showFronts)}/{FaceTag(1, showFronts)}";
+        // The CHARACTER rides this line too: the pile counts below are that character's, and the
+        // owner's board switches which one it presents whenever they focus a teammate. Without the
+        // name, "die Zahlen auf seinem Brett stimmen nicht" cannot be answered from a peer log.
         string line = $"Remote board content [{_owner.PlayerId}]: " +
+                      $"char='{Board.CharacterFocus.Describe(actor)}', " +
                       $"round='{(_status != null ? _status.RoundText : "-")}', " +
                       $"initiative={(_status != null ? _status.InitiativeText : "?")}, " +
                       $"rest='{(_status != null ? _status.RestText : string.Empty)}', " +

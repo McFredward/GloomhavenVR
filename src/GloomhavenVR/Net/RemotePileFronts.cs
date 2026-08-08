@@ -82,7 +82,13 @@ internal sealed class RemotePileFronts
     private int _resolvedCount = -1;
     private int _resolvedContent = -1;
     private int _frontCount;
-    private int _loggedKey = int.MinValue;
+
+    /// <summary>Change key for <see cref="Log"/> — the packed (gate, content, fronts, slabs) word
+    /// PLUS the stable id of the character the fan is about. The actor is part of the state a
+    /// "welcher Character?" question is answered from: a peer switching focus between two teammates
+    /// whose discard piles happen to hold the same number of cards is still a change, and without
+    /// the id the log would go silent across exactly that switch.</summary>
+    private (int Key, int ActorId) _loggedKey = (int.MinValue, 0);
 
     /// <summary>Why the front layer is (not) drawing — a CODE rather than a sentence, so the
     /// per-frame path can change-gate the diagnostic without composing a string. The sentence is
@@ -243,7 +249,7 @@ internal sealed class RemotePileFronts
                 _frontCount = 0;
                 Reset();
             }
-            Log(content, gate, 0);
+            Log(content, gate, 0, actor);
             return;
         }
 
@@ -311,7 +317,7 @@ internal sealed class RemotePileFronts
         _frontCount = fronts;
         _resolvedCount = _arts.Count;
 
-        Log(content, resolved ? Gate.Open : Gate.NoSource, fronts);
+        Log(content, resolved ? Gate.Open : Gate.NoSource, fronts, actor);
     }
 
     /// <summary>
@@ -364,19 +370,24 @@ internal sealed class RemotePileFronts
     /// "Remote board content … fronts=" line all name the same predicate, so a surface that disagrees
     /// with the others is visible without a screenshot. Never per frame, never a card identity.
     /// </summary>
-    private void Log(Content content, Gate gate, int fronts)
+    private void Log(Content content, Gate gate, int fronts, CPlayerActor? actor)
     {
         // CHEAP CHANGE KEY FIRST. This method is on the per-frame path through the shut-gate branch,
         // so the line must not be COMPOSED unless it is going to be new — an interpolated string per
         // fan per peer per frame is exactly the kind of steady-state allocation this file exists to
-        // avoid. Packing (gate, content, fronts, slabs) into one int is the whole test.
+        // avoid. Packing (gate, content, fronts, slabs) into one int plus the actor id is the whole
+        // test; the tuple compare is a struct compare and allocates nothing.
         int key = ((int)gate << 24) | ((int)content << 20) | ((fronts & 0xFF) << 8) | (_arts.Count & 0xFF);
-        if (key == _loggedKey)
+        int actorId = NetFigures.StableActorId(actor);
+        if (key == _loggedKey.Key && actorId == _loggedKey.ActorId)
             return;
-        _loggedKey = key;
+        _loggedKey = (key, actorId);
 
         string line = $"Remote {_surface} faces [player {_owner.PlayerId}]: " +
-                      $"{(fronts > 0 ? "FRONTS" : "BACKS")} — content={content.ToString().ToUpperInvariant()}, " +
+                      $"{(fronts > 0 ? "FRONTS" : "BACKS")} — content={content.ToString().ToUpperInvariant()} " +
+                      $"of '{Board.CharacterFocus.Describe(actor)}' (the character this peer's board " +
+                      "is presenting — record 22 via RemoteBoardFocus.DisplayedActor, so their pile " +
+                      "fan follows their focus exactly as their own board does), " +
                       $"{fronts}/{_arts.Count} slab(s) show the real game card face, gate: {Reason(gate)}";
         VRLog.Info("Net", line + ". Card/item identities are read LOCALLY from the peer's " +
                           "host-replicated model (CCharacterClass piles / Inventory.AllItems) and never " +
