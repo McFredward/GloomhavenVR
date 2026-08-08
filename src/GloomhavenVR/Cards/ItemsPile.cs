@@ -603,19 +603,48 @@ internal sealed class ItemsPile
 
     /// <summary>
     /// Requirement 5 (emerge): once the fan root is placed, drop every chip ONTO the pile stack point
-    /// (in ROOT-LOCAL space, so it rides the board like the arc homes) and start each chip's home-glide
-    /// — the chips visibly fly OUT of the pile into the arc. Reuses the same easing as the release glide.
+    /// (in ROOT-LOCAL space, so it rides the board like the arc homes) and hand each one its own
+    /// fly-out — the chips visibly deal OUT of the pile into the arc.
+    ///
+    /// PRESENCE PASS (user report 2026-08-08: "Ich mag die Animation im Item-Pile sehr aber sie ist
+    /// (insbesondere in mixed Reality) etwas zu dezent."). He likes the motion, so nothing here is
+    /// replaced — but every chip used to be given the SAME start moment and the SAME exponential
+    /// home-lerp, i.e. one blob of twelve cards sliding a straight chord and decelerating to a halt.
+    /// Two of the three things that make a move survive passthrough were simply absent from it:
+    ///
+    ///   • a moving FRONT. The eye tracks an onset that travels; a simultaneous move is one flicker,
+    ///     and a room full of real edges and real parallax eats a single flicker. So each chip now
+    ///     starts <c>ItemFanOpenStagger</c> later per place of distance from the fan centre — the
+    ///     same centre-out ripple the hand fan reveals on (CardFan.OpenProgress), which is also why
+    ///     it needs no new idiom to read as "ours".
+    ///   • a SIGNED unfold. <paramref name="i"/>'s side of the fan decides which way its chip rolls
+    ///     out of the stack (<c>ItemFanOpenSpinDegrees</c>), so the fan opens like a hand of cards
+    ///     rather than sliding apart. A roll changes the card's OUTLINE, and an outline change is
+    ///     the one signal a cluttered background cannot supply by accident.
+    ///
+    /// The third — motion in DEPTH — is the chip's own business (<see cref="ItemChip.BeginEmerge"/>
+    /// bows the flight toward the viewer and grows the card from a much smaller seed), because both
+    /// terms are expressed against the chip's live home pose.
     /// </summary>
     private void EmergeAll()
     {
         if (_root == null)
             return;
         Vector3 localConverge = _root.InverseTransformPoint(PileConvergeWorld());
-        for (int i = 0; i < _chips.Count; i++)
+        int n = _chips.Count;
+        float mid = (n - 1) * 0.5f;
+        float stagger = Mathf.Max(0f, CardsConfig.ItemFanOpenStagger.Value);
+        for (int i = 0; i < n; i++)
         {
             ItemChip c = _chips[i];
-            if (c != null && c.Holder == null)
-                c.BeginEmerge(localConverge);
+            if (c == null || c.Holder != null)
+                continue;
+            // Centre-out: the middle chip leaves first, the outermost pair last. Distance is
+            // measured in PLACES (not metres), so the ripple keeps its rhythm on a 2-item and on a
+            // 12-item fan instead of stretching with the arc.
+            float fromCentre = i - mid;
+            c.BeginEmerge(localConverge, Mathf.Abs(fromCentre) * stagger,
+                          spinSign: fromCentre >= 0f ? 1f : -1f);
         }
     }
 
@@ -624,13 +653,28 @@ internal sealed class ItemsPile
     /// stack, then it destroys itself (recycling its ItemCardUI in OnDisable). The chips are re-parented
     /// OUT of the fan root first so they keep updating after the root is deactivated. A held chip (rare
     /// close-mid-grab) is dropped immediately. Clears the live list so a re-open builds fresh chips.
+    ///
+    /// PRESENCE PASS (same report): the close is the open played BACKWARDS, which is why the delay
+    /// here is <c>(far − |i − mid|) × ItemFanCloseStagger</c> — outermost chip first, centre chip
+    /// last, the exact reverse of <see cref="EmergeAll"/>'s centre-out ripple. A fold-in that
+    /// mirrors the fan-out is read as the same object closing; one that runs in the same order as
+    /// the open is read as a second, unrelated animation.
+    ///
+    /// Nothing may POP (standing user ruling): a chip waiting out its delay is NOT hidden and NOT
+    /// snapped anywhere — it holds its exact world pose (the collapse tick's t=0 is the identity)
+    /// until its own moment arrives. The chips are already detached from the fan root at that
+    /// point, so the whole staggered close plays out even though the root is deactivated on the
+    /// same frame.
     /// </summary>
     private void CollapseChips()
     {
         Vector3 converge = PileConvergeWorld();
         Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root
                         : (_anchor != null ? _anchor : null);
-        for (int i = 0; i < _chips.Count; i++)
+        int n = _chips.Count;
+        float mid = (n - 1) * 0.5f;
+        float stagger = Mathf.Max(0f, CardsConfig.ItemFanCloseStagger.Value);
+        for (int i = 0; i < n; i++)
         {
             ItemChip c = _chips[i];
             if (c == null)
@@ -642,7 +686,9 @@ internal sealed class ItemsPile
             }
             if (keep != null)
                 c.transform.SetParent(keep, worldPositionStays: true); // survive the root deactivation
-            c.BeginCollapse(converge);
+            float fromCentre = i - mid;
+            c.BeginCollapse(converge, (mid - Mathf.Abs(fromCentre)) * stagger,
+                            spinSign: fromCentre >= 0f ? 1f : -1f);
         }
         _chips.Clear();
         _handWinner = null;
@@ -2558,13 +2604,39 @@ internal sealed class ItemsPile
         private const float ReleaseGlideSeconds = 0.35f;
         private float _releaseGlide;
 
+        // Requirement 5 (emerge-out-of-pile), PRESENCE PASS 2026-08-08. The fly-out used to BORROW the
+        // post-release home glide: BeginEmerge dropped the chip on the stack point at 0.35× and set
+        // _releaseGlide, and Update's exponential lerp did the rest. That is why the animation read as
+        // "zu dezent" in mixed reality — an exponential is a curve with no end (it only decelerates,
+        // asymptotically, so there is no moment the eye can call the arrival), it cannot express an
+        // arc because it always takes the straight chord, and every chip ran the same one at the same
+        // time. The fly-out is its own PARAMETRIC animation now: a normalized 0..1 clock per chip, an
+        // ease-out-BACK (an overshoot, i.e. a reversal of direction — the loudest event motion has,
+        // and it costs no extra travel), a mid-flight bow toward the viewer, and a roll it unwinds
+        // from. Everything is expressed against the chip's LIVE home pose, read fresh every frame, so
+        // a re-layout mid-flight (hand sweep, live refresh) moves the target rather than snapping the
+        // chip — the standing "everything that moves must move WITH the animation" ruling.
+        private bool _emerging;
+        private float _emergeTime;          // unscaled seconds since the fan opened (own clock per chip)
+        private float _emergeDelay;         // this chip's place in the centre-out ripple
+        private Vector3 _emergeFrom;        // the pile stack point, ROOT-LOCAL (rides the board)
+        private Quaternion _emergeSpin = Quaternion.identity; // the roll it unwinds FROM, home-relative
+
         // Requirement 5 (collapse-into-pile): a closing chip is detached from the fan root by the owner
         // and self-glides (WORLD space) into the pile stack point, then destroys itself — its OnDisable
         // recycles the hosted ItemCardUI back to the pool, so the collapse never leaks a card widget.
+        // PRESENCE PASS: same treatment in reverse — an own clock with a per-chip delay, an ease-in-BACK
+        // (the chip winds up AWAY from the stack before it is pulled in), and the roll wound back on.
+        // The from-pose is captured once at the close so the whole thing survives the fan root going
+        // inactive on the very same frame.
         private bool _collapsing;
         private Vector3 _collapseWorld;
-        private float _collapseTime;
-        private const float CollapseSeconds = 0.26f;
+        private Vector3 _collapseFrom;      // world pose captured at the close (already re-parented out)
+        private Quaternion _collapseFromRot;
+        private float _collapseFromScale;
+        private float _collapseTime;        // counts UP; the chip dies at _collapseDelay + duration
+        private float _collapseDelay;
+        private Quaternion _collapseSpin = Quaternion.identity;
 
         // Requirement 6 (clip-in decision): while a released usable chip is CLIPPED into the use slot
         // awaiting a Confirm/cancel decision, PendingUse is set and the chip is RE-PARENTED onto the
@@ -3184,33 +3256,137 @@ internal sealed class ItemsPile
         }
 
         /// <summary>
-        /// Requirement 5 (emerge): start the chip AT the pile converge point (root-local) and shrunk,
-        /// then reuse the release-glide easing to fly it out to its arc home. Called once at open, after
+        /// Requirement 5 (emerge): seat the chip AT the pile converge point (root-local), shrunk to
+        /// <c>ItemFanSeedScale</c> and rolled by <c>ItemFanOpenSpinDegrees</c>, then let
+        /// <see cref="TickEmerge"/> fly it out to its arc home. Called once at open, after
         /// <see cref="SetHome"/> has recorded the home pose.
+        ///
+        /// <para><paramref name="delay"/> is this chip's place in the owner's centre-out ripple and
+        /// <paramref name="spinSign"/> its side of the fan (see <see cref="ItemsPile.EmergeAll"/>);
+        /// both are decided there because only the owner knows the chip's index.</para>
+        ///
+        /// <para>THE SEED POSE IS WRITTEN HERE, NOT ON THE FIRST TICK, and that is not a detail: this
+        /// runs inside <see cref="ItemsPile.Open"/>, before any frame is rendered, so a chip whose
+        /// delay has not elapsed sits ON the stack from the very first frame it exists. It never
+        /// appears at its arc slot and then jumps back — the pop the standing ruling forbids.</para>
         /// </summary>
-        internal void BeginEmerge(Vector3 localConverge)
+        internal void BeginEmerge(Vector3 localConverge, float delay, float spinSign)
         {
             if (Holder != null)
                 return;
+            _releaseGlide = 0f;   // the fly-out owns the pose now; no second lerp may fight it
+            _emerging = true;
+            _emergeTime = 0f;
+            _emergeDelay = Mathf.Max(0f, delay);
+            _emergeFrom = localConverge;
+            // Home-RELATIVE, so the roll unwinds into whatever slot the chip ends up in even if the
+            // arc is re-laid out mid-flight. Signed outward: the fan unfolds instead of sliding open.
+            _emergeSpin = Quaternion.Euler(0f, 0f, spinSign * CardsConfig.ItemFanOpenSpinDegrees.Value);
             transform.localPosition = localConverge;
-            transform.localScale = Vector3.one * (_homeScale * 0.35f);
-            _releaseGlide = ReleaseGlideSeconds; // Update's home-glide flies it to _homePos/_homeRot/_homeScale
+            transform.localRotation = _homeRot * _emergeSpin;
+            transform.localScale = Vector3.one * (_homeScale * SeedScale());
         }
 
         /// <summary>
         /// Requirement 5 (collapse): begin a self-driven WORLD-space glide into the pile stack point,
         /// then destroy this chip. The owner has already re-parented the chip out of the fan root so it
         /// keeps updating after the root deactivates. Disables the collider so it can't be grabbed mid-collapse.
+        ///
+        /// <para><paramref name="delay"/> is the REVERSE ripple (outermost chip first — see
+        /// <see cref="ItemsPile.CollapseChips"/>). While it runs down the chip holds the exact world
+        /// pose captured here, because the collapse curve is the identity at t = 0: a chip waiting its
+        /// turn is standing still, never hidden and never moved.</para>
         /// </summary>
-        internal void BeginCollapse(Vector3 worldConverge)
+        internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)
         {
+            _emerging = false;
             _collapsing = true;
             _collapseWorld = worldConverge;
-            _collapseTime = CollapseSeconds;
+            _collapseFrom = transform.position;
+            _collapseFromRot = transform.rotation;
+            _collapseFromScale = transform.localScale.x;
+            _collapseTime = 0f;
+            _collapseDelay = Mathf.Max(0f, delay);
+            // Wound back ON over the fall — the open's unfold, played backwards.
+            _collapseSpin = Quaternion.Euler(0f, 0f, spinSign * CardsConfig.ItemFanOpenSpinDegrees.Value);
             _fingerPopped = false;
             _laserPopped = false;
             if (_box != null)
                 _box.enabled = false;
+        }
+
+        /// <summary>The size a chip starts the fly-out at (and ends the collapse at), as a fraction of
+        /// its seated size — <c>[Cards] ItemFanSeedScale</c>, clamped so a nonsense config can never
+        /// produce a zero-scale (and therefore invisible, i.e. popping) card.</summary>
+        private static float SeedScale() => Mathf.Clamp(CardsConfig.ItemFanSeedScale.Value, 0.02f, 1f);
+
+        /// <summary>
+        /// Ease-out BACK: overshoots 1 near the end and settles back onto it. <paramref name="s"/> = 0
+        /// degenerates to the plain ease-out cubic the fan used before the presence pass, which is
+        /// exactly what <c>[Cards] ItemFanSettleOvershoot</c> = 0 is documented to restore.
+        ///
+        /// <para>WHY AN OVERSHOOT AND NOT SIMPLY MORE SPEED (the mixed-reality argument): passthrough
+        /// gives the eye a background that already moves with the head and is already full of
+        /// contrast, so it competes with anything that merely translates faster. It cannot, however,
+        /// produce a REVERSAL — a thing that goes one way and then comes back is a discontinuity in
+        /// direction, which is the single most salient event a motion can contain, and it happens at
+        /// the end of the flight where the eye has already arrived.</para>
+        /// </summary>
+        private static float EaseOutBack(float t, float s)
+        {
+            float u = t - 1f;
+            return 1f + u * u * ((s + 1f) * u + s);
+        }
+
+        /// <summary>Ease-in BACK: dips slightly BELOW 0 first (the chip winds up away from the stack)
+        /// and then accelerates in. The mirror of <see cref="EaseOutBack"/>, used by the collapse so
+        /// the close is the open reversed rather than a different animation.</summary>
+        private static float EaseInBack(float t, float s) => t * t * ((s + 1f) * t - s);
+
+        /// <summary>The authored back-ease strength, clamped. Shared by both directions so one dial
+        /// governs the whole "settle" character of the fan.</summary>
+        private static float Overshoot() => Mathf.Clamp(CardsConfig.ItemFanSettleOvershoot.Value, 0f, 3f);
+
+        /// <summary>
+        /// Advance the fly-out. <paramref name="posTarget"/> / <paramref name="scaleTarget"/> are the
+        /// chip's LIVE arc home with the hand-sweep pop already folded in — passed in rather than read
+        /// here so the emerge and the settled steady state aim at exactly the same pose and the
+        /// hand-off between them cannot produce a step.
+        ///
+        /// <para>THE THREE AMPLITUDES, and why each one survives a passthrough background:</para>
+        /// <list type="bullet">
+        /// <item>the BOW (<c>ItemFanOpenArc</c>, along fan-local −Z, i.e. toward the viewer, peaking at
+        ///   mid-flight and exactly 0 at both ends): it moves the card in DEPTH, which the two eyes
+        ///   resolve as disparity against a room that is metres further away. Passthrough can hide
+        ///   contrast; it cannot hide stereo separation.</item>
+        /// <item>the GROWTH (from <c>ItemFanSeedScale</c>): the monocular half of the same cue, and the
+        ///   reason the seed dropped from 0.35× to 0.12× — a card that grows eightfold is coming
+        ///   toward you, one that grows by a third is a picture being nudged.</item>
+        /// <item>the OVERSHOOT (<c>ItemFanSettleOvershoot</c>): see <see cref="EaseOutBack"/>.</item>
+        /// </list>
+        ///
+        /// <para>Allocation-free, like everything else on this per-frame path: five config reads,
+        /// three struct maths, no closures and no temporaries that escape.</para>
+        /// </summary>
+        private void TickEmerge(float dt, Vector3 posTarget, float scaleTarget)
+        {
+            _emergeTime += dt;
+            float dur = Mathf.Max(0.01f, CardsConfig.ItemFanOpenDuration.Value);
+            float t = Mathf.Clamp01((_emergeTime - _emergeDelay) / dur);
+            float e = EaseOutBack(t, Overshoot());
+
+            // LerpUnclamped: the overshoot is the point — a clamp here would quietly delete it.
+            Vector3 p = Vector3.LerpUnclamped(_emergeFrom, posTarget, e);
+            p.z -= Mathf.Max(0f, CardsConfig.ItemFanOpenArc.Value) * Mathf.Sin(t * Mathf.PI);
+            transform.localPosition = p;
+            // Rotation eases on the CLAMPED progress: a card that overshoots its ROLL reads as a
+            // wobble rather than a settle, and it is the one axis where the reversal does not help.
+            transform.localRotation = _homeRot * Quaternion.Slerp(_emergeSpin, Quaternion.identity, e);
+            transform.localScale = Vector3.one
+                                 * Mathf.LerpUnclamped(_homeScale * SeedScale(), scaleTarget, e);
+
+            if (t >= 1f)
+                _emerging = false; // settled — the steady-state branch asserts the home pose from here
         }
 
         /// <summary>
@@ -3325,6 +3501,16 @@ internal sealed class ItemsPile
             _homeScale = scale;
             if (Holder != null)
                 return; // held — the base restores this home on release
+            if (_emerging)
+            {
+                // MID-FLY-OUT: record the new home and let the fly-out keep flying TO it. Snapping
+                // here would be a pop, and it is a reachable one — Relayout runs on every hand-sweep
+                // winner change, and the presence pass made the flight long enough (a 12-item fan
+                // deals for ~0.64 s) that a fingertip can easily arrive inside it. TickEmerge reads
+                // _homePos/_homeRot/_homeScale fresh every frame precisely so this case costs
+                // nothing: the target moves, the chip keeps travelling, nothing jumps.
+                return;
+            }
             transform.localPosition = pos;
             transform.localRotation = rot;
             transform.localScale = Vector3.one * scale;
@@ -3740,12 +3926,26 @@ internal sealed class ItemsPile
             if (_collapsing)
             {
                 // Req #5 — self-glide into the pile, then destroy (OnDisable recycles the card widget).
+                //
+                // PRESENCE PASS: the same parametric treatment as the fly-out, played backwards. It
+                // used to be the same shapeless exponential-toward-a-point the emerge was: every chip
+                // starting at once, no wind-up, and a hard Destroy at a fixed 0.26 s that cut the lerp
+                // off wherever it happened to be (the chip was still ~20 % short of the stack when it
+                // vanished — a small pop at the end of a "smooth" animation). Now the curve REACHES
+                // the stack, and the destroy happens because it arrived, not because a timer expired.
                 float cdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
-                _collapseTime -= cdt;
-                float ct = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * cdt);
-                transform.position = Vector3.Lerp(transform.position, _collapseWorld, ct);
-                transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * (_homeScale * 0.2f), ct);
-                if (_collapseTime <= 0f)
+                _collapseTime += cdt;
+                float cdur = Mathf.Max(0.01f, CardsConfig.ItemFanCloseDuration.Value);
+                float ct = Mathf.Clamp01((_collapseTime - _collapseDelay) / cdur);
+                float ce = EaseInBack(ct, Overshoot());
+                // Unclamped so the wind-up (ce < 0 early on) actually lifts the chip AWAY from the
+                // stack for a moment — the anticipation that tells the eye where the card is about to
+                // go before it goes there.
+                transform.position = Vector3.LerpUnclamped(_collapseFrom, _collapseWorld, ce);
+                transform.rotation = _collapseFromRot * Quaternion.Slerp(Quaternion.identity, _collapseSpin, ct);
+                transform.localScale = Vector3.one
+                                     * Mathf.LerpUnclamped(_collapseFromScale, _collapseFromScale * SeedScale(), ce);
+                if (ct >= 1f)
                     Object.Destroy(gameObject);
                 return;
             }
@@ -3760,6 +3960,12 @@ internal sealed class ItemsPile
 
             if (Holder != null)
             {
+                // A grab mid-fly-out CANCELS the fly-out (it does not pause it): the held pose owns
+                // the chip from here, and on release the ordinary post-release home glide takes over.
+                // Without this the emerge would still be live when the chip is dropped and would yank
+                // it back to the stack seed — the pop the standing ruling forbids, arriving by the
+                // back door of a state nobody cleared.
+                _emerging = false;
                 TickHeldPose(); // FIX 1 — track the wrist + billboard the face every frame while held
                 return;
             }
@@ -3778,7 +3984,14 @@ internal sealed class ItemsPile
             Vector3 posTarget = _homePos + new Vector3(0f, 0f, -PopLift * _pop);
             float scaleTarget = _homeScale * (1f + (PopScale - 1f) * _pop);
 
-            if (_releaseGlide > 0f)
+            if (_emerging)
+            {
+                // Req #5 (presence pass) — the staggered, arced, over-shooting fly-out of the items
+                // stack. Checked BEFORE the release glide because BeginEmerge clears that one: the two
+                // must never drive the same transform in the same frame.
+                TickEmerge(udt, posTarget, scaleTarget);
+            }
+            else if (_releaseGlide > 0f)
             {
                 // FIX 2 — post-release glide: exponential ease toward the fan home (position + rotation
                 // + scale) at CardLerpSpeed on unscaled time, so a released chip flies back to its slot

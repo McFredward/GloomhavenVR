@@ -51,7 +51,9 @@ namespace GloomhavenVR.Net;
 /// backs — the same convention as every other remote card visual.
 /// </summary>
 /// <remarks>CLASSIFICATION: VR-ONLY (the fan's existence, size and placement) + PER-ACTOR MODEL (its
-/// card faces) — costs wire bytes: extras <c>FlagItemFan</c> + one count byte, plus the two pure flags
+/// card faces) + WIRE (extension record 28, via <see cref="RemoteBoardTuning"/> — the owner's own
+/// open/close ANIMATION dials, and only the ones they have actually moved) — costs wire bytes: extras
+/// <c>FlagItemFan</c> + one count byte, plus the two pure flags
 /// <c>FlagItemFanHeld</c> / <c>FlagItemFanLeft</c> (0 B each). Item IDENTITY and per-item face size
 /// are DELIBERATELY-NOT transmitted; the FACES are resolved locally off the host-replicated
 /// <c>Inventory.AllItems</c> behind <see cref="RevealGate"/> (<see cref="RemotePileFronts"/>). The
@@ -90,9 +92,8 @@ internal sealed class RemoteItemFan
     private bool _gateHiddenLogged;
 
     // ---- emerge / collapse (the peer-visible "Auf- und Zuklappen" of the item Fach) ------------
-    // The local fan does BOTH: ItemsPile.EmergeAll seeds every chip ON the items stack at 0.35×
-    // size and lets the chip's own home-glide fly it out into the arc, and ItemsPile.CollapseChips
-    // glides every chip back INTO that stack over ItemChip.CollapseSeconds before it dies. This
+    // The local fan does BOTH: ItemsPile.EmergeAll deals every chip OUT of the items stack into the
+    // arc, and ItemsPile.CollapseChips folds every chip back INTO that stack before it dies. This
     // ghost used to do neither properly — it spread from its own centre and then vanished instantly
     // on close — so a peer never saw the fan close AT ALL, it just blinked out.
     //
@@ -100,15 +101,58 @@ internal sealed class RemoteItemFan
     // off an event: the receiver already knows the sender's board pose and therefore where their
     // ITEMS stack is (RemoteControlBoard.AnchorLocal), so both arcs replay locally for zero extra
     // wire bytes. Timings match the local ones so both players see the same motion.
+    //
+    // ─── THE PRESENCE PASS (user report 2026-08-08: "Ich mag die Animation im Item-Pile sehr aber
+    // sie ist (insbesondere in mixed Reality) etwas zu dezent.") ────────────────────────────────
+    // The local fly-out stopped being an exponential home-lerp and became a parametric, per-chip
+    // animation: a centre-out deal-out ripple, a mid-flight bow toward the viewer, growth from a
+    // much smaller seed, a signed unfold roll, and an ease-out-BACK overshoot at the settle. The
+    // fold-in is the same curve reversed (outermost chip first, ease-in-BACK wind-up).
+    //
+    // ALL OF IT IS REPRODUCED HERE, and that is not optional polish: the standing 1:1 ruling names
+    // "alle Interaktionen, **Animationen** und Anzeigen des Controllboards". An owner whose item
+    // fan deals out with an audible sense of weight while every peer sees the old smooth blob is
+    // precisely the divergence the ruling forbids — and it is the kind nobody can spot from inside
+    // their own headset. The maths below is ItemsPile.ItemChip's, term for term; the only
+    // difference is that it runs in fan-LOCAL space on a slab instead of on a hosted card widget.
     private float _emergeElapsed = -1f;
-    private const float EmergeSharpness = 14f;        // [Cards] CardLerpSpeed default — the chip home-glide
-    private const float EmergeSettleSeconds = 0.7f;
-    private const float EmergeSeedScale = 0.35f;      // ItemChip.BeginEmerge's seed size
-    private const float CollapseSeconds = 0.26f;      // ItemsPile.ItemChip.CollapseSeconds
+    private Vector3 _emergeSeedLocal;                 // the sender's items stack, in fan-local space
+
+    // ---- the owner's own ANIMATION dials (extension record 28) --------------------------------
+    // Wire-overridable fallbacks, exactly like RemoteHandFan's geometry fields: the value the owner
+    // set where they moved the dial, this client's shipped constant where they did not — which is
+    // the same number, so an untuned peer is drawn with the shipped animation. Refreshed by
+    // SyncTuning() on the owner's tuning revision, read as plain floats in between (the layout loop
+    // touches them per slab per frame and RemoteBoardTuning is a wide struct).
+    // scripts/check-remote-defaults.py holds all eight to the Defaults entries the local binds read.
+    private float _openSeconds = Defaults.ItemFanOpenDuration;
+    private float _openStagger = Defaults.ItemFanOpenStagger;
+    private float _openArc = Defaults.ItemFanOpenArc;
+    private float _openSpinDegrees = Defaults.ItemFanOpenSpinDegrees;
+    private float _seedScale = Defaults.ItemFanSeedScale;
+    private float _settleOvershoot = Defaults.ItemFanSettleOvershoot;
+    private float _closeSeconds = Defaults.ItemFanCloseDuration;
+    private float _closeStagger = Defaults.ItemFanCloseStagger;
+
+    /// <summary>The <see cref="RemoteAvatar.BoardTuningRevision"/> the eight dials above were last
+    /// refreshed at (−1 = never). Latched, not value-compared — the resolve already happens once
+    /// per real change in <see cref="RemoteAvatar"/>.</summary>
+    private int _tuningRevision = -1;
 
     private float _collapseElapsed = -1f;
     private Vector3 _collapseTo;
     private readonly List<Vector3> _collapseFrom = new(MaxCards);
+    private readonly List<Quaternion> _collapseFromRot = new(MaxCards);
+    private readonly List<float> _collapseFromScale = new(MaxCards);
+
+    /// <summary>Drop the three index-parallel capture lists together. They are only ever filled and
+    /// cleared as a set, and a partial clear would leave the collapse indexing a dead slab.</summary>
+    private void ClearCollapseCapture()
+    {
+        _collapseFrom.Clear();
+        _collapseFromRot.Clear();
+        _collapseFromScale.Clear();
+    }
 
     public RemoteItemFan(RemoteAvatar owner)
     {
@@ -119,6 +163,11 @@ internal sealed class RemoteItemFan
     public void Tick(float dt)
     {
         dt = Mathf.Max(dt, 0f);
+
+        // The owner's own animation dials (record 28) BEFORE anything reads them — including the
+        // collapse below, which must run on the owner's close timing even though the fan is already
+        // logically gone.
+        SyncTuning();
 
         // A collapse (the fan closing) runs to completion on its own — the count already went to 0,
         // so this is the only thing keeping the chips on screen.
@@ -280,21 +329,25 @@ internal sealed class RemoteItemFan
 
     /// <summary>Arc the slabs in fan-local space — the same reading arc <see cref="ItemsPile"/>
     /// lays its chips out on (capped sweep, capped per-card step, z-staggered for draw order),
-    /// easing out of the <see cref="SeedEmerge"/> seed on the same exponential the local chips
-    /// home-glide on.</summary>
+    /// dealing them out of the <see cref="SeedEmerge"/> seed on the owner's own fly-out curve.</summary>
     private void Layout(int n, float dt)
     {
         float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
+        float mid = (n - 1) * 0.5f;
 
+        // The fly-out clock. It runs until the LAST slab (the outermost pair) has finished its own
+        // duration — not for a fixed settle window — so lengthening the stagger cannot silently
+        // truncate the deal-out into a snap on the trailing cards.
         bool easing = _emergeElapsed >= 0f;
-        float k = 0f;
         if (easing)
         {
             _emergeElapsed += dt;
-            k = 1f - Mathf.Exp(-EmergeSharpness * dt);
-            if (_emergeElapsed >= EmergeSettleSeconds)
+            if (_emergeElapsed >= mid * _openStagger + _openSeconds)
+            {
                 _emergeElapsed = -1f; // settled: assert the slots exactly from here on
+                easing = false;
+            }
         }
 
         // WHICH ITEM CHIP THE OWNER IS SINGLING OUT (extension record 6, byte 1 — hardware MP
@@ -330,9 +383,20 @@ internal sealed class RemoteItemFan
             Transform t = _cards[i].transform;
             if (easing)
             {
-                t.localPosition = Vector3.Lerp(t.localPosition, pos, k);
-                t.localRotation = Quaternion.Slerp(t.localRotation, rot, k);
-                t.localScale = Vector3.Lerp(t.localScale, Vector3.one * scale, k);
+                // The owner's own fly-out, term for term (ItemsPile.ItemChip.TickEmerge): a per-slab
+                // clock offset by the centre-out ripple, an ease-out-BACK onto the arc slot, a
+                // mid-flight bow along local −Z (toward the fan's own viewer, exactly as the local
+                // chip bows toward its owner), growth out of the seed size, and an unfold roll that
+                // eases on the CLAMPED progress — a card that overshoots its roll reads as a wobble.
+                float u = Mathf.Clamp01((_emergeElapsed - Mathf.Abs(i - mid) * _openStagger) / _openSeconds);
+                float e = EaseOutBack(u, _settleOvershoot);
+                Vector3 seed = _emergeSeedLocal + new Vector3(0f, 0f, -ZStagger * i);
+                Vector3 p = Vector3.LerpUnclamped(seed, pos, e);
+                p.z -= _openArc * Mathf.Sin(u * Mathf.PI);
+                t.localPosition = p;
+                Quaternion spin = Quaternion.Euler(0f, 0f, SpinSign(i, mid) * _openSpinDegrees);
+                t.localRotation = rot * Quaternion.Slerp(spin, Quaternion.identity, e);
+                t.localScale = Vector3.one * Mathf.LerpUnclamped(_seedScale, scale, e);
             }
             else
             {
@@ -407,26 +471,74 @@ internal sealed class RemoteItemFan
     // ------------------------------------------------------------------ emerge / collapse --
 
     /// <summary>
-    /// Seed every chip ON the sender's ITEMS stack at <see cref="EmergeSeedScale"/> size so the ease
-    /// in <see cref="Layout"/> flies them OUT of the pile — the wire-free replay of
-    /// <c>ItemsPile.EmergeAll</c> + <c>ItemChip.BeginEmerge</c>. Falls back to the fan centre when
-    /// the sender's board pose is unknown, so the worst case is a spread-open, never a pop-in.
+    /// Seed every chip ON the sender's ITEMS stack, shrunk to <see cref="_seedScale"/> and rolled by
+    /// the owner's unfold angle, so the parametric ease in <see cref="Layout"/> deals them OUT of the
+    /// pile — the wire-free replay of <c>ItemsPile.EmergeAll</c> + <c>ItemChip.BeginEmerge</c>. Falls
+    /// back to the fan centre when the sender's board pose is unknown, so the worst case is a
+    /// spread-open, never a pop-in.
+    ///
+    /// <para>The seed pose is written on the SAME frame the root is activated (see the caller), so a
+    /// slab whose stagger delay has not elapsed yet is sitting on the stack from its first rendered
+    /// frame — it never shows up in the arc and then jumps back. That is the receiver-side half of
+    /// the owner's "nothing may pop" ruling.</para>
     /// </summary>
     private void SeedEmerge()
     {
         if (_root == null)
             return;
-        Vector3 seedLocal = Vector3.zero;
+        _emergeSeedLocal = Vector3.zero;
         if (TryItemStackWorld(out Vector3 stackWorld))
-            seedLocal = _root.transform.InverseTransformPoint(stackWorld);
+            _emergeSeedLocal = _root.transform.InverseTransformPoint(stackWorld);
         for (int i = 0; i < _cards.Count; i++)
         {
             Transform t = _cards[i].transform;
-            t.localPosition = seedLocal + new Vector3(0f, 0f, -ZStagger * i); // keep the draw order stable
-            t.localRotation = Quaternion.identity;
-            t.localScale = Vector3.one * EmergeSeedScale;
+            t.localPosition = _emergeSeedLocal + new Vector3(0f, 0f, -ZStagger * i); // keep the draw order stable
+            t.localScale = Vector3.one * _seedScale;
+            // ROTATION is deliberately not seeded here: the unfold roll is expressed relative to the
+            // slab's ARC rotation, which only Layout knows, and Layout runs unconditionally later in
+            // the SAME Tick call at progress 0 — i.e. it writes the exact seed pose before anything
+            // is rendered. Seeding a rotation here would be a second, disagreeing answer.
         }
         _emergeElapsed = 0f;
+    }
+
+    /// <summary>Which way slab <paramref name="i"/> rolls out of the stack: outward from the fan
+    /// centre, so the arc UNFOLDS rather than sliding open (<c>ItemsPile.EmergeAll</c>'s rule).</summary>
+    private static float SpinSign(int i, float mid) => i - mid >= 0f ? 1f : -1f;
+
+    /// <summary>Ease-out BACK — <c>ItemsPile.ItemChip.EaseOutBack</c> verbatim. <paramref name="s"/>
+    /// = 0 degenerates to the plain ease-out cubic, which is what an owner who has turned the
+    /// overshoot off is looking at.</summary>
+    private static float EaseOutBack(float t, float s)
+    {
+        float u = t - 1f;
+        return 1f + u * u * ((s + 1f) * u + s);
+    }
+
+    /// <summary>Ease-in BACK — the collapse's wind-up, <c>ItemsPile.ItemChip.EaseInBack</c> verbatim.</summary>
+    private static float EaseInBack(float t, float s) => t * t * ((s + 1f) * t - s);
+
+    /// <summary>
+    /// Pull the owner's own item-fan ANIMATION dials out of their resolved tuning (extension record
+    /// 28) when it has actually changed. Every dial they have not touched resolves to this client's
+    /// shipped constant — the same number — so an untuned peer's fan opens exactly as this build
+    /// ships it. No rebuild is ever needed: none of these changes the slab GEOMETRY, only the curve
+    /// the slabs travel on, and that is recomputed every frame anyway.
+    /// </summary>
+    private void SyncTuning()
+    {
+        if (_tuningRevision == _owner.BoardTuningRevision)
+            return;
+        _tuningRevision = _owner.BoardTuningRevision;
+        RemoteBoardTuning t = _owner.BoardTuning;
+        _openSeconds = Mathf.Max(0.01f, t.ItemFanOpenDuration);
+        _openStagger = Mathf.Max(0f, t.ItemFanOpenStagger);
+        _openArc = Mathf.Max(0f, t.ItemFanOpenArc);
+        _openSpinDegrees = t.ItemFanOpenSpinDegrees;
+        _seedScale = Mathf.Clamp(t.ItemFanSeedScale, 0.02f, 1f);
+        _settleOvershoot = Mathf.Clamp(t.ItemFanSettleOvershoot, 0f, 3f);
+        _closeSeconds = Mathf.Max(0.01f, t.ItemFanCloseDuration);
+        _closeStagger = Mathf.Max(0f, t.ItemFanCloseStagger);
     }
 
     /// <summary>
@@ -446,29 +558,59 @@ internal sealed class RemoteItemFan
 
         _emergeElapsed = -1f;
         _collapseTo = stackWorld;
-        _collapseFrom.Clear();
+        ClearCollapseCapture();
         for (int i = 0; i < _cards.Count; i++)
-            _collapseFrom.Add(_cards[i].transform.position);
+        {
+            Transform t = _cards[i].transform;
+            _collapseFrom.Add(t.position);
+            _collapseFromRot.Add(t.rotation);
+            _collapseFromScale.Add(t.localScale.x);
+        }
         _collapseElapsed = 0f;
 
+        float total = (_cards.Count - 1) * 0.5f * _closeStagger + _closeSeconds;
         VRLog.Info("Net", $"Remote ITEM fan [player {_owner.PlayerId}]: closing — {_cards.Count} item card(s) " +
-                          $"collapse back into their items stack ({CollapseSeconds:F2}s), matching the local fan.");
+                          $"fold back into their items stack outermost-first ({total:F2}s total: " +
+                          $"{_closeSeconds:F2}s each, {_closeStagger:F3}s per place), matching the local fan.");
         _loggedCount = 0; // Hide's own "closed" line is redundant with this one
         return true;
     }
 
+    /// <summary>
+    /// The fold-in, driven in WORLD space off the poses captured at the close — the replay of
+    /// <c>ItemsPile.CollapseChips</c> + <c>ItemChip</c>'s collapse tick, including the presence pass:
+    /// the REVERSE ripple (outermost slab first, so the close is the open played backwards), the
+    /// ease-in-BACK wind-up (the slab lifts AWAY from the stack for a moment before it is pulled in
+    /// — the anticipation that says where the card is about to go before it goes there), and the
+    /// unfold roll wound back on.
+    ///
+    /// <para>A slab still waiting out its delay holds its captured pose exactly, because the curve is
+    /// the identity at t = 0. Nothing is hidden and nothing is moved early.</para>
+    /// </summary>
     private void TickCollapse(float dt)
     {
         _collapseElapsed += dt;
-        float u = Mathf.Clamp01(_collapseElapsed / CollapseSeconds);
-        float e = u * u * (3f - 2f * u);
-        for (int i = 0; i < _cards.Count && i < _collapseFrom.Count; i++)
+        int n = _cards.Count;
+        float mid = (n - 1) * 0.5f;
+        bool allDone = true;
+        for (int i = 0; i < n && i < _collapseFrom.Count; i++)
         {
+            // (mid − |i − mid|): the outermost pair starts at 0, the centre slab last — the exact
+            // reverse of the fly-out's centre-out ripple.
+            float delay = (mid - Mathf.Abs(i - mid)) * _closeStagger;
+            float u = Mathf.Clamp01((_collapseElapsed - delay) / _closeSeconds);
+            float e = EaseInBack(u, _settleOvershoot);
             Transform t = _cards[i].transform;
-            t.position = Vector3.Lerp(_collapseFrom[i], _collapseTo, e);
-            t.localScale = Vector3.one * Mathf.Lerp(1f, EmergeSeedScale, e);
+            t.position = Vector3.LerpUnclamped(_collapseFrom[i], _collapseTo, e);
+            t.rotation = _collapseFromRot[i]
+                       * Quaternion.Slerp(Quaternion.identity,
+                                          Quaternion.Euler(0f, 0f, SpinSign(i, mid) * _openSpinDegrees), u);
+            t.localScale = Vector3.one
+                         * Mathf.LerpUnclamped(_collapseFromScale[i], _collapseFromScale[i] * _seedScale, e);
+            if (u < 1f)
+                allDone = false;
         }
-        if (u < 1f)
+        if (!allDone)
             return;
         _collapseElapsed = -1f;
         Hide();
@@ -510,8 +652,8 @@ internal sealed class RemoteItemFan
                 Object.Destroy(_cards[i]);
         }
         _cards.Clear();
-        _collapseFrom.Clear(); // parallel to _cards — never let it outlive the slabs it indexed
-        ClearPops();           // index-aligned with _cards too — a rebuilt arc starts flat
+        ClearCollapseCapture(); // parallel to _cards — never let it outlive the slabs it indexed
+        ClearPops();            // index-aligned with _cards too — a rebuilt arc starts flat
 
         Material back = CardMesh.CreateBackMaterial(); // SHARED cache — never ours to destroy
         for (int i = 0; i < count; i++)
@@ -546,7 +688,7 @@ internal sealed class RemoteItemFan
             _root.SetActive(false);
         _emergeElapsed = -1f;   // next appearance emerges out of the stack again
         _collapseElapsed = -1f;
-        _collapseFrom.Clear();
+        ClearCollapseCapture();
         ClearPops();            // a re-opened fan never starts with a stale chip lifted
     }
 
@@ -554,7 +696,7 @@ internal sealed class RemoteItemFan
     {
         _fronts.Destroy();
         _cards.Clear();
-        _collapseFrom.Clear();
+        ClearCollapseCapture();
         _builtCount = -1;
         if (_mesh != null)
             Object.Destroy(_mesh); // asset — not freed with the GameObject tree
