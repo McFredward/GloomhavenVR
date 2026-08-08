@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using ScenarioRuleLibrary;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
@@ -44,6 +46,29 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// The global HelpBox doubles as the game's general hint strip; converting it here only
 /// ever happens DURING the take-damage dock (where the strip is showing the damage tip),
 /// and reverses on undock, so its normal use elsewhere is untouched.
+///
+/// ONE CHARACTER OWNS THIS TEXT, TOO (user, ModBuild 86 hardware test: "Der Text der
+/// Entscheidung zB 'Schadensphase: Erleide entweder Schaden, verbrenne …' ist immer noch
+/// sichtbar auch wenn man den Character wechselt — Buttons und Text also die GESAMTE
+/// Entscheidungsanzeige soll pro Character angezeigt werden"). ModBuild 84/85 gave the
+/// owner rule to the widget ROW (<see cref="DecisionDockSurface"/>) and to the use bars
+/// (<see cref="UseBarsSurface"/>) — and it worked: the hardware log shows the row hiding "1
+/// canvas and 1 renderer". But this surface, which draws the OTHER half of the same dock,
+/// had no owner rule at all, so the sentence describing another character's decision stayed
+/// on the board through every character switch. It hides now on the SAME verdict from the
+/// SAME resolver (<see cref="DecisionDockSurface.PromptFocus.ShouldHide"/> →
+/// <c>DecisionDockSurface.PromptOwner</c>) — there is no second owner switch anywhere — and
+/// through the SAME shared, idempotent, exact-restore mechanism
+/// (<see cref="CanvasConversion.ApplyOwnerRenderHide"/>), which also switches off the MR
+/// backing plate (a MeshRenderer, invisible to a canvas-only hide — the ModBuild 84 "leerer
+/// Hintergrund" lesson) and sets <c>ConvertedPanel.OwnerRenderHidden</c> so
+/// <see cref="MrBacking"/> refuses to build one while hidden.
+///
+/// <para>It cannot disturb the prompt, for the same structural reason the row's hide cannot:
+/// only <c>Canvas.enabled</c>/<c>Renderer.enabled</c> are written on the mod-owned converted
+/// host subtree. Nothing is deactivated, so no game <c>OnDisable</c> runs — and the HelpBox
+/// is not even interactive, it is pure text. <see cref="Place"/> keeps running while hidden,
+/// so focusing the owner again reveals it at its final geometry, never mid-placement.</para>
 /// </summary>
 internal sealed class DamageTooltipSurface : WorldSurface
 {
@@ -59,6 +84,28 @@ internal sealed class DamageTooltipSurface : WorldSurface
 
     /// <summary>The HelpBox window currently converted (open + showing the damage tip).</summary>
     private HelpBox? _active;
+
+    // ---- one character owns a decision, TEXT edition (user ruling ModBuild 86) --------------
+
+    /// <summary>Canvases WE disabled to render-hide the prompt text while the player is looking at
+    /// another character. Held by reference so the restore lands even if the conversion was released
+    /// in between (the HelpBox is then back in its 2D home, where it belongs enabled).</summary>
+    private readonly List<Canvas> _focusHiddenCanvases = new(4);
+
+    /// <summary>Renderers WE disabled for the same hide — the MR backing plate lives here.</summary>
+    private readonly List<Renderer> _focusHiddenRenderers = new(4);
+
+    /// <summary>True while the prompt text is render-hidden for another character's focus.</summary>
+    private bool _hiddenForFocus;
+
+    /// <summary>Totals across the re-asserting ticks of the CURRENT hide, and whether the MR plate
+    /// was among them — reported by the log so a hardware log proves the plate went with the text.</summary>
+    private int _focusHiddenCanvasCount;
+    private int _focusHiddenRendererCount;
+    private bool _focusHiddenPlate;
+
+    /// <summary>Change-dedup for the hide/show line.</summary>
+    private string? _loggedFocusVisibility;
 
     public override string Name => "DamageTooltip";
     protected override bool ConfigEnabled => WorldUIConfig.DecisionDock.Value;
@@ -111,7 +158,125 @@ internal sealed class DamageTooltipSurface : WorldSurface
         else if (Panel == null && hadPanel)
         {
             _active = null;
+            _loggedFocusVisibility = null; // the next dock states its focus verdict afresh
             VRLog.Info("WorldUI", "DAMAGE TOOLTIP: HelpBox released — restored to its 2D home.");
+        }
+
+        // ONE CHARACTER OWNS A DECISION — the prompt TEXT follows the widget row (see the class
+        // doc). Level-triggered and re-asserted every converted tick, exactly like the row's hide.
+        if (Panel != null)
+            UpdateFocusVisibility();
+        else
+            RestoreFocusHide("the prompt text released");
+    }
+
+    /// <summary>
+    /// Hide/show the converted prompt text against the SHARED focus verdict. The owner is resolved
+    /// exactly once, by <see cref="DecisionDockSurface.PromptFocus.ShouldHide"/> — this surface
+    /// deliberately owns no attribution logic of its own, so the text can never disagree with the
+    /// buttons it belongs to (which is the ModBuild 86 bug, in one sentence).
+    /// </summary>
+    private void UpdateFocusVisibility()
+    {
+        bool hide = DecisionDockSurface.PromptFocus.ShouldHide(out CPlayerActor? owner,
+                                                              out CPlayerActor? focused);
+        if (hide)
+            ApplyFocusHide();
+        else
+            RestoreFocusHide(null);
+
+        DecisionDockSurface.PromptFocus.Report(Name, hide, _focusHiddenCanvasCount,
+            _focusHiddenRendererCount, _focusHiddenPlate);
+
+        // Same dedup shape as the row's: the counts are part of the key because the hide is
+        // re-asserted every tick, so a plate the MR sweep builds a frame later genuinely changes
+        // what is hidden. The sets are finite, so this can never become a per-frame log.
+        string state = $"{(hide ? "hidden" : "shown")}|{Board.CharacterFocus.Describe(owner)}|" +
+                       $"{Board.CharacterFocus.Describe(focused)}|" +
+                       $"{_focusHiddenCanvasCount}|{_focusHiddenRendererCount}|{_focusHiddenPlate}";
+        if (_loggedFocusVisibility == state)
+            return;
+        _loggedFocusVisibility = state;
+        if (hide)
+            VRLog.Info("WorldUI", "DECISION DOCK: the prompt TEXT (HelpBox, 'Schadensphase: …') belongs to " +
+                                  $"'{Board.CharacterFocus.Describe(owner)}' and the player is looking at " +
+                                  $"'{Board.CharacterFocus.Describe(focused)}' — RENDER-HIDDEN: " +
+                                  $"{_focusHiddenCanvasCount} canvas(es) and {_focusHiddenRendererCount} " +
+                                  "renderer(s) disabled on the mod-owned host subtree + extra render roots, " +
+                                  $"MR backing plate {(_focusHiddenPlate ? "INCLUDED" : "not present (no plate on this panel yet)")}. " +
+                                  "It hides WITH the widget row — the whole decision display belongs to one " +
+                                  "character. The HelpBox itself is untouched: still open, still holding its " +
+                                  "text, and it reappears unchanged the moment the owner is focused again.");
+        else
+            VRLog.Info("WorldUI", "DECISION DOCK: the prompt TEXT (HelpBox) is VISIBLE — " +
+                                  (owner == null
+                                      ? "the prompt is not attributable to a single character, so it shows to " +
+                                        "whoever is looking (the safe direction, matching the widget row)."
+                                      : $"owner '{Board.CharacterFocus.Describe(owner)}' is the character in " +
+                                        "view" + (focused == null ? " (no focus override — following the game)." : ".")));
+    }
+
+    /// <summary>
+    /// RENDER-HIDE the converted prompt text and NOTHING ELSE — the shared mechanism the docked row
+    /// uses (<see cref="CanvasConversion.ApplyOwnerRenderHide"/>): <c>Canvas.enabled</c> and
+    /// <c>Renderer.enabled</c> off across the mod-owned host subtree and every registered extra
+    /// render root, each one recorded so the restore is exact. Idempotent and re-asserted every
+    /// converted tick, so an MR plate built a frame later is caught next tick — and
+    /// <c>ConvertedPanel.OwnerRenderHidden</c> (set inside the helper, before any component is
+    /// touched) makes <see cref="MrBacking"/> refuse to build one at all, so there is no flash.
+    /// </summary>
+    private void ApplyFocusHide()
+    {
+        ConvertedPanel? panel = Panel;
+        if (panel == null || panel.HostGo == null)
+            return;
+        bool first = !_hiddenForFocus;
+        _hiddenForFocus = true;
+        if (first)
+        {
+            _focusHiddenCanvasCount = 0;
+            _focusHiddenRendererCount = 0;
+            _focusHiddenPlate = false;
+        }
+
+        int before = _focusHiddenRenderers.Count;
+        CanvasConversion.ApplyOwnerRenderHide(panel, _focusHiddenCanvases, _focusHiddenRenderers,
+            out int canvases, out int renderers);
+        _focusHiddenCanvasCount += canvases;
+        _focusHiddenRendererCount += renderers;
+        // Diagnostic only (the hide itself is name-blind): name the MR plate in the log if this pass
+        // — or an earlier one for the same hide — actually switched it off.
+        for (int i = before; i < _focusHiddenRenderers.Count && !_focusHiddenPlate; i++)
+        {
+            Renderer r = _focusHiddenRenderers[i];
+            if (r != null && r.gameObject.name == MrBacking.PlateObjectName)
+                _focusHiddenPlate = true;
+        }
+    }
+
+    /// <summary>
+    /// Undo <see cref="ApplyFocusHide"/>: re-enable exactly the canvases AND renderers WE disabled
+    /// and clear <c>ConvertedPanel.OwnerRenderHidden</c>. Idempotent, and safe after the conversion
+    /// was already released — the components are held by reference and belong enabled wherever they
+    /// now live (the HelpBox's 2D home restores them enabled too).
+    /// </summary>
+    private void RestoreFocusHide(string? reason)
+    {
+        if (_focusHiddenCanvases.Count == 0 && _focusHiddenRenderers.Count == 0 && !_hiddenForFocus)
+            return;
+        CanvasConversion.LiftOwnerRenderHide(Panel, _focusHiddenCanvases, _focusHiddenRenderers);
+        _hiddenForFocus = false;
+        int canvases = _focusHiddenCanvasCount;
+        int renderers = _focusHiddenRendererCount;
+        _focusHiddenCanvasCount = 0;
+        _focusHiddenRendererCount = 0;
+        _focusHiddenPlate = false;
+        if (reason != null)
+        {
+            _loggedFocusVisibility = null;
+            VRLog.Info("WorldUI", $"DECISION DOCK: prompt-text focus hide lifted ({reason}) — all {canvases} " +
+                                  $"canvas(es) and {renderers} renderer(s) the mod disabled are enabled " +
+                                  "again (the MR backing plate among them); the HelpBox was never touched.");
         }
     }
 
@@ -183,7 +348,11 @@ internal sealed class DamageTooltipSurface : WorldSurface
 
     public override void Shutdown()
     {
+        // BEFORE the release: never strand a disabled canvas/renderer on a HelpBox that is about
+        // to be handed back to its 2D home (the row's Shutdown ordering, same reason).
+        RestoreFocusHide("the prompt-text surface is shutting down");
         base.Shutdown(); // releases the conversion → HelpBox back in its 2D home
         _active = null;
+        _loggedFocusVisibility = null;
     }
 }

@@ -79,6 +79,17 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// else (<c>Board.CharacterFocus.Focused</c>), the row is render-hidden; the moment they
 /// look back at the owner it is shown again, unchanged, in the very same place.
 ///
+/// AND THE RULE COVERS THE WHOLE DISPLAY, NOT JUST THE ROW (user, ModBuild 86 hardware test:
+/// "Buttons und Text also die GESAMTE Entscheidungsanzeige soll pro Character angezeigt
+/// werden und dementsprechend wechseln bzw. verschwinden"). A prompt is drawn by SEVERAL mod
+/// surfaces — this widget row, the prompt's persistent instruction TEXT
+/// (<see cref="DamageTooltipSurface"/>: the game's HelpBox, parked just above the row) and the
+/// use bars (<see cref="UseBarsSurface"/>) — and every one of them now hides on the SAME
+/// verdict from the SAME resolver, <see cref="PromptFocus.ShouldHide"/>. That is the only
+/// place the <c>Focused</c>-vs-owner comparison is written and it delegates attribution to the
+/// one <see cref="PromptOwner"/> switch below, so a further piece of a prompt is wired in by
+/// calling it — never by re-deriving the owner.
+///
 /// AND HIDING CANNOT DISTURB IT — structurally, not by care (see
 /// <see cref="ApplyFocusHide"/>). The hide toggles <c>Canvas.enabled</c> and
 /// <c>Renderer.enabled</c> on the MOD-OWNED converted host subtree (nested canvases and the
@@ -385,6 +396,12 @@ internal sealed class DecisionDockSurface : WorldSurface
 
     public override void Tick()
     {
+        // Roll-up of the PREVIOUS frame's focus hides, across every surface that draws a piece of
+        // the prompt. Emitted here because this is the FIRST decision surface in the WorldUI tick
+        // order, so everything reported since the last call is one complete, settled frame — see
+        // PromptFocus.Flush.
+        PromptFocus.Flush();
+
         // Pick the currently-open, still-claimed prompt (decisions are sequential, so
         // at most one). ActivePrompt already skips a window the grace handed back.
         ModalFallback.DecisionDock.Prompt? active = ModalFallback.DecisionDock.ActivePrompt();
@@ -480,6 +497,10 @@ internal sealed class DecisionDockSurface : WorldSurface
         else
         {
             _hmdFloatPlaced = false;
+            // No prompt open ⇒ the roll-up's context is nobody's. The use bars keep reporting (they
+            // outlive a prompt), so the line stays truthful instead of attributing them to a stale
+            // prompt name.
+            PromptFocus.SetContext(null, null, null);
             RestoreFocusHide("the row undocked");
             if (WireButtonLines != null)
             {
@@ -1185,6 +1206,144 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
+    /// THE WHOLE DECISION DISPLAY BELONGS TO ONE CHARACTER (user, ModBuild 86 hardware test: "Der
+    /// Text der Entscheidung zB 'Schadensphase: Erleide entweder Schaden, verbrenne …' ist immer
+    /// noch sichtbar auch wenn man den Character wechselt — Buttons und Text also die GESAMTE
+    /// Entscheidungsanzeige soll pro Character angezeigt werden").
+    ///
+    /// <para>A decision prompt is drawn by MORE THAN ONE mod surface. ModBuild 84/85 gave the rule
+    /// to the docked widget ROW (<see cref="DecisionDockSurface"/>) and to the use bars
+    /// (<see cref="UseBarsSurface"/>), but the take-damage prompt's persistent instruction TEXT is
+    /// a THIRD surface — <see cref="DamageTooltipSurface"/> converts the game's <c>HelpBox</c>
+    /// window and parks it just above the row — and it had no owner rule at all, so the sentence
+    /// stayed on the board for every character. This class is the seam that makes "one more piece
+    /// of the prompt" a two-line change instead of a fourth copy of the rule.</para>
+    ///
+    /// <para>ONE RESOLVER, ONE PREDICATE. <see cref="ShouldHide"/> is the ONLY place the
+    /// <c>Focused</c>-vs-owner comparison is written, and the owner comes from the ONE
+    /// <see cref="PromptOwner"/> switch on the live instance — there is deliberately no second
+    /// attribution anywhere. Its fail-open contract rides along unchanged: no focus override, or an
+    /// owner that cannot be resolved, ⇒ SHOWN, because an invisible prompt nobody can answer is the
+    /// deadlock the dock exists to prevent.</para>
+    ///
+    /// <para>ONE LOG LINE. Each surface <see cref="Report"/>s what IT switched off; the roll-up is
+    /// emitted from <see cref="Flush"/> at the top of the next <see cref="Tick"/> — i.e. after a
+    /// COMPLETE frame in which every decision surface has had its say, in a fixed order that does
+    /// not depend on which surface ticks last. Change-gated on the full combined state, so a focus
+    /// flip costs exactly one line and a steady state costs none.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing here touches the wire. Hiding is a LOCAL VIEW change, and record
+    /// 12 (<see cref="WireButtonLines"/>) keeps riding while a piece is hidden for exactly the
+    /// reason documented at the <see cref="UpdateFocusVisibility"/> call site — the peers' plate
+    /// reports that this player has a pending decision, which is still true.</para>
+    /// </summary>
+    internal static class PromptFocus
+    {
+        /// <summary>What each surface reported this frame (finite: 3-4 entries).</summary>
+        private static readonly List<(string surface, bool hidden, int canvases, int renderers, bool plate)>
+            Reports = new(4);
+
+        private static string _prompt = "none";
+        private static string _owner = "?";
+        private static string _focused = "?";
+        private static string? _logged;
+
+        /// <summary>
+        /// SHARED VERDICT — true while the active decision prompt belongs to a character the player
+        /// is NOT looking at, i.e. while every surface drawing a piece of it must be render-hidden.
+        /// Owner attribution is delegated to the single <see cref="PromptOwner"/> switch on the live
+        /// surface instance; no caller may re-derive it.
+        /// </summary>
+        internal static bool ShouldHide(out CPlayerActor? owner, out CPlayerActor? focused)
+        {
+            owner = Instance != null ? Instance.PromptOwner() : null;
+            focused = Board.CharacterFocus.Focused;
+            return focused != null && owner != null && !ReferenceEquals(focused, owner);
+        }
+
+        /// <summary>The prompt/owner/looked-at context for the roll-up line (written by the dock,
+        /// which is the surface that knows which prompt is open).</summary>
+        internal static void SetContext(string? prompt, CPlayerActor? owner, CPlayerActor? focused)
+        {
+            _prompt = prompt ?? "none";
+            _owner = Board.CharacterFocus.Describe(owner);
+            _focused = Board.CharacterFocus.Describe(focused);
+        }
+
+        /// <summary>One surface's contribution to this frame's roll-up. Called every tick the
+        /// surface is live (hidden or not), so a surface that simply stops reporting disappears from
+        /// the line — which is itself the signal that it released.</summary>
+        internal static void Report(string surface, bool hidden, int canvases, int renderers, bool plate)
+        {
+            for (int i = 0; i < Reports.Count; i++)
+            {
+                if (Reports[i].surface == surface)
+                {
+                    Reports[i] = (surface, hidden, canvases, renderers, plate);
+                    return;
+                }
+            }
+            Reports.Add((surface, hidden, canvases, renderers, plate));
+        }
+
+        /// <summary>
+        /// Emit the previous frame's roll-up if it changed, then clear for the frame about to run.
+        /// Called from the TOP of <see cref="Tick"/>: the dock is the first decision surface in
+        /// <c>WorldUIModule.BuildTickSteps</c>, so everything reported since the last call is a full,
+        /// settled frame.
+        /// </summary>
+        internal static void Flush()
+        {
+            if (Reports.Count == 0)
+            {
+                if (_logged != null)
+                    _logged = null; // nothing live any more; the next prompt logs afresh
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder(160);
+            int hiddenCount = 0;
+            for (int i = 0; i < Reports.Count; i++)
+            {
+                var r = Reports[i];
+                if (sb.Length > 0)
+                    sb.Append(", ");
+                sb.Append(r.surface).Append(r.hidden ? " HIDDEN" : " shown");
+                if (r.hidden)
+                {
+                    sb.Append(" (").Append(r.canvases).Append(" canvas, ")
+                      .Append(r.renderers).Append(" renderer")
+                      .Append(r.plate ? ", MR plate" : ", no plate").Append(')');
+                    hiddenCount++;
+                }
+            }
+            string body = sb.ToString();
+            int total = Reports.Count;
+            string state = $"{_prompt}|{_owner}|{_focused}|{body}";
+            Reports.Clear();
+            if (_logged == state)
+                return;
+            _logged = state;
+            VRLog.Info("WorldUI", $"DECISION DOCK FOCUS ROLL-UP: prompt '{_prompt}' belongs to '{_owner}', " +
+                                  $"the player is looking at '{_focused}' — {hiddenCount} of {total} live " +
+                                  "decision surface(s) render-hidden. Per surface: " + body +
+                                  ". This line lists the WHOLE decision display (widget row, prompt text, " +
+                                  "use bars); any piece that is 'shown' while the others are HIDDEN is a " +
+                                  "leak of another character's decision.");
+        }
+
+        /// <summary>Module teardown: no prompt, no reports, next one logs afresh.</summary>
+        internal static void Reset()
+        {
+            Reports.Clear();
+            _logged = null;
+            _prompt = "none";
+            _owner = "?";
+            _focused = "?";
+        }
+    }
+
+    /// <summary>
     /// Level-triggered visibility of the docked row against the FOCUSED character. Hides only
     /// while BOTH facts hold: the player has taken an explicit focus
     /// (<c>Board.CharacterFocus.Focused</c> non-null — following the game is never "looking
@@ -1199,9 +1358,9 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// </summary>
     private void UpdateFocusVisibility()
     {
-        CPlayerActor? owner = PromptOwner();
-        CPlayerActor? focused = Board.CharacterFocus.Focused;
-        bool hide = focused != null && owner != null && !ReferenceEquals(focused, owner);
+        // THE ONE PREDICATE, resolved once for every surface that draws a piece of this prompt
+        // (see PromptFocus) — this surface no longer owns a private copy of it.
+        bool hide = PromptFocus.ShouldHide(out CPlayerActor? owner, out CPlayerActor? focused);
         bool was = _rowHiddenForFocus;
 
         if (hide)
@@ -1225,6 +1384,13 @@ internal sealed class DecisionDockSurface : WorldSurface
         // docked tick, so a canvas or renderer that only appears LATER (a pooled option button, an
         // MR plate the sweep built a frame after the row docked) genuinely changes what is hidden
         // and deserves one more line. The sets are finite, so this can never become a per-frame log.
+        // Roll-up context + this surface's own contribution: PromptFocus prints ONE line per flip
+        // that names EVERY piece of the prompt and what each one switched off (the ModBuild 86
+        // report was "the row hides, the TEXT stays" — a per-surface log could not have shown that
+        // the text was a surface at all).
+        PromptFocus.SetContext(_active?.Name, owner, focused);
+        PromptFocus.Report(Name, hide, _focusHiddenCanvasCount, _focusHiddenRendererCount, _focusHiddenPlate);
+
         string state = $"{(hide ? "hidden" : "shown")}|{Board.CharacterFocus.Describe(owner)}|" +
                        $"{Board.CharacterFocus.Describe(focused)}|" +
                        $"{_focusHiddenCanvasCount}|{_focusHiddenRendererCount}|{_focusHiddenPlate}";
@@ -1540,6 +1706,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             RestoreSuppression();
         }
         _loggedFocusVisibility = null;
+        PromptFocus.Reset(); // the cross-surface roll-up must not survive a module re-init either
         _active = null;
         _activeWindow = null;
         _wantSince = 0f;
