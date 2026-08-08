@@ -965,8 +965,13 @@ internal static class CardsConfig
             // Item C: the shared DECISION DOCK (text + buttons UNDER the board — the decision/confirm
             // prompt row) offset + size, per board.
             _decisionOffset[i] = _file.Bind("Cards", $"DecisionOffset_{board}", BoardDefaults.DecisionOffset[i],
-                $"[{board}] offset ADDED to the shared DECISION DOCK mount local position (the decision/confirm " +
-                "prompt row that hangs below the board), board-local meters. Seeded 0 (Oak).");
+                $"[{board}] offset ADDED to the shared DECISION DOCK mount local position, board-local " +
+                "meters — it moves the WHOLE decision area as one body: the buttons, the prompt text " +
+                "above them and the use-slot bars under them, all by the same amount. Y = up/down " +
+                "(NEGATIVE = further below the board), X = sideways, Z = proud toward the player. It " +
+                "never changes the distance WITHIN the area — that is DecisionGap alone. Seeded 0 on " +
+                "every board (the 157 mm this used to ship with lives in the mount's own base since " +
+                "the Y went live; see DecisionOffsetYRebased).");
             _decisionScale[i] = _file.Bind("Cards", $"DecisionScale_{board}", Defaults.DecisionScale_ByBoard[i],
                 $"[{board}] size MULTIPLIER of the shared DECISION DOCK (its docked prompt row pose-follows the " +
                 "mount's lossyScale). Seeded 1 (Oak).");
@@ -1004,6 +1009,45 @@ internal static class CardsConfig
                 }
             }
             boardScaleMigrated.Value = true;
+        }
+
+        // ONE-TIME migration, ModBuild 90 — THE DECISION OFFSET'S Y BECAME LIVE.
+        //
+        // [Cards] DecisionOffset_<board>.y shipped at −0.157 and could not move the decision area:
+        // it moved the MOUNT, but the dock solves its seat against the grab bar in an up-axis
+        // computation the mount's own Y cancels out of (WorldUI.Surfaces.DecisionDockSurface.Place).
+        // That Y now displaces the whole area — buttons, prompt text, use-slot bars — so the shipped
+        // 157 mm moved into PlayTray.DecisionMountBase and the shipped default became 0. A FRESH
+        // install is therefore already correct; an EXISTING config file still holds −0.157, and
+        // honouring it there would drop the area 157 board-local mm on first launch.
+        //
+        // Only the untouched value is migrated (saved y == the old default, the BoardScale
+        // precedent above): a y the player deliberately dialled somewhere else is their number, and
+        // this build is the first one on which it does anything, so it is left to do it. The marker
+        // makes this run at most once per file, and the test is a no-op on a fresh file (y == 0).
+        const float oldShippedDecisionOffsetY = -0.157f;
+        ConfigEntry<bool> decisionYRebased = _file.Bind("Cards", "DecisionOffsetYRebased",
+            Defaults.DecisionOffsetYRebased,
+            "Internal one-time migration marker: this config file's DecisionOffset_*.y has been " +
+            "re-based onto the build where that dial started moving the whole decision area (the " +
+            "shipped -0.157 moved into the decision mount's own base). Do not edit.");
+        if (!decisionYRebased.Value)
+        {
+            foreach (ControlBoard board in System.Enum.GetValues(typeof(ControlBoard)))
+            {
+                ConfigEntry<Vector3> entry = _decisionOffset[(int)board];
+                Vector3 saved = entry.Value;
+                if (Mathf.Abs(saved.y - oldShippedDecisionOffsetY) > 1e-4f)
+                    continue;   // never tuned away from the old ship value, or already re-based
+                entry.Value = new Vector3(saved.x, 0f, saved.z);
+                Core.VRLog.Info("Cards", $"One-time migration: DecisionOffset_{board}.y was at the old " +
+                                    "shipped -0.157, which moved the decision mount but not the decision " +
+                                    "AREA (the dock's up-axis solve cancelled it). That displacement now " +
+                                    "lives in the mount's fixed base, so the entry adopted 0 — the area " +
+                                    "stays exactly where it was, and from here on this dial moves the " +
+                                    "buttons, the prompt text and the use bars together.");
+            }
+            decisionYRebased.Value = true;
         }
 
         // ---- Demeo-parity fan/grab tuning (test #22 blueprint) ----

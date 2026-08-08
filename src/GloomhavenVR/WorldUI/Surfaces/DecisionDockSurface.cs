@@ -203,8 +203,15 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// line's BOTTOM edge one <c>[Cards] DecisionGap</c> above THIS value instead of computing a
     /// second seat of its own from the same constants — two independent computations of one seat
     /// is exactly how the text and its buttons drifted apart (the text used to be parked a fixed
-    /// 0.11 m over the decision MOUNT, which the row's placement deliberately cancels out of its
-    /// own solve, so the mount's Y offset moved the text and nothing else).</para>
+    /// 0.11 m over the decision MOUNT, whose Y the row's placement cancelled out of its own solve,
+    /// so the mount's Y offset moved the text and nothing else).</para>
+    ///
+    /// <para>AND THE OFFSET NOW MOVES BOTH (ModBuild 90): coupling the text to this edge answered
+    /// only half of that sentence — it made the two inseparable, but the dial the user was holding
+    /// still moved neither, because the cancellation was still there. <see cref="MountOffsetUp"/>
+    /// feeds the mount's own up-axis displacement back into the seat solve, so this value is
+    /// unchanged by the offset while the MOUNT it is measured from carries the whole area — row,
+    /// text and use bars — the distance the player dialled.</para>
     ///
     /// <para>UNLIKE <see cref="RowBottomUpMeters"/> THIS SURVIVES THE FOCUS HIDE. The bars must
     /// fall back when the row is not SEEN (they would hang off a phantom edge); the prompt text
@@ -401,6 +408,7 @@ internal sealed class DecisionDockSurface : WorldSurface
     private Canvas? _deliberateCanvas;
     private bool _placementLogged;
     private float _lastLoggedGapPx = float.NaN;
+    private float _lastLoggedOffsetUp = float.NaN;
     private static bool _takeDamageDumped;
     private static readonly List<Selectable> SelectableScratch = new(8);
     private static readonly List<TMP_Text> TextScratch = new(8);
@@ -751,10 +759,9 @@ internal sealed class DecisionDockSurface : WorldSurface
         //
         // The gap is now [Cards] DecisionGap_<board> in BOARD-LOCAL METRES, scaled only by the
         // tray's own scale. It is therefore invariant under the row's fit scale (the size) by
-        // construction. It is equally invariant under DecisionOffset: the placement below is
-        // anchored to the PROMPT REFERENCE (the grab-bar bottom), and the mount position cancels
-        // out of the up-axis solve — so the offset's X/Z still slide the dock sideways and proud
-        // while its Y cannot pull the buttons away from the text. One setting, one distance.
+        // construction, and equally invariant under DecisionOffset — the offset enters the solve
+        // as ONE rigid displacement of the whole area (see the block below), never as a term
+        // between the text and the buttons. One setting, one distance.
         //
         // AND SINCE ModBuild 89 THE TEXT IS ON THE OTHER END OF THAT SAME NUMBER (user: the prompt
         // text "reagiert wie ein Element das nicht zu dem Bereich dazugehört"). DamageTooltipSurface
@@ -763,9 +770,24 @@ internal sealed class DecisionDockSurface : WorldSurface
         // edge, where every doc in this file says the prompt text belongs — and the row and the text
         // are now placed from ONE seat: whatever moves one (offset X/Z, DecisionScale, the gap
         // itself, the board itself) moves the other by the same amount in the same frame.
+        //
+        // AND THE OFFSET MOVES THE WHOLE AREA (user, ModBuild 90: "Wenn ich den ganzen
+        // Entscheidungsbereich nach unten verschiebe mit dem Offset, dann soll der Text … auch
+        // entsprechend mit nach unten verschoben werden"). [Cards] DecisionOffset_<board> already
+        // moves the MOUNT — and every part of this area is placed relative to that mount, so X and
+        // Z have always slid the row, the text and the use bars together. Y did not: it moved the
+        // mount too, but `promptRefUp` is measured FROM the mount, so the mount's own Y walked
+        // straight back out of `mount.position + up * d` and the Y component was a no-op. It is put
+        // back below as `offsetUp` — the mount's own up-axis displacement, re-added to the target so
+        // it survives the cancellation. The result is exactly what X/Z do: the block rides its
+        // mount, `d` is unchanged by the offset, the published row edges are unchanged by it, and
+        // therefore the prompt text (seated from RowTopUpMeters) and the use-bars drawer (seated
+        // from RowBottomUpMeters) ride along with the buttons, as ONE area, by the same millimetres.
+        // The gap is untouched by all of it: it is the distance WITHIN the area.
         float gapBoardMeters = GapBoardMeters;
         float gapMeters = gapBoardMeters * trayScale;
-        float targetBlockTopUp = promptRefUp - gapMeters;
+        float offsetUp = MountOffsetUp(mount, up);
+        float targetBlockTopUp = promptRefUp - gapMeters + offsetUp;
         float d = targetBlockTopUp - blockTopAbovePivot; // shift along up from mount.position
         Vector3 pos = mount.position + up * d;
 
@@ -790,19 +812,26 @@ internal sealed class DecisionDockSurface : WorldSurface
         // stays published through the focus hide so the text returns at its final geometry.
         RowTopUpMeters = d + blockTopAbovePivot;
 
-        if (!_placementLogged || float.IsNaN(_lastLoggedGapPx)
-            || Mathf.Abs(gapBoardMeters - _lastLoggedGapPx) >= 0.0005f)
+        // Change-gated on the gap AND on the applied offset: the offset is the other dial that moves
+        // this seat, and a live tweak of it must re-state the line or the log cannot prove it landed.
+        if (!_placementLogged || float.IsNaN(_lastLoggedGapPx) || float.IsNaN(_lastLoggedOffsetUp)
+            || Mathf.Abs(gapBoardMeters - _lastLoggedGapPx) >= 0.0005f
+            || Mathf.Abs(offsetUp - _lastLoggedOffsetUp) >= 0.0005f)
         {
             _placementLogged = true;
             _lastLoggedGapPx = gapBoardMeters;
+            _lastLoggedOffsetUp = offsetUp;
             VRLog.Info("WorldUI", $"DECISION DOCK: '{_active?.Name}' gap placement — [Cards] " +
                                   $"DecisionGap_{CardsConfig.CurrentBoard}={gapBoardMeters * 1000f:F1} mm " +
                                   $"→ widget block top {gapMeters * 1000f:F0} mm (world) below the prompt " +
-                                  $"reference ({refNote}, {promptRefUp * 1000f:F0} mm above the mount); block " +
-                                  $"top set {(promptRefUp - gapMeters) * 1000f:F0} mm above the mount, host " +
-                                  $"shifted {d * 1000f:F0} mm along the dock up-axis at row scale " +
-                                  $"{scale:F5} (tray {trayScale:F3}). The gap is board-local metres, so this " +
-                                  "distance does NOT move with the dock size or its offset.");
+                                  $"reference ({refNote}, {promptRefUp * 1000f:F0} mm above the mount); " +
+                                  $"[Cards] DecisionOffset_{CardsConfig.CurrentBoard} then moves the WHOLE " +
+                                  $"area {offsetUp * 1000f:F1} mm along the dock up-axis, so the block top is " +
+                                  $"set {targetBlockTopUp * 1000f:F0} mm above the mount, host shifted " +
+                                  $"{d * 1000f:F0} mm along that axis at row scale {scale:F5} " +
+                                  $"(tray {trayScale:F3}). The gap is board-local metres, so this distance " +
+                                  "does NOT move with the dock size or its offset — the offset moves the " +
+                                  "area, the gap spaces it.");
         }
     }
 
@@ -835,10 +864,37 @@ internal sealed class DecisionDockSurface : WorldSurface
     }
 
     /// <summary>
+    /// The up-axis displacement <c>[Cards] DecisionOffset_&lt;board&gt;</c> has already applied to
+    /// <paramref name="mount"/> itself (world metres along <paramref name="up"/>) — literally the
+    /// authored offset carried into world space by the mount's own parent, so it is exact under any
+    /// board scale and cannot drift from what <c>PlayTray.SetDecisionLayout</c> wrote.
+    ///
+    /// <para>WHY IT IS ADDED BACK rather than simply left to the mount: the whole decision area is
+    /// placed relative to the mount, so the mount's displacement already carries the row, the prompt
+    /// text and the use-bars stack sideways and proud (X/Z). The UP axis is the one direction the
+    /// mount cannot carry them, because the seat is solved against the PROMPT REFERENCE measured
+    /// FROM the mount (<see cref="PromptReferenceUp"/>) — the mount's own Y cancels out of
+    /// <c>mount.position + up * d</c> and the Y dial was a no-op. Re-adding this term restores the
+    /// symmetry: Y now displaces the area exactly as X and Z do, as one rigid body, and the
+    /// row-relative geometry (the gap, the published row edges) is untouched by it.</para>
+    ///
+    /// <para>The shipped default is 0 on every board: the 157 mm this dial used to carry lives in
+    /// <c>PlayTray.DecisionMountBase</c> since the dial went live, so honouring it moved nothing.
+    /// See the migration in <c>CardsConfig</c> (<c>DecisionOffsetYRebased</c>).</para>
+    /// </summary>
+    internal static float MountOffsetUp(Transform mount, Vector3 up)
+    {
+        Vector3 off = CardsConfig.DecisionOffset(CardsConfig.CurrentBoard).Value;
+        Transform? parent = mount.parent; // Unity-null aware
+        return Vector3.Dot(parent != null ? parent.TransformVector(off) : off, up);
+    }
+
+    /// <summary>
     /// The seat a docked row TAKES — or WOULD take — at this mount: the block top,
-    /// <see cref="GapBoardMeters"/> below the prompt reference, in world metres above the mount
-    /// along its up axis. <see cref="Place"/> solves the host position from exactly this, so the
-    /// measured <see cref="RowTopUpMeters"/> is equal to it while a row is docked and measured.
+    /// <see cref="GapBoardMeters"/> below the prompt reference and displaced by
+    /// <see cref="MountOffsetUp"/>, in world metres above the mount along its up axis.
+    /// <see cref="Place"/> solves the host position from exactly this, so the measured
+    /// <see cref="RowTopUpMeters"/> is equal to it while a row is docked and measured.
     ///
     /// <para>It exists for the ONE case the prompt text can be up while no measured row is:
     /// the tip window opens on a prompt whose row has not been fitted yet (or a prompt with no
@@ -846,7 +902,8 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// of at a seat of its own invention — same formula, same references, no second opinion.</para>
     /// </summary>
     internal static float RowSeatTopUp(Transform mount, float trayScale) =>
-        PromptReferenceUp(mount, mount.up, trayScale, out _) - GapBoardMeters * trayScale;
+        PromptReferenceUp(mount, mount.up, trayScale, out _) - GapBoardMeters * trayScale
+        + MountOffsetUp(mount, mount.up);
 
     /// <summary>
     /// Sample the docked row for the multiplayer wire: the PRESSABLE-widget labels (record 12, see

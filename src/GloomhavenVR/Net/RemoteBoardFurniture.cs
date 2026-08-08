@@ -174,8 +174,12 @@ internal sealed class RemoteBoardFurniture
     /// <summary>PlayTray.ItemUseSlotBase (ButtonZoneX, −BoardH/2 − 0.095, −0.020).</summary>
     private static readonly Vector3 ItemUseMount = new(ButtonZoneX, -BoardH * 0.5f - 0.095f, -0.020f);
 
-    /// <summary>PlayTray.DecisionMountBase (0, −0.29, −0.020) — the shared decision drawer.</summary>
-    private static readonly Vector3 DecisionMount = new(0f, -0.29f, -0.020f);
+    /// <summary>The shared decision drawer's mount seat, read STRAIGHT from the local board
+    /// (<see cref="Cards.PlayTray.DecisionMountBase"/>) rather than hand-copied — the
+    /// <see cref="BarClearanceMeters"/> precedent below. Its Y absorbed the 157 mm that used to
+    /// arrive through <c>[Cards] DecisionOffset_*.y</c> when that dial went live (ModBuild 90), and
+    /// a hand-copied −0.29 here would have parked every peer's drawer 157 mm above the owner's.</summary>
+    private static readonly Vector3 DecisionMount = Cards.PlayTray.DecisionMountBase;
 
     /// <summary>Half height of the local grab-bar's trigger zone (<c>PlayTray.BuildHandle</c>
     /// box.size.y 0.05 / 2) — the bar-bottom reference the local decision dock hangs its widget
@@ -751,13 +755,14 @@ internal sealed class RemoteBoardFurniture
         // ANCHORED WHERE THE OWNER'S DOCK REALLY HANGS (task 2 — the detached "ENTSCHEIDUNGEN"
         // plate): the local DecisionDockSurface does NOT place its widget block at the decision
         // MOUNT's y — it anchors the block TOP a configured gap below the grab-bar BOTTOM
-        // (Place(): promptRef = bar bottom − BarClearance; block top = promptRef − DecisionGap;
-        // the mount's own Y cancels out of the solve). The old drawer sat at the RAW mount seat
-        // (y −0.29 − 0.157 = −0.447 on Steel) — 0.18 m below where the owner's buttons actually
-        // are. The mirror now derives the same top edge from the same references: the handle
-        // bar's authored seat, its zone half-height, the shared clearance and the AUTHORED
-        // per-board DecisionGap. The mount contributes only its authored X/Z (sideways + proud),
-        // exactly as it does locally.
+        // (Place(): promptRef = bar bottom − BarClearance; block top = promptRef − DecisionGap +
+        // the offset's own up displacement, which the raw mount Y otherwise cancels out of the
+        // solve). The old drawer sat at the RAW mount seat (y −0.447) — 0.18 m below where the
+        // owner's buttons actually are. The mirror now derives the same top edge from the same
+        // references: the handle bar's authored seat, its zone half-height, the shared clearance
+        // and the AUTHORED per-board DecisionGap. The mount contributes its authored X/Z (sideways
+        // + proud) and, since ModBuild 90, the owner's offset Y on top of that reference — exactly
+        // as it does locally.
         //
         // AT THE OWNER'S SCALE, TOO (ModBuild 89): the owner's two seat terms are mount-local
         // metres multiplied by the MOUNT's lossyScale — root × [Cards] DecisionScale — while this
@@ -765,11 +770,21 @@ internal sealed class RemoteBoardFurniture
         // row hangs (1 − scale) × (BarClearance + DecisionGap) too HIGH (30 mm at the shipped 1.6×).
         // Every other length in this drawer already carries it (plate size, widths, the prompt
         // line); these two were the exception.
+        //
+        // …AND THE OWNER'S OFFSET MOVES THE WHOLE AREA, Y INCLUDED (ModBuild 90). X/Z have always
+        // slid this drawer because they slide the seat it is built at; Y did not, because the seat
+        // is derived from the grab bar and the mount's Y never entered it — exactly the local
+        // cancellation (DecisionDockSurface.MountOffsetUp). It is added to the PROMPT REFERENCE
+        // here, which is the one place that carries it into all three pieces at once: the drawer,
+        // the use-bar drawer under it and the prompt line above it all descend from this Y. Board
+        // root-local metres, unscaled by the dock scale — the owner's offset is the mount's own
+        // localPosition in the same frame, and its X/Z are applied unscaled two lines down for the
+        // same reason.
         _decisionTuning = tuning;
         Vector3 decisionOff = tuning.DecisionOffset;
         float decisionScale = tuning.DecisionScale;
         float barBottomY = HandleMount.y - HandleZoneHalfY;
-        float promptRefY = barBottomY - BarClearanceMeters * decisionScale;
+        float promptRefY = barBottomY - BarClearanceMeters * decisionScale + decisionOff.y;
         float decisionTopY = promptRefY - tuning.DecisionGap * decisionScale;
         _decision = BuildDecisionDrawer(new Vector3(
             DecisionMount.x + decisionOff.x, decisionTopY, DecisionMount.z + decisionOff.z));

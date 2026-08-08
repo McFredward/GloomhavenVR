@@ -687,6 +687,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // prompt), the CONFIRM/UNDO/gear column the bottom-right, the rest plate the
         // bottom-left. So the drawer goes clear of ALL of them, below the board.
         //
+        // (THE AUTHORED y BELOW IS -0.29; the SHIPPED seat has been -0.447 ever since the
+        // per-board offset shipped at -0.157, and since ModBuild 90 that displacement lives in
+        // DecisionMountBase itself — see its doc. The clearance reasoning that follows is the
+        // original authored analysis and still bounds the mount's own zone; where the widget ROW
+        // actually lands is solved against the grab bar, not against this y.)
         // CENTERED origin, y -0.29 (the row centers on the mount). At the 0.12 max-
         // height budget the worst case spans y -0.35..-0.23; its TOP edge -0.23
         // clears the grab-handle box collider (y -0.215..-0.165, size 0.05 at
