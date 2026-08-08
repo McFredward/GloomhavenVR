@@ -884,12 +884,21 @@ internal static class PresenceSerializer
     /// + 43 (USE BARS: 2 + mask 1 + 4 bars × (flags 1 + count 1 + its 8-slot cap))
     /// + 3 (ITEM-USE CLIP: 2 + its single index byte)
     /// + 28 (track order: 2 + count 1 + owned mask 1 + 4 × its 6-id cap)
-    /// + 235 (BOARD TUNING: 2 + count 1 + every one of its 58 fields at once —
-    /// 15 vec3 × 7 + 13 length × 3 + 22 factor × 3 + 6 angle × 3 + 2 count × 2 = 232) = 1267.
+    /// + 257 (BOARD TUNING: 2 + count 1 + every one of its 66 fields at once —
+    /// 15 vec3 × 7 + 15 length × 3 + 26 factor × 3 + 6 angle × 3 + 4 count × 2 = 254) = 1289.
     ///
     /// <para>1264 → 1267 on 2026-08-09: the ITEM-USE CLIP record (26) added its own worst case of 3
     /// bytes — [id][len][index] — in its own commit, per the rule below. The margin at
     /// <see cref="MaxSize"/> = 1600 is 333 bytes, still more than the largest single record.</para>
+    ///
+    /// <para>1267 → 1289 on the HAND-FAN character-SWAP exchange (2026-08-09): board tuning grew by
+    /// that animation's eight dials, on the wire for the reason the item fan's are — the standing
+    /// 1:1 ruling names ANIMATIONS. Six of them ride a 3-byte container and two a 2-byte one, so the
+    /// record went 235 → 257. Stated here in its own commit per the rule below; the margin at
+    /// <see cref="MaxSize"/> = 1600 is 311 bytes, still more than the largest single record. NOTE
+    /// that record 28's own payload is now at 255, which is the extension tail's ONE-BYTE per-record
+    /// length ceiling — the writer below refuses more, silently. The next dial added to it has to
+    /// free bytes or move to its own record; see <c>NetProtocol.BoardTuneMaxFields</c>.</para>
     ///
     /// <para>859 → 1240 across the 1:1 mirroring round, each record adding its own worst case in
     /// its own commit per the rule below: USE BARS (25) +43, TRACK ORDER (27) +28, BOARD TUNING

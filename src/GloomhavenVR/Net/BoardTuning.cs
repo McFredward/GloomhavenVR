@@ -45,10 +45,27 @@ namespace GloomhavenVR.Net;
 /// "Net — content classification".</remarks>
 internal static class BoardTuningSampler
 {
-    /// <summary>Buffer size a caller must hand <see cref="Sample"/>: the record's own worst case
-    /// (every field present), which is what <see cref="PresenceSerializer.MaxSize"/> budgets for.
-    /// 1 count byte + 15 vec3 × 7 + 13 length × 3 + 22 factor × 3 + 6 angle × 3 + 2 count × 2.</summary>
-    internal const int MaxPayloadBytes = 1 + 15 * 7 + 13 * 3 + 22 * 3 + 6 * 3 + 2 * 2;
+    /// <summary>
+    /// Buffer size a caller must hand <see cref="Sample"/>: the record's own worst case (every
+    /// field present), which is what <see cref="PresenceSerializer.MaxSize"/> budgets for.
+    /// 1 count byte + 15 vec3 × 7 + 15 length × 3 + 26 factor × 3 + 6 angle × 3 + 4 count × 2.
+    ///
+    /// <para>THIS IS EXACTLY 255, WHICH IS THE HARD TLV CEILING — see
+    /// <see cref="NetProtocol.BoardTuneMaxFields"/> for the full statement. The extension tail
+    /// writes a record's length in one byte and the serializer drops a payload over 255 without a
+    /// word, so the next dial added here must free bytes first (or move to its own record). The
+    /// one-shot check in <see cref="Sample"/> turns a future overrun into a log line instead of an
+    /// invisible desync.</para>
+    /// </summary>
+    internal const int MaxPayloadBytes = 1 + 15 * 7 + 15 * 3 + 26 * 3 + 6 * 3 + 4 * 2;
+
+    /// <summary>The extension tail's per-record length ceiling (one byte). Not a style limit: a
+    /// payload above it is refused by the writer, silently.</summary>
+    private const int TlvCeiling = 255;
+
+    /// <summary>One-shot log guard for the ceiling check at the end of <see cref="Sample"/> — the
+    /// sampler runs on every config edit, and a crossed ceiling would otherwise repeat forever.</summary>
+    private static bool s_ceilingLogged;
 
     /// <summary>
     /// Build the record-28 payload for <paramref name="style"/> into <paramref name="payload"/>
@@ -131,6 +148,13 @@ internal static class BoardTuningSampler
                  CardsConfig.FanSelectedPopForward, Defaults.FanSelectedPopForward);
         n += Len(payload, ref i, NetProtocol.TuneItemFanOpenArc,
                  CardsConfig.ItemFanOpenArc, Defaults.ItemFanOpenArc);
+        // The HAND FAN's character-SWAP exchange (2026-08-09). Same argument as the item fan's
+        // animation set: the 1:1 ruling names ANIMATIONS, so an owner who re-tunes how their hand
+        // is exchanged must be seen re-tuning it. Ids 77..78 / 150..153 / 226..227.
+        n += Len(payload, ref i, NetProtocol.TuneFanSwapTravel,
+                 CardsConfig.FanSwapTravel, Defaults.FanSwapTravel);
+        n += Len(payload, ref i, NetProtocol.TuneFanSwapArc,
+                 CardsConfig.FanSwapArc, Defaults.FanSwapArc);
 
         // ---- FACTOR fields (ids 128..142) — dimensionless multipliers ------------------------
         n += Fac(payload, ref i, NetProtocol.TuneObjectivesScale,
@@ -182,6 +206,14 @@ internal static class BoardTuningSampler
                  CardsConfig.ItemFanCloseDuration, Defaults.ItemFanCloseDuration);
         n += Fac(payload, ref i, NetProtocol.TuneItemFanCloseStagger,
                  CardsConfig.ItemFanCloseStagger, Defaults.ItemFanCloseStagger);
+        n += Fac(payload, ref i, NetProtocol.TuneFanSwapDuration,
+                 CardsConfig.FanSwapDuration, Defaults.FanSwapDuration);
+        n += Fac(payload, ref i, NetProtocol.TuneFanSwapStagger,
+                 CardsConfig.FanSwapStagger, Defaults.FanSwapStagger);
+        n += Fac(payload, ref i, NetProtocol.TuneFanSwapSeedScale,
+                 CardsConfig.FanSwapSeedScale, Defaults.FanSwapSeedScale);
+        n += Fac(payload, ref i, NetProtocol.TuneFanSwapSettleOvershoot,
+                 CardsConfig.FanSwapSettleOvershoot, Defaults.FanSwapSettleOvershoot);
 
         // ---- ANGLE fields (ids 192..197) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -202,9 +234,41 @@ internal static class BoardTuningSampler
                  CardsConfig.FanMaxHandForCurve, Defaults.FanMaxHandForCurve);
         n += Cnt(payload, ref i, NetProtocol.TuneFanCurveMinCards,
                  CardsConfig.FanCurveMinCards, Defaults.FanCurveMinCards);
+        // The swap's last two dials ride the COUNT width — a byte each, which is what keeps the
+        // record's worst case at 255 instead of 257 (see MaxPayloadBytes). Rounded, never
+        // truncated, so a dial sitting at its shipped default still compares equal to it.
+        n += Quantized(payload, ref i, NetProtocol.TuneFanSwapSpin,
+                       CardsConfig.FanSwapSpinDegrees, Defaults.FanSwapSpinDegrees, 1f);
+        n += Quantized(payload, ref i, NetProtocol.TuneFanSwapOverlapPercent,
+                       CardsConfig.FanSwapOverlap, Defaults.FanSwapOverlap, 100f);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
+
+        // THE TLV CEILING, CHECKED ON THE BYTES WE ACTUALLY PRODUCED. A `MaxPayloadBytes >
+        // TlvCeiling` test would have been constant-folded away — both are compile-time consts, so
+        // it can never fire and the compiler says so. This one is reachable, and it catches the
+        // real failure: a dial appended WITHOUT growing MaxPayloadBytes. That case would otherwise
+        // walk off the end of NetAvatarDriver's buffer, which is sized from the same constant —
+        // except the appenders bounds-check and quietly stop instead, so the record would go out
+        // TRUNCATED and the receiver would read a torn field list. Refusing the record entirely is
+        // the safe direction (every dial falls back to the shipped default, i.e. the previous
+        // build's picture) and the line says which change caused it.
+        if (i > TlvCeiling)
+        {
+            if (!s_ceilingLogged)
+            {
+                s_ceilingLogged = true;
+                Core.VRLog.Error("Net", $"BOARD TUNING record 28 built {i} bytes, past the extension tail's " +
+                                        $"{TlvCeiling}-byte per-record ceiling (MaxPayloadBytes says " +
+                                        $"{MaxPayloadBytes}). PresenceSerializer refuses a payload that big " +
+                                        "WITHOUT A WORD, so this would have been an invisible desync for any " +
+                                        "player who had moved enough dials. The record is dropped instead — " +
+                                        "peers see this player at the shipped defaults. A dial was added " +
+                                        "without freeing bytes: see NetProtocol.BoardTuneMaxFields.");
+            }
+            return 0;
+        }
         payload[0] = (byte)n;
         return i;
     }
@@ -237,6 +301,25 @@ internal static class BoardTuningSampler
                            BepInEx.Configuration.ConfigEntry<int>? live, int shipped) =>
         live == null ? 0
             : NetProtocol.WriteTuneCountField(p, ref i, id, live.Value, shipped) ? 1 : 0;
+
+    /// <summary>
+    /// A FLOAT dial carried in the one-byte COUNT width: multiplied by <paramref name="unit"/> and
+    /// ROUNDED (degrees at unit 1, a 0..1 fraction as whole percent at unit 100), then compared as
+    /// the quantized code exactly like every other kind here — which is what keeps "differs from the
+    /// default" stable across a config file's float round-trip, and what stops a dial that was never
+    /// moved from being emitted forever. Clamped to the byte's range so a nonsense config value can
+    /// only ever saturate, never wrap into a different picture.
+    /// </summary>
+    private static int Quantized(byte[] p, ref int i, byte id,
+                                 BepInEx.Configuration.ConfigEntry<float>? live, float shipped,
+                                 float unit)
+    {
+        if (live == null)
+            return 0;
+        int code = Mathf.Clamp(Mathf.RoundToInt(live.Value * unit), 0, 255);
+        int def = Mathf.Clamp(Mathf.RoundToInt(shipped * unit), 0, 255);
+        return NetProtocol.WriteTuneCountField(p, ref i, id, code, def) ? 1 : 0;
+    }
 }
 
 /// <summary>
@@ -304,6 +387,12 @@ internal readonly struct RemoteBoardTuning
     /// <summary>[Cards] ItemFanOpenArc — the item chip's mid-flight bow toward its viewer.</summary>
     public float ItemFanOpenArc { get; }
 
+    /// <summary>[Cards] FanSwapTravel — how far past the arc's end the exchange's gather/deal point sits.</summary>
+    public float FanSwapTravel { get; }
+
+    /// <summary>[Cards] FanSwapArc — the exchange's mid-flight depth amplitude.</summary>
+    public float FanSwapArc { get; }
+
     // ---- FACTOR dials ------------------------------------------------------------------------
     public float ObjectivesScale { get; }
     public float ObjectivesWidth { get; }
@@ -330,6 +419,20 @@ internal readonly struct RemoteBoardTuning
     public float ItemFanSettleOvershoot { get; }
     public float ItemFanCloseDuration { get; }
     public float ItemFanCloseStagger { get; }
+
+    // The hand fan's character-SWAP exchange. Two seconds values on the factor width (as above) and
+    // — see the id table — two more that arrive as one-byte COUNTS and are un-quantized here, so
+    // every consumer reads a plain float in the dial's own unit and no reader has to know.
+    public float FanSwapDuration { get; }
+    public float FanSwapStagger { get; }
+    public float FanSwapSeedScale { get; }
+    public float FanSwapSettleOvershoot { get; }
+
+    /// <summary>[Cards] FanSwapOverlap as a 0..1 fraction (the wire carries whole percent).</summary>
+    public float FanSwapOverlap { get; }
+
+    /// <summary>[Cards] FanSwapSpinDegrees (the wire carries whole degrees).</summary>
+    public float FanSwapSpinDegrees { get; }
 
     // ---- ANGLE dials (degrees) ---------------------------------------------------------------
     public float AssetPitchDegrees { get; }
@@ -407,6 +510,8 @@ internal readonly struct RemoteBoardTuning
         FanSelectedPopForward = L(payload, len, NetProtocol.TuneFanSelectedPopForward,
                                   Defaults.FanSelectedPopForward);
         ItemFanOpenArc = L(payload, len, NetProtocol.TuneItemFanOpenArc, Defaults.ItemFanOpenArc);
+        FanSwapTravel = L(payload, len, NetProtocol.TuneFanSwapTravel, Defaults.FanSwapTravel);
+        FanSwapArc = L(payload, len, NetProtocol.TuneFanSwapArc, Defaults.FanSwapArc);
 
         ObjectivesScale = F(payload, len, NetProtocol.TuneObjectivesScale,
                             CardsConfig.BoardDefaults.ObjectivesScale[b]);
@@ -441,6 +546,11 @@ internal readonly struct RemoteBoardTuning
                                  Defaults.ItemFanCloseDuration);
         ItemFanCloseStagger = F(payload, len, NetProtocol.TuneItemFanCloseStagger,
                                 Defaults.ItemFanCloseStagger);
+        FanSwapDuration = F(payload, len, NetProtocol.TuneFanSwapDuration, Defaults.FanSwapDuration);
+        FanSwapStagger = F(payload, len, NetProtocol.TuneFanSwapStagger, Defaults.FanSwapStagger);
+        FanSwapSeedScale = F(payload, len, NetProtocol.TuneFanSwapSeedScale, Defaults.FanSwapSeedScale);
+        FanSwapSettleOvershoot = F(payload, len, NetProtocol.TuneFanSwapSettleOvershoot,
+                                   Defaults.FanSwapSettleOvershoot);
 
         AssetPitchDegrees = A(payload, len, NetProtocol.TuneAssetPitch,
                               CardsConfig.BoardDefaults.AssetPitchDegrees[b]);
@@ -455,6 +565,12 @@ internal readonly struct RemoteBoardTuning
         FanMaxHandForCurve = C(payload, len, NetProtocol.TuneFanMaxHandForCurve,
                                Defaults.FanMaxHandForCurve);
         FanCurveMinCards = C(payload, len, NetProtocol.TuneFanCurveMinCards, Defaults.FanCurveMinCards);
+        // The two COUNT-carried swap dials, un-quantized back into their own units here so every
+        // consumer reads a plain float and the wire's container never leaks into a renderer.
+        FanSwapSpinDegrees = C(payload, len, NetProtocol.TuneFanSwapSpin,
+                               Mathf.RoundToInt(Defaults.FanSwapSpinDegrees));
+        FanSwapOverlap = C(payload, len, NetProtocol.TuneFanSwapOverlapPercent,
+                           Mathf.RoundToInt(Defaults.FanSwapOverlap * 100f)) / 100f;
     }
 
     private static Vector3 V(byte[]? p, int len, byte id, Vector3 fallback) =>

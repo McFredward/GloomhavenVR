@@ -1309,6 +1309,56 @@ internal static partial class Loc
                 "Fächer verbergen: Sekunden, die die Karten brauchen, um wieder in den Mittelstapel "
                 + "zusammenzuklappen, bevor der Fächer verschwindet (unskalierte Zeit). 0 = sofort verschwinden "
                 + "(Verhalten vor der Animation).",
+            ["Cards/FanSwapDuration"] =
+                "Charakterwechsel: Sekunden, die EINE Karte braucht, um aus dem Fächer heraus (oder in ihn "
+                + "hinein) zu fliegen, wenn du bei offenem Fächer umschaltest, wessen Hand du ansiehst "
+                + "(unskalierte Zeit — läuft auch, während das Spiel pausiert). Der ganze Tausch braucht das "
+                + "plus die Überlappung plus den Verzug der letzten Karte. Länger = der Tausch ist lesbar "
+                + "statt ein Zucken; zu lang und das Umschalten wirkt zäh.",
+            ["Cards/FanSwapStagger"] =
+                "Charakterwechsel: zusätzliche Startverzögerung in Sekunden PRO KARTE entlang des Bogens, "
+                + "sodass der Tausch über die Hand wischt, statt dass alle Karten gleichzeitig losfahren. "
+                + "BEIDE Hälften benutzen ihn und beide laufen in dieselbe Richtung — genau das lässt die "
+                + "gehende und die kommende Hand als EIN Wischen lesen statt als zwei Animationen. Es ist "
+                + "auch der Grund, warum die Bewegung vor einem Mixed-Reality-Hintergrund ankommt: das Auge "
+                + "verfolgt eine wandernde Front, ein gleichzeitiger Klumpen ist nur ein Flackern, das ein "
+                + "unruhiger Raum schluckt. 0 = alle Karten starten zusammen.",
+            ["Cards/FanSwapOverlap"] =
+                "Charakterwechsel: wie stark die ANKUNFT eines Platzes seinen ABGANG überlappt. 1 = die neue "
+                + "Karte startet im selben Moment wie die alte (die beiden Hände kreuzen sich in der Luft); "
+                + "0 = die neue Karte startet erst, wenn die alte ganz weg ist. Das ist der eine Regler, der "
+                + "entscheidet, ob der Wechsel als TAUSCH gelesen wird oder als eine leere Hand, die wieder "
+                + "gefüllt wird — deshalb ist der ausgelieferte Wert hoch.",
+            ["Cards/FanSwapTravel"] =
+                "Charakterwechsel: wie weit JENSEITS des Bogenendes der Sammel-/Austeilpunkt liegt (echte "
+                + "Meter). Die gehende Hand läuft auf diesen Punkt an einem Ende zusammen (wie ein "
+                + "aufgenommenes Deck), die kommende fächert aus dem spiegelbildlichen Punkt am anderen Ende "
+                + "auf — die Karten gehen und kommen also sichtbar, statt an Ort und Stelle zu verblassen. "
+                + "Größer = sie fahren weiter von der Hand weg.",
+            ["Cards/FanSwapArc"] =
+                "Charakterwechsel: wie weit sich die Karten in der Mitte ihres Flugs in der TIEFE bewegen "
+                + "(echte Meter). Die gehende Karte taucht um diesen Betrag VON DIR WEG, die kommende wölbt "
+                + "sich um denselben Betrag ZU DIR — die neue Hand zieht also vor der alten vorbei, und die "
+                + "beiden können nie durcheinander hindurchzugleiten scheinen. Tiefe ist außerdem der Reiz, "
+                + "den Passthrough nicht überdecken kann: beide Augen sehen die Trennung. 0 = beide Hälften "
+                + "bleiben flach in der Fächerebene.",
+            ["Cards/FanSwapSpinDegrees"] =
+                "Charakterwechsel: die Drehung (Grad), durch die sich die beiden Hälften bewegen — die "
+                + "gehende Hand wickelt sich beim Zusammenlaufen in die eine Richtung, die kommende beim "
+                + "Austeilen aus der anderen heraus. Eine Drehung verändert die Silhouette einer Karte, und "
+                + "ein unruhiger Hintergrund erzeugt niemals zufällig eine zusammenhängende Silhouettendrehung; "
+                + "die entgegengesetzten Vorzeichen sind es, die die beiden Hälften als Tausch lesen lassen "
+                + "und nicht als Schub. 0 = keine Drehung.",
+            ["Cards/FanSwapSeedScale"] =
+                "Charakterwechsel: die Größe, die eine Karte am Sammel-/Austeilpunkt hat, als Anteil ihrer "
+                + "Größe im Fächer. Kleiner = mehr Schrumpfen nach draußen und mehr Wachsen nach drinnen — "
+                + "die einäugige Hälfte desselben Tiefenreizes, den die Wölbung stereoskopisch liefert.",
+            ["Cards/FanSwapSettleOvershoot"] =
+                "Charakterwechsel: die Stärke des Überschwingens am ENDE des Flugs einer ankommenden Karte "
+                + "(sie schießt über ihren Platz hinaus und schwingt in ihn zurück) und des passenden "
+                + "Ausholens, das eine gehende Karte vor dem Abflug macht. Ein RICHTUNGSWECHSEL ist das "
+                + "auffälligste Ereignis, das Bewegung hat, und er kostet keinen zusätzlichen Weg. Etwa 1,5 "
+                + "sind ~6 % Überschwingen; 0 = ein reines Ausrollen ohne Umkehr.",
             ["Cards/ItemFanOpenDuration"] =
                 "Gegenstands-Fächer öffnen: Sekunden, die EINE Gegenstandskarte braucht, um aus dem "
                 + "Gegenstands-Stapel an ihren Platz im Bogen zu fliegen (unskalierte Zeit — läuft auch, "

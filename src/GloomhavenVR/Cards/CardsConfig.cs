@@ -317,6 +317,38 @@ internal static class CardsConfig
     /// <summary>Quick-collapse animation length in seconds on hide (unscaled time). 0 = the fan vanishes instantly.</summary>
     internal static ConfigEntry<float> FanCloseDuration = null!;
 
+    // ---- THE HAND FAN's CHARACTER-SWAP EXCHANGE (2026-08-09) ---------------------------------
+    // Deliberately NOT the FanOpen*/FanClose* dials above. Those animate the fan APPEARING and
+    // DISAPPEARING as a whole — a centre-out ripple, because a fan that unfolds from its middle is
+    // what a hand of cards being raised looks like. These animate one hand being EXCHANGED for
+    // another while the fan stays up, which is a different gesture and must not be mistaken for a
+    // close followed by an open: it is sequenced along the arc instead of out from its centre, and
+    // both halves run at once. See Cards/CardFan.cs's exchange region.
+
+    /// <summary>Swap: seconds ONE card takes to fly out of (or into) the fan during a character exchange.</summary>
+    internal static ConfigEntry<float> FanSwapDuration = null!;
+
+    /// <summary>Swap: extra start delay per card ALONG THE ARC — the wipe's moving front.</summary>
+    internal static ConfigEntry<float> FanSwapStagger = null!;
+
+    /// <summary>Swap: how much of each slot's departure the matching arrival overlaps (0..1).</summary>
+    internal static ConfigEntry<float> FanSwapOverlap = null!;
+
+    /// <summary>Swap: how far past the arc's end the gather/deal point sits, real meters.</summary>
+    internal static ConfigEntry<float> FanSwapTravel = null!;
+
+    /// <summary>Swap: mid-flight depth amplitude — the leaver ducks back by it, the arriver bows toward the viewer by it.</summary>
+    internal static ConfigEntry<float> FanSwapArc = null!;
+
+    /// <summary>Swap: the roll (degrees) the two halves counter-rotate through.</summary>
+    internal static ConfigEntry<float> FanSwapSpinDegrees = null!;
+
+    /// <summary>Swap: the size a card has at the gather/deal point, as a fraction of its seated size.</summary>
+    internal static ConfigEntry<float> FanSwapSeedScale = null!;
+
+    /// <summary>Swap: back-ease strength — the arriving card's overshoot-and-settle and the leaver's wind-up.</summary>
+    internal static ConfigEntry<float> FanSwapSettleOvershoot = null!;
+
     // ---- THE ITEM FAN's OWN open/close animation (item-pile presence pass) --------------------
     // Deliberately NOT the FanOpen*/FanClose* dials above. Those animate the HAND fan, which opens
     // an arm's length in front of a face against whatever the player is looking at; these animate
@@ -1215,6 +1247,78 @@ internal static class CardsConfig
                 "Fan hide: seconds the cards take to collapse back into the center stack before " +
                 "the fan disappears (unscaled time). 0 = vanish instantly (pre-animation behavior).",
                 new AcceptableValueRange<float>(0f, 0.4f)));
+        // THE CHARACTER-SWAP EXCHANGE (user 2026-08-09: "mach auch hier eine neue coolere
+        // Tauschanimation rein die den Fächer austauscht"). One wipe across the palm: the old hand
+        // is gathered off one end of the arc while the new one is dealt out of the other, the two
+        // halves separated in depth and counter-rolled so the arriving hand passes in FRONT of the
+        // leaving one. Every range starts at 0, and 0 on all of them is exactly the instant content
+        // swap this replaced — the honest "turn it back down" position, reachable from the steppers.
+        FanSwapDuration = _file.Bind("Cards", "FanSwapDuration", Defaults.FanSwapDuration,
+            new ConfigDescription(
+                "Character swap: seconds ONE card takes to fly out of the fan (or into it) when " +
+                "you switch which character's hand you are looking at while the fan is open " +
+                "(unscaled time — it runs even while the game pauses). The whole exchange takes " +
+                "this plus the overlap delay plus the last card's stagger. Longer = the exchange " +
+                "is readable rather than a flick; too long and switching characters feels slow.",
+                new AcceptableValueRange<float>(0.05f, 0.8f)));
+        FanSwapStagger = _file.Bind("Cards", "FanSwapStagger", Defaults.FanSwapStagger,
+            new ConfigDescription(
+                "Character swap: extra start delay in seconds PER CARD along the arc, so the " +
+                "exchange sweeps across the hand instead of every card moving at once. BOTH " +
+                "halves use it and both run in the same direction, which is what makes the " +
+                "leaving and the arriving hand read as ONE wipe rather than two animations. It is " +
+                "also the reason the motion survives a mixed-reality background: the eye follows " +
+                "a moving front, where a simultaneous blob-move is a flicker a busy room " +
+                "swallows. 0 = every card starts together.",
+                new AcceptableValueRange<float>(0f, 0.12f)));
+        FanSwapOverlap = _file.Bind("Cards", "FanSwapOverlap", Defaults.FanSwapOverlap,
+            new ConfigDescription(
+                "Character swap: how much of each slot's DEPARTURE its matching ARRIVAL overlaps. " +
+                "1 = the new card sets off the instant the old one does (the two hands cross " +
+                "mid-air); 0 = the new card only sets off once the old one has fully gone. This " +
+                "is the single dial that decides whether the swap reads as an EXCHANGE or as an " +
+                "empty hand being refilled, which is why the shipped value is high.",
+                new AcceptableValueRange<float>(0f, 1f)));
+        FanSwapTravel = _file.Bind("Cards", "FanSwapTravel", Defaults.FanSwapTravel,
+            new ConfigDescription(
+                "Character swap: how far PAST the end of the arc the gather/deal point sits, real " +
+                "meters. The outgoing hand converges on that point off one end (swept up like a " +
+                "deck), the incoming hand fans out of the mirror-image point off the other — so " +
+                "the cards visibly leave and arrive instead of fading in place. Bigger = they " +
+                "travel further clear of the hand.",
+                new AcceptableValueRange<float>(0f, 0.3f)));
+        FanSwapArc = _file.Bind("Cards", "FanSwapArc", Defaults.FanSwapArc,
+            new ConfigDescription(
+                "Character swap: how far the cards move in DEPTH at the middle of their flight, " +
+                "real meters. The leaving card ducks AWAY from you by this; the arriving card " +
+                "bows TOWARD you by the same amount — so the new hand passes in front of the old " +
+                "one and the two can never appear to slide through each other. Depth is also the " +
+                "cue passthrough cannot mask: both eyes see the separation. 0 = both halves stay " +
+                "flat in the fan plane.",
+                new AcceptableValueRange<float>(0f, 0.25f)));
+        FanSwapSpinDegrees = _file.Bind("Cards", "FanSwapSpinDegrees", Defaults.FanSwapSpinDegrees,
+            new ConfigDescription(
+                "Character swap: the roll (degrees) the two halves turn through — the leaving " +
+                "hand winds one way as it gathers, the arriving hand unwinds the other way as it " +
+                "deals out. A rotation changes a card's outline, and a cluttered background never " +
+                "produces a coherent outline rotation by accident; the opposite signs are what " +
+                "make the two halves read as an exchange rather than a shove. 0 = no roll.",
+                new AcceptableValueRange<float>(0f, 180f)));
+        FanSwapSeedScale = _file.Bind("Cards", "FanSwapSeedScale", Defaults.FanSwapSeedScale,
+            new ConfigDescription(
+                "Character swap: the size a card has at the gather/deal point, as a fraction of " +
+                "its size in the fan. Smaller = more shrink on the way out and more growth on the " +
+                "way in, which is the monocular half of the depth cue the bow gives stereoscopically.",
+                new AcceptableValueRange<float>(0.02f, 1f)));
+        FanSwapSettleOvershoot = _file.Bind("Cards", "FanSwapSettleOvershoot",
+            Defaults.FanSwapSettleOvershoot,
+            new ConfigDescription(
+                "Character swap: the strength of the overshoot at the END of an arriving card's " +
+                "flight (it passes its slot and swings back into it) and of the matching wind-up " +
+                "a leaving card takes before it goes. A REVERSAL OF DIRECTION is the loudest event " +
+                "motion has, and it costs no extra travel. About 1.5 is a ~6 % overshoot; 0 = a " +
+                "plain ease that only decelerates to a stop.",
+                new AcceptableValueRange<float>(0f, 3f)));
         FanRevealSound = _file.Bind("Cards", "FanRevealSound", Defaults.FanRevealSound,
             "Game audio item played once when the palm fan reveals (Demeo plays " +
             "MotherbrainAudio.OnCardHandShow, CardHandView.cs:682). PlaySound_EnemyCardDraw is " +

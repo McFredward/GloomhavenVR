@@ -283,6 +283,10 @@ internal sealed partial class CardsDriver
         _gateContactWinner = null; // gate-hand dock election dies with the driver too
         _contactSuppressed.Clear(); // flags themselves die with the cards (OnDisable clears)
         _emptyFanHint.Destroy(); // task #9: ghost placard teardown
+        // The deferred face restores are moot from here: _factory.Dispose() below restores EVERY
+        // adopted face, which is a superset of what this list names. Dropping it explicitly so the
+        // queue cannot outlive the driver that drains it and hand a dead CardsHandUI to a rebuilt one.
+        _pendingFaceRestore.Clear();
         _fan.Destroy();
         _browser.Destroy();
         _half.Destroy();
@@ -470,6 +474,14 @@ internal sealed partial class CardsDriver
     {
         CardActionQueue.Pump();
         HandSuppression.Tick();
+        // Character-swap exchange tail: park each outgoing card once its own flight has landed, and
+        // give a deferred focus hand its borrowed faces back once the wave has drained. FIRST in the
+        // update, ahead of the anchor bail-out, because a borrowed hand must be handed back even on
+        // the frames this method does nothing else — the hands going down mid-exchange is exactly
+        // such a frame, and it would otherwise leave a character's 2D hand adopted indefinitely. The
+        // cost of being here rather than after the fan's tick is that a card is parked one frame
+        // after it stops moving, at the gather point, shrunk and off the end of the arc.
+        DrainSwapExit();
 
         Transform? anchor = AnchorParent();
         if (anchor == null)
@@ -977,7 +989,14 @@ internal sealed partial class CardsDriver
         // put so a pluck never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).
         gate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
 
-        bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
+        // …OR a character-swap exchange is still flying cards OUT of it (2026-08-09). Switching to a
+        // character whose hand is EMPTY — everything burnt, or a long rest — leaves both counts at
+        // zero on the very frame the outgoing hand sets off, so without this term the fan would be
+        // closed underneath its own exchange and CardFan.FinishSwap would snap the whole wave to the
+        // gather point: a pop, in the one case where the animation is the ONLY thing that explains
+        // where the cards went. The fan closes by itself the moment the wave has drained, and by then
+        // it holds nothing, so the close is silent.
+        bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0 || _fan.HasLeavingCards;
         // FAN BLOCK while the gate hand HOLDS something (user ruling 2026-08-04: "Wird eine Karte
         // in die nicht-dominante Hand genommen, wird - solange sie in der Hand ist - der Faecher
         // blockiert"). The gate hand can now take cards (general both-hands rule), and a fan

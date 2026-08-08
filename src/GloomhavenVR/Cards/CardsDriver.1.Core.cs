@@ -165,6 +165,58 @@ internal sealed partial class CardsDriver : MonoBehaviour
     /// </summary>
     private CardsHandUI? _focusAdoptedHand;
 
+    // ------------------------------------------- the hand fan's CHARACTER-SWAP EXCHANGE --
+    //
+    // User report 2026-08-09 ("mach auch hier eine neue coolere Tauschanimation rein die den Fächer
+    // austauscht"). The animation itself lives in CardFan's exchange region; what the DRIVER owns is
+    // the two facts the fan cannot know:
+    //
+    //   (a) WHETHER this rebuild is an exchange at all. The fan only sees its list change, and a
+    //       list change alone cannot tell "the whole hand was swapped for another character's" from
+    //       "a card was drawn / played / plucked". CharacterFocus.PresentedActorId is the exact
+    //       predicate — it is re-derived by ResolveHand at the top of every Rebuild and names the
+    //       character the board is CURRENTLY presenting, focus override included — so a change in it
+    //       with a fan already up is the swap edge, and nothing else is.
+    //
+    //   (b) WHEN the outgoing character's borrowed card FACES may go back to the game. This used to
+    //       be "immediately, at the top of Rebuild" (ReleaseStaleFocusHand), which is what made an
+    //       out-animation impossible in the first place: CardFace.Restore reparents the live
+    //       fullAbilityCard back into the game's own UI and VRCardFactory.ReleaseWidget then
+    //       destroys the VR card, so by the time SetCards ran the outgoing hand was already faceless
+    //       and about to be deleted. Flying a card-BACK away would be a content pop of its own. The
+    //       restore is therefore DEFERRED for exactly as long as the exchange is in the air, and no
+    //       longer: the fan reports when its outgoing wave has drained, and only the FAN-OPEN swap
+    //       path defers at all — with the fan closed nothing animates and the release is immediate,
+    //       byte for byte the previous behaviour.
+    //
+    // The deferral is bounded three ways, because a stranded adoption is a visible GAME bug (the
+    // character's 2D hand stays borrowed): the fan lands its exchange on close / re-open / destroy,
+    // the drain releases as soon as no card is still leaving, and DeadlineSeconds below is a hard
+    // backstop for any path that manages to do neither.
+
+    /// <summary>The character the board presented on the previous rebuild (0 = none yet). The swap
+    /// edge is a change in this while the fan is open — see (a) above.</summary>
+    private int _lastPresentedActorId;
+
+    /// <summary>Focus hands whose adopted card faces are waiting on an exchange to finish. A LIST
+    /// rather than a single slot because scrubbing the initiative row queues one per switch, and
+    /// releasing an earlier one early would destroy VR cards that are still visibly flying (the
+    /// "no card is destroyed out from under something" rule). Bounded by the party size.</summary>
+    private readonly List<CardsHandUI> _pendingFaceRestore = new(4);
+
+    /// <summary>Unscaled time by which <see cref="_pendingFaceRestore"/> must be drained whatever the
+    /// fan says — the backstop against a stranded adoption.</summary>
+    private float _faceRestoreDeadline;
+
+    /// <summary>Extra seconds on top of the exchange's own length before the deadline bites. Long
+    /// enough that a hitching frame or a re-switch never trips it, short enough that a genuinely
+    /// stuck exchange gives the faces back within a breath.</summary>
+    private const float FaceRestoreDeadlineSlack = 1.5f;
+
+    /// <summary>Reused buffer for the cards the fan hands back as their flights land (no per-frame
+    /// allocation on the drain path).</summary>
+    private readonly List<VRCard> _swapLanded = new(12);
+
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>One-shot guard for the BoardTargeting Grab-policy grant (survives driver rebuilds).</summary>

@@ -3383,6 +3383,60 @@ internal static class GoldenVectors
                "a zero-field tuning record parses");
         t.True(!emptyT.HasBoardTuning, "and is dropped — indistinguishable from 'record absent'");
 
+        // THE ONE-BYTE TLV CEILING, PINNED (2026-08-09, when the hand fan's character-SWAP dials
+        // took record 28's worst case to exactly 255). The extension tail writes a record's length
+        // in a SINGLE byte, and the board-tuning writer refuses anything larger — SILENTLY, and
+        // only for a sender who has moved every dial, i.e. the least likely person to notice. That
+        // makes the boundary worth owning in bytes rather than in a comment: 255 must still go out
+        // and 256 must still be refused, so the next dial added to the record cannot cross it by
+        // accident. BoardTuningSampler.MaxPayloadBytes is the number that has to stay under this;
+        // it is not linked into this assembly (it reads CardsConfig), which is why the test pins
+        // the SERIALIZER's behaviour rather than the constant.
+        var maxTune = new byte[255];
+        maxTune[0] = 1;                                  // one field…
+        maxTune[1] = NetProtocol.TuneCardWidth;          // …and 252 bytes of padding behind it
+        maxTune[2] = 0xBC;
+        maxTune[3] = 0x02;
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTuning = true, BoardTuningBytes = maxTune, BoardTuningLength = maxTune.Length,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState maxT),
+               "a 255-byte tuning payload — the record's own worst case — is written and parses");
+        t.Equal(255, maxT.BoardTuningLength, "at its full length");
+        t.Equal(0.07f, NetProtocol.BoardTuneLength(maxT.BoardTuningBytes, 0, maxT.BoardTuningLength,
+                                                   NetProtocol.TuneCardWidth, 0f),
+                "and its first field still decodes");
+        var overTune = new byte[256];
+        overTune[0] = 1;
+        overTune[1] = NetProtocol.TuneCardWidth;
+        overTune[2] = 0xBC;
+        overTune[3] = 0x02;
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HandCardCount = 4,
+            HasBoardTuning = true, BoardTuningBytes = overTune, BoardTuningLength = overTune.Length,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState overT), "a 256-byte payload parses…");
+        t.True(!overT.HasBoardTuning,
+               "…as a packet WITHOUT the record: one byte over the TLV ceiling drops the whole " +
+               "record, which is exactly why MaxPayloadBytes may never exceed 255");
+
+        // The two swap dials that ride the one-byte COUNT width to stay under that ceiling: whole
+        // degrees and whole percent, decoded in their own units by RemoteBoardTuning.
+        byte[] swapCounts =
+        {
+            2,
+            NetProtocol.TuneFanSwapSpin, 58,
+            NetProtocol.TuneFanSwapOverlapPercent, 66,
+        };
+        t.Equal(58, NetProtocol.BoardTuneCount(swapCounts, 0, swapCounts.Length,
+                                               NetProtocol.TuneFanSwapSpin, 0),
+                "the swap's counter-roll rides the COUNT width as whole degrees");
+        t.Equal(66, NetProtocol.BoardTuneCount(swapCounts, 0, swapCounts.Length,
+                                               NetProtocol.TuneFanSwapOverlapPercent, 0),
+                "and its overlap as whole percent (0.66 -> 66), un-quantized on the receiver");
+
         // QUANTIZATION CLAMPS (never trust a config, either): values past each encoding's range
         // saturate instead of wrapping into a wrong sign.
         t.Equal(short.MaxValue, NetProtocol.EncodeTuneLength(99f), "a 99 m length clamps");
