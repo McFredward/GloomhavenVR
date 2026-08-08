@@ -2886,6 +2886,19 @@ internal sealed class ItemsPile
             ringGo.AddComponent<WorldUI.SoftFramePulse>().Init(img, color);
 
             Core.VRLayers.Apply(canvasGo); // mod-owned overlay on the mod layer (no game children below it)
+            // Perspective (user report 2026-08-08, MR: "Die mixed reality hintergründe schieben
+            // sich vor den outlines von karten, das darf nicht sein"). This frame deliberately
+            // floats just OUTSIDE the card silhouette (FrameOutsetPixels above), which is exactly
+            // where the card's depth-writing slab did NOT stamp depth — so the MR backing plate's
+            // ZTest, which protects the card BODY per pixel, had nothing to fail against here, and
+            // at sortingOrder 1 against a plate on the panel ladder (>= 100) the plate simply
+            // painted last. The item fan hangs 26 cm above the board top and 5 cm proud of it,
+            // right where the board-docked initiative track's plate lives, so this was constant.
+            // Rank against the ladder by the frame's own eye distance instead — full root cause on
+            // CardCueOrder, including why giving this hollow soft outline a depth write is not the
+            // answer. sortingOrder 1 above stays correct until the first LateUpdate seats it, and
+            // every ladder value is far above the hosted face canvas' 0.
+            CardGlow.RankWithPanels(canvasGo);
             canvasGo.SetActive(false);     // shown only while the item is usable
             return canvasGo;
         }

@@ -1726,6 +1726,14 @@ internal sealed class CardFan
             new Vector3(w * 1.24f, h * 1.24f, 1f), Vector3.zero,
             new Color(1f, 0.85f, 0.3f, 0.95f)); // same gold as the board slot glow
         Core.VRLayers.Apply(_overlay);
+        // Perspective (user report 2026-08-08, MR: "Die mixed reality hintergründe schieben sich
+        // vor den outlines von karten"). This glow is a depth-LESS transparent quad 1.24x the card,
+        // i.e. it draws where no card slab wrote depth — at sortingOrder 0 every MR backing plate
+        // (which rides its panel's ladder slot at >= 100) painted over it even when the panel was
+        // metres BEHIND the hand. The board's own slot glow is the same quad, but it is board
+        // furniture and rides PlayTray.AdoptFurniture's cluster band; the HAND fan is free-floating,
+        // so it ranks itself against the panel ladder. Full root cause on CardCueOrder.
+        CardGlow.RankWithPanels(_overlay);
     }
 
     /// <summary>
