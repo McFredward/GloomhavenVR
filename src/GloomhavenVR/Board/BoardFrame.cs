@@ -89,13 +89,51 @@ namespace GloomhavenVR.Board;
 ///   shed. Verified offline on all three shipped assets: zero self-intersections in the contour and
 ///   in both offset rings of the stroke.</item>
 /// <item><b>It degrades to the hull, not to garbage.</b> A bucket with no evidence is interpolated
-///   from its neighbours against zero sag at the hull vertices, i.e. back to the hull edge; a
-///   degenerate hull skips the trace entirely. The log states which contour was used and the mean
-///   and max sag it applied.</item>
+///   from its populated neighbours; a hull with no evidence at all, or a degenerate one, skips the
+///   trace entirely. The log states which contour was used and the mean and max sag it applied.</item>
 /// </list></para>
 ///
-/// <para>MEASURED RESULT, same method as above (signed distance from the built geometry to the
-/// rasterised silhouette; negative = on the board):
+/// <para><b>THE SAG PROFILE IS FILTERED, AND ModBuild 84's WAS NOT — THE SECOND HALF OF
+/// "zerstückelt".</b> ModBuild 84 took each bucket's least-inward vertex RAW and pinned sag 0 at
+/// every hull VERTEX, on the argument that a hull vertex is itself a cloud point and so has no sag
+/// of its own. True, and beside the point: the 56-vertex hull of a 1.9 m perimeter has a vertex
+/// every ~34 mm, so the contour was forced back OUT to the hull 56 times per lap while sagging up to
+/// 10 mm in between (hardware log: <c>sag mean 3.6 mm / max 9.95 mm</c> — the max is the trust band
+/// itself, i.e. single vertices were dragging whole buckets to the limit). That is a scallop every
+/// three and a half centimetres plus per-bucket spikes on top of it: exactly the ragged, wandering
+/// line in the screenshot, and it also decided WHERE the buried ring managed to poke out.</para>
+///
+/// <para>The sag (and the drape z beside it) is now treated as what it is — a signal sampled around
+/// a closed loop — and filtered as one:
+/// <list type="number">
+/// <item>gaps are filled CIRCULARLY between populated buckets, wrapping across hull vertices, with
+///   no pin. A bucket with no evidence now reads what its real neighbours say instead of what the
+///   hull says;</item>
+/// <item>a <see cref="SagMedianWindow"/>-wide circular MEDIAN removes the single-vertex spikes. A
+///   median cannot invent a value: its output is always one of the measurements;</item>
+/// <item><see cref="SagSmoothPasses"/> passes of a <see cref="SagSmoothWindow"/>-wide circular box
+///   blur (≈ a Gaussian over ±13 mm) take out what is left of the sampling noise.</item>
+/// </list>
+/// Every step is an average or a selection over values already inside [−<see cref="SagTrustLocal"/>,
+/// 0], so the bound the whole construction rests on is preserved exactly: the contour still cannot
+/// leave the hull's own 10 mm boundary band, cannot reach interior art, and is still ONE closed
+/// polygon walked once around the hull. What changes is only how RAGGED it is allowed to be.</para>
+///
+/// <para>MEASURED RESULT of the FILTERING, offline on all three shipped assets — the contour's mean
+/// |second difference|, which is the "zerstückelt" complaint expressed as a number, against the
+/// stand-off it costs:
+/// <list type="bullet">
+/// <item>oak: raggedness <b>0.429 mm → 0.041 mm</b> mean (worst vertex 7.78 mm → 0.83 mm), while the
+///   contour's distance to the mesh moves only 0.62 mm → 0.79 mm median;</item>
+/// <item>steel: 0.505 → 0.044 mm mean (worst 7.25 → 0.77 mm), distance 0.73 → 0.90 mm;</item>
+/// <item>bronze: 1.016 → 0.043 mm mean (worst 8.88 → 0.46 mm), distance 0.78 → 1.27 mm.</item>
+/// </list>
+/// A factor of ten to twenty-four smoother for a fraction of a millimetre of accuracy — and the p95
+/// and max stand-off are IDENTICAL before and after, i.e. the filtering removed noise and not
+/// signal.</para>
+///
+/// <para>MEASURED RESULT of the trace itself, same method as above (signed distance from the built
+/// geometry to the rasterised silhouette; negative = on the board):
 /// <list type="bullet">
 /// <item>contour median −0.3 mm / −0.9 mm / −0.2 mm (oak / bronze / steel), i.e. it sits ON the
 ///   visible rim rather than 3.4–4.2 mm outside it;</item>
@@ -111,23 +149,69 @@ namespace GloomhavenVR.Board;
 /// bronze 1.67 mm, steel 0.63 mm), and each board is a SINGLE mesh object, so there is no
 /// decorative sub-mesh for the trace to ignore and nothing pushing the contour outward.</para>
 ///
-/// <para><b>THE PLANE: THE BOARD'S +Z IS THE SIDE THAT FACES YOU, AND ModBuild 83 HAD IT
-/// BACKWARDS.</b> This is the second half of the "not on the edge" report and it was invisible in
-/// the source. The FBX is authored decorated-face-first with the body behind it, but the shipped
-/// prefabs re-orient the imported model with a 180° rotation about (0, 1, −1) — so in board-ROOT
-/// local space the asset occupies z ∈ [−depth, 0] and its DECORATED FACE is the z = 0 end.
-/// Confirmed three ways: the hardware log's own measurement (<c>front face z −0.0332</c>) equals the
-/// oak board's full modelled depth (0.03324 m) to the last digit, i.e. it is the BACK; the prefab's
-/// authored anchor overrides sit 12–28 mm on the +body side of the face plane, which is where recess
-/// FLOORS are; and the board face frame <c>PlayTray</c> derives from those anchors,
-/// <c>n = (Slot2−Slot1) × (ShortRest−LongRest)</c>, comes out −Z, whose "out of the decorated face"
-/// direction (−n) is +Z. ModBuild 83 read the MINIMUM z as "frontmost" and then clamped it, which
-/// parked the stroke 22 mm BEHIND the board's face — beside the rim and a centimetre down its
-/// side wall. <see cref="FaceSign"/> now derives that facing from the four anchors the same way
-/// <c>PlayTray</c> does, and the stroke is laid on the board's own face plane
-/// <see cref="ProudLocal"/> proud of it. The clamp survives only as insurance against a
-/// mis-imported asset (<see cref="MaxFaceOffsetLocal"/>) and does not bind on any shipped
-/// board.</para>
+/// <para><b>THE PLANE: THE DECORATED FACE IS THE BOARD'S MIN-z END, AND A "SANITY" CLAMP BURIED THE
+/// STROKE 11.7 mm INSIDE THE BOARD.</b> ModBuild 84 got the DIRECTION right and the DISTANCE wrong,
+/// and the hardware log states both halves outright:
+/// <c>Board-local z spans −0.0332…0; the decorated face is the MIN-z end (derived from the four FBX
+/// anchors), so the stroke plane is z −0.0215</c>. −0.0215 is not −0.0332 − 1.5 mm: it is the
+/// ±<c>0.02</c> clamp that ModBuild 84 shipped as "insurance, not a working part" BINDING, on the
+/// default board, on the first frame. The clamp was authored around an offline claim that the face
+/// sits at board-local z ≈ 0; the runtime says the opposite, so the clamp did not protect anything —
+/// it parked the ring 11.7 mm below the face, inside the opaque body. That, together with the sag
+/// noise below, IS the user's "zerstückelt" (2026-08-08, <c>outline2.png</c>): buried geometry pokes
+/// out only where the rim happens to sag away from it, so the line appears in patches on the near
+/// edge and vanishes entirely on the far one.</para>
+///
+/// <para><b>THE FACING ITSELF WAS NEVER WRONG — ONLY THE CLAMP WAS.</b> Worth stating plainly,
+/// because the obvious reading of "the log says MIN, the class doc said MAX" is that
+/// <see cref="FaceSign"/> is broken, and chasing that is a dead end. <c>PlayTray.EnsureBuilt</c>
+/// (PlayTray.1.Core.cs:461-470) builds the board face frame from the same four anchors,
+/// <c>nF = (Slot2−Slot1) × (ShortRest−LongRest)</c>, and its own comment records that the choice was
+/// VERIFIED BY OFFSCREEN RENDER: elements face the anchor's local −Z, forward = +nF, therefore
+/// <b>−nF points out of the decorated face</b> ("do not flip to −nF: that hides the cards on the
+/// decorative back"). The hardware log confirms it every session from the other side —
+/// <c>ITEM2 diag — Slot0: readable(−Z) … vs head dot 0.66 (want &gt;0) → FACES the player</c>: the
+/// direction the cards read along really does point at the player. <see cref="FaceSign"/> computes
+/// exactly that direction, transported into board-root space by an ordinary rotation (which
+/// preserves a cross product), and answers MIN-z. So MIN-z is right, the face sits at −0.0332, the
+/// stroke belongs at −0.0347, and it was the ±20 mm clamp — nothing else — that moved it to −0.0215.
+/// The class doc's "MAX-z" was an offline reconstruction of the import chain that never agreed with
+/// the code's own log line, and the log line was the measurement.</para>
+///
+/// <para>The absolute clamp is therefore GONE. The sanity check it was meant to be is now a check on
+/// the measured DEPTH (<see cref="MaxBoardDepthLocal"/>): that is the quantity which actually reveals
+/// a mis-imported asset, and unlike a clamp on the plane's POSITION it cannot mistake a correctly
+/// measured face for a mis-import and quietly bury the stroke inside the board.</para>
+///
+/// <para><b>AND THE STROKE IS DRAPED, NOT FLAT — BECAUSE THE SILHOUETTE IS NOT ON THE FACE.</b>
+/// The tempting simplification is one flat plane at the face and it is WRONG on these assets, which
+/// is worth the measurement it took to find out. The contour is the PLAN-VIEW silhouette, i.e. the
+/// board's widest cross-section — and on the shipped boards that cross-section sits nowhere near the
+/// decorated face (measured offline, Blender, distance from the face plane to the z that each
+/// contour bucket's own silhouette point actually occupies):
+/// <list type="bullet">
+/// <item>oak: median <b>8.1 mm</b> below the face, 95th percentile 23.2 mm;</item>
+/// <item>steel: median <b>15.6 mm</b>, 95th percentile 39.8 mm;</item>
+/// <item>bronze: median <b>128.8 mm</b> — it is a raked lectern 301 mm deep, not a plate, and only
+///   50 mm of its 218 mm plan height lies within 30 mm of the face at all.</item>
+/// </list>
+/// A ring laid flat on the face plane would therefore hang in the AIR outside the board over most of
+/// its length, and shift against the visible edge by <c>h·tanθ</c> at every viewing angle. Each
+/// contour vertex instead carries its OWN z — the most-proud z among the very mesh vertices that won
+/// its bucket, gap-filled and filtered exactly like the sag beside it, then lifted
+/// <see cref="ProudLocal"/>. That places the line where its silhouette point physically IS, so the
+/// parallax is zero by construction from every angle, on all three boards, whatever their shape.</para>
+///
+/// <para>The drape is smooth enough to be one continuous line rather than a 3D zigzag, and that was
+/// measured too rather than hoped for: adjacent contour vertices (3 mm apart in plan) differ in z by
+/// a mean of 0.48 mm on oak / 0.73 mm steel / 1.07 mm bronze, worst case 2.0 / 4.1 / 5.0 mm, and the
+/// ring's z curvature stays under 0.45 mm everywhere. Same filters, same reason.</para>
+///
+/// <para>One honest consequence: at a barrel-shaped edge, the millimetre the stroke bites INSIDE the
+/// contour is on surface that curves back toward the viewer, so that millimetre is depth-occluded and
+/// the line reads as its outer ~2 mm there while reading its full width on the flat top rim. That is
+/// the bite doing its job — it exists so the line cannot show a hairline of background between itself
+/// and the board at any angle, not to be uniformly visible.</para>
 ///
 /// <para><b>ONE MESH, ONE RENDERER, ONE MATERIAL, ONE SUBMESH.</b> The whole point cloud yields ONE
 /// contour, which yields ONE <see cref="Mesh"/> on ONE GameObject with ONE material. The count is
@@ -150,9 +234,12 @@ namespace GloomhavenVR.Board;
 /// <c>mesh.bounds</c>. An honest bound would make the board's measured top edge — and with it the
 /// tooltip and enemy-reveal clearance — twitch by the stroke width every time the cue blinks on.
 /// The mesh therefore reports the CONTOUR's bounding box, which is by construction no larger than
-/// the board's own footprint. The one place it does exceed the board is depth: the reported box
-/// sits at the stroke's plane, ~2 mm proud of the board's face. Costs a sliver of early frustum
-/// culling at the screen edge.</para>
+/// the board's own footprint. Its DEPTH now spans the drape's z range plus the proud lift — deeper
+/// than a plane's box, still strictly inside the board's own z span but for that 1.5 mm. That costs
+/// only a sliver of early frustum culling, and it costs the measurement NOTHING:
+/// <c>MeasureBoardLocalExtents</c> reads the x and y of the box's eight corners and never its z, and
+/// this frame sits at an identity local pose under the very root it is measured in, so a taller box
+/// maps to exactly the same x/y corners.</para>
 ///
 /// <para><b>THE MATERIAL IS AN OWN INSTANCE.</b> One <see cref="Material"/> from
 /// <see cref="BoardVisual.Unlit"/> (<c>Sprites/Default</c>: unlit, Cull Off — right for a flat ring
@@ -208,6 +295,22 @@ internal sealed class BoardFrame
     /// without bound. 512 × 3 mm = 1.5 m, longer than any shipped board's whole perimeter.</summary>
     private const int MaxBucketsPerEdge = 512;
 
+    /// <summary>Width (in buckets, odd) of the circular MEDIAN that runs over the sag profile before
+    /// it is smoothed. 5 buckets = 15 mm: wide enough that a single stray mesh vertex dragging one
+    /// bucket to the trust limit is outvoted, narrow enough that a real 15 mm feature of the rim
+    /// survives. A median only ever outputs a value it was given, so it cannot push the contour
+    /// outside the band the trace guarantees.</summary>
+    private const int SagMedianWindow = 5;
+
+    /// <summary>Width (in buckets, odd) of the circular box blur applied after the median.
+    /// 9 buckets = 27 mm.</summary>
+    private const int SagSmoothWindow = 9;
+
+    /// <summary>How often the box blur is repeated. Two passes of a box are a good Gaussian
+    /// (σ ≈ 3.7 buckets ≈ 11 mm) at a fraction of the cost, and the result is C¹-smooth to the eye
+    /// at the ~550-vertex resolution this contour is built at.</summary>
+    private const int SagSmoothPasses = 2;
+
     /// <summary>How far in FRONT of the board's own face plane the stroke sits, in board-local
     /// metres, measured along the face direction <see cref="FaceSign"/> resolves. Small on purpose:
     /// the stroke is a line ON the edge, not a halo floating off it — 1.5 mm is enough that the
@@ -215,14 +318,18 @@ internal sealed class BoardFrame
     private const float ProudLocal = 0.0015f;
 
     /// <summary>
-    /// Absolute cap on how far from board-local z = 0 the stroke's plane may end up (board-local
-    /// metres) — insurance, not a working part. The bundle contract puts the decorated face at
-    /// board-local z ≈ 0 on every shipped board (measured: all three occupy z ∈ [−depth, 0], so the
-    /// face plane IS 0.000), and a face plane further out than 2 cm means the asset was imported
-    /// mis-oriented. Without the cap a Z-flipped import would put the stroke a whole board depth in
-    /// front of the board — 30 cm on the bronze board.
+    /// Largest board DEPTH (board-local metres) this class will trace a stroke for — the sanity
+    /// check that replaces ModBuild 84's absolute z clamp, and the one the clamp should always have
+    /// been. MEASURED on the three shipped FBXs rather than assumed, because the assumption is the
+    /// trap here: oak is 33.2 mm deep, steel 63.8 mm, and BRONZE IS 301.1 mm — a deep-bodied board,
+    /// not a plate, and any "a board is a few centimetres thick" number would have refused it. 0.5 m
+    /// is past every shipped asset and still catches the failure this exists for: a model imported
+    /// with its thickness on the wrong axis, where the "depth" is a whole board WIDTH. Unlike a clamp
+    /// on the plane's POSITION it cannot mistake a correctly measured face for a mis-import and
+    /// quietly bury the stroke inside the board. Exceeding it falls back to the rectangle frame with
+    /// the reason logged.
     /// </summary>
-    private const float MaxFaceOffsetLocal = 0.02f;
+    private const float MaxBoardDepthLocal = 0.5f;
 
     /// <summary>Contour edges shorter than this (board-local metres) are collapsed. Adjacent bins
     /// can land on the same modelled corner; the miter of a sub-millimetre edge is numerically
@@ -243,8 +350,11 @@ internal sealed class BoardFrame
     /// <summary>Least vertices a usable contour may have.</summary>
     private const int MinContourVertices = 3;
 
-    private readonly Vector2[] _contour;
-    private readonly float _planeZ;
+    /// <summary>The closed contour in board-ROOT-local metres. X/Y is the traced boundary; Z is that
+    /// vertex' own DRAPE height, already lifted <see cref="ProudLocal"/> out of the decorated face —
+    /// so the ring follows the rim's profile instead of standing on one plane (see THE PLANE).
+    /// </summary>
+    private readonly Vector3[] _contour;
     private readonly float _faceSign;
     private readonly Bounds _bounds;
     private readonly GameObject _go;
@@ -262,11 +372,10 @@ internal sealed class BoardFrame
     private static bool _loggedBuilt;
     private static bool _loggedFallback;
 
-    private BoardFrame(Vector2[] contour, float planeZ, float faceSign, Bounds bounds, GameObject go,
+    private BoardFrame(Vector3[] contour, float faceSign, Bounds bounds, GameObject go,
                        MeshFilter filter, MeshRenderer renderer, Material rim, Mesh mesh)
     {
         _contour = contour;
-        _planeZ = planeZ;
         _faceSign = faceSign;
         _bounds = bounds;
         _go = go;
@@ -300,7 +409,7 @@ internal sealed class BoardFrame
         if (visual == null)
             return null; // procedural / flat fallback board — a rectangle IS its true contour
 
-        var cloud = new List<Vector2>(4096);
+        var cloud = new List<Vector3>(4096);
         float minZ = float.PositiveInfinity;
         float maxZ = float.NegativeInfinity;
         int layer = boardRoot.gameObject.layer;
@@ -335,7 +444,7 @@ internal sealed class BoardFrame
                 // One absurd vertex must never define the contour (PlayTray's own extent rule).
                 if (!(Mathf.Abs(p.x) <= xLimit) || !(Mathf.Abs(p.y) <= yLimit))
                     continue;
-                cloud.Add(new Vector2(p.x, p.y));
+                cloud.Add(p);
                 if (p.z < minZ)
                     minZ = p.z;
                 if (p.z > maxZ)
@@ -354,9 +463,24 @@ internal sealed class BoardFrame
             return null;
         }
 
+        // WHICH WAY THE BOARD FACES. +1 = the decorated face is the board's MAX-z end, −1 = its
+        // MIN-z end (every shipped prefab, runtime-verified). See THE PLANE in the class doc.
+        float faceSign = FaceSign(visual, boardRoot, out bool faceFromAnchors);
+        float facePlane = faceSign > 0f ? maxZ : minZ;
+        float depth = maxZ - minZ;
+        if (!(depth <= MaxBoardDepthLocal))
+        {
+            Fallback(label, $"the board asset measures {depth * 1000f:0.#} mm deep in board-local z "
+                            + $"(z {minZ:0.####}…{maxZ:0.####}), more than the "
+                            + $"{MaxBoardDepthLocal * 1000f:0} mm this class will trace — that is a "
+                            + "mis-imported asset (thickness on the wrong axis), not a board");
+            return null;
+        }
+
         List<Vector2> hull = Hull(cloud);
-        Vector2[]? traced = Simplify(Trace(cloud, hull, out float meanSag, out float maxSag));
-        Vector2[]? contour = traced ?? Simplify(hull);
+        Vector3[]? traced = Simplify(Trace(cloud, hull, faceSign,
+                                           out float meanSag, out float maxSag, out int gapBuckets));
+        Vector3[]? contour = traced ?? Simplify(Flat(hull, facePlane));
         bool usedTrace = traced != null;
         if (contour == null)
         {
@@ -366,24 +490,23 @@ internal sealed class BoardFrame
             return null;
         }
 
+        // Lift the whole contour out of the decorated face. Done ONCE here rather than per bake:
+        // the drape is a property of the board, the stroke widths are not.
+        for (int i = 0; i < contour.Length; i++)
+            contour[i].z += faceSign * ProudLocal;
+
         // The REPORTED bounds are the contour's, never the stroke's — see the class doc.
-        var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
-        var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        var min = new Vector3(float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity);
+        var max = new Vector3(float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
         for (int i = 0; i < contour.Length; i++)
         {
-            min = Vector2.Min(min, contour[i]);
-            max = Vector2.Max(max, contour[i]);
+            min = Vector3.Min(min, contour[i]);
+            max = Vector3.Max(max, contour[i]);
         }
 
-        // WHICH WAY THE BOARD FACES. +1 = the decorated face is the board's MAX-z end (every
-        // shipped prefab); −1 = its MIN-z end. See THE PLANE in the class doc.
-        float faceSign = FaceSign(visual, boardRoot, out bool faceFromAnchors);
-        float facePlane = faceSign > 0f ? maxZ : minZ;
-        float planeZ = Mathf.Clamp(facePlane, -MaxFaceOffsetLocal, MaxFaceOffsetLocal)
-                       + faceSign * ProudLocal;
         var bounds = new Bounds(
-            new Vector3((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, planeZ),
-            new Vector3(max.x - min.x, max.y - min.y, 0.001f));
+            (min + max) * 0.5f,
+            new Vector3(max.x - min.x, max.y - min.y, Mathf.Max(max.z - min.z, 0.001f)));
 
         var go = new GameObject(FrameName);
         Transform t = go.transform;
@@ -412,20 +535,24 @@ internal sealed class BoardFrame
         mr.sharedMaterial = rim;
         go.SetActive(false);
 
-        var frame = new BoardFrame(contour, planeZ, faceSign, bounds, go, filter, mr, rim, mesh2);
+        var frame = new BoardFrame(contour, faceSign, bounds, go, filter, mr, rim, mesh2);
 
         if (!_loggedBuilt)
         {
             _loggedBuilt = true;
             VRLog.Info("Board", $"Focus stroke: ONE closed contour stroke built for '{label}' — "
-                                + $"{contour.Length} contour vertices ({(usedTrace ? "hull SAGGED onto the mesh boundary" : "CONVEX-HULL fallback")}"
+                                + $"{contour.Length} contour vertices ({(usedTrace ? "hull SAGGED onto the mesh boundary, then MEDIAN+SMOOTHED" : "CONVEX-HULL fallback")}"
                                 + $", {hull.Count} hull edges, sag mean {meanSag * 1000f:0.##} mm / max "
-                                + $"{maxSag * 1000f:0.##} mm) from {meshes} board mesh(es) and "
+                                + $"{maxSag * 1000f:0.##} mm, {gapBuckets} bucket(s) had no evidence and "
+                                + $"were filled circularly) from {meshes} board mesh(es) and "
                                 + $"{cloud.Count} projected points. Board-local z spans "
-                                + $"{minZ:0.####}…{maxZ:0.####}; the decorated face is the "
-                                + $"{(faceSign > 0f ? "MAX" : "MIN")}-z end "
-                                + $"({(faceFromAnchors ? "derived from the four FBX anchors" : "ANCHORS NOT FOUND — assumed")}), "
-                                + $"so the stroke plane is z {planeZ:0.####}. Footprint "
+                                + $"{minZ:0.####}…{maxZ:0.####} (depth {depth * 1000f:0.#} mm); the "
+                                + $"decorated face is the {(faceSign > 0f ? "MAX" : "MIN")}-z end "
+                                + $"({(faceFromAnchors ? "derived from the four FBX anchors" : "ANCHORS NOT FOUND — assumed")}) "
+                                + $"at z {facePlane:0.####}, so the stroke DRAPES over z "
+                                + $"{min.z:0.####}…{max.z:0.####} — NO absolute clamp is applied to that "
+                                + "plane any more (ModBuild 84's ±20 mm clamp bound on the default board "
+                                + "and buried the ring 11.7 mm inside it). Footprint "
                                 + $"{(max.x - min.x):0.###} × {(max.y - min.y):0.###} m. Exactly 1 ring "
                                 + "mesh on 1 renderer with 1 material and 1 submesh; NO geometry is "
                                 + "emitted for any interior feature (the contour never leaves the "
@@ -554,8 +681,11 @@ internal sealed class BoardFrame
         _bakedRim = rimU;
 
         int n = _contour.Length;
-        Vector2[] cIn = Offset(_contour, -bite);
-        Vector2[] cOut = Offset(_contour, -bite + rim);
+        var plan = new Vector2[n];
+        for (int i = 0; i < n; i++)
+            plan[i] = new Vector2(_contour[i].x, _contour[i].y);
+        Vector2[] cIn = Offset(plan, -bite);
+        Vector2[] cOut = Offset(plan, -bite + rim);
 
         int vertexCount = 2 * n;
         var verts = new Vector3[vertexCount];
@@ -567,7 +697,7 @@ internal sealed class BoardFrame
         var faceNormal = new Vector3(0f, 0f, _faceSign); // out of the board's decorated face
 
         int v = 0;
-        int rimBase = Fill(verts, normals, colors, ref v, cIn, cOut, _planeZ, faceNormal, white);
+        int rimBase = Fill(verts, normals, colors, ref v, cIn, cOut, _contour, faceNormal, white);
 
         _mesh.Clear();
         _mesh.vertices = verts;
@@ -584,22 +714,25 @@ internal sealed class BoardFrame
     }
 
     /// <summary>Append the 2 × <c>n</c> vertices of one band (inner ring then outer ring) and return
-    /// the index the band starts at.</summary>
+    /// the index the band starts at. Both rings take their z from <paramref name="drape"/>, vertex
+    /// for vertex — the two offset rings are index-parallel to the contour by construction, so the
+    /// band stays on the rim's own profile instead of on one plane (see THE PLANE).</summary>
     private static int Fill(Vector3[] verts, Vector3[] normals, Color32[] colors, ref int v,
-                            Vector2[] inner, Vector2[] outer, float z, Vector3 normal, Color32 color)
+                            Vector2[] inner, Vector2[] outer, Vector3[] drape, Vector3 normal,
+                            Color32 color)
     {
         int start = v;
         int n = inner.Length;
         for (int i = 0; i < n; i++)
         {
-            verts[v] = new Vector3(inner[i].x, inner[i].y, z);
+            verts[v] = new Vector3(inner[i].x, inner[i].y, drape[i].z);
             normals[v] = normal;
             colors[v] = color;
             v++;
         }
         for (int i = 0; i < n; i++)
         {
-            verts[v] = new Vector3(outer[i].x, outer[i].y, z);
+            verts[v] = new Vector3(outer[i].x, outer[i].y, drape[i].z);
             normals[v] = normal;
             colors[v] = color;
             v++;
@@ -661,21 +794,29 @@ internal sealed class BoardFrame
     /// <para>Cost: one pass over the cloud per hull edge (~1.2 M point tests on a shipped board,
     /// tens of milliseconds once, on the frame the board is built).</para>
     /// </summary>
-    private static List<Vector2>? Trace(List<Vector2> cloud, List<Vector2> hull,
-                                        out float meanSag, out float maxSag)
+    private static List<Vector3>? Trace(List<Vector3> cloud, List<Vector2> hull, float faceSign,
+                                        out float meanSag, out float maxSag, out int gapBuckets)
     {
         meanSag = 0f;
         maxSag = 0f;
+        gapBuckets = 0;
         int h = hull.Count;
         if (h < MinContourVertices)
             return null;
 
-        Vector2[] pts = cloud.ToArray(); // array indexing: this is the hot loop of the whole build
-        var contour = new List<Vector2>(1024);
-        var sag = new float[MaxBucketsPerEdge];
-        var has = new bool[MaxBucketsPerEdge];
-        double sagSum = 0d;
-        int sagCount = 0;
+        Vector3[] pts = cloud.ToArray(); // array indexing: this is the hot loop of the whole build
+
+        // ONE profile around the WHOLE closed hull, not one per edge: every filter below wraps, so
+        // a hull vertex is no longer a seam the contour is pinned back to (see THE SAG PROFILE).
+        var mid = new List<Vector2>(1024);
+        var nrm = new List<Vector2>(1024);
+        var sag = new List<float>(1024);
+        var drape = new List<float>(1024);
+        var has = new List<bool>(1024);
+
+        var sagE = new float[MaxBucketsPerEdge];
+        var zE = new float[MaxBucketsPerEdge];
+        var hasE = new bool[MaxBucketsPerEdge];
 
         for (int i = 0; i < h; i++)
         {
@@ -690,8 +831,9 @@ internal sealed class BoardFrame
             int m = Mathf.Clamp(Mathf.RoundToInt(len / SagBucketLocal), 1, MaxBucketsPerEdge);
             for (int k = 0; k < m; k++)
             {
-                sag[k] = 0f;
-                has[k] = false;
+                sagE[k] = 0f;
+                zE[k] = 0f;
+                hasE[k] = false;
             }
 
             for (int p = 0; p < pts.Length; p++)
@@ -707,50 +849,175 @@ internal sealed class BoardFrame
                 int k = (int)(t / len * m);
                 if (k >= m)
                     k = m - 1;
-                if (!has[k] || s > sag[k])
+                if (!hasE[k])
                 {
-                    sag[k] = s;
-                    has[k] = true;
+                    hasE[k] = true;
+                    sagE[k] = s;
+                    zE[k] = pts[p].z;
+                    continue;
                 }
+                if (s > sagE[k])
+                    sagE[k] = s;
+                // The DRAPE takes the most-PROUD z the bucket saw, which is the front rim: the
+                // trust band also admits the side wall and the underside, and those must never
+                // decide where the line sits.
+                if (pts[p].z * faceSign > zE[k] * faceSign)
+                    zE[k] = pts[p].z;
             }
 
-            Interpolate(sag, has, m);
             for (int k = 0; k < m; k++)
             {
-                contour.Add(a + dir * ((k + 0.5f) / m * len) + normal * sag[k]);
-                sagSum += -sag[k];
-                sagCount++;
-                if (-sag[k] > maxSag)
-                    maxSag = -sag[k];
+                mid.Add(a + dir * ((k + 0.5f) / m * len));
+                nrm.Add(normal);
+                sag.Add(sagE[k]);
+                drape.Add(zE[k]);
+                has.Add(hasE[k]);
             }
         }
 
-        if (sagCount > 0)
-            meanSag = (float)(sagSum / sagCount);
-        return contour.Count >= MinContourVertices ? contour : null;
-    }
-
-    /// <summary>Fill the buckets with no supporting point by linear interpolation between the
-    /// populated ones, pinning sag 0 half a bucket outside each end — the hull VERTICES, which are
-    /// cloud points and therefore have zero sag by definition.</summary>
-    private static void Interpolate(float[] sag, bool[] has, int m)
-    {
-        float prevPos = -0.5f;   // the hull vertex before the first bucket
-        float prevVal = 0f;
-        int atK = 0;
-        for (int k = 0; k < m; k++)
+        int count = mid.Count;
+        if (count < MinContourVertices)
+            return null;
+        for (int k = 0; k < count; k++)
         {
             if (!has[k])
-                continue;
-            for (int g = atK; g < k; g++)
-                sag[g] = Mathf.Lerp(prevVal, sag[k], (g - prevPos) / (k - prevPos));
-            prevPos = k;
-            prevVal = sag[k];
-            atK = k + 1;
+                gapBuckets++;
         }
-        float endPos = m - 0.5f; // the hull vertex after the last bucket
-        for (int g = atK; g < m; g++)
-            sag[g] = Mathf.Lerp(prevVal, 0f, (g - prevPos) / (endPos - prevPos));
+        if (gapBuckets == count)
+            return null; // no evidence anywhere — the hull IS the answer, the caller uses it
+
+        FillCircular(sag, has);
+        FillCircular(drape, has);
+        MedianCircular(sag, SagMedianWindow);
+        MedianCircular(drape, SagMedianWindow);
+        for (int pass = 0; pass < SagSmoothPasses; pass++)
+        {
+            SmoothCircular(sag, SagSmoothWindow);
+            SmoothCircular(drape, SagSmoothWindow);
+        }
+
+        var contour = new List<Vector3>(count);
+        double sagSum = 0d;
+        for (int k = 0; k < count; k++)
+        {
+            // Belt on the construction's own bound: every filter above is a selection or an average
+            // over values already in [−SagTrustLocal, 0], so this cannot bite — it just makes the
+            // guarantee unconditional rather than an argument about the filters.
+            float s = Mathf.Clamp(sag[k], -SagTrustLocal, 0f);
+            contour.Add(new Vector3(mid[k].x + nrm[k].x * s, mid[k].y + nrm[k].y * s, drape[k]));
+            sagSum += -s;
+            if (-s > maxSag)
+                maxSag = -s;
+        }
+
+        meanSag = (float)(sagSum / count);
+        return contour;
+    }
+
+    /// <summary>
+    /// Fill every entry of a CLOSED profile whose <paramref name="has"/> flag is false by linear
+    /// interpolation between the nearest populated entries on either side, wrapping around the end.
+    /// No value is pinned at a hull vertex: that pin is exactly what scalloped ModBuild 84's
+    /// contour (see THE SAG PROFILE in the class doc). Requires at least one populated entry, which
+    /// the caller checks.
+    /// </summary>
+    private static void FillCircular(List<float> values, List<bool> has)
+    {
+        int n = values.Count;
+        int first = -1;
+        for (int i = 0; i < n; i++)
+        {
+            if (has[i])
+            {
+                first = i;
+                break;
+            }
+        }
+        if (first < 0)
+            return;
+
+        int populated = 0;
+        for (int i = 0; i < n; i++)
+        {
+            if (has[i])
+                populated++;
+        }
+        if (populated == 1)
+        {
+            // Nothing to interpolate BETWEEN: one measurement is the only statement there is.
+            float only = values[first];
+            for (int i = 0; i < n; i++)
+                values[i] = only;
+            return;
+        }
+
+        int prev = first;
+        // Walk the whole ring once starting from a populated entry, so every gap is bracketed.
+        for (int step = 1; step <= n; step++)
+        {
+            int i = (first + step) % n;
+            if (!has[i] && step < n)
+                continue;
+            int at = has[i] ? i : first;
+            int span = ((at - prev) % n + n) % n;
+            if (span > 1)
+            {
+                float from = values[prev];
+                float to = values[at];
+                for (int g = 1; g < span; g++)
+                    values[(prev + g) % n] = Mathf.Lerp(from, to, (float)g / span);
+            }
+            prev = at;
+        }
+    }
+
+    /// <summary>Circular median filter of odd width <paramref name="window"/> — the spike killer.
+    /// A median only ever outputs one of its inputs, so it cannot move the profile out of the band
+    /// the trace guarantees.</summary>
+    private static void MedianCircular(List<float> values, int window)
+    {
+        int n = values.Count;
+        if (window < 3 || n < window)
+            return;
+        int half = window / 2;
+        var src = values.ToArray();
+        var win = new float[window];
+        for (int i = 0; i < n; i++)
+        {
+            for (int k = 0; k < window; k++)
+                win[k] = src[((i + k - half) % n + n) % n];
+            System.Array.Sort(win);
+            values[i] = win[half];
+        }
+    }
+
+    /// <summary>One pass of a circular box blur of odd width <paramref name="window"/>. Repeated
+    /// <see cref="SagSmoothPasses"/> times this approximates a Gaussian; being an average of values
+    /// inside the band, its output is inside the band too.</summary>
+    private static void SmoothCircular(List<float> values, int window)
+    {
+        int n = values.Count;
+        if (window < 3 || n < window)
+            return;
+        int half = window / 2;
+        var src = values.ToArray();
+        for (int i = 0; i < n; i++)
+        {
+            float sum = 0f;
+            for (int k = -half; k <= half; k++)
+                sum += src[((i + k) % n + n) % n];
+            values[i] = sum / window;
+        }
+    }
+
+    /// <summary>The hull as a flat contour on <paramref name="z"/> — the trace's fallback shape.
+    /// </summary>
+    private static List<Vector3> Flat(List<Vector2> hull, float z)
+    {
+        var flat = new List<Vector3>(hull.Count);
+        for (int i = 0; i < hull.Count; i++)
+            flat.Add(new Vector3(hull[i].x, hull[i].y, z));
+        return flat;
     }
 
     /// <summary>
@@ -758,7 +1025,7 @@ internal sealed class BoardFrame
     /// chain), preceded by an Akl–Toussaint octagon reject that typically discards well over 90 % of
     /// the points before the sort. Kept as the RADIAL TRACE's fallback and as its area reference.
     /// </summary>
-    private static List<Vector2> Hull(List<Vector2> cloud)
+    private static List<Vector2> Hull(List<Vector3> cloud)
     {
         List<Vector2> pts = Octagon(cloud);
         pts.Sort(static (a, b) => a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y));
@@ -788,7 +1055,7 @@ internal sealed class BoardFrame
     /// <summary>Akl–Toussaint: keep only the points OUTSIDE the octagon spanned by the extremes of
     /// x, y, x+y and x−y. Everything discarded is strictly interior and provably cannot be on the
     /// hull.</summary>
-    private static List<Vector2> Octagon(List<Vector2> cloud)
+    private static List<Vector2> Octagon(List<Vector3> cloud)
     {
         Vector2 xMin = cloud[0], xMax = cloud[0], yMin = cloud[0], yMax = cloud[0];
         Vector2 sMin = cloud[0], sMax = cloud[0], dMin = cloud[0], dMax = cloud[0];
@@ -839,23 +1106,32 @@ internal sealed class BoardFrame
     /// <summary>Drop contour vertices closer than <see cref="MinEdgeLocal"/> to the one before them,
     /// so no miter is computed from a sub-millimetre edge. Null when fewer than three survive or the
     /// input is null.</summary>
-    private static Vector2[]? Simplify(List<Vector2>? contour)
+    private static Vector3[]? Simplify(List<Vector3>? contour)
     {
         if (contour == null || contour.Count < MinContourVertices)
             return null;
         float minSq = MinEdgeLocal * MinEdgeLocal;
-        var kept = new List<Vector2>(contour.Count);
+        var kept = new List<Vector3>(contour.Count);
         for (int i = 0; i < contour.Count; i++)
         {
-            if (kept.Count == 0 || (contour[i] - kept[kept.Count - 1]).sqrMagnitude >= minSq)
+            // PLAN-VIEW distance only: the drape z is not a boundary statement, and two vertices a
+            // millimetre apart in x/y are still one corner however far the rim climbs between them.
+            if (kept.Count == 0 || PlanSqr(contour[i], kept[kept.Count - 1]) >= minSq)
                 kept.Add(contour[i]);
         }
         while (kept.Count > MinContourVertices
-               && (kept[0] - kept[kept.Count - 1]).sqrMagnitude < minSq)
+               && PlanSqr(kept[0], kept[kept.Count - 1]) < minSq)
         {
             kept.RemoveAt(kept.Count - 1);
         }
         return kept.Count >= MinContourVertices ? kept.ToArray() : null;
+    }
+
+    private static float PlanSqr(Vector3 a, Vector3 b)
+    {
+        float dx = a.x - b.x;
+        float dy = a.y - b.y;
+        return dx * dx + dy * dy;
     }
 
     /// <summary>
