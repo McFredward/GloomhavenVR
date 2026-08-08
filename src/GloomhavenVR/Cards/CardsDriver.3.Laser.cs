@@ -180,8 +180,14 @@ internal sealed partial class CardsDriver
     private void UpdateFanLaser()
     {
         VRHand? dom = VRHands.Primary;
+        // Ray.ACTIVE, not Ray.Enabled, in this and every laser guard below (2026-08-08): Active is
+        // the level-derived effective state — the mode mask AND a pose AND not holding AND not
+        // stood down for a physical card contact (see UpdateLaserContactStandDown). The two terms
+        // spelled out beside it were always implied by it; the card-contact term is the new one,
+        // and reading it HERE is what makes "the hand is in a card" clear this path's hover
+        // through the very same early-out a disabled ray already took.
         if (!_fan.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Enabled || dom.Grabber.Held != null)
+            || !dom.Ray.Active || dom.Grabber.Held != null)
         {
             _fanHoverOwner = FanHoverOwner.None;
             ClearLaserHover();
@@ -597,6 +603,109 @@ internal sealed partial class CardsDriver
         _contactSuppressed.Add(card);
     }
 
+    // --------------------------------------------- laser stand-down on card contact --
+
+    /// <summary>
+    /// USER REPORT 2026-08-08: "Während die Hand physisch in einer Karte von einem Pile (zB
+    /// Hand-Pile) steckt, deaktiviere den Laser — aktuell passiert es mir öfters dass ich eine
+    /// Karte greifen will, aber versehentlich mit dem Laser dahinter irgendwas greife oder
+    /// bediene." A hand reaching INTO a fan has its controller behind that fan, so its beam
+    /// leaves through the card and lands on whatever is behind it — the control board, a hex, a
+    /// figure, a floated panel — and the trigger pull that means "take THIS card" was being spent
+    /// there. Every fix so far was a per-target yield (the hand-owns-the-trigger claims, the
+    /// pop-suppression, the occluder distances); this is the general one: while the hand is in a
+    /// card, that hand has no beam at all.
+    ///
+    /// <para>THE SIGNAL IS THE EXISTING CONTACT ELECTIONS, nothing new — the very winners that
+    /// already decide which single card lifts under the hand, each with its own incumbent
+    /// hysteresis inside <see cref="FanSweep.Score{T}"/>: <see cref="_handContactWinner"/> (the
+    /// dominant hand over the ability fan + the board's slot/pick-field recesses),
+    /// <see cref="_gateContactWinner"/> (the gate hand over the same recesses),
+    /// <see cref="PileBrowser.HandOwnedCard"/>, <see cref="ItemsPile.HandOwnedChip"/>, and — the
+    /// one pool with no election of its own — the active column via the hand's own proximity
+    /// highlight (sticky by <c>ProximityGrabber.SwitchMarginMeters</c>). No second hysteresis is
+    /// introduced anywhere: the stand-down is coarser than the winner IDENTITY (any winner will
+    /// do), so it is strictly more stable than the lift it rides on. The only time term is the
+    /// release grace inside <see cref="RayInteractor.StandDownForCardContact"/>, which exists for
+    /// the trigger-pull jerk, exactly like the fan occluder's hold.</para>
+    ///
+    /// <para>PER HAND, and only for the fan the hand is actually IN: every source above is
+    /// per-hand and reach-gated, so the other hand keeps its laser and a fan the hand is nowhere
+    /// near suppresses nothing. Hands that hold something are skipped (a held hand has no beam
+    /// anyway — <c>Ray.Active</c>) and elect no winner.</para>
+    ///
+    /// Runs FIRST in the laser block so the mod's own laser paths see the stand-down on the same
+    /// frame they would otherwise hover with it; every one of them reads it through
+    /// <c>dom.Ray.Active</c>. The winners it reads are one frame old by construction (the
+    /// elections deliberately run after the laser paths — see
+    /// <see cref="UpdateHandContactArbitration"/>), which is the same one-frame-old read
+    /// <see cref="HandOwnedFanCard"/> already documents and is covered by the release grace.
+    /// Allocation-free: the zone strings are literals and the card's name is read only on the
+    /// stand-down edge.
+    /// </summary>
+    private void UpdateLaserContactStandDown()
+    {
+        for (int h = 0; h < 2; h++)
+        {
+            VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
+            if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+                continue;
+            Object? card = ContactedCard(hand, out string zone);
+            if (card != null)
+                hand.Ray.StandDownForCardContact(zone, card);
+        }
+    }
+
+    /// <summary>
+    /// The ONE grabbable card/chip <paramref name="hand"/> is physically in contact with right
+    /// now, or null — read straight off the existing single-winner elections (see
+    /// <see cref="UpdateLaserContactStandDown"/> for why these and not a fresh geometric test).
+    /// <paramref name="zone"/> is a literal naming the pool, for the stand-down log line.
+    /// </summary>
+    private Object? ContactedCard(VRHand hand, out string zone)
+    {
+        // 1. the dominant hand's election: the open ability fan PLUS the board's slot/pick-field
+        //    recesses (the arbitration scores both pools into one winner, so ask the fan which
+        //    of the two it is purely to name the zone).
+        if (!ReferenceEquals(hand, _gateHand) && ReferenceEquals(hand, VRHands.Primary)
+            && _handContactWinner != null)
+        {
+            zone = _fan.Contains(_handContactWinner) ? "hand fan" : "board slot / pick field";
+            return _handContactWinner;
+        }
+        // 2. the gate hand's parallel election over the same recesses (fan cards refuse that
+        //    hand outright — the fan hangs off its own palm).
+        if (ReferenceEquals(hand, _gateHand) && _gateContactWinner != null)
+        {
+            zone = "board slot / pick field";
+            return _gateContactWinner;
+        }
+        // 3./4. the two board-anchored fans — both hands sweep these.
+        VRCard? browse = _browser.HandOwnedCard(hand);
+        if (browse != null)
+        {
+            zone = "pile browse arc";
+            return browse;
+        }
+        ItemsPile.ItemChip? chip = _piles.HandOwnedItemChip(hand);
+        if (chip != null)
+        {
+            zone = "item fan";
+            return chip;
+        }
+        // 5. the active column is the one card pool with NO hand-sweep election of its own, so
+        //    its contact signal is the hand's proximity grab candidate — which is exactly "the
+        //    card this hand's trigger would take", sticky by the grabber's own switch margin.
+        if (hand.Grabber.Highlighted is VRCard prox && prox != null && !prox.IsHeld
+            && prox.CanGrab && _active.Contains(prox))
+        {
+            zone = "active column";
+            return prox;
+        }
+        zone = "";
+        return null;
+    }
+
     // ------------------------------------------------------------------ board laser --
 
     private IPokeable? _boardHover;
@@ -716,7 +825,7 @@ internal sealed partial class CardsDriver
     {
         VRHand? dom = VRHands.Primary;
         if (!_tray.IsVisible || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Enabled || dom.Grabber.Held != null || _laserHover != null)
+            || !dom.Ray.Active || dom.Grabber.Held != null || _laserHover != null)
         {
             ClearBoardHover();
             return;
@@ -1170,7 +1279,12 @@ internal sealed partial class CardsDriver
     {
         _handFanTriggerHand = hand;
         _handFanTriggerFrame = Time.frameCount;
-        if (hand.Ray.Enabled)
+        // ...and only for a hand whose beam is still LIVE. A hand that is in a card has already
+        // stood its laser down (UpdateLaserContactStandDown — which is exactly the situation this
+        // method fires in), so there is no far click left to suppress; re-raising HasFreshUiHit
+        // would only re-arm the "the laser owns this pull" flag the stand-down just dropped, and
+        // that flag makes this hand's OWN ProximityGrabber defer the very trigger being claimed.
+        if (hand.Ray.Enabled && !hand.Ray.CardContactStandDown)
             hand.Ray.SuppressFarClick();
     }
 
@@ -1202,7 +1316,7 @@ internal sealed partial class CardsDriver
         // behind it (root cause, see UpdateBoardLaser). The board is now arbitrated BY DISTANCE
         // below, after the pick, so the log always says which one was in front.
         if (!_browser.IsOpen || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Enabled || dom.Grabber.Held != null
+            || !dom.Ray.Active || dom.Grabber.Held != null
             || _laserHover != null)
         {
             if (_browser.IsOpen && dom != null)
@@ -1439,6 +1553,7 @@ internal sealed partial class CardsDriver
         string reason =
             dom == _gateHand ? "the dominant hand is the palm-gate hand"
             : !dom.HasPose ? "the dominant hand has no pose"
+            : dom.Ray.CardContactStandDown ? "the dominant hand is physically in a card — its laser stands down"
             : !dom.Ray.Enabled ? "the dominant hand's ray is disabled by the mode mask"
             : dom.Grabber.Held != null ? "the dominant hand is holding something"
             : _laserHover != null ? "the ability hand fan owns the beam (_laserHover)"
@@ -1503,7 +1618,7 @@ internal sealed partial class CardsDriver
         // UpdateBrowseLaser's: the item fan also floats ABOVE the board, so "the board hovered
         // something" was never evidence that the board is in FRONT. Arbitrated by distance below.
         if (!_piles.ItemsBrowseOpen || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Enabled || dom.Grabber.Held != null
+            || !dom.Ray.Active || dom.Grabber.Held != null
             || _laserHover != null
             || _browseHover != null)
         {
@@ -1695,7 +1810,7 @@ internal sealed partial class CardsDriver
     {
         VRHand? dom = VRHands.Primary;
         if (!_active.IsShown || dom == null || dom == _gateHand || !dom.HasPose
-            || !dom.Ray.Enabled || dom.Grabber.Held != null
+            || !dom.Ray.Active || dom.Grabber.Held != null
             || _laserHover != null || _trayCardHover != null || _boardHover != null || _browseHover != null
             || _itemChipHover != null)
         {
