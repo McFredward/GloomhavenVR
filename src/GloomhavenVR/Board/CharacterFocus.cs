@@ -48,15 +48,49 @@ internal enum FocusTurnMark
 /// — the game's own ownership guards are not merely "still in force", they are the ONLY thing
 /// that can ever act, because the focus path has no mutator to reach for.</para>
 ///
-/// <para>THE PHASE GATE (hard rule, read from the game's own source). Foreign focus exists only
-/// while <c>PhaseManager.PhaseType</c> is one of the TURN phases
-/// <see cref="ActionPhases"/> = <c>StartTurn, ActionSelection, Action, EndTurn, EndTurnLoot</c>
-/// (<c>CPhase.cs:10-26</c>; the game's own "inside somebody's turn" test is the ordinal range
-/// <c>StartTurn..EndTurn</c>, <c>CAbilityRequirements.cs:181</c>). During
-/// <c>SelectAbilityCardsOrLongRest</c> — and during <c>MonsterClassesSelectAbilityCards</c> —
-/// every player sees only what vanilla shows them. That is belt AND braces with
-/// <see cref="RevealGate"/>, which independently keeps a foreign character's ROUND cards face
-/// DOWN through the secret window.</para>
+/// <para>THE ONE GATE (user ruling 2026-08-08: "Ich will nie wieder eine Blockierung haben, den
+/// Character zu wechseln — dafür ist ja nun die Anzeige, ob er dran ist oder nicht"). Focus is
+/// refused in EXACTLY one situation: the secret card-selection window
+/// (<c>PhaseManager.PhaseType == SelectAbilityCardsOrLongRest</c>,
+/// <see cref="RevealGate.IsSecretSelectionPhase"/>), because that is the only moment the game's
+/// model holds a genuine secret — which two cards a remote player has CHOSEN this round
+/// (<c>AbilityCardUI.cs:980/1024/1100/1188</c>). Nothing else may ever refuse a switch, and in
+/// particular NO PHASE LIST does any more.</para>
+///
+/// <para>WHY THE PHASE WHITELIST HAD TO GO (read from the game's own source). The gate used to
+/// enumerate the TURN phases <c>StartTurn, ActionSelection, Action, EndTurn, EndTurnLoot</c> and
+/// refuse everything else. But the game parks a PENDING DECISION in whatever phase raised it, and
+/// several of those are outside that list — <c>CPhase.PhaseType.CheckForForgoActionActiveBonuses</c>
+/// is a phase of its very own that the game SITS IN until the player answers a "forgo your action
+/// for this active bonus" prompt (<c>GameState.cs:1842</c> enters it for every actor,
+/// <c>GameState.cs:2002-2022</c> either shows the bar and waits or passes straight to
+/// <c>StartTurn</c>; <c>CPhaseCheckForForgoActionActiveBonuses.cs</c>), and
+/// <c>CheckForInitiativeAdjustments</c>, <c>EndRound</c>, <c>StartRoundEffects</c>,
+/// <c>PlayerExhausted</c>, <c>Autosave</c>, <c>MonsterClassesSelectAbilityCards</c> and
+/// <c>None</c> are all reachable while the player is simply looking at the table. Every one of
+/// them refused a switch. That is the reported bug ("Während der Character wegen den
+/// Flitzstiefeln eine Entscheidung treffen muss, ist das Wechseln blockiert"), and enumerating
+/// MORE phases would only move the wall. The gate no longer reads the phase at all except to
+/// recognise the one secret window, so there is no state a pending decision can put the game in
+/// that the gate inspects — a decision cannot close it, in any phase, present or future.</para>
+///
+/// <para>AND A SWITCH CANNOT DISTURB A DECISION EITHER — structurally, not by care.
+/// <see cref="TryFocus"/> writes exactly one mod-local field (<see cref="_focused"/>) and asks the
+/// card driver for a rebuild. It calls no rules API: no <c>InitiativeTrack.Select</c>, no
+/// <c>CardsHandManager.SwitchHand</c>, no <c>PhaseManager</c>, no
+/// <c>ScenarioRuleClient.MessageHandler</c>, no <c>CPhaseAction</c>. There is no mutator ON the
+/// path to reach for. The click seam
+/// (<c>Board/Patches/SelectionGuardPatches.cs</c>) additionally SUPPRESSES vanilla's entire
+/// <c>OnClick</c> whenever a focus is taken, so not one of its side effects (Select → SwitchHand →
+/// ClearHilightedActors → SetHilighted → CameraController.SmartFocus → ToggleViewAllCards) can
+/// fire while a prompt is open. And the prompt itself is a SEPARATE surface: the game's decision
+/// window, docked by <c>WorldUI.Surfaces.DecisionDockSurface</c> on <c>PlayTray.DecisionMount</c>
+/// — a fixture of the BOARD, not of the focused character's presentation. Focus only chooses which
+/// <c>CardsHandUI</c> the card fan renders, so the decision row stays exactly where it was, keeps
+/// its own live widgets, and is still answerable while the player looks somewhere else.</para>
+///
+/// <para>Belt AND braces with <see cref="RevealGate"/>, which independently keeps a foreign
+/// character's ROUND cards face DOWN through the secret window.</para>
 ///
 /// <para>WHAT IS AND IS NOT A DISCLOSURE. A foreign character's HAND pile is not secret in
 /// Gloomhaven: <c>CCharacterClass.HandAbilityCards</c> is host-replicated to every client and
@@ -81,22 +115,6 @@ internal enum FocusTurnMark
 /// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal static class CharacterFocus
 {
-    /// <summary>
-    /// The phases in which free character focus is allowed — "somebody is taking a turn".
-    /// Read from <c>CPhase.PhaseType</c> (CPhase.cs:10-26). <c>StartTurn..EndTurn</c> is the
-    /// game's own "inside a turn" range (CAbilityRequirements.cs:181); <c>EndTurnLoot</c> is the
-    /// loot step spliced into the same turn and is included so a focus does not blink out for a
-    /// frame when somebody picks up coins.
-    /// </summary>
-    private static readonly CPhase.PhaseType[] ActionPhases =
-    {
-        CPhase.PhaseType.StartTurn,
-        CPhase.PhaseType.ActionSelection,
-        CPhase.PhaseType.Action,
-        CPhase.PhaseType.EndTurn,
-        CPhase.PhaseType.EndTurnLoot,
-    };
-
     /// <summary>The character the local player has focused, or null = "follow the game" (the
     /// default, and the only state before the first focus click of a scenario).</summary>
     private static CPlayerActor? _focused;
@@ -127,28 +145,59 @@ internal static class CharacterFocus
         }
     }
 
-    // ---------------------------------------------------------------------------- phase gate --
+    // ----------------------------------------------------------------------------- THE gate --
 
     /// <summary>
-    /// True while free character focus is allowed at all: a live scenario, a turn phase, and NOT
-    /// the secret selection window. <see cref="RevealGate.IsSecretSelectionPhase"/> is asserted
-    /// separately from the phase list on purpose — it is the anti-cheat linchpin and must remain
-    /// readable as its own, independent refusal.
+    /// True while free character focus is allowed at all. Exactly two clauses, and by user ruling
+    /// there will never be a third: a live scenario to focus IN, and NOT the secret card-selection
+    /// window. <see cref="RevealGate.IsSecretSelectionPhase"/> is the anti-cheat linchpin and is
+    /// the ONE refusal this feature is allowed to have (class doc, "THE ONE GATE").
+    ///
+    /// <para>Deliberately NOT here, and never again: a phase whitelist, a wait-state test, a
+    /// "is a decision pending" test, an "is a modal open" test, an ownership test. A pending
+    /// decision parks the game in an arbitrary phase and an arbitrary
+    /// <c>Choreographer.m_WaitState</c>; this property reads neither, so none of them can shut
+    /// it. Use <see cref="Refusal"/> when you need to TELL the player (or the log) why.</para>
     /// </summary>
-    internal static bool Open
+    internal static bool Open => Refusal(out _);
+
+    /// <summary>
+    /// The gate as a REASON rather than a bool: returns true when focus is allowed and
+    /// <paramref name="why"/> is null, false with a short, log-safe explanation otherwise.
+    /// Every refusal in the whole feature is minted here and nowhere else, so
+    /// "<c>[Board] [Focus] switch REFUSED — …</c>" can never carry a reason this method does not
+    /// know about — and after the 2026-08-08 ruling the only reason it can ever mint is the
+    /// card-selection phase.
+    /// </summary>
+    /// <summary>The ONE refusal reason the feature is allowed to have, short enough to read in a
+    /// clear/refuse line. The rationale is spelled out once in <see cref="SecretWindowDetail"/>
+    /// so the refusal line can carry it without every other line repeating it.</summary>
+    private const string SecretWindowReason =
+        "card-selection phase (SelectAbilityCardsOrLongRest)";
+
+    /// <summary>Why <see cref="SecretWindowReason"/> is the one gate that stays.</summary>
+    private const string SecretWindowDetail =
+        "which two cards a player has CHOSEN this round is the game's only real secret " +
+        "(AbilityCardUI.cs:980/1024/1100/1188), so no foreign view may open until the reveal. " +
+        "This is the feature's ONLY refusal and it lifts by itself the moment the cards are " +
+        "revealed — nothing else, and no pending decision in any phase, can refuse a switch.";
+
+    internal static bool Refusal(out string? why)
     {
-        get
+        if (!CardsGameApi.InScenario)
         {
-            if (!CardsGameApi.InScenario || RevealGate.IsSecretSelectionPhase)
-                return false;
-            CPhase.PhaseType phase = PhaseManager.PhaseType;
-            for (int i = 0; i < ActionPhases.Length; i++)
-            {
-                if (ActionPhases[i] == phase)
-                    return true;
-            }
+            // Not a refusal the player can ever see: no scenario means no initiative track and
+            // therefore no portrait to click. Named anyway so a log line is never a mystery.
+            why = "no live scenario (Choreographer is gone) — nothing to look at";
             return false;
         }
+        if (RevealGate.IsSecretSelectionPhase)
+        {
+            why = SecretWindowReason;
+            return false;
+        }
+        why = null;
+        return true;
     }
 
     // ------------------------------------------------------------------------------- turn state --
@@ -251,32 +300,59 @@ internal static class CharacterFocus
     internal static CPlayerActor? Focused => _focused;
 
     /// <summary>
-    /// May <paramref name="actor"/> be focused right now? A live player character, in the party,
-    /// during a turn phase. Deliberately says nothing about OWNERSHIP: focusing a teammate is the
-    /// whole feature, and focusing one of your OWN characters that is not at turn is the state
-    /// the red warning exists for.
+    /// Is <paramref name="actor"/> a thing one can LOOK AT at all — a player character that is
+    /// still in the scenario? Enemies, objects and exhausted heroes are not focus TARGETS (an
+    /// exhausted hero leaves the initiative track and has no board presence left); that is a
+    /// different statement from "the switch was refused", and the two are logged differently on
+    /// purpose so <c>switch REFUSED</c> only ever means a gate said no.
     /// </summary>
-    internal static bool CanFocus(CActor? actor)
-    {
-        if (!Open || actor is not CPlayerActor player || player.IsDead)
-            return false;
-        // The hand widget must exist on THIS client, or there would be nothing to render. The
-        // game builds one per player actor (Choreographer.cs:925/1112), so this is a liveness
-        // check, not an ownership one.
-        CardsHandManager manager = CardsHandManager.Instance;
-        return manager != null && manager.GetHand(player) != null;
-    }
+    internal static bool IsFocusTarget(CActor? actor) =>
+        actor is CPlayerActor player && !player.IsDead;
 
     /// <summary>
-    /// Focus <paramref name="actor"/>. Returns false — and changes nothing — when the phase gate
-    /// or the liveness check refuses. Purely local: no game state is written, no packet is sent
-    /// from here (the sender samples <see cref="PresentedActorId"/> on its own cadence).
+    /// May <paramref name="actor"/> be focused right now? A live player character plus
+    /// <see cref="Open"/>. Deliberately says nothing about OWNERSHIP: focusing a teammate is the
+    /// whole feature, and focusing one of your OWN characters that is not at turn is the state
+    /// the red warning exists for. Deliberately says nothing about the hand WIDGET either — see
+    /// <see cref="TryFocus"/>.
+    /// </summary>
+    internal static bool CanFocus(CActor? actor) => IsFocusTarget(actor) && Open;
+
+    /// <summary>
+    /// Focus <paramref name="actor"/>. Returns false — and changes nothing — only when the actor
+    /// is not a focus target at all, or when <see cref="Refusal"/> refuses (card selection).
+    /// Purely local: no game state is written, no rules call is made, no packet is sent from here
+    /// (the sender samples <see cref="PresentedActorId"/> on its own cadence). That is what makes
+    /// a switch harmless to a pending decision — there is no mutator on this path.
+    ///
+    /// <para>NOTE the check that is NOT here any more: "a <c>CardsHandUI</c> for this character
+    /// exists on this client". It used to refuse the switch, which meant a click that landed in
+    /// the one frame between a hand teardown and its rebuild was simply EATEN. The focus is now
+    /// taken regardless and <see cref="ResolveHand"/> falls back to the game's own hand until the
+    /// widget appears (it already had exactly that fallback) — a late hand delays the view by a
+    /// frame instead of losing the click.</para>
     /// </summary>
     internal static bool TryFocus(CActor? actor)
     {
-        if (!CanFocus(actor))
+        if (actor is not CPlayerActor player)
+            return false; // enemy / object portrait — never was a character view request
+
+        if (player.IsDead)
+        {
+            // Not a refusal: there is no character left to present. Logged plainly, never as
+            // "REFUSED", so the refusal line keeps its single meaning.
+            VRLog.Info("Board", $"[Focus] portrait click ignored — '{Describe(player)}' is " +
+                                "exhausted; an exhausted character has no hand, no turn and no " +
+                                "board presence left to look at.");
             return false;
-        var player = (CPlayerActor)actor!;
+        }
+
+        if (!Refusal(out string? why))
+        {
+            LogRefusal(player, why!);
+            return false;
+        }
+
         if (ReferenceEquals(_focused, player))
             return true; // already focused — idempotent, and never logs twice
         _focused = player;
@@ -284,8 +360,43 @@ internal static class CharacterFocus
         Cards.CardsDriver.RequestRebuild();
         VRLog.Info("Board", $"[Focus] now looking at '{Describe(player)}'" +
                             $"{(IsForeign(player) ? " (another player's character — read-only view)" : "")}" +
-                            $"; phase {PhaseManager.PhaseType}.");
+                            $"; phase {PhaseManager.PhaseType}, at turn '{Describe(TurnActor)}'. " +
+                            "Nothing in the game was written: any prompt that was open is still " +
+                            "open, still docked where it was, and still answerable.");
         return true;
+    }
+
+    /// <summary>Last refused (reason, actor) pair and when — so a laser held on a portrait during
+    /// card selection logs once, not sixty times a second, while a NEW refusal is always loud.</summary>
+    private static string? _lastRefusal;
+
+    private static int _lastRefusedActorId;
+
+    private static float _lastRefusalTime = float.NegativeInfinity;
+
+    /// <summary>Re-log an unchanged refusal at most this often (seconds, unscaled).</summary>
+    private const float RefusalLogIntervalSeconds = 5f;
+
+    /// <summary>
+    /// THE refusal line. Format is fixed by the 2026-08-08 ruling —
+    /// <c>[Board] [Focus] switch REFUSED — &lt;reason&gt;</c> — so "blocked again" is never a
+    /// guess: grep the log for <c>switch REFUSED</c> and the reason is right there. After this
+    /// build the only reason that can ever appear is the card-selection phase; anything else in
+    /// this position is a regression, not a design decision.
+    /// </summary>
+    private static void LogRefusal(CPlayerActor player, string why)
+    {
+        int id = NetFigures.StableActorId(player);
+        float now = UnityEngine.Time.unscaledTime;
+        if (why == _lastRefusal && id == _lastRefusedActorId
+            && now - _lastRefusalTime < RefusalLogIntervalSeconds)
+            return;
+        _lastRefusal = why;
+        _lastRefusedActorId = id;
+        _lastRefusalTime = now;
+        VRLog.Info("Board", $"[Focus] switch REFUSED — {why} (wanted '{Describe(player)}', " +
+                            $"phase {PhaseManager.PhaseType})." +
+                            (why == SecretWindowReason ? " " + SecretWindowDetail : ""));
     }
 
     /// <summary>Drop the focus and follow the game again (turn hand-off, phase exit, teardown).</summary>
@@ -334,9 +445,12 @@ internal static class CharacterFocus
         if (_focused == null)
             return gameHand;
 
-        if (!Open)
+        if (!Refusal(out string? why))
         {
-            Clear($"phase {PhaseManager.PhaseType}");
+            // The ONE way a live focus ends without the player asking: the round's card selection
+            // opened (or the scenario went away). Named with the gate's own reason so the log
+            // agrees with the refusal line a click would have produced.
+            Clear(why!);
             return gameHand;
         }
         if (_focused.IsDead)
@@ -437,6 +551,9 @@ internal static class CharacterFocus
         _readOnlyView = false;
         PresentedActor = null;
         _loggedFocusId = 0;
+        _lastRefusal = null;
+        _lastRefusedActorId = 0;
+        _lastRefusalTime = float.NegativeInfinity;
         Peers.Clear();
     }
 

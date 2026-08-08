@@ -104,6 +104,14 @@ internal sealed class BoardModule : IVRModule
         // avatar re-docked the wrong actor's cards and deadlocked the action board. Reject that
         // human click with the game's own invalid-click SFX, keeping the current actor selected.
         VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeTrackPlayerAvatar_OnClick_Guard));
+        // FREE CHARACTER FOCUS (user ruling 2026-08-08, "das Wechseln des Characters darf nie
+        // blockiert sein"): the game's interaction-isolation interceptor
+        // (InteractabilityManager.ShouldAllowClickForExtendedButton, consulted by
+        // ExtendedButton.OnPointerClick) swallows the portrait click whenever a level message /
+        // interaction profile is loaded — i.e. exactly while the player owes a decision. Allow
+        // it through for initiative PORTRAITS only, and only while the focus gate is open (where
+        // the click is a pure read-only view change). Every other isolated control is untouched.
+        VRSession.Harmony?.PatchAll(typeof(Patches.InteractabilityManager_PortraitFocusBypass));
         // MP test item #8a: online with >1 participant, refuse selecting a character that is
         // assigned to ANOTHER player (portrait seam is inside the OnClick guard above; this
         // closes the board-miniature seam in Choreographer.TileHandler) with the game's own
