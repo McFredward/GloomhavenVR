@@ -453,6 +453,40 @@ internal struct PresenceState
     public byte[]? DecisionOptionFlags;
 
     /// <summary>
+    /// True when this packet carries the sender's docked USE-SLOT BAR drawer (extension record
+    /// <see cref="NetProtocol.ExtIdUseBars"/>) — the second drawer below their decision row.
+    /// Written only while at least one bar is docked AND VISIBLE on their board (a bar
+    /// render-hidden for another character's focus is dropped from the mask), so absence means
+    /// "no bars", which is exactly what peers predating the record render.
+    /// </summary>
+    public bool HasUseBars;
+
+    /// <summary>Which use bars are up, as <see cref="NetProtocol.UseBarActiveBonusBit"/> …
+    /// <see cref="NetProtocol.UseBarItemsBit"/> in the owner's own stack order (meaningful only
+    /// when <see cref="HasUseBars"/>; masked to <see cref="NetProtocol.UseBarsDefinedMask"/> on
+    /// both ends). Zero writes no record at all.</summary>
+    public byte UseBarsMask;
+
+    /// <summary>Per-bar flags (element / option sub-picker open —
+    /// <see cref="NetProtocol.UseBarElementPickerBit"/>), indexed by BAR INDEX 0..3, i.e. by mask
+    /// bit position. May be longer than <see cref="NetProtocol.UseBarsCount"/> (the sender passes
+    /// its persistent sample buffer); only the bars named by <see cref="UseBarsMask"/> are
+    /// written.</summary>
+    public byte[]? UseBarFlags;
+
+    /// <summary>Per-bar visible slot counts, indexed by bar index (clamped to
+    /// <see cref="NetProtocol.UseBarsMaxSlots"/> on both ends). Same buffer contract as
+    /// <see cref="UseBarFlags"/>.</summary>
+    public byte[]? UseBarSlotCounts;
+
+    /// <summary>Per-slot state bytes (<see cref="NetProtocol.UseSlotOfferedBit"/> …
+    /// <see cref="NetProtocol.UseSlotChosenBit"/>), bar <c>b</c> occupying
+    /// <c>[b * NetProtocol.UseBarsMaxSlots .. + count)</c>. FLAT and fixed-stride so the sender can
+    /// hand over one persistent buffer and the receiver can address a bar without a second
+    /// index.</summary>
+    public byte[]? UseBarSlotStates;
+
+    /// <summary>
     /// True when this packet names what the sender's CONFIRM board cap actually reads (extension
     /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 0). Absence keeps the receiver's
     /// neutral GUI_CONFIRM fallback — exactly what peers predating the record render.
@@ -624,6 +658,13 @@ internal struct PresenceState
 ///                        wire because it can embed active-bonus card names), and per option
 ///                        offered / dimmed / chosen, index-aligned with record 12's lines; written
 ///                        on record 12's own gate, see NetProtocol.ExtIdDecisionState)
+///                        25 USE BARS ([barMask] then, per SET bar bit in bit order,
+///                        [barFlags][n][n × slot byte] — the sender's SECOND drawer below the
+///                        decision row: which of the four use bars are up, whether each has an
+///                        element/option sub-picker open, and per slot offered / dimmed / chosen.
+///                        NO slot identity: the game's use slots have no label at all, only card
+///                        ART. Written only while a bar is docked AND visible, see
+///                        NetProtocol.ExtIdUseBars)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -665,7 +706,12 @@ internal static class PresenceSerializer
     /// + 11 (character focus: 2 + its 9-byte maximum — the 5-byte form plus the flag-guarded
     /// attention-actor id)
     /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap)
-    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap) = 859.
+    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap)
+    /// + 43 (USE BARS: 2 + mask 1 + 4 bars × (flags 1 + count 1 + its 8-slot cap)) = 902.
+    ///
+    /// <para>USE BARS (record 25) added its 43 bytes here in its own commit, per the rule below:
+    /// 859 → 902 worst case against the 1280 bound, i.e. 378 bytes of margin — more than eight
+    /// times the largest record in the tail, so the next additive record still has room.</para>
     ///
     /// <para>RAISED 848 → 1280 on 2026-08-08, deliberately and ahead of need rather than on a crash.
     /// Three records landed in one round (22's attention tail, 23 track selection, 24 decision state)
@@ -736,6 +782,10 @@ internal static class PresenceSerializer
                           // state (no kind, no text variant, no options) it writes no record, so it
                           // must not open the tail either.
                           || (state.HasDecisionState && DecisionStatePayload(in state) > 0)
+                          // No bar up (or every bar render-hidden for another character's focus)
+                          // writes no record, so it must not open the tail either — the same
+                          // idle-packet rule the wall-fade set and the decision state follow.
+                          || (state.HasUseBars && UseBarsPayload(in state) > 0)
                           || (state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel))
                           || (state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel));
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
@@ -1174,6 +1224,44 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
+                if (state.HasUseBars)
+                {
+                    // USE BARS (25): [barMask] then, for every SET bar bit in BIT ORDER,
+                    // [barFlags][n][n × slot byte]. The mask is the sender's own stack order, so a
+                    // receiver mirrors the drawer top-to-bottom without anything describing the
+                    // order; every byte is masked to its DEFINED bits so an undefined bit can never
+                    // be pre-claimed by garbage, and each count is clamped to the record's cap AND
+                    // to the sender's own buffer before a byte goes out. Written only while a bar is
+                    // docked AND VISIBLE on the owner's board (a focus-hidden bar is already out of
+                    // the mask), so an idle packet stays byte-identical to the previous build's;
+                    // appended in id order, LAST, behind record 24.
+                    //
+                    // NOT ON THIS WIRE: what any slot IS. The game's use slots carry no label at
+                    // all — only a sprite off the item/bonus/ability art — so a peer captions each
+                    // bar from the BAR BIT and draws anonymous, state-painted tiles.
+                    int payload = UseBarsPayload(in state);
+                    if (payload > 0 && i + 2 + payload <= buffer.Length)
+                    {
+                        byte barMask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
+                        buffer[i++] = NetProtocol.ExtIdUseBars;
+                        buffer[i++] = (byte)payload;
+                        buffer[i++] = barMask;
+                        for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+                        {
+                            if ((barMask & (1 << b)) == 0)
+                                continue;
+                            buffer[i++] = (byte)(BarFlagsOf(in state, b)
+                                                 & NetProtocol.UseBarFlagsDefinedMask);
+                            int n = BarSlotCountOf(in state, b);
+                            buffer[i++] = (byte)n;
+                            int at = b * NetProtocol.UseBarsMaxSlots;
+                            for (int s = 0; s < n; s++)
+                                buffer[i++] = (byte)(state.UseBarSlotStates![at + s]
+                                                     & NetProtocol.UseSlotDefinedMask);
+                        }
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
@@ -1201,6 +1289,53 @@ internal static class PresenceSerializer
             state.DecisionPromptKind, state.DecisionTextVariant)
             & NetProtocol.DecisionStateDefinedMask);
         return flags == 0 && n == 0 ? 0 : 2 + n;
+    }
+
+    /// <summary>The record-25 sub-picker flags of bar <paramref name="bar"/>, or 0 when the sender
+    /// passed no (or a short) flags buffer — a missing flag renders as "no picker open", which is
+    /// the same picture a pre-record peer draws.</summary>
+    private static byte BarFlagsOf(in PresenceState state, int bar) =>
+        state.UseBarFlags != null && bar < state.UseBarFlags.Length ? state.UseBarFlags[bar] : (byte)0;
+
+    /// <summary>The record-25 slot count of bar <paramref name="bar"/>, clamped to the record cap,
+    /// to the sender's own counts buffer AND to what its flat state buffer can actually hold. A bar
+    /// with no state buffer behind it publishes ZERO slots rather than garbage tiles.</summary>
+    private static int BarSlotCountOf(in PresenceState state, int bar)
+    {
+        if (state.UseBarSlotCounts == null || bar >= state.UseBarSlotCounts.Length)
+            return 0;
+        int n = state.UseBarSlotCounts[bar];
+        if (n > NetProtocol.UseBarsMaxSlots)
+            n = NetProtocol.UseBarsMaxSlots;
+        if (n < 0)
+            n = 0;
+        int at = bar * NetProtocol.UseBarsMaxSlots;
+        int fit = state.UseBarSlotStates == null ? 0 : state.UseBarSlotStates.Length - at;
+        if (fit < 0)
+            fit = 0;
+        return n > fit ? fit : n;
+    }
+
+    /// <summary>
+    /// Payload size record <see cref="NetProtocol.ExtIdUseBars"/> would occupy for
+    /// <paramref name="state"/> — <c>1 + Σ (2 + slots)</c> over the bars named by the DEFINED mask
+    /// bits, every count clamped exactly as the writer will clamp it. Returns 0 when no defined bar
+    /// bit is set at all, so an empty drawer can never open the extension tail and an idle packet
+    /// stays byte-identical to the previous build's.
+    /// </summary>
+    private static int UseBarsPayload(in PresenceState state)
+    {
+        byte mask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
+        if (mask == 0)
+            return 0;
+        int payload = 1;
+        for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+        {
+            if ((mask & (1 << b)) == 0)
+                continue;
+            payload += 2 + BarSlotCountOf(in state, b);
+        }
+        return payload;
     }
 
     // ---- mod-version text (en/de)coding caches ------------------------------------------
@@ -1910,6 +2045,62 @@ internal static class PresenceSerializer
                                 opts[o] = (byte)(buffer[i + 2 + o]
                                                  & NetProtocol.DecisionOptionDefinedMask);
                             state.DecisionOptionFlags = opts;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdUseBars
+                             && len >= NetProtocol.UseBarsMinRecordBytes)
+                    {
+                        // USE BARS: [barMask] then, per SET bar bit in bit order,
+                        // [barFlags][n][n × slot byte]. The blocks are variable-length, so EVERY
+                        // step is bounds-checked against the record's OWN end (never trust the
+                        // wire): a lying count is clamped to what is left inside the record, and a
+                        // block that does not fit at all ends the walk with whatever was already
+                        // read — it can neither overrun the record nor bleed into the next one.
+                        // The mask, the per-bar flags and every slot byte are masked to their
+                        // DEFINED bits, so a newer sender's extra bits can never light a meaning
+                        // here. What survives is a mask, two small counts and a bitfield: no text,
+                        // no id, nothing that could name a card.
+                        int j = i;
+                        int end = i + len;
+                        byte barMask = (byte)(buffer[j++] & NetProtocol.UseBarsDefinedMask);
+                        if (barMask != 0)
+                        {
+                            var barFlags = new byte[NetProtocol.UseBarsCount];
+                            var barCounts = new byte[NetProtocol.UseBarsCount];
+                            var slotStates =
+                                new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
+                            byte kept = 0;
+                            for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+                            {
+                                if ((barMask & (1 << b)) == 0)
+                                    continue;
+                                if (j + 2 > end)
+                                    break; // truncated block: this bar and every later one are not delivered
+                                byte f = (byte)(buffer[j++] & NetProtocol.UseBarFlagsDefinedMask);
+                                int n = buffer[j++];
+                                if (n > NetProtocol.UseBarsMaxSlots)
+                                    n = NetProtocol.UseBarsMaxSlots;
+                                if (n > end - j)
+                                    n = end - j;
+                                if (n < 0)
+                                    n = 0;
+                                int at = b * NetProtocol.UseBarsMaxSlots;
+                                for (int s = 0; s < n; s++)
+                                    slotStates[at + s] =
+                                        (byte)(buffer[j + s] & NetProtocol.UseSlotDefinedMask);
+                                j += n;
+                                barFlags[b] = f;
+                                barCounts[b] = (byte)n;
+                                kept |= (byte)(1 << b);
+                            }
+                            if (kept != 0)
+                            {
+                                state.HasUseBars = true;
+                                state.UseBarsMask = kept;
+                                state.UseBarFlags = barFlags;
+                                state.UseBarSlotCounts = barCounts;
+                                state.UseBarSlotStates = slotStates;
+                            }
                         }
                     }
                     else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
