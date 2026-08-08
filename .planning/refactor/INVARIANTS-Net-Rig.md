@@ -175,6 +175,14 @@ Write-side gating rules that are part of the contract:
 
 - `FlagItemFanHeld` is only set when `HasItemFan` is also set.
 - `FlagItemFanLeft` is only set when `HasItemFan && ItemFanHeld`.
+- **Bits 4 and 6 are INERT** (re-confirmed 2026-08-09). `ItemsPile.IsHandHeld` / `IsHeldByLeftHand`
+  are hard `false` since the whole-fan grab was removed (user ruling 2026-08-02), and
+  `NetAvatarDriver` — the only writer — fills both fields from exactly those properties. So no
+  sender emits either bit and no packet in the wild carries one: **two dead bits in an otherwise
+  full byte.** They are deliberately NOT reclaimed — redefining them would be a second meaning for
+  a named bit, and the TLV tail costs no bit at all — but the next feature should know they exist.
+  The receivers still render both modes, which is what keeps them a usable seam if the interaction
+  returns.
 - `FlagPileBrowse` is set when **any** of `HasPileBrowse`, `HasMaskSize`, or
   `BoardStyleCode != BoardStyleDefaultCode` is true. It no longer means "a browse fan is open".
 

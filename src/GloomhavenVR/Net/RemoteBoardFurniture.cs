@@ -437,6 +437,43 @@ internal sealed class RemoteBoardFurniture
 
     private readonly Transform _itemUse;
     private readonly Material _itemUseGlowMat;
+
+    /// <summary>
+    /// The mirrored item-USE RECESS's own transform — the frame a card the owner has laid into that
+    /// recess is drawn IN (extension record 26, <see cref="RemoteItemFan"/>).
+    ///
+    /// <para>WHY THE FRAME AND NOT A POSE. The owner's card is a CHILD of their recess
+    /// (<c>ItemsPile.ItemChip.ClipIntoSlot</c>): the hierarchy holds it there rigidly at an exact
+    /// zero local pose, which is what stopped it swimming behind head movement. Handing the peer's
+    /// renderer the same frame reproduces that property for free — the mirrored card rides this
+    /// board's easing, style, scale and visibility with no per-frame work and no residual error,
+    /// and it LIES IN the recess instead of billboarding to anybody's head. Routing it through a
+    /// synced pose slot (the held-card path) was considered and rejected for exactly that: that
+    /// receiver billboards its slab to the owner's head, so the card would float rather than
+    /// lie.</para>
+    ///
+    /// <para>Consumers must re-check <c>activeInHierarchy</c> every frame rather than latching:
+    /// the recess is shown and hidden from the board-UI record's own bit
+    /// (<see cref="NetProtocol.BoardUiItemRecessBit"/>), and a card must never be left lying on a
+    /// recess the owner's board no longer shows.</para>
+    /// </summary>
+    internal Transform ItemUseRecess => _itemUse;
+
+    /// <summary>Inner-plate factor of the mirrored item-use recess — the FrameInner quad inside the
+    /// 1.12× gold frame, MIRROR of <c>Cards.ItemsPile.UseSlotInnerFactor</c> (which mirrors
+    /// <c>PlayTray.BuildItemUseSlot</c>). That dark plate IS the clear area a card lying in the
+    /// recess has to sit inside, on the owner's board and on its copy alike, which is why the two
+    /// numbers are linted together (scripts/check-mirrors.sh).</summary>
+    internal const float UseSlotInnerFactor = 1.04f;
+
+    /// <summary>Board-local size of that inner plate on THIS board — what a mirrored card lying in
+    /// the recess is fitted into (<see cref="RemoteItemFan"/>). Derived from the very constants
+    /// <see cref="BuildItemUseRecess"/> builds the plate from, so the fit and the plate cannot
+    /// drift apart.</summary>
+    internal const float ItemUseInnerWidth = ItemCardW * UseSlotInnerFactor;
+
+    /// <inheritdoc cref="ItemUseInnerWidth"/>
+    internal const float ItemUseInnerHeight = ItemCardH * UseSlotInnerFactor;
     /// <summary>The mirrored decision AREA's CEILING in board-root-local metres — the owner's
     /// <c>WorldUI.Surfaces.DecisionDockSurface.AreaCeilingUp</c> expressed in this frame. Every piece
     /// of the mirrored display (prompt line, button row, use-bar drawer) descends from it, so a
@@ -1373,7 +1410,7 @@ internal sealed class RemoteBoardFurniture
         BoardVisual.Quad(root, "Frame", new Vector2(ItemCardW * 1.12f, ItemCardH * 1.12f),
             BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.001f);
-        BoardVisual.Quad(root, "FrameInner", new Vector2(ItemCardW * 1.04f, ItemCardH * 1.04f),
+        BoardVisual.Quad(root, "FrameInner", new Vector2(ItemUseInnerWidth, ItemUseInnerHeight),
             BoardVisual.Unlit(new Color(0.12f, 0.10f, 0.08f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
 

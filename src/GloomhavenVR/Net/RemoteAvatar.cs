@@ -209,6 +209,26 @@ internal sealed class RemoteAvatar
     /// <summary>True when the hand-held item fan rides the sender's LEFT hand.</summary>
     public bool ItemFanLeftHand { get; private set; }
 
+    /// <summary>
+    /// Which position of that item fan lies CLIPPED IN the sender's item-USE recess right now, or
+    /// -1 (extension record 26). An index into the very same ordered fan
+    /// <see cref="ItemCardCount"/> counts — never an item identity; the face, as always, is resolved
+    /// locally from the replicated inventory behind <see cref="RevealGate"/>.
+    ///
+    /// <para>-1 for a sender that predates the record AND for one whose recess is empty, which is
+    /// correct in both cases: the card is then drawn in the arc, exactly as every build before this
+    /// one drew it. The value is NOT range-checked here — <see cref="RemoteItemFan"/> clamps it
+    /// against its own live slab count, the only place the bound is really known.</para>
+    /// </summary>
+    public int ItemUseClipIndex { get; private set; } = -1;
+
+    /// <summary>
+    /// The mirrored item-USE RECESS of this peer's board (null while their board is not built) —
+    /// the frame <see cref="RemoteItemFan"/> lays <see cref="ItemUseClipIndex"/>'s slab into, so it
+    /// LIES IN the recess and rides the board rather than billboarding to a head.
+    /// </summary>
+    internal UnityEngine.Transform? ItemUseRecess => _controlBoard.ItemUseRecess;
+
     /// <summary>True while the sender has a control-board PILE BROWSER open (the "Abgelegt" /
     /// "Verbrannt" reading fan). False for peers that predate the field — they simply show no fan.
     /// Rendered by <see cref="RemoteBrowserFan"/> as backs only.</summary>
@@ -867,6 +887,13 @@ internal sealed class RemoteAvatar
         ItemCardCount = p.HasItemFan ? p.ItemCardCount : 0;
         ItemFanHeld = p.HasItemFan && p.ItemFanHeld;
         ItemFanLeftHand = ItemFanHeld && p.ItemFanLeftHand;
+        // ITEM-USE CLIP (extension record 26): which fan position lies in their use recess.
+        // Absent ⇒ -1, i.e. "the recess is empty" — never a stale clip from a card that has since
+        // been taken back out, because the sender writes the record on every packet while the card
+        // is there and omits it on the frame it leaves. Gated on HasItemFan for the same reason the
+        // sender only writes it inside the fan branch: an index into a fan that is not open names
+        // nothing.
+        ItemUseClipIndex = p.HasItemFan && p.HasItemUseClip ? p.ItemUseClipIndex : -1;
 
         // Board UI (extension record 4): authoritative when present — the furniture then shows
         // EXACTLY the controls the owner sees. Absent = the sender predates the field; the

@@ -246,6 +246,20 @@ internal sealed class RemoteControlBoard
         return AnchorLocal(anchor, _layout);
     }
 
+    /// <summary>
+    /// The mirrored item-USE RECESS's transform, or null while this peer's board is not built —
+    /// forwarded from <see cref="RemoteBoardFurniture.ItemUseRecess"/> so
+    /// <see cref="RemoteItemFan"/> can lay the clipped item card IN it (extension record 26).
+    ///
+    /// <para>A TRANSFORM rather than an anchor Vector3, unlike every seat above it, and that is the
+    /// point: a card in the recess must ride the recess's whole frame — its rotation, its board
+    /// scale, its shown/hidden state — exactly as the owner's card rides theirs by being a child of
+    /// it. Handing out a position would put the card in the right spot facing the wrong way, which
+    /// is the very trap (a slab billboarded to a head instead of lying flat) this seam exists to
+    /// avoid.</para>
+    /// </summary>
+    internal Transform? ItemUseRecess => _furniture?.ItemUseRecess;
+
     private readonly RemoteAvatar _owner;
 
     /// <summary>The peer's authored board layout — every dock seat on this board is derived from it

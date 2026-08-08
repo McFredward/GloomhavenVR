@@ -151,7 +151,26 @@ internal static class NetProtocol
 
     /// <summary>Extras packet: the sender's item fan is HAND-HELD (floating above the grabbing
     /// palm) rather than board-anchored above their control board. Meaningful only together with
-    /// <see cref="FlagItemFan"/>; costs no payload bytes (pure flag).</summary>
+    /// <see cref="FlagItemFan"/>; costs no payload bytes (pure flag).
+    ///
+    /// <para>INERT SINCE THE WHOLE-FAN GRAB WAS REMOVED (user ruling 2026-08-02), and CONFIRMED
+    /// inert on 2026-08-09 while record 26 was being placed. The item fan has exactly one anchoring
+    /// now: <c>Cards.ItemsPile.IsHandHeld</c> is a hard <c>false</c> (and
+    /// <c>IsHeldByLeftHand</c> with it), <c>NetAvatarDriver</c> is the only writer and fills these
+    /// two fields from those properties, and <c>PresenceSerializer.Write</c> gates both bits behind
+    /// <see cref="FlagItemFan"/> — so NO sender emits either bit and no packet in the wild carries
+    /// one. Together with <see cref="FlagItemFanLeft"/> that is TWO DEAD BITS in a flag byte that is
+    /// otherwise full, and the next feature should know it.</para>
+    ///
+    /// <para>THEY ARE NOT RECLAIMED, and that is a decision rather than an oversight. Redefining a
+    /// shipped bit is legal on this wire (peers must share a <see cref="ModBuild"/> to play at all —
+    /// see <see cref="ExtIdCharFocus"/>), so the bar is not compatibility, it is honesty of the
+    /// layout: a bit called "the item fan is hand-held" that means something else is the second
+    /// encoding of one fact this protocol's notes repeatedly reject. They stay as a WIRE SEAM for
+    /// the interaction that may come back — the receivers still render both modes — and a genuinely
+    /// new field belongs in the TLV tail, where it costs no bit at all. That is where the item-use
+    /// clip went (<see cref="ExtIdItemUseClip"/>), and it could not have used these bits anyway: an
+    /// arc INDEX does not fit in a boolean.</para></summary>
     public const byte FlagItemFanHeld = 1 << 4;
 
     /// <summary>
@@ -166,7 +185,9 @@ internal static class NetProtocol
 
     /// <summary>Extras packet: a HAND-HELD item fan (<see cref="FlagItemFanHeld"/>) is held in the
     /// LEFT hand. Pure flag, no payload — without it the receiver would have to guess a hand and
-    /// would hang the fan off the wrong arm half the time.</summary>
+    /// would hang the fan off the wrong arm half the time. INERT for the same reason and since the
+    /// same ruling as <see cref="FlagItemFanHeld"/> — it is only ever written when that bit is, and
+    /// that bit is never written; see the note there for why neither is reclaimed.</summary>
     public const byte FlagItemFanLeft = 1 << 6;
 
     /// <summary>
@@ -1456,6 +1477,10 @@ internal static class NetProtocol
     // authors independently took "the next free id", 23. Caught at merge and 24 renumbered before
     // either shipped — a record id, once out, can never be renumbered. If you are about to claim an
     // id while other work is in flight, take one of 18..21 or say in your report which you took.
+    //
+    // Id 26 was the one hole between 25 and 27 and is TAKEN since 2026-08-09: ITEM-USE CLIP
+    // (declared beside record 25, because the two item-flow records belong together). The claim was
+    // stated in that change's report per the rule above. Ids 18..21 remain free, and so does 29+.
 
     /// <summary>
     /// Extension record id: WHICH CHARACTER THE SENDER IS CURRENTLY LOOKING AT — their EFFECTIVE
@@ -2440,6 +2465,65 @@ internal static class NetProtocol
     /// already reaches every peer through the pick-banner record 7, which
     /// <c>UseBarsSurface.UpdateWaitingHint</c> publishes on exactly that condition.</summary>
     public const byte UseSlotDefinedMask = UseSlotOfferedBit | UseSlotDimmedBit | UseSlotChosenBit;
+
+    /// <summary>
+    /// Extension record id: WHICH FAN POSITION IS CLIPPED INTO THE SENDER'S ITEM-USE RECESS —
+    /// ONE byte, an index into the very same ordered item fan the <see cref="FlagItemFan"/> count
+    /// already describes. Written ONLY while a card really lies in that recess.
+    ///
+    /// <para>THE DEFECT (found while the local recess was reworked, 2026-08-09; the standing
+    /// multiplayer ruling of 2026-08-08 is "generell gilt die Regel, das man alle Interaktionen,
+    /// Animationen und Anzeigen des Controllboards in MP auch synchronisieren soll" — with the
+    /// secret quest and the selection-phase card FACES as the only exceptions). The owner places an
+    /// item card in their board's use recess; it re-parents onto the recess and settles into it. On
+    /// every OTHER machine that same card was still drawn out in the fan arc and the mirrored recess
+    /// stood empty, because the wire said only HOW MANY item cards are up
+    /// (<see cref="FlagItemFan"/> + its count byte) and <see cref="BoardUiItemRecessBit"/> said only
+    /// that the recess is VISIBLE. A card lying in a recess on the owner's board is an ANZEIGE of
+    /// that control board in the ruling's plain sense, so it has to travel.</para>
+    ///
+    /// <para>WHY AN INDEX AND NOT THE ITEM. The standing rule for this wire is that no card identity
+    /// ever rides it, and none has to: the receiver already draws the peer's item fan from the
+    /// host-replicated <c>CPlayerActor.CharacterClass</c> → <c>Inventory.AllItems</c>
+    /// (<see cref="RemoteItemFan"/> via <see cref="RemotePileFronts"/>, gated by
+    /// <see cref="RevealGate"/>). Naming a POSITION in the arc it is already rendering therefore
+    /// tells it exactly which of the chips it already holds to move, and discloses strictly less
+    /// than the arc itself — the identical argument that made <see cref="ExtIdCardHighlight"/> an
+    /// index, and the same one that lets <see cref="BoardUiSnapMask"/> name a recess.</para>
+    ///
+    /// <para>WHY THE SETTLE IS NOT STREAMED. The placement is a 0.28 s ANIMATION (the chip
+    /// re-parents keeping its world pose and eases into the recess frame — <c>ItemsPile.ItemChip</c>
+    /// ClipIntoSlot/TickClipSettle), and the ruling names animations outright, so a peer must see it
+    /// ARRIVE rather than teleport. It is replayed from the EDGE — the receiver knows the frame this
+    /// index appears — exactly as the item fan's whole open/close deal-out already is: the same one
+    /// re-parent, the same ease, the same duration, on the receiver's own clock. Streaming a pose
+    /// would cost ~20 B × 15 Hz for the duration of a movement both machines can derive from a
+    /// single byte.</para>
+    ///
+    /// <para>WHY A RECORD AND NOT A BIT. There is no bit: BOTH flag bytes are full, and the
+    /// pile-browse block's byte A is full too (bit 4 mask size, bits 5..6 board style, bit 7 the
+    /// extension tail itself). The two INERT extras bits are no help either —
+    /// <see cref="FlagItemFanHeld"/> and <see cref="FlagItemFanLeft"/> describe a hand-held item FAN
+    /// and are dead since the whole-fan grab was removed (<c>ItemsPile.IsHandHeld</c> is hard-false),
+    /// but they are one bit each and this is a 0..N index, not a boolean. The TLV tail is where a
+    /// field of this shape belongs and it costs no bit at all.</para>
+    ///
+    /// <para>ABSENCE MEANS "NOTHING IS CLIPPED", which is exactly what every build before this one
+    /// rendered, so a packet from an owner with an empty recess — i.e. nearly every packet — stays
+    /// byte-identical to the previous build's. No sentinel value is defined and none is needed: the
+    /// record is simply omitted. The index is NOT range-checked here; like
+    /// <see cref="ExtIdCardHighlight"/> it is clamped by the RENDERER against its own live slab
+    /// count, which is the only place the bound is really known (a packet may legitimately arrive a
+    /// frame either side of a fan resize).</para>
+    ///
+    /// <para>ADDITIVE TLV, appended in id order between records 25 and 27; an older reader steps
+    /// over it by its own length and keeps drawing the chip in the arc, as it always did.</para>
+    /// </summary>
+    public const byte ExtIdItemUseClip = 26;
+
+    /// <summary>Payload length of <see cref="ExtIdItemUseClip"/>: the one index byte. A shorter
+    /// record is not trusted (never trust the wire).</summary>
+    public const int ItemUseClipRecordBytes = 1;
 
     /// <summary>
     /// Extension record id: the SENDER'S OWN ON-SCREEN ORDER OF THE INITIATIVE TRACK'S PLAYER
