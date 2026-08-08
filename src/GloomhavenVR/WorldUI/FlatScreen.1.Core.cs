@@ -300,6 +300,8 @@ internal sealed partial class FlatScreen
     private bool _pokeLatched;
     private Vector3 _pokePressPoint; // world, on the screen plane
     private Vector2 _pokePressPixel; // RT pixel of the poke press (re-warped while latched)
+    /// <summary>Throttle stamp for the grip-chord "poke withheld" line (see <c>TryBeginPoke</c>).</summary>
+    private float _nextPokeGripLogAt;
 
     // ---- execute-mode drag session (flat-menu sliders / scrollbars / scroll-rects) ----------
     /// <summary>Distinct pointer id for the flat-menu drag (clear of mouse -1..-3 and the poke/laser ids).</summary>

@@ -32,6 +32,12 @@ namespace GloomhavenVR.Hands.Interact;
 ///    pull back" — a sweep of the hand across the dock can never trigger a decision.
 ///    Gated live by [WorldUI] DecisionPokeDeliberate (default true).
 ///
+/// THE GRIP CHORD (user 2026-08, both paths): a press — the OnPoke of path 1, and the ARMING,
+/// the instant click and the deliberate withdrawal-click of path 2 — commits only while that
+/// hand holds the grip and carries nothing. HOVER is not gated. The gate, its two halves, why
+/// hover stays live and what is deliberately untouched (laser, proximity grab) are documented
+/// once at <see cref="PressAllowed"/>; every gate site refers to it.
+///
 /// Plain class ticked by <see cref="VRHand"/> every frame after pose update.
 /// No per-frame allocations: for-loops over registries, reused event data.
 /// All distances are meters at scale 1 and multiplied by the hand's world scale.
@@ -96,6 +102,9 @@ internal sealed class PokeInteractor
     private bool _pressPending;    // pointerDown sent, click awaiting fire depth / withdrawal
     private bool _pressDeliberate; // user #13b: pending press is on a deliberate (v1) canvas
     private float _lastCanvasClick = -1f;
+
+    /// <summary>Throttle stamp for the grip-chord "press withheld" line (see <see cref="LogGripGate"/>).</summary>
+    private float _nextGripGateLogAt;
 
     /// <summary>One-shot init log for the poke click mode (two hands share one line).</summary>
     private static bool s_modeLogged;
@@ -199,6 +208,85 @@ internal sealed class PokeInteractor
         return entry == null || entry.Value;
     }
 
+    // ---- the grip chord -------------------------------------------------------------------
+
+    /// <summary>
+    /// THE GRIP CHORD: a PHYSICAL fingertip press commits only while that hand HOLDS THE GRIP
+    /// and carries nothing.
+    ///
+    /// <para>USER REPORT (2026-08, verbatim): "Auch die Entscheidungsbuttons (so wie alle buttons)
+    /// sollen nur auf pyhsisches Drücken reagieren wenn die Greiftaste gedrückt ist (und damit der
+    /// Finger gespreitzt). Aktuell reagieren die Entscheidungsbuttons auch bereits so auf physische
+    /// Berührung." The chord already guarded the 3D keycaps (<c>Cards.PlayTray.BoardButton</c>,
+    /// <c>WorldUI.ButtonCluster.PhysicalButton</c> — both check it at their depth-fire) and the
+    /// fingertip-on-hex ping (<c>Board.BoardPick.TryNearPick</c> +
+    /// <c>Board.BoardClickDriver.TickNear</c>). The two paths driven from HERE did not: registered
+    /// <see cref="IPokeable"/> colliders, and registered uGUI canvases — which is exactly what the
+    /// decision dock's buttons ride. So the dock fired on plain contact while every keycap next to
+    /// it required the chord, which is the inconsistency the report names.</para>
+    ///
+    /// <para>THE CONDITION IS DELIBERATELY THE ONE <c>BoardPick.TryNearPick</c> USES, character for
+    /// character, so there is ONE rule for every physical fingertip commit in the mod instead of a
+    /// per-surface dialect. Its two halves, from that doc comment:</para>
+    /// <list type="bullet">
+    ///   <item><description>GRIP HELD — "Faust mit ausgestrecktem Zeigefinger". Grip held with the
+    ///   trigger released is exactly <see cref="HandPose.Point"/>, which the FingerCurler renders as
+    ///   a fist with the index finger extended: the player's hand SHOWS the mode it is in, and a
+    ///   hand drifting past a panel with the grip open is inert.</description></item>
+    ///   <item><description>HAND EMPTY — the grip is also what GRABS (<c>IGrabbable.GrabWithGrip</c>),
+    ///   so a held object means the grip was pressed to CARRY something, not to press a button.
+    ///   Without this half, walking a card across the board would poke everything it passed over.
+    ///   Note the frame order (<c>VRHand.UpdateBody.interactors</c>: Poke, …, Grabber): on the
+    ///   GripDown frame the grabber has not run yet, so a press can still arm on the frame a grab
+    ///   starts — which is why the gate is RE-CHECKED every frame a press is pending below, not
+    ///   only at the arming edge.</description></item>
+    /// </list>
+    ///
+    /// <para>HOVER IS DELIBERATELY NOT GATED — the choice this fix had to make explicitly. The
+    /// keycaps set the precedent: "the cap still follows the finger; it just cannot FIRE". A button
+    /// that lights up under an open hand and refuses to commit TEACHES the chord (the player sees
+    /// the button is live and reaches for the grip); a button that is completely dead reads as a
+    /// broken button and produces exactly the "reagiert nicht" reports this mod keeps its logs for.
+    /// So OnPokeEnter/Exit, the uGUI hover highlight, the hover haptic and the card pop are
+    /// untouched — only the COMMIT is gated.</para>
+    ///
+    /// <para>NOT AFFECTED: the LASER. Laser clicks never come through this interactor
+    /// (<c>RayUguiDriver</c> drives its own pointer; <c>CardsDriver</c> calls <c>OnPoke</c> on board
+    /// targets directly with the fingertip nowhere near them), so pointing and clicking from a
+    /// distance stays grip-free. Neither is the PROXIMITY GRAB touched: that is
+    /// <see cref="ProximityGrabber"/>, a different interactor, and it keeps taking cards on
+    /// GripDown/TriggerDown exactly as before.</para>
+    /// </summary>
+    private bool PressAllowed => _hand.GripPressed && _hand.Grabber.Held == null;
+
+    /// <summary>
+    /// Throttled (1 s per hand) "the press was withheld" line. A "der Button reagiert nicht" report
+    /// has to be answerable from the log alone — the same reason and the same throttle the two
+    /// keycap sites carry. The message is only BUILT once the throttle lets it through, so a
+    /// fingertip resting on a panel with the grip open costs one comparison per frame.
+    /// </summary>
+    private void LogGripGate(string what, object? target)
+    {
+        if (Time.unscaledTime < _nextGripGateLogAt)
+            return;
+        _nextGripGateLogAt = Time.unscaledTime + 1f;
+        // Name the thing that refused: a Unity Object by its object name (null-checked through
+        // Unity's operator — a destroyed target would throw on .name), anything else (the cluster's
+        // PhysicalButton is a plain class, not a Component) by its type.
+        string label = target switch
+        {
+            UnityEngine.Object o => o != null ? o.name : "<destroyed>",
+            null => "?",
+            _ => target.GetType().Name,
+        };
+        Core.VRLog.Info("Interact",
+            $"Poke WITHHELD ({_hand.Side}) on {what} '{label}' — a " +
+            "PHYSICAL fingertip press commits only while the SAME hand holds the GRIP and carries " +
+            $"nothing (grip {(_hand.GripPressed ? "held" : "open")}, hand " +
+            $"{(_hand.Grabber.Held != null ? "holding something" : "empty")}). Hover, the pressed " +
+            "visual and every laser click are unaffected.");
+    }
+
     // ---- collider pokeables -------------------------------------------------------------
 
     private void TickPokeables(Vector3 tip, float scale)
@@ -251,9 +339,23 @@ internal sealed class PokeInteractor
             float contact = FingertipRadius * scale;
             if (_armed && nearestDist <= contact)
             {
-                _armed = false;
-                _hovered.OnPoke(_hand);
-                _hand.SendHaptic(HapticPreset.ClickPulse);
+                // GRIP CHORD (user 2026-08, see PressAllowed): contact alone is not a press.
+                // The interactor stays ARMED while the chord is missing — the gate is checked at
+                // COMMIT time, exactly like the two keycap depth-fires, so closing the grip with
+                // the fingertip already on the target presses instead of demanding a full retract
+                // first (nothing here is a half-committed state that could leak: OnPoke is a
+                // single instantaneous call, so there is no in-flight press to cancel on this
+                // path — the uGUI path below is the one that needs the mid-press unwind).
+                if (!PressAllowed)
+                {
+                    LogGripGate("pokeable", _hovered);
+                }
+                else
+                {
+                    _armed = false;
+                    _hovered.OnPoke(_hand);
+                    _hand.SendHaptic(HapticPreset.ClickPulse);
+                }
             }
             else if (!_armed && nearestDist > ReleaseRange * scale)
             {
@@ -390,6 +492,22 @@ internal sealed class PokeInteractor
         {
             if (hit && bestSigned >= -FingertipRadius * scale)
             {
+                // GRIP CHORD (user 2026-08, see PressAllowed) — the gate sits BEFORE the arming,
+                // not only before the click, and that placement is the whole fix for the decision
+                // dock. Arming is not a neutral visual: it sends pointerDown, and on a DELIBERATE
+                // (v1) canvas it is the FIRST HALF of a click that the withdrawal completes. An
+                // ungated arm would therefore let a grip-less touch commit a decision the moment
+                // the hand is pulled back — precisely the "reagiert bereits auf physische
+                // Berührung" the report names. Nothing is latched when the chord is missing
+                // (_canvasPressed stays false), so closing the grip with the fingertip already on
+                // the plane arms normally — same commit-time semantics as the keycaps, and the
+                // hover/highlight set above stays live the whole time.
+                if (!PressAllowed)
+                {
+                    LogGripGate("uGUI canvas", _activeCanvas);
+                    return;
+                }
+
                 _canvasPressed = true;
                 if (Time.unscaledTime - _lastCanvasClick >= ClickCooldownSeconds)
                 {
@@ -419,7 +537,39 @@ internal sealed class PokeInteractor
         }
         else if (_pressPending)
         {
-            if (_pressDeliberate)
+            // GRIP RELEASED MID-PRESS (user 2026-08, the half of the chord that is easy to get
+            // wrong): the gate is re-checked on EVERY pending frame, and losing it cancels the
+            // press on the spot — pointerUp WITHOUT a click (the uGUI release-outside idiom that
+            // the retract-before-depth path already uses), so the button's pressed visual returns
+            // to normal, nothing is left pressed in uGUI, and no cooldown is charged.
+            //
+            // This is what makes the DELIBERATE (v1) dock safe. Its click is defined by the
+            // WITHDRAWAL, so a press armed under a held grip and pulled back after the grip opened
+            // would otherwise still fire on the way out — the exact phantom click the fix must not
+            // ship. It cannot: _pressPending is already false by the time that withdrawal is seen,
+            // and the withdrawal then only falls through the plain re-arm branch below.
+            //
+            // It also covers the frame order (Poke ticks BEFORE Grabber, see PressAllowed): a
+            // press that armed on the frame a proximity grab started is cancelled one frame later,
+            // when the hand reports what it is now carrying.
+            //
+            // _canvasPressed is cleared with it — the same re-arm the depth-cancel path performs,
+            // so the next contact with the chord held presses again with no leftover state.
+            if (!PressAllowed)
+            {
+                _pressPending = false;
+                _pressDeliberate = false;
+                _canvasPressed = false;
+                _pointer.Cancel();
+                // Not throttled: this is an edge, at most one per press, and it is the line that
+                // answers "the button flashed pressed and then did nothing".
+                Core.VRLog.Info("Interact",
+                    $"Poke press CANCELLED ({_hand.Side}) on '{_activeCanvas.name}' — the grip was " +
+                    "released (or the hand grabbed something) while the press was pending, so the " +
+                    "pointer was released WITHOUT a click, the pressed visual is cleared and no " +
+                    "click can fire on the withdrawal. Push in again with the grip held.");
+            }
+            else if (_pressDeliberate)
             {
                 // DELIBERATE v1 (user #13b, decision buttons): the click fires on the
                 // conscious WITHDRAWAL — the fingertip retracting back past ReleaseDepth

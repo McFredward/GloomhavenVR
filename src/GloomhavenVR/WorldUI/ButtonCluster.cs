@@ -1202,15 +1202,24 @@ internal sealed class ButtonCluster
                     // The cap still follows the finger; laser presses (OnPoke with a far
                     // fingertip) stay grip-free. Throttled Info line so a "did not react"
                     // report is answerable from the log.
-                    if (!_hoverHand.GripPressed)
+                    //
+                    // EMPTY HAND added 2026-08 with the "alle buttons" round (the report that put
+                    // the same chord on the decision dock, Hands.Interact.PokeInteractor
+                    // .PressAllowed): the grip also GRABS, so a carrying hand pressed the grip to
+                    // carry, not to press — dragging the board this cluster is docked to must not
+                    // fire the caps the dragging hand's own fingertip sweeps. Same second half
+                    // BoardPick.TryNearPick has always had.
+                    if (!_hoverHand.GripPressed || _hoverHand.Grabber.Held != null)
                     {
                         if (Time.unscaledTime >= _nextGripGateLogAt)
                         {
                             _nextGripGateLogAt = Time.unscaledTime + 1f;
                             VRLog.Info("WorldUI", $"{_rootGo.name} poke WITHHELD ({_hoverHand.Side}) — " +
                                                   "physical board-button presses require the same " +
-                                                  "hand's GRIP held (accidental-press guard); laser " +
-                                                  "clicks are unaffected.");
+                                                  "hand's GRIP held AND that hand to be empty (grip " +
+                                                  $"{(_hoverHand.GripPressed ? "held" : "open")}, hand " +
+                                                  $"{(_hoverHand.Grabber.Held != null ? "carrying something" : "empty")}; " +
+                                                  "accidental-press guard); laser clicks are unaffected.");
                         }
                     }
                     // DEBOUNCE (user): fire only when re-armed AND past the shared cooldown, so a
