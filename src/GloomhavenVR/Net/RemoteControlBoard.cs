@@ -149,6 +149,12 @@ internal sealed class RemoteControlBoard
     /// <summary>The slot-card width the current visual was BUILT at (with <see cref="_builtSlotFrameW"/>,
     /// the change key for the live-config rebuild in Tick — a peer editing their card size mid-game
     /// must re-size here too, and the widgets are constructor-sized).</summary>
+    /// <summary>The <see cref="RemoteAvatar.BoardTuningRevision"/> this board's constructor-sized
+    /// visuals were built at. A mismatch means the owner moved a dial (extension record 28) and the
+    /// board is torn down and rebuilt at their new layout — the same trigger the slot-card size and
+    /// the style switch use, and just as rare (a settings edit on their side).</summary>
+    private int _builtTuningRevision = -1;
+
     private float _builtSlotCardW = CardW;
     private float _builtSlotFrameW = CardW;
     private const float SlotSpacing = 0.155f;     // PlayTray.SlotSpacing (fallback layout)
@@ -450,6 +456,18 @@ internal sealed class RemoteControlBoard
         // constructor-sized, so the same teardown-rebuild the style switch uses applies; rare
         // (a settings edit on their side) and one frame. 0.4 mm epsilon = the wire's own
         // quantization step, so re-quantized noise can never loop rebuilds.
+        // The peer moved one of their own dials (extension record 28 — a debug-menu drag or a
+        // config edit on their side). Every dock seat, cap seat, overlay and mesh pose on this
+        // board is CONSTRUCTOR-sized from the layout, so the same teardown-rebuild applies.
+        // Revision-latched rather than value-compared: the resolve already happens once per real
+        // change in RemoteAvatar, so there is nothing here to re-diff and no epsilon to pick.
+        else if (_root != null && _builtTuningRevision != _owner.BoardTuningRevision)
+        {
+            VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] tuning change (extension record " +
+                              $"28): {_owner.BoardTuning} — rebuilding the board visuals at the " +
+                              "layout the owner actually sees.");
+            Destroy();
+        }
         else if (_root != null && (Mathf.Abs(SlotCardW - _builtSlotCardW) > 0.0004f
                                    || Mathf.Abs(SlotFrameW - _builtSlotFrameW) > 0.0004f))
         {
@@ -1041,16 +1059,18 @@ internal sealed class RemoteControlBoard
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
 
-        // The peer's AUTHORED board layout, keyed by the style they synced. Every dock seat below
-        // is read out of it, so the remote board can no longer drift from the owner's own mount
-        // positions the way it had (defect (c) — see RemoteBoardLayout for the full derivation).
-        _layout = new RemoteBoardLayout(_owner.BoardStyle);
+        // The peer's OWN board layout — their synced style, plus every dial they have moved off
+        // the shipped default (extension record 28). Every dock seat below is read out of it, so
+        // the remote board can no longer drift from the owner's own mount positions the way it had
+        // (defect (c) — see RemoteBoardLayout for the full derivation).
+        _builtTuningRevision = _owner.BoardTuningRevision;
+        _layout = new RemoteBoardLayout(_owner.BoardTuning);
 
         // THE BOARD SURFACE — the REAL bundled 3D asset for the style this peer synced
         // (RemoteTrayVisual: same prefab, same materials, same recesses as their own board),
         // replacing the old flat frame quad. The quad survives ONLY as the fallback for when the
         // bundle is not resident (then the probe in Tick upgrades it as soon as it is).
-        _tray = RemoteTrayVisual.Build(_root.transform, _owner.BoardStyle);
+        _tray = RemoteTrayVisual.Build(_root.transform, _owner.BoardTuning);
         if (_tray == null)
         {
             // Fallback frame: a dark unlit slab, re-tintable to the peer's style (ApplyBoardStyle)
@@ -1110,10 +1130,10 @@ internal sealed class RemoteControlBoard
         _elements = new RemoteElementStrip(contentParent, _layout);
         _status = new RemoteStatusReadouts(contentParent, _layout);
         _pickBanner = new RemotePickBanner(contentParent, _layout);
-        _boardTooltip = new RemoteBoardTooltip(contentParent, _layout);
+        _boardTooltip = new RemoteBoardTooltip(contentParent, _layout, _owner.BoardTuning);
         _active = new RemoteActiveCards(contentParent, _layout);
         _track = new RemoteInitiativeTrack(contentParent, _layout);
-        _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardStyle, _tray,
+        _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardTuning, _tray,
             AnchorLocalLive(CardFxAnchor.Slot0), AnchorLocalLive(CardFxAnchor.Slot1),
             _builtSlotFrameW, _builtSlotCardW);
         _nextRefreshAt = 0f; // repaint on the very next tick
@@ -1260,6 +1280,7 @@ internal sealed class RemoteControlBoard
         _tray = null;
         _frameMat = null;
         _appliedStyle = -1;
+        _builtTuningRevision = -1;
         _nextTrayProbeAt = 0f;
     }
 

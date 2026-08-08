@@ -27,10 +27,12 @@ namespace GloomhavenVR.Net;
 /// still name the peer's character. It is their board; it reads in their language.
 ///
 /// WHERE IT SITS: <see cref="RemoteBoardLayout.PickBannerMount"/>, i.e. the owner's own
-/// <c>PlayTray.PickBannerBase</c> plus the SHIPPED per-board offset for the peer's synced board
-/// style — the same derivation every other dock on this board uses, and the same
-/// DELIBERATELY-NOT rule: a peer's private debug-menu re-tuning of that offset never rides the
-/// wire, so every client draws a given board style at its shipped layout.
+/// <c>PlayTray.PickBannerBase</c> plus THEIR OWN per-board offset — from extension record 28 when
+/// they have moved that dial, and from the shipped constant for their synced board style when they
+/// have not (the same derivation every other dock on this board uses). The DELIBERATELY-NOT note
+/// that used to stand here — "a peer's private re-tuning of that offset never rides the wire" — was
+/// retired with record 28: under the 1:1 ruling a placard the owner has moved must sit where they
+/// moved it on every screen.
 ///
 /// LOOK: the owner's own placard is a parchment quad with ink-brown text
 /// (<c>PlayTray.EnsurePickBanner</c>) — reproduced here with the same colours through the shared

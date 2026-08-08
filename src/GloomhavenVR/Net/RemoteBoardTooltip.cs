@@ -49,7 +49,7 @@ namespace GloomhavenVR.Net;
 ///   • SAME TYPE: the game's <c>m_TitleFont</c> at <c>m_PCTitleFontSize</c> (16 px) in
 ///     <c>m_TitleFontColor</c> -- not a mod font at a mod size.
 ///   • SAME UNITS, SO SAME SIZE: the mirror is a world-space uGUI canvas scaled at exactly the
-///     owner's metre-per-pixel (<see cref="MetersPerUiPixel"/>), so a layout done in the game's
+///     owner's metre-per-pixel (<see cref="_metersPerUiPixel"/>), so a layout done in the game's
 ///     own PIXELS lands at the owner's own METRES. The frame is fitted to the text wrapped at the
 ///     game's authored frame width (<c>UITooltip.m_DefaultWidth</c> = 257 px) plus the tooltip's
 ///     own <c>VerticalLayoutGroup</c> padding -- the same content fit its <c>ContentSizeFitter</c>
@@ -60,9 +60,11 @@ namespace GloomhavenVR.Net;
 ///   • SAME AREA CONTRACT: the frame's bottom-left corner seats <see cref="MarginY"/> above the
 ///     area origin and the box grows UP/RIGHT into open air -- the local
 ///     <c>WorldTooltips.TryGetBoardAreaPose</c> contract verbatim.
-///   • DELIBERATELY-NOT: the peer's private <c>HoverInfoScale</c> dial and their tuned
-///     <c>HoverHintOffset</c>. Every remote board renders at the SHIPPED layout, like every other
-///     dock on it.
+///   • THE OWNER'S OWN DIALS, since extension record 28: their <c>HoverInfoScale</c> and
+///     <c>CanvasScaleMm</c> (the two factors of the world scale <c>WorldTooltips</c> applies) and
+///     their tuned <c>HoverHintOffset</c> (through <see cref="RemoteBoardLayout"/>). This used to
+///     be a DELIBERATELY-NOT note; under the 1:1 ruling a tuned owner's tooltip must read the same
+///     size and sit at the same corner everywhere. Untuned players are unaffected by a byte.
 ///
 /// WHERE IT SITS: <see cref="RemoteBoardLayout.TooltipMount"/> -- the owner's own
 /// <c>PlayTray.TooltipAreaBase</c> (the board's authored top-left corner, already proud of the
@@ -80,11 +82,20 @@ namespace GloomhavenVR.Net;
 /// classification".</remarks>
 internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
 {
-    /// <summary>Board-local metres per uGUI pixel of the owner's tooltip canvas: CanvasScaleMm
-    /// default (1) × 0.001 × 0.5 (the WorldTooltips halving) -- the board-scale factor is carried
-    /// by the board root's own synced scale. THE reason the layout below can be done entirely in
-    /// the game's own pixels and still come out at the owner's metres.</summary>
-    private const float MetersPerUiPixel = 0.0005f;
+    /// <summary>Board-local metres per uGUI pixel at the DEFAULT dials: CanvasScaleMm (1) × 0.001
+    /// × 0.5 (the WorldTooltips halving) -- the board-scale factor is carried by the board root's
+    /// own synced scale. THE reason the layout below can be done entirely in the game's own pixels
+    /// and still come out at the owner's metres.
+    ///
+    /// <para>The two dials in that product are the OWNER's, and they are now transmitted
+    /// (<see cref="NetProtocol.TuneCanvasScaleMm"/> / <see cref="NetProtocol.TuneHoverInfoScale"/>,
+    /// record 28): <see cref="_metersPerUiPixel"/> is this constant × their CanvasScaleMm × their
+    /// HoverInfoScale/default, i.e. exactly <c>WorldTooltips</c>'s own expression. Both resolve to
+    /// this constant for every player who has not tuned them.</para></summary>
+    private const float DefaultMetersPerUiPixel = 0.0005f;
+
+    /// <summary>The owner's own metres-per-pixel (see <see cref="DefaultMetersPerUiPixel"/>).</summary>
+    private readonly float _metersPerUiPixel;
 
     /// <summary>Clearance between the board's top edge and the frame's bottom edge -- the remote
     /// mirror of <c>WorldUI.WorldTooltips.BoardAnchorMarginY</c> (board-local metres).</summary>
@@ -123,8 +134,19 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
     private bool _skinApplied;
     private bool _destroyed;
 
-    public RemoteBoardTooltip(Transform boardRoot, in RemoteBoardLayout layout)
+    public RemoteBoardTooltip(Transform boardRoot, in RemoteBoardLayout layout,
+                              in RemoteBoardTuning tuning)
     {
+        // THE OWNER'S OWN SIZE (record 28). WorldTooltips scales its canvas by
+        // CanvasScaleMm × 0.001 × boardScale × 0.5 × (HoverInfoScale / default); board scale is
+        // already carried by the synced board root, so the two DIALS are all that was missing.
+        // Both are sent together deliberately: transmitting one factor of a product would leave
+        // the mirror wrong for anyone who tuned the other. Untuned ⇒ exactly the old constant.
+        _metersPerUiPixel = DefaultMetersPerUiPixel
+                            * Mathf.Max(0.01f, tuning.CanvasScaleMm)
+                            * Mathf.Max(0.01f, tuning.HoverInfoScale)
+                            / Defaults.HoverInfoScale;
+
         // The root IS the area origin (the authored top-left corner, proud of the board face);
         // Layout() lays the fitted box out in host-PIXEL space, growing up/right from it.
         _root = new GameObject("BoardTooltip").transform;
@@ -156,7 +178,7 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         _hostRect = (RectTransform)_hostGo.transform;
         _hostRect.sizeDelta = Vector2.zero;
         _hostRect.localRotation = Quaternion.identity;
-        _hostRect.localScale = Vector3.one * MetersPerUiPixel;
+        _hostRect.localScale = Vector3.one * _metersPerUiPixel;
 
         // The FRAME: the game's own 9-sliced tooltip background once one can be sampled. Pivot
         // (0,0) so the area contract ("bottom-left seats MarginY above the origin, grows up and
@@ -268,11 +290,11 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         _frame.sizeDelta = _framePx;
         // The area contract: bottom-left MarginY above the origin, growing up and right. MarginY is
         // the one number here that is genuinely metres, so it converts once.
-        _frame.anchoredPosition = new Vector2(0f, MarginY / MetersPerUiPixel);
+        _frame.anchoredPosition = new Vector2(0f, MarginY / _metersPerUiPixel);
 
         VRLog.Info("Net", $"Remote board tooltip: {text.Length} chars -> frame " +
                           $"{_framePx.x:F0}x{_framePx.y:F0} px = " +
-                          $"{_framePx.x * MetersPerUiPixel:F3}x{_framePx.y * MetersPerUiPixel:F3} m " +
+                          $"{_framePx.x * _metersPerUiPixel:F3}x{_framePx.y * _metersPerUiPixel:F3} m " +
                           $"(art={GameSkin.Describe()}, wrap {wrapPx:F0} px, font {_label.fontSize:F0} px, " +
                           $"pad {pad.x:F0}/{pad.w:F0}/{pad.z:F0}/{pad.y:F0}) — content-fitted in the " +
                           "GAME's own pixels at the owner's metre-per-pixel, bottom-left " +

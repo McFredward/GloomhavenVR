@@ -370,6 +370,23 @@ internal struct PresenceState
     public byte HalfSelect1;
 
     /// <summary>
+    /// The sender's "Keine Handkarten" placard is on screen RIGHT NOW (record 14, byte 1,
+    /// <see cref="NetProtocol.HalfEmptyFanHintBit"/>) — the hand-anchored ghost plate
+    /// <c>Cards.EmptyFanHint</c> raises when the palm gate opens onto a genuinely empty hand.
+    ///
+    /// <para>It rides record 14 because both flag bytes are full and byte 1's bits 4..7 were
+    /// reserved from the day that record shipped. Setting it also OPENS record 14 on its own: the
+    /// record's write gate is now "a half is hovered OR selected OR this bit is set", so the
+    /// placard travels even when nothing is hovered. With all three clear the record is still not
+    /// written at all, so an idle packet stays byte-identical to the previous build's.</para>
+    ///
+    /// <para>A LEVEL, not an edge: the receiver runs its OWN 1.5 s fade from its own rising edge
+    /// (synced state, locally animated — the wanted-glow blink's contract), and follows this bit
+    /// down if the owner's placard is cut short.</para>
+    /// </summary>
+    public bool EmptyFanHint;
+
+    /// <summary>
     /// True when this packet names the INITIATIVE-TRACK entry the sender is hovering (extension
     /// record <see cref="NetProtocol.ExtIdTrackHover"/>). Written ONLY while they hover one, so an
     /// idle packet stays byte-identical; absence means "no hover", which is what pre-record peers
@@ -532,6 +549,27 @@ internal struct PresenceState
     /// <see cref="TrackSelectionCount"/> (the sender passes its persistent sample buffer); only the
     /// first count entries go on the wire.</summary>
     public int[]? TrackSelectionIds;
+
+    /// <summary>
+    /// True when this packet carries the sender's OWN TUNING of their board, fan and board mesh
+    /// (extension record <see cref="NetProtocol.ExtIdBoardTuning"/>). Written ONLY while at least
+    /// one dial differs from the shipped default for their synced board style — an untuned player
+    /// (the overwhelmingly common case) emits the exact bytes the previous build emitted.
+    /// </summary>
+    public bool HasBoardTuning;
+
+    /// <summary>The record's complete payload — <c>[field count][field…]</c>, already quantized and
+    /// in ascending id order. It is carried PRE-ENCODED rather than as ~49 named fields for the
+    /// same reason the text records carry pre-encoded bytes: the values change on a config edit,
+    /// not per packet, so the sender builds this once on a change edge and the 5 Hz write path is a
+    /// pure copy. On the receive side it is the raw record bytes, read with
+    /// <see cref="NetProtocol.BoardTuneVector"/> and friends against each caller's own shipped
+    /// default.</summary>
+    public byte[]? BoardTuningBytes;
+
+    /// <summary>Valid length of <see cref="BoardTuningBytes"/> (the buffer may be longer — the
+    /// sender keeps a persistent one). Meaningful only when <see cref="HasBoardTuning"/>.</summary>
+    public int BoardTuningLength;
 }
 
 /// <summary>
@@ -590,11 +628,13 @@ internal struct PresenceState
 ///                        sender's CONFIRM cap (bit0) and docked SKIP button (bit1), each capped;
 ///                        written ONLY while a cap is visible with a known label, see
 ///                        NetProtocol.ExtIdCapLabels),
-///                        14 HALF HOVER + SELECTION (2 B: byte0 hover — bits0..1 board slot with
-///                        3 = no hover, bit2 top half; byte1 the persistent CLICK state — one
-///                        2-bit none/top/bottom field per slot — the game's steady half highlight
-///                        after a click, cleared by undo; written while a half is hovered OR
-///                        selected, see NetProtocol.ExtIdHalfHover),
+///                        14 HALF HOVER + SELECTION + EMPTY-FAN HINT (2 B: byte0 hover — bits0..1
+///                        board slot with 3 = no hover, bit2 top half; byte1 the persistent CLICK
+///                        state — one 2-bit none/top/bottom field per slot — the game's steady half
+///                        highlight after a click, cleared by undo, PLUS bit4 = the sender's
+///                        "Keine Handkarten" placard is on screen (NetProtocol.HalfEmptyFanHintBit,
+///                        bits 5..7 still reserved); written while a half is hovered OR selected OR
+///                        that placard is up, see NetProtocol.ExtIdHalfHover),
 ///                        15 PILE COUNTS ([discard][burnt][items] — the numbers the sender's own
 ///                        stack labels display; sent on EVERY packet while those stacks are shown,
 ///                        absence = pre-record peer ⇒ legacy model-read counts, see
@@ -618,6 +658,15 @@ internal struct PresenceState
 ///                        by the stable ActorGuid hash; players, ENEMIES and objects alike; ≤4 ids
 ///                        because an extra-turn actor can leave a second frame standing; written
 ///                        only while a frame really stands, see NetProtocol.ExtIdTrackSelection)
+///                        28 BOARD TUNING ([n][n × [id][value]] — the SPARSE set of the sender's
+///                        own dials that differ from the shipped default for their synced board
+///                        style: dock offsets/scales, furniture seats, the board MESH pose and the
+///                        hand-fan geometry. The id's RANGE fixes the value width (vec3 6 B /
+///                        length 2 B / factor 2 B / angle 2 B / count 1 B), fields ascend by id,
+///                        and the record is omitted ENTIRELY when nothing is tuned — the common
+///                        case, byte-identical to the previous build. Ids 25..27 belong to records
+///                        developed in parallel; 18..21 stay reserved.
+///                        See NetProtocol.ExtIdBoardTuning),
 ///                        24 DECISION STATE ([flags][n][n × option byte] — which prompt is docked
 ///                        (flags bits 0..2), which prompt-TEXT variant it shows (bits 3..5, a
 ///                        NUMBER the receiver localizes itself; the composed text never rides the
@@ -665,7 +714,15 @@ internal static class PresenceSerializer
     /// + 11 (character focus: 2 + its 9-byte maximum — the 5-byte form plus the flag-guarded
     /// attention-actor id)
     /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap)
-    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap) = 859.
+    /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap)
+    /// + 211 (BOARD TUNING: 2 + count 1 + every one of its 50 fields at once —
+    /// 15 vec3 × 7 + 12 length × 3 + 16 factor × 3 + 5 angle × 3 + 2 count × 2 = 208) = 1070.
+    ///
+    /// <para>THAT 211 IS A CEILING NO REAL PACKET REACHES: the board-tuning record carries only the
+    /// dials a player has MOVED, and an untuned player writes no record at all. It is stated at its
+    /// maximum here because the buffer must survive the pathological sender, not the typical one.
+    /// Margin left: 1280 − 1070 = 210 bytes, still more than the largest single record on the wire
+    /// (194, the board tooltip), which is the rule below. The sum before it was 859.</para>
     ///
     /// <para>RAISED 848 → 1280 on 2026-08-08, deliberately and ahead of need rather than on a crash.
     /// Three records landed in one round (22's attention tail, 23 track selection, 24 decision state)
@@ -712,7 +769,16 @@ internal static class PresenceSerializer
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
                           || state.HasSlotCardSize
-                          || state.HasPileCounts || state.HasHalfHover
+                          || state.HasPileCounts
+                          // Record 14 also rides for the EMPTY-FAN placard alone (byte 1 bit 4),
+                          // so the tail gate is the same three-way OR its writer uses.
+                          || state.HasHalfHover || state.EmptyFanHint
+                          // An all-default player writes NO tuning record, so it must not open the
+                          // tail either — that is what keeps an untuned packet byte-identical to
+                          // the previous build's, and it is the whole economic case for record 28.
+                          || (state.HasBoardTuning && state.BoardTuningLength
+                              >= NetProtocol.BoardTuneMinRecordBytes
+                              && state.BoardTuningBytes != null)
                           // A zero actor id writes no record (0 = "none" everywhere), so it must
                           // not open the tail either — same rule as the empty pick-banner line.
                           || (state.HasTrackHover && state.TrackHoverActorId != 0)
@@ -1012,28 +1078,36 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
-                if (state.HasHalfHover
+                if ((state.HasHalfHover || state.EmptyFanHint)
                     && i + 2 + NetProtocol.HalfHoverRecordBytes <= buffer.Length)
                 {
-                    // HALF HOVER + SELECTION (14): [byte0 hover][byte1 selection]. Byte 0 is the
-                    // transient pointer hover — board slot (bits 0..1, the HalfHoverNoneSlot
-                    // sentinel when the record rides for a selection alone) + top-half bit.
-                    // Byte 1 is the persistent CLICK state, one 2-bit none/top/bottom field per
-                    // slot. Slot POSITIONS and halves, never a card identity. Written only while
-                    // a half is hovered OR selected, so an idle packet stays byte-identical to
-                    // the previous build's. Appended in id order behind every existing record.
-                    byte half = state.HalfHoverActive
+                    // HALF HOVER + SELECTION + EMPTY-FAN HINT (14): [byte0 hover][byte1 state].
+                    // Byte 0 is the transient pointer hover — board slot (bits 0..1, the
+                    // HalfHoverNoneSlot sentinel when the record rides without one) + top-half bit.
+                    // Byte 1 is the persistent CLICK state (one 2-bit none/top/bottom field per
+                    // slot) PLUS bit 4, the "Keine Handkarten" placard — a hand-anchored display
+                    // that has no board record of its own and that the hand-card count cannot
+                    // imply (0 cards is also every idle player). Slot POSITIONS, halves and one
+                    // boolean; never a card identity. Written while a half is hovered OR selected
+                    // OR the placard is up, so an idle packet stays byte-identical to the previous
+                    // build's. Appended in id order behind every existing record.
+                    byte half = state.HasHalfHover && state.HalfHoverActive
                         ? (byte)(state.HalfHoverSlot & NetProtocol.HalfHoverSlotMask)
                         : NetProtocol.HalfHoverNoneSlot;
-                    if (state.HalfHoverActive && state.HalfHoverTop)
+                    if (state.HasHalfHover && state.HalfHoverActive && state.HalfHoverTop)
                         half |= NetProtocol.HalfHoverTopBit;
-                    byte select = (byte)(NetProtocol.EncodeHalfSelect(state.HalfSelect0)
-                                         | NetProtocol.EncodeHalfSelect(state.HalfSelect1)
-                                           << NetProtocol.HalfSelectBitsPerSlot);
+                    byte select = state.HasHalfHover
+                        ? (byte)(NetProtocol.EncodeHalfSelect(state.HalfSelect0)
+                                 | NetProtocol.EncodeHalfSelect(state.HalfSelect1)
+                                   << NetProtocol.HalfSelectBitsPerSlot)
+                        : (byte)0;
+                    select &= NetProtocol.HalfSelectDefinedMask;
+                    if (state.EmptyFanHint)
+                        select |= NetProtocol.HalfEmptyFanHintBit;
                     buffer[i++] = NetProtocol.ExtIdHalfHover;
                     buffer[i++] = (byte)NetProtocol.HalfHoverRecordBytes;
                     buffer[i++] = (byte)(half & NetProtocol.HalfHoverDefinedMask);
-                    buffer[i++] = (byte)(select & NetProtocol.HalfSelectDefinedMask);
+                    buffer[i++] = (byte)(select & NetProtocol.HalfSelectByteDefinedMask);
                     records++;
                 }
                 if (state.HasPileCounts
@@ -1174,6 +1248,29 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
+                if (state.HasBoardTuning && state.BoardTuningBytes != null)
+                {
+                    // BOARD TUNING (28): [n][n × [id][value]] — the SPARSE set of the sender's own
+                    // dials that differ from the shipped default for their synced board style. The
+                    // payload arrives PRE-ENCODED (built on a config-change edge, not per packet)
+                    // so this hot path is a bounded copy; the length is re-clamped against the TLV
+                    // ceiling AND the caller's buffer before a byte goes out. An all-default player
+                    // never reaches here at all — the tail gate above already excluded them — which
+                    // is exactly what keeps an untuned packet byte-identical to the previous build.
+                    // Appended LAST, in id order behind every existing record.
+                    int payload = state.BoardTuningLength;
+                    if (payload > state.BoardTuningBytes.Length)
+                        payload = state.BoardTuningBytes.Length;
+                    if (payload >= NetProtocol.BoardTuneMinRecordBytes && payload <= 255
+                        && i + 2 + payload <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdBoardTuning;
+                        buffer[i++] = (byte)payload;
+                        for (int b = 0; b < payload; b++)
+                            buffer[i++] = state.BoardTuningBytes[b];
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
@@ -1271,6 +1368,42 @@ internal static class PresenceSerializer
         _bannerDecBytes = copy;
         _bannerDecText = System.Text.Encoding.UTF8.GetString(copy);
         return _bannerDecText;
+    }
+
+    // ---- board-tuning payload decode cache -----------------------------------------------
+    // The tuning payload is CONSTANT for a given sender (it only changes when they move a dial)
+    // while the record rides every extras packet, so a fresh copy per packet would be steady
+    // garbage on a hot path whose header promises allocation-free. Same one-entry cache
+    // discipline as the text codecs: a given byte run is copied once and then recognised, so a
+    // stable sender allocates nothing after the first packet.
+
+    private static byte[] _tuneDecBytes = System.Array.Empty<byte>();
+
+    /// <summary>Copy a board-tuning payload off the wire, reusing the last copy when the bytes are
+    /// identical (the normal case — nobody edits a config mid-packet). Returns null for an empty
+    /// or out-of-range run, which every caller treats as "record absent" ⇒ shipped defaults.</summary>
+    internal static byte[]? DecodeBoardTuning(byte[] buffer, int offset, int count)
+    {
+        if (count <= 0 || offset < 0 || offset + count > buffer.Length)
+            return null;
+        if (count == _tuneDecBytes.Length)
+        {
+            bool same = true;
+            for (int b = 0; b < count; b++)
+            {
+                if (buffer[offset + b] != _tuneDecBytes[b])
+                {
+                    same = false;
+                    break;
+                }
+            }
+            if (same)
+                return _tuneDecBytes;
+        }
+        var copy = new byte[count];
+        System.Buffer.BlockCopy(buffer, offset, copy, 0, count);
+        _tuneDecBytes = copy;
+        return copy;
     }
 
     // ---- board-tooltip text (en/de)coding caches ----------------------------------------
@@ -1681,19 +1814,25 @@ internal static class PresenceSerializer
                     else if (id == NetProtocol.ExtIdHalfHover
                              && len >= NetProtocol.HalfHoverRecordBytes)
                     {
-                        // HALF HOVER + SELECTION: [byte0 hover][byte1 selection], both masked.
-                        // Byte 0's slot is validated against the board's structural slot count —
-                        // a slot the board does not have (a corrupt byte, or a future board
-                        // shape this build predates) and the HalfHoverNoneSlot sentinel both
+                        // HALF HOVER + SELECTION + EMPTY-FAN HINT: [byte0 hover][byte1 state],
+                        // both masked. Byte 0's slot is validated against the board's structural
+                        // slot count — a slot the board does not have (a corrupt byte, or a future
+                        // board shape this build predates) and the HalfHoverNoneSlot sentinel both
                         // read as "no hover", never as a glow on the wrong recess. Byte 1's
                         // per-slot fields decode through EncodeHalfSelect, so the invalid value
                         // 3 degrades to "none" (never trust the wire). A record whose hover AND
                         // both selections all decode to nothing is dropped whole — identical to
                         // "record absent", which is what the writer emits for that state anyway.
+                        //
+                        // BIT 4 IS READ INDEPENDENTLY of that drop: the record now also rides for
+                        // the "Keine Handkarten" placard ALONE, and that state decodes to no hover
+                        // and no selection by construction. Folding it into HasHalfHover would have
+                        // meant a placard-only record set a half-hover state nobody is in.
                         byte half = (byte)(buffer[i] & NetProtocol.HalfHoverDefinedMask);
                         int slot = half & NetProtocol.HalfHoverSlotMask;
                         bool hover = slot < NetProtocol.BoardUiSlotCount;
-                        byte select = (byte)(buffer[i + 1] & NetProtocol.HalfSelectDefinedMask);
+                        byte stateByte = (byte)(buffer[i + 1] & NetProtocol.HalfSelectByteDefinedMask);
+                        byte select = (byte)(stateByte & NetProtocol.HalfSelectDefinedMask);
                         byte sel0 = NetProtocol.EncodeHalfSelect(
                             select & NetProtocol.HalfSelectFieldMask);
                         byte sel1 = NetProtocol.EncodeHalfSelect(
@@ -1708,6 +1847,31 @@ internal static class PresenceSerializer
                             state.HalfHoverTop = hover && (half & NetProtocol.HalfHoverTopBit) != 0;
                             state.HalfSelect0 = sel0;
                             state.HalfSelect1 = sel1;
+                        }
+                        state.EmptyFanHint = (stateByte & NetProtocol.HalfEmptyFanHintBit) != 0;
+                    }
+                    else if (id == NetProtocol.ExtIdBoardTuning
+                             && len >= NetProtocol.BoardTuneMinRecordBytes)
+                    {
+                        // BOARD TUNING: [n][n × [id][value]]. The payload is kept RAW and each
+                        // consumer reads the field it needs against its own shipped default
+                        // (NetProtocol.BoardTuneVector and friends), which is what makes "field
+                        // absent" mean "the value you already have" rather than needing ~49
+                        // decoded members here. Validation is therefore structural and happens on
+                        // read-out: the walk is bounded by the record's own length, an unknown-width
+                        // reserved id stops it, and a payload whose field count is nonsense simply
+                        // yields fewer fields — every caller then keeps its default. A record with
+                        // a zero field count is dropped (identical to "record absent", which is
+                        // what an untuned sender emits anyway).
+                        if (buffer[i] > 0)
+                        {
+                            byte[]? tune = DecodeBoardTuning(buffer, i, len);
+                            if (tune != null)
+                            {
+                                state.HasBoardTuning = true;
+                                state.BoardTuningBytes = tune;
+                                state.BoardTuningLength = len;
+                            }
                         }
                     }
                     else if (id == NetProtocol.ExtIdPileCounts

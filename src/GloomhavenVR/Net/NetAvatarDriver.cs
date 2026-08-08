@@ -122,6 +122,22 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // int.MinValue = never sent.
     private int _lastSentHalfSelect = int.MinValue;
 
+    // EMPTY-FAN PLACARD (record 14, byte 1 bit 4): whether our own "Keine Handkarten" plate was
+    // up in the last packet. A placard is a discrete, human-paced EDGE (a palm gate opening), so
+    // it pre-empts the 5 Hz gate OUTRIGHT — the pile-counts rule — and the plate lands on every
+    // peer's screen with the gesture instead of up to 200 ms after a 1.5 s animation started.
+    private bool _lastSentEmptyFanHint;
+
+    // BOARD TUNING (extension record 28): the last payload we broadcast — its LENGTH plus a
+    // content hash — so a dial move is an edge and the change-gated log fires once per real
+    // change. -1 = never sampled, which also forces the first packet of a session to re-state it.
+    private int _lastSentTuningKey = -1;
+
+    /// <summary>Persistent scratch the tuning payload is sampled into (see
+    /// <see cref="BoardTuningSampler.Sample"/>). One allocation for the process; the serializer
+    /// then copies from it, so the 5 Hz write path allocates nothing.</summary>
+    private readonly byte[] _tuningBuffer = new byte[BoardTuningSampler.MaxPayloadBytes];
+
     // HALF HOVER (extension record 14): the last broadcast (slot | top<<8, -1 = none), so the
     // hover moving between halves pre-empts the 5 Hz gate (capped at the rig interval — a laser
     // can flick between halves several times a second) and the log fires once per CHANGE.
@@ -370,6 +386,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentPileCounts = int.MinValue;   // and re-states the pile counts…
         _lastSentHalfHover = int.MinValue;    // …the half hover…
         _lastSentHalfSelect = int.MinValue;   // …the clicked halves…
+        _lastSentEmptyFanHint = false;        // …the empty-fan placard (record 14 bit 4)…
+        _lastSentTuningKey = -1;              // …and our own board tuning (record 28)…
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
         _lastSentWallFadeCount = -1;             // …and the synced wall-fade set
         _lastSentFocusActor = int.MinValue;       // …and the character focus (record 22)
@@ -950,6 +968,35 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool capLabelsChanged = confirmLabelNow != _lastSentConfirmLabel
                                 || skipLabelNow != _lastSentSkipLabel;
 
+        // EMPTY-FAN PLACARD (record 14, byte 1 bit 4): our own "Keine Handkarten" plate, read off
+        // the seam the RENDERER publishes (Cards.EmptyFanHint.CurrentlyShown — set and cleared by
+        // the same statements that show and hide the plate, so the bit and the picture cannot
+        // disagree). It is deliberately NOT inferred from the hand-card count: 0 cards with the fan
+        // closed is the state of every idle player, and the count therefore cannot say whether the
+        // gate opened onto an empty hand (the trap recorded in INVARIANTS-Net-Rig.md). Pre-empts
+        // the gate OUTRIGHT — a palm gate opening is discrete and human-paced, and a 1.5 s fade
+        // that starts 200 ms late is a visibly different animation.
+        bool emptyFanHintNow = Cards.EmptyFanHint.CurrentlyShown;
+        bool emptyFanHintChanged = emptyFanHintNow != _lastSentEmptyFanHint;
+
+        // BOARD TUNING (extension record 28): OUR OWN dial positions for the board, its mesh and
+        // the hand fan, sampled sparsely — only the dials that differ from the shipped default for
+        // our current board style. Sampling walks ~49 config entries and allocates nothing, so it
+        // runs on the send path rather than needing a config-change hook; a player who has tuned
+        // nothing produces a ZERO-length payload and therefore no record at all, which is what
+        // keeps an untuned packet byte-identical to the previous build's. A change is an edge
+        // (someone dragging a slider in the debug menu wants to see the result), so it pre-empts
+        // the gate, but only ONCE per real change — the key below is the change detector.
+        // Null-guarded exactly like LocalRigSampler.LocalBoardStyle: a packet can go out before
+        // CardsConfig.Bind has completed (scene load), and CurrentBoard would NRE there. Oak is the
+        // right pre-bind answer for the same reason it is the default wire code.
+        Cards.ControlBoard tuningBoard = Cards.CardsConfig.Board != null
+            ? Cards.ControlBoards.Clamp((int)Cards.CardsConfig.Board.Value)
+            : Cards.ControlBoard.Oak;
+        int tuningLength = BoardTuningSampler.Sample(tuningBoard, _tuningBuffer);
+        int tuningKey = TuningKey(_tuningBuffer, tuningLength);
+        bool tuningChanged = tuningKey != _lastSentTuningKey;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !highlightDue
@@ -957,7 +1004,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
-            && !decisionChanged && !decisionStateChanged && !capLabelsChanged && !focusChanged && !trackSelChanged)
+            && !decisionChanged && !decisionStateChanged && !capLabelsChanged && !focusChanged && !trackSelChanged
+            && !emptyFanHintChanged && !tuningChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1289,6 +1337,47 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HalfSelect0 = (byte)halfSel0;
             extras.HalfSelect1 = (byte)halfSel1;
         }
+        // EMPTY-FAN PLACARD (record 14 byte 1 bit 4): the same record, one bit. Setting it also
+        // OPENS record 14 when nothing is hovered or selected — that is the write gate's third
+        // arm, and it is why the placard travels at all (it is hand-anchored, so no board record
+        // could carry it).
+        extras.EmptyFanHint = emptyFanHintNow;
+        if (emptyFanHintChanged)
+        {
+            _lastSentEmptyFanHint = emptyFanHintNow;
+            VRLog.Info("Net", emptyFanHintNow
+                ? "Empty-fan placard SENT: our palm gate opened on a hand the GAME model says is " +
+                  "empty, so the \"Keine Handkarten\" plate is up — extension record 14, byte 1 " +
+                  "bit 4 (ONE bit, no payload; a real edge, never inferred from the hand-card " +
+                  "count, which cannot tell an empty hand from a closed fan). The edge PRE-EMPTED " +
+                  "the extras gate, so peers start their own 1.5 s fade with the gesture."
+                : "Empty-fan placard SENT: down — bit clear (peers end their mirrored plate).");
+        }
+
+        // BOARD TUNING (extension record 28): only the dials we have MOVED. A zero-length sample
+        // means every dial is at its shipped default, and then no record is written at all — the
+        // receiver's own compiled constants are already the right answer, byte-identically to
+        // every build before this record.
+        if (tuningLength >= NetProtocol.BoardTuneMinRecordBytes)
+        {
+            extras.HasBoardTuning = true;
+            extras.BoardTuningBytes = _tuningBuffer;
+            extras.BoardTuningLength = tuningLength;
+        }
+        if (tuningChanged)
+        {
+            _lastSentTuningKey = tuningKey;
+            VRLog.Info("Net", tuningLength >= NetProtocol.BoardTuneMinRecordBytes
+                ? $"Board tuning SENT: {_tuningBuffer[0]} dial(s) differ from the shipped " +
+                  $"'{tuningBoard}' defaults — extension record 28, " +
+                  $"{tuningLength} payload byte(s) ([id][value] pairs in ascending id order, " +
+                  "quantized to 0.1 mm / 0.001 / 0.01°). Peers now seat every dock, cap, overlay, " +
+                  "mesh pose and fan card at OUR numbers instead of the authored ones."
+                : $"Board tuning SENT: every dial is at the shipped '{tuningBoard}' " +
+                  "default — record OMITTED entirely, so this packet is byte-identical to what " +
+                  "previous builds emitted and peers use their own identical constants.");
+        }
+
         if (halfHoverChanged)
         {
             _lastSentHalfHover = halfHoverNow;
@@ -1585,6 +1674,31 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         int len = PresenceSerializer.Write(in extras, _sendBuffer);
         _transport.Send(_sendBuffer, len);
+    }
+
+    /// <summary>
+    /// Change key for the board-tuning payload (extension record 28): its LENGTH folded together
+    /// with an FNV-1a-32 hash of its bytes. A hash rather than a byte compare against a kept copy
+    /// because the payload is already the compressed form — the values are quantized, so two
+    /// samples that hash equal ARE the same picture — and because keeping a second buffer only to
+    /// diff it would double the state for a value that changes once a session at most. −1 is
+    /// reserved for "never sampled", so an empty payload keys as 0 and can never collide with it.
+    /// </summary>
+    private static int TuningKey(byte[] payload, int length)
+    {
+        if (length <= 0)
+            return 0;
+        unchecked
+        {
+            uint h = 2166136261u;
+            for (int i = 0; i < length && i < payload.Length; i++)
+            {
+                h ^= payload[i];
+                h *= 16777619u;
+            }
+            int key = (int)(h & 0x7FFFFFFF);
+            return key == 0 ? 1 : key;   // 0 is "empty payload"; never let a hash impersonate it
+        }
     }
 
     // ---- receive ------------------------------------------------------------------------
