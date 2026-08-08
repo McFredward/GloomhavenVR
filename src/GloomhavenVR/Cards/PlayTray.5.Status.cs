@@ -3,6 +3,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
+using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
 
@@ -28,6 +29,11 @@ internal sealed partial class PlayTray
     // Language the follow/gear labels + cached round/confirmed strings were built in.
     // The TickStatus guard re-localizes them on an actual game-language change (live follow).
     private string _labelLang = string.Empty;
+
+    // Change-gate for the confirm-ownership line (see <see cref="ConfirmCapsForeignView"/>): the
+    // last (hidden, owner, focused, recoverable) tuple we logged, folded into one int from the
+    // game's own actor ids so the per-frame resolve builds no string at all. 0 = nothing yet.
+    private int _capOwnerLogKey;
 
     /// <summary>Update round readout, badge, confirm/undo button states + labels (each frame while visible; cheap).</summary>
     internal void TickStatus(CardsHandUI? hand)
@@ -112,6 +118,13 @@ internal sealed partial class PlayTray
         // flips the toggle interactable the CONFIRM visibility below surfaces the button.
         CardsGameApi.EnsureSoloHostSelectionCommittable();
 
+        // ONE CHARACTER OWNS THE CONFIRM (user, ModBuild 84 hardware test: "Der 'Fortfahren'
+        // button erscheint bei allen Characteren — das macht keinen Sinn. Nur beim Character der
+        // Entscheidung treffen soll, soll auch der entsprechende Button erscheinen."). Resolved
+        // ONCE per tick and applied to BOTH keycaps below; see the method for the owner rule and
+        // the deadlock argument.
+        bool foreignView = ConfirmCapsForeignView(hand);
+
         // Test #23 item 4: the REAL ReadyButton / UndoButton dock at these same
         // positions when the native-controls surface is active. While a native
         // widget holds, its mod-drawn twin hides (they overlap) and its state mirror
@@ -129,6 +142,16 @@ internal sealed partial class PlayTray
             && WorldUI.Surfaces.TrayControlDockSurface.ContinueDocked
             && WorldUI.Surfaces.TrayControlDockSurface.ContinueVisible)
         {
+            _confirm.SetVisible(false);
+        }
+        else if (_confirm != null && foreignView)
+        {
+            // The confirm belongs to the character the GAME presents, and the player is looking
+            // at somebody else. Hidden — ahead of the pick override on purpose: the pick branch's
+            // press acts on CurrentHand() too (CardsDriver.OnConfirmRequested re-reads it), so
+            // showing it here would offer the viewed character a button that commits ANOTHER
+            // character's pick. The way back is one portrait click; ConfirmCapsForeignView has
+            // already proven it exists before returning true.
             _confirm.SetVisible(false);
         }
         else if (_confirm != null && _pickConfirmLabel != null)
@@ -180,6 +203,15 @@ internal sealed partial class PlayTray
         {
             _undo.SetVisible(false);
         }
+        else if (_undo != null && foreignView)
+        {
+            // Same owner, same rule: CardsGameApi.CanUndo/ClickUndo read the ONE global
+            // Choreographer.m_UndoButton, and OnUndoRequested's pick branch re-reads CurrentHand()
+            // — so an UNDO press always reverts the acting character's step, never the viewed
+            // one's. Strictly weaker than the confirm case for deadlock purposes: undo is a
+            // revert, never the only way forward, and it returns with the same portrait click.
+            _undo.SetVisible(false);
+        }
         else if (_undo != null && _pickUndoLabel != null)
         {
             // EVENT-DISCARD pick flow: UNDO becomes the confirm dialog's own cancel
@@ -201,6 +233,144 @@ internal sealed partial class PlayTray
                 _undo.SetLabel(CardsGameApi.UndoLabel());
             }
         }
+    }
+
+    /// <summary>
+    /// ONE CHARACTER OWNS THE CONFIRM — the keycap edition of the rule
+    /// <c>WorldUI.Surfaces.DecisionDockSurface.UpdateFocusVisibility</c> already applies to the
+    /// decision row and <c>WorldUI.Surfaces.UseBarsSurface.UpdateFocusVisibility</c> to the use
+    /// bars. True while the board's CONFIRM/UNDO keycaps must be HIDDEN because the action they
+    /// fire does not belong to the character the player is currently looking at.
+    ///
+    /// <para>THE BUG (user, ModBuild 84): free character focus lets the player look at a character
+    /// the game is not acting on, and the CONFIRM keycap appeared on EVERY such view. It had to:
+    /// its whole visibility test was <c>CardsGameApi.CanConfirm() || ReadyToggleAvailable()</c>,
+    /// and <see cref="CardsGameApi.CanConfirm"/> reads the ONE global
+    /// <c>Choreographer.readyButton</c> (CardsGameApi.cs:1873/1896) — a single scenario-wide
+    /// widget with no character in it at all. So the same "Fortfahren" was offered on four boards.</para>
+    ///
+    /// <para>THE OWNER, read from the dispatch rather than guessed. <paramref name="hand"/> is the
+    /// hand the GAME presents — <c>CardsDriver.CurrentHand()</c> (CardsDriver.2.Update.cs:884/705),
+    /// already ownership-gated by <c>CardsGameApi.IsLocalHand</c> and already resolved through the
+    /// deciding-actor priority chain (TakeDamage → ActionSelection → ItemPick → LoseRewardPick →
+    /// InitiativeAdjust → ActiveHand). It is NOT the focus-resolved hand: focus is applied in
+    /// <c>CardsDriver.Rebuild</c> (<c>CharacterFocus.ResolveHand</c>, CardsDriver.4.Rebuild.cs:241),
+    /// not on this path. And it is exactly the object every CONFIRM/UNDO press re-reads:
+    /// <c>CardsDriver.OnConfirmRequested</c> resolves <c>CurrentHand()</c> for the pick-dialog
+    /// commit, for <c>TryLockPickBatch</c> and for the <c>IsConfirmed</c>/<c>SetReady</c> branch,
+    /// and its last branch fires the global <c>ReadyButton</c>, which the game only ever arms for
+    /// the character it is itself acting on. So <c>hand.PlayerActor</c> is not "a reasonable
+    /// attribution" — it is, literally, the character a press would act upon.</para>
+    ///
+    /// <para>WHY NOT <c>CharacterFocus.TurnActor</c>, the obvious candidate. The two differ in
+    /// precisely the flows that matter: a take-damage burn, an item-surrender demand or the boots'
+    /// initiative adjustment can be owed by a DIFFERENT local character than the one at turn (the
+    /// reason <c>CurrentHand</c> has that priority chain at all), and
+    /// <c>DecisionDockSurface.PromptOwner</c> attributes those very prompts to the deciding
+    /// character, not to the turn. Keying on the turn would hide the confirm from the one
+    /// character who owes the decision — a deadlock, and a disagreement with the decision row
+    /// docked right next to it. Keying on the presented hand agrees with that surface in every
+    /// flow it resolves.</para>
+    ///
+    /// <para>WHY <c>CharacterFocus.Focused</c> AND NOT <c>ReadOnlyView</c>. Same reason
+    /// <c>CharacterFocus.LocalMark</c> gives for its own per-frame read: <c>ReadOnlyView</c> is
+    /// latched by <c>ResolveHand</c>, which runs on the edge-driven REBUILD, while
+    /// <see cref="TickStatus"/> runs every frame — a per-frame consumer must not read a value that
+    /// is only recomputed on rebuilds. <c>Focused</c> is a plain field written by
+    /// <c>TryFocus</c>/<c>Clear</c>, so "the player has taken an explicit focus override" is always
+    /// current, and comparing it to the owner reconstructs the same predicate live. Both docked
+    /// surfaces above use exactly this pair (<c>Focused</c> + resolved owner) for the same reason.</para>
+    ///
+    /// <para>FAIL-OPEN, THREE WAYS — every clause is a reason to SHOW:</para>
+    /// <list type="bullet">
+    /// <item>no focus override (<c>Focused == null</c>) ⇒ shown. Merely following the game is never
+    ///   "looking elsewhere", so a player who never touches the focus feature sees byte-for-byte
+    ///   what ModBuild 84 showed them;</item>
+    /// <item>no presented hand (<c>owner == null</c>) ⇒ shown by this gate, i.e. the pre-existing
+    ///   logic decides — and it already hides the keycap, since both <c>canConfirm</c> and
+    ///   <c>canUndo</c> require <c>hand != null</c>;</item>
+    /// <item>the owner cannot be focused right now (<c>CharacterFocus.CanFocus</c> false: exhausted,
+    ///   no live scenario, or the secret card-selection window) ⇒ shown. This is the DEADLOCK
+    ///   INTERLOCK: the keycap is only ever hidden when the very click that brings it back is
+    ///   available. See below.</item>
+    /// </list>
+    ///
+    /// <para>DEADLOCK ARGUMENT (the critical review point). The keycap is hidden only when
+    /// <c>CharacterFocus.CanFocus(owner)</c> is true, i.e. the owner is a live player character AND
+    /// <c>CharacterFocus.Open</c> holds. A click on that character's initiative-track portrait then
+    /// runs <c>InitiativeTrackPlayerAvatar_OnClick_Guard</c> → <c>CharacterFocus.TryFocus(owner)</c>,
+    /// which under exactly those two conditions CANNOT refuse (TryFocus rejects only a non-player,
+    /// a dead actor, or a closed <c>Refusal</c> gate — the same two facts <c>CanFocus</c> just
+    /// asserted). After it, <c>Focused == owner</c>, this method returns false on the very next
+    /// tick, and the keycap materializes again with its unchanged label; a frame later
+    /// <c>ResolveHand</c> additionally drops the override altogether ("the game now presents the
+    /// focused character"), restoring full interactivity. The 2026-08-08 ruling that a character
+    /// switch may NEVER be blocked is what makes this an absolute rather than a probable escape:
+    /// the focus branch of the click guard returns false unconditionally once TryFocus takes, so
+    /// no phase, prompt, modal or wait-state can stand between the player and that portrait. And
+    /// the state is legible before they even look for the button — <c>Board.FocusCue</c> paints the
+    /// board red while <c>LocalMark == AtTurnWrong</c>, i.e. precisely while you own the character
+    /// at turn and are looking at another one. Belt: nothing here writes game state, so even a
+    /// hidden keycap leaves the game's own <c>ReadyButton</c>/<c>UndoButton</c> fully armed and the
+    /// 2D path (and every other commit affordance) untouched.</para>
+    ///
+    /// <para>MULTIPLAYER (standing rule — a peer must see EXACTLY what the owner sees). The hide
+    /// runs through <c>BoardButton.SetVisible(false)</c>, which clears <c>_logicalVisible</c>
+    /// (PlayTray.7.Nested.cs:708) — and <c>PlayTray.ConfirmControlShown</c>/<c>UndoControlShown</c>
+    /// are defined as that very flag (their native-dock alternative is permanently false:
+    /// <c>TrayControlDockSurface.ContinueDocked/ContinueVisible/UndoDocked</c> all return
+    /// <c>false</c>). <c>NetAvatarDriver</c> reads them for <c>BoardUiConfirmBit</c>/
+    /// <c>BoardUiUndoBit</c> and drops the <c>ExtIdCapLabels</c> confirm string when the cap is not
+    /// shown, so a hidden keycap disappears on every peer's mirrored board through the records that
+    /// already exist. NO wire change, no new field, no card identity — and, because the mirror is
+    /// sampled from the same flag the local renderer obeys, the two cannot disagree.</para>
+    ///
+    /// <para>Cheap and silent: a reference compare plus two int reads per tick, and the log line is
+    /// change-gated on an id tuple so no string is built unless the state actually moved.</para>
+    /// </summary>
+    private bool ConfirmCapsForeignView(CardsHandUI? hand)
+    {
+        CPlayerActor? owner = hand != null ? hand.PlayerActor : null;
+        CPlayerActor? focused = Board.CharacterFocus.Focused;
+        // The way back must EXIST before we take the button away (see the deadlock argument).
+        bool recoverable = owner != null && Board.CharacterFocus.CanFocus(owner);
+        bool foreign = focused != null && owner != null
+                       && !ReferenceEquals(focused, owner)
+                       && recoverable;
+
+        // Change-gate on the game's own actor ids (CActor.ID — the identity its network paths
+        // send), so a per-frame resolve allocates nothing and the log only moves on a transition.
+        int key = (foreign ? 1 : 2) * 31 + (owner != null ? owner.ID : 0);
+        key = key * 31 + (focused != null ? focused.ID : 0);
+        key = key * 31 + (recoverable ? 1 : 0);
+        if (key == _capOwnerLogKey)
+            return foreign;
+        _capOwnerLogKey = key;
+
+        string ownerName = Board.CharacterFocus.Describe(owner);
+        string focusName = Board.CharacterFocus.Describe(focused);
+        if (foreign)
+            VRLog.Info("Cards", $"Board: CONFIRM/UNDO keycaps HIDDEN — the confirm belongs to " +
+                                $"'{ownerName}' (the hand the game presents; every press path " +
+                                $"re-reads it) and the player is looking at '{focusName}' " +
+                                "(focus override). Nothing in the game was touched: the " +
+                                "ReadyButton/UndoButton stay armed, and one portrait click on " +
+                                $"'{ownerName}' brings the keycaps straight back.");
+        else
+            VRLog.Info("Cards", "Board: CONFIRM/UNDO keycaps NOT hidden by the owner gate — " +
+                                (owner == null
+                                    ? "no presented hand this tick, so the normal state logic " +
+                                      "decides (it already hides both without a hand)."
+                                    : focused == null
+                                        ? $"owner '{ownerName}' is in view (no focus override — " +
+                                          "following the game)."
+                                        : !recoverable
+                                            ? $"owner '{ownerName}' cannot be focused right now " +
+                                              "(exhausted / no live scenario / card selection), so " +
+                                              "the keycaps stay reachable rather than strand the " +
+                                              $"player while looking at '{focusName}'."
+                                            : $"owner '{ownerName}' is the character in view."));
+        return foreign;
     }
 
     /// <summary>
