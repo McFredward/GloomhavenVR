@@ -184,6 +184,35 @@ internal sealed class ItemsPile
     // chip is never yanked), the chip is driven to the slot pose each tick, and a Confirm button shows.
     private ItemChip? _pendingUseChip;
 
+    // ---- THE PLACED CARD OUTLIVES THE FAN (user report 2026-08-09) ----------------------------
+    //
+    // "Wenn ich eine Gegenstandskarte in den Overlay gelegt habe und dann in die Welt klicke um den
+    // Fächer zu schließen verschwindet auch die abgelegte Gegenstandskarte — das soll nicht sein.
+    // Sie soll liegen bleiben, bis sie entweder wieder aufgehoben wird, oder man mit 'Use'
+    // bestätigt."
+    //
+    // ROOT CAUSE: a card lying in the recess is still a member of _chips, and Close() collapsed
+    // EVERY member into the items stack and destroyed it (CollapseChips) while clearing
+    // _pendingUseChip and hiding the recess. So a click-away — the ordinary way to put the fan down
+    // and get on with the turn — swept the placed card into the fold-in with the rest of the arc.
+    // The 2026-08-09 hardware log shows exactly that at 8047: the close, and immediately after it
+    // the same chip reported at 0.7 cm wide (down from 4.5) as it shrank into the stack.
+    //
+    // THE SURVIVOR. The recess is a child of the CONTROL BOARD, not of the fan root, so a clipped
+    // chip physically survives the fan root going inactive on its own — all that was missing was for
+    // the pile to stop killing it. It is lifted OUT of _chips at the close (so CollapseChips cannot
+    // see it), parked here, and served by TickPlacedWhileClosed until one of the three endings the
+    // user named happens: it is picked back up, USE confirms it, or play moves on. On a re-open it
+    // is put BACK into _chips at its own item's arc position (Populate) instead of a fresh chip
+    // being built for that item — one card, one object, no duplicate and no re-clip flicker.
+    private ItemChip? _keptClip;
+
+    // The arc POSITION the survivor held when the fan closed. Kept because it is what extension
+    // record 26 transmits (ItemsPile.ClippedChipIndex): a peer's copy of the card is the slab at
+    // that index, and it has to stay identifiable across the close or the peer's card would fall
+    // out of their recess the moment the owner put their fan down. −1 = no survivor.
+    private int _keptClipIndex = -1;
+
     // ---- element-CHOICE placement (items 2026-08-08) ------------------------------------------
     // Set together with _pendingUseChip when the placed card's item needs an element sub-choice
     // (CardsGameApi.ItemNeedsSubChoice). While set, the flow runs the game's OWN two-step:
@@ -376,8 +405,18 @@ internal sealed class ItemsPile
     /// Close the fan. <paramref name="reason"/> is logged so every close (and, by absence, every
     /// failure to close) is traceable in the hardware log — the item-fan counterpart of
     /// <c>CardsDriver.CloseBrowser</c>'s reason string.
+    ///
+    /// <para><paramref name="keepPlacedCard"/> (default TRUE — user report 2026-08-09, see
+    /// <see cref="_keptClip"/>): the card LYING IN the use recess is not part of the arc and does not
+    /// fold away with it. It stays in the recess, with the recess and its USE cap, until the player
+    /// picks it back up, confirms it, or play moves on. FALSE is for the teardown closes, where there
+    /// is no board left to lie on: the pile stacks being hidden, the presented character changing,
+    /// and <see cref="Destroy"/> — those retire the card into the items stack instead of stranding
+    /// it. The other two clip-in flows (surrender pick, take-damage place) keep the old behaviour on
+    /// purpose: their game-side selection survives in the picker/panel and their own pump re-opens
+    /// the fan, so their chip is genuinely disposable.</para>
     /// </summary>
-    internal void Close(string reason = "unspecified")
+    internal void Close(string reason = "unspecified", bool keepPlacedCard = true)
     {
         if (!IsOpen)
             return;
@@ -387,28 +426,57 @@ internal sealed class ItemsPile
             Current = null; // unpublish (mirror + net extras stop showing the fan this frame)
         _boardAnchored = false;
         ClearHandSweep();
-        if (_pendingSubChoice)
-            AbandonChoice(_pendingUseChip?.Item); // never leave the game holding a half-answered pick
-        _pendingSubChoice = false;
-        _pendingChoiceSlot = null;
-        _choiceClickArmed = false;
-        _choiceCapShown = false;
-        _choiceCapReady = false;
-        _pendingUseChip = null; // #6: drop any pending decision on close
+
+        // THE SURVIVOR, decided BEFORE anything is torn down. A chip the player is HOLDING is not
+        // lying in the recess (the grab already dropped PendingUse and backed the decision out), so
+        // only a settled, un-held, clipped USE card qualifies; it is lifted out of _chips here so the
+        // CollapseChips below — which folds and destroys every member — cannot see it.
+        ItemChip? keep = null;
+        if (keepPlacedCard && _pendingUseChip != null && _pendingUseChip.Holder == null
+            && _pendingUseChip.PendingUse && PlayTray.Current?.ItemUseSlotTransform != null)
+        {
+            keep = _pendingUseChip;
+            _keptClipIndex = _chips.IndexOf(keep);
+            _chips.Remove(keep);
+            _keptClip = keep;
+            keep.ClearHandSuppressed(); // it left the arc's arbitration with the arc
+        }
+
+        if (keep == null)
+        {
+            if (_pendingSubChoice)
+                AbandonChoice(_pendingUseChip?.Item); // never leave the game holding a half-answered pick
+            _pendingSubChoice = false;
+            _pendingChoiceSlot = null;
+            _choiceClickArmed = false;
+            _choiceCapShown = false;
+            _choiceCapReady = false;
+            _pendingUseChip = null; // #6: drop any pending decision on close
+            PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+            PlayTray.Current?.SetItemUseSlotVisible(false); // never leave the use slot up once the fan is gone
+            _useSlotShownLogged = false;
+        }
+        // …and when a card DOES stay: the pending decision, the recess and the USE/CHOOSE cap all
+        // stay exactly as they were. Nothing is re-shown and nothing is re-armed here — the state
+        // simply is not torn down, which is what "sie soll liegen bleiben" means.
+
         _demandChip = null;     // surrender pick: the chip dies with the fan; the game selection
                                 // survives in the picker and the pump re-opens the fan next tick
         _tdChip = null;         // take-damage place: same — the toggle survives in the panel
         if (_useGhost != null) // #8: never leave a drop-preview floating once the fan is gone
             _useGhost.SetActive(false);
-        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
-        PlayTray.Current?.SetItemUseSlotVisible(false); // never leave the use slot up once the fan is gone
-        _useSlotShownLogged = false;
         CollapseChips(); // req #5: fly the chips BACK INTO the pile stack, then self-destroy
         _signature = string.Empty;
         if (_root != null)
             _root.gameObject.SetActive(false);
         VRLog.Info("Cards", $"ITEM FAN CLOSE — trigger: {reason}. It stays closed until the player pokes/laser-clicks " +
-                            "the items stack again (no flow re-opens it).");
+                            "the items stack again (no flow re-opens it)." +
+                            (keep != null
+                                ? $" The card '{keep.name}' STAYS LYING in the use recess (it was at arc " +
+                                  $"position {_keptClipIndex}) — the fan folding away is not a decision. " +
+                                  "It lies there until it is picked back up, confirmed with USE, or play " +
+                                  "moves on (which cancels it with an animation)."
+                                : string.Empty));
     }
 
     /// <summary>Last close reason (diagnostics only — surfaced by the demand/take-damage cue lines
@@ -418,6 +486,15 @@ internal sealed class ItemsPile
     internal void Destroy()
     {
         ClearHandSweep();
+        // The recess survivor is NOT in _chips (see _keptClip) and hangs off the board's use slot,
+        // so ClearChips would leave it lying there after this pile is gone. There is no board left
+        // to animate onto at teardown, so it goes with the rest.
+        if (_keptClip != null)
+        {
+            Object.DestroyImmediate(_keptClip.gameObject);
+            _keptClip = null;
+            _keptClipIndex = -1;
+        }
         ClearChips();
         if (_pendingSubChoice)
             AbandonChoice(_pendingUseChip?.Item);
@@ -484,10 +561,17 @@ internal sealed class ItemsPile
     internal void Tick(CardsHandUI? hand)
     {
         if (!IsOpen)
+        {
+            // The arc is down, but a card may still be LYING in the use recess (see _keptClip): it
+            // has a live decision on it and therefore still needs servicing every frame.
+            TickPlacedWhileClosed(hand);
             return;
+        }
         if (hand == null || hand != _hand)
         {
-            Close();
+            // The board switched to another character: this card belongs to the old character's
+            // inventory, so it may not be left lying on a recess that now describes somebody else.
+            Close("the board switched to another character", keepPlacedCard: false);
             return;
         }
 
@@ -611,9 +695,28 @@ internal sealed class ItemsPile
             CItem item = items[i];
             if (item == null)
                 continue;
+            // THE RECESS SURVIVOR REJOINS THE ARC AS ITSELF (see _keptClip). It is still lying in
+            // the use recess and still carries the pending decision, so building a SECOND chip for
+            // the same item would put the card in two places at once — one in the arc, one in the
+            // recess — and the wire index (record 26) would address the wrong one. Re-inserting the
+            // existing object at its own item's position instead gives it a live arc slot to glide
+            // home to on a cancel, keeps the decision unbroken, and costs no re-clip: Relayout skips
+            // it for PendingUse and its parent is still the slot.
+            if (_keptClip != null && _keptClip.Item != null && ReferenceEquals(_keptClip.Item, item))
+            {
+                _chips.Add(_keptClip);
+                _keptClip = null;
+                _keptClipIndex = -1;
+                continue;
+            }
             ItemChip chip = ItemChip.Create(this, _root, item);
             _chips.Add(chip);
         }
+        // The survivor's item is gone from the list the fan is built from (used elsewhere, dropped,
+        // or the fan switched to the forfeit rewards): there is no arc slot for it any more, so it
+        // may not go on lying on the board. Back the decision out and fly it home.
+        if (_keptClip != null)
+            CancelPlacedCard(_keptClip, "its item is no longer in the list this fan shows");
         _signature = Signature(hand);
         RefreshTitle(_chips.Count);
         Relayout();
@@ -675,7 +778,10 @@ internal sealed class ItemsPile
         for (int i = 0; i < n; i++)
         {
             ItemChip c = _chips[i];
-            if (c == null || c.Holder != null)
+            // A CLIPPED chip is not in the arc — it is the recess survivor that just rejoined the
+            // list (Populate). Dealing it out of the items stack would rip it off the board and fly
+            // it to an arc slot it is deliberately not standing in; it stays exactly where it lies.
+            if (c == null || c.Holder != null || c.PendingUse)
                 continue;
             // Centre-out: the middle chip leaves first, the outermost pair last. Distance is
             // measured in PLACES (not metres), so the ripple keeps its rhythm on a 2-item and on a
@@ -1245,8 +1351,14 @@ internal sealed class ItemsPile
     {
         get
         {
+            // THE CARD OUTLIVES THE FAN (2026-08-09, see _keptClip). A closed arc used to answer −1
+            // flatly, so the moment the owner clicked their fan away every peer's copy of the card
+            // left their mirrored recess — the receiver-side half of exactly the defect the local
+            // survivor fixes. While the arc is down the survivor still reports the arc POSITION it
+            // held, which is the slab a peer already has parented to their recess; the index stays
+            // the same object on both machines across the close.
             if (!IsOpen)
-                return -1;
+                return _keptClip != null && _keptClip.Holder == null ? _keptClipIndex : -1;
             for (int i = 0; i < _chips.Count; i++)
             {
                 ItemChip c = _chips[i];
@@ -1257,10 +1369,48 @@ internal sealed class ItemsPile
         }
     }
 
+    /// <summary>True while a card is LYING IN the board's item-use recess with the arc CLOSED (see
+    /// <see cref="_keptClip"/>) — the seam the interaction drivers ask so a hand reaching for that
+    /// card still owns its own trigger even though there is no fan open any more.</summary>
+    internal bool HasPlacedCardWhileClosed => !IsOpen && _keptClip != null;
+
+    /// <summary>
+    /// Give up a card still lying in the recess because the BOARD is going away underneath it — the
+    /// pile stacks being hidden, no presented hand at all, the viewer tearing down. It is not a
+    /// player decision, so it goes home the same animated way every other cancel does (and the game
+    /// side is backed out through its own seam); it simply must not be left lying on furniture that
+    /// is about to stop being rendered or ticked. No-op when nothing is placed.
+    /// </summary>
+    internal void RetirePlacedCardIfAny(string why)
+    {
+        if (_keptClip != null)
+            CancelPlacedCard(_keptClip, why);
+    }
+
     internal ItemChip? HandOwnedChip(VRHand? hand)
     {
-        if (hand == null || !IsOpen)
+        // …or while a card is still lying in the recess with the fan closed: it is grabbable exactly
+        // like a chip in the arc (user requirement 2026-08-09), so it must be able to own a hand's
+        // trigger and stand that hand's laser down, both of which resolve through this method.
+        if (hand == null || (!IsOpen && _keptClip == null))
             return null;
+        // THE CARD LYING IN THE USE RECESS OUTRANKS THE ARC ELECTION (user report 2026-08-09: a
+        // placed card still could not be taken back into the hand). A clipped chip is deliberately
+        // NOT sweep-eligible — it is not at an arc position, so an arc election has no business
+        // ranking it (IFanSweepTarget.SweepEligible) — which means it can only ever reach this method
+        // through the ProximityGrabber highlight below. But the arc sweep can still have a winner for
+        // this hand at the same time (a chip whose 3,5 cm fingertip reach the hand is grazing on its
+        // way down to the board), and that winner used to be returned first: the trigger then took a
+        // chip out of the FAN while the player was visibly reaching into the recess.
+        //
+        // The grabber's highlight is the single nearest-by-PALM grabbable this hand has, so when it
+        // IS the clipped chip, no arc chip is nearer — the recess card is unambiguously what a grab
+        // would take, and therefore what must own the hover, the laser yield and the trigger. Only
+        // this one case jumps the queue; everything else keeps the arc election's answer.
+        if (hand.Grabber.Highlighted is ItemChip placed && placed != null && placed.PendingUse
+            && placed.Holder == null && ReferenceEquals(placed.Owner, this))
+            return placed;
+
         // THIS hand's own election result (see UpdateHandSweep's two-elections note) — not "the
         // global winner if this hand happened to be the one that elected it", which reported
         // nothing at all for whichever hand lost the old single-slot race.
@@ -1616,8 +1766,13 @@ internal sealed class ItemsPile
     internal void OnChipReleased(ItemChip chip, Vector3 dropWorldPos, VRHand vrHand)
     {
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
-        if (chip == null || slot == null || !slot.gameObject.activeSelf)
+        if (chip == null)
             return;
+        if (slot == null || !slot.gameObject.activeSelf)
+        {
+            AfterRefusedDrop(chip);
+            return;
+        }
 
         // ITEM SURRENDER pick (event consume/refresh mali): while the game's ItemCardPicker is
         // open, a drop into the slot SELECTS the item through the picker's own slot seam —
@@ -1640,7 +1795,10 @@ internal sealed class ItemsPile
         }
 
         if (!chip.IsActivatable)
+        {
+            AfterRefusedDrop(chip);
             return;
+        }
         // Element-CHOICE items are placed like every other card (2026-08-08). The ONE case that
         // still bounces is "the choice UI does not exist": no bar slot ⇒ no picker to raise ⇒ the
         // placement could never be answered. Mirrors HeldActivatableChip's gate, so the recess was
@@ -1650,6 +1808,7 @@ internal sealed class ItemsPile
             VRLog.Info("Cards", $"ITEM place: '{chip.name}' needs an element choice but the game has built " +
                                 "no items-bar slot for it (bar not shown / item filtered out) — there is no " +
                                 "picker to raise, so the card returns to the fan.");
+            AfterRefusedDrop(chip);
             return;
         }
 
@@ -1658,7 +1817,13 @@ internal sealed class ItemsPile
         float scale = slot.lossyScale.x;
         float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
         if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
-            return; // dropped away from the slot — the base glide-home returns it to the fan
+        {
+            // Dropped AWAY from the recess. With the fan open the base glide-home has already been
+            // started by ItemChip.OnRelease and returns it to the arc; with the fan closed this is
+            // the user's CANCEL and AfterRefusedDrop flies it into the items stack.
+            AfterRefusedDrop(chip);
+            return;
+        }
 
         // Only one pending decision at a time (a fresh drop replaces an older pending clip cleanly).
         if (_pendingUseChip != null && !ReferenceEquals(_pendingUseChip, chip))
@@ -1707,6 +1872,29 @@ internal sealed class ItemsPile
     }
 
     /// <summary>
+    /// A released chip that did NOT clip into the recess — every "not a placement" exit of
+    /// <see cref="OnChipReleased"/> lands here.
+    ///
+    /// <para>While the fan is OPEN this is a no-op on purpose: <c>ItemChip.OnRelease</c> has already
+    /// started the animated glide back to the chip's own arc slot, and the arc IS the item pile
+    /// fanned out.</para>
+    ///
+    /// <para>While the fan is CLOSED there is no arc to glide to, and this is the user's CANCEL
+    /// (2026-08-09: "Wenn man eine aufgehobene Gegenstandskarte loslässt soll sie wieder ganz normal
+    /// zurück in den item-pile und das overlay verschwinden — das ist sozusagen der Abbruch ein Item
+    /// benutzen zu wollen."). The card was taken out of the recess and let go somewhere that is not
+    /// the recess, so the pending use is backed out through its own game seam and the card folds
+    /// into the items stack with the closing fan's animation. WHERE YOU LET GO STILL DECIDES — a
+    /// release back over the recess never reaches this method, it re-clips above.</para>
+    /// </summary>
+    private void AfterRefusedDrop(ItemChip chip)
+    {
+        if (chip == null || IsOpen)
+            return;
+        CancelPlacedCard(chip, "taken out of the recess and released away from it — the CANCEL");
+    }
+
+    /// <summary>
     /// Requirement 6 — per-tick pending-decision service: resolve a CANCEL (the card was grabbed back
     /// out of the slot), an invalidation (turn ended / item no longer usable), or else keep the card
     /// glued to the slot pose (root-local so it rides the board billboard) with the Confirm button up.
@@ -1735,12 +1923,10 @@ internal sealed class ItemsPile
             return;
         }
 
-        // Invalidated: no longer this hand's action turn, or the item is no longer usable.
-        if (!CardsGameApi.IsActionTurn(hand) || !chip.IsActivatable)
+        // PLAY MOVED ON — the CANCEL predicate. See PlayContinued for why it is exactly this test.
+        if (PlayContinued(hand, chip))
         {
-            UnclipChip(chip);   // back into the fan's frame BEFORE the fan-local glide starts
-            chip.ReturnToFan(); // glide back to the fan (not held)
-            CancelPendingUse("no longer usable");
+            CancelPlacedCard(chip, "play moved on without a USE confirmation");
             return;
         }
 
@@ -1754,6 +1940,201 @@ internal sealed class ItemsPile
         Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
         if (slot != null && chip.transform.parent != slot)
             chip.ClipIntoSlot(slot);
+    }
+
+    // ------------------------------------ the placed card's life AFTER the fan folds away --
+
+    /// <summary>
+    /// "PLAY CONTINUES" — the predicate that cancels an un-confirmed placed card (user requirement
+    /// 2026-08-09: "Wenn weiter mit den Aktionen fortgefahren wird während eine Gegenstandskarte
+    /// liegt und nicht mit 'Use' bestätigt wird, soll die Item Karte auch wieder in das item pile
+    /// fliegen (mit einer Animation) und das overlay verschwinden").
+    ///
+    /// <para>WHAT WAS CHOSEN, AND WHY IT IS THIS AND NOT A TIMER. Two terms, both read from the
+    /// GAME'S OWN state, and both already the gate that decided the recess could be offered at all
+    /// (<see cref="Tick"/>'s use-slot gate, which is where they come from — this is the same
+    /// question asked again one tick later, not a new rule):</para>
+    /// <list type="bullet">
+    /// <item><c>CardsGameApi.IsActionTurn(hand)</c> — the <c>Choreographer.CurrentActor</c> IS this
+    /// hand's own player actor and we control it. This goes false the instant the turn passes to
+    /// anybody else, and it is also false through every non-action phase (card selection, the
+    /// enemies' turns, the round change). It is precisely "the game has moved on".</item>
+    /// <item><c>chip.IsActivatable</c> — the item's LIVE <c>SlotState</c> still says it can be used.
+    /// This catches the same item being spent through another route (the 2D bar, a peer's replay of
+    /// our own use, a scenario effect) while its card lies here waiting.</item>
+    /// </list>
+    ///
+    /// <para>WHY IT CANNOT FIRE WHILE THE PLAYER IS MERELY THINKING — the explicit requirement ("the
+    /// card must survive a long pause"). Neither term contains a clock. As long as it is your action
+    /// turn and the item is still usable, both stay true forever: you can put the fan down, walk
+    /// round the table, read the board, open and close other menus, and the card lies there. What
+    /// makes it fire is an ACTION — ending the turn, playing the cards, taking the initiative
+    /// elsewhere — i.e. exactly the user's "wenn weiter mit den Aktionen fortgefahren wird".</para>
+    ///
+    /// <para>REJECTED ALTERNATIVES, for the record: an idle timeout (fires while thinking — the one
+    /// thing forbidden); "any board button press" (the USE cap and the item bar are board presses,
+    /// so it would cancel the very confirmation it is waiting for); "the fan closed" (that is the
+    /// case this whole change exists to STOP being a cancel).</para>
+    /// </summary>
+    private static bool PlayContinued(CardsHandUI? hand, ItemChip chip) =>
+        hand == null || !CardsGameApi.IsActionTurn(hand) || !chip.IsActivatable;
+
+    /// <summary>
+    /// Per-frame service of the card LYING IN the use recess while the arc is CLOSED (see
+    /// <see cref="_keptClip"/>). The fan is down, so <see cref="Tick"/> is not running its normal
+    /// body — but the decision on this card is very much alive, and every ending the user named has
+    /// to be reachable from here: pick it back up, confirm it with USE, or play moves on.
+    /// </summary>
+    private void TickPlacedWhileClosed(CardsHandUI? hand)
+    {
+        ItemChip? chip = _keptClip;
+        if (chip == null)
+            return;
+        if (chip.gameObject == null) // destroyed under us (scene teardown)
+        {
+            _keptClip = null;
+            _keptClipIndex = -1;
+            return;
+        }
+
+        // The board is showing somebody else's hand now — the card belongs to the old character.
+        if (hand == null || hand != _hand)
+        {
+            CancelPlacedCard(chip, "the board switched to another character");
+            return;
+        }
+
+        // PICKED BACK UP. The grab itself already dropped PendingUse and unclipped the chip
+        // (ItemChip.OnGrab), so all that is owed here is the recess staying up: the user's rule is
+        // that where you LET GO decides, and releasing back over the recess must still re-clip.
+        // The pending decision is only backed out when the release lands somewhere else
+        // (OnChipReleased → AfterRefusedDrop).
+        if (chip.Holder != null)
+        {
+            PlayTray.Current?.SetItemUseSlotVisible(true);
+            return;
+        }
+
+        // A confirm may have resolved it between ticks (the USE cap runs ConfirmPendingUse
+        // directly), or the element pick may have auto-used it.
+        if (!ReferenceEquals(chip, _pendingUseChip))
+        {
+            _keptClip = null;
+            _keptClipIndex = -1;
+            return;
+        }
+        if (_pendingSubChoice && chip.Item != null && WasUsed(chip.Item))
+        {
+            FinishUsedChip(chip, chip.Item, "auto-used when the element pick completed");
+            return;
+        }
+
+        // PLAY MOVED ON (see PlayContinued): back out and fly home, animated.
+        if (PlayContinued(hand, chip))
+        {
+            CancelPlacedCard(chip, "play moved on without a USE confirmation");
+            return;
+        }
+
+        if (_pendingSubChoice)
+            TickChoiceDecision(chip);
+
+        // Keep the recess and the USE cap up — they belong to the card, not to the fan.
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
+        if (slot == null)
+        {
+            // The board rebuilt and took the recess with it: there is nothing left to lie on.
+            CancelPlacedCard(chip, "the board's item-use recess was rebuilt away under it");
+            return;
+        }
+        if (chip.transform.parent != slot)
+            chip.ClipIntoSlot(slot); // re-seat visibly (the settle), never a teleport
+    }
+
+    /// <summary>
+    /// CANCEL a placed card: back the owning flow out through its own game seam and send the card
+    /// home WITH AN ANIMATION — the shared ending for every "this placement is over and nothing was
+    /// used" path (play moved on, the recess/board went away, the card was taken out and released
+    /// somewhere else, the presented character changed).
+    ///
+    /// <para>WHERE "home" IS depends on whether the arc is up, and both answers are the item pile:
+    /// with the fan OPEN the card glides back to its own slot in the arc (the pile, fanned out);
+    /// with the fan CLOSED there is no arc to glide to, so it folds into the items STACK on the
+    /// board exactly the way the closing fan's chips do — <see cref="RetireChipToPile"/>. Either way
+    /// it is seen travelling, which is the standing "nothing may pop" ruling.</para>
+    /// </summary>
+    private void CancelPlacedCard(ItemChip chip, string why)
+    {
+        if (chip == null)
+            return;
+        bool wasPending = ReferenceEquals(chip, _pendingUseChip);
+        if (wasPending)
+            CancelPendingUse(why); // releases the element choice, drops the cap, hides the recess
+        ReturnPlacedChipHome(chip, why);
+    }
+
+    /// <summary>Send <paramref name="chip"/> back to the item pile with the right animation for the
+    /// state the fan is in — the arc glide while it is open, the fold-into-the-stack while it is
+    /// not. Never a teleport, and never a chip left parented to a transform that is about to be
+    /// deactivated.</summary>
+    private void ReturnPlacedChipHome(ItemChip chip, string why)
+    {
+        if (chip == null)
+            return;
+        if (IsOpen && _root != null && _root.gameObject.activeInHierarchy && _chips.Contains(chip))
+        {
+            UnclipChip(chip);   // back into the fan's frame BEFORE the fan-local glide starts
+            chip.PendingUse = false;
+            chip.ReturnToFan(); // the animated home glide every refused drop uses
+            RefreshFanLayout(); // it rejoins the arc: re-derive the tiling collider strips
+            return;
+        }
+        RetireChipToPile(chip, why);
+    }
+
+    /// <summary>
+    /// The card has nowhere in an arc to go — fly it INTO the items stack on the board with the same
+    /// fold-in the closing fan plays, then let it destroy itself (<see cref="ItemChip.BeginCollapse"/>;
+    /// its OnDisable recycles the hosted card widget). This is the "wieder in das item pile fliegen
+    /// (mit einer Animation)" the user asked for whenever the fan is already down.
+    ///
+    /// <para>The chip is re-parented to the BOARD root first, keeping its world pose: it is leaving
+    /// the use slot (which the cancel is about to hide) and must not be a child of anything that
+    /// could be deactivated mid-flight — the collapse drives world space from there.</para>
+    /// </summary>
+    private void RetireChipToPile(ItemChip chip, string why)
+    {
+        // RE-ENTRANT BY CONSTRUCTION, so it says so: releasing the hand below runs the whole drop
+        // routing again (OnRelease → OnChipReleased → AfterRefusedDrop → back here) with the chip
+        // un-held, and that inner call is the one that does the work. The collapse flag is the
+        // honest "this card is already on its way home" test for both entries.
+        if (chip == null || chip.IsCollapsing)
+            return;
+        if (chip.Holder != null)
+        {
+            chip.Holder.Grabber.CancelAll(); // never collapse a card out of a closed fist
+            if (chip.IsCollapsing)
+                return; // the re-entry already retired it
+        }
+        if (ReferenceEquals(_keptClip, chip))
+        {
+            _keptClip = null;
+            _keptClipIndex = -1;
+        }
+        _chips.Remove(chip);
+        ForgetSweepWinner(chip);
+        chip.PendingUse = false;
+        chip.CancelReleaseGlide();
+        chip.ClearHandSuppressed();
+        Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
+        if (keep != null && chip.transform.parent != keep)
+            chip.transform.SetParent(keep, worldPositionStays: true);
+        chip.BeginCollapse(PileConvergeWorld());
+        VRLog.Info("Cards", $"ITEM recess: '{chip.name}' flies back into the items stack ({why}) — " +
+                            "the placement is cancelled, nothing was used, and the recess overlay goes " +
+                            "with it. The fan is not open, so there is no arc slot to glide to; it folds " +
+                            "into the stack exactly like a chip in a closing fan.");
     }
 
     // ----------------------------------------- the element choice, in the decision area --
@@ -1787,10 +2168,10 @@ internal sealed class ItemsPile
         _pendingChoiceSlot = slot;
         if (slot == null)
         {
-            // The choice UI vanished under us; do not strand the card on the board.
-            UnclipChip(chip);
-            chip.ReturnToFan();
-            CancelPendingUse("the game withdrew this item's bar slot (no picker to answer)");
+            // The choice UI vanished under us; do not strand the card on the board. Routed through
+            // CancelPlacedCard so it also works with the arc CLOSED (the placed card outlives the
+            // fan now — a fan-local glide would have no arc to aim at there).
+            CancelPlacedCard(chip, "the game withdrew this item's bar slot (no picker to answer)");
             return;
         }
 
@@ -1805,11 +2186,7 @@ internal sealed class ItemsPile
                                 $"{CardsGameApi.ItemsBarSlotPickerOpen(slot)}) — it docks in the decision " +
                                 "area under the control board.");
             if (!clicked)
-            {
-                UnclipChip(chip);
-                chip.ReturnToFan();
-                CancelPendingUse("the items-bar slot refused the click (state gate)");
-            }
+                CancelPlacedCard(chip, "the items-bar slot refused the click (state gate)");
             return;
         }
 
@@ -1991,7 +2368,25 @@ internal sealed class ItemsPile
     /// pulls the card back out — so the chip's fan-local home pose and glide are always evaluated in
     /// the frame they were written for. No-op when the chip is not (or no longer) under the slot.
     /// </summary>
-    internal void UnclipChip(ItemChip chip) => chip?.UnclipFromSlot(_root);
+    internal void UnclipChip(ItemChip chip) => chip?.UnclipFromSlot(ClipParkParent);
+
+    /// <summary>
+    /// The transform a chip leaving the use slot is handed to. Normally the fan root — that is the
+    /// frame its arc home pose and its glide are written in.
+    ///
+    /// <para>BUT THE FAN ROOT IS DEACTIVATED WHILE THE FAN IS CLOSED, and since a placed card now
+    /// outlives the close (see <see cref="_keptClip"/>) that is a reachable state: parenting the
+    /// card there the moment the player grabbed it out of the recess would put it under an INACTIVE
+    /// object, so the chip would go inactive in the hierarchy — its <c>Update</c> would stop and the
+    /// card would simply vanish out of the hand. The board root is the live fallback: it is the same
+    /// board the recess hangs off, it is never deactivated while the piles show, and the paths that
+    /// use it (<see cref="RetireChipToPile"/>'s fold-in, <see cref="CollapseChips"/>) drive world
+    /// space, so no fan-local pose is being relied on there.</para>
+    /// </summary>
+    private Transform? ClipParkParent =>
+        _root != null && _root.gameObject.activeInHierarchy
+            ? _root
+            : (PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor);
 
     /// <summary>Re-run the arc layout (poses, split, collider strips) without rebuilding content —
     /// used when a chip rejoins the arc after a grab, so its full-size grab box is stripped back
@@ -2109,6 +2504,15 @@ internal sealed class ItemsPile
         {
             UnclipChip(chip); // no-op when a grab already took it out of the slot hierarchy
             chip.PendingUse = false;
+            // The decision is over, so the recess-survivor state goes with it (see _keptClip): the
+            // card is no longer "the one lying in the recess", whatever happens to it next. The
+            // CALLER owns the animation home — every cancel path routes through CancelPlacedCard,
+            // which runs this and then ReturnPlacedChipHome; this method only ends the decision.
+            if (ReferenceEquals(_keptClip, chip))
+            {
+                _keptClip = null;
+                _keptClipIndex = -1;
+            }
         }
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
         PlayTray.Current?.SetItemUseSlotVisible(false);
@@ -2166,10 +2570,11 @@ internal sealed class ItemsPile
             flow = "no owning flow (stale clip) — returned visually";
         }
 
-        UnclipChip(chip);      // back into the fan's frame BEFORE the fan-local glide starts
-        chip.PendingUse = false;
-        chip.ReturnToFan();    // the SAME animated home glide every refused drop uses — never a pop
-        RefreshFanLayout();    // it rejoins the arc: re-derive the tiling collider strips
+        // The SAME animated home every refused drop uses — never a pop. Routed through
+        // ReturnPlacedChipHome so it also answers the case the fan is not open (the placed card
+        // outlives the close now, see _keptClip): with an arc up it glides back to its own slot,
+        // without one it folds into the items stack.
+        ReturnPlacedChipHome(chip, "laser click on the placed card — put back on the pile");
         hand.SendHaptic(HapticPreset.HoverTick);
         VRLog.Info("Cards", $"ITEM recess: laser click on the placed card '{chip.name}' ({hand.Side}) — " +
                             $"it glides back to the fan. {flow}. To take it INTO your hand instead, " +
@@ -2221,7 +2626,11 @@ internal sealed class ItemsPile
         CPlayerActor? actor = _hand != null ? _hand.PlayerActor : null;
         if (actor == null || chip.Item == null)
         {
-            chip.ReturnToFan();
+            // ReturnPlacedChipHome, not ReturnToFan: the card may be lying in the recess with the
+            // fan already CLOSED (the USE cap outlives the arc now — see _keptClip), and
+            // ReturnToFan's glide is expressed in FAN-ROOT-local metres while the chip is still a
+            // child of the SLOT. With no arc up that glide has no target it could mean.
+            ReturnPlacedChipHome(chip, "the confirm found no actor / no item");
             return;
         }
 
@@ -2242,8 +2651,8 @@ internal sealed class ItemsPile
                     // Nothing pending: the pick was cancelled/incomplete under us. Do NOT fall back
                     // to a bare use — that is the "spends the potion, creates nothing" trap.
                     VRLog.Info("Cards", $"ITEM USE refused for '{itemName}': the element choice is not complete " +
-                                        "(the bar holds no pending item) — the card returns to the fan.");
-                    chip.ReturnToFan();
+                                        "(the bar holds no pending item) — the card returns to the pile.");
+                    ReturnPlacedChipHome(chip, "the element choice was not complete");
                     return;
                 }
                 seam = "items-bar UseItem() (element choice confirmed; elements shipped + applied)";
@@ -2272,7 +2681,7 @@ internal sealed class ItemsPile
         catch (System.Exception e)
         {
             VRLog.Warn("Cards", $"ITEM USE failed for '{itemName}': {e.Message}");
-            chip.ReturnToFan();
+            ReturnPlacedChipHome(chip, "the use seam threw");
             return;
         }
 
@@ -2300,6 +2709,13 @@ internal sealed class ItemsPile
         _choiceCapShown = false;
         _choiceCapReady = false;
         chip.PendingUse = false;
+        // The decision resolved, so this card is no longer the recess survivor (see _keptClip) —
+        // it is about to detach and play its own flourish/collapse.
+        if (ReferenceEquals(_keptClip, chip))
+        {
+            _keptClip = null;
+            _keptClipIndex = -1;
+        }
 
         CItem.EUsageType usage = item.YMLData != null ? item.YMLData.Usage : CItem.EUsageType.None;
         bool consumed = usage == CItem.EUsageType.Consumed
@@ -3679,6 +4095,12 @@ internal sealed class ItemsPile
         /// pose captured here, because the collapse curve is the identity at t = 0: a chip waiting its
         /// turn is standing still, never hidden and never moved.</para>
         /// </summary>
+        /// <summary>True once this chip has been handed its fold-into-the-items-stack glide (see
+        /// <see cref="BeginCollapse"/>) — i.e. it is on its way home and about to destroy itself.
+        /// Read by <c>ItemsPile.RetireChipToPile</c>, which is re-entered through the release
+        /// routing and must not start a second flight for the same card.</summary>
+        internal bool IsCollapsing => _collapsing;
+
         internal void BeginCollapse(Vector3 worldConverge, float delay = 0f, float spinSign = 1f)
         {
             _emerging = false;
@@ -3949,6 +4371,14 @@ internal sealed class ItemsPile
         // is VRCard.GetHeldPose verbatim, except cardH is the ITEM card's own near-square held height
         // (_faceHeight at held scale) so the pinch grips the right spot on a near-square card. The base
         // snap seats this the instant the chip is grabbed; TickHeldPose then billboards the face.
+        //
+        // THE HEIGHT TERM IS THE ONLY LICENSED DIFFERENCE from the ability-card original, and it is
+        // stated here because this copy has now drifted from it once (see the LEFT-HAND MIRROR note
+        // below). Everything else — the HeldFaceBias face normal, the thumbSide card-up, the
+        // LookRotation, the thumb/index pinch midpoint in GrabAnchor-local space, the HeldOffPalm/
+        // HeldForward partial-rig fallback, the HeldPinchOffset fine-tune and the grip lift — must
+        // stay byte-identical to <see cref="VRCard.GetHeldPose"/>, because a held item card and a
+        // held ability card are the same gesture and the user judges them side by side.
         protected override HeldPose GetHeldPose(VRHand hand)
         {
             float scale = CardsConfig.InspectScale.Value;
@@ -3975,7 +4405,28 @@ internal sealed class ItemsPile
             {
                 pinchLocal = new Vector3(0f, CardsConfig.HeldOffPalm.Value, CardsConfig.HeldForward.Value);
             }
-            pinchLocal += CardsConfig.HeldPinchOffset.Value;
+            // LEFT-HAND MIRROR (user report 2026-08-09: "Die Position der Item-Karte in der linken
+            // Hand ist falsch — das selbe Problem hattest du auch schonmal bei der linken Hand mit den
+            // anderen Karten und dort behoben, wende bei den Item Karten den selben Fix an").
+            //
+            // ROOT CAUSE, and it is literally the ability cards' bug a second time: this method was
+            // copied from VRCard.GetHeldPose BEFORE ba70e43 fixed it there, and it kept adding the
+            // tuned [Cards] HeldPinchOffset RAW on both hands. That offset is authored on the RIGHT
+            // hand (default X = −5.5 cm), but the two GrabAnchor frames are ANATOMICAL MIRRORS — +Y
+            // out of the palm and +Z along the fingers on BOTH hands — so the lateral ±X axis
+            // necessarily points to the THUMB side on the right hand and to the PINKY side on the
+            // left (which is exactly why `thumbSide` above already flips sign per hand). Added raw,
+            // the same X therefore shifted the card toward the thumb on one hand and toward the
+            // pinky on the other: the left-hand item card missed the thumb/index pinch spot by
+            // TWICE the tuned lateral offset, i.e. ~11 cm at the shipped value.
+            //
+            // Flip ONLY the X term for the left hand (Y and Z are anatomically symmetric): one tuned
+            // value set, mirrored by construction — the same authored-right-mirrored-left convention
+            // as VRCard.GetHeldPose, FigureGrabConfig.HeldFaceYawFor and VRHand's grip roll/yaw.
+            Vector3 pinchOffset = CardsConfig.HeldPinchOffset.Value;
+            if (hand.Side == HandSide.Left)
+                pinchOffset.x = -pinchOffset.x;
+            pinchLocal += pinchOffset;
 
             Vector3 pos = pinchLocal + rot * new Vector3(0f, cardH * (0.5f - PinchGripFraction), 0f);
             return new HeldPose(pos, rot, scale);
@@ -4592,6 +5043,42 @@ internal sealed class ItemsPile
                 return;
             }
 
+            PluckIntoHand(hand);
+        }
+
+        /// <summary>
+        /// TAKE THIS CHIP INTO <paramref name="hand"/> — the PHYSICAL-CONTACT half of the rule
+        /// <see cref="OnPoke"/> documents ("the HAND takes it, the FAR LASER puts it back"), and the
+        /// entry every hand-driven pull must use.
+        ///
+        /// <para>ROOT CAUSE this method exists (user report 2026-08-09: "Ich kann immer noch nicht
+        /// eine Gegenstandskarten wieder direkt zurück in die Hand nehmen, das soll möglich sein
+        /// (egal ob linke oder rechte Hand)" — ModBuild 92 claimed this and did not deliver it).
+        /// ModBuild 92 wrote the two halves of the rule as ONE method: <see cref="OnPoke"/> checks
+        /// <see cref="PendingUse"/> and, for a card lying in the recess, runs
+        /// <see cref="ItemsPile.ReturnPlacedChip"/> — the deliberate one-gesture "put it back on the
+        /// pile". But <see cref="OnPoke"/> is not the far laser: it is the shared
+        /// <see cref="IPokeable"/> entry, and <c>CardsDriver.UpdateBoardFanHandTrigger</c> — the path
+        /// that exists PRECISELY so a hand physically touching a chip owns the trigger instead of
+        /// losing it to the board laser — delivered its pull through the very same call. So reaching
+        /// down to the recess and pulling the trigger ran the FAR-LASER branch: the card was put back
+        /// on the pile and could never be taken into the hand. The hardware log of 2026-08-09 shows
+        /// the two lines back to back at 7668/7672 — "Item fan: HAND owns the trigger … so the pull
+        /// takes it" immediately followed by "ITEM recess: laser click on the placed card … it glides
+        /// back to the fan" — one gesture, two contradictory statements, and the second one won.</para>
+        ///
+        /// <para>Splitting the entries is the whole fix: the beam keeps <see cref="OnPoke"/> (with its
+        /// recess branch), every physical hand path calls THIS, and for a chip standing in the arc the
+        /// two are identical, so nothing about the ordinary pluck changes. Taking a CLIPPED chip needs
+        /// no special case here either — <see cref="OnGrab"/> already unclips it, drops
+        /// <see cref="PendingUse"/> and gives it its full grab box back, and the owner's per-tick
+        /// service then backs the pending decision out through its own game seam.</para>
+        /// </summary>
+        internal void PluckIntoHand(VRHand hand)
+        {
+            if (hand == null || Holder != null || !CanGrab)
+                return;
+            _laserPopped = false;
             // An EXPLICIT pluck overrides the hand sweep's arbitration for this chip. Without this
             // the pull-jerk grace path could hand ForceGrab a chip the sweep had meanwhile
             // suppressed for that very hand (AllowsHand=false → ForceGrab refuses), turning a

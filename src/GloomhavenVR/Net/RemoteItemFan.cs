@@ -182,6 +182,45 @@ internal sealed class RemoteItemFan
     private float _returnGlide;           // seconds left of that glide
     private int _loggedClip = -2;         // change gate for the clip log line
 
+    // ---- THE CARD THAT OUTLIVES THE FAN (2026-08-09) ------------------------------------------
+    //
+    // THE GAP THIS CLOSES, and it is the receiver-side half of a defect the user reported on their
+    // OWN board: "Wenn ich eine Gegenstandskarte in den Overlay gelegt habe und dann in die Welt
+    // klicke um den Fächer zu schließen verschwindet auch die abgelegte Gegenstandskarte — das soll
+    // nicht sein. Sie soll liegen bleiben." The owner's card now stays lying in their recess after
+    // the arc folds away (ItemsPile._keptClip). This renderer did the very thing the owner's pile
+    // was just stopped from doing: the count dropped to 0, BeginCollapse called
+    // ReleaseClip(returnToArc:false), and the recess slab was brought home and folded into the
+    // items stack with the rest of the arc — so on every peer the card left the recess at exactly
+    // the moment the owner clicked their fan away, while the owner watched it lie there.
+    //
+    // DETACHED, NOT REBUILT. The slab stays exactly where it is — the same GameObject, still
+    // parented to the mirrored recess, still wearing its resolved front — and is simply made EXEMPT
+    // from the arc's life-cycle: skipped by the fold-in, not released by Hide, and carried ACROSS
+    // the next Rebuild to whatever arc position the owner's re-opened fan gives it. Rebuilding it
+    // as a fresh slab was rejected for the obvious reason: a card that blinks out and a new one that
+    // appears is the pop the standing ruling forbids, and it is the one transition where BOTH
+    // players are looking straight at the recess.
+    //
+    // It keeps its seat in _cards (at _clipIndex) rather than being lifted into a field of its own:
+    // every index-parallel structure in this file — the collapse capture, the pop ramps, the front
+    // overlays — would otherwise have to be re-indexed at the close and again at the re-open, and
+    // an index-parallel list that is edited in two places is how a slab ends up wearing another
+    // card's face. _builtCount is invalidated at the detach instead, so a returning fan always
+    // rebuilds and the re-adoption below is the only place the seat can change.
+    private bool _clipDetached;
+
+    /// <summary>Unscaled seconds left of the DETACHED slab's solo fold into the items stack (0 =
+    /// none). It runs when the owner's record 26 goes away while their fan is still closed — i.e.
+    /// they cancelled or confirmed the placement without ever re-opening the arc — and it is the
+    /// mirror of the owner's own RetireChipToPile: the card is seen flying home, never blinked
+    /// out.</summary>
+    private float _soloElapsed = -1f;
+    private Vector3 _soloFrom;
+    private Quaternion _soloFromRot = Quaternion.identity;
+    private float _soloFromScale = 1f;
+    private Vector3 _soloTo;
+
     /// <summary>Unscaled seconds the arrival settle runs — MIRROR of
     /// <c>Cards.ItemsPile.ItemChip.ClipSettleSeconds</c>, the window the owner's own card eases from
     /// the release pose into the recess frame in. Held equal by scripts/check-mirrors.sh: a peer
@@ -231,6 +270,13 @@ internal sealed class RemoteItemFan
         // logically gone.
         SyncTuning();
 
+        // The card LEFT LYING in the mirrored recess after the arc folded away (see _clipDetached).
+        // Serviced before anything else, because while it is detached it is the only thing this fan
+        // is still drawing and it has a life of its own: it holds the recess, it re-seats itself
+        // across a board rebuild, and it flies home when the owner's record 26 goes away.
+        if (_clipDetached)
+            TickDetachedRecess(dt);
+
         // A collapse (the fan closing) runs to completion on its own — the count already went to 0,
         // so this is the only thing keeping the chips on screen.
         if (_collapseElapsed >= 0f)
@@ -242,6 +288,10 @@ internal sealed class RemoteItemFan
         int count = Mathf.Clamp(_owner.ItemCardCount, 0, MaxCards);
         if (count == 0)
         {
+            // The fold-in has already run and a card stayed behind in the recess: there is nothing
+            // left for the arc paths to do, and Hide() must not be allowed to release it.
+            if (_clipDetached)
+                return;
             // Close edge: prefer the collapse-into-the-stack glide; BeginCollapse returns false when
             // there is nothing up or no stack to aim at, and only then do we blink out as before.
             if (!BeginCollapse())
@@ -696,6 +746,119 @@ internal sealed class RemoteItemFan
         Mathf.Min(RemoteBoardFurniture.ItemUseInnerWidth / CardW,
                   RemoteBoardFurniture.ItemUseInnerHeight / CardH) * UseSlotFillFraction;
 
+    /// <summary>
+    /// Per-frame service of the slab left LYING IN the mirrored recess after the owner's arc folded
+    /// away (see <see cref="_clipDetached"/>). Three jobs, and each one is the receiver's copy of
+    /// something the owner's own <c>ItemsPile.TickPlacedWhileClosed</c> does for the real card:
+    /// <list type="number">
+    /// <item>HOLD it — finish the arrival settle if it was still running, and re-assert the parent
+    /// when a board rebuild replaces the recess transform under it (the same "re-assert after a
+    /// board rebuild" rule <see cref="ResolveClip"/>'s steady state carries);</item>
+    /// <item>KEEP ITS FACE resolved. <see cref="Hide"/> no longer hides the fronts while a card is
+    /// detached, so the front layer has to keep ticking or the peer would be looking at a blank
+    /// back-slab where the owner sees the real item card;</item>
+    /// <item>FLY IT HOME when record 26 goes away while the fan is still closed — the owner
+    /// cancelled the placement or confirmed it without re-opening their arc. The owner's card folds
+    /// into their items stack in that case (<c>ItemsPile.RetireChipToPile</c>), so this plays the
+    /// same fold: the close curve, into the peer's own items stack, and only then is the slab
+    /// destroyed. Nothing pops.</item>
+    /// </list>
+    /// </summary>
+    private void TickDetachedRecess(float dt)
+    {
+        GameObject? slab = _clipIndex >= 0 && _clipIndex < _cards.Count ? _cards[_clipIndex] : null;
+        if (slab == null)
+        {
+            _clipDetached = false;
+            _soloElapsed = -1f;
+            return;
+        }
+
+        // ---- the solo fold into the items stack, once started, runs to completion ----------------
+        if (_soloElapsed >= 0f)
+        {
+            _soloElapsed += dt;
+            float u = Mathf.Clamp01(_soloElapsed / _closeSeconds);
+            float e = EaseInBack(u, _settleOvershoot);
+            Transform st = slab.transform;
+            st.position = Vector3.LerpUnclamped(_soloFrom, _soloTo, e);
+            st.rotation = _soloFromRot
+                        * Quaternion.Slerp(Quaternion.identity,
+                                           Quaternion.Euler(0f, 0f, _openSpinDegrees), u);
+            st.localScale = Vector3.one * Mathf.LerpUnclamped(_soloFromScale, _soloFromScale * _seedScale, e);
+            if (u < 1f)
+                return;
+            _soloElapsed = -1f;
+            _clipDetached = false;
+            DestroyAllSlabs();
+            VRLog.Info("Net", $"Remote item recess [{_owner.PlayerId}]: the placed card has folded back " +
+                              "into their items stack — the owner cancelled or confirmed it without " +
+                              "re-opening their fan, so there was no arc for it to glide into " +
+                              "(mirror of the owner's own RetireChipToPile).");
+            return;
+        }
+
+        Transform? recess = _owner.ItemUseRecess;
+        bool recessUsable = recess != null && recess.gameObject.activeInHierarchy;
+
+        // ---- the owner's recess emptied (cancel / confirm) → fly it home -------------------------
+        if (_owner.ItemUseClipIndex < 0 || !recessUsable)
+        {
+            if (TryItemStackWorld(out Vector3 stackWorld))
+            {
+                Transform st = slab.transform;
+                _soloFrom = st.position;
+                _soloFromRot = st.rotation;
+                _soloFromScale = st.localScale.x;
+                _soloTo = stackWorld;
+                _soloElapsed = 0f;
+                return;
+            }
+            // No board pose to aim at: there is no honest animation, and leaving the slab on a
+            // recess the owner has emptied is worse than dropping it.
+            _clipDetached = false;
+            DestroyAllSlabs();
+            return;
+        }
+
+        // ---- hold it ---------------------------------------------------------------------------
+        if (slab.transform.parent != recess)
+        {
+            slab.transform.SetParent(recess, worldPositionStays: true);
+            _clipSettle = ClipSettleSeconds; // re-seat visibly, never a teleport
+            _clipFitScale = RecessFitScale();
+        }
+        TickClipSettle(dt);
+        _fronts.Tick(RemotePileFronts.Content.Items);
+    }
+
+    /// <summary>Destroy every slab this fan owns and reset everything index-parallel with them —
+    /// the arc slabs left inactive under a hidden root AND a detached recess survivor, which is the
+    /// case the plain <see cref="Hide"/> path never has to handle. The next appearance rebuilds from
+    /// scratch (<see cref="_builtCount"/> = −1).</summary>
+    private void DestroyAllSlabs()
+    {
+        _fronts.Destroy();
+        for (int i = _cards.Count - 1; i >= 0; i--)
+        {
+            if (_cards[i] != null)
+                Object.Destroy(_cards[i]);
+        }
+        _cards.Clear();
+        ClearCollapseCapture();
+        ClearPops();
+        _builtCount = -1;
+        _clipIndex = -1;
+        _clipSettle = 0f;
+        _clipDetached = false;
+        _loggedClip = -2;
+        _returnIndex = -1;
+        _returnGlide = 0f;
+        _collapseElapsed = -1f;
+        if (_root != null && _root.activeSelf)
+            _root.SetActive(false);
+    }
+
     /// <summary>Change-gated evidence that the synced clip reached the render path (grep:
     /// "Remote item recess").</summary>
     private void LogClipIfChanged(bool recessUsable)
@@ -736,6 +899,14 @@ internal sealed class RemoteItemFan
             _emergeSeedLocal = _root.transform.InverseTransformPoint(stackWorld);
         for (int i = 0; i < _cards.Count; i++)
         {
+            // THE CARD ALREADY LYING IN THE RECESS IS NOT DEALT OUT (2026-08-09). When the owner
+            // re-opens a fan whose placed card never left their recess, Rebuild has just re-adopted
+            // that slab at its new arc position (see _clipDetached) — it is a child of the RECESS,
+            // so seeding it here would write a fan-local stack pose into RECESS-local space and
+            // fling the card off the board on the very frame the arc comes back. It stays where it
+            // lies; Layout skips it for the same reason.
+            if (i == _clipIndex || _cards[i] == null)
+                continue;
             Transform t = _cards[i].transform;
             t.localPosition = _emergeSeedLocal + new Vector3(0f, 0f, -ZStagger * i); // keep the draw order stable
             t.localScale = Vector3.one * _seedScale;
@@ -801,11 +972,32 @@ internal sealed class RemoteItemFan
         if (!TryItemStackWorld(out Vector3 stackWorld))
             return false;
 
-        // A slab lying in the recess belongs to the RECESS's hierarchy, and the collapse drives
-        // every slab in world space off a pose captured right here — so it comes home to the fan
-        // root first (keeping its world pose, so the capture is unchanged) and folds into the stack
-        // with the rest. Without this the fan would "close" while one card stayed in the recess.
-        ReleaseClip(returnToArc: false);
+        // …UNLESS THE CARD IS STILL IN THE RECESS (2026-08-09, see _clipDetached). The owner's fan
+        // folding away is not a decision about the card lying in their use recess: it stays there
+        // until they pick it up, confirm it with USE, or play moves on. So when record 26 still
+        // names a slab at the close edge, that slab is DETACHED — left parented to the mirrored
+        // recess, skipped by the fold-in below and by Hide's release — and the arc folds away
+        // around it, exactly as the owner sees it.
+        Transform? recessNow = _owner.ItemUseRecess;
+        bool keepInRecess = _clipIndex >= 0 && _clipIndex < _cards.Count
+                            && _owner.ItemUseClipIndex >= 0
+                            && recessNow != null && recessNow.gameObject.activeInHierarchy;
+        if (keepInRecess)
+        {
+            _clipDetached = true;
+            // The slab set is no longer "an arc of _builtCount slabs": force the next appearance
+            // through Rebuild, which is where the survivor is re-adopted at its new arc position.
+            _builtCount = -1;
+        }
+        else
+        {
+            // Nothing is lying in the recess (or this client is not drawing one): a slab still
+            // parented there belongs to the RECESS's hierarchy, and the collapse drives every slab
+            // in world space off a pose captured right here — so it comes home to the fan root
+            // first (keeping its world pose, so the capture is unchanged) and folds into the stack
+            // with the rest. Without this the fan would "close" while one card stayed in the recess.
+            ReleaseClip(returnToArc: false);
+        }
 
         _emergeElapsed = -1f;
         _collapseTo = stackWorld;
@@ -822,7 +1014,12 @@ internal sealed class RemoteItemFan
         float total = (_cards.Count - 1) * 0.5f * _closeStagger + _closeSeconds;
         VRLog.Info("Net", $"Remote ITEM fan [player {_owner.PlayerId}]: closing — {_cards.Count} item card(s) " +
                           $"fold back into their items stack outermost-first ({total:F2}s total: " +
-                          $"{_closeSeconds:F2}s each, {_closeStagger:F3}s per place), matching the local fan.");
+                          $"{_closeSeconds:F2}s each, {_closeStagger:F3}s per place), matching the local fan." +
+                          (keepInRecess
+                              ? $" Slab {_clipIndex} STAYS LYING in the mirrored item-use recess and takes " +
+                                "no part in the fold-in — the owner's fan closing is not a decision about " +
+                                "the card they placed (extension record 26 still names it)."
+                              : string.Empty));
         _loggedCount = 0; // Hide's own "closed" line is redundant with this one
         return true;
     }
@@ -846,6 +1043,10 @@ internal sealed class RemoteItemFan
         bool allDone = true;
         for (int i = 0; i < n && i < _collapseFrom.Count; i++)
         {
+            // The detached recess slab is not in this arc any more (see _clipDetached): it lies on
+            // the board and must neither be moved nor keep the fold-in waiting.
+            if (_clipDetached && i == _clipIndex)
+                continue;
             // (mid − |i − mid|): the outermost pair starts at 0, the centre slab last — the exact
             // reverse of the fly-out's centre-out ripple.
             float delay = (mid - Mathf.Abs(i - mid)) * _closeStagger;
@@ -897,10 +1098,31 @@ internal sealed class RemoteItemFan
 
     private void Rebuild(int count)
     {
-        // The clipped slab is a child of the mirrored RECESS, not of this fan's root — bring it
-        // home before the slabs are destroyed, and drop the clip state with them: the indices about
-        // to be handed out address a different set of objects.
-        ReleaseClip(returnToArc: false);
+        // THE RECESS SURVIVOR IS CARRIED ACROSS (see _clipDetached): the owner re-opened their fan
+        // while their card is still lying in the recess, so the slab that IS that card must come
+        // through this rebuild as the same object at whatever arc position record 26 now names.
+        // Destroying it and letting ResolveClip re-parent a fresh slab would blink the card out of
+        // the recess and fly a new one in — the pop the standing ruling forbids, on the one surface
+        // both players are looking straight at.
+        GameObject? survivor = null;
+        if (_clipDetached && _clipIndex >= 0 && _clipIndex < _cards.Count)
+        {
+            survivor = _cards[_clipIndex];
+            // null! — the whole list is cleared two statements below; this only takes the survivor
+            // out of the destroy sweep while it stays parented to the recess.
+            _cards[_clipIndex] = null!;
+        }
+        else
+        {
+            // The clipped slab is a child of the mirrored RECESS, not of this fan's root — bring it
+            // home before the slabs are destroyed, and drop the clip state with them: the indices
+            // about to be handed out address a different set of objects.
+            ReleaseClip(returnToArc: false);
+        }
+        _clipDetached = false;
+        _soloElapsed = -1f;
+        _clipIndex = -1;
+        _clipSettle = 0f;
         _returnIndex = -1;
         _returnGlide = 0f;
         _loggedClip = -2;
@@ -926,6 +1148,31 @@ internal sealed class RemoteItemFan
             mr.receiveShadows = false;
             _cards.Add(card);
         }
+        // …and seat the survivor at the position the owner's re-opened fan gives it, replacing the
+        // fresh slab that was just built for it. It is already parented to the recess and already
+        // settled, so _clipSettle stays 0: it does not re-arrive, it simply never left.
+        if (survivor != null)
+        {
+            int want = _owner.ItemUseClipIndex;
+            Transform? recess = _owner.ItemUseRecess;
+            if (want >= 0 && want < _cards.Count && recess != null
+                && recess.gameObject.activeInHierarchy && survivor.transform.parent == recess)
+            {
+                if (_cards[want] != null)
+                    Object.Destroy(_cards[want]);
+                _cards[want] = survivor;
+                _clipIndex = want;
+                _clipSettle = 0f;
+                _clipFitScale = RecessFitScale();
+                VRLayers.Apply(survivor); // it is not under _root, so the root sweep below misses it
+            }
+            else
+            {
+                // The owner took it back / the recess went away between the two edges: it has no
+                // seat any more, and ResolveClip will not adopt an object this list does not own.
+                Object.Destroy(survivor);
+            }
+        }
         _builtCount = count;
         VRLayers.Apply(_root!);
         // Re-bind the front overlays onto the NEW slabs (the old ones died with their hosts above).
@@ -940,11 +1187,19 @@ internal sealed class RemoteItemFan
         // the root would leave it lying on that board with no fan behind it. No glide home — the
         // fan is going away, and a card gliding into an arc nobody can see is worse than the card
         // simply not being there (the same argument the gate-hidden branch in Tick makes).
-        ReleaseClip(returnToArc: false);
-        _returnIndex = -1;
-        _returnGlide = 0f;
-        _loggedClip = -2;
-        _fronts.HideAll(); // a hidden fan keeps no game-widget clones alive
+        //
+        // …EXCEPT when the card is DELIBERATELY left lying there (see _clipDetached): "no fan behind
+        // it" is then the intended state, not an orphan. Its front stays resolved too — hiding the
+        // faces would leave the peer looking at a blank back-slab in the recess while the owner is
+        // looking at the real card, which is the divergence the 1:1 ruling forbids.
+        if (!_clipDetached)
+        {
+            ReleaseClip(returnToArc: false);
+            _returnIndex = -1;
+            _returnGlide = 0f;
+            _loggedClip = -2;
+            _fronts.HideAll(); // a hidden fan keeps no game-widget clones alive
+        }
         if (_loggedCount > 0)
         {
             _loggedCount = 0;
@@ -968,6 +1223,8 @@ internal sealed class RemoteItemFan
             Object.Destroy(_cards[_clipIndex]);
         _clipIndex = -1;
         _clipSettle = 0f;
+        _clipDetached = false;
+        _soloElapsed = -1f;
         _returnIndex = -1;
         _returnGlide = 0f;
         _cards.Clear();
