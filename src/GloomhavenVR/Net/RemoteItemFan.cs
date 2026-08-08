@@ -44,6 +44,13 @@ namespace GloomhavenVR.Net;
 /// <c>CInventory.AllItems</c> — the identical list the LOCAL <see cref="ItemsPile"/> reads. Zero new
 /// wire bytes: the item identities were already on this client, they were simply never drawn.
 ///
+/// THE CARD IN THE USE RECESS (extension record 26, 2026-08-09): one of these slabs may be lying in
+/// the owner's item-USE recess rather than standing in the arc. WHICH one arrives as a bare arc
+/// INDEX and the slab is re-parented onto <see cref="RemoteBoardFurniture.ItemUseRecess"/>, so it
+/// lies flat IN the recess and rides that board — never billboarded at a head. The 0.28 s arrival
+/// settle and the glide back out are replayed from the index's own EDGES on the local clock, like
+/// the fan's deal-out and fold-in; see the field block below for the whole argument.
+///
 /// PLACEMENT mirrors the local fan's two modes: HAND-HELD → floating a palm standoff above the
 /// sender's DOMINANT hand (the hand that pinch-grabbed the item stack); BOARD-ANCHORED → floating
 /// above the sender's synced control board at the same shared board-top spot the local fan uses.
@@ -54,7 +61,9 @@ namespace GloomhavenVR.Net;
 /// card faces) + WIRE (extension record 28, via <see cref="RemoteBoardTuning"/> — the owner's own
 /// open/close ANIMATION dials, and only the ones they have actually moved) — costs wire bytes: extras
 /// <c>FlagItemFan</c> + one count byte, plus the two pure flags
-/// <c>FlagItemFanHeld</c> / <c>FlagItemFanLeft</c> (0 B each). Item IDENTITY and per-item face size
+/// <c>FlagItemFanHeld</c> / <c>FlagItemFanLeft</c> (0 B each, and both INERT — the whole-fan grab is
+/// gone), plus extension record 26 (ONE index byte, and only while a card really lies in the owner's
+/// item-use recess). Item IDENTITY and per-item face size
 /// are DELIBERATELY-NOT transmitted; the FACES are resolved locally off the host-replicated
 /// <c>Inventory.AllItems</c> behind <see cref="RevealGate"/> (<see cref="RemotePileFronts"/>). The
 /// item's real effect syncs authoritatively through <c>UseItemService</c>, not through here. See
@@ -138,6 +147,59 @@ internal sealed class RemoteItemFan
     /// refreshed at (−1 = never). Latched, not value-compared — the resolve already happens once
     /// per real change in <see cref="RemoteAvatar"/>.</summary>
     private int _tuningRevision = -1;
+
+    // ---- the card LYING IN the owner's item-use recess (extension record 26) --------------------
+    // THE GAP THIS CLOSES (2026-08-09). The owner lays a usable item card into their board's
+    // item-USE recess; it re-parents onto the recess and settles into it over ClipSettleSeconds.
+    // This ghost replayed a bare COUNT into the arc and RemoteBoardFurniture carried recess
+    // VISIBILITY only, so on every other machine that card was still drawn out here in the arc while
+    // the mirrored recess stood empty. The standing multiplayer ruling of 2026-08-08 covers "alle
+    // Interaktionen, Animationen und Anzeigen des Controllboards", and a card lying in a recess is
+    // such an Anzeige.
+    //
+    // WHAT ARRIVES IS ONE INDEX (NetProtocol.ExtIdItemUseClip) — a position in the very arc this
+    // renderer already builds. So the fix is not a new object at all: the slab that would have been
+    // drawn at that arc position is RE-PARENTED onto the mirrored recess, exactly as the owner's own
+    // chip is re-parented onto theirs (ItemsPile.ItemChip.ClipIntoSlot). The hierarchy then holds it
+    // there rigidly — right rotation, right board scale, right visibility, zero per-frame work — and
+    // it LIES IN the recess rather than billboarding to anyone's head. Routing it through the synced
+    // held-card pose slot was considered and rejected for precisely that: that receiver aims its
+    // slab at the owner's head, so the card would have floated upright over the recess.
+    //
+    // THE ARRIVAL IS ANIMATED FROM THE EDGE, not streamed. The receiver knows the frame the index
+    // appears, so it runs the owner's own settle on its own clock — same re-parent-keeping-world-
+    // pose, same exponential, same duration — the identical trick that already replays the fan's
+    // whole deal-out and fold-in for zero wire bytes. Streaming a pose would cost ~20 B × 15 Hz for
+    // a 0.28 s movement both machines can derive from one byte.
+    //
+    // TAKING IT BACK is the same edge in reverse: the index disappears, the slab returns to the fan
+    // root keeping its world pose and GLIDES to its arc slot over ReleaseGlideSeconds — the mirror
+    // of ItemChip.ReturnToFan, which is the animation the owner sees when they pull the card out.
+    private int _clipIndex = -1;          // slab currently parented to the mirrored recess, -1 = none
+    private float _clipSettle;            // seconds left of the arrival ease (0 = landed / none)
+    private float _clipFitScale = 1f;     // recess-local scale it settles to (fitted to the plate)
+    private int _returnIndex = -1;        // slab gliding back to the arc after a take-back, -1 = none
+    private float _returnGlide;           // seconds left of that glide
+    private int _loggedClip = -2;         // change gate for the clip log line
+
+    /// <summary>Unscaled seconds the arrival settle runs — MIRROR of
+    /// <c>Cards.ItemsPile.ItemChip.ClipSettleSeconds</c>, the window the owner's own card eases from
+    /// the release pose into the recess frame in. Held equal by scripts/check-mirrors.sh: a peer
+    /// whose settle is a different LENGTH is watching a different animation, which is exactly what
+    /// the 1:1 ruling forbids.</summary>
+    private const float ClipSettleSeconds = 0.28f;
+
+    /// <summary>Unscaled seconds the take-back glide runs — MIRROR of
+    /// <c>Cards.ItemsPile.ItemChip.ReleaseGlideSeconds</c>, the window the owner's card flies home to
+    /// its arc slot in.</summary>
+    private const float ReleaseGlideSeconds = 0.35f;
+
+    /// <summary>How much of the recess's clear inner plate a card lying in it fills, so the gold rim
+    /// stays visible all the way round — MIRROR of <c>Cards.ItemsPile.UseSlotFillFraction</c>. The
+    /// plate itself is <see cref="RemoteBoardFurniture.ItemUseInnerWidth"/>/<c>…Height</c>, i.e. THIS
+    /// board's own geometry, so the fit is derived exactly the way the owner derives theirs: from
+    /// the recess in front of the card, never from the fan's chip scale.</summary>
+    private const float UseSlotFillFraction = 0.94f;
 
     private float _collapseElapsed = -1f;
     private Vector3 _collapseTo;
@@ -257,7 +319,12 @@ internal sealed class RemoteItemFan
             t.SetPositionAndRotation(Vector3.Lerp(t.position, target, k), Quaternion.Slerp(t.rotation, rot, k));
         }
 
+        // THE CARD IN THE RECESS (extension record 26) — resolved BEFORE the layout, because the
+        // layout must know which slab it may not write this frame: the clipped one belongs to the
+        // recess's hierarchy, not to the arc.
+        ResolveClip();
         Layout(count, dt);
+        TickClipSettle(dt);
 
         // THE FRONT LAYER (user ruling 2026-08-08). After the layout, so a face is only ever asked for
         // on a slab that already sits where it belongs. The gate inside is evaluated every frame; the
@@ -366,6 +433,13 @@ internal sealed class RemoteItemFan
 
         for (int i = 0; i < _cards.Count; i++)
         {
+            // The slab lying in the owner's use recess is NOT in this arc: it is a child of the
+            // mirrored recess and its pose is the recess's own frame (see ResolveClip /
+            // TickClipSettle). Writing an arc slot over it here would be the second, disagreeing
+            // answer — the exact defect ItemsPile fixed locally by having Relayout skip its own
+            // PendingUse chip.
+            if (i == _clipIndex)
+                continue;
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * Radius, (Mathf.Cos(rad) - 1f) * Radius, -ZStagger * i);
@@ -397,6 +471,23 @@ internal sealed class RemoteItemFan
                 Quaternion spin = Quaternion.Euler(0f, 0f, SpinSign(i, mid) * _openSpinDegrees);
                 t.localRotation = rot * Quaternion.Slerp(spin, Quaternion.identity, e);
                 t.localScale = Vector3.one * Mathf.LerpUnclamped(_seedScale, scale, e);
+            }
+            else if (i == _returnIndex && _returnGlide > 0f)
+            {
+                // TAKE-BACK GLIDE — the mirror of ItemChip.ReturnToFan: the slab was just handed
+                // back from the recess frame to the fan root keeping its world pose, so it starts
+                // wherever it was lying and eases to its arc slot on the same exponential the
+                // owner's card flies home on. Only the CLOCK is local; the motion is theirs.
+                _returnGlide -= dt;
+                float k = 1f - Mathf.Exp(-Defaults.CardLerpSpeed * Mathf.Max(dt, 0f));
+                t.localPosition = Vector3.Lerp(t.localPosition, pos, k);
+                t.localRotation = Quaternion.Slerp(t.localRotation, rot, k);
+                t.localScale = Vector3.Lerp(t.localScale, Vector3.one * scale, k);
+                if (_returnGlide <= 0f)
+                {
+                    _returnGlide = 0f;
+                    _returnIndex = -1; // landed: the plain assignment below owns it again
+                }
             }
             else
             {
@@ -466,6 +557,160 @@ internal sealed class RemoteItemFan
                           $"{_cards.Count} slab(s) (wire index {_owner.FanHighlightIndex}) — " +
                           "the chip lifts on ItemsPile's own pop, from the INDEX alone " +
                           "(extension record 6: no item identity).");
+    }
+
+    // ------------------------------------------------------ the card in the use recess (26) --
+
+    /// <summary>
+    /// Reconcile the synced clip index (<see cref="RemoteAvatar.ItemUseClipIndex"/>) with what this
+    /// fan is actually rendering, and act only on the EDGES: a card entering the recess is
+    /// re-parented onto it and starts its settle, a card leaving is handed back to the fan root and
+    /// starts its glide home. Runs before <see cref="Layout"/>, which must not write the clipped
+    /// slab.
+    ///
+    /// <para>THREE THINGS ARE VALIDATED, and each is a way a peer's card could otherwise end up
+    /// somewhere the owner's is not:</para>
+    /// <list type="bullet">
+    /// <item>the index is clamped against OUR live slab count — a packet can legitimately arrive a
+    /// frame either side of a fan resize, which is the same reason the highlight index is clamped
+    /// here and not at the reader;</item>
+    /// <item>the recess must exist AND be active in the hierarchy. It is shown from the board-UI
+    /// record's own bit and hidden with the whole board by the <c>[Net] RemoteBoards</c> gate, so a
+    /// card must never be left lying on a recess this client is not drawing — it falls back to the
+    /// arc, which is exactly what pre-record builds showed;</item>
+    /// <item>the parent is RE-ASSERTED while the state holds, so a board rebuild (which destroys and
+    /// re-creates the furniture, and with it the recess transform) re-adopts the card instead of
+    /// leaving it orphaned in mid-air — the receiver-side twin of <c>TickPendingUse</c>'s own
+    /// "re-assert after a board rebuild" line.</item>
+    /// </list>
+    /// </summary>
+    private void ResolveClip()
+    {
+        Transform? recess = _owner.ItemUseRecess;
+        bool recessUsable = recess != null && recess.gameObject.activeInHierarchy;
+
+        int want = _owner.ItemUseClipIndex;
+        if (want < 0 || want >= _cards.Count || !recessUsable)
+            want = -1;
+
+        if (want == _clipIndex)
+        {
+            // Steady state. The settle is over as far as the hierarchy is concerned, so the only
+            // per-frame work is proving we still own the parent we think we own.
+            if (_clipIndex >= 0 && recess != null)
+            {
+                Transform t = _cards[_clipIndex].transform;
+                if (t.parent != recess)
+                {
+                    t.SetParent(recess, worldPositionStays: true);
+                    _clipSettle = ClipSettleSeconds; // re-seat visibly, never a teleport
+                }
+            }
+            return;
+        }
+
+        // LEAVING first, so a clip that MOVES from one fan position to another (the owner swaps the
+        // placed card — the demand pick's own "a fresh drop replaces an older clip" rule) releases
+        // the old slab before the new one is taken.
+        if (_clipIndex >= 0)
+            ReleaseClip(returnToArc: true);
+
+        if (want >= 0 && recess != null)
+        {
+            Transform t = _cards[want].transform;
+            // Keep the WORLD pose across the re-parent and ease into the recess frame from there —
+            // the card is seen travelling out of the arc and into the recess, which is the same
+            // statement the owner's own ClipIntoSlot makes ("everything that moves is seen moving").
+            t.SetParent(recess, worldPositionStays: true);
+            _clipIndex = want;
+            _clipSettle = ClipSettleSeconds;
+            _clipFitScale = RecessFitScale();
+            _returnIndex = -1; // a slab cannot be gliding home and lying in the recess at once
+            _returnGlide = 0f;
+        }
+        LogClipIfChanged(recessUsable);
+    }
+
+    /// <summary>
+    /// Advance the arrival settle: ease the clipped slab's RECESS-LOCAL pose toward the recess's own
+    /// frame (zero position, identity rotation, <see cref="_clipFitScale"/>), then land on it
+    /// exactly and stop writing. Term for term <c>ItemsPile.ItemChip.TickClipSettle</c>, including
+    /// the property that matters most: once the window closes the transform hierarchy holds the card
+    /// rigidly with no per-frame work at all — no chase, no residual error, nothing to swim behind a
+    /// moving board or a moving head.
+    /// </summary>
+    private void TickClipSettle(float dt)
+    {
+        if (_clipIndex < 0 || _clipSettle <= 0f || _clipIndex >= _cards.Count)
+            return;
+        Transform t = _cards[_clipIndex].transform;
+        _clipSettle -= dt;
+        if (_clipSettle <= 0f)
+        {
+            _clipSettle = 0f;
+            t.localPosition = Vector3.zero;
+            t.localRotation = Quaternion.identity;
+            t.localScale = Vector3.one * _clipFitScale;
+            return;
+        }
+        float k = 1f - Mathf.Exp(-Defaults.CardLerpSpeed * Mathf.Max(dt, 0f));
+        t.localPosition = Vector3.Lerp(t.localPosition, Vector3.zero, k);
+        t.localRotation = Quaternion.Slerp(t.localRotation, Quaternion.identity, k);
+        t.localScale = Vector3.Lerp(t.localScale, Vector3.one * _clipFitScale, k);
+    }
+
+    /// <summary>
+    /// Hand the clipped slab back to the fan root KEEPING its world pose, so nothing jumps, and
+    /// (when <paramref name="returnToArc"/>) start the glide home <see cref="Layout"/> runs for it.
+    /// Every exit from the clipped state goes through here — the owner taking the card back, the
+    /// recess disappearing, the fan closing, rebuilding or being destroyed — because the slab is a
+    /// child of a transform this fan does NOT own, and a fan that hides its root while one of its
+    /// slabs lives elsewhere leaves that slab hanging in the air.
+    /// </summary>
+    private void ReleaseClip(bool returnToArc)
+    {
+        int i = _clipIndex;
+        _clipIndex = -1;
+        _clipSettle = 0f;
+        if (i < 0 || i >= _cards.Count || _root == null)
+            return;
+        GameObject card = _cards[i];
+        if (card == null)
+            return;
+        card.transform.SetParent(_root.transform, worldPositionStays: true);
+        if (!returnToArc)
+            return;
+        _returnIndex = i;
+        _returnGlide = ReleaseGlideSeconds;
+    }
+
+    /// <summary>
+    /// The recess-local scale a card lying in the recess comes to rest at: its own slab face fitted
+    /// into THIS board's inner plate (<see cref="RemoteBoardFurniture.ItemUseInnerWidth"/>/Height),
+    /// keeping its aspect, with the gold rim left showing. The receiver-side twin of
+    /// <c>ItemsPile.UseSlotFitScale</c> — and derived the same way, from the RECESS in front of the
+    /// card rather than from the fan's chip scale, which is what stops a near-square item face
+    /// hanging over the tall card-shaped frame on either side.
+    /// </summary>
+    private static float RecessFitScale() =>
+        Mathf.Min(RemoteBoardFurniture.ItemUseInnerWidth / CardW,
+                  RemoteBoardFurniture.ItemUseInnerHeight / CardH) * UseSlotFillFraction;
+
+    /// <summary>Change-gated evidence that the synced clip reached the render path (grep:
+    /// "Remote item recess").</summary>
+    private void LogClipIfChanged(bool recessUsable)
+    {
+        if (_clipIndex == _loggedClip)
+            return;
+        _loggedClip = _clipIndex;
+        VRLog.Info("Net", $"Remote item recess [{_owner.PlayerId}]: " +
+                          (_clipIndex >= 0
+                              ? $"fan position {_clipIndex} of {_cards.Count} slab(s) now LIES IN the " +
+                                $"mirrored item-use recess, settling over {ClipSettleSeconds:F2}s "
+                              : "the recess is EMPTY again; the card glides back into the arc ") +
+                          $"(wire index {_owner.ItemUseClipIndex}, extension record 26 — an arc " +
+                          "POSITION, no item identity" +
+                          (recessUsable ? ")." : "; this client is not drawing that recess right now)."));
     }
 
     // ------------------------------------------------------------------ emerge / collapse --
@@ -555,6 +800,12 @@ internal sealed class RemoteItemFan
             return false;
         if (!TryItemStackWorld(out Vector3 stackWorld))
             return false;
+
+        // A slab lying in the recess belongs to the RECESS's hierarchy, and the collapse drives
+        // every slab in world space off a pose captured right here — so it comes home to the fan
+        // root first (keeping its world pose, so the capture is unchanged) and folds into the stack
+        // with the rest. Without this the fan would "close" while one card stayed in the recess.
+        ReleaseClip(returnToArc: false);
 
         _emergeElapsed = -1f;
         _collapseTo = stackWorld;
@@ -646,6 +897,13 @@ internal sealed class RemoteItemFan
 
     private void Rebuild(int count)
     {
+        // The clipped slab is a child of the mirrored RECESS, not of this fan's root — bring it
+        // home before the slabs are destroyed, and drop the clip state with them: the indices about
+        // to be handed out address a different set of objects.
+        ReleaseClip(returnToArc: false);
+        _returnIndex = -1;
+        _returnGlide = 0f;
+        _loggedClip = -2;
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
             if (_cards[i] != null)
@@ -678,6 +936,14 @@ internal sealed class RemoteItemFan
 
     private void Hide()
     {
+        // FIRST, always: a slab parented to the mirrored recess is NOT under _root, so deactivating
+        // the root would leave it lying on that board with no fan behind it. No glide home — the
+        // fan is going away, and a card gliding into an arc nobody can see is worse than the card
+        // simply not being there (the same argument the gate-hidden branch in Tick makes).
+        ReleaseClip(returnToArc: false);
+        _returnIndex = -1;
+        _returnGlide = 0f;
+        _loggedClip = -2;
         _fronts.HideAll(); // a hidden fan keeps no game-widget clones alive
         if (_loggedCount > 0)
         {
@@ -695,6 +961,15 @@ internal sealed class RemoteItemFan
     public void Destroy()
     {
         _fronts.Destroy();
+        // The clipped slab hangs off the mirrored recess, so destroying _root would not take it
+        // with it — it has to be destroyed in its own right or it outlives the whole fan on that
+        // peer's board.
+        if (_clipIndex >= 0 && _clipIndex < _cards.Count && _cards[_clipIndex] != null)
+            Object.Destroy(_cards[_clipIndex]);
+        _clipIndex = -1;
+        _clipSettle = 0f;
+        _returnIndex = -1;
+        _returnGlide = 0f;
         _cards.Clear();
         ClearCollapseCapture();
         _builtCount = -1;

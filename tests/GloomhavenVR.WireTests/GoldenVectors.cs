@@ -2233,6 +2233,115 @@ internal static class GoldenVectors
         t.True(ubCombo.HasDecisionLines && ubCombo.HasDecisionState && ubCombo.HasUseBars,
                "with all three decision-display records delivered");
 
+        // -- 7o4. ITEM-USE CLIP (extension record 26) ---------------------------------------
+        // WHICH position of the sender's open item fan lies clipped in their item-USE recess. The
+        // gap it closes: the wire carried only HOW MANY item cards are up and that the recess is
+        // VISIBLE, so a card the owner had laid INTO the recess was still drawn out in the arc on
+        // every other machine while their mirrored recess stood empty — against the 2026-08-08
+        // ruling that every Anzeige of the control board is synchronised. One INDEX byte into the
+        // very fan the count already describes; the receiver replays the 0.28 s settle from the
+        // edge this byte appears on, so the animation costs nothing beyond it.
+        t.Case("7o4. extras, item-use clip record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemFan = true, ItemCardCount = 5,
+            HasItemUseClip = true, ItemUseClipIndex = 2,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            88               // flags: FlagItemFan (bit3) + FlagPileBrowse ('a BLOCK follows', bit7)
+            00               // handCardCount
+            05               // itemCardCount — the fan the index below addresses
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no browse fan
+            01               // tail: 1 record
+            1A 01            // id 26 (item-use clip), len 1
+            02               // fan position 2 lies in the owner's item-use recess
+            "), ext, m, "the item-use clip record is [id 26][len 1][fan index] — an arc POSITION, "
+                        + "never an item identity");
+        t.Equal(15, m, "header 7 + hand count 1 + item count 1 + block 2 + tail 1 + (2 + 1) = 15 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState clip), "and it parses");
+        t.True(clip.HasItemFan, "the item fan is delivered");
+        t.Equal(5, clip.ItemCardCount, "with its count");
+        t.True(clip.HasItemUseClip, "and the clip is delivered with it");
+        t.Equal(2, clip.ItemUseClipIndex, "naming fan position 2 — the slab the peer lays in the recess");
+
+        // AN EMPTY RECESS WRITES NO RECORD AT ALL, which is the whole economics of this feature:
+        // the fan is open for minutes and a card lies in the recess for seconds, so nearly every
+        // packet stays byte-identical to the previous build's. Absence IS "nothing is clipped";
+        // no sentinel index exists and none is needed.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemFan = true, ItemCardCount = 5, HandCardCount = 3,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 08 03 05"), ext, m,
+               "an open item fan with an EMPTY recess writes no record, no tail and no block");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noClip), "and it parses");
+        t.True(noClip.HasItemFan && !noClip.HasItemUseClip,
+               "with the fan up and HasItemUseClip false — the peer draws every chip in the arc");
+        t.Equal(-1, noClip.HasItemUseClip ? noClip.ItemUseClipIndex : -1,
+                "i.e. exactly what a build predating record 26 renders");
+
+        // INDEX 0 IS A REAL VALUE, not "none": the leftmost chip is the one most likely to be
+        // placed first, and a writer that treated 0 as absent would leave that case unsynced.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemFan = true, ItemCardCount = 1, HasItemUseClip = true, ItemUseClipIndex = 0,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 88 00 01 80 00 01 1A 01 00"), ext, m,
+               "fan position 0 is written like any other index");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState clip0), "and it parses");
+        t.True(clip0.HasItemUseClip, "with the record delivered");
+        t.Equal(0, clip0.ItemUseClipIndex, "naming the FIRST fan position");
+
+        // NOT RANGE-CHECKED ON THE WIRE, deliberately: an index past the count a packet happens to
+        // carry is legitimate for one frame either side of a fan resize, so the clamp lives in the
+        // RENDERER against its own live slab count — record 6's rule, applied to the same shape of
+        // field. The reader must therefore deliver the byte untouched rather than second-guess it.
+        byte[] wideClip = Hex.Bytes("31 52 56 47 03 01 88 00 02 80 00 01 1A 01 FF");
+        t.True(PresenceSerializer.TryRead(wideClip, wideClip.Length, out PresenceState clipWide),
+               "an out-of-range clip index still parses");
+        t.True(clipWide.HasItemUseClip, "the record is delivered");
+        t.Equal(255, clipWide.ItemUseClipIndex,
+                "with the byte intact — the renderer, not the reader, holds the bound");
+
+        // TRUNCATED record (claims 1 payload byte, delivers 0): the tail is abandoned, nothing
+        // throws, and no clip is invented.
+        byte[] cutClip = Hex.Bytes("31 52 56 47 03 01 88 00 02 80 00 01 1A 01");
+        t.True(PresenceSerializer.TryRead(cutClip, cutClip.Length, out PresenceState clipCut),
+               "a truncated item-use clip record still parses the packet");
+        t.True(!clipCut.HasItemUseClip, "and the incomplete record is simply not delivered");
+
+        // ID ORDER: 26 rides BETWEEN 25 and 27, and an older reader steps over it by its own length
+        // and still finds record 27 where it expects it — the whole point of the TLV tail.
+        useBarCounts[0] = 1;
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemFan = true, ItemCardCount = 3,
+            HasUseBars = true, UseBarsMask = NetProtocol.UseBarActiveBonusBit,
+            UseBarFlags = useBarFlags, UseBarSlotCounts = useBarCounts, UseBarSlotStates = useBarSlots,
+            HasItemUseClip = true, ItemUseClipIndex = 1,
+            HasTrackOrder = true, TrackOrderCount = 1, TrackOrderOwnedMask = 0x01,
+            TrackOrderIds = new[] { 0x11 },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            88 00 03             // flags: item fan + block; hand 0; item count 3
+            80 00
+            03                   // tail: 3 records, in id order
+            19 04 01 00 01 01    // id 25 use bars: bar 0, no picker, 1 slot, offered
+            1A 01 01             // id 26 item-use clip: fan position 1
+            1B 06 01 01 11 00 00 00 // id 27 track order: one owned entry
+            "), ext, m, "record 26 rides the tail between records 25 and 27 (id order 25, 26, 27)");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState clipCombo), "and the combo parses");
+        t.True(clipCombo.HasUseBars && clipCombo.HasItemUseClip && clipCombo.HasTrackOrder,
+               "with all three records delivered");
+        t.Equal(1, clipCombo.ItemUseClipIndex, "the clip index is its own");
+        t.Equal(0x11, clipCombo.TrackOrderIds![0],
+                "and the record BEHIND it is read past it, undamaged — an older peer skipping 26 "
+                + "by its length lands exactly here");
+        useBarCounts[0] = 0;
+
         // -- 7p. CAP LABELS (extension record 13) ------------------------------------------
         // What the sender's CONFIRM cap and docked SKIP button ACTUALLY read — the fix for
         // "mein Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'": the receiver's neutral

@@ -1214,6 +1214,49 @@ internal sealed class ItemsPile
         }
     }
 
+    /// <summary>
+    /// Arc index of the chip currently CLIPPED INTO the board's item-USE recess, or -1 — the
+    /// multiplayer read seam for extension record 26
+    /// (<see cref="Net.NetProtocol.ExtIdItemUseClip"/>).
+    ///
+    /// <para>WHY IT EXISTS (2026-08-09). The wire said only HOW MANY item cards are in this fan and
+    /// that the recess is VISIBLE, so a card the owner had laid INTO the recess was still drawn out
+    /// in the arc on every other machine while their mirrored recess stood empty. The standing
+    /// multiplayer ruling of 2026-08-08 covers "alle Interaktionen, Animationen und Anzeigen des
+    /// Controllboards", and a card lying in a recess is exactly such an Anzeige. What travels is
+    /// this POSITION — never the item; the receiver resolves what to draw from the same replicated
+    /// <c>Inventory.AllItems</c> it already draws the arc from.</para>
+    ///
+    /// <para>ONE SEAM FOR ALL THREE CLIP-IN FLOWS, and deliberately not three: the ordinary USE
+    /// placement (<see cref="_pendingUseChip"/>), the item-SURRENDER demand pick
+    /// (<c>_demandChip</c>) and the take-damage shield place (<c>_tdChip</c>) all park a chip in the
+    /// SAME recess and all set <see cref="ItemChip.PendingUse"/> on it. The rendered fact a peer
+    /// needs is "this fan position lies in the recess", which is identical in the three cases, so
+    /// the scan reads that flag rather than the three fields — a flow the fields miss can never
+    /// produce a chip in the recess that the wire denies.</para>
+    ///
+    /// <para>A chip that has been GRABBED BACK OUT is excluded: its holder owns the pose for that
+    /// frame (the flag is only cleared one tick later, in <c>TickPendingUse</c>), and reporting it
+    /// as "in the recess" would pin a peer's copy to a recess the card has physically left. The
+    /// index is into <see cref="Chips"/>, i.e. into exactly the ordered fan whose COUNT the extras
+    /// packet already carries.</para>
+    /// </summary>
+    internal int ClippedChipIndex
+    {
+        get
+        {
+            if (!IsOpen)
+                return -1;
+            for (int i = 0; i < _chips.Count; i++)
+            {
+                ItemChip c = _chips[i];
+                if (c != null && c.PendingUse && c.Holder == null)
+                    return i;
+            }
+            return -1;
+        }
+    }
+
     internal ItemChip? HandOwnedChip(VRHand? hand)
     {
         if (hand == null || !IsOpen)

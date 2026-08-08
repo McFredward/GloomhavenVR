@@ -539,6 +539,22 @@ internal struct PresenceState
     public byte[]? UseBarSlotStates;
 
     /// <summary>
+    /// True when this packet names WHICH ITEM-FAN POSITION lies clipped in the sender's item-USE
+    /// RECESS (extension record <see cref="NetProtocol.ExtIdItemUseClip"/>). Written ONLY while a
+    /// card is really in that recess, so absence means "the recess is empty" — which is exactly
+    /// what peers predating the record render, and what an owner with an empty recess emits (i.e.
+    /// nearly every packet stays byte-identical to the previous build's).
+    /// </summary>
+    public bool HasItemUseClip;
+
+    /// <summary>The clipped chip's index into the SAME ordered item fan
+    /// <see cref="ItemCardCount"/> describes (meaningful only when <see cref="HasItemUseClip"/>).
+    /// A POSITION, never an item identity — see <see cref="NetProtocol.ExtIdItemUseClip"/>. NOT
+    /// range-checked on either end: the renderer clamps it against its own live slab count, exactly
+    /// as it does for <see cref="FanHighlightIndex"/>.</summary>
+    public byte ItemUseClipIndex;
+
+    /// <summary>
     /// True when this packet names what the sender's CONFIRM board cap actually reads (extension
     /// record <see cref="NetProtocol.ExtIdCapLabels"/>, mask bit 0). Absence keeps the receiver's
     /// neutral GUI_CONFIRM fallback — exactly what peers predating the record render.
@@ -810,6 +826,12 @@ internal struct PresenceState
 ///                        NO slot identity: the game's use slots have no label at all, only card
 ///                        ART. Written only while a bar is docked AND visible, see
 ///                        NetProtocol.ExtIdUseBars)
+///                        26 ITEM-USE CLIP ([index] — WHICH position of the sender's open item fan
+///                        currently lies clipped in their item-USE recess. An index into the same
+///                        ordered fan record's own count describes, never an item identity; the
+///                        receiver replays the 0.28 s settle from the EDGE this byte appears on.
+///                        Written only while a card is really in the recess, see
+///                        NetProtocol.ExtIdItemUseClip)
 ///                        27 TRACK ORDER ([count][ownedMask][count × int32 actorId LE] — the
 ///                        on-screen order of the PLAYER entries on the sender's OWN initiative
 ///                        track, by the stable ActorGuid hash, plus which of them they control;
@@ -860,9 +882,14 @@ internal static class PresenceSerializer
     /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap)
     /// + 12 (decision state: 2 + flags 1 + count 1 + its 8-option cap)
     /// + 43 (USE BARS: 2 + mask 1 + 4 bars × (flags 1 + count 1 + its 8-slot cap))
+    /// + 3 (ITEM-USE CLIP: 2 + its single index byte)
     /// + 28 (track order: 2 + count 1 + owned mask 1 + 4 × its 6-id cap)
     /// + 235 (BOARD TUNING: 2 + count 1 + every one of its 58 fields at once —
-    /// 15 vec3 × 7 + 13 length × 3 + 22 factor × 3 + 6 angle × 3 + 2 count × 2 = 232) = 1264.
+    /// 15 vec3 × 7 + 13 length × 3 + 22 factor × 3 + 6 angle × 3 + 2 count × 2 = 232) = 1267.
+    ///
+    /// <para>1264 → 1267 on 2026-08-09: the ITEM-USE CLIP record (26) added its own worst case of 3
+    /// bytes — [id][len][index] — in its own commit, per the rule below. The margin at
+    /// <see cref="MaxSize"/> = 1600 is 333 bytes, still more than the largest single record.</para>
     ///
     /// <para>859 → 1240 across the 1:1 mirroring round, each record adding its own worst case in
     /// its own commit per the rule below: USE BARS (25) +43, TRACK ORDER (27) +28, BOARD TUNING
@@ -936,6 +963,11 @@ internal static class PresenceSerializer
                           || state.HasSecondFigure || state.HasSecondHeldCard
                           || state.HasSlotCardSize
                           || state.HasPileCounts || state.HasHalfHover || state.HasCapPress
+                          // The item-use clip is written only while a card really lies in the
+                          // owner's recess, so it must not open the tail either — that is what
+                          // keeps every packet with an EMPTY recess (nearly all of them)
+                          // byte-identical to the previous build's.
+                          || state.HasItemUseClip
                           // Record 14 also rides for the EMPTY-FAN placard alone (byte 1 bit 4),
                           // so the tail gate is the same OR its writer uses.
                           || state.EmptyFanHint
@@ -1505,6 +1537,25 @@ internal static class PresenceSerializer
                         }
                         records++;
                     }
+                }
+                if (state.HasItemUseClip
+                    && i + 2 + NetProtocol.ItemUseClipRecordBytes <= buffer.Length)
+                {
+                    // ITEM-USE CLIP (26): one byte — WHICH position of the sender's open item fan
+                    // lies clipped in their item-USE recess. A fan POSITION, never an item identity
+                    // (the receiver already draws that fan's faces from the replicated inventory);
+                    // the same disclosure argument as the card-highlight record's indices.
+                    //
+                    // Written ONLY while a card is really in the recess, so an owner with an empty
+                    // recess emits exactly the bytes the previous build emitted, and the record's
+                    // ABSENCE is the "nothing is clipped" signal — no sentinel value exists.
+                    // NOT range-checked here: the renderer clamps against its own live slab count,
+                    // which is the only place the bound is actually known (record 6's rule).
+                    // Appended in id order, between records 25 and 27.
+                    buffer[i++] = NetProtocol.ExtIdItemUseClip;
+                    buffer[i++] = (byte)NetProtocol.ItemUseClipRecordBytes;
+                    buffer[i++] = state.ItemUseClipIndex;
+                    records++;
                 }
                 if (state.HasTrackOrder && state.TrackOrderIds != null && state.TrackOrderCount > 0)
                 {
@@ -2551,6 +2602,18 @@ internal static class PresenceSerializer
                                 state.UseBarSlotStates = slotStates;
                             }
                         }
+                    }
+                    else if (id == NetProtocol.ExtIdItemUseClip
+                             && len >= NetProtocol.ItemUseClipRecordBytes)
+                    {
+                        // ITEM-USE CLIP: one fan-local index, never an item identity. No validation
+                        // beyond the length, for exactly the reason record 6 states: the RENDERER
+                        // clamps against its own live slab count, which is the only place the bound
+                        // is actually known (a packet can legitimately arrive one frame before or
+                        // after a fan resize). Absence — the common case — leaves this false, which
+                        // is "the recess is empty", i.e. the pre-record rendering.
+                        state.HasItemUseClip = true;
+                        state.ItemUseClipIndex = buffer[i];
                     }
                     else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
                     {

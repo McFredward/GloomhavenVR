@@ -107,6 +107,20 @@ MIRRORS=(
   # directly — `const float BarClearanceMeters = DecisionDockSurface.BarClearanceMeters` — so there
   # is one value and nothing left to drift. Deleting the group is the fix the lint exists to
   # provoke; the entry stayed listed only while two literals really existed.)
+  # THE ITEM-USE RECESS, mirrored by the remote board (item-clip round, 2026-08-09). A card the
+  # owner lays into their use recess is now drawn lying in the MIRRORED recess on every peer's copy
+  # of that board (wire record 26), and to lie in it the same way it has to be fitted to the same
+  # plate by the same rule. The plate factor is authored in PlayTray.BuildItemUseSlot and mirrored
+  # twice — ItemsPile reads it to fit the owner's card, RemoteBoardFurniture builds the mirrored
+  # plate from it — and the fill fraction and the settle duration are one value each across the
+  # local card and its ghost. Retune one copy and a peer's card either overhangs the gold rim or
+  # arrives on a different animation from the one its owner is watching, which is exactly the
+  # divergence the 1:1 ruling forbids.
+  "item-use recess inner plate : Cards/ItemsPile.cs:UseSlotInnerFactor Net/RemoteBoardFurniture.cs:UseSlotInnerFactor"
+  "item-use recess card fill : Cards/ItemsPile.cs:UseSlotFillFraction Net/RemoteItemFan.cs:UseSlotFillFraction"
+  "item-use clip settle seconds : Cards/ItemsPile.cs:ClipSettleSeconds Net/RemoteItemFan.cs:ClipSettleSeconds"
+  "item chip release glide seconds : Cards/ItemsPile.cs:ReleaseGlideSeconds Net/RemoteItemFan.cs:ReleaseGlideSeconds"
+
   "cluster proud seat : WorldUI/ButtonCluster.cs:ClusterProudOffset Net/RemoteBoardFurniture.cs:ClusterProudLift"
   "cluster dock scale : Cards/PlayTray.1.Core.cs:ButtonClusterMountScale Net/RemoteBoardFurniture.cs:ClusterDockScale"
 

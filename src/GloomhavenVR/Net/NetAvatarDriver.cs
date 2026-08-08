@@ -63,6 +63,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentHandCount = -1;
     private int _lastSentItemCount = -1;
 
+    // ITEM-USE CLIP (extension record 26): the last broadcast fan index of the chip lying in our own
+    // item-USE recess, -1 = the recess is empty. Placing a card there and taking it back out are
+    // both discrete, HUMAN-PACED edges that the receiver ANIMATES from (it replays the 0.28 s settle
+    // on the frame the index appears — see NetProtocol.ExtIdItemUseClip), so both pre-empt the 5 Hz
+    // gate exactly like the fan counts and the card-FX events do. One byte on a gesture nobody makes
+    // twice a second; it cannot become a stream.
+    private int _lastSentItemClip = -1;
+
     // Pile-browse (Abgelegt / Verbrannt reading fan): the last broadcast (kind, count) so opening,
     // switching and closing a browser also pre-empts the 5 Hz gate — the fan's EMERGE animation is
     // driven by the receiver's open transition, so a late packet would show the emerge after the
@@ -680,6 +688,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         int itemsCount = itemsNow != null && itemsNow.IsOpen ? itemsNow.Chips.Count : 0;
         bool countsChanged = handNow != _lastSentHandCount || itemsCount != _lastSentItemCount;
 
+        // ITEM-USE CLIP (extension record 26, 2026-08-09): WHICH fan position currently lies clipped
+        // in our own item-use recess. Sampled here, beside the count it indexes into, and clamped
+        // against that very count — a chip can only be reported at a position the peer's arc really
+        // has, and the two numbers must come from the same frame or a peer could clip a slab it has
+        // not built yet. -1 = the recess is empty ⇒ no record at all (see the field's note for why
+        // both edges pre-empt the rate gate).
+        int itemClip = itemsCount > 0 && itemsNow != null ? itemsNow.ClippedChipIndex : -1;
+        if (itemClip >= itemsCount)
+            itemClip = -1;
+        bool itemClipChanged = itemClip != _lastSentItemClip;
+
         // PILE BROWSE (user request "Auf-/Zuklappen der Fächer im Multiplayer"): the discard/burnt
         // reading fan. Read through the PileBrowser.Current seam — the browser instance itself is a
         // private of CardsDriver. Gated on Count > 0 because the arc's content only fills in the
@@ -1186,7 +1205,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !wallFadesDue
             && !decisionChanged && !decisionStateChanged && !useBarsChanged
             && !capLabelsChanged && !focusChanged && !trackSelChanged && !trackOrderChanged
-            && !emptyFanHintChanged && !tuningChanged)
+            && !emptyFanHintChanged && !tuningChanged && !itemClipChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1237,6 +1256,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.ItemCardCount = (byte)Mathf.Clamp(itemsCount, 0, 255);
             extras.ItemFanHeld = itemsNow != null && itemsNow.IsHandHeld;
             extras.ItemFanLeftHand = itemsNow != null && itemsNow.IsHeldByLeftHand;
+            // ITEM-USE CLIP (record 26): …and WHICH of those positions is lying in our own use
+            // recess right now. Inside the fan branch on purpose — an index is meaningless without
+            // the count it indexes into, and a fan that is not open has no positions at all.
+            if (itemClip >= 0)
+            {
+                extras.HasItemUseClip = true;
+                extras.ItemUseClipIndex = (byte)itemClip;
+            }
+        }
+        if (itemClipChanged)
+        {
+            _lastSentItemClip = itemClip;
+            VRLog.Info("Net", itemClip < 0
+                ? "Item-use clip SENT: recess EMPTY — record 26 omitted (peers glide the card back " +
+                  "into their copy of the arc)."
+                : $"Item-use clip SENT: fan position {itemClip} of {itemsCount} lies in our item-use " +
+                  "recess — extension record 26, ONE index byte and NO item identity. Peers " +
+                  "re-parent that same slab onto their mirrored recess and replay the 0.28 s settle " +
+                  "from this edge, so the card is seen ARRIVING rather than teleporting.");
         }
 
         // PILE BROWSE block (additive FlagPileBrowse, the LAST free extras flag bit): which pile the
