@@ -985,7 +985,14 @@ internal sealed partial class CardsDriver
         // put so a pluck never re-triggers the fan mid-reach ([Cards] RevealIgnoreWhenGrabbing).
         gate.IgnoreWhenHandBusy = CardsConfig.RevealIgnoreWhenGrabbing.Value;
 
-        bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0;
+        // …OR a character-swap exchange is still flying cards OUT of it (2026-08-09). Switching to a
+        // character whose hand is EMPTY — everything burnt, or a long rest — leaves both counts at
+        // zero on the very frame the outgoing hand sets off, so without this term the fan would be
+        // closed underneath its own exchange and CardFan.FinishSwap would snap the whole wave to the
+        // gather point: a pop, in the one case where the animation is the ONLY thing that explains
+        // where the cards went. The fan closes by itself the moment the wave has drained, and by then
+        // it holds nothing, so the close is silent.
+        bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0 || _fan.HasLeavingCards;
         // FAN BLOCK while the gate hand HOLDS something (user ruling 2026-08-04: "Wird eine Karte
         // in die nicht-dominante Hand genommen, wird - solange sie in der Hand ist - der Faecher
         // blockiert"). The gate hand can now take cards (general both-hands rule), and a fan
