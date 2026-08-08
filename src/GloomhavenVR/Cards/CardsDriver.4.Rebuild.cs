@@ -339,28 +339,54 @@ internal sealed partial class CardsDriver
         //       host-replicated with no visibility gate, CCharacterClass.cs:91) — only the two
         //       CHOSEN round cards are, and only during SelectAbilityCardsOrLongRest, which
         //       CharacterFocus.Open refuses outright and RevealGate independently re-refuses.
-        //   (a) the cards that character PLAYED, docked on the board — but only while it is
-        //       genuinely their turn (CharacterFocus.ViewActionTurn), i.e. only while the game
-        //       itself has those cards on the table.
+        //   (a) the cards that character CHOSE this round, lying in the board's two card SLOTS —
+        //       for as long as the game's replicated model still names them, NOT only during that
+        //       character's own turn (Board.CharacterFocus.RoundCardDock; user 2026-08-08 "ich will
+        //       AUCH, dass dort dann immer die jeweiligen ausgewählten Karten liegen"). The turn key
+        //       was the bug: a teammate is focused precisely BECAUSE they are not acting.
         //   (b) their piles — the discard/burnt/items stacks and the browse arc follow `hand`
         //       automatically, further down; nothing extra is needed for them here.
         // grabbable stays FALSE, so the per-card stamp near the end of this method builds every
-        // one of these cards non-grabbable and non-pokeable, and CardFan refuses the laser.
+        // one of these cards non-grabbable and non-pokeable, and CardFan refuses the laser. The
+        // slot cards get the SAME treatment through _half.SetReadOnly further down: no poke zones
+        // are armed and the card canvas is never registered with UguiPokeSurfaces, so the dock is a
+        // picture there too.
         bool readOnly = Board.CharacterFocus.ReadOnlyView;
         if (readOnly)
         {
+            // SLOT CARDS FIRST, so the fan can exclude them (see below).
+            bool dockOpen = Board.CharacterFocus.RoundCardDock(hand, out string dockSource);
+            if (dockOpen)
+                CollectRoundCards(hand, _halfBuffer);
+            // An EMPTY dock hides the layout outright rather than showing an armed-but-empty one —
+            // "nothing chosen / nothing left to show" must look like an empty board, not a broken
+            // one. The reason lands in the log line below.
+            halfVisible = _halfBuffer.Count > 0;
+            LogFocusSlotCards(hand, dockOpen, dockSource);
+
             for (int i = 0; i < _widgetBuffer.Count; i++)
             {
                 AbilityCardUI widget = _widgetBuffer[i];
                 if (widget == null || widget.AbilityCard == null || widget.IsLongRest)
                     continue;
-                if (widget.CardType == CardPileType.Hand)
-                    _fanBuffer.Add(AdoptedCard(widget));
+                if (widget.CardType != CardPileType.Hand)
+                    continue;
+                // A card has exactly ONE VR visual, so it must land in exactly one zone: a chosen
+                // round card now lying in a board slot may never ALSO be a fan card, or the fan and
+                // the dock would fight over its home every rebuild (both call VRCard.SetHome).
+                // AbilityCardUI.cardType already flips to Round on selection (AbilityCardUI.cs:
+                // 1098/1186, driven on EVERY client — ProxySelectCard → ToggleSelect,
+                // CardsHandUI.cs:2714), so the CardType test above normally settles it; this is the
+                // exact belt: whatever the dock actually took, the fan does not.
+                VRCard? already = _factory.Find(widget);
+                if (already != null && _halfBuffer.Contains(already))
+                    continue;
+                _fanBuffer.Add(AdoptedCard(widget));
             }
-            halfVisible = Board.CharacterFocus.ViewActionTurn(hand);
-            if (halfVisible)
-                CollectRoundCards(hand, _halfBuffer);
-            _tray.ClearSlots(); // no slot occupancy belongs to a character we are only watching
+            _tray.ClearSlots(); // no slot OCCUPANCY belongs to a character we are only watching —
+                                // the dock parents the cards to the slot transforms without ever
+                                // claiming a recess, so nothing becomes laser-pluckable
+                                // (PlayTray.TryRaycastCards scans _occupants only).
         }
         else
         switch (mode)
@@ -494,7 +520,11 @@ internal sealed partial class CardsDriver
                 // is that actor during its turn). Long rest is unaffected: the long-rester's own
                 // turn keeps CurrentActor == its player (IsActionTurn true) with an empty round
                 // pile, exactly as before.
-                bool actionTurn = CardsGameApi.IsActionTurn(hand);
+                // ONE SEAM for "may the board's card slots show this hand's chosen cards": with no
+                // focus override CharacterFocus.RoundCardDock IS CardsGameApi.IsActionTurn, so this
+                // branch is unchanged; routing it through the same method keeps the vanilla answer
+                // and the focus answer from ever drifting apart in two places.
+                bool actionTurn = Board.CharacterFocus.RoundCardDock(hand, out _);
                 if (actionTurn)
                 {
                     halfVisible = true;
@@ -723,6 +753,13 @@ internal sealed partial class CardsDriver
         _fan.SetReadOnly(readOnly);
         _fan.SetCards(_fanBuffer);
         _tray.SetVisible(trayVisible);
+        // READ-ONLY FOCUS, slot cards: told BEFORE the content for the same reason as the fan. The
+        // round-card dock is the ONE zone that arms real input on its cards — fingertip HalfZone
+        // volumes plus the card's own uGUI canvas registered with UguiPokeSurfaces (which is what
+        // makes the laser able to click a card half at all). A read-only dock arms neither, so a
+        // watched character's played cards are a picture: no poke, no laser, no PlayHalf. Showing
+        // the cards did not open an input path.
+        _half.SetReadOnly(readOnly);
         _half.SetVisible(halfVisible);
         if (halfVisible)
             _half.SetCards(_halfBuffer);
@@ -885,6 +922,63 @@ internal sealed partial class CardsDriver
         return card;
     }
 
+    // ------------------------------------------------- focus slot-card diagnostics --
+    //
+    // ONE LINE PER FOCUS SWITCH that makes an empty slot self-explaining (user requirement
+    // 2026-08-08). Change-deduped on (character, resolved count, reason) so a per-frame rebuild is
+    // silent while a genuine switch — or a slot set that changes under a live focus, e.g. the
+    // watched character's turn resolving its cards into the piles — is always logged.
+
+    private int _loggedSlotFocusId;
+    private int _loggedSlotCount = -1;
+    private string? _loggedSlotReason;
+
+    /// <summary>
+    /// State the slot-card outcome for the focused character: how many cards were resolved, FROM
+    /// WHICH source — and when zero, which of the four possible reasons it was. The four are
+    /// deliberately distinguishable, because they call for different answers: a shut RevealGate is
+    /// the anti-cheat rule working, a long rest is correct-and-permanent for the round, an empty
+    /// model list is "not chosen yet or already played out", and resolved &lt; model is a transient
+    /// widget gap that the next rebuild retries.
+    /// </summary>
+    private void LogFocusSlotCards(CardsHandUI hand, bool dockOpen, string dockSource)
+    {
+        int resolved = _halfBuffer.Count;
+        int inModel = Board.CharacterFocus.ModelRoundCardCount(hand);
+        string name = Board.CharacterFocus.Describe(hand.PlayerActor);
+        int id = Net.NetFigures.StableActorId(hand.PlayerActor);
+
+        string detail;
+        if (!dockOpen)
+            detail = $"0 resolved — {dockSource}. Nothing is drawn until the reveal; this is the " +
+                     "anti-cheat gate holding, not a failure.";
+        else if (resolved > 0)
+            detail = $"{resolved} resolved from {dockSource}, docked in the board's card slot(s) " +
+                     "READ-ONLY (no poke zones armed, canvas not registered with the laser, " +
+                     "Grabbable=false). No card identity was added to our wire — this is the same " +
+                     "host-replicated list the remote control board already renders a peer's " +
+                     "played cards from.";
+        else if (CardsGameApi.IsLongResting(hand) || CardsGameApi.HasLongRested(hand))
+            detail = "0 resolved — the character is LONG RESTING this round, so it plays no cards " +
+                     "at all. The empty slots are correct for the whole round.";
+        else if (inModel == 0)
+            detail = "0 resolved — the model exposes no chosen cards for this character right now " +
+                     "(CCharacterClass.RoundAbilityCards is empty): either the round's cards are " +
+                     "not committed yet, or this character's turn is already over and the game " +
+                     "moved them to the discard/burnt pile (GameState.cs:2286).";
+        else
+            detail = $"0 resolved although the model names {inModel} chosen card(s) — no live " +
+                     "AbilityCardUI widget for them exists on this client yet (hand mid-(re)build). " +
+                     "Transient: the next rebuild retries, and the focus survives it.";
+
+        if (id == _loggedSlotFocusId && resolved == _loggedSlotCount && detail == _loggedSlotReason)
+            return;
+        _loggedSlotFocusId = id;
+        _loggedSlotCount = resolved;
+        _loggedSlotReason = detail;
+        VRLog.Info("Cards", $"[Focus] slot cards for '{name}': {detail}");
+    }
+
     private void CollectRoundCards(CardsHandUI hand, List<VRCard> into)
     {
         // LONG REST (user report 2026-08-04: "die zwei Karten von der vorherigen Runde [sind]
@@ -924,7 +1018,18 @@ internal sealed partial class CardsDriver
         // only ADDED (covers the extra-turn pile, where cards are not in RoundAbilityCards) —
         // never used ALONE, so a stale pair can no longer make us dock the previous
         // character's cards (the second-character deadlock).
-        CardsGameApi.GetActionCards(out FullAbilityCard? first, out FullAbilityCard? second);
+        //
+        // FOCUS ADDENDUM (2026-08-08): the supplement is additionally scoped to the hand whose turn
+        // it actually is. The phase machine is a STATIC singleton holding the ACTING character's
+        // pair, and the round-card dock now also fills for a focused character that is NOT acting —
+        // so an unscoped supplement could dock the acting character's cards onto a watched
+        // character's board. The widget loop below only walks THIS hand's own widgets, so a foreign
+        // FullAbilityCard could never match anyway; making the scope explicit means that safety is a
+        // stated rule instead of a coincidence of which buffer we happen to be iterating.
+        FullAbilityCard? first = null;
+        FullAbilityCard? second = null;
+        if (ReferenceEquals(Board.CharacterFocus.TurnActor, hand.PlayerActor))
+            CardsGameApi.GetActionCards(out first, out second);
         for (int i = 0; i < _widgetBuffer.Count; i++)
         {
             AbilityCardUI widget = _widgetBuffer[i];
@@ -983,7 +1088,7 @@ internal sealed partial class CardsDriver
         PileKind dest = fate;
         // MP parity (report 6): peers replay this exact flight (slot → discard/burnt stack) against
         // THEIR copy of this player's board pose — 2 bytes, no per-frame transforms.
-        Net.NetCardFx.Report(SlotAnchor(_tray.SlotOf(card)), PileAnchor(fate));
+        ReportCardFx(SlotAnchor(_tray.SlotOf(card)), PileAnchor(fate));
         card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
             _flyingToPile.Remove(flying);
@@ -1143,7 +1248,7 @@ internal sealed partial class CardsDriver
         // peer watching this player's board saw those but missed a burn that fired from the park
         // sweep. Same 2-byte semantic endpoint pair as the others; peers replay a card-back slab
         // arcing off this player's board into their burnt stack.
-        Net.NetCardFx.Report(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+        ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
         VRCard flying = card;
         card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
@@ -1172,6 +1277,26 @@ internal sealed partial class CardsDriver
     // These two helpers translate the driver's local notions — a slot index, a PileKind — into the
     // wire anchors. A card whose slot is unknown (-1: never docked, or already evicted) degrades to
     // the generic Board anchor, which flies from the board centre rather than nowhere.
+
+    /// <summary>
+    /// Announce a local card animation to peers — EXCEPT while the board is showing a character
+    /// under a read-only focus.
+    ///
+    /// <para>WHY THE EXCEPTION (character focus, slot cards 2026-08-08). Every anchor on this wire
+    /// is a POSITION on the SENDER'S OWN board ("slot 0 → discard stack"), which peers replay
+    /// against their copy of that board. Under a read-only focus the local board is showing SOMEBODY
+    /// ELSE'S cards, so the flights it plays belong to the watched character's turn, not to ours —
+    /// forwarding them would make a peer's mirror of OUR board animate cards that were never on it.
+    /// The dock now fills for a focused character that is not even at turn, so those clears happen
+    /// far more often than before; suppressing here keeps the whole feature a LOCAL view change, and
+    /// the owning client still reports its own flights on its own board exactly as before.</para>
+    /// </summary>
+    private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to)
+    {
+        if (Board.CharacterFocus.ReadOnlyView)
+            return;
+        Net.NetCardFx.Report(from, to);
+    }
 
     /// <summary>Wire anchor for a board slot index (-1 → the generic board anchor).</summary>
     private static Net.CardFxAnchor SlotAnchor(int slot) => slot switch
@@ -1498,7 +1623,7 @@ internal sealed partial class CardsDriver
             VRCard flying = card;
             // MP parity (report 6): a damage-burn is the most dramatic card animation in the game —
             // peers replay it as a card arcing off this player's board into their burnt stack.
-            Net.NetCardFx.Report(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+            ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
             {
                 _flyingToPile.Remove(flying);
@@ -1540,7 +1665,7 @@ internal sealed partial class CardsDriver
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp, minArc);
         // MP parity (report 6): the fallback slab is the same event on the wire — the peer plays a
         // back slab either way (they never see faces), so both burn branches read identically.
-        Net.NetCardFx.Report(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+        ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
         VRLog.Info("Cards", $"BURN ANIM [{origin}/slab]: '{CardsGameApi.CardName(widget)}' burned — transient card-back slab " +
                             $"from {fromPos} (the burned card's true last position) → Burnt pile " +
                             $"({FlyToPileSeconds:F2}s, arc {slabArc:F3} m over the board), orientation held — no " +

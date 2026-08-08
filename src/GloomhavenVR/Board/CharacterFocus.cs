@@ -483,21 +483,88 @@ internal static class CharacterFocus
     }
 
     /// <summary>
-    /// Does the mod's ROUND-CARD dock apply to <paramref name="hand"/>? Vanilla's answer
-    /// (<c>CardsGameApi.IsActionTurn</c>) folds in an ownership gate, because docking a foreign
-    /// character's played cards used to be meaningless. Under a read-only focus it is precisely
-    /// what the user asked to see ("which cards that character played, shown on the board"), so
-    /// the ownership half is dropped and only the "it is genuinely this character's turn" half
-    /// remains — the cards are still shown ONLY when the game itself has them on the table, and
-    /// <see cref="RevealGate"/> independently keeps them face down through the secret window.
+    /// Does the mod's ROUND-CARD dock apply to <paramref name="hand"/> — i.e. may the board's two
+    /// card slots show this character's CHOSEN cards — and if not, WHY not?
+    ///
+    /// <para>VANILLA PATH (no focus override) is unchanged: <c>CardsGameApi.IsActionTurn</c>, which
+    /// is "this hand's locally-controlled player is the one <c>Choreographer.CurrentActor</c> is on
+    /// right now". That is the state the interactive half-play affordance belongs to and it stays
+    /// keyed to the turn, exactly as before.</para>
+    ///
+    /// <para>FOCUS PATH (user 2026-08-08: "die Kartenslots sind leer — ich will AUCH, dass dort dann
+    /// immer die jeweiligen ausgewählten Karten liegen"). The turn key was WRONG here, and that was
+    /// the whole bug: a player focuses a teammate precisely because that teammate is NOT acting, so
+    /// <c>TurnActor == hand.PlayerActor</c> was false for every switch the feature exists for and
+    /// the dock never filled. There is no data gap behind it —
+    /// <c>CCharacterClass.RoundAbilityCards</c> is per-character, host-replicated and populated from
+    /// the moment the round's cards are committed until the game DISCARDS them at the end of that
+    /// character's own turn (<c>GameState.cs:2286</c> → <c>CCharacterClass.DiscardRoundAbilityCards</c>,
+    /// <c>CCharacterClass.cs:505</c>). It is the very list the remote control board already renders a
+    /// peer's played cards from (<c>Net.RemoteControlBoard.OrderRoundCards</c>), so this adds no
+    /// channel and no wire byte: the same replicated model, drawn on the local board instead.</para>
+    ///
+    /// <para>THE GATE STAYS <see cref="RevealGate"/>, and it is asked EXPLICITLY here rather than
+    /// inferred from the turn. Belt: <see cref="Refusal"/> already refuses a focus outright during
+    /// <c>SelectAbilityCardsOrLongRest</c> and <see cref="ResolveHand"/> drops a live focus the
+    /// moment that window opens, so a read-only view cannot even exist then. Braces: this asks
+    /// <c>RevealGate.ShowRoundCardFronts(actor)</c> anyway — the same predicate the remote board
+    /// uses — so the secrecy rule is evaluated where the cards are about to be DRAWN, by the one
+    /// class that owns it, and a future caller cannot reach the dock around it.</para>
+    ///
+    /// <para>Read-only is unaffected: the dock only decides WHAT is shown. Every card it produces is
+    /// stamped non-grabbable / non-pokeable by the rebuild's per-card funnel, and the dock itself is
+    /// put in read-only mode (<c>HalfSelection.SetReadOnly</c>) so its poke zones are never armed and
+    /// the card canvas is never registered with the laser.</para>
     /// </summary>
-    internal static bool ViewActionTurn(CardsHandUI? hand)
+    /// <param name="source">Where the dock's content comes from, or why it is empty — log-safe and
+    /// short enough for a single line.</param>
+    internal static bool RoundCardDock(CardsHandUI? hand, out string source)
     {
         if (hand == null || hand.PlayerActor == null)
+        {
+            source = "no hand / no actor";
             return false;
+        }
+
         if (!_readOnlyView)
-            return CardsGameApi.IsActionTurn(hand); // vanilla path, unchanged
-        return ReferenceEquals(TurnActor, hand.PlayerActor);
+        {
+            // Vanilla path, byte-for-byte the pre-feature decision.
+            bool own = CardsGameApi.IsActionTurn(hand);
+            source = own
+                ? "the game's own action turn (CardsGameApi.IsActionTurn)"
+                : "not this character's action turn (CardsGameApi.IsActionTurn)";
+            return own;
+        }
+
+        if (!RevealGate.ShowRoundCardFronts(hand.PlayerActor))
+        {
+            source = $"gated by RevealGate — {SecretWindowReason}";
+            return false;
+        }
+
+        source = "the replicated model (CCharacterClass.RoundAbilityCards)";
+        return true;
+    }
+
+    /// <summary>
+    /// How many cards the game's replicated model currently names as this character's CHOSEN round
+    /// cards. Pure read of <c>CCharacterClass.RoundAbilityCards</c> (the same list
+    /// <c>CardsGameApi.IsInRound</c> tests against), used ONLY to make the slot-fill log line able
+    /// to tell "the model has nothing" apart from "the model has cards but no widget for them
+    /// exists on this client yet". Never a gate.
+    /// </summary>
+    internal static int ModelRoundCardCount(CardsHandUI? hand)
+    {
+        try
+        {
+            CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
+            CCharacterClass? cc = actor != null ? actor.CharacterClass : null;
+            return cc?.RoundAbilityCards?.Count ?? 0;
+        }
+        catch
+        {
+            return 0; // diagnostic only — a half-torn actor reads as "nothing to say"
+        }
     }
 
     // ---------------------------------------------------------------------------------- wire --
