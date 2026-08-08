@@ -1175,33 +1175,79 @@ internal static class NetProtocol
 
     /// <summary>
     /// Extension record id: WHICH CHARACTER THE SENDER IS CURRENTLY LOOKING AT — their EFFECTIVE
-    /// character focus — plus the one fact only they can know, namely whether the character
-    /// currently AT TURN is one of theirs.
+    /// character focus — plus the two facts only they can know: whether THE CHARACTER THE GAME IS
+    /// WAITING ON is one of theirs, and (when that character is not the one they are looking at)
+    /// WHICH character that is.
     ///
     /// <para>WHY IT RIDES THE WIRE (feature "free character focus"): in VR a player may focus any
     /// character during the action phase to read that character's hand, piles and played cards.
-    /// The rest of the table must be able to see (a) WHO owns the character whose turn it is and
-    /// (b) whether that player is actually LOOKING at the character they have to play — the green
-    /// / red control-board and Steam-avatar outlines. (a) is derivable from the replicated model on
-    /// every client only via the FFSNet controllable registry, which is <em>reflection</em> and
-    /// only authoritative on the owning client (<c>CActor.IsUnderMyControl</c> is a LOCAL flag —
+    /// The rest of the table must be able to see (a) WHO owns the character the game is waiting on
+    /// and (b) whether that player is actually LOOKING at the character they have to play — the
+    /// green / red control-board and Steam-avatar outlines. (a) is derivable from the replicated
+    /// model on every client only via the FFSNet controllable registry, which is <em>reflection</em>
+    /// and only authoritative on the owning client (<c>CActor.IsUnderMyControl</c> is a LOCAL flag —
     /// it is false on every other machine); (b) is a purely local VR presentation choice the game
-    /// model knows nothing about. So exactly those two facts travel, and nothing else.</para>
+    /// model knows nothing about. So exactly those facts travel, and nothing else.</para>
     ///
-    /// <para>LAYOUT — <see cref="CharFocusRecordBytes"/> = 5 bytes:
-    /// <c>[flags][int32 focusActorId LE]</c>.
+    /// <para><b>WHY BIT 0 GREW, AND WHY A SECOND FIELD HAD TO FOLLOW (2026-08-08).</b> Bit 0 used
+    /// to mean "the sender owns the actor AT TURN", and the receiver re-derived the green/red mark
+    /// by comparing the sender's focus id against ITS OWN read of
+    /// <c>Choreographer.CurrentPlayerActor</c>. That worked only because both machines agree about
+    /// the TURN — and that assumption is exactly what a pending DECISION breaks. The local cue is
+    /// now driven by <c>Board.CharacterFocus.AttentionActor</c> = "at turn, or (nobody at turn) the
+    /// character owing an OPEN DECISION"; a take-damage prompt is raised inside an ENEMY's action,
+    /// where <c>CurrentPlayerActor</c> is null on EVERY client. And the receiver cannot repair that
+    /// locally, by the GAME's own design: <c>UIScenarioMultiplayerController.RefreshDamagePhase</c>
+    /// routes a remote player's prompt through <c>TakeDamagePanel.ShowOtherPlayer</c>, which ends in
+    /// <c>myWindow.Hide(instant: true)</c> (TakeDamagePanel.cs:1133), so <c>IsOpen</c> is false and
+    /// both <c>Cards.CardsGameApi.DecidingHand</c> and
+    /// <c>WorldUI.Surfaces.DecisionDockSurface.PromptOwner</c> answer null on an observing client.
+    /// The SENDER must therefore state the answer; the receiver may not compute it.</para>
+    ///
+    /// <para>RE-DEFINING BIT 0's MEANING IS LEGAL HERE, and only here, because peers must run the
+    /// SAME <see cref="ModBuild"/> to play together at all — the version handshake raises the
+    /// mismatch dialog before any packet is interpreted (see <see cref="ExtIdModVersion"/>), so no
+    /// build that understands the old meaning can ever receive a packet written with the new one.
+    /// The wire <see cref="Version"/> byte therefore stays 3 and the change is purely additive.</para>
+    ///
+    /// <para>LAYOUT — <see cref="CharFocusRecordBytes"/> = 5 bytes, or
+    /// <see cref="CharFocusMaxRecordBytes"/> = 9 when flags bit 1 is set:
+    /// <c>[flags][int32 focusActorId LE]( [int32 attentionActorId LE] )</c>.
     /// <list type="bullet">
-    /// <item><c>flags</c> bit0 = <see cref="CharFocusOwnsTurnBit"/>: the sender OWNS the actor that
-    ///   is currently at turn (<c>Choreographer.CurrentActor</c> is under their control). Masked to
+    /// <item><c>flags</c> bit0 = <see cref="CharFocusOwnsAttentionBit"/>: the sender OWNS the
+    ///   character THE GAME IS WAITING ON — its turn, or an open decision it owes. Masked to
     ///   <see cref="CharFocusDefinedMask"/> on write AND on read.</item>
+    /// <item><c>flags</c> bit1 = <see cref="CharFocusAttentionIdBit"/>: a trailing
+    ///   <c>attentionActorId</c> follows, because the character being waited on is NOT the one in
+    ///   <c>focusActorId</c> (the sender is looking at somebody else — the RED state). When the bit
+    ///   is clear and bit 0 is set, the character being waited on IS <c>focusActorId</c> (the GREEN
+    ///   state), so the id is already present and is not sent twice. A trailing field guarded by a
+    ///   flag bit is the same forward-compatible shape every other record uses: a reader validates
+    ///   only what ITS flags demand and steps over the rest by the record's own length byte.</item>
     /// <item><c>focusActorId</c> = <c>NetFigures.StableActorId</c> of the focused character — the
     ///   FNV-1a-32 hash of the replicated <c>CActor.ActorGuid</c>, the one id space that agrees
     ///   across machines (the per-class <c>CActor.ID</c> collides and must never be used). It is
     ///   the SAME id space records 8 (second figure) and 16 (track hover) already ride.</item>
     /// </list></para>
     ///
-    /// <para>NO CARD IDENTITY, BY CONSTRUCTION: the payload names a CHARACTER, never a card. What a
-    /// receiver draws from it is an outline colour. A peer that wants to render the focused
+    /// <para>THE MARK IS A PURE FUNCTION OF THIS RECORD, and that is the point:
+    /// <c>attention = bit0 ? (bit1 ? trailingId : focusActorId) : 0</c>, and then
+    /// <c>mark = attention == 0 ? None : (attention == focusActorId ? green : red)</c> — no local
+    /// turn read enters it, so the two machines cannot disagree. A separate "mark" bit was
+    /// deliberately NOT added: it would be a THIRD statement of something these two fields already
+    /// determine exactly, and two encodings of one fact is the class of defect this change exists
+    /// to remove. The id is needed anyway (the mirrored initiative track has to know WHICH entry
+    /// wears the cue), so the mark comes for free.</para>
+    ///
+    /// <para>WHEN BIT 0 IS CLEAR the attention actor is NOT sent, and it does not need to be: with
+    /// no owned decision, <c>DecidingHand</c> is null by its own local-control gate, so the sender's
+    /// attention actor is exactly <c>Choreographer.CurrentPlayerActor</c> — replicated, and read
+    /// identically on every client. A receiver therefore substitutes its own turn actor there and
+    /// still reproduces the sender's steady gold "somebody else is up" ring byte for byte.</para>
+    ///
+    /// <para>NO CARD IDENTITY, BY CONSTRUCTION: the payload names CHARACTERS and flags, never a
+    /// card — that is unchanged by the second id, which is another actor in the same id space. What
+    /// a receiver draws from it is an outline colour. A peer that wants to render the focused
     /// character's cards reads them from the host-replicated <c>CPlayerActor.CharacterClass</c>
     /// through <see cref="RevealGate"/>, exactly as <c>RemoteAbilityCardSource</c> already does —
     /// this record adds no new disclosure channel of any kind.</para>
@@ -1210,21 +1256,39 @@ internal static class NetProtocol
     /// "none" everywhere in this system and is never emitted, so a client with no scenario — or a
     /// player who is merely spectating — emits a packet byte-identical to the previous build's.
     /// Absence means "no focus known", which renders as no outline at all: the pre-record
-    /// behaviour.</para>
+    /// behaviour. The 9-byte form appears ONLY in the red "looking at the wrong character" state,
+    /// so a table where everybody is looking at the right character still emits the 5-byte record
+    /// this record has always been.</para>
     /// </summary>
     public const byte ExtIdCharFocus = 22;
 
-    /// <summary>Flags bit 0 of <see cref="ExtIdCharFocus"/>: the SENDER owns the character that is
-    /// currently at turn. Only the owning client can evaluate this (<c>IsUnderMyControl</c> is a
-    /// local flag), which is precisely why it travels.</summary>
-    public const byte CharFocusOwnsTurnBit = 1 << 0;
+    /// <summary>Flags bit 0 of <see cref="ExtIdCharFocus"/>: the SENDER owns the character THE GAME
+    /// IS WAITING ON — the one at turn, or (nobody at turn) the one owing an open decision. Only
+    /// the owning client can evaluate either half (<c>IsUnderMyControl</c> is a local flag, and a
+    /// remote player's decision panel is hidden on every other machine), which is precisely why it
+    /// travels. Widened from "owns the actor at turn" on 2026-08-08 — legal because peers must
+    /// share a <see cref="ModBuild"/>; see the record doc.</summary>
+    public const byte CharFocusOwnsAttentionBit = 1 << 0;
+
+    /// <summary>Flags bit 1 of <see cref="ExtIdCharFocus"/>: a trailing <c>int32 attentionActorId</c>
+    /// follows the focus id, because the character the game is waiting on is NOT the one the sender
+    /// is looking at. Clear (with bit 0 set) means "it IS the focus id" — the common case, which
+    /// keeps the record at its original 5 bytes.</summary>
+    public const byte CharFocusAttentionIdBit = 1 << 1;
 
     /// <summary>Every flag bit <see cref="ExtIdCharFocus"/> defines today. Writer and reader both
     /// mask with it, so a future sender's extra bits can never light a meaning here.</summary>
-    public const byte CharFocusDefinedMask = CharFocusOwnsTurnBit;
+    public const byte CharFocusDefinedMask = CharFocusOwnsAttentionBit | CharFocusAttentionIdBit;
 
-    /// <summary>Payload size of <see cref="ExtIdCharFocus"/>: 1 flags byte + 4 actor-id bytes.</summary>
+    /// <summary>Minimum (and most common) payload size of <see cref="ExtIdCharFocus"/>: 1 flags
+    /// byte + 4 focus-actor-id bytes. Also the reader's length floor — a record shorter than this
+    /// is not delivered.</summary>
     public const int CharFocusRecordBytes = 5;
+
+    /// <summary>Payload size of <see cref="ExtIdCharFocus"/> with the
+    /// <see cref="CharFocusAttentionIdBit"/> tail: <see cref="CharFocusRecordBytes"/> + 4
+    /// attention-actor-id bytes.</summary>
+    public const int CharFocusMaxRecordBytes = CharFocusRecordBytes + 4;
 
     /// <summary>
     /// Extension record id: the BUTTON LABELS of the sender's DOCKED DECISION ROW — the real game

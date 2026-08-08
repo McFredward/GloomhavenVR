@@ -9,12 +9,17 @@ namespace GloomhavenVR.Net;
 /// that board's <see cref="OwnerTag"/>.
 ///
 /// <para>WHAT IT IS FED: nothing but a <see cref="FocusTurnMark"/> from
-/// <see cref="CharacterFocus.MarkForPeer"/>, which combines the peer's synced record 22 (their
-/// focused character + "the character at turn is mine") with THIS client's own read of who is at
-/// turn. So the turn itself is never taken on trust from a packet — only the two facts a receiver
-/// genuinely cannot derive travel, and everything else is re-derived locally. A peer with no
-/// record (an older build, a spectator, a scenario-less client) produces
-/// <see cref="FocusTurnMark.None"/> and therefore no outline at all: the pre-record behaviour.</para>
+/// <see cref="CharacterFocus.MarkForPeer"/> — which, since 2026-08-08, is a PURE FUNCTION of the
+/// peer's synced record 22 (the character they are looking at, the bit "the character the game is
+/// waiting on is mine", and that character's id when the two differ). No local state enters it.
+/// That is the fix: the mark used to be re-derived by comparing their focus against THIS client's
+/// <c>Choreographer.CurrentPlayerActor</c>, which is right only while both machines agree about
+/// what the game is waiting on — and a pending DECISION breaks exactly that (raised inside an
+/// ENEMY's action, where the turn actor is null everywhere, and hidden on every non-deciding
+/// machine by <c>TakeDamagePanel.ShowOtherPlayer</c> → <c>myWindow.Hide(instant: true)</c>,
+/// TakeDamagePanel.cs:1133). A peer with no record (an older build, a spectator, a scenario-less
+/// client) produces <see cref="FocusTurnMark.None"/> and therefore no outline at all: the
+/// pre-record behaviour.</para>
 ///
 /// <para>WHY IT SHARES <see cref="FocusCue"/> AND NOT A COPY OF IT: the local board, the local
 /// initiative rings and these two peer outlines must blink at the same rate, in the same phase and

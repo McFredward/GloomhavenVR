@@ -231,30 +231,49 @@ internal sealed class RemoteInitiativeTrack
     /// <summary>Stable actor id of the character the PEER is looking at (0 = none), record 22.</summary>
     private int _peerFocusActorId;
 
-    /// <summary>How the peer's focus relates to the character at turn — the colour of their board
-    /// frame, and of the ring this track puts on the at-turn entry.</summary>
+    /// <summary>
+    /// Stable actor id of the character THE GAME IS WAITING ON as far as this peer is concerned —
+    /// the entry that wears the attention ring, exactly as <c>FocusDriver.TickRings</c> rings
+    /// <c>CharacterFocus.AttentionActor</c> on their own track.
+    ///
+    /// <para>It is NOT this client's own turn read any more. That was correct only while "waiting
+    /// on" meant the turn; a pending DECISION is raised inside an enemy's action, where
+    /// <c>Choreographer.CurrentPlayerActor</c> is null on every client, so the ring had nowhere to
+    /// land. <c>CharacterFocus.AttentionIdForPeer</c> supplies the wire value when the peer owns
+    /// the character and falls back to the replicated turn actor when they do not — see its doc for
+    /// why that fallback is an identity rather than a guess.</para>
+    /// </summary>
+    private int _peerAttentionActorId;
+
+    /// <summary>How the peer's focus relates to the character the game is waiting on — the colour of
+    /// their board frame, and of the ring this track puts on the attention entry. Derived from
+    /// record 22 alone (<c>CharacterFocus.MarkForPeer</c>), never from local state.</summary>
     private Board.FocusTurnMark _peerFocusMark;
 
-    /// <summary>Change-gate for the focus log (actorId | mark; int.MinValue = never).</summary>
-    private int _loggedFocus = int.MinValue;
+    /// <summary>Change-gate for the focus log (focus id, attention id, mark).</summary>
+    private (int Focus, int Attention, Board.FocusTurnMark Mark) _loggedFocus = (-1, -1, (Board.FocusTurnMark)(-1));
 
     /// <summary>Hand the owner's synced character focus in (called per frame by the board next to
-    /// <see cref="SetPeerHover"/>). Cheap: two field writes + a change-gated log.</summary>
-    public void SetPeerFocus(int focusActorId, Board.FocusTurnMark mark)
+    /// <see cref="SetPeerHover"/>). Cheap: three field writes + a change-gated log.</summary>
+    public void SetPeerFocus(int focusActorId, int attentionActorId, Board.FocusTurnMark mark)
     {
         _peerFocusActorId = focusActorId;
+        _peerAttentionActorId = attentionActorId;
         _peerFocusMark = mark;
-        int key = focusActorId != 0 ? focusActorId * 4 + (int)mark : -1;
+        var key = (focusActorId, attentionActorId, mark);
         if (key == _loggedFocus)
             return;
         _loggedFocus = key;
         VRLog.Info("Net", "Remote initiative track focus: " +
                           (focusActorId != 0
-                              ? $"actor {focusActorId}, turn mark {mark} (extension record 22 — the " +
-                                "stable actor id of the character THIS peer is looking at, plus their " +
-                                "local-only 'the actor at turn is mine' bit; whose turn it is, this " +
-                                "client reads for itself). Same FocusCue colours and blink phase as " +
-                                "the local track — one palette, two surfaces."
+                              ? $"looking at actor {focusActorId}, game waiting on actor " +
+                                $"{attentionActorId}, mark {mark} (extension record 22 — the stable " +
+                                "actor id of the character THIS peer is looking at, their " +
+                                "'the character the game waits on is mine' bit and, when the two " +
+                                "differ, that character's id). The mark comes off the record alone, " +
+                                "so this mirror cannot disagree with the peer's own track about a " +
+                                "decision their machine can see and this one cannot. Same FocusCue " +
+                                "colours and blink phase as the local track — one palette, two surfaces."
                               : "none (no record 22 from this peer — the mirror rings nothing, which " +
                                 "is exactly what a pre-record build shows)."));
     }
@@ -360,12 +379,17 @@ internal sealed class RemoteInitiativeTrack
         if (_hoverNodes.Count == 0)
             return;
 
-        int turnId = Board.CharacterFocus.TurnActorId;
-        // Two rings never stack on one portrait: when the peer's focus IS the actor at turn the
-        // TURN ring (which carries the urgent colour) wins — the same rule the local track uses.
+        // THE ATTENTION ENTRY IS THE PEER'S, not this client's turn read — a peer answering a
+        // take-damage prompt during an ENEMY's action has no actor at turn on ANY machine, so the
+        // local turn id would leave their mirrored ring nowhere to land while their own track rings
+        // the deciding character. See _peerAttentionActorId.
+        int attentionId = _peerAttentionActorId;
+        // Two rings never stack on one portrait: when the peer's focus IS the character the game is
+        // waiting on, the ATTENTION ring (which carries the urgent colour) wins — the same rule the
+        // local track uses.
         Color? turnTint = _peerFocusMark != Board.FocusTurnMark.None
             ? Board.FocusCue.Tint(_peerFocusMark)
-            : (turnId != 0 ? Board.FocusCue.AtTurnRingTint() : (Color?)null);
+            : (attentionId != 0 ? Board.FocusCue.AtTurnRingTint() : (Color?)null);
         bool turnBreathes = _peerFocusMark != Board.FocusTurnMark.None;
 
         for (int i = 0; i < _hoverNodes.Count; i++)
@@ -373,7 +397,7 @@ internal sealed class RemoteInitiativeTrack
             HoverNode node = _hoverNodes[i];
             if (node.FocusRing == null || node.ActorId == 0)
                 continue;
-            bool isTurn = turnId != 0 && node.ActorId == turnId;
+            bool isTurn = attentionId != 0 && node.ActorId == attentionId;
             bool isFocus = _peerFocusActorId != 0 && node.ActorId == _peerFocusActorId;
 
             if (isTurn && turnTint != null)
@@ -397,10 +421,12 @@ internal sealed class RemoteInitiativeTrack
         if (Source != RemoteWidgetMirror.Fidelity.ModDrawn || _entries.Count == 0)
             return;
 
-        int turnId = Board.CharacterFocus.TurnActorId;
+        // Same source as the mirrored path — the PEER's attention actor, so the fallback strip and
+        // the mirrored track cannot disagree about which chip is lit.
+        int attentionId = _peerAttentionActorId;
         Color? turnTint = _peerFocusMark != Board.FocusTurnMark.None
             ? Board.FocusCue.Tint(_peerFocusMark)
-            : (turnId != 0 ? Board.FocusCue.AtTurnRingTint() : (Color?)null);
+            : (attentionId != 0 ? Board.FocusCue.AtTurnRingTint() : (Color?)null);
 
         int n = Mathf.Min(_entries.Count, MaxChips);
         for (int i = 0; i < n; i++)
@@ -412,7 +438,7 @@ internal sealed class RemoteInitiativeTrack
                 _chips[i].SetFocusTint(null);
                 continue;
             }
-            if (turnId != 0 && id == turnId && turnTint != null)
+            if (attentionId != 0 && id == attentionId && turnTint != null)
                 _chips[i].SetFocusTint(turnTint);
             else if (_peerFocusActorId != 0 && id == _peerFocusActorId)
                 _chips[i].SetFocusTint(Board.FocusCue.SelectionRingTint());

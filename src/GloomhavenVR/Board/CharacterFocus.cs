@@ -13,8 +13,9 @@ namespace GloomhavenVR.Board;
 /// vocabulary of the feature. The names keep their <c>AtTurn…</c> spelling because the colours and
 /// the blink are literally the ones the at-turn cue has always used; only the set of moments they
 /// appear in grew, and it grew by exactly the pending-decision moments the user reported as
-/// unmarked. The peer-side derivation (<see cref="CharacterFocus.MarkForPeer"/>) is still purely
-/// about the TURN — see its own remark for why, and what that costs.
+/// unmarked. The peer-side derivation (<see cref="CharacterFocus.MarkForPeer"/>) reproduces this
+/// enum EXACTLY, from wire record 22 alone and with no local turn read, so a mirrored board can
+/// never be wearing a state its owner's own board is not in.
 /// </summary>
 internal enum FocusTurnMark
 {
@@ -124,16 +125,26 @@ internal enum FocusTurnMark
 /// window this class refuses to open. So a focused view renders from the replicated model the
 /// local client already holds; NO card identity is added to our wire, here or anywhere.</para>
 ///
-/// <para>WHAT DOES RIDE THE WIRE: one record, <c>NetProtocol.ExtIdCharFocus</c> (22) — the
-/// stable id of the focused character plus one bit, "the character at turn is mine". Both are
-/// facts a receiver genuinely cannot derive: <c>CActor.IsUnderMyControl</c> is a LOCAL flag
-/// (false on every other machine), and the focus itself is a VR presentation choice the game
-/// model knows nothing about. Everything else the outlines need — who is at turn — every client
-/// reads for itself from the replicated <c>Choreographer.CurrentActor</c>.</para>
+/// <para>WHAT DOES RIDE THE WIRE: one record, <c>NetProtocol.ExtIdCharFocus</c> (22) — the stable
+/// id of the focused character, one bit "the character the game is waiting on is mine", and (only
+/// when those two are different characters) the stable id of the character being waited on. Every
+/// one of them is a fact a receiver genuinely cannot derive: <c>CActor.IsUnderMyControl</c> is a
+/// LOCAL flag (false on every other machine), the focus itself is a VR presentation choice the game
+/// model knows nothing about, and a remote player's OPEN DECISION is hidden by the game itself
+/// (<c>UIScenarioMultiplayerController.RefreshDamagePhase</c> →
+/// <c>TakeDamagePanel.ShowOtherPlayer</c> → <c>myWindow.Hide(instant: true)</c>,
+/// TakeDamagePanel.cs:1133 — so <c>IsOpen</c> is false and both <see cref="DecisionOwner"/>'s
+/// source and <c>DecisionDockSurface.PromptOwner</c> answer null on an observing client).</para>
+///
+/// <para>The only thing left to a receiver's own model read is the TURN, and only for the state
+/// where the two can never disagree: with bit 0 clear the sender's attention actor IS
+/// <c>Choreographer.CurrentPlayerActor</c> (a decision they do not own cannot be their attention
+/// actor — the chain is locally gated), which is replicated. See
+/// <see cref="AttentionIdForPeer"/>.</para>
 /// </summary>
-/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes (extras extension record 22, 5 B, only
-/// while a focus is known). Names a CHARACTER and a boolean; never a card. See
-/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// <remarks>CLASSIFICATION: VR-ONLY — costs wire bytes (extras extension record 22, 5 B, or 9 B in
+/// the "looking at the wrong character" state, and only while a focus is known). Names CHARACTERS
+/// and flags; never a card. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal static class CharacterFocus
 {
     /// <summary>The character the local player has focused, or null = "follow the game" (the
@@ -152,17 +163,25 @@ internal static class CharacterFocus
     /// <see cref="ApplyPeer"/> from the extras apply pass, read by the remote outlines.</summary>
     private static readonly Dictionary<int, PeerFocus> Peers = new(4);
 
-    /// <summary>One peer's synced focus. <see cref="OwnsTurn"/> is the wire bit; the mark is
-    /// derived locally so it always agrees with THIS client's read of who is at turn.</summary>
+    /// <summary>
+    /// One peer's synced cue, straight off record 22 — <see cref="ActorId"/> is the character they
+    /// are LOOKING at, <see cref="OwnsAttention"/> is the wire bit "the character the game is
+    /// waiting on is mine", and <see cref="AttentionId"/> is that character (0 when the bit is
+    /// clear). The mark is a pure function of these three (<see cref="MarkForPeer"/>) and reads no
+    /// local state at all: it used to be re-derived from THIS client's turn, which is precisely the
+    /// assumption a pending decision breaks — see <see cref="MarkForPeer"/>.
+    /// </summary>
     internal readonly struct PeerFocus
     {
         internal readonly int ActorId;
-        internal readonly bool OwnsTurn;
+        internal readonly bool OwnsAttention;
+        internal readonly int AttentionId;
 
-        internal PeerFocus(int actorId, bool ownsTurn)
+        internal PeerFocus(int actorId, bool ownsAttention, int attentionId)
         {
             ActorId = actorId;
-            OwnsTurn = ownsTurn;
+            OwnsAttention = ownsAttention;
+            AttentionId = attentionId;
         }
     }
 
@@ -365,31 +384,6 @@ internal static class CharacterFocus
     }
 
     /// <summary>
-    /// A PEER's turn mark, derived from their synced record and THIS client's own read of who is
-    /// at turn — so the two machines can never disagree about the turn itself, only about the
-    /// focus (which is the one thing the wire actually carries). Unknown peer / no record /
-    /// they do not own the turn ⇒ <see cref="FocusTurnMark.None"/>.
-    ///
-    /// <para>KNOWN LIMIT, stated rather than papered over: this is about the TURN only, so a peer
-    /// wearing the LOCAL cue for a pending DECISION (<see cref="DecisionOwner"/>, no actor at turn)
-    /// gets <see cref="FocusTurnMark.None"/> here — their mirrored board and mirrored initiative
-    /// track show nothing where their own board blinks. It is not a wire omission that could be
-    /// closed by sending one more bit of record 22: the receiver would still need the ID of the
-    /// character the peer is being waited on for, and BOTH existing resolvers refuse to name it on
-    /// a non-controlling client BY THE GAME'S OWN DESIGN — <c>UIScenarioMultiplayerController.
-    /// RefreshDamagePhase</c> routes a remote decision through <c>TakeDamagePanel.ShowOtherPlayer</c>,
-    /// which ends in <c>myWindow.Hide(instant: true)</c> (TakeDamagePanel.cs:1133), so
-    /// <c>IsOpen</c> is false and both <c>CardsGameApi.DecidingHand</c> and
-    /// <c>DecisionDockSurface.PromptOwner</c> answer null there. Closing it needs either a third
-    /// resolver reading the panel's fields around that gate or a new wire record; neither is in
-    /// scope for this fix. What DOES already cross: vanilla's own red
-    /// <c>InitiativeTrackPlayerBehaviour.ShowWarning</c> pulse is played on EVERY client
-    /// (Choreographer.cs:5477 runs before the online branch) and is plain GameObject +
-    /// transform state, so <c>RemoteWidgetMirror.Pair.Apply</c> carries it onto the mirrored track
-    /// unchanged — a peer's copy of the track shows the red damage overlay exactly as its owner
-    /// does.</para>
-    /// </summary>
-    /// <summary>
     /// The stable actor id of the character a PEER is looking at (0 = unknown / no record). The
     /// companion of <see cref="MarkForPeer"/>: the mark says whether their focus is the RIGHT one,
     /// this says WHICH one, so their mirrored initiative track can ring the same entry the local
@@ -398,14 +392,63 @@ internal static class CharacterFocus
     internal static int FocusIdForPeer(int playerId) =>
         Peers.TryGetValue(playerId, out PeerFocus peer) ? peer.ActorId : 0;
 
+    /// <summary>
+    /// The stable actor id of the character THE GAME IS WAITING ON as far as a PEER is concerned —
+    /// the entry their mirrored initiative track must ring, and the exact object their OWN track
+    /// rings (<c>FocusDriver.TickRings</c> passes <see cref="AttentionActor"/>).
+    ///
+    /// <para>TWO SOURCES, AND THE SPLIT IS NOT A COMPROMISE. When the peer OWNS the character being
+    /// waited on, the id comes off the wire (record 22, flags bit 0, plus bit 1's trailing id when
+    /// it differs from their focus) — it has to, because a decision they own is invisible on this
+    /// machine. When they do NOT own it, their attention actor can only be
+    /// <c>Choreographer.CurrentPlayerActor</c>: <see cref="DecisionOwner"/>'s chain is gated to
+    /// LOCALLY CONTROLLED actors (<c>CardsGameApi.TakeDamageHand</c> refuses unless the resolved
+    /// actor <c>IsUnderMyControl</c>), so a decision they do not own is never their attention actor
+    /// either — and the turn is replicated, so <see cref="TurnActorId"/> is the same integer on both
+    /// machines. Substituting it here is therefore an identity, not a guess.</para>
+    /// </summary>
+    internal static int AttentionIdForPeer(int playerId)
+    {
+        if (Peers.TryGetValue(playerId, out PeerFocus peer) && peer.AttentionId != 0)
+            return peer.AttentionId;
+        return TurnActorId;
+    }
+
+    /// <summary>
+    /// A PEER's attention mark — the colour their mirrored control board, their mirrored Steam
+    /// avatar and their mirrored initiative-track entry wear. Unknown peer / no record / they do not
+    /// own the character the game is waiting on ⇒ <see cref="FocusTurnMark.None"/>.
+    ///
+    /// <para>IT READS NOTHING LOCAL, AND THAT IS THE FIX (2026-08-08). It used to compare the peer's
+    /// focus id against THIS client's <see cref="TurnActorId"/>, which is correct only while both
+    /// machines agree about what the game is waiting on — the assumption a pending DECISION breaks,
+    /// because a take-damage prompt is raised inside an ENEMY's action where
+    /// <c>Choreographer.CurrentPlayerActor</c> is null on every client, and the receiver cannot
+    /// repair that locally: <c>UIScenarioMultiplayerController.RefreshDamagePhase</c> routes a remote
+    /// player's prompt through <c>TakeDamagePanel.ShowOtherPlayer</c>, which ends in
+    /// <c>myWindow.Hide(instant: true)</c> (TakeDamagePanel.cs:1133), so <c>IsOpen</c> is false and
+    /// both <c>CardsGameApi.DecidingHand</c> and <c>DecisionDockSurface.PromptOwner</c> answer null
+    /// there. So the SENDER states the two facts and this is now a pure function of them —
+    /// term for term the same expression <see cref="LocalMark"/> evaluates on the sender's machine
+    /// (own the attention actor at all? then: is it the one being looked at?), which is what makes
+    /// "im Multiplayer soll immer exakt das angezeigt werden was der User auch sieht"
+    /// structurally true rather than true by inspection.</para>
+    ///
+    /// <para>Vanilla's own red <c>InitiativeTrackPlayerBehaviour.ShowWarning</c> damage pulse is
+    /// untouched and still crosses on its own (Choreographer.cs:5477 runs on every client, and
+    /// <c>RemoteWidgetMirror.Pair.Apply</c> copies the resulting GameObject state) — the two cues
+    /// are drawn together on a peer's mirror exactly as they are on their own screen.</para>
+    /// </summary>
     internal static FocusTurnMark MarkForPeer(int playerId)
     {
-        if (!Peers.TryGetValue(playerId, out PeerFocus peer) || !peer.OwnsTurn)
+        if (!Peers.TryGetValue(playerId, out PeerFocus peer) || !peer.OwnsAttention)
             return FocusTurnMark.None;
-        int turnId = TurnActorId;
-        if (turnId == 0)
+        int attentionId = peer.AttentionId;
+        if (attentionId == 0)
             return FocusTurnMark.None;
-        return peer.ActorId == turnId ? FocusTurnMark.AtTurnCorrect : FocusTurnMark.AtTurnWrong;
+        return peer.ActorId == attentionId
+            ? FocusTurnMark.AtTurnCorrect
+            : FocusTurnMark.AtTurnWrong;
     }
 
     // ------------------------------------------------------------------------------ local focus --
@@ -830,28 +873,106 @@ internal static class CharacterFocus
         }
     }
 
-    /// <summary>Fill the sender's extras record (22). Called from the extras sampler.</summary>
-    internal static void Sample(out int focusActorId, out bool ownsTurn)
+    /// <summary>
+    /// Fill the sender's extras record (22). Called from the extras sampler.
+    ///
+    /// <para>THE THREE FIELDS ARE SAMPLED IN ONE PASS, from ONE walk of the attention chain, so
+    /// they can never describe two different moments: the mark a receiver derives from them is
+    /// <see cref="LocalMark"/> term for term, and a torn sample would be a mark that never existed
+    /// on this screen. <paramref name="attentionActorId"/> is 0 exactly when
+    /// <paramref name="ownsAttention"/> is false — the serializer then omits it, and the receiver
+    /// substitutes its own (identical, replicated) turn actor. See
+    /// <see cref="AttentionIdForPeer"/>.</para>
+    /// </summary>
+    internal static void Sample(out int focusActorId, out int attentionActorId,
+                               out bool ownsAttention)
     {
+        CPlayerActor? attention = AttentionActor; // ONE chain walk per packet
+        ownsAttention = attention != null && (!FFSNetwork.IsOnline || attention.IsUnderMyControl);
+        attentionActorId = ownsAttention ? NetFigures.StableActorId(attention) : 0;
         focusActorId = NetFigures.StableActorId(LookingAt);
-        ownsTurn = LocalOwnsTurn;
     }
 
     /// <summary>Apply a peer's decoded record 22. A packet WITHOUT the record clears that peer's
     /// entry, which is what makes an old-build (or scenario-less) peer render no outline at all —
     /// the pre-record behaviour.</summary>
-    internal static void ApplyPeer(int playerId, bool hasFocus, int actorId, bool ownsTurn)
+    internal static void ApplyPeer(int playerId, bool hasFocus, int actorId, bool ownsAttention,
+                                   int attentionActorId)
     {
         if (!hasFocus || actorId == 0)
         {
-            Peers.Remove(playerId);
+            if (Peers.Remove(playerId))
+                LogPeerCue(playerId, new PeerFocus(0, false, 0), FocusTurnMark.None);
             return;
         }
-        Peers[playerId] = new PeerFocus(actorId, ownsTurn);
+        var peer = new PeerFocus(actorId, ownsAttention,
+                                 ownsAttention ? attentionActorId : 0);
+        Peers[playerId] = peer;
+        LogPeerCue(playerId, peer, MarkForPeer(playerId));
+    }
+
+    /// <summary>Last cue logged per peer, so the receive-side line is CHANGE-GATED: record 22 rides
+    /// a 5 Hz packet, and a per-packet line would bury the one transition worth reading.</summary>
+    private static readonly Dictionary<int, (int Focus, int Attention, bool Owns, FocusTurnMark Mark)>
+        LoggedPeerCues = new(4);
+
+    /// <summary>
+    /// ONE line per peer whenever the cue this client applies for them changes — the receiving half
+    /// of the sender's "Character focus SENT" line, so a hardware round can be read from BOTH
+    /// machines: grep <c>Character focus</c> on the sender's log and
+    /// <c>[Focus] peer cue</c> on the observer's (<c>.planning/debug/remote/</c>). It names the bits
+    /// the mark came from, so "the peer's board is the wrong colour" is answerable without a repro.
+    /// </summary>
+    private static void LogPeerCue(int playerId, PeerFocus peer, FocusTurnMark mark)
+    {
+        var key = (peer.ActorId, peer.AttentionId, peer.OwnsAttention, mark);
+        if (LoggedPeerCues.TryGetValue(playerId, out var last) && last == key)
+            return;
+        LoggedPeerCues[playerId] = key;
+
+        if (peer.ActorId == 0)
+        {
+            VRLog.Info("Net", $"[Focus] peer cue CLEARED for player {playerId} — no record 22 in " +
+                              "their packet (older build, spectator, or no scenario). Their " +
+                              "mirrored board, avatar ring and initiative track show nothing, " +
+                              "which is exactly the pre-record behaviour.");
+            return;
+        }
+
+        string bits = peer.OwnsAttention
+            ? (peer.AttentionId != peer.ActorId
+                ? $"bit0 SET + bit1 SET (attention actor {peer.AttentionId} rode the record's " +
+                  "4-byte tail because it is NOT the character they are looking at)"
+                : "bit0 SET, bit1 clear (the character the game waits on IS the one they are " +
+                  "looking at, so the focus id carries it and no tail was sent)")
+            : "bit0 clear (the game is not waiting on a character of theirs; the attention id " +
+              $"shown is this client's own replicated turn actor {TurnActorId})";
+
+        string applied = mark switch
+        {
+            FocusTurnMark.AtTurnCorrect =>
+                "APPLIED: 'correct' blink (green, or calm white in mixed reality) on their mirrored " +
+                "board, their avatar ring and their track entry",
+            FocusTurnMark.AtTurnWrong =>
+                "APPLIED: 'wrong character' blink (red, or pumping amber in mixed reality) on their " +
+                "mirrored board, their avatar ring and their track entry",
+            _ =>
+                "APPLIED: no blink — at most the steady gold 'somebody is up' ring their own track " +
+                "also shows",
+        };
+
+        VRLog.Info("Net", $"[Focus] peer cue for player {playerId}: looking at actor {peer.ActorId}, " +
+                          $"game waiting on actor {AttentionIdForPeer(playerId)} — from {bits}. " +
+                          $"{applied}. The mark is a pure function of record 22 (no local turn read), " +
+                          "so it is the SAME mark their own screen is wearing.");
     }
 
     /// <summary>Forget a peer (they left / went stale).</summary>
-    internal static void ForgetPeer(int playerId) => Peers.Remove(playerId);
+    internal static void ForgetPeer(int playerId)
+    {
+        Peers.Remove(playerId);
+        LoggedPeerCues.Remove(playerId);
+    }
 
     /// <summary>Drop everything (scenario teardown, session end, module shutdown).</summary>
     internal static void Reset()
@@ -864,6 +985,7 @@ internal static class CharacterFocus
         _lastRefusedActorId = 0;
         _lastRefusalTime = float.NegativeInfinity;
         Peers.Clear();
+        LoggedPeerCues.Clear();
     }
 
     // --------------------------------------------------------------------------------- detail --
