@@ -135,11 +135,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentTrackHoverActor = int.MinValue;
     private bool _lastSentTrackHoverPopup;
 
-    /// <summary>Last sent CHARACTER FOCUS (extension record 22): the stable id of the character
-    /// we are looking at, and whether the character at turn is ours. int.MinValue = never sent, so
-    /// the first real focus of a session is always an edge.</summary>
+    /// <summary>Last sent CHARACTER FOCUS (extension record 22): the stable id of the character we
+    /// are looking at, the stable id of the character the game is WAITING ON (0 = not one of ours)
+    /// and whether we own that character. int.MinValue = never sent, so the first real focus of a
+    /// session is always an edge.</summary>
     private int _lastSentFocusActor = int.MinValue;
-    private bool _lastSentFocusOwnsTurn;
+    private int _lastSentFocusAttentionActor;
+    private bool _lastSentFocusOwnsAttention;
 
     // WALL FADES (extension record 17, MP wall-fade sync): the set of walls the LOCAL fade
     // decision currently hides, as sorted cross-machine keys. A set CHANGE is an edge with
@@ -330,6 +332,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
         _lastSentWallFadeCount = -1;             // …and the synced wall-fade set
         _lastSentFocusActor = int.MinValue;       // …and the character focus (record 22)
+        _lastSentFocusAttentionActor = 0;         // …including who the game was waiting on
         Board.CharacterFocus.Reset();             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentConfirmLabel = null;  // and the live cap labels
@@ -734,12 +737,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool trackHoverDue = trackHoverChanged && _extrasAccumulator >= fastInterval;
 
         // CHARACTER FOCUS (extension record 22, feature "free character focus"): which character
-        // we are LOOKING at, plus the one fact no receiver can derive — whether the character at
-        // turn is ours (IsUnderMyControl is a local flag). Both change on human timescales (a
-        // portrait click, a turn hand-off), so a plain change edge is enough; no pre-emption.
-        Board.CharacterFocus.Sample(out int focusActorNow, out bool focusOwnsTurnNow);
+        // we are LOOKING at, plus the facts no receiver can derive — whether the character THE GAME
+        // IS WAITING ON is ours (IsUnderMyControl is a local flag) and, when that is somebody other
+        // than the one we are looking at, WHICH character it is (a decision we owe is hidden on
+        // every other machine, TakeDamagePanel.cs:1133). All three change on human timescales (a
+        // portrait click, a turn hand-off, a prompt opening), so a plain change edge is enough; no
+        // pre-emption.
+        Board.CharacterFocus.Sample(out int focusActorNow, out int attentionActorNow,
+                                    out bool focusOwnsAttentionNow);
         bool focusChanged = focusActorNow != _lastSentFocusActor
-                            || focusOwnsTurnNow != _lastSentFocusOwnsTurn;
+                            || attentionActorNow != _lastSentFocusAttentionActor
+                            || focusOwnsAttentionNow != _lastSentFocusOwnsAttention;
 
         // WALL FADES (extension record 17): sample the local fade decision's ON set as
         // sorted keys and diff against the last sent set — see the field block's doc.
@@ -1187,19 +1195,31 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         {
             extras.HasCharFocus = true;
             extras.CharFocusActorId = focusActorNow;
-            extras.CharFocusOwnsTurn = focusOwnsTurnNow;
+            extras.CharFocusOwnsAttention = focusOwnsAttentionNow;
+            extras.CharFocusAttentionActorId = attentionActorNow;
         }
         if (focusChanged)
         {
             _lastSentFocusActor = focusActorNow;
-            _lastSentFocusOwnsTurn = focusOwnsTurnNow;
+            _lastSentFocusAttentionActor = attentionActorNow;
+            _lastSentFocusOwnsAttention = focusOwnsAttentionNow;
+            bool focusTail = focusOwnsAttentionNow && attentionActorNow != 0
+                             && attentionActorNow != focusActorNow;
             VRLog.Info("Net", focusActorNow != 0
-                ? $"Character focus SENT: actor {focusActorNow}, ownsTurn={focusOwnsTurnNow} — " +
-                  "extension record 22 (5 B: the stable ActorGuid hash of the character we are " +
-                  "LOOKING at, plus the local-only 'the actor at turn is mine' bit). NO card " +
-                  "identity: peers colour an outline from this and read any card they draw from " +
-                  "the host-replicated model through RevealGate, exactly as before."
-                : "Character focus SENT: none — record omitted (peers show us no turn outline).");
+                ? $"Character focus SENT: looking at actor {focusActorNow}, " +
+                  $"ownsAttention={focusOwnsAttentionNow}, game waiting on actor " +
+                  $"{attentionActorNow} — extension record 22, " +
+                  $"{(focusTail ? "9 B (bit0 + bit1: the attention actor is NOT the one we are " +
+                                  "looking at, so its id rides the flag-guarded tail — this is the " +
+                                  "'wrong character' state, and it is the case a receiver cannot " +
+                                  "derive during a decision)"
+                                : "5 B (bit0 only: the attention actor IS the one we are looking " +
+                                  "at, so the focus id already names it and no tail is sent)")}. " +
+                  "The mark peers draw is a pure function of these fields — no receiver re-derives " +
+                  "it from its own turn read any more. NO card identity: peers colour an outline " +
+                  "from this and read any card they draw from the host-replicated model through " +
+                  "RevealGate, exactly as before."
+                : "Character focus SENT: none — record omitted (peers show us no attention outline).");
         }
 
         // WALL FADES (extension record 17): written only while the local decision fades at
@@ -1534,14 +1554,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     }
 
                     // CHARACTER FOCUS (extension record 22): which character this peer is looking
-                    // at, plus their local-only "the actor at turn is mine" bit. Applied HERE
-                    // rather than through RemoteAvatar because the consumer is a static cue table
-                    // (CharacterFocus) that several renderers read — the peer's board frame, their
-                    // Steam-avatar ring — and not a property of the avatar itself. A packet
-                    // WITHOUT the record clears the peer's entry, which is exactly what an older
-                    // build transmits and what "no outline" must mean.
+                    // at, plus their local-only "the character the game is waiting on is mine" bit
+                    // and (when it differs) that character's id. Applied HERE rather than through
+                    // RemoteAvatar because the consumer is a static cue table (CharacterFocus) that
+                    // several renderers read — the peer's board frame, their Steam-avatar ring,
+                    // their mirrored initiative track — and not a property of the avatar itself. A
+                    // packet WITHOUT the record clears the peer's entry, which is exactly what an
+                    // older build transmits and what "no outline" must mean.
                     Board.CharacterFocus.ApplyPeer(kv.Key, p.HasCharFocus, p.CharFocusActorId,
-                                                   p.CharFocusOwnsTurn);
+                                                   p.CharFocusOwnsAttention,
+                                                   p.CharFocusAttentionActorId);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }

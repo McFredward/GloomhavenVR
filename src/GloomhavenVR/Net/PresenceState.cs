@@ -457,13 +457,25 @@ internal struct PresenceState
     /// <see cref="HasCharFocus"/>; never 0 — 0 is "none" everywhere in this system.</summary>
     public int CharFocusActorId;
 
-    /// <summary>True when the character currently AT TURN is under the SENDER's control. Only the
-    /// owning client can evaluate this (<c>CActor.IsUnderMyControl</c> is a local flag), which is
-    /// why it travels; receivers combine it with their own read of
-    /// <c>Choreographer.CurrentActor</c> to colour the sender's board outline green (focus == the
-    /// actor at turn) or red (focus is some other character). Meaningful only when
-    /// <see cref="HasCharFocus"/>.</summary>
-    public bool CharFocusOwnsTurn;
+    /// <summary>True when the character THE GAME IS WAITING ON — at turn, or (nobody at turn) the
+    /// one owing an open decision — is under the SENDER's control. Only the owning client can
+    /// evaluate either half (<c>CActor.IsUnderMyControl</c> is a local flag, and a remote player's
+    /// decision panel is hidden on every other machine), which is why it travels. Meaningful only
+    /// when <see cref="HasCharFocus"/>.</summary>
+    public bool CharFocusOwnsAttention;
+
+    /// <summary>
+    /// Stable id of the character the game is waiting on (0 = nobody, or nobody the sender owns).
+    /// The receiver's whole answer: the mark is <c>this == CharFocusActorId</c> ? green : red, and
+    /// the mirrored initiative track rings THIS entry. Meaningful only when
+    /// <see cref="HasCharFocus"/> and <see cref="CharFocusOwnsAttention"/>.
+    ///
+    /// <para>ON THE WIRE ONLY WHEN IT DIFFERS from <see cref="CharFocusActorId"/> (record 22 flags
+    /// bit 1): when the sender is looking AT the character being waited on, the focus id already
+    /// carries it. The serializer applies that rule; both sides of it read this one field, so a
+    /// caller never has to know which form went out.</para>
+    /// </summary>
+    public int CharFocusAttentionActorId;
 }
 
 /// <summary>
@@ -582,7 +594,9 @@ internal static class PresenceSerializer
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
     /// + 101 (cap labels: 2 + mask 1 + 2 × (len 1 + 48-byte cap)) + 4 (half hover+select: 2 + 2)
     /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5)
-    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap) + 7 (character focus: 2 + 5) = 824,
+    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap)
+    /// + 11 (character focus: 2 + its 9-byte maximum — the 5-byte form plus the flag-guarded
+    /// attention-actor id) = 828,
     /// still inside the 848 headroom. Local buffer bound only — nothing on the wire depends on it, and every
     /// variable-length record still bounds-checks against the real buffer before writing.</summary>
     public const int MaxSize = 848;
@@ -984,23 +998,39 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
+                // CHARACTER FOCUS (22): [flags][int32 focusActorId LE]( [int32 attentionActorId] ).
+                // The trailing attention id rides ONLY when the character the game is waiting on is
+                // not the one the sender is looking at (the RED state) — otherwise the focus id
+                // already names it, so the record keeps the 5 bytes it has always had. The length
+                // is therefore computed BEFORE the buffer check, not assumed.
+                bool cfAttentionTail = state.CharFocusOwnsAttention
+                                       && state.CharFocusAttentionActorId != 0
+                                       && state.CharFocusAttentionActorId != state.CharFocusActorId;
+                int cfBytes = cfAttentionTail
+                    ? NetProtocol.CharFocusMaxRecordBytes
+                    : NetProtocol.CharFocusRecordBytes;
                 if (state.HasCharFocus && state.CharFocusActorId != 0
-                    && i + 2 + NetProtocol.CharFocusRecordBytes <= buffer.Length)
+                    && i + 2 + cfBytes <= buffer.Length)
                 {
-                    // CHARACTER FOCUS (22): [flags][int32 focusActorId LE]. The character the
-                    // sender is LOOKING at, by the stable ActorGuid hash (the per-class CActor.ID
-                    // collides — see NetFigures); flags bit0 says the sender owns the actor at
-                    // turn, the one half of the pair no receiver can evaluate for itself. The
-                    // flags byte is masked to the defined bits; actor id 0 is "none" everywhere
-                    // and is never emitted, so a spectating / scenario-less client stays
-                    // byte-identical to a pre-record sender.
+                    // Flags bit0 says the sender owns the character THE GAME IS WAITING ON (its
+                    // turn, or an open decision it owes) and bit1 announces the tail — the two
+                    // facts no receiver can evaluate for itself, because IsUnderMyControl is a
+                    // local flag and a remote player's decision panel is hidden on every other
+                    // machine (TakeDamagePanel.cs:1133). The ids are stable ActorGuid hashes (the
+                    // per-class CActor.ID collides — see NetFigures). The flags byte is masked to
+                    // the defined bits; actor id 0 is "none" everywhere and is never emitted, so a
+                    // spectating / scenario-less client stays byte-identical to a pre-record sender.
                     byte cfFlags = 0;
-                    if (state.CharFocusOwnsTurn)
-                        cfFlags |= NetProtocol.CharFocusOwnsTurnBit;
+                    if (state.CharFocusOwnsAttention)
+                        cfFlags |= NetProtocol.CharFocusOwnsAttentionBit;
+                    if (cfAttentionTail)
+                        cfFlags |= NetProtocol.CharFocusAttentionIdBit;
                     buffer[i++] = NetProtocol.ExtIdCharFocus;
-                    buffer[i++] = (byte)NetProtocol.CharFocusRecordBytes;
+                    buffer[i++] = (byte)cfBytes;
                     buffer[i++] = (byte)(cfFlags & NetProtocol.CharFocusDefinedMask);
                     AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusActorId);
+                    if (cfAttentionTail)
+                        AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusAttentionActorId);
                     records++;
                 }
                 buffer[countAt] = records;
@@ -1553,19 +1583,36 @@ internal static class PresenceSerializer
                     else if (id == NetProtocol.ExtIdCharFocus
                              && len >= NetProtocol.CharFocusRecordBytes)
                     {
-                        // CHARACTER FOCUS: [flags][int32 focusActorId LE]. Actor id 0 is "none"
-                        // everywhere in this system and can never name a character, so a zero id
-                        // degrades to "record absent" = no outline, exactly what pre-record peers
-                        // render. The flags byte is re-masked to the bits this build defines, so
-                        // a newer sender's extra bits can never light a meaning here.
+                        // CHARACTER FOCUS: [flags][int32 focusActorId LE]( [int32 attentionActorId] ).
+                        // Actor id 0 is "none" everywhere in this system and can never name a
+                        // character, so a zero id degrades to "record absent" = no outline, exactly
+                        // what pre-record peers render. The flags byte is re-masked to the bits this
+                        // build defines, so a newer sender's extra bits can never light a meaning
+                        // here.
+                        //
+                        // THE TRAILING ATTENTION ID is read only when bit 1 demands it AND the
+                        // record is really long enough — "validate only what MY flags demand" cuts
+                        // both ways, so a truncated tail degrades to the 5-byte meaning (the
+                        // character being waited on IS the focus) rather than to a torn read.
                         byte cfFlags = (byte)(buffer[i] & NetProtocol.CharFocusDefinedMask);
                         int j = i + 1;
                         int focusActor = AvatarSerializer.ReadI32(buffer, ref j);
                         if (focusActor != 0)
                         {
+                            bool ownsAttention =
+                                (cfFlags & NetProtocol.CharFocusOwnsAttentionBit) != 0;
+                            int attentionActor = ownsAttention ? focusActor : 0;
+                            if (ownsAttention && (cfFlags & NetProtocol.CharFocusAttentionIdBit) != 0
+                                && len >= NetProtocol.CharFocusMaxRecordBytes)
+                            {
+                                int tail = AvatarSerializer.ReadI32(buffer, ref j);
+                                if (tail != 0)
+                                    attentionActor = tail;
+                            }
                             state.HasCharFocus = true;
                             state.CharFocusActorId = focusActor;
-                            state.CharFocusOwnsTurn = (cfFlags & NetProtocol.CharFocusOwnsTurnBit) != 0;
+                            state.CharFocusOwnsAttention = ownsAttention;
+                            state.CharFocusAttentionActorId = attentionActor;
                         }
                     }
                     else if (id == NetProtocol.ExtIdTrackHover

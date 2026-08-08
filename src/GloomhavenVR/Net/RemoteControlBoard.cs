@@ -583,12 +583,15 @@ internal sealed class RemoteControlBoard
         // the LOCAL player's — defect (b) of the initiative-mouseover report).
         _track?.SetPeerHover(_owner.TrackHoverActorId, _owner.TrackHoverPopup);
         // CHARACTER FOCUS (extension record 22) — handed in on the same seam and for the same
-        // reason: which entry this peer is LOOKING at, and how that relates to the character at
-        // turn. The board's own green/red frame (RemoteFocusOutline) and these track rings are two
-        // renderings of ONE state, from one palette, so a peer's board can never say "wrong
-        // character" while their track says nothing. The mark is re-derived locally every frame
-        // from THIS client's read of who is at turn; only their focus comes off the wire.
+        // reason: which entry this peer is LOOKING at, which entry THE GAME IS WAITING ON for them,
+        // and the mark that relates the two. The board's own green/red frame (RemoteFocusOutline)
+        // and these track rings are two renderings of ONE state, from one palette, so a peer's board
+        // can never say "wrong character" while their track says nothing. Since 2026-08-08 the mark
+        // is a pure function of the record (CharacterFocus.MarkForPeer) rather than a local turn
+        // read: a peer answering a prompt during an enemy's action has no actor at turn on ANY
+        // machine, and their decision is invisible on this one (TakeDamagePanel.cs:1133).
         _track?.SetPeerFocus(Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId),
+                             Board.CharacterFocus.AttentionIdForPeer(_owner.PlayerId),
                              Board.CharacterFocus.MarkForPeer(_owner.PlayerId));
         _track?.TickLive();
         _objectives?.TickLive();

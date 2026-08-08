@@ -1805,13 +1805,21 @@ internal static class GoldenVectors
 
         // -- 7q. CHARACTER FOCUS (extension record 22) --------------------------------------
         // Which character the sender is LOOKING at (free character focus), by the stable
-        // ActorGuid hash, plus the one fact only they can know: whether the character at turn is
-        // theirs. Ids 18..21 are deliberately skipped — reserved for records developed in
-        // parallel, and a shipped id can never be renumbered.
+        // ActorGuid hash, plus the facts only they can know: whether the character THE GAME IS
+        // WAITING ON is theirs (flags bit 0) and, when that is somebody OTHER than the character
+        // they are looking at, which one it is (flags bit 1 + a trailing int32). Ids 18..21 are
+        // deliberately skipped — reserved for records developed in parallel, and a shipped id can
+        // never be renumbered.
+        //
+        // THE MARK A RECEIVER DRAWS IS A PURE FUNCTION OF THIS RECORD, which is the whole point of
+        // the 2026-08-08 change: bit0 clear = no mark, bit0 set with attention == focus = GREEN,
+        // bit0 set with attention != focus = RED. The vectors below cover all three, in both the
+        // 5-byte and the 9-byte form, plus the old-style packet that carries neither.
         t.Case("7q. extras, character-focus record");
         m = PresenceSerializer.Write(new PresenceState
         {
-            HasCharFocus = true, CharFocusActorId = 0x0A0B0C0D, CharFocusOwnsTurn = true,
+            HasCharFocus = true, CharFocusActorId = 0x0A0B0C0D,
+            CharFocusOwnsAttention = true, CharFocusAttentionActorId = 0x0A0B0C0D,
         }, ext);
         t.Wire(Hex.Bytes(@"
             31 52 56 47 03 01
@@ -1820,20 +1828,54 @@ internal static class GoldenVectors
             80 00            // byte A: extension tail; byte B: browse count 0
             01               // tail: 1 record
             16 05            // id 22 (character focus), len 5
-            01               // flags: bit0 the sender owns the actor at turn
+            01               // flags: bit0 the sender owns the character being waited on;
+                             //        bit1 CLEAR — that character IS the focus id below
             0D 0C 0B 0A      // focus actor id LE
-            "), ext, m, "the character-focus record is [id 22][len 5][flags][focus actorId LE]");
+            "), ext, m, "GREEN: attention == focus writes the 5-byte form, bit1 clear");
         t.Equal(18, m, "header 7 + count 1 + block 2 + tail 1 + 7 = 18 bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cf), "and it parses");
         t.True(cf.HasCharFocus, "the focus is delivered");
         t.Equal(0x0A0B0C0D, cf.CharFocusActorId, "with the stable actor id intact");
-        t.True(cf.CharFocusOwnsTurn, "and the owns-the-turn flag set");
+        t.True(cf.CharFocusOwnsAttention, "and the owns-the-attention-actor flag set");
+        t.Equal(0x0A0B0C0D, cf.CharFocusAttentionActorId,
+                "and the attention actor read back as the focus id (no tail was needed)");
+        t.Equal(FocusMark.Green, MarkOf(cf), "so the receiver derives GREEN");
 
-        // The flag is genuinely independent of the id (a player focusing a character while
-        // somebody ELSE is at turn — the common case for a spectating focus).
+        // RED: the sender owns the character the game is waiting on but is LOOKING at another one.
+        // This is the case the wire could not express before, and the case the whole change is
+        // for: during a pending DECISION there is no actor at turn on ANY machine, so a receiver
+        // re-deriving the mark from its own turn read produced NO mark at all.
         m = PresenceSerializer.Write(new PresenceState
         {
-            HasCharFocus = true, CharFocusActorId = 0x00000011, CharFocusOwnsTurn = false,
+            HasCharFocus = true, CharFocusActorId = 0x0A0B0C0D,
+            CharFocusOwnsAttention = true, CharFocusAttentionActorId = 0x00BBAA99,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            01
+            16 09            // id 22, len 9 — the flag-guarded tail rides along
+            03               // flags: bit0 owns the attention actor + bit1 its id follows
+            0D 0C 0B 0A      // focus actor id LE (the character being LOOKED at)
+            99 AA BB 00      // attention actor id LE (the character being WAITED ON)
+            "), ext, m, "RED: attention != focus writes the 9-byte form with bit1 set");
+        t.Equal(22, m, "the tail costs exactly four more bytes than the green form");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cfRed), "and it parses");
+        t.Equal(0x0A0B0C0D, cfRed.CharFocusActorId, "the focus id is the character being looked at");
+        t.True(cfRed.CharFocusOwnsAttention, "the owns-the-attention-actor flag survives");
+        t.Equal(0x00BBAA99, cfRed.CharFocusAttentionActorId,
+                "and the trailing attention id is delivered, not confused with the focus id");
+        t.Equal(FocusMark.Red, MarkOf(cfRed), "so the receiver derives RED");
+
+        // The flag is genuinely independent of the id (a player focusing a character while
+        // somebody ELSE is being waited on — the common case for a spectating focus). With bit 0
+        // clear the attention id is NOT sent: the sender's attention actor can then only be the
+        // replicated turn actor, which every client reads identically for itself.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasCharFocus = true, CharFocusActorId = 0x00000011,
+            CharFocusOwnsAttention = false, CharFocusAttentionActorId = 0x00BBAA99,
         }, ext);
         t.Wire(Hex.Bytes(@"
             31 52 56 47 03 01
@@ -1841,9 +1883,15 @@ internal static class GoldenVectors
             80 00
             01
             16 05
-            00               // flags: the sender does NOT own the actor at turn
+            00               // flags: the sender does NOT own the character being waited on
             11 00 00 00
-            "), ext, m, "a focus without the turn writes flags 0");
+            "), ext, m, "no owned attention actor writes flags 0 and NO tail, even when the "
+                        + "sender's state names one");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cfNone), "and it parses");
+        t.True(!cfNone.CharFocusOwnsAttention, "with the attention flag clear");
+        t.Equal(0, cfNone.CharFocusAttentionActorId,
+                "and no attention actor at all — the receiver substitutes its own turn read");
+        t.Equal(FocusMark.None, MarkOf(cfNone), "so the receiver derives NO mark");
 
         // IDLE IDENTITY: no focus -> no record, and the packet is byte-identical to what a
         // sender predating record 22 produces for the same state.
@@ -1862,13 +1910,33 @@ internal static class GoldenVectors
                "a hand-built zero-id focus record still parses the packet");
         t.True(!cfZero.HasCharFocus, "and is simply not delivered");
 
+        // OLD-STYLE PACKET (the 5-byte record every build before 2026-08-08 wrote, with bit 1
+        // undefined and therefore clear): still parses, and still means what it always meant —
+        // the sender owns the character being waited on and it IS the one they are looking at.
+        // The green cue is byte-for-byte the pre-change behaviour; nothing regressed for the case
+        // the old wire could express.
+        byte[] oldStyle = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 05 01 22 00 00 00");
+        t.True(PresenceSerializer.TryRead(oldStyle, oldStyle.Length, out PresenceState cfOld),
+               "an old-style 5-byte record 22 still parses");
+        t.Equal(0x22, cfOld.CharFocusActorId, "with its focus id intact");
+        t.True(cfOld.CharFocusOwnsAttention, "bit0 still means 'the game is waiting on mine'");
+        t.Equal(0x22, cfOld.CharFocusAttentionActorId,
+                "and the attention actor falls back to the focus id, no tail required");
+        t.Equal(FocusMark.Green, MarkOf(cfOld), "so an old-style packet still derives GREEN");
+
         // FLAG CLAMP: a future sender's undefined flag bits are masked off on read, so they can
-        // never light a meaning this build does not define.
+        // never light a meaning this build does not define. FE = 1111_1110: bit0 clear, bit1 set,
+        // and six undefined bits — the DEFINED bit 1 must survive the mask while the rest die.
+        // With bit0 clear the tail is not read at all (the flags do not demand it), so the record
+        // still means "no owned attention actor".
         byte[] wildFlags = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 05 FE 11 00 00 00");
         t.True(PresenceSerializer.TryRead(wildFlags, wildFlags.Length, out PresenceState cfWild),
                "undefined focus flag bits still parse");
         t.True(cfWild.HasCharFocus && cfWild.CharFocusActorId == 0x11, "the id survives");
-        t.True(!cfWild.CharFocusOwnsTurn, "and every undefined bit is masked away");
+        t.True(!cfWild.CharFocusOwnsAttention, "and every undefined bit is masked away");
+        t.Equal(0, cfWild.CharFocusAttentionActorId,
+                "bit1 alone never names an attention actor — bit0 is what claims one");
+        t.Equal(FocusMark.None, MarkOf(cfWild), "so the mark stays None");
 
         // TRUNCATED record (claims 5 payload bytes, delivers 2): tail abandoned, nothing throws.
         byte[] cutFocus = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 05 01 11");
@@ -1876,13 +1944,33 @@ internal static class GoldenVectors
                "a truncated focus record still parses the packet");
         t.True(!cutFocusS.HasCharFocus, "and the incomplete record is simply not delivered");
 
+        // TRUNCATED ATTENTION TAIL: bit 1 promises nine payload bytes, the length byte says five.
+        // "Validate only what MY flags demand" cuts both ways — the reader honours the LENGTH, so
+        // the record degrades to its 5-byte meaning (attention == focus, GREEN) instead of reading
+        // four bytes that are not there.
+        byte[] shortTail = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 05 03 22 00 00 00");
+        t.True(PresenceSerializer.TryRead(shortTail, shortTail.Length, out PresenceState cfShort),
+               "a bit1 record whose length byte excludes the tail still parses");
+        t.Equal(0x22, cfShort.CharFocusAttentionActorId,
+                "and degrades to 'the attention actor IS the focus', never to a torn read");
+        t.Equal(FocusMark.Green, MarkOf(cfShort), "so it derives GREEN rather than a phantom RED");
+
+        // A ZERO in the tail is the same sentinel it is everywhere else: it can never name a
+        // character, so the record falls back to the 5-byte meaning instead of claiming nobody.
+        byte[] zeroTail = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 16 09 03 22 00 00 00 00 00 00 00");
+        t.True(PresenceSerializer.TryRead(zeroTail, zeroTail.Length, out PresenceState cfZeroTail),
+               "a zero attention id in the tail still parses");
+        t.Equal(0x22, cfZeroTail.CharFocusAttentionActorId, "and is clamped to the focus id");
+        t.Equal(FocusMark.Green, MarkOf(cfZeroTail), "so it derives GREEN, not a mark on nobody");
+
         // ID ORDER: record 22 rides LAST, behind every record that already existed — and to a
         // peer predating it, id 22 is an unknown record it steps over by length.
         m = PresenceSerializer.Write(new PresenceState
         {
             HasPileCounts = true, PileDiscardCount = 1,
             HasTrackHover = true, TrackHoverActorId = 0x11,
-            HasCharFocus = true, CharFocusActorId = 0x22, CharFocusOwnsTurn = true,
+            HasCharFocus = true, CharFocusActorId = 0x22,
+            CharFocusOwnsAttention = true, CharFocusAttentionActorId = 0x22,
         }, ext);
         t.Wire(Hex.Bytes(@"
             31 52 56 47 03 01
@@ -1891,12 +1979,36 @@ internal static class GoldenVectors
             03                   // tail: 3 records, in id order
             0F 03 01 00 00       // id 15 pile counts: 1/0/0
             10 05 00 11 00 00 00 // id 16 track hover: no popup, actor 0x11
-            16 05 01 22 00 00 00 // id 22 character focus: owns turn, actor 0x22
+            16 05 01 22 00 00 00 // id 22 character focus: owns the attention actor, actor 0x22
             "), ext, m, "record 22 rides the tail behind records 15 and 16 (id order 15, 16, 22)");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cfCombo), "and the combo parses");
         t.True(cfCombo.HasPileCounts && cfCombo.HasTrackHover && cfCombo.HasCharFocus,
                "with all three records delivered");
         t.Equal(0x22, cfCombo.CharFocusActorId, "and the focus id is not confused with the hover id");
+
+        // The SAME neighbourhood with record 22 in its 9-byte form: the trailing attention id must
+        // not bleed into the next record and the tail count must still be right. This is the
+        // vector that would catch a length byte left at 5 while nine bytes are written.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTrackHover = true, TrackHoverActorId = 0x11,
+            HasCharFocus = true, CharFocusActorId = 0x22,
+            CharFocusOwnsAttention = true, CharFocusAttentionActorId = 0x33,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            02                            // tail: 2 records, in id order
+            10 05 00 11 00 00 00          // id 16 track hover: no popup, actor 0x11
+            16 09 03 22 00 00 00 33 00 00 00 // id 22: bit0+bit1, focus 0x22, attention 0x33
+            "), ext, m, "the 9-byte record 22 keeps its place and its length byte in a full tail");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cfTailCombo),
+               "and the 9-byte combo parses");
+        t.Equal(0x11, cfTailCombo.TrackHoverActorId, "the hover id ahead of it is untouched");
+        t.Equal(0x22, cfTailCombo.CharFocusActorId, "the focus id is intact");
+        t.Equal(0x33, cfTailCombo.CharFocusAttentionActorId, "and the attention id is intact");
+        t.Equal(FocusMark.Red, MarkOf(cfTailCombo), "so the receiver derives RED");
 
 
         // -- 8. Non-default-only transmission --------------------------------------------
@@ -2062,5 +2174,32 @@ internal static class GoldenVectors
         && x.SkipCapLabel == y.SkipCapLabel
         && x.HasCharFocus == y.HasCharFocus
         && x.CharFocusActorId == y.CharFocusActorId
-        && x.CharFocusOwnsTurn == y.CharFocusOwnsTurn;
+        && x.CharFocusOwnsAttention == y.CharFocusOwnsAttention
+        && x.CharFocusAttentionActorId == y.CharFocusAttentionActorId;
+
+    /// <summary>The three states of the attention cue, mirrored from <c>Board.FocusTurnMark</c> —
+    /// that enum lives in the plugin assembly (UnityEngine types all the way down) and cannot be
+    /// referenced here, so the DERIVATION is restated instead. Named strings rather than an enum so
+    /// a failure prints the mark that was expected, not an ordinal.</summary>
+    private static class FocusMark
+    {
+        internal const string None = "FocusTurnMark.None";
+        internal const string Green = "FocusTurnMark.AtTurnCorrect";
+        internal const string Red = "FocusTurnMark.AtTurnWrong";
+    }
+
+    /// <summary>
+    /// THE RECEIVER'S DERIVATION, in the one line <c>Board.CharacterFocus.MarkForPeer</c> runs —
+    /// restated here so the golden vectors assert the MARK a peer actually wears and not merely the
+    /// bytes that carry it. It reads nothing but the decoded record: that independence from local
+    /// turn state is precisely the property under test (before 2026-08-08 the mark was derived by
+    /// comparing the focus id against the receiver's own <c>Choreographer.CurrentPlayerActor</c>,
+    /// which is null on every client during a pending decision).
+    /// </summary>
+    private static string MarkOf(in PresenceState s)
+    {
+        if (!s.HasCharFocus || !s.CharFocusOwnsAttention || s.CharFocusAttentionActorId == 0)
+            return FocusMark.None;
+        return s.CharFocusAttentionActorId == s.CharFocusActorId ? FocusMark.Green : FocusMark.Red;
+    }
 }
