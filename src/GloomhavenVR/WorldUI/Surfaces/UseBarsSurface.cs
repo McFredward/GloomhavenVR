@@ -489,6 +489,9 @@ internal sealed class UseBarsSurface
                 dock.ApplyFocusHide(OwnerScratch, focused);
             else
                 dock.NoteFocusVisible(OwnerScratch, focused);
+            // Contribute to the cross-surface roll-up so ONE grep names every piece of the decision
+            // display and what each switched off (DecisionDockSurface.PromptFocus).
+            dock.ReportFocus();
             OwnerScratch.Clear();
         }
     }
@@ -985,6 +988,13 @@ internal sealed class UseBarsSurface
         /// <summary>True while this bar is render-hidden because its owner is not the focused
         /// character. Read by the stack so a hidden bar consumes no lane.</summary>
         internal bool FocusHidden { get; private set; }
+
+        /// <summary>Contribute this bar to the cross-surface focus roll-up — the single change-gated
+        /// line that names EVERY piece of a decision display and the components each one switched
+        /// off (see <see cref="DecisionDockSurface.PromptFocus"/>).</summary>
+        internal void ReportFocus() =>
+            DecisionDockSurface.PromptFocus.Report("UseBars/" + Name, FocusHidden,
+                _focusHiddenCanvasCount, _focusHiddenRendererCount, _focusHiddenPlate);
 
         /// <summary>
         /// RENDER-HIDE this bar — and NOTHING ELSE. The only things written are
