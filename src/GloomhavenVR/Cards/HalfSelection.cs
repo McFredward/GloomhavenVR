@@ -193,7 +193,52 @@ internal sealed class HalfSelection
 
     // ------------------------------------------------------------------ content --
 
-    /// <summary>Lay out the played cards (1 or 2) and arm their poke zones.</summary>
+    /// <summary>
+    /// READ-ONLY DOCK (feature "free character focus", user 2026-08-08: a focused character's
+    /// chosen cards must LIE IN THE SLOTS even when that character is not at turn). The dock is the
+    /// one card zone that arms REAL input on what it shows — the two <see cref="HalfZone"/> poke
+    /// volumes, and the card's own uGUI canvas registered with <c>UguiPokeSurfaces</c>, which is
+    /// what lets a laser click a card half at all. Showing a watched character's cards must not
+    /// open either path, so the whole affordance is switched off structurally rather than guarded:
+    /// <list type="bullet">
+    /// <item><see cref="SetCards"/> DISARMS instead of arming — no zone object is active and the
+    ///   canvas is never registered, so neither fingertip nor beam can find the card;</item>
+    /// <item><see cref="Tick"/> marks every half unplayable and drives no hover, so the geometric
+    ///   laser highlight cannot write on a foreign card either;</item>
+    /// <item><see cref="RequestPlay"/> refuses outright — the fourth funnel, in case a zone ever
+    ///   survives a frame it should not;</item>
+    /// <item><see cref="TrySampleLocalHover"/> / <see cref="SampleLocalSelection"/> report NOTHING,
+    ///   so a peer's mirror of OUR board never picks up the hover/selected half of a character we
+    ///   are only watching. This is a local view change; peers see nothing new.</item>
+    /// </list>
+    /// </summary>
+    internal bool ReadOnly { get; private set; }
+
+    /// <summary>Set the read-only mode. Called by the driver BEFORE <see cref="SetVisible"/> /
+    /// <see cref="SetCards"/> so the first frame of a focus view is already inert.</summary>
+    internal void SetReadOnly(bool readOnly)
+    {
+        if (ReadOnly == readOnly)
+            return;
+        ReadOnly = readOnly;
+        // Re-stamp whatever is already docked: a dock that learned it was read-only one frame late
+        // would be pokeable/clickable for exactly that frame.
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            VRCard card = _cards[i];
+            if (card == null)
+                continue;
+            if (readOnly)
+                DisarmCard(card);
+            else
+                ArmCard(card);
+        }
+        if (readOnly)
+            ClearLaserHighlight();
+    }
+
+    /// <summary>Lay out the played cards (1 or 2) and arm their poke zones (never while
+    /// <see cref="ReadOnly"/> — see that property).</summary>
     internal void SetCards(List<VRCard> cards)
     {
         // Disarm zones of cards leaving the layout.
@@ -233,7 +278,12 @@ internal sealed class HalfSelection
                 float x = n > 1 ? (i == 0 ? -0.75f : 0.75f) * w * layoutScale : 0f;
                 card.SetHome(_root, new Vector3(x, 0f, 0f), Quaternion.identity, layoutScale);
             }
-            ArmCard(card);
+            // READ-ONLY DOCK: a watched character's cards are laid out but never armed — see the
+            // ReadOnly property. DisarmCard is idempotent for a card that was never armed.
+            if (ReadOnly)
+                DisarmCard(card);
+            else
+                ArmCard(card);
         }
     }
 
@@ -323,6 +373,22 @@ internal sealed class HalfSelection
         if (!IsVisible)
         {
             ClearLaserHighlight(); // layout hidden mid-hover (turn ended) - never stay lit
+            return;
+        }
+        if (ReadOnly)
+        {
+            // Watched character: no half is playable, and the geometric laser resolve does not run
+            // (it could not find the card anyway — the canvas is unregistered — but a hidden zone
+            // left marked playable would be a latent commit path).
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                VRCard card = _cards[i];
+                if (card == null || !_zones.TryGetValue(card, out ZoneSet roSet))
+                    continue;
+                roSet.Top.SetPlayable(false);
+                roSet.Bottom.SetPlayable(false);
+            }
+            ClearLaserHighlight();
             return;
         }
         for (int i = 0; i < _cards.Count; i++)
@@ -551,8 +617,9 @@ internal sealed class HalfSelection
         top = false;
         HalfSelection? self = s_active;
         FullAbilityCard? full = s_gameHoverFull;
-        if (self == null || !self.IsVisible || full == null)
-            return false;
+        if (self == null || !self.IsVisible || self.ReadOnly || full == null)
+            return false; // read-only dock: the slots hold a WATCHED character's cards, which are
+                          // nothing to do with our own board that peers mirror (see ReadOnly)
         for (int i = 0; i < self._cards.Count; i++)
         {
             VRCard card = self._cards[i];
@@ -586,8 +653,9 @@ internal sealed class HalfSelection
         sel0 = Net.NetProtocol.HalfSelectNone;
         sel1 = Net.NetProtocol.HalfSelectNone;
         HalfSelection? self = s_active;
-        if (self == null || !self.IsVisible)
-            return;
+        if (self == null || !self.IsVisible || self.ReadOnly)
+            return; // read-only dock: publishing a WATCHED character's selected halves would light
+                    // the wrong half on our OWN mirrored board on every peer (see ReadOnly)
         for (int i = 0; i < self._cards.Count && i < 2; i++)
         {
             int sel = SelectedHalfOf(self._cards[i]);
@@ -621,6 +689,16 @@ internal sealed class HalfSelection
 
     internal void RequestPlay(VRCard card, CBaseCard.ActionType type)
     {
+        if (ReadOnly)
+        {
+            // FOURTH FUNNEL (see the ReadOnly property). Nothing should be able to get here — the
+            // zones are inactive and unplayable, and the canvas is unregistered — so a hit is a
+            // regression worth a line, never a silent drop.
+            Core.VRLog.Warn("Cards", "[Focus] half-play REFUSED on a read-only dock: the board is " +
+                                     "showing a character the player does not control. No game call " +
+                                     "was made (CardsGameApi.PlayHalf was never reached).");
+            return;
+        }
         try
         {
             PlayRequested?.Invoke(card, type);
