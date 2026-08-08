@@ -29,7 +29,7 @@ internal sealed class PileViewer
     private PileStack? _burnt;
     private PileStack? _items;
     private bool _locHooked;
-    private (int discard, int burnt) _loggedCounts = (int.MinValue, int.MinValue);
+    private (int discard, int burnt, int actorId) _loggedCounts = (int.MinValue, int.MinValue, 0);
     private int _loggedItems = int.MinValue;
 
     // Usable-item highlight diagnostic (throttled + change-gated) — see TickItemsUsableHighlight.
@@ -289,7 +289,7 @@ internal sealed class PileViewer
         _burnt = null;
         _items = null;
         _hand = null;
-        _loggedCounts = (int.MinValue, int.MinValue);
+        _loggedCounts = (int.MinValue, int.MinValue, 0);
         _loggedItems = int.MinValue;
         _loggedUsable = int.MinValue;
         _loggedStackCue = false;
@@ -307,10 +307,23 @@ internal sealed class PileViewer
     /// <see cref="ItemsPile.Tick"/> (the whole item-fan tick, including its hand sweep) and
     /// <see cref="TickItemsUsableHighlight"/> (which scans the inventory).
     /// </summary>
-    internal void TickStatus(CardsHandUI? hand)
+    internal void TickStatus(CardsHandUI? hand, CardsHandUI? presented)
     {
         _hand = hand;
-        if (_discard == null || _burnt == null || hand == null)
+        // THE COUNTS BELONG TO THE CHARACTER ON THE BOARD, not to the one the game presents (user
+        // report, hardware ModBuild 89 — "Wird der Character gewechselt sollen immer sofort die
+        // jeweiligen richtigen Zahlen des Characters angezeigt werden", and its twin "beim
+        // verbrannt Stapel wurde nicht sofort aktualisiert"). Both symptoms were ONE defect: this
+        // method was fed CardsDriver.CurrentHand(), the hand the GAME presents, while every other
+        // board surface renders CharacterFocus.ResolveHand(CurrentHand()). So a focus switch moved
+        // the fan, the slots, the active column and the piles' CONTENT and left the two NUMBERS on
+        // the previous character — and a card the focused character burned never reached the burnt
+        // label at all, which is exactly the "discard went to 1, burnt stayed 0" in the hardware
+        // log (LogOutput.log:4513). `presented` is the focus-resolved hand and is DISPLAY ONLY;
+        // `hand` (the game's) still drives every item path below, because those reach real game
+        // seams (item use / the surrender pick) and must never name a merely-watched character.
+        CardsHandUI? counted = presented != null ? presented : hand;
+        if (_discard == null || _burnt == null || hand == null || counted == null)
         {
             CurrentCounts = null; // nothing displayed ⇒ nothing for the wire to claim
             return;
@@ -320,13 +333,20 @@ internal sealed class PileViewer
             CurrentCounts = null;
             return; // hidden ([Cards] PileViewer off / no hand) — no counts, no logs
         }
-        int discard = CardsGameApi.DiscardedCount(hand);
-        int burnt = CardsGameApi.BurntCount(hand);
-        if (_loggedCounts != (discard, burnt))
+        int discard = CardsGameApi.DiscardedCount(counted);
+        int burnt = CardsGameApi.BurntCount(counted);
+        // The character is part of the change key: switching to a character whose piles happen to
+        // hold the SAME two numbers is still a state change worth one line, and without the id the
+        // log would go silent across exactly the switch a "die Zahlen stimmen nicht" report needs.
+        int countedId = Net.NetFigures.StableActorId(counted.PlayerActor);
+        if (_loggedCounts != (discard, burnt, countedId))
         {
-            _loggedCounts = (discard, burnt);
-            VRLog.Info("Cards", $"Piles: discard={discard}, burnt={burnt} " +
-                                "(authoritative CCharacterClass piles).");
+            _loggedCounts = (discard, burnt, countedId);
+            VRLog.Info("Cards", $"Piles: discard={discard}, burnt={burnt} for " +
+                                $"'{Board.CharacterFocus.Describe(counted.PlayerActor)}' " +
+                                "(authoritative CCharacterClass piles, read against the character " +
+                                "the BOARD presents — CharacterFocus.PresentedHand, so the numbers " +
+                                "follow a focus switch on the same edge the rest of the board does).");
         }
         _discard.SetCount(discard);
         _burnt.SetCount(burnt);

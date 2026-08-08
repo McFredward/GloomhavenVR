@@ -1280,12 +1280,62 @@ internal sealed partial class CardsDriver
 
     // ------------------------------------------------------------------ pile browse --
 
-    // Browse state (test #21): what was open when, so any mode/hand change closes
-    // it deterministically (C: browse fans never survive a context switch). The _browseHeld
-    // flag that used to sit here died with the stack pinch-grab (PileStack.CanGrab,
+    // Browse state (test #21): WHICH character's pile the open arc is currently about, and the mode
+    // it was resolved in. Both are the FOCUS-RESOLVED values (CharacterFocus.PresentedHand /
+    // ResolveHand), never the game's raw CurrentHand — mixing the two is what made an open fan close
+    // itself on a phantom "hand switch" (see UpdateBrowser). They are now a RE-TARGET record rather
+    // than a close trigger: test #21's "browse fans never survive a context switch" was superseded by
+    // the 2026-08-08 ruling that the fan must follow the focused character instead of vanishing.
+    // The _browseHeld flag that used to sit here died with the stack pinch-grab (PileStack.CanGrab,
     // 2026-08-06) — every browse fan is poke/laser-toggled and board-anchored now.
     private CardsHandUI? _browseHand;
     private CardHandMode _browseMode;
+
+    /// <summary>
+    /// MAY A DISCARD/BURNT BROWSE ARC BE UP RIGHT NOW? The ONE predicate both the open path
+    /// (<see cref="OpenBrowser"/>) and the per-rebuild refresh (<see cref="UpdateBrowser"/>) ask, so
+    /// a fan can never be refused an open it would have survived, nor closed out of a state it was
+    /// allowed to open in — the two used to be different tests, which is half of why an open fan
+    /// died in the same breath as it was raised.
+    ///
+    /// <para>USER RULING 2026-08-08: "Die Verbrannt-Piles und Abgeworfen-Piles sollen jederzeit EGAL
+    /// wer gerade dran ist öffenbar sein und die Karten sollen auch nehmbar sein um sie anzugucken,
+    /// das darf nicht blockieren." So there is NO turn key, NO phase whitelist and NO "is it your
+    /// character" test here, and there must never be one again: a pile is public, readable
+    /// information (vanilla lets anyone open ANY player's full card overview from the initiative
+    /// track). Exactly two refusals survive, and both are OWNERSHIP-OF-THE-WIDGETS refusals rather
+    /// than permission refusals:</para>
+    /// <list type="number">
+    /// <item>A live modal PICK flow of the character the GAME drives (<see cref="IsPickMode"/>):
+    ///   those flows re-purpose the very <c>AbilityCardUI</c> widgets of the discard pile as the
+    ///   pick fan (<c>CardHandMode.LoseCard</c> on <c>CardPileType.Discarded</c>), so an arc
+    ///   borrowing them at the same time would fight the pick for one visual per card. A READ-ONLY
+    ///   focus view is exempt for the same reason <c>Rebuild</c> forces its <c>pick</c> false: the
+    ///   watched character's <c>CardsHandUI.currentMode</c> is a stale leftover of its own last
+    ///   decision and owns nothing here.</item>
+    /// <item>A real modal dialog (<see cref="VRMode.ModalUI"/>) — it owns the scene and the input.</item>
+    /// </list>
+    /// </summary>
+    /// <param name="readOnly">True while the presented character is a FOCUS override, i.e. one the
+    /// game is not driving. Passed in rather than read off <c>CharacterFocus.ReadOnlyView</c>
+    /// because that flag is latched by the edge-driven rebuild: the open path needs the LIVE
+    /// answer, the rebuild path already holds this rebuild's freshly latched one.</param>
+    private static bool BrowseAllowed(CardHandMode mode, bool readOnly, out string? refusal)
+    {
+        if (!readOnly && IsPickMode(mode))
+        {
+            refusal = $"a modal pick flow owns the pile widgets right now (mode={mode}) — the same " +
+                      "cards are the pick fan, and one card has exactly one visual";
+            return false;
+        }
+        if (VRModeStateMachine.CurrentMode == VRMode.ModalUI)
+        {
+            refusal = "a modal dialog owns the scene (VRMode.ModalUI)";
+            return false;
+        }
+        refusal = null;
+        return true;
+    }
 
     /// <summary>The modal pick modes (poke-select fan flows; drop-field flows since test #21).</summary>
     private static bool IsPickMode(CardHandMode mode) =>
@@ -1318,14 +1368,32 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void OpenBrowser(PileKind kind, string trigger)
     {
+        // THE HAND THE BOARD IS PRESENTING, not the one the game presents. THIS LINE IS THE FIX for
+        // "Beim Test konnte ich den Fächer eines Characters der nicht am Zug war nicht öffnen"
+        // (user, hardware ModBuild 89). The browser used to latch CurrentHand() here while
+        // Rebuild's UpdateBrowser is handed CharacterFocus.ResolveHand(CurrentHand()) — so the
+        // instant a focus view was open the two disagreed BY CONSTRUCTION and the very next rebuild
+        // closed the fan as a "context change". The hardware log shows it three times in a row:
+        // "PILE BROWSE OPEN: Discard (mode=ActionSelection)" immediately followed by
+        // "PILE BROWSE CLOSE: Discard — trigger: context change (mode=CardsSelection,
+        // handSwitch=True)" (LogOutput.log:5443-5451) — two different characters' hands and two
+        // different characters' stale CardHandModes, compared as if they were one.
         CardsHandUI? gameHand = CurrentHand();
+        CardsHandUI? presentedHand = Board.CharacterFocus.PresentedHand(gameHand);
         Transform? anchor = AnchorParent();
-        if (gameHand == null || anchor == null || !CardsConfig.PileViewer.Value)
+        if (presentedHand == null || anchor == null || !CardsConfig.PileViewer.Value)
             return;
-        CardHandMode mode = CardsGameApi.Mode(gameHand);
-        if (IsPickMode(mode) || VRModeStateMachine.CurrentMode == VRMode.ModalUI)
-            return; // modal pick flows / dialogs own the scene — browsing is non-modal only
-        _browseHand = gameHand;
+        CardHandMode mode = CardsGameApi.Mode(presentedHand);
+        // Derived here rather than read off CharacterFocus.ReadOnlyView, which is latched by the
+        // edge-driven rebuild: a poke landing in the frame between the focus click and its rebuild
+        // would otherwise be judged against the PREVIOUS view's answer. Same definition, live.
+        bool readOnly = !ReferenceEquals(presentedHand, gameHand);
+        if (!BrowseAllowed(mode, readOnly, out string? refusal))
+        {
+            VRLog.Info("Cards", $"PILE BROWSE REFUSED: {kind} — {refusal} (trigger: {trigger}).");
+            return;
+        }
+        _browseHand = presentedHand;
         _browseMode = mode;
         // Requirement 5 (emerge): pass the pile stack's world position so the arc's cards
         // fly OUT of the stack instead of popping in (existing home-lerp does the easing).
@@ -1335,7 +1403,12 @@ internal sealed partial class CardsDriver
         // Fresh fan → fresh borrow ledger (the -1 sentinel makes the first refresh always log).
         _browseBorrowed = -1;
         _browseLeftOnBoard = 0;
-        VRLog.Info("Cards", $"PILE BROWSE OPEN: {kind} (mode={mode}) — trigger: {trigger}.");
+        VRLog.Info("Cards", $"PILE BROWSE OPEN: {kind} of " +
+                            $"'{Board.CharacterFocus.Describe(presentedHand.PlayerActor)}' " +
+                            $"(mode={mode}, focusView={readOnly}) — " +
+                            $"trigger: {trigger}. The pile is openable in EVERY phase and for EVERY " +
+                            "character the board can present — whose turn it is has no say (user " +
+                            "ruling 2026-08-08); it follows a focus switch instead of closing.");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
     }
 
@@ -1556,19 +1629,62 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
-    /// Rebuild-time browse refresh: close on any context change (mode/hand — C),
-    /// otherwise mirror the authoritative pile into the arc. Content comes from the
-    /// same widgets the 2D pile viewer re-parents (see CardsGameApi.GetPileWidgets),
-    /// adopted read-only — Grabbable/PokeSelect stay off via the zone-flag loop.
+    /// Rebuild-time browse refresh: RE-TARGET the open arc onto whichever character the board is
+    /// presenting, and mirror that character's authoritative pile into it. Content comes from the
+    /// same widgets the 2D pile viewer re-parents (see CardsGameApi.GetPileWidgets), adopted
+    /// read-only.
+    ///
+    /// <para>WHAT THIS METHOD USED TO DO, AND WHY IT WAS THE BUG. It closed the fan on ANY change
+    /// of hand or mode ("context change", test #21 item C). Two things made that fatal rather than
+    /// merely strict. First, <see cref="OpenBrowser"/> latched <c>CurrentHand()</c> while this
+    /// method is handed <c>CharacterFocus.ResolveHand(CurrentHand())</c>, so with a focus view open
+    /// the very first rebuild after the open ALWAYS saw a "hand switch" that never happened —
+    /// three consecutive open/close pairs in the hardware log, LogOutput.log:5443-5451. Second,
+    /// even with that repaired, closing on a genuine character switch is the wrong behaviour now:
+    /// the user's ruling is that the fan must re-target ("Je nachdem welcher Character im Fokus ist
+    /// soll auch das richtige Pile im Fächer geöffnet werden"), not vanish.</para>
+    ///
+    /// <para>So the fan now survives every switch and simply changes what it is about. It closes on
+    /// exactly three things: the pile it is showing became empty, the browse gate shut
+    /// (<see cref="BrowseAllowed"/> — a modal pick flow or a modal dialog), or somebody asked it to
+    /// (a stack toggle, a foreign interaction, a board/scenario teardown). MULTIPLAYER follows for
+    /// free and by construction: the extras browse block carries the pile KIND and the arc's card
+    /// COUNT, while the peer resolves WHICH character through record 22
+    /// (<c>Net.RemoteBoardFocus.DisplayedActor</c>) and reads the card fronts from that character's
+    /// own host-replicated pile — the same list, in the same order, that fills the arc here.</para>
     /// </summary>
     private void UpdateBrowser(CardsHandUI hand, CardHandMode mode)
     {
         if (!_browser.IsOpen)
             return;
-        if (hand != _browseHand || mode != _browseMode)
+        // ReadOnlyView is exact here: this rebuild's own ResolveHand latched it a few lines ago.
+        if (!BrowseAllowed(mode, Board.CharacterFocus.ReadOnlyView, out string? refusal))
         {
-            CloseBrowser($"context change (mode={mode}, handSwitch={hand != _browseHand})");
+            CloseBrowser(refusal!);
             return;
+        }
+        // RE-TARGET, never close. A character switch (focus click, turn hand-off) or a mode change
+        // re-points the SAME arc at the newly presented character's pile; the content fill below
+        // does the actual work, and the zone loop that runs after this rebuild parks whatever the
+        // previous character had lent it.
+        if (!ReferenceEquals(hand, _browseHand) || mode != _browseMode)
+        {
+            VRLog.Info("Cards", $"PILE BROWSE RE-TARGET: {_browser.Kind} now shows " +
+                                $"'{Board.CharacterFocus.Describe(hand.PlayerActor)}' " +
+                                $"(was '{Board.CharacterFocus.Describe(_browseHand?.PlayerActor)}', " +
+                                $"mode {_browseMode} → {mode}). The fan stays OPEN across a character " +
+                                "switch by user ruling — it follows the focus instead of closing, and " +
+                                "the previous character's borrowed visuals are parked by this same " +
+                                "rebuild's zone sweep.");
+            _browseHand = hand;
+            _browseMode = mode;
+            _browseBorrowed = -1; // fresh borrow ledger for the new character
+            _browseLeftOnBoard = 0;
+            // The new character's visuals are freshly built at the factory pool, so without this
+            // they would sail into the arc from the pool root. Re-seat them on the pile stack and
+            // let the existing home lerp fly them up — the same emerge the first open gets.
+            if (_piles.TryGetPileWorld(_browser.Kind ?? PileKind.Discard, out Vector3 stackWorld, out _))
+                _browser.SeedEmerge(stackWorld);
         }
 
         bool burnt = _browser.Kind == PileKind.Burnt;

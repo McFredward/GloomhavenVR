@@ -679,9 +679,8 @@ internal static class CharacterFocus
             return gameHand;
         }
 
-        CardsHandManager manager = CardsHandManager.Instance;
-        CardsHandUI? focusHand = manager != null ? manager.GetHand(_focused) : null;
-        if (focusHand == null)
+        CardsHandUI? focusHand = PresentedHand(gameHand);
+        if (focusHand == null || ReferenceEquals(focusHand, gameHand))
         {
             // Mid-rebuild / mid-teardown: fall back to the game's hand rather than an empty
             // board. The focus survives — the next frame usually resolves it.
@@ -692,6 +691,39 @@ internal static class CharacterFocus
         PresentedActor = focusHand.PlayerActor;
         LogFocusOnce();
         return focusHand;
+    }
+
+    /// <summary>
+    /// <see cref="ResolveHand"/>'s ANSWER WITHOUT ITS SIDE EFFECTS — "which character's hand is the
+    /// control board presenting right now", askable from a per-frame path.
+    ///
+    /// <para>WHY IT EXISTS (user report, hardware ModBuild 89: "Die Zahlen wie viele Karten in dem
+    /// verbrannt/abgeworfen Stapel waren haben sich bei Character-Tausch nicht aktualisiert", and
+    /// its twin "beim verbrannt Stapel wurde nicht aktualisiert"). <see cref="ResolveHand"/> is the
+    /// ONE seam into the card pipeline, but it LATCHES (<see cref="PresentedActor"/>,
+    /// <see cref="ReadOnlyView"/>), CLEARS a stale focus and LOGS — so it may only ever be called
+    /// from the edge-driven rebuild, and every per-frame consumer was therefore left reading the
+    /// GAME's hand (<c>CardsDriver.CurrentHand</c>). For the pile stacks that meant the counts on
+    /// the board belonged to whichever character the GAME presents, never to the one the player is
+    /// looking at: a focus switch moved every other surface and left the two numbers behind, and a
+    /// card burned by the focused character never showed up at all.</para>
+    ///
+    /// <para>It is the same decision tree, term for term, minus the mutations: no focus / gate shut
+    /// / focused character exhausted ⇒ the game's hand; the focus IS the game's hand ⇒ the game's
+    /// hand (<see cref="ResolveHand"/> additionally drops the now-pointless override, which is a
+    /// state change and therefore stays there); otherwise the focused character's hand, falling back
+    /// to the game's hand while its widget has not been built yet. <see cref="ResolveHand"/> calls
+    /// THIS method for its own lookup, so the two cannot drift apart.</para>
+    /// </summary>
+    internal static CardsHandUI? PresentedHand(CardsHandUI? gameHand)
+    {
+        if (_focused == null || _focused.IsDead || !Refusal(out _))
+            return gameHand;
+        if (gameHand != null && ReferenceEquals(gameHand.PlayerActor, _focused))
+            return gameHand;
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI? focusHand = manager != null ? manager.GetHand(_focused) : null;
+        return focusHand != null ? focusHand : gameHand;
     }
 
     /// <summary>

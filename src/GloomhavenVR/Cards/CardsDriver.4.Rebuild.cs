@@ -681,10 +681,21 @@ internal sealed partial class CardsDriver
             // without touching a game seam. Nothing else in the pipeline is widened: the tray, the
             // pick field, the browse arc, the active column and the round-card dock all keep the
             // exact verdicts they had.
+            //
+            // THE PILE ARC AND THE ACTIVE COLUMN JOIN THE INSPECT SIDE (user ruling 2026-08-08:
+            // "Die Verbrannt-Piles und Abgeworfen-Piles sollen jederzeit … öffenbar sein und die
+            // Karten sollen auch nehmbar sein um sie anzugucken, das darf nicht blockieren"). The
+            // `!readOnly` in `commitGrab` used to make every card of a browse arc / active column
+            // inert the moment the player was LOOKING at a character rather than driving it — which
+            // is exactly when a pile gets opened, so "pick a discarded card up and read it" was
+            // dead in the only view it matters in. These cards were never committable in the first
+            // place (OnCardReleased's browse / active branches return them home BEFORE any game
+            // hand is resolved, and the PileOrigin fallback catches one still held when the arc
+            // closes), so this widens the GRAB and nothing else — the same split the hand fan got.
             bool commitGrab = !readOnly
                               && ((inFan && grabbable) || (inTray && grabbable)
                                   || inField || inBrowse || inActive);
-            bool inspectGrab = inFan && !commitGrab && handInspectable;
+            bool inspectGrab = (inFan || inBrowse || inActive) && !commitGrab && handInspectable;
             card.Grabbable = commitGrab || inspectGrab;
             card.InspectOnly = inspectGrab;
             // BOTH HANDS ON EVERY CARD (user ruling 2026-08-04: "Alle Karten sollen allgemein auch

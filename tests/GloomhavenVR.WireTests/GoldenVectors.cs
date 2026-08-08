@@ -2641,6 +2641,93 @@ internal static class GoldenVectors
         t.Equal(0x33, cfTailCombo.CharFocusAttentionActorId, "and the attention id is intact");
         t.Equal(FocusMark.Red, MarkOf(cfTailCombo), "so the receiver derives RED");
 
+        // -- 7q2. A FOCUSED CHARACTER'S PILE, END TO END --------------------------------------
+        // THE EXACT PACKET the "piles open for any character, in any phase, and mirrored 1:1"
+        // feature emits (user ruling 2026-08-08, hardware ModBuild 89): the sender has a TEAMMATE
+        // focused, is browsing that teammate's DISCARD pile, and their stack labels show that
+        // teammate's numbers. Three already-shipped pieces have to agree inside ONE packet for a
+        // peer to draw it — and the whole feature adds NO new record, which is the claim this
+        // vector exists to pin down:
+        //   * the trailing BLOCK's pile-browse sub-fields say WHICH pile and HOW MANY slabs,
+        //   * record 15 carries the counts the owner's own three labels are DISPLAYING, and
+        //   * record 22 names WHICH CHARACTER the owner is looking at.
+        // The receiver joins them: Net.RemoteBoardFocus.DisplayedActor resolves record 22 against
+        // its own replicated scenario and RemotePileFronts reads THAT character's
+        // CCharacterClass.DiscardedAbilityCards for the faces. NO CARD IDENTITY RIDES ANY OF IT —
+        // the bytes below are a pile kind, four counts and one actor hash, and that is the entire
+        // payload of "der Peer sieht welches Pile für welchen Character offen ist".
+        t.Case("7q2. extras, a focused character's open pile (browse block + counts + focus)");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPileBrowse = true, PileBrowseKind = NetProtocol.PileBrowseKindDiscard,
+            PileBrowseCardCount = 4,
+            HasPileCounts = true, PileDiscardCount = 4, PileBurntCount = 1, PileItemsCount = 6,
+            HasCharFocus = true, CharFocusActorId = 0x00000022,
+            CharFocusOwnsAttention = false,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: FlagPileBrowse -- 'a BLOCK follows'
+            00               // handCardCount: the hand fan is not up, only the pile arc
+            80               // byte A: kind bits 0..1 = 0 (DISCARD), held/left clear
+                             //         (board-anchored), bit7 extension tail
+            04               // byte B: 4 slabs in the arc
+            02               // tail: 2 records, in id order
+            0F 03 04 01 06   // id 15 pile counts: discard 4, burnt 1, items 6 -- the FOCUSED
+                             //                    character's numbers, not the owner's own
+            16 05 00 22 00 00 00 // id 22: focus actor 0x22, bit0 clear (the game is waiting on
+                             //          somebody else -- browsing a teammate mid-enemy-turn)
+            "), ext, m, "one packet says WHICH pile, HOW MANY cards, the three counts and WHICH "
+                        + "character — and adds no record of its own");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState focusPile), "and it parses");
+        t.True(focusPile.HasPileBrowse, "the browse block is delivered");
+        t.Equal(NetProtocol.PileBrowseKindDiscard, focusPile.PileBrowseKind, "as the DISCARD pile");
+        t.Equal((byte)4, focusPile.PileBrowseCardCount, "with four slabs");
+        t.True(!focusPile.PileBrowseHeld, "board-anchored, never hand-held (PileStack.CanGrab)");
+        t.True(focusPile.HasPileCounts, "the counts ride the same packet");
+        t.Equal(4, focusPile.PileDiscardCount, "discard matches the open arc");
+        t.Equal(1, focusPile.PileBurntCount, "burnt intact");
+        t.Equal(6, focusPile.PileItemsCount, "items intact");
+        t.Equal(0x22, focusPile.CharFocusActorId,
+                "and record 22 names the character all of it is ABOUT — the ONLY selector a peer "
+                + "needs to resolve the pile's cards from its own replicated model");
+
+        // THE BURNT PILE of the same focused character: only the kind bits move. Two bits are the
+        // whole difference between "Abgeworfen" and "Verbrannt" on every peer's screen, which is
+        // why the enum order is guarded (PileKindWireOrderGuard) rather than trusted.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPileBrowse = true, PileBrowseKind = NetProtocol.PileBrowseKindBurnt,
+            PileBrowseCardCount = 1,
+            HasCharFocus = true, CharFocusActorId = 0x00000022,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            81               // byte A: kind bits 0..1 = 1 (BURNT) + bit7 extension tail
+            01               // byte B: one slab
+            01
+            16 05 00 22 00 00 00
+            "), ext, m, "the burnt pile of the same focused character differs by the kind bits alone");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState focusBurnt), "and it parses");
+        t.Equal(NetProtocol.PileBrowseKindBurnt, focusBurnt.PileBrowseKind, "as the BURNT pile");
+        t.Equal(0x22, focusBurnt.CharFocusActorId, "for the same focused character");
+
+        // A CLOSED fan while the focus is still held: byte B goes to 0 and every reader that ever
+        // shipped bit 7 gates the fan on count > 0, so the peer's arc collapses while their
+        // mirrored board keeps showing the focused character's counts. This is the pair the
+        // "the fan re-targets instead of closing" behaviour rides on — a character switch changes
+        // record 22 and the counts, NOT the presence of the browse block.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasPileCounts = true, PileDiscardCount = 4, PileBurntCount = 1, PileItemsCount = 6,
+            HasCharFocus = true, CharFocusActorId = 0x00000033,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState switched), "a switch packet parses");
+        t.Equal((byte)0, switched.PileBrowseCardCount, "no arc -> count 0, which is 'no fan' to every reader");
+        t.Equal(0x33, switched.CharFocusActorId, "while the focus id names the NEW character");
+        t.Equal(4, switched.PileDiscardCount, "and the counts are the ones that board is displaying");
+
 
         // -- 7r. INITIATIVE-TRACK SELECTION FRAME (extension record 23) ----------------------
         // Which entries the sender's OWN track is framing with vanilla's selectionObject, read off

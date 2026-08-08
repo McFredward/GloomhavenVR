@@ -704,12 +704,15 @@ internal sealed partial class CardsDriver
         _browser.Tick(); // held reading fan follows the grabbing hand (item 5)
 
         CardsHandUI? hand = CurrentHand();
+        // The character the BOARD is presenting (focus override applied). Resolved once per tick
+        // and only handed to surfaces that DISPLAY — never to a path that can reach a game seam.
+        CardsHandUI? presented = Board.CharacterFocus.PresentedHand(hand);
         PollModeChange(_fakeActive ? null : hand); // deadlock safety: rebuild on any game card-mode change
         if (_tray.IsVisible)
         {
             _tray.TickStatus(_fakeActive ? null : hand);
             _rest.TickStatus(_fakeActive ? null : hand);
-            _piles.TickStatus(_fakeActive ? null : hand);
+            _piles.TickStatus(_fakeActive ? null : hand, _fakeActive ? null : presented);
             PollActive(_fakeActive ? null : hand); // feature 6: rebuild the active area when its set changes
             TickBurnToPile(_fakeActive ? null : hand); // issue B: fly damage-burned cards into the burnt pile
         }
@@ -921,6 +924,16 @@ internal sealed partial class CardsDriver
         CardsHandUI? hand = CardsGameApi.DecidingHand() ?? CardsGameApi.ActiveHand();
         return hand != null && CardsGameApi.IsLocalHand(hand) ? hand : null;
     }
+
+    // THE HAND THE BOARD IS PRESENTING is CurrentHand() run through
+    // Board.CharacterFocus.PresentedHand — the same decision tree Rebuild's ResolveHand makes, minus
+    // the latching, so it may be asked from a per-frame path (Update's pile-status feed) and from an
+    // interaction callback (CardsDriver.OpenBrowser). Rebuild keeps the single LATCHING call.
+    //
+    // USE IT FOR WHAT IS DISPLAYED, NEVER FOR WHAT IS COMMITTED. Every path that can reach a game
+    // seam (confirm/undo, rests, action play, item use, the pick flows) keeps reading CurrentHand(),
+    // because those belong to the hand the GAME presents — writing them against a merely-watched
+    // character is exactly the wrong-hand class of bug OnCardReleased's WRONG-HAND BELT exists for.
 
     private void UpdatePalmGate()
     {
