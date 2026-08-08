@@ -51,10 +51,18 @@ namespace GloomhavenVR.Net;
 /// wanted-slot glow mask. When that record is present it is AUTHORITATIVE — this board shows
 /// exactly the controls the owner sees, in the same frames. A sender that predates the record
 /// falls back to the previous behaviour (everything drawn, states derived from the
-/// host-replicated <c>CPlayerActor</c> model and the already-synced VR extras). What remains
-/// LOCAL-ONLY on the peer's client (button enabled-vs-disabled accents, live Confirm label
-/// variants, their follow/pin preference) keeps the NEUTRAL / default look; each such case is
-/// called out on the member that draws it. The modal PICK FIELD the flat board used to draw is
+/// host-replicated <c>CPlayerActor</c> model and the already-synced VR extras).
+///
+/// THE DECISION DISPLAY IS SYNCED WHOLE (user ruling 2026-08-08): its button wordings (record 12),
+/// each option's OFFERED / GREYED / CHOSEN state (record 23) and the prompt LINE above them are all
+/// mirrored — the line composed on this machine from the record's variant id, because the owner's
+/// own sentence can embed active-bonus card names (see <see cref="RemoteDecisionPrompt"/>). And it
+/// disappears whole: while the owner has focused another character their board shows nothing at
+/// that seat, so the records stop riding and this copy empties with it. The "LOCAL-ONLY neutral
+/// look" list this paragraph used to carry — button enabled-states, live Confirm wordings, the
+/// follow/pin preference — is empty now; every entry on it became a synced field.
+///
+/// The modal PICK FIELD the flat board used to draw is
 /// GONE — the local board removed its pick field outright, so a copy of it had become a picture
 /// of a widget that no longer exists.
 ///
@@ -67,13 +75,18 @@ namespace GloomhavenVR.Net;
 /// only per-frame work is the single <see cref="RemoteGlowPulse"/> component, and only while a
 /// pulse is actually visible.
 /// </summary>
-/// <remarks>CLASSIFICATION: MIXED (DELIBERATELY-NOT + PER-ACTOR MODEL + VR-ONLY-derived) — and it
-/// adds NO wire field of its own. The "NEUTRAL LOOKS" and "LOCAL-ONLY STATE" blocks called out on
-/// individual members ARE the DELIBERATELY-NOT class: the peer's own button interactability, their
-/// Confirm label, their drawer state and their personal tuning offsets are
-/// knowable-but-not-worth-a-field, so peers are drawn at the AUTHORED defaults. The FOLLOW/PIN
-/// toggle LEFT that class this round — its two-state label/accent is synced through the board-UI
-/// record's byte 1 bit 2, at zero extra bytes. Slot occupancy
+/// <remarks>CLASSIFICATION: MIXED (PER-ACTOR MODEL + VR-ONLY-derived + one small record of its
+/// own). The old "NEUTRAL LOOKS" / "LOCAL-ONLY STATE" reading of this file — button
+/// interactability, the Confirm wording, the drawer's contents being
+/// "knowable-but-not-worth-a-field" — is GONE, one member at a time and finally as a rule: the
+/// FOLLOW/PIN toggle left it through the board-UI record's byte 1 bit 2, the cap wordings through
+/// record 13, the decision buttons through record 12, and their OFFERED / GREYED / CHOSEN states
+/// plus the prompt line through record 23 and this round's ruling ("alle Interaktionen,
+/// Animationen und Anzeigen des Controllboards … so wie der Spieler sie sieht" — see the class
+/// definition in <see cref="RemoteBoardContent"/>). What is left of DELIBERATELY-NOT here is the
+/// safety half alone: no card identity, ever. Personal TUNING offsets are not that class either —
+/// every client renders a given board style at its shipped layout, which is a rendering
+/// convention, not a hidden display. Slot occupancy
 /// and the pile stacks are PER-ACTOR MODEL; the wanted-slot pulse, snap glow and half divider are
 /// DERIVED from state the board already draws. The wire inputs are the already-synced
 /// <see cref="RemoteAvatar"/> passed to <c>Refresh</c> and the board STYLE the ctor keys the
@@ -349,6 +362,46 @@ internal sealed class RemoteBoardFurniture
     /// <see cref="SetDecisionLines"/> upgrades as soon as a live button has been harvested.</summary>
     private bool _decisionRowNative;
 
+    /// <summary>One mirrored option plate's repaintable parts — the pieces
+    /// <see cref="ApplyDecisionOptionStates"/> writes when the owner's option states move (a toggle
+    /// flips, the game re-asserts a gate) WITHOUT rebuilding the row. Face is the 9-sliced game
+    /// button sprite when one has been sampled, otherwise the procedural rim/body pair.</summary>
+    private readonly struct DecisionPlate
+    {
+        public DecisionPlate(SpriteRenderer? face, Material? rim, Material? body,
+            TextMeshPro label, GameObject chosenRim)
+        {
+            Face = face;
+            RimMat = rim;
+            BodyMat = body;
+            Label = label;
+            ChosenRim = chosenRim;
+        }
+
+        public readonly SpriteRenderer? Face;
+        public readonly Material? RimMat;
+        public readonly Material? BodyMat;
+        public readonly TextMeshPro Label;
+        public readonly GameObject ChosenRim;
+    }
+
+    /// <summary>The mirrored option plates of the current row, in wire order (index i is line i of
+    /// record 12 and option i of record 23 — the sender walked the widgets once for both).</summary>
+    private readonly System.Collections.Generic.List<DecisionPlate> _decisionPlates = new(4);
+
+    /// <summary>The option states last APPLIED to <see cref="_decisionPlates"/> (wire record 23);
+    /// null = nothing applied yet, so the first refresh after a rebuild always paints.</summary>
+    private byte[]? _shownOptionStates;
+
+    /// <summary>The composed prompt line last shown above the mirrored row (null = none). Change
+    /// gate: a TMP write re-triggers auto-size layout, the badge-flicker lesson.</summary>
+    private string? _shownPromptText;
+
+    /// <summary>The mirrored PROMPT TEXT above the decision row — the owner's HelpBox line,
+    /// composed on THIS machine by <see cref="RemoteDecisionPrompt"/>; hidden while there is
+    /// none.</summary>
+    private readonly TextMeshPro _decisionPrompt;
+
     /// <summary>Change gate for <see cref="SetDecisionLines"/> (the '\n'-joined labels last
     /// built; null = idle drawer).</summary>
     private string? _shownDecisionLines;
@@ -527,6 +580,15 @@ internal sealed class RemoteBoardFurniture
         float decisionTopY = barBottomY - BarClearanceMeters - DecisionGapFor(style);
         _decision = BuildDecisionDrawer(new Vector3(
             DecisionMount.x + decisionOff.x, decisionTopY, DecisionMount.z + decisionOff.z));
+        // …and the PROMPT TEXT above it, at the seat the owner's own tip takes: their
+        // DamageTooltipSurface parks the converted HelpBox AboveRowMetres over the decision MOUNT
+        // (mount position + up × 0.11), so unlike the row — whose Y solve cancels the mount out —
+        // this one DOES follow the mount's authored Y offset. Built empty and hidden; filled from
+        // the wire-driven variant on every refresh (SetDecisionPrompt).
+        _decisionPrompt = BuildDecisionPrompt(new Vector3(
+            DecisionMount.x + decisionOff.x,
+            DecisionMount.y + decisionOff.y + PromptAboveMountY,
+            DecisionMount.z + decisionOff.z), style);
 
         // ---- slot overlays: wanted pulse, snap glow, half-poke divider ------------------------
         // Centred on the CARD positions handed in by the board (the real recess anchors when the
@@ -621,10 +683,22 @@ internal sealed class RemoteBoardFurniture
         //      verbatim in their language; absent record = the neutral ApplyLabels fallback.
         SetCapLabels(owner);
 
-        // ---- SYNCED DECISION ROW (wire record 12 — task 2 "die Entscheidungsbuttons 1:1").
-        //      The labels of the row the owner's dock really shows, rendered as inert plates at
-        //      the same bar-anchored seat; without labels the captioned idle drawer stands in.
+        // ---- SYNCED DECISION DISPLAY (wire records 12 + 23 — task 2 "die Entscheidungsbuttons
+        //      1:1", extended by the 2026-08-08 ruling to the WHOLE decision display: "alle
+        //      Interaktionen, Animationen und Anzeigen des Controllboards … so wie der Spieler sie
+        //      sieht"). Three passes, in the order the owner's own dock builds them:
+        //        • the LABELS of the row their dock really shows, as inert plates at the same
+        //          bar-anchored seat (record 12; without labels the captioned idle drawer stands in);
+        //        • their per-option STATES — greyed / dimmed / chosen (record 23), repainted without
+        //          rebuilding the row, because those move on every click while the wordings do not;
+        //        • the PROMPT TEXT above the plates, composed HERE from the record's variant id and
+        //          this client's own localization (the words never ride the wire — see
+        //          RemoteDecisionPrompt).
+        //      All three vanish together the moment the owner's row does — including when they
+        //      focus another character and their own board goes blank at this seat.
         SetDecisionLines(owner.DecisionLines);
+        ApplyDecisionOptionStates(owner.DecisionOptionStates);
+        SetDecisionPrompt(actor, owner);
 
         // ---- FOLLOW / PIN toggle (defect (a)) -------------------------------------------------
         // The owner's tray anchor mode now rides the board-UI record (byte 1 bit 2), so this cap
@@ -728,8 +802,11 @@ internal sealed class RemoteBoardFurniture
                     $"tray={(owner.TrayPinned ? "PINNED" : "FOLLOW")}{(synced ? "(synced)" : "(default)")}, " +
                     $"capLabels[confirm={(owner.ConfirmCapLabel != null ? "'" + owner.ConfirmCapLabel + "'" : "neutral")}, " +
                     $"skip={(owner.SkipCapLabel != null ? "'" + owner.SkipCapLabel + "'" : "neutral")}], " +
-                    $"decision={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}";
-        _ = actor; // reserved: no per-actor furniture state is knowable beyond the slots (see notes)
+                    $"decision={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}" +
+                    $"[{DescribeStates(_shownOptionStates, _decisionPlates.Count)}]" +
+                    // Single quotes around the line, like the cap labels above: a nested \" inside
+                    // an interpolation hole trips the patch-inventory source scanner.
+                    $", prompt={(_shownPromptText != null ? "'" + StripRichText(_shownPromptText) + "'" : "none")}";
     }
 
     /// <summary>Last applied FOLLOW/PIN state (null = nothing written yet, so the first refresh
@@ -905,6 +982,82 @@ internal sealed class RemoteBoardFurniture
         return root;
     }
 
+    /// <summary>Mirror of <c>WorldUI.Surfaces.DamageTooltipSurface.AboveRowMetres</c> — how far
+    /// above the decision MOUNT the owner's own prompt text is parked. Board-local metres at the
+    /// authored mount, so the mirrored line sits over the mirrored plates exactly as the original
+    /// sits over the real ones.</summary>
+    private const float PromptAboveMountY = 0.11f;
+
+    /// <summary>
+    /// The mirrored PROMPT TEXT of the decision dock — the line the owner reads above their docked
+    /// buttons ("Schadensphase: Erleide entweder Schaden, verbrenne …"), composed on THIS machine
+    /// from the wire-carried variant id (see <see cref="RemoteDecisionPrompt"/> for why the text
+    /// itself may never ride the wire). Built once, empty and hidden; a game-HUD-font label with
+    /// the help box's own gold/grey rich-text colouring, MR-backed like every other line that hangs
+    /// below the board in open air. Display-only: one TMP, no collider, nothing to press.
+    /// </summary>
+    private TextMeshPro BuildDecisionPrompt(Vector3 local, Cards.ControlBoard style)
+    {
+        float scale = DecisionScaleFor(style);
+        TextMeshPro label = RemoteBoardContent.Label(_root, "DecisionPrompt", local,
+            new Vector2(Cards.PlayTray.DecisionMountWidth * scale, 0.075f * scale),
+            0.17f * scale, new Color(0.82f, 0.80f, 0.76f),
+            TextAlignmentOptions.Center, wrap: true);
+        WorldUI.NativeButtonSkin.ApplyFont(label); // the game's HUD font, depth-honest material
+        label.richText = true;                     // the help box's own gold title / grey body
+        WorldUI.MrBacking.Label(label);
+        label.gameObject.SetActive(false);
+        return label;
+    }
+
+    /// <summary>
+    /// Show (or hide) the mirrored prompt line for the owner's docked decision. The text is
+    /// COMPOSED here from the wire's prompt-kind + text-variant pair and this client's own
+    /// localization — never received — so the mandatory-use variant's active-bonus card names
+    /// cannot travel; see <see cref="RemoteDecisionPrompt"/>. Change-gated on the composed string
+    /// (a per-tick TMP write re-triggers auto-size layout).
+    /// </summary>
+    private void SetDecisionPrompt(CPlayerActor? actor, RemoteAvatar owner)
+    {
+        // No visible row on the owner's board ⇒ no line, whatever the last state record said.
+        string? text = _shownDecisionLines == null
+            ? null
+            : RemoteDecisionPrompt.Compose(owner.DecisionPromptKind, owner.DecisionTextVariant, actor);
+        if (text == _shownPromptText)
+            return;
+        _shownPromptText = text;
+        if (_decisionPrompt == null)
+            return;
+        bool show = !string.IsNullOrEmpty(text);
+        if (show)
+            _decisionPrompt.text = text;
+        if (_decisionPrompt.gameObject.activeSelf != show)
+            _decisionPrompt.gameObject.SetActive(show);
+        VRLog.Info("Net", show
+            ? $"Remote decision prompt: line composed LOCALLY for prompt kind " +
+              $"{owner.DecisionPromptKind} / text variant {owner.DecisionTextVariant} — " +
+              $"\"{StripRichText(text!)}\" — shown {PromptAboveMountY * 1000f:F0} mm above the " +
+              "decision mount, the same seat the owner's own HelpBox takes over their buttons. The " +
+              "wire carried the VARIANT, never the words (no card identity, ever)."
+            : "Remote decision prompt: no line (no visible decision row, a prompt that has none, or " +
+              "a sender predating record 23).");
+    }
+
+    /// <summary>Strip TMP colour tags for a log line (the composed prompt is rich text).</summary>
+    private static string StripRichText(string text)
+    {
+        var sb = new System.Text.StringBuilder(text.Length);
+        bool inTag = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '<') inTag = true;
+            else if (c == '>') inTag = false;
+            else if (!inTag) sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Authored per-board decision text↔button gap (<c>Defaults.DecisionGap_*</c> — the
     /// board-local metres the owner's widget-block top hangs below the prompt reference).</summary>
     private static float DecisionGapFor(Cards.ControlBoard s) =>
@@ -992,6 +1145,8 @@ internal sealed class RemoteBoardFurniture
             Object.Destroy(_decisionRow.gameObject);
             _decisionRow = null;
         }
+        _decisionPlates.Clear();
+        _shownOptionStates = null; // a new row repaints its states from scratch
         if (_drawerIdle != null && _drawerIdle.gameObject.activeSelf != (lines == null))
             _drawerIdle.gameObject.SetActive(lines == null);
         if (lines == null)
@@ -1035,6 +1190,8 @@ internal sealed class RemoteBoardFurniture
                 ? WorldUI.NativeButtonSkin.CreateFace(plate, new Vector2(w, h), localZ: 0.001f,
                     sortingOrder: 0)
                 : null;
+            Material? rimMat = null;
+            Material? bodyMat = null;
             if (face != null)
             {
                 face.color = WorldUI.Surfaces.DecisionDockSurface.AntiqueTint;
@@ -1043,13 +1200,23 @@ internal sealed class RemoteBoardFurniture
             {
                 // Pre-sample fallback (no live button harvested yet): the flat gold-rim/dark-body
                 // plate of the first mirror, kept so an early prompt is never an empty hole.
-                BoardVisual.Quad(plate, "Rim", new Vector2(w, h),
-                    BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f)))
+                rimMat = BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f));
+                BoardVisual.Quad(plate, "Rim", new Vector2(w, h), rimMat)
                     .transform.localPosition = new Vector3(0f, 0f, 0.0015f);
+                bodyMat = BoardVisual.Unlit(new Color(0.23f, 0.18f, 0.12f, 1f));
                 BoardVisual.Quad(plate, "Face", new Vector2(w - 0.006f * scale, h - 0.006f * scale),
-                    BoardVisual.Unlit(new Color(0.23f, 0.18f, 0.12f, 1f)))
+                    bodyMat)
                     .transform.localPosition = new Vector3(0f, 0f, 0.001f);
             }
+
+            // The CHOSEN telegraph: a thin accent frame behind the plate, shown only while the
+            // owner has that option toggled on (wire record 23). Inert like everything here, and
+            // built once per plate so the state repaint never allocates.
+            GameObject chosenRim = BoardVisual.Quad(plate, "ChosenRim",
+                new Vector2(w + 0.008f * scale, h + 0.008f * scale),
+                BoardVisual.Unlit(new Color(1f, 0.85f, 0.35f, 0.95f))).gameObject;
+            chosenRim.transform.localPosition = new Vector3(0f, 0f, 0.002f);
+            chosenRim.SetActive(false);
 
             TextMeshPro label = RemoteBoardContent.Label(plate, "Label", new Vector3(0f, 0f, -0.001f),
                 new Vector2(w * 0.86f, h * 0.72f), 0.23f * scale, gold,
@@ -1057,6 +1224,7 @@ internal sealed class RemoteBoardFurniture
             WorldUI.NativeButtonSkin.ApplyFont(label); // game HUD font, depth-honest material
             label.color = gold;                        // ApplyFont must not undo the dock colour
             label.text = WorldUI.NativeButtonSkin.SanitizeLabel(label, labels[i]);
+            _decisionPlates.Add(new DecisionPlate(face, rimMat, bodyMat, label, chosenRim));
         }
         StripColliders(_decisionRow.gameObject, "RemoteBoardFurniture.SyncedRow");
 
@@ -1068,6 +1236,132 @@ internal sealed class RemoteBoardFurniture
                           $"top edge at board-local y {_decision.localPosition.y:F3} (bar bottom − " +
                           $"clearance − authored DecisionGap_{_decisionStyle}) — the seat, look and " +
                           "wording the OWNER's own docked row shows. Display-only: colliderless.");
+    }
+
+    /// <summary>Procedural-fallback plate colours (only used before a live game button has been
+    /// sampled) — kept as constants so the state repaint can restore them exactly.</summary>
+    private static readonly Color FallbackRimColor = new(0.55f, 0.45f, 0.22f, 1f);
+    private static readonly Color FallbackBodyColor = new(0.23f, 0.18f, 0.12f, 1f);
+
+    /// <summary>How far a GREYED option is pushed toward the board's shadow — the mirror of what a
+    /// non-interactable uGUI Selectable looks like on the owner's dock (its ColorTint transition
+    /// multiplies the disabled colour onto the CanvasRenderer).</summary>
+    private const float GreyedFactor = 0.55f;
+
+    /// <summary>Alpha a DIMMED option renders at — the game's own
+    /// <c>TakeDamagePanel.UnactiveButtonTransparency</c> (0.7), the "your character does not have
+    /// the cards for this" look. Deliberately a SEPARATE axis from greyed: the game shows the two
+    /// independently and collapsing them would lose the distinction the owner can see.</summary>
+    private const float DimmedAlpha = 0.7f;
+
+    /// <summary>The label gold the mirrored plates letter in — the dock's own
+    /// <c>NativeButtonSkin.LabelColor</c> when a live button has been sampled.</summary>
+    private static Color BaseLabelGold() => WorldUI.NativeButtonSkin.HasFont
+        ? WorldUI.NativeButtonSkin.LabelColor
+        : new Color(0.91f, 0.82f, 0.62f);
+
+    /// <summary>
+    /// Paint the owner's OPTION STATES (wire record 23) onto the mirrored plates: greyed where the
+    /// owner cannot press, dimmed where the game dims, and a lit accent frame on the option they
+    /// have already chosen.
+    ///
+    /// <para>WHY IT IS A SEPARATE PASS from <see cref="SetDecisionLines"/>: the wordings are
+    /// constant for a whole prompt while the states move on every click — a toggle flips, the game
+    /// re-asserts a gate (<c>CardsDriver.TickTakeDamageOptions</c>). Rebuilding the row for that
+    /// would rebuild a handful of quads several times per decision; this repaints four material
+    /// colours instead, and only when the bytes actually change.</para>
+    ///
+    /// <para>A sender that predates record 23 delivers no states: every plate then keeps the plain
+    /// look every build before this one drew — never a guess at which option is live, which would
+    /// be a lie about somebody else's decision.</para>
+    /// </summary>
+    private void ApplyDecisionOptionStates(byte[]? states)
+    {
+        if (_decisionPlates.Count == 0)
+        {
+            _shownOptionStates = states;
+            return;
+        }
+        if (SameStates(states, _shownOptionStates))
+            return;
+        _shownOptionStates = states;
+
+        Color gold = BaseLabelGold();
+        for (int i = 0; i < _decisionPlates.Count; i++)
+        {
+            DecisionPlate plate = _decisionPlates[i];
+            byte flags = states != null && i < states.Length ? states[i] : (byte)0;
+            bool known = states != null && i < states.Length;
+            // Unknown (pre-record sender) ⇒ the plain look: offered, undimmed, unchosen.
+            bool offered = !known || (flags & NetProtocol.DecisionOptionOfferedBit) != 0;
+            bool dimmed = known && (flags & NetProtocol.DecisionOptionDimmedBit) != 0;
+            bool chosen = known && (flags & NetProtocol.DecisionOptionChosenBit) != 0;
+
+            float tint = offered ? 1f : GreyedFactor;
+            float alpha = dimmed ? DimmedAlpha : 1f;
+            if (plate.Face != null)
+            {
+                Color c = WorldUI.Surfaces.DecisionDockSurface.AntiqueTint;
+                plate.Face.color = new Color(c.r * tint, c.g * tint, c.b * tint, c.a * alpha);
+            }
+            if (plate.RimMat != null)
+                plate.RimMat.color = new Color(FallbackRimColor.r * tint, FallbackRimColor.g * tint,
+                    FallbackRimColor.b * tint, FallbackRimColor.a * alpha);
+            if (plate.BodyMat != null)
+                plate.BodyMat.color = new Color(FallbackBodyColor.r * tint,
+                    FallbackBodyColor.g * tint, FallbackBodyColor.b * tint,
+                    FallbackBodyColor.a * alpha);
+            if (plate.Label != null)
+                plate.Label.color = new Color(gold.r * tint, gold.g * tint, gold.b * tint,
+                    gold.a * alpha);
+            if (plate.ChosenRim != null && plate.ChosenRim.activeSelf != chosen)
+                plate.ChosenRim.SetActive(chosen);
+        }
+        VRLog.Info("Net", $"Remote decision states applied: {_decisionPlates.Count} plate(s) — " +
+                          $"{DescribeStates(states, _decisionPlates.Count)} (wire record 23). " +
+                          "Greyed/dim/chosen read exactly as on the owner's own dock; still inert — " +
+                          "no collider, no raycast target, nothing to press.");
+    }
+
+    /// <summary>Value equality for the applied option-state bytes (the repaint's change gate).</summary>
+    private static bool SameStates(byte[]? a, byte[]? b)
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+        if (a == null || b == null || a.Length != b.Length)
+            return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i] != b[i])
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Human-readable option states for the diagnostic line.</summary>
+    private static string DescribeStates(byte[]? states, int plates)
+    {
+        if (states == null)
+            return "no state record (pre-record sender ⇒ every plate keeps the plain look)";
+        var sb = new System.Text.StringBuilder(48);
+        for (int i = 0; i < plates; i++)
+        {
+            if (i > 0)
+                sb.Append(", ");
+            if (i >= states.Length)
+            {
+                sb.Append('#').Append(i).Append("=unstated");
+                continue;
+            }
+            byte f = states[i];
+            sb.Append('#').Append(i).Append('=')
+              .Append((f & NetProtocol.DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
+            if ((f & NetProtocol.DecisionOptionDimmedBit) != 0)
+                sb.Append("+dim");
+            if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
+                sb.Append("+CHOSEN");
+        }
+        return sb.ToString();
     }
 
     /// <summary>

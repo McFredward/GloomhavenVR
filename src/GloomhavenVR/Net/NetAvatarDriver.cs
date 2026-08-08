@@ -156,6 +156,19 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// board-UI-edge argument. Human-paced (a prompt opening), never a stream.</summary>
     private string? _lastSentDecisionLines;
 
+    /// <summary>Last decision DISPLAY STATE put on the wire (extension record 23), packed as
+    /// <c>flags | count &lt;&lt; 8 | option bytes &lt;&lt; 16…</c> for the change test alone;
+    /// −1 = no record was written. The option states change on a CLICK (a toggle flips, the game
+    /// re-asserts a gate), which is exactly the human-paced edge the decision lines already
+    /// pre-empt the 5 Hz gate for — a mirrored plate that lights 200 ms after the owner's reads as
+    /// "not synced".</summary>
+    private long _lastSentDecisionState = -1;
+
+    /// <summary>Sample buffer for the per-option state bytes (extension record 23) — a persistent
+    /// array handed to the serializer with a live count, the <see cref="_wallFadeSample"/>
+    /// pattern, so the 5 Hz path allocates nothing while a prompt is docked.</summary>
+    private readonly byte[] _decisionOptionSample = new byte[NetProtocol.DecisionStateMaxOptions];
+
     /// <summary>Last CONFIRM cap label put on the wire (extension record 13 bit 0; null = no
     /// confirm control shown). Same edge pre-emption as the decision lines.</summary>
     private string? _lastSentConfirmLabel;
@@ -332,6 +345,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentFocusActor = int.MinValue;       // …and the character focus (record 22)
         Board.CharacterFocus.Reset();             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
+        _lastSentDecisionState = -1;   // …including its option states + prompt-text variant
         _lastSentConfirmLabel = null;  // and the live cap labels
         _lastSentSkipLabel = null;
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
@@ -615,7 +629,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             if (RestControls.ShortRestShown) buttons |= NetProtocol.BoardUiShortRestBit;
             if (RestControls.LongRestShown) buttons |= NetProtocol.BoardUiLongRestBit;
             if (WorldUI.ButtonCluster.BoardSkipShown) buttons |= NetProtocol.BoardUiSkipBit;
-            if (WorldUI.ModalFallback.DecisionDock.ActivePrompt() != null)
+            // THE DECISION DRAWER BIT — "a prompt is docked AND the owner can see it".
+            //
+            // The second half is new (user ruling 2026-08-08: "generell gilt die Regel, das man
+            // alle Interaktionen, Animationen und Anzeigen des Controllboards in MP auch
+            // synchronisieren soll … so wie der Spieler sie sieht"). While the owner has focused
+            // ANOTHER character, their own decision row is render-hidden and their board shows
+            // NOTHING at that seat (DecisionDockSurface.ApplyFocusHide) — so a peer drawing the
+            // drawer would be showing furniture the owner does not have. The bit therefore tracks
+            // the RENDERED state, not the model state: prompt open, row not focus-hidden.
+            if (WorldUI.ModalFallback.DecisionDock.ActivePrompt() != null
+                && !WorldUI.Surfaces.DecisionDockSurface.RowFocusHidden)
                 buttons |= NetProtocol.BoardUiDecisionBit;
             int overlays = trayNow.WantedSlotMask & NetProtocol.BoardUiWantedMask;
             // FOLLOW/PIN (this round's defect (a)): the label AND the accent of the toggle on the
@@ -833,6 +857,33 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         string? decisionNow = WorldUI.Surfaces.DecisionDockSurface.WireButtonLines;
         bool decisionChanged = decisionNow != _lastSentDecisionLines;
 
+        // DECISION STATE (extension record 23, user ruling 2026-08-08 "die Schadensabfrage 1:1 …
+        // wie der Spieler es auch sieht"): WHICH prompt is docked, which prompt-TEXT variant the
+        // owner is reading, and per option offered / greyed / chosen. Rides record 12's own gate
+        // (only while a row is docked AND visible), so wordings and states can never disagree; the
+        // text VARIANT is a number the receiver localizes itself — the composed line never rides
+        // the wire, it can embed active-bonus card names. Sampled before the rate gate: a toggle
+        // flip is exactly the human-paced edge the labels already pre-empt for.
+        byte decisionKind = 0;
+        byte decisionText = 0;
+        int decisionOptions = 0;
+        if (!string.IsNullOrEmpty(decisionNow))
+        {
+            decisionKind = WorldUI.Surfaces.DecisionDockSurface.WirePromptKind;
+            decisionText = WorldUI.Surfaces.DamageTooltipSurface.WireTextVariant;
+            decisionOptions = WorldUI.Surfaces.DecisionDockSurface.CopyWireOptionStates(
+                _decisionOptionSample);
+        }
+        long decisionStateNow = -1;
+        if (!string.IsNullOrEmpty(decisionNow))
+        {
+            decisionStateNow = NetProtocol.EncodeDecisionFlags(decisionKind, decisionText)
+                               | ((long)decisionOptions << 8);
+            for (int o = 0; o < decisionOptions; o++)
+                decisionStateNow |= (long)_decisionOptionSample[o] << (16 + o * 3);
+        }
+        bool decisionStateChanged = decisionStateNow != _lastSentDecisionState;
+
         // CAP LABELS (extension record 13): what the owner's CONFIRM cap and docked SKIP button
         // actually read. Null while the control is hidden, so the record's presence tracks the
         // board-UI visibility bits; appearance/disappearance/re-wording are edges.
@@ -850,7 +901,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
-            && !decisionChanged && !capLabelsChanged && !focusChanged)
+            && !decisionChanged && !decisionStateChanged && !capLabelsChanged && !focusChanged)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1018,11 +1069,54 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         {
             _lastSentDecisionLines = decisionNow;
             VRLog.Info("Net", string.IsNullOrEmpty(decisionNow)
-                ? "Decision lines SENT: row undocked — record omitted (peers drop the mirrored buttons)."
+                ? "Decision lines SENT: row undocked or hidden for another character's focus — " +
+                  "record omitted (peers drop the mirrored buttons, exactly as the owner's own " +
+                  "board drops them)."
                 : $"Decision lines SENT: \"{decisionNow!.Replace('\n', '|')}\" — extension record 12 " +
                   $"(UTF8, capped {NetProtocol.DecisionLinesMaxBytes} B: pressable-widget labels " +
                   "only, NO card identity); peers render them as inert plates at their copy's " +
                   "decision seat.");
+        }
+        // DECISION STATE (extension record 23): written on exactly the gate record 12 rides, so a
+        // peer can never hold states for a row whose wordings it does not have (or the reverse).
+        if (decisionStateNow >= 0)
+        {
+            extras.HasDecisionState = true;
+            extras.DecisionPromptKind = decisionKind;
+            extras.DecisionTextVariant = decisionText;
+            extras.DecisionOptionCount = decisionOptions;
+            extras.DecisionOptionFlags = _decisionOptionSample;
+        }
+        if (decisionStateChanged)
+        {
+            _lastSentDecisionState = decisionStateNow;
+            if (decisionStateNow < 0)
+            {
+                VRLog.Info("Net", "Decision state SENT: no visible decision row — record 23 omitted " +
+                                  "(peers drop the prompt text and the option states with the plates).");
+            }
+            else
+            {
+                var opts = new System.Text.StringBuilder(48);
+                for (int o = 0; o < decisionOptions; o++)
+                {
+                    if (o > 0)
+                        opts.Append(", ");
+                    byte f = _decisionOptionSample[o];
+                    opts.Append('#').Append(o).Append('=')
+                        .Append((f & NetProtocol.DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
+                    if ((f & NetProtocol.DecisionOptionDimmedBit) != 0)
+                        opts.Append("+dim");
+                    if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
+                        opts.Append("+CHOSEN");
+                }
+                VRLog.Info("Net", $"Decision state SENT: prompt kind {decisionKind}, text variant " +
+                                  $"{decisionText}, {decisionOptions} option(s) [{opts}] — extension " +
+                                  "record 23 (flags + one byte per option, index-aligned with record " +
+                                  "12's lines). The prompt TEXT itself is NOT on the wire: peers " +
+                                  "compose the same line from their own localization, so the " +
+                                  "mandatory-use variant's active-bonus CARD NAMES never travel.");
+            }
         }
         // CAP LABELS (extension record 13): written on every packet while a confirm/skip control
         // is shown with a known label; omitted otherwise (peers fall back to the neutral wording,
