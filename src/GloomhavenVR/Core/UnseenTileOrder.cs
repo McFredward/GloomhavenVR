@@ -155,6 +155,18 @@ internal static class UnseenTileOrder
     /// </summary>
     internal static void Tick(Vector3 eye)
     {
+        // MEASURED, NOT ASSERTED (perf pass 2026-08-09, instrumentation only — no logic here was
+        // touched). The doc above prices this as "one AABB distance plus one walk of the ≈15-entry
+        // ladder per adopted renderer", and the shipped hardware scene carries 333 adopted
+        // renderers: that is ~5000 ladder iterations per frame, each of them a Unity-object
+        // liveness test, plus 333 Renderer.bounds reads, plus one FurnitureEyeDistance per
+        // furniture group per RENDERER. The step it runs inside, CanvasConversion.Order, measured
+        // p50 0.17 ms in the multiplayer log BEFORE this existed. Whether the new work is 0.05 ms
+        // or 0.8 ms decides whether it matters at all, and no amount of reading the code settles
+        // it — so it gets its own step and its own work counter, and the next hardware log answers
+        // it in one grep ('[Perf] STEPS' UnseenTiles, '[Perf] COUNTS' UnseenTiles.Renderers).
+        using var _perf = PerfMonitor.Scope("UnseenTiles");
+
         // MR owns the unseen family while it is on (opaque re-render + backings). Park and hand
         // every authored order back, so MR is bit-identical to the shipped build.
         if (MixedReality.BackingsWanted)
@@ -168,10 +180,16 @@ internal static class UnseenTileOrder
         if (now >= _nextScanAt)
         {
             _nextScanAt = now + RescanSeconds;
-            Rescan();
+            using (PerfMonitor.Scope("UnseenTiles.Rescan"))
+                Rescan();
+            PerfMonitor.Count("UnseenTiles.Rescans");
         }
         if (Entries.Count == 0)
             return;
+
+        // The per-frame cost is LINEAR in this number and in nothing else, so it is the counter
+        // that turns "is the see-through driver expensive?" into arithmetic.
+        PerfMonitor.Count("UnseenTiles.Renderers", Entries.Count);
 
         _parked = false;
         int lifted = 0, lowest = int.MaxValue, highest = int.MinValue, offLayer = 0;
