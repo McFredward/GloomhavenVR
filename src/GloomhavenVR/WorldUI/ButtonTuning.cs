@@ -183,34 +183,35 @@ internal static class ButtonTuning
 
         RoundOffsetX = config.Bind("RoundButtons", "OffsetX", Defaults.RoundButtons_OffsetX,
             "Sideways offset (tray-ROOT-local meters, +X = toward the board's right edge / the " +
-            "Undo-gear pads) of the transient round-phase button group (skip-step etc.) from its " +
-            "default anchor. Live; clamped -0.30..0.30.");
+            "Undo-gear pads) of the docked SKIP key ('Skip movement' / 'Skip attack') from its " +
+            "default anchor \u2014 the only visible member of the transient round-phase button " +
+            "group. Live; clamped -0.30..0.30.");
         RoundOffsetY = config.Bind("RoundButtons", "OffsetY", Defaults.RoundButtons_OffsetY,
             "Up-board offset (tray-ROOT-local meters, +Y = toward the card slots / far edge, " +
-            "-Y = toward the bottom edge and handle) of the transient button group from its " +
+            "-Y = toward the bottom edge and handle) of the docked SKIP key from its " +
             "default anchor. Live; clamped -0.30..0.30.");
         RoundOffsetZ = config.Bind("RoundButtons", "OffsetZ", Defaults.OffsetZ,
             "Out-of-plane offset (tray-ROOT-local meters, +Z = OUT of the board toward the " +
-            "player, -Z = sunk toward/behind the board face) of the transient button group " +
+            "player, -Z = sunk toward/behind the board face) of the docked SKIP key " +
             "from its default proud seat. Live; clamped -0.30..0.30.");
         RoundShape = config.Bind("RoundButtons", "Shape", Defaults.RoundButtons_Shape,
-            "Cap shape of the transient round-phase buttons: Round = flattened puck (default), " +
-            "Square = boxy keycap (then this section's Width/Height/Depth apply). Live.");
+            "Cap shape of the docked SKIP key: Round = flattened puck, Square = boxy keycap " +
+            "(then this section's Width/Height/Depth apply; Square is the shipped default). Live.");
         RoundCapSize = config.Bind("RoundButtons", "CapSize", Defaults.RoundButtons_CapSize,
-            "Cap radius (cluster-local meters) of the transient buttons. The column auto-fit only " +
+            "Cap radius (cluster-local meters) of the docked SKIP key. The column auto-fit only " +
             "SHRINKS below this when several buttons must share the column; a single button uses " +
-            "exactly this size. Live; clamped 0.015..0.09.");
+            "exactly this size, which docked is always the case. Live; clamped 0.015..0.09.");
         RoundWidth = config.Bind("RoundButtons", "Width", Defaults.RoundButtons_Width,
-            "Cap width (meters) of the transient buttons while Shape=Square. Applies ONLY to " +
+            "Cap width (meters) of the docked SKIP key while Shape=Square. Applies ONLY to " +
             "this group. Live; clamped 0.02..0.20.");
         RoundHeight = config.Bind("RoundButtons", "Height", Defaults.RoundButtons_Height,
-            "Cap height (meters) of the transient buttons while Shape=Square. Applies ONLY to " +
+            "Cap height (meters) of the docked SKIP key while Shape=Square. Applies ONLY to " +
             "this group. Live; clamped 0.015..0.20.");
         RoundDepth = config.Bind("RoundButtons", "Depth", Defaults.RoundButtons_Depth,
-            "Cap depth/extrusion (meters toward the player) of the transient buttons while " +
+            "Cap depth/extrusion (meters toward the player) of the docked SKIP key while " +
             "Shape=Square. Applies ONLY to this group. Live; clamped 0.006..0.08.");
         RoundTravel = config.Bind("RoundButtons", "Travel", Defaults.RoundButtons_Travel,
-            "Press travel (meters) of the transient buttons — how far a cap sinks under the " +
+            "Press travel (meters) of the docked SKIP key — how far the cap sinks under the " +
             "fingertip before the depth-fire press commits (fires at 90% of travel). Applies " +
             "ONLY to this group. Live; clamped 0.002..0.02.");
 

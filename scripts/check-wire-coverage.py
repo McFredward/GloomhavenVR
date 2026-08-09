@@ -155,8 +155,11 @@ EXEMPT = {
                                                      "card syncs a pose, not an offset). Needs the held-card path, not a field"),
     ("Cards", "ActiveGridSpacing_{board}"): ("PENDING", "a Vector2, and record 28 has no 2-component kind; would need two LENGTH "
                                                         "fields plus a grid-spacing member on RemoteBoardLayout, which has none"),
-    ("Cards", "RestButtonShape_{board}"): ("PENDING", "an enum; RemoteBoardFurniture builds rest caps with the shape hardwired, "
-                                                      "so the wire field needs a renderer change in a file owned elsewhere"),
+    ("Cards", "RestButtonShape_{board}"): ("PENDING", "an enum; RemoteBoardFurniture builds rest caps ROUND with no Square "
+                                                      "branch at all, so the wire field needs a RENDERER change first — the "
+                                                      "turn-flow cap's shape rode at once (id 228) precisely because its "
+                                                      "mirror already had the branch. [RestButtons] Width/Height are parked "
+                                                      "behind this same branch"),
     ("Cards", "GenericButtonShape_{board}"): ("PENDING", "as RestButtonShape_{board}"),
     ("Cards", "SlotCardInset"): ("PENDING", "how deep a card seats in the recess; NOTHING in Net/ reads it, so a wire field "
                                             "would have no consumer until the recess renderer grows one"),
@@ -171,31 +174,26 @@ EXEMPT = {
                                                "bytes on the wire no receiver reads and would let this script call it "
                                                "covered while a peer still sees no difference. Sample it the day the "
                                                "mirror grows a collapse"),
-    ("BoardButtons", "Width"): ("PENDING", "mirrored as a FROZEN constant in RemoteBoardFurniture (pinned by "
-                                           "check-remote-defaults.py), so a re-tune desyncs; the renderer is owned by a "
-                                           "parallel round — wire it when that lands"),
-    ("BoardButtons", "Height"): ("PENDING", "as [BoardButtons] Width"),
-    ("BoardButtons", "Depth"): ("PENDING", "as [BoardButtons] Width"),
-    ("BoardButtons", "Travel"): ("PENDING", "as [BoardButtons] Width"),
-    ("BoardDashboard", "PinWidth"): ("PENDING", "as [BoardButtons] Width"),
-    ("BoardDashboard", "Height"): ("PENDING", "as [BoardButtons] Width"),
-    ("BoardDashboard", "Depth"): ("PENDING", "as [BoardButtons] Width"),
-    ("BoardDashboard", "Travel"): ("PENDING", "as [BoardButtons] Width"),
-    ("RestButtons", "Width"): ("PENDING", "as [BoardButtons] Width"),
-    ("RestButtons", "Height"): ("PENDING", "as [BoardButtons] Width"),
-    ("RestButtons", "Depth"): ("PENDING", "as [BoardButtons] Width"),
-    ("RestButtons", "Travel"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "CapSize"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "Width"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "Height"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "Depth"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "Travel"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "OffsetX"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "OffsetY"): ("PENDING", "as [BoardButtons] Width"),
-    ("RoundButtons", "OffsetZ"): ("PENDING", "as [BoardButtons] Width — and ignored by the remote cluster entirely today"),
-    ("RoundButtons", "Shape"): ("PENDING", "an enum, as RestButtonShape_{board}"),
-    ("ButtonAnim", "DisappearSeconds"): ("PENDING", "as [BoardButtons] Width"),
-    ("ButtonAnim", "AppearSeconds"): ("PENDING", "as [BoardButtons] Width"),
+    # THE KEYCAP SIZE / SEAT / TRAVEL FAMILY IS GONE FROM THIS TABLE (2026-08-09). Eighteen lines
+    # stood here saying "mirrored as a FROZEN constant in RemoteBoardFurniture, so a re-tune
+    # desyncs; the renderer is owned by a parallel round — wire it when that lands". It landed, and
+    # the debt was paid rather than restated: record 28 ids 81..98 carry [RoundButtons] OffsetX/Y/Z
+    # + CapSize/Width/Height/Depth/Travel, [BoardButtons] W/H/D/Travel, [BoardDashboard]
+    # PinWidth/Height/Depth/Travel and [RestButtons] Depth/Travel, and id 228 carries the turn-flow
+    # cap's SHAPE. What is left below is what genuinely still has no receiver.
+    ("RestButtons", "Width"): ("PENDING", "the mirrored rest caps are built ROUND unconditionally "
+                                          "(RemoteBoardFurniture has no Square branch for them), so this dial has no "
+                                          "consumer on the far side — sampling it would put bytes on the wire nobody "
+                                          "reads AND let this script call it covered while a peer sees no difference, "
+                                          "the FanCloseDuration trap. Wire it with RestButtonShape_{board}, not before"),
+    ("RestButtons", "Height"): ("PENDING", "as [RestButtons] Width"),
+    ("ButtonAnim", "DisappearSeconds"): ("PENDING", "the mirrored cap's crumble/assemble clock is a pair of STATIC "
+                                                    "consts on RemoteBoardFurniture read by every InertCap of every "
+                                                    "peer's board, not per-peer state — so this needs the fade clock "
+                                                    "threaded through the cap instances first, which is a renderer "
+                                                    "change and not a wire field. The four cap TRAVELS beside it did "
+                                                    "fall out for free and are wired (ids 88/92/96/98)"),
+    ("ButtonAnim", "AppearSeconds"): ("PENDING", "as [ButtonAnim] DisappearSeconds"),
     ("ButtonAnim", "Enable"): ("PENDING", "a bool; whether the caps animate at all is not mirrored"),
     ("ButtonAnim", "AppearParticles"): ("PENDING", "a bool; the spark burst is not mirrored"),
 }

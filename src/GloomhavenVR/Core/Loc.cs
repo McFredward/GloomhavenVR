@@ -684,7 +684,7 @@ internal static partial class Loc
         ["items"] = Pair("Items", "Gegenstände"),
 
         // ---- Debug element / sub-category labels (previously hardcoded German) ----
-        ["round_buttons"] = Pair("Round-phase buttons", "Rundenknöpfe"),
+        ["round_buttons"] = Pair("Skip key (round phase)", "Überspringen-Taste"),
         ["board_dashboard"] = Pair("Gear & Pin (size)", "Zahnrad & Fixiert (Größe)"),
         ["wall_fade"] = Pair("Wall see-through", "Wandüberblendung"),
         ["figure_offsets"] = Pair("Figure offsets", "Figuren-Offsets"),
@@ -743,10 +743,10 @@ internal static partial class Loc
         ["vr_bg_buttons"] = Pair("Buttons", "Tasten"),
         ["h_vr_bg_buttons"] = Pair(
             "The pressable keycaps on the control board: Confirm/Undo, the rest keys, the docked "
-            + "turn-button cluster and the FOLLOW/PINNED key — position, size, gap and shape.",
+            + "SKIP key and the FOLLOW/PINNED key — position, size, gap, shape and press travel.",
             "Die drückbaren Tasten auf dem Steuerbrett: Bestätigen/Zurück, Rast-Tasten, die "
-            + "angedockte Rundenknopf-Gruppe und die FOLGEN/FIXIERT-Taste — Lage, Größe, Abstand "
-            + "und Form."),
+            + "angedockte ÜBERSPRINGEN-Taste und die FOLGEN/FIXIERT-Taste — Lage, Größe, Abstand, "
+            + "Form und Hub."),
         ["vr_bg_cu"] = Pair("Confirm/Undo", "Best./Zurück"),
         ["h_vr_bg_cu"] = Pair(
             "The Confirm and Undo keycaps: position, gap and shape per board, plus their "
@@ -761,12 +761,14 @@ internal static partial class Loc
             + "geometry shared by all boards.",
             "Die Tasten für kurze/lange Rast: Sitz, Größe, Abstand und Form pro Brett, dazu die "
             + "für alle Bretter gemeinsame Kappen-Geometrie."),
-        ["vr_bg_cluster"] = Pair("Turn buttons & pin", "Rundenknöpfe & Fixier-Taste"),
+        ["vr_bg_cluster"] = Pair("Skip key & pin", "Überspringen- & Fixier-Taste"),
         ["h_vr_bg_cluster"] = Pair(
-            "The docked turn-flow button cluster and the FOLLOW/PINNED key: where they dock on "
-            + "the board and how large they are.",
-            "Die angedockte Rundenknopf-Gruppe und die FOLGEN/FIXIERT-Taste: wo sie am Brett "
-            + "andocken und wie groß sie sind."),
+            "The docked SKIP key ('Skip movement' / 'Skip attack') and the FOLLOW/PINNED key: "
+            + "where they dock on the board, how large they are, the skip cap's own shape, "
+            + "width/height/depth and press travel.",
+            "Die angedockte ÜBERSPRINGEN-Taste ('Bewegung überspringen' / 'Angriff "
+            + "überspringen') und die FOLGEN/FIXIERT-Taste: wo sie am Brett andocken, wie groß "
+            + "sie sind, dazu Form, Breite/Höhe/Tiefe und Hub der Überspringen-Kappe."),
         ["vr_bg_board"] = Pair("Board & alignment", "Brett & Ausrichtung"),
         ["h_vr_bg_board"] = Pair(
             "The control board itself: how it hangs in front of you, and the decorative board "

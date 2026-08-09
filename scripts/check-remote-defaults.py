@@ -57,24 +57,38 @@ SRC = ROOT / "src" / "GloomhavenVR"
 
 # remote file : constant : the config Bind whose default it copies (section, key)
 PAIRS = [
-    ("Net/RemoteBoardFurniture.cs", "BoardCapW", "BoardButtons", "Width"),
-    ("Net/RemoteBoardFurniture.cs", "BoardCapH", "BoardButtons", "Height"),
-    ("Net/RemoteBoardFurniture.cs", "BoardCapD", "BoardButtons", "Depth"),
-    ("Net/RemoteBoardFurniture.cs", "PinCapW", "BoardDashboard", "PinWidth"),
-    ("Net/RemoteBoardFurniture.cs", "DashCapH", "BoardDashboard", "Height"),
-    ("Net/RemoteBoardFurniture.cs", "DashCapD", "BoardDashboard", "Depth"),
-    ("Net/RemoteBoardFurniture.cs", "RestCapD", "RestButtons", "Depth"),
-    ("Net/RemoteBoardFurniture.cs", "TransientCapR", "RoundButtons", "CapSize"),
-    ("Net/RemoteBoardFurniture.cs", "TransientCapD", "RoundButtons", "Depth"),
-    # The mirrored keycap ANIMATIONS (2026-08-08 1:1 round). A peer's cap now dips its own
-    # category's authored TRAVEL on the synced press edge and crumbles/assembles over the authored
-    # ButtonAnim durations, so all six numbers have a second home in Net/ and belong on this list
-    # for exactly the reason the sizes above do: retune the local feel and the remote boards must
-    # follow, or a press looks 4 mm deep on one screen and 8 on another.
-    ("Net/RemoteBoardFurniture.cs", "BoardCapTravel", "BoardButtons", "Travel"),
-    ("Net/RemoteBoardFurniture.cs", "DashCapTravel", "BoardDashboard", "Travel"),
-    ("Net/RemoteBoardFurniture.cs", "RestCapTravel", "RestButtons", "Travel"),
-    ("Net/RemoteBoardFurniture.cs", "TransientCapTravel", "RoundButtons", "Travel"),
+    # THE KEYCAP GEOMETRY FAMILY. These were `const` — genuinely frozen — until 2026-08-09, when
+    # extension record 28 grew ids 81..98 (+ the turn-flow cap's shape at 228) and they became
+    # wire-overridable fallbacks: the constructor seeds each one from RemoteBoardTuning, whose own
+    # fallback for an absent field is the very Defaults entry named here. So they stay on this list
+    # for exactly the reason the header gives, one keyword different — the initialiser is still what
+    # an UNTUNED peer's board is drawn with, and a default that moved without its copy would put two
+    # untuned players in front of two different boards with nothing to tell them.
+    ("Net/RemoteBoardFurniture.cs", "_boardCapW", "BoardButtons", "Width"),
+    ("Net/RemoteBoardFurniture.cs", "_boardCapH", "BoardButtons", "Height"),
+    ("Net/RemoteBoardFurniture.cs", "_boardCapD", "BoardButtons", "Depth"),
+    ("Net/RemoteBoardFurniture.cs", "_pinCapW", "BoardDashboard", "PinWidth"),
+    ("Net/RemoteBoardFurniture.cs", "_dashCapH", "BoardDashboard", "Height"),
+    ("Net/RemoteBoardFurniture.cs", "_dashCapD", "BoardDashboard", "Depth"),
+    ("Net/RemoteBoardFurniture.cs", "_restCapD", "RestButtons", "Depth"),
+    ("Net/RemoteBoardFurniture.cs", "_transientCapR", "RoundButtons", "CapSize"),
+    ("Net/RemoteBoardFurniture.cs", "_transientCapD", "RoundButtons", "Depth"),
+    # The turn-flow (SKIP) cap's SQUARE side lengths. They were not on this list at all before —
+    # they were BARE `Defaults.RoundButtons_Width/Height` reads inlined at the build site, which is
+    # the shape of drift this file exists to catch and which nothing could have caught.
+    ("Net/RemoteBoardFurniture.cs", "_transientCapW", "RoundButtons", "Width"),
+    ("Net/RemoteBoardFurniture.cs", "_transientCapH", "RoundButtons", "Height"),
+    # The mirrored keycap ANIMATIONS (2026-08-08 1:1 round). A peer's cap dips its own category's
+    # TRAVEL on the synced press edge and crumbles/assembles over the ButtonAnim durations, so all
+    # six numbers have a second home in Net/ and belong on this list for exactly the reason the
+    # sizes above do: retune the local feel and the remote boards must follow, or a press looks 4 mm
+    # deep on one screen and 8 on another. The four TRAVELS ride record 28 now (ids 88 / 92 / 96 /
+    # 98); the two ButtonAnim DURATIONS are still frozen — see check-wire-coverage.py's PENDING line
+    # for why (the mirrored cap's fade clock is a static on the renderer, not per-peer state).
+    ("Net/RemoteBoardFurniture.cs", "_boardCapTravel", "BoardButtons", "Travel"),
+    ("Net/RemoteBoardFurniture.cs", "_dashCapTravel", "BoardDashboard", "Travel"),
+    ("Net/RemoteBoardFurniture.cs", "_restCapTravel", "RestButtons", "Travel"),
+    ("Net/RemoteBoardFurniture.cs", "_transientCapTravel", "RoundButtons", "Travel"),
     ("Net/RemoteBoardFurniture.cs", "DissolveSeconds", "ButtonAnim", "DisappearSeconds"),
     ("Net/RemoteBoardFurniture.cs", "AppearSeconds", "ButtonAnim", "AppearSeconds"),
     # The hand fan's geometry: wire-overridable fields (record 28) whose INITIALISER is what an

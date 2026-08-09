@@ -160,16 +160,18 @@ internal sealed class RemoteBoardFurniture
     /// the docked cluster is lifted toward the viewer, scaled by the dock factor.</summary>
     private const float ClusterProudLift = 0.010f;
 
-    /// <summary>The SHIPPED [RoundButtons] group offset (<c>Defaults.RoundButtons_OffsetX/Y</c> +
-    /// <c>Defaults.OffsetZ</c>) — the authored seat term <c>ButtonCluster.AttachDocked</c> adds to
-    /// the column anchor in tray-root-local metres (X/Y straight, Z along the outward normal).
-    /// The shipped values are NOT zero (build 34 rebased the tuned cfg into the defaults:
-    /// x −0.045, y +0.26, z 0.025 — the skip disc lives UP-BOARD beside the card slots, not in
-    /// the authored bottom-right column), and dropping them is the other half of task 3(b)'s
-    /// "wrongly positioned round button". As everywhere on this board these are the AUTHORED
-    /// defaults, never the peer's live [RoundButtons] tuning (DELIBERATELY-NOT).</summary>
-    private static readonly Vector3 SkipSeatOffset = new(
-        Defaults.RoundButtons_OffsetX, Defaults.RoundButtons_OffsetY, 0f);
+    // THE [RoundButtons] GROUP OFFSET — the seat term ButtonCluster.AttachDocked adds to the column
+    // anchor in tray-root-local metres (X/Y straight, Z along the outward normal). The shipped
+    // values are NOT zero (build 34 rebased the tuned cfg into the defaults: x −0.045, y +0.26,
+    // z 0.025 — the skip cap lives UP-BOARD beside the card slots, not in the authored bottom-right
+    // column), and dropping them was half of task 3(b)'s "wrongly positioned round button".
+    //
+    // THE "DELIBERATELY-NOT" NOTE THAT STOOD HERE IS GONE. It said these were the AUTHORED defaults
+    // and never the peer's live [RoundButtons] tuning. Under the 1:1 ruling that is not a policy,
+    // it is the defect: a player who drags their skip cap across their own board was the only
+    // person who could see it move. The three offsets ride extension record 28 now (ids 81..83)
+    // and are read off RemoteBoardTuning below, whose fallback for each is the very default this
+    // note used to name — so an UNTUNED peer is drawn exactly as before, byte for byte.
 
     /// <summary>PlayTray.ItemUseSlotBase (ButtonZoneX, −BoardH/2 − 0.095, −0.020).</summary>
     private static readonly Vector3 ItemUseMount = new(ButtonZoneX, -BoardH * 0.5f - 0.095f, -0.020f);
@@ -192,27 +194,45 @@ internal sealed class RemoteBoardFurniture
     /// mirror round, so it can no longer drift from the original it copies.</summary>
     private const float BarClearanceMeters = WorldUI.Surfaces.DecisionDockSurface.BarClearanceMeters;
 
-    // ---- authored widget sizes (Defaults — the shipped [ButtonTuning] values) ------------------
-    // The live ButtonTuning entries are the LOCAL player's own config; a peer's caps are drawn at
-    // the AUTHORED defaults so every remote board looks the same regardless of local tuning.
-    private const float BoardCapW = Defaults.BoardButtons_Width;
-    private const float BoardCapH = Defaults.BoardButtons_Height;
-    private const float BoardCapD = Defaults.BoardButtons_Depth;
-    private const float PinCapW = Defaults.PinWidth;
-    private const float DashCapH = Defaults.BoardDashboard_Height;
-    private const float DashCapD = Defaults.BoardDashboard_Depth;
-    private const float RestCapD = Defaults.RestButtons_Depth;
-    private const float TransientCapR = Defaults.RoundButtons_CapSize; // cap RADIUS
-    private const float TransientCapD = Defaults.RoundButtons_Depth;
+    // ---- KEYCAP GEOMETRY: wire-overridable fallbacks (extension record 28, ids 81..98 + 228) ----
+    //
+    // THESE USED TO BE `const`, AND THE COMMENT ABOVE THEM USED TO SAY WHY: "the live ButtonTuning
+    // entries are the LOCAL player's own config; a peer's caps are drawn at the AUTHORED defaults so
+    // every remote board looks the same regardless of local tuning." Half of that sentence was
+    // always right and still is — a peer's board must never be drawn from the VIEWER's config — but
+    // the conclusion it reached was wrong under the 1:1 ruling (2026-08-09, "Ändert ein Spieler also
+    // die Positionen für sich selber, so sollen alle anderen diese Position bei seinem board auch
+    // sehen"): the OWNER's own cap sizes and press travels are exactly what a mirrored board owes
+    // them, and freezing them meant a player who re-shaped their keycaps was the only person alive
+    // who could see it. scripts/check-wire-coverage.py carried all of them as one PENDING debt whose
+    // reason read "the renderer is owned by a parallel round — wire it when that lands". It landed.
+    //
+    // So each of these is now the fallback INITIALISER of a field the constructor overwrites from
+    // RemoteBoardTuning — and since RemoteBoardTuning's own fallback for an absent field is the same
+    // Defaults entry, an untuned peer is drawn byte-for-byte as they were before this change. The
+    // initialiser is still what scripts/check-remote-defaults.py pins, for the reason its header
+    // gives: move a default without moving its copy and two untuned players see two different
+    // boards, and neither of them can tell from inside their own headset.
+    private readonly float _boardCapW = Defaults.BoardButtons_Width;
+    private readonly float _boardCapH = Defaults.BoardButtons_Height;
+    private readonly float _boardCapD = Defaults.BoardButtons_Depth;
+    private readonly float _pinCapW = Defaults.PinWidth;
+    private readonly float _dashCapH = Defaults.BoardDashboard_Height;
+    private readonly float _dashCapD = Defaults.BoardDashboard_Depth;
+    private readonly float _restCapD = Defaults.RestButtons_Depth;
+    private readonly float _transientCapR = Defaults.RoundButtons_CapSize; // cap RADIUS
+    private readonly float _transientCapD = Defaults.RoundButtons_Depth;
+    private readonly float _transientCapW = Defaults.RoundButtons_Width;
+    private readonly float _transientCapH = Defaults.RoundButtons_Height;
 
-    // ---- authored PRESS TRAVEL, per cap category ----------------------------------------------
-    // How far the local cap of each category sinks under a press (the [*] Travel entries). Like
-    // every other number on this board these are the SHIPPED defaults, never the peer's private
-    // tuning: a mirrored press must look the same on every client that renders that board style.
-    private const float BoardCapTravel = Defaults.BoardButtons_Travel;
-    private const float DashCapTravel = Defaults.BoardDashboard_Travel;
-    private const float RestCapTravel = Defaults.RestButtons_Travel;
-    private const float TransientCapTravel = Defaults.RoundButtons_Travel;
+    // ---- PRESS TRAVEL, per cap category (same story as the sizes above) ------------------------
+    // How far the OWNER's cap of each category sinks under a press (the [*] Travel entries) — the
+    // depth a mirrored cap dips on the synced press edge. Frozen until this build, which meant a
+    // re-tuned press looked 4 mm deep on one screen and 8 on another.
+    private readonly float _boardCapTravel = Defaults.BoardButtons_Travel;
+    private readonly float _dashCapTravel = Defaults.BoardDashboard_Travel;
+    private readonly float _restCapTravel = Defaults.RestButtons_Travel;
+    private readonly float _transientCapTravel = Defaults.RoundButtons_Travel;
 
     /// <summary>Authored seconds a vanishing cap's dust dissolve runs
     /// (<c>[ButtonAnim] DisappearSeconds</c> — the duration <c>PlayTray.BoardButton.SetVisible</c>
@@ -697,6 +717,28 @@ internal sealed class RemoteBoardFurniture
         _root = new GameObject("Furniture").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
 
+        // ---- the OWNER's keycap geometry, ONCE, before anything is built ------------------------
+        // Extension record 28 ids 81..98 + 228 (see the field block above for the debt this pays).
+        // Every value is floored the way the local builders floor their own: a WIRE number is never
+        // trusted to be sane, and a zero or negative side length would build a degenerate mesh the
+        // renderer cannot recover from. An absent field already resolved to the shipped default in
+        // RemoteBoardTuning, so these clamps only ever fire on a corrupt sender.
+        _boardCapW = Mathf.Max(0.002f, tuning.BoardCapWidth);
+        _boardCapH = Mathf.Max(0.002f, tuning.BoardCapHeight);
+        _boardCapD = Mathf.Max(0.002f, tuning.BoardCapDepth);
+        _boardCapTravel = Mathf.Max(0f, tuning.BoardCapTravel);
+        _pinCapW = Mathf.Max(0.002f, tuning.DashPinWidth);
+        _dashCapH = Mathf.Max(0.002f, tuning.DashCapHeight);
+        _dashCapD = Mathf.Max(0.002f, tuning.DashCapDepth);
+        _dashCapTravel = Mathf.Max(0f, tuning.DashCapTravel);
+        _restCapD = Mathf.Max(0.002f, tuning.RestCapDepth);
+        _restCapTravel = Mathf.Max(0f, tuning.RestCapTravel);
+        _transientCapR = Mathf.Max(0.002f, tuning.RoundCapSize);
+        _transientCapD = Mathf.Max(0.002f, tuning.RoundCapDepth);
+        _transientCapW = Mathf.Max(0.002f, tuning.RoundCapWidth);
+        _transientCapH = Mathf.Max(0.002f, tuning.RoundCapHeight);
+        _transientCapTravel = Mathf.Max(0f, tuning.RoundCapTravel);
+
         // ---- right-hand control column: CONFIRM / [USE] / UNDO -------------------------------
         // Real tray: on the prefab's own ConfirmButton/UndoButton anchors + the authored per-style
         // offset + the authored generic spacing (± spacing/2 — GenericClusterY's 2-member layout),
@@ -719,11 +761,11 @@ internal sealed class RemoteBoardFurniture
         // owner's undo cap never wears at all, since every SetState on it is (enabled, !accent).
         // The accent is passed alongside so the state pass can switch back to it.
         _confirm = InertCap.Square(confirmParent, "Confirm", confirmPos,
-            new Vector2(BoardCapW, BoardCapH), BoardCapD, CapIdleColor,
-            travel: BoardCapTravel, accent: ConfirmColor);
+            new Vector2(_boardCapW, _boardCapH), _boardCapD, CapIdleColor,
+            travel: _boardCapTravel, accent: ConfirmColor);
         _undo = InertCap.Square(undoParent, "Undo", undoPos,
-            new Vector2(BoardCapW, BoardCapH), BoardCapD, CapIdleColor,
-            travel: BoardCapTravel, accent: UndoColor);
+            new Vector2(_boardCapW, _boardCapH), _boardCapD, CapIdleColor,
+            travel: _boardCapTravel, accent: UndoColor);
 
         // The item "USE" confirm is a DYNAMIC member of that same generic cluster (PlayTray
         // requirement 9a): while a usable item card is clipped into the use recess it joins as
@@ -737,8 +779,8 @@ internal sealed class RemoteBoardFurniture
         // look is a BUILD fact, not a state fact, and it costs no wire bit (see
         // NetProtocol.BoardUiCapConfirmAccentBit's "what is not here" note).
         _use = InertCap.Square(confirmParent, "ItemUse", useMidLocal,
-            new Vector2(BoardCapW, BoardCapH), BoardCapD, ConfirmColor,
-            travel: BoardCapTravel, accent: ConfirmColor);
+            new Vector2(_boardCapW, _boardCapH), _boardCapD, ConfirmColor,
+            travel: _boardCapTravel, accent: ConfirmColor);
         // Starts hidden and in step with the _shownArmed seed below: the local cluster only holds
         // this member while an item decision is pending, and Refresh() early-outs while nothing
         // changed — so a board that never sees an item fan must not be left showing a USE cap.
@@ -763,18 +805,18 @@ internal sealed class RemoteBoardFurniture
             float restSpacing = tuning.RestButtonSpacing;
             float restD = tuning.RestButtonDiameter;
             _shortRest = InertCap.Round(tray.ShortRestAnchor, "ShortRest",
-                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, RestCapD, CapIdleColor,
-                travel: RestCapTravel, accent: ShortRestColor);
+                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, _restCapD, CapIdleColor,
+                travel: _restCapTravel, accent: ShortRestColor);
             _longRest = InertCap.Round(tray.LongRestAnchor, "LongRest",
-                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, RestCapD, CapIdleColor,
-                travel: RestCapTravel, accent: LongRestColor);
+                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, _restCapD, CapIdleColor,
+                travel: _restCapTravel, accent: LongRestColor);
         }
 
         // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced
         // state every refresh (SetPinned) — label AND cap colour, exactly like their own cap.
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + tuning.PinOffset,
-            new Vector2(PinCapW, DashCapH), DashCapD, PinIdleColor,
-            travel: DashCapTravel, accent: PinAccentColor);
+            new Vector2(_pinCapW, _dashCapH), _dashCapD, PinIdleColor,
+            travel: _dashCapTravel, accent: PinAccentColor);
 
         // ---- grab-handle bar -------------------------------------------------------------------
         // The local handle is a brass Cube PLUS a 62 %-wide trigger BoxCollider and a
@@ -795,23 +837,32 @@ internal sealed class RemoteBoardFurniture
         //
         // SEAT + SHAPE + SIZE are the local rigid dock's, reproduced term for term (task 3(b) —
         // "der runde Button ist falsch positioniert und ignoriert die Offsets des Boards"): the
-        // column anchor + the SHIPPED [RoundButtons] group offset (x −0.045, y +0.26 — up-board
+        // column anchor + the [RoundButtons] group offset (shipped x −0.045, y +0.26 — up-board
         // beside the card slots, where the owner actually sees it), lifted along −Z by the proud
-        // seat + the authored OffsetZ, at the 0.7× dock shrink × the per-style cluster scale, in
-        // the AUTHORED shape (the shipped default is a SQUARE keycap of the [RoundButtons] W/H/D,
-        // not a round disc). The previous revision drew an unscaled round disc at the bare column
-        // anchor — wrong spot, wrong shape, 1.43× too big.
+        // seat + that group's OffsetZ, at the 0.7× dock shrink × the per-style cluster scale, in
+        // its own shape (the shipped default is a SQUARE keycap of the [RoundButtons] W/H/D, not a
+        // round disc). The previous revision drew an unscaled round disc at the bare column anchor
+        // — wrong spot, wrong shape, 1.43× too big.
+        //
+        // …AND ALL OF IT IS THE OWNER'S NOW, not the shipped set (extension record 28, ids 81..88
+        // + the shape at 228). The immediately preceding revision read every one of those terms out
+        // of `Defaults`, so an owner who moved their skip cap, squared it off, resized it or changed
+        // how deep it presses was the ONLY person who saw any of it — the exact divergence the 1:1
+        // ruling names, on the exact control the user's ModBuild-96 report is about. The fallback
+        // inside RemoteBoardTuning is that same `Defaults` value for every absent field, so an
+        // UNTUNED peer's cap is drawn precisely where and how it was drawn before.
         float clusterScale = ClusterDockScale * tuning.ClusterScale;
-        Vector3 skipSeat = ClusterMount + SkipSeatOffset
-                           + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + Defaults.OffsetZ));
-        _skip = Defaults.RoundButtons_Shape == Cards.ButtonShape.Round
+        Vector3 skipSeat = ClusterMount
+                           + new Vector3(tuning.RoundOffsetX, tuning.RoundOffsetY, 0f)
+                           + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + tuning.RoundOffsetZ));
+        _skip = tuning.RoundCapShape == Cards.ButtonShape.Round
             ? InertCap.Round(_root, "TurnFlowSkip", skipSeat,
-                TransientCapR * 2f * clusterScale, TransientCapD * clusterScale, SkipColor,
-                travel: TransientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true)
+                _transientCapR * 2f * clusterScale, _transientCapD * clusterScale, SkipColor,
+                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true)
             : InertCap.Square(_root, "TurnFlowSkip", skipSeat,
-                new Vector2(Defaults.RoundButtons_Width, Defaults.RoundButtons_Height) * clusterScale,
-                Defaults.RoundButtons_Depth * clusterScale, SkipColor,
-                travel: TransientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
+                new Vector2(_transientCapW, _transientCapH) * clusterScale,
+                _transientCapD * clusterScale, SkipColor,
+                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
         // The owner's own berth dials FIRST (record 28, ids 80 / 166..169): BuildItemUseRecess reads

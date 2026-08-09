@@ -2100,34 +2100,38 @@ internal static partial class Loc
             // ---- [RoundButtons] ----
             ["RoundButtons/OffsetX"] =
                 "Seitlicher Versatz (Meter im WURZEL-Frame des Boards, +X = zur rechten Board-Kante / zu den "
-                + "Rückgängig-Zahnrad-Feldern) der Kurzzeit-Knopfgruppe der Rundenphase (Schritt überspringen "
-                + "usw.) gegenüber ihrem Standard-Anker. Live änderbar; begrenzt auf -0.30..0.30.",
+                + "Rückgängig-Zahnrad-Feldern) der angedockten ÜBERSPRINGEN-Taste ('Bewegung überspringen' / "
+                + "'Angriff überspringen') gegenüber ihrem Standard-Anker — sie ist das einzige sichtbare "
+                + "Mitglied der Kurzzeit-Knopfgruppe der Rundenphase. Live änderbar; begrenzt auf -0.30..0.30.",
             ["RoundButtons/OffsetY"] =
                 "Versatz das Board hinauf (Meter im WURZEL-Frame des Boards, +Y = zu den Kartenplätzen / zur "
-                + "fernen Kante, -Y = zur unteren Kante und zum Haltegriff) der Kurzzeit-Knopfgruppe gegenüber "
-                + "ihrem Standard-Anker. Live änderbar; begrenzt auf -0.30..0.30.",
+                + "fernen Kante, -Y = zur unteren Kante und zum Haltegriff) der angedockten ÜBERSPRINGEN-Taste "
+                + "gegenüber ihrem Standard-Anker. Live änderbar; begrenzt auf -0.30..0.30.",
             ["RoundButtons/OffsetZ"] =
                 "Versatz aus der Ebene heraus (Meter im WURZEL-Frame des Boards, +Z = AUS dem Board heraus "
-                + "zum Spieler, -Z = versenkt in bzw. hinter die Board-Fläche) der Kurzzeit-Knopfgruppe "
-                + "gegenüber ihrem standardmäßig erhabenen Sitz. Live änderbar; begrenzt auf -0.30..0.30.",
+                + "zum Spieler, -Z = versenkt in bzw. hinter die Board-Fläche) der angedockten "
+                + "ÜBERSPRINGEN-Taste gegenüber ihrem standardmäßig erhabenen Sitz. Live änderbar; begrenzt "
+                + "auf -0.30..0.30.",
             ["RoundButtons/Shape"] =
-                "Kappenform der Kurzzeit-Knöpfe der Rundenphase: Round = abgeflachter Puck (Standard), Square "
-                + "= kantige Tastenkappe (dann gelten Width/Height/Depth dieses Abschnitts). Live änderbar.",
+                "Kappenform der angedockten ÜBERSPRINGEN-Taste: Round = abgeflachter Puck, Square = kantige "
+                + "Tastenkappe (dann gelten Width/Height/Depth dieses Abschnitts; Square ist der "
+                + "Auslieferungsstandard). Live änderbar.",
             ["RoundButtons/CapSize"] =
-                "Kappenradius (Meter im Cluster-Frame) der Kurzzeit-Knöpfe. Die automatische Spaltenanpassung "
+                "Kappenradius (Meter im Cluster-Frame) der ÜBERSPRINGEN-Taste. Die automatische Spaltenanpassung "
                 + "VERKLEINERT nur unter diesen Wert, wenn sich mehrere Knöpfe die Spalte teilen müssen; ein "
-                + "einzelner Knopf nutzt genau diese Größe. Live änderbar; begrenzt auf 0.015..0.09.",
+                + "einzelner Knopf nutzt genau diese Größe — am Steuerbrett immer der Fall. Live änderbar; "
+                + "begrenzt auf 0.015..0.09.",
             ["RoundButtons/Width"] =
-                "Kappenbreite (Meter) der Kurzzeit-Knöpfe bei Shape=Square. Gilt NUR für diese Gruppe. Live "
+                "Kappenbreite (Meter) der ÜBERSPRINGEN-Taste bei Shape=Square. Gilt NUR für diese Gruppe. Live "
                 + "änderbar; begrenzt auf 0.02..0.20.",
             ["RoundButtons/Height"] =
-                "Kappenhöhe (Meter) der Kurzzeit-Knöpfe bei Shape=Square. Gilt NUR für diese Gruppe. Live "
+                "Kappenhöhe (Meter) der ÜBERSPRINGEN-Taste bei Shape=Square. Gilt NUR für diese Gruppe. Live "
                 + "änderbar; begrenzt auf 0.015..0.20.",
             ["RoundButtons/Depth"] =
-                "Kappentiefe/-extrusion (Meter zum Spieler hin) der Kurzzeit-Knöpfe bei Shape=Square. Gilt "
+                "Kappentiefe/-extrusion (Meter zum Spieler hin) der ÜBERSPRINGEN-Taste bei Shape=Square. Gilt "
                 + "NUR für diese Gruppe. Live änderbar; begrenzt auf 0.006..0.08.",
             ["RoundButtons/Travel"] =
-                "Druckweg (Meter) der Kurzzeit-Knöpfe — wie weit eine Kappe unter der Fingerspitze einsinkt, "
+                "Druckweg (Meter) der ÜBERSPRINGEN-Taste — wie weit die Kappe unter der Fingerspitze einsinkt, "
                 + "bevor der tiefenbasierte Druck auslöst (löst bei 90% des Wegs aus). Gilt NUR für diese "
                 + "Gruppe. Live änderbar; begrenzt auf 0.002..0.02.",
             // ---- [BoardButtons] ----
