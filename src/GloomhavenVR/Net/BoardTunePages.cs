@@ -49,24 +49,33 @@ namespace GloomhavenVR.Net;
 /// <see cref="NetProtocol.ExtrasSendRateHz"/> = 5 Hz at rest and at
 /// <see cref="NetProtocol.SendRateHz"/> = 15 Hz whenever anything else in the packet is moving.
 /// Therefore: A PEER THAT JOINS AT TIME T HAS THE SENDER'S COMPLETE TUNED STATE BY
-/// T + pageCount × 200 ms (≤400 ms at today's two pages, ≤1.0 s at the id space's proven maximum of
-/// five), AND ANY SINGLE DIAL CHANGE IS REFLECTED WITHIN THE SAME BOUND OF THE EDGE — the change
+/// T + pageCount × 200 ms (≤400 ms at today's two pages, ≤800 ms at the id space's proven maximum of
+/// four), AND ANY SINGLE DIAL CHANGE IS REFLECTED WITHIN THE SAME BOUND OF THE EDGE — the change
 /// pre-empts the extras gate and restarts the cycle at page 0, so the bound is measured from the
 /// drag, not from the next tick. Nothing is ever displayed torn: see the publication rule below.</para>
 ///
 /// <para>"TODAY'S TWO PAGES" IS A NUMBER THAT MOVES, so it is checked rather than remembered. The
 /// sampler's complete field run went 76 dials / 284 bytes to 86 / 314 when the item-cue and
 /// item-berth dials were wired (record 28 ids 80 / 161..169) — the first dials added since the
-/// ceiling came down — and then to 105 / 370 when the KEYCAP GEOMETRY family joined (ids 81..98 +
+/// ceiling came down — then to 105 / 370 when the KEYCAP GEOMETRY family joined (ids 81..98 +
 /// 228: the [RoundButtons] / [BoardButtons] / [BoardDashboard] / [RestButtons] cap sizes, seats and
 /// press travels, which had been frozen constants in <c>Net/RemoteBoardFurniture.cs</c> for as long
-/// as the ceiling stood). It STILL splits into TWO pages: page 0 fills to 246 of its 248 field
-/// bytes in every one of those three censuses — the eighteen new lengths simply push twelve factor
-/// fields over onto page 1 instead of the twenty-nine that used to make the split — and page 1 now
-/// holds 124 of its own 248. So the bound is still ≤400 ms, with room for ~41 more 3-byte dials
-/// before page 1 fills and the bound becomes ≤600 ms; <c>tests/GloomhavenVR.WireTests</c> pins the
-/// split at the real census so the day it moves is the day a test says so, in a sentence, instead
-/// of the day somebody re-derives it.</para>
+/// as the ceiling stood) — and then to 118 / 411 when the COLOURS AND SHAPES joined (the six
+/// [ButtonColors] colours on the new 3-byte COLOUR range at ids 48..53, their width and two
+/// switches at 170 / 229 / 230, and the two remaining cap SHAPES at 231..232 with the rest keycap's
+/// square sides at 99..100). It STILL splits into TWO pages: page 0 fills to 246 of its 248 field
+/// bytes in every one of those four censuses — a 3-byte field cannot fit the 2 bytes left over, so
+/// the boundary lands in the same place and only the identity of the fields that spill changes —
+/// and page 1 now holds 165 of its own 248. So the bound is still ≤400 ms, with room for ~27 more
+/// 3-byte dials before page 1 fills and the bound becomes ≤600 ms; <c>tests/GloomhavenVR.WireTests</c>
+/// pins the split at the real census so the day it moves is the day a test says so, in a sentence,
+/// instead of the day somebody re-derives it.</para>
+///
+/// <para>THE COLOUR RANGE MADE THE SPLIT CHEAPER, WHICH IS WORTH STATING BECAUSE IT IS THE OPPOSITE
+/// OF WHAT ADDING THIRTEEN DIALS NORMALLY DOES. Six colours as 3-byte fields cost 24 bytes; the same
+/// six as eighteen FACTOR fields would have cost 54 bytes AND eighteen of the 247 ids. The id space
+/// is what actually binds this record (it is the only bound left), so the width that spends fewest
+/// ids wins even before the bytes are counted.</para>
 ///
 /// <para>NO TORN VIEW, NO FLICKER. The receiver accumulates pages into a working set and PUBLISHES
 /// only when it holds every page of ONE generation (the <c>sig</c> is the generation id — an FNV-1a

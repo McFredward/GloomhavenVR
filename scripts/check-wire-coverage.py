@@ -103,6 +103,17 @@ EXEMPT = {
     ("Cards", "SlotCardFill"): ("DERIVED", "the product it feeds (the slot card WIDTH) rides extension record 11"),
     ("Cards", "BrowseFanOffset"): ("DERIVED", "the browse fan's board-local anchor rides extension record 5 while the fan is open"),
     ("Cards", "Board"): ("DERIVED", "the board STYLE rides the extras block, byte A bits 5..6"),
+    # RECLASSIFIED FROM PENDING (2026-08-09). Its reason read "a bool, and record 28 has no bool
+    # kind; the wanted-slot glow is not mirrored at all yet" — and BOTH halves were wrong. The record
+    # has a bool kind now (BoardTuningSampler.Bool8, ids 229..230), and the glow was never
+    # unmirrored: RemoteBoardFurniture builds the wanted pulse from the mask on record 14. The dial
+    # gates the mask AT THE SOURCE — CardsDriver.UpdateWantedSlots calls SetWantedSlots(0) when it
+    # is off — so a player who turns it off already broadcasts an empty mask and every peer's copy
+    # of their board goes dark with theirs. Syncing the recipe on top of the result would be the
+    # redundancy this category exists to name.
+    ("Cards", "WantedSlotHint"): ("DERIVED", "the wanted-slot MASK it gates rides extension record 14; turning it "
+                                             "off makes the owner broadcast a 0 mask, so peers already stop "
+                                             "drawing the glow"),
 
     # ---- COMFORT: the player's own body, input and ears — invisible on their board -------------
     ("Cards", "SpawnLeftOfHead"): ("COMFORT", "where THEIR board first appears relative to THEIR head; the pose is synced"),
@@ -155,15 +166,14 @@ EXEMPT = {
                                                      "card syncs a pose, not an offset). Needs the held-card path, not a field"),
     ("Cards", "ActiveGridSpacing_{board}"): ("PENDING", "a Vector2, and record 28 has no 2-component kind; would need two LENGTH "
                                                         "fields plus a grid-spacing member on RemoteBoardLayout, which has none"),
-    ("Cards", "RestButtonShape_{board}"): ("PENDING", "an enum; RemoteBoardFurniture builds rest caps ROUND with no Square "
-                                                      "branch at all, so the wire field needs a RENDERER change first — the "
-                                                      "turn-flow cap's shape rode at once (id 228) precisely because its "
-                                                      "mirror already had the branch. [RestButtons] Width/Height are parked "
-                                                      "behind this same branch"),
-    ("Cards", "GenericButtonShape_{board}"): ("PENDING", "as RestButtonShape_{board}"),
+    # RestButtonShape_{board} / GenericButtonShape_{board} STOOD HERE and are gone (2026-08-09).
+    # The line read "an enum; RemoteBoardFurniture builds rest caps ROUND with no Square branch at
+    # all, so the wire field needs a RENDERER change first". That is the FanCloseDuration rule
+    # applied correctly, and the way to retire it was to grow the branch rather than to sample the
+    # dial anyway: RemoteBoardFurniture.RestCap / GenericCap now dispatch on the owner's shape, so
+    # ids 231/232 carry it and [RestButtons] Width/Height (parked behind the same branch) ride too.
     ("Cards", "SlotCardInset"): ("PENDING", "how deep a card seats in the recess; NOTHING in Net/ reads it, so a wire field "
                                             "would have no consumer until the recess renderer grows one"),
-    ("Cards", "WantedSlotHint"): ("PENDING", "a bool, and record 28 has no bool kind; the wanted-slot glow is not mirrored at all yet"),
     ("Cards", "PileViewer"): ("PENDING", "a feature master switch — treated as 'what THIS client renders' like [WorldUI] Master; "
                                          "revisit if the ruling is read to cover feature presence"),
     ("Cards", "ActivePile"): ("PENDING", "as PileViewer"),
@@ -181,12 +191,9 @@ EXEMPT = {
     # + CapSize/Width/Height/Depth/Travel, [BoardButtons] W/H/D/Travel, [BoardDashboard]
     # PinWidth/Height/Depth/Travel and [RestButtons] Depth/Travel, and id 228 carries the turn-flow
     # cap's SHAPE. What is left below is what genuinely still has no receiver.
-    ("RestButtons", "Width"): ("PENDING", "the mirrored rest caps are built ROUND unconditionally "
-                                          "(RemoteBoardFurniture has no Square branch for them), so this dial has no "
-                                          "consumer on the far side — sampling it would put bytes on the wire nobody "
-                                          "reads AND let this script call it covered while a peer sees no difference, "
-                                          "the FanCloseDuration trap. Wire it with RestButtonShape_{board}, not before"),
-    ("RestButtons", "Height"): ("PENDING", "as [RestButtons] Width"),
+    # [RestButtons] Width / Height STOOD HERE TOO, parked behind the rest cap's missing Square
+    # branch with "wire it with RestButtonShape_{board}, not before". They were wired WITH it
+    # (ids 99..100), which is what that line asked for.
     ("ButtonAnim", "DisappearSeconds"): ("PENDING", "the mirrored cap's crumble/assemble clock is a pair of STATIC "
                                                     "consts on RemoteBoardFurniture read by every InertCap of every "
                                                     "peer's board, not per-peer state — so this needs the fade clock "
@@ -198,12 +205,23 @@ EXEMPT = {
     ("ButtonAnim", "AppearParticles"): ("PENDING", "a bool; the spark burst is not mirrored"),
 }
 
-# Every [ButtonColors] entry: the remote furniture draws an AUTHORED palette (CapIdleColor,
-# ShortRestColor, LongRestColor, PinAccentColor, NativeButtonSkin.StyleEngravedLabel) and never read
-# these even for the DEFAULT case, which makes closing this a design decision about what a mirrored
-# board looks like, not a wire gap. Recorded as one rule rather than 21 identical lines.
-BUTTON_COLORS_REASON = ("PENDING", "the remote board draws an AUTHORED keycap palette and never read these, "
-                                   "even at their defaults — closing this is a look decision, not a wire fix")
+# THE [ButtonColors] BLANKET EXEMPTION IS GONE (2026-08-09), and how it fell is worth keeping.
+# It read: "the remote furniture draws an AUTHORED palette and never read these even for the DEFAULT
+# case, which makes closing this a design decision about what a mirrored board looks like, not a
+# wire gap" — one rule standing in for 21 identical PENDING lines. The user overruled it verbatim:
+#
+#     "Bitte implementier auch die Farben und Formen der Knöpfe, dass sie über die Leitung gehen -
+#      so dass das remote Board 1:1 das anzeigt was der Spieler sieht"
+#
+# And the premise was itself the bug. "The mirror never read them, even at their defaults" is not
+# evidence that a dial family is local — it is a SECOND defect stacked on the first, and it was:
+# the shipped cap-face tint is 0.5 grey and the local caps are painted through it, so every
+# mirrored keycap was drawn at twice its owner's brightness for two players who had never touched
+# a slider. All 21 entries are on the wire now (ids 48..53 for the six colours, 170 for the outline
+# width, 229..230 for the two switches) and the mirror reads them, so there is nothing left for a
+# blanket rule to cover. A NEW [ButtonColors] dial will now fail this script by default, which is
+# the behaviour every other board section already has and the reason not to leave the rule behind
+# as a catch-all.
 
 DEFAULTS_DIR = SRC / "Defaults"
 NET_PROTOCOL = SRC / "Net" / "NetProtocol.cs"
@@ -214,6 +232,14 @@ TUNE_ID_RE = re.compile(r"public const byte (?P<name>Tune\w+)\s*=\s*(?P<id>\d+)\
 DOC_KEY_RE = re.compile(r"\[(?P<section>[A-Za-z]+)\]\s+(?P<key>[A-Za-z0-9_{}]+)")
 
 BOARD_SUFFIXES = ("_Oak", "_Steel", "_Bronze")
+
+# A COLOUR field id covers THREE config keys, exactly as a `_{board}` id covers three boards, and
+# for the same reason: one wire field, several entries behind it. Record 28's colour range carries
+# an RGB triple in one 3-byte field (NetProtocol.TuneColorIdMin), so its doc comment names
+# `Label{rgb}` and this expands that to LabelR/LabelG/LabelB. Without it the six colour ids would
+# each report as an ORPHAN naming a key no shipped default has — which is precisely what a wrong doc
+# comment looks like, so the expansion has to be explicit rather than a substring match.
+CHANNEL_SUFFIXES = ("R", "G", "B")
 
 
 def annotated_defaults():
@@ -267,10 +293,14 @@ def sampled_ids():
 
 
 def expand(section, key):
-    """A `Key_{board}` coverage/exempt entry stands for the whole per-board family."""
+    """A `Key_{board}` entry stands for the per-board family; a `Key{rgb}` entry for the three
+    channels of one colour (see CHANNEL_SUFFIXES)."""
     if key.endswith("_{board}"):
         stem = key[: -len("_{board}")]
         return {(section, stem + s) for s in BOARD_SUFFIXES}
+    if key.endswith("{rgb}"):
+        stem = key[: -len("{rgb}")]
+        return {(section, stem + s) for s in CHANNEL_SUFFIXES}
     return {(section, key)}
 
 
@@ -297,8 +327,6 @@ def main():
         if pair in covered:
             continue
         reason = exempt.get(pair)
-        if reason is None and pair[0] == "ButtonColors":
-            reason = BUTTON_COLORS_REASON
         if reason is None:
             missing.append(pair)
         elif reason[0] == "PENDING":

@@ -2075,6 +2075,8 @@ internal static class NetProtocol
     /// <list type="bullet">
     /// <item><see cref="TuneVecIdMin"/>..<see cref="TuneVecIdMax"/> — 6 bytes, a Vector3 as
     ///   3 × i16 LE in TENTH-MILLIMETRES (<see cref="EncodeTuneLength"/>).</item>
+    /// <item><see cref="TuneColorIdMin"/>..<see cref="TuneColorIdMax"/> — 3 bytes, an RGB COLOUR as
+    ///   3 × uint8 (<see cref="EncodeTuneColorChannel"/>). NO ALPHA — see the range's own note.</item>
     /// <item><see cref="TuneLengthIdMin"/>..<see cref="TuneLengthIdMax"/> — 2 bytes, one i16 LE
     ///   tenth-millimetre LENGTH (a scalar measured in metres).</item>
     /// <item><see cref="TuneFactorIdMin"/>..<see cref="TuneFactorIdMax"/> — 2 bytes, one i16 LE
@@ -2095,8 +2097,11 @@ internal static class NetProtocol
     /// config range is inside ±0.5 m); thousandths for dimensionless factors (±32.767 with 8×
     /// headroom over the widest config range, error ≤0.0005, i.e. ≤0.25 mm on a 0.5 m dock);
     /// hundredth-degrees for angles (±327.67°, error ≤0.005°, i.e. ≤0.04 mm at the edge of a 0.5 m
-    /// board). Every one of those is an order of magnitude below what an eye resolves at arm's
-    /// length, and every code is readable as-is in a hardware log.</para>
+    /// board); 8 BITS PER COLOUR CHANNEL, which is not an approximation of a colour but the exact
+    /// container the display, the sprite art and every hex swatch a human writes already use — a
+    /// UI colour quantized to 1/255 is VISUALLY LOSSLESS, not merely close. Every one of those is an
+    /// order of magnitude below what an eye resolves at arm's length, and every code is readable
+    /// as-is in a hardware log.</para>
     ///
     /// <para>NO IDENTITY, NO GAMEPLAY: the payload is a list of the sender's own cosmetic dial
     /// positions. Nothing here consults a card, an actor or the game model.</para>
@@ -2109,7 +2114,8 @@ internal static class NetProtocol
 
     /// <summary>
     /// Structural field cap of <see cref="ExtIdBoardTuning"/>: THE SIZE OF THE FIELD-ID SPACE — 247
-    /// usable ids (63 vec + 64 length + 64 factor + 32 angle + 24 count; 248..255 stay reserved).
+    /// usable ids (47 vec + 16 colour + 64 length + 64 factor + 32 angle + 24 count; 248..255 stay
+    /// reserved).
     /// Each id may appear at most once in an assembled tuning, so this is simultaneously the largest
     /// number of dials the record can ever carry and the proof that the assembled payload's
     /// single-byte field count can never overflow (247 &lt; 255).
@@ -2132,10 +2138,16 @@ internal static class NetProtocol
 
     /// <summary>
     /// Worst-case byte length of a COMPLETE field run — every usable id present at its own width:
-    /// 63×7 + 64×3 + 64×3 + 32×3 + 24×2 = 969. Sizes the sender's sample buffer and bounds the
-    /// receiver's accumulator, so neither is ever sized from a number the wire supplied.
+    /// 47×7 + 16×4 + 64×3 + 64×3 + 32×3 + 24×2 = 921. Sizes the sender's sample buffer and bounds
+    /// the receiver's accumulator, so neither is ever sized from a number the wire supplied.
+    ///
+    /// <para>IT READ 969 UNTIL THE COLOUR RANGE WAS CARVED (2026-08-09). Sixteen ids moved out of the
+    /// vec range's unused tail into <see cref="TuneColorIdMin"/>..<see cref="TuneColorIdMax"/> at
+    /// 3 bytes instead of 6, so the id COUNT is unchanged at 247 and the worst case got SMALLER. It
+    /// is stated as an arithmetic expression rather than a literal for exactly this reason: a range
+    /// boundary moves in one place and every bound derived from it follows.</para>
     /// </summary>
-    public const int BoardTuneMaxFieldBytes = 63 * 7 + 64 * 3 + 64 * 3 + 32 * 3 + 24 * 2;
+    public const int BoardTuneMaxFieldBytes = 47 * 7 + 16 * 4 + 64 * 3 + 64 * 3 + 32 * 3 + 24 * 2;
 
     /// <summary>Header of one record-28 PAGE, in bytes:
     /// <c>[pageIndex][pageCount][sig lo][sig hi][idLo][idHi][fieldCount]</c>.</summary>
@@ -2157,8 +2169,8 @@ internal static class NetProtocol
     /// <summary>
     /// Pages a generation may claim. DERIVED, not guessed: a greedy split at field boundaries wastes
     /// at most 6 bytes per page (a 7-byte vec3 that will not fit a 6-byte remainder), so every page
-    /// but the last carries ≥242 field bytes and <see cref="BoardTuneMaxFieldBytes"/> = 969 needs at
-    /// most ⌈969 / 242⌉ = 5. Eight leaves headroom for a future widening of the id space while still
+    /// but the last carries ≥242 field bytes and <see cref="BoardTuneMaxFieldBytes"/> = 921 needs at
+    /// most ⌈921 / 242⌉ = 4. Eight leaves headroom for a future widening of the id space while still
     /// bounding the receiver's accumulator at 8 slices — the point being that the bound comes from
     /// the id space rather than from the wire, so a corrupt sender cannot size an allocation here.
     /// </summary>
@@ -2179,7 +2191,38 @@ internal static class NetProtocol
 
     /// <summary>First / last id whose value is a Vector3 (6 bytes, 3 × i16 tenth-mm).</summary>
     public const byte TuneVecIdMin = 1;
-    public const byte TuneVecIdMax = 63;
+    public const byte TuneVecIdMax = 47;
+
+    /// <summary>
+    /// First / last id whose value is an RGB COLOUR — 3 bytes, one uint8 per channel
+    /// (<see cref="EncodeTuneColorChannel"/>).
+    ///
+    /// <para>THE RANGE WAS CARVED OUT OF THE VEC RANGE'S UNUSED TAIL (2026-08-09), which is why
+    /// <see cref="TuneVecIdMax"/> moved 63 → 47. The vec range spends 7 bytes per field and had used
+    /// 15 of its 63 ids in the record's whole life; the colour dials needed a container and the
+    /// alternative — three FACTOR fields per colour — would have cost 18 ids and 54 bytes for the
+    /// six colours a keycap set has. THE ID SPACE IS THE SCARCE RESOURCE HERE (247 total), so the
+    /// answer that spends 6 ids and 24 bytes wins on the axis that actually binds. The id COUNT is
+    /// unchanged (47 + 16 = the 63 the vec range used to claim); only the width of the top sixteen
+    /// changed, and <see cref="BoardTuneMaxFieldBytes"/> got smaller as a result.</para>
+    ///
+    /// <para>NO ALPHA, CHECKED RATHER THAN ASSUMED. All six colours this range carries are built
+    /// with a hardwired opaque alpha on the LOCAL side — <c>WorldUI.ButtonTuning.LabelColor</c> /
+    /// <c>LabelOutlineColor</c> / <c>Tint3</c> each close with <c>1f</c>, and the 21 [ButtonColors]
+    /// config entries have no A channel to bind. An alpha byte would therefore be a fourth byte per
+    /// field carrying the constant 255 forever. The one alpha near this family (the disabled cluster
+    /// label's 0.35 fade) is a renderer constant, not a dial. If a [ButtonColors] A entry is ever
+    /// added, it needs a NEW range — widening this one would silently re-cut every shipped field.</para>
+    ///
+    /// <para>8 BITS PER CHANNEL IS NOT A COMPROMISE. The caps are drawn from 8-bit sprite art through
+    /// an 8-bit-per-channel framebuffer, and the defaults themselves are authored as hex swatches
+    /// (#FBF3E0). The quantized code IS the colour a display can show, so the round trip is visually
+    /// lossless — and, as everywhere in this record, "differs from the shipped default" is decided
+    /// on that CODE and never on the float, so a config file's text round-trip cannot make an
+    /// untuned player start emitting a colour field forever.</para>
+    /// </summary>
+    public const byte TuneColorIdMin = 48;
+    public const byte TuneColorIdMax = 63;
 
     /// <summary>First / last id whose value is a metre LENGTH (2 bytes, i16 tenth-mm).</summary>
     public const byte TuneLengthIdMin = 64;
@@ -2232,6 +2275,42 @@ internal static class NetProtocol
     /// root (<c>PlayTray.SetAssetPose</c>). Note the bronze board ships a non-zero default, so this
     /// is a live field, not a hypothetical one.</summary>
     public const byte TuneAssetOffset = 15;
+
+    // COLOUR (3 B, uint8 R / G / B): THE [ButtonColors] FAMILY — what a player's keycaps are
+    // lettered and tinted in.
+    //
+    // WHY THESE ARE HERE AT ALL. An audit note used to classify the 21 [ButtonColors] entries as
+    // "a look decision, not a wire gap", on the ground that RemoteBoardFurniture never read them
+    // even at their defaults. The user overruled it, verbatim (2026-08-09): "Bitte implementier
+    // auch die Farben und Formen der Knöpfe, dass sie über die Leitung gehen - so dass das remote
+    // Board 1:1 das anzeigt was der Spieler sieht". The audit note had the causality backwards —
+    // a mirror that reads NONE of a dial family is not evidence the family is local, it is a
+    // second defect stacked on the first, and it was: the shipped cap TINT is 0.5 grey, so every
+    // mirrored keycap was drawn at TWICE its owner's brightness for two completely untuned
+    // players. The renderer reads the family now (RemoteBoardFurniture's cap-palette block) and
+    // these six fields carry the owner's own values on top of it.
+    //
+    // SIX FIELDS FOR EIGHTEEN CHANNELS. The 21 [ButtonColors] entries are 18 colour channels
+    // (6 colours) + 2 bools + 1 width; a colour is ONE field of three bytes here, never three
+    // fields of two, because the id space is what binds (see TuneColorIdMin). The bools and the
+    // width ride the count and factor ranges below with the rest of their kind.
+
+    /// <summary>[ButtonColors] Label{rgb} — the engraved keycap LABEL's fill colour (LabelR/G/B),
+    /// the bright warm parchment every cap letter is drawn in.</summary>
+    public const byte TuneLabelColor = 48;
+    /// <summary>[ButtonColors] LabelOutline{rgb} — the dark keyline ringing those letters
+    /// (LabelOutlineR/G/B). Its WIDTH is a factor field and its on/off a count field.</summary>
+    public const byte TuneLabelOutlineColor = 49;
+    /// <summary>[ButtonColors] BoardCapTint{rgb} — the Confirm / Undo / item-USE cap FACE tint, a
+    /// multiplier over the shared state palette (shipped 0.5 grey, i.e. half brightness).</summary>
+    public const byte TuneBoardCapTint = 50;
+    /// <summary>[ButtonColors] DashCapTint{rgb} — the gear / Fixiert (follow-pin) plate face tint.</summary>
+    public const byte TuneDashCapTint = 51;
+    /// <summary>[ButtonColors] ClusterCapTint{rgb} — the round-phase cluster (turn-flow SKIP) cap
+    /// face tint.</summary>
+    public const byte TuneClusterCapTint = 52;
+    /// <summary>[ButtonColors] RestCapTint{rgb} — the short / long REST keycap face tint.</summary>
+    public const byte TuneRestCapTint = 53;
 
     // LENGTH (2 B, tenth-mm): scalars measured in metres.
 
@@ -2367,6 +2446,19 @@ internal static class NetProtocol
     public const byte TuneRestCapDepth = 97;
     /// <summary>[RestButtons] Travel — the short/long rest press travel.</summary>
     public const byte TuneRestCapTravel = 98;
+
+    // THE REST CAPS' SQUARE SIDE LENGTHS. These two were a stated PENDING debt for one build with a
+    // precise reason — "the mirrored rest cap is hardwired round (no Square branch), so sampling
+    // them would put bytes on the wire no receiver reads", the FanCloseDuration rule — and the
+    // reason is gone: RemoteBoardFurniture branches Round/Square on the owner's [Cards]
+    // RestButtonShape_{board} now (id 231), and the Square branch needs exactly these. They apply
+    // ONLY while that shape is Square, exactly as on the local board (RestControls.EnsureBuilt: a
+    // round disc keeps the per-board DIAMETER and the square cap takes [RestButtons] W/H).
+
+    /// <summary>[RestButtons] Width — the rest keycap width while the shape is Square.</summary>
+    public const byte TuneRestCapWidth = 99;
+    /// <summary>[RestButtons] Height — the rest keycap height while the shape is Square.</summary>
+    public const byte TuneRestCapHeight = 100;
 
     // FACTOR (2 B, thousandths): dimensionless multipliers.
 
@@ -2524,6 +2616,11 @@ internal static class NetProtocol
     /// <summary>[Cards] ItemBerthRevealSeconds — grow-in / collapse-out time of the recess, seconds.</summary>
     public const byte TuneItemBerthRevealSeconds = 169;
 
+    /// <summary>[ButtonColors] LabelOutlineWidth — the keycap label keyline's width as a fraction of
+    /// the SDF spread (0..1). A dimensionless fraction, so it rides the FACTOR width with the rest of
+    /// its kind; its COLOUR is id 49 and its on/off switch id 229.</summary>
+    public const byte TuneLabelOutlineWidth = 170;
+
     // ANGLE (2 B, hundredth-degrees).
 
     /// <summary>[Cards] AssetPitchDegrees_{board} — the board MESH's pitch inside the board root.</summary>
@@ -2581,22 +2678,43 @@ internal static class NetProtocol
     // number: RemoteBoardTuning maps an unrecognised code back to the shipped member, which is the
     // standing rule for every code this protocol reads.
     //
-    // WHY IT IS ON THE WIRE AT ALL, when the per-board rest and generic shape dials are still
-    // PENDING: those two are hardwired in the remote RENDERER (a peer's rest discs are always drawn
-    // round), so a field for them would be bytes no receiver reads. This one has a live consumer —
-    // RemoteBoardFurniture already branches Round/Square when it builds the mirrored skip cap; it
-    // simply branched on the SHIPPED default instead of on the owner's choice.
+    // IT USED TO SAY WHY IT WAS THE ONLY SHAPE ON THE WIRE: the per-board rest and generic shape
+    // dials were "hardwired in the remote RENDERER (a peer's rest discs are always drawn round), so
+    // a field for them would be bytes no receiver reads". That was the right call at the time and
+    // it is why the debt was stated instead of paid. THE RENDERER GREW THE BRANCHES (2026-08-09,
+    // under "Bitte implementier auch die Farben und Formen der Knöpfe"), so ids 231/232 below carry
+    // them and the FanCloseDuration rule is satisfied on all three: every shape that rides this
+    // record has a mirror that can actually DRAW both of its members.
 
     /// <summary>[RoundButtons] Shape — whether the docked turn-flow (SKIP) cap is a ROUND puck
     /// (code 0) or a SQUARE keycap (code 1): <c>Cards.ButtonShape</c> as its integer value.</summary>
     public const byte TuneRoundCapShape = 228;
 
-    /// <summary>Payload width of a board-tuning field with this id — 6 / 2 / 1, or 0 for a
+    /// <summary>[ButtonColors] LabelOutline — whether the dark keyline is drawn around keycap
+    /// letters at all (0 = off, 1 = on). A BOOL in the one-byte count width, which is the same
+    /// container the shape enums use: the range fixes the WIDTH, never the type.</summary>
+    public const byte TuneLabelOutlineOn = 229;
+
+    /// <summary>[ButtonColors] LabelUnderlay — whether the soft dark drop-shadow is drawn under
+    /// keycap letters (0 = off, 1 = on).</summary>
+    public const byte TuneLabelUnderlayOn = 230;
+
+    /// <summary>[Cards] RestButtonShape_{board} — ROUND disc (0) or SQUARE keycap (1) for the
+    /// short/long rest pair, for the sender's OWN board style (the style rides the extras block, so
+    /// only the current one is transmitted, exactly like every other per-board dial here).</summary>
+    public const byte TuneRestCapShape = 231;
+
+    /// <summary>[Cards] GenericButtonShape_{board} — ROUND disc (0) or SQUARE keycap (1) for the
+    /// Confirm / Undo / item-USE column.</summary>
+    public const byte TuneGenericCapShape = 232;
+
+    /// <summary>Payload width of a board-tuning field with this id — 6 / 3 / 2 / 1, or 0 for a
     /// RESERVED id whose width this build does not know (the reader then abandons the rest of the
     /// record rather than mis-parsing it; see the record doc).</summary>
     public static int BoardTuneFieldWidth(byte id)
     {
         if (id >= TuneVecIdMin && id <= TuneVecIdMax) return 6;
+        if (id >= TuneColorIdMin && id <= TuneColorIdMax) return 3;
         if (id >= TuneLengthIdMin && id <= TuneAngleIdMax) return 2;
         if (id >= TuneCountIdMin && id <= TuneCountIdMax) return 1;
         return 0;
@@ -2641,6 +2759,21 @@ internal static class NetProtocol
 
     /// <summary>Decode a hundredth-degree angle code.</summary>
     public static float DecodeTuneAngle(short code) => code / 100f;
+
+    /// <summary>Quantize one 0..1 colour channel to its uint8 wire code — the display's own
+    /// container, so the round trip is visually lossless (see <see cref="TuneColorIdMin"/>). Out-of-
+    /// range and NaN saturate rather than wrap: a nonsense config value may only ever produce a
+    /// duller or brighter cap on a peer's board, never a different hue.</summary>
+    public static byte EncodeTuneColorChannel(float channel)
+    {
+        if (float.IsNaN(channel))
+            return 0;
+        return (byte)UnityEngine.Mathf.Clamp(
+            UnityEngine.Mathf.RoundToInt(channel * 255f), 0, 255);
+    }
+
+    /// <summary>Decode a uint8 colour channel code back to 0..1.</summary>
+    public static float DecodeTuneColorChannel(byte code) => code / 255f;
 
     /// <summary>
     /// Find field <paramref name="id"/> inside a board-tuning payload and return the offset of its
@@ -2691,6 +2824,24 @@ internal static class NetProtocol
             DecodeTuneLength((short)(payload![at] | (payload[at + 1] << 8))),
             DecodeTuneLength((short)(payload[at + 2] | (payload[at + 3] << 8))),
             DecodeTuneLength((short)(payload[at + 4] | (payload[at + 5] << 8))));
+    }
+
+    /// <summary>Read an RGB COLOUR field, or <paramref name="fallback"/> (the receiver's own shipped
+    /// colour) when it is absent. ALPHA COMES FROM THE FALLBACK, never from the wire — the range
+    /// carries no alpha byte (see <see cref="TuneColorIdMin"/>), and taking the caller's own opaque
+    /// 1f is what keeps an absent field meaning "the value you already have" in all four
+    /// channels.</summary>
+    public static UnityEngine.Color BoardTuneColor(
+        byte[]? payload, int offset, int len, byte id, UnityEngine.Color fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        if (at < 0)
+            return fallback;
+        return new UnityEngine.Color(
+            DecodeTuneColorChannel(payload![at]),
+            DecodeTuneColorChannel(payload[at + 1]),
+            DecodeTuneColorChannel(payload[at + 2]),
+            fallback.a);
     }
 
     /// <summary>Read a metre LENGTH field, or <paramref name="fallback"/> when absent.</summary>
@@ -2754,6 +2905,36 @@ internal static class NetProtocol
         payload[i++] = (byte)(x & 0xFF); payload[i++] = (byte)((x >> 8) & 0xFF);
         payload[i++] = (byte)(y & 0xFF); payload[i++] = (byte)((y >> 8) & 0xFF);
         payload[i++] = (byte)(z & 0xFF); payload[i++] = (byte)((z >> 8) & 0xFF);
+        return true;
+    }
+
+    /// <summary>
+    /// COLOUR counterpart of <see cref="WriteTuneLengthField"/> — one 3-byte field, written only
+    /// when any of the three QUANTIZED CHANNELS differs from the shipped colour.
+    ///
+    /// <para>The quantized-code comparison is not a detail here, it is the whole reason an untuned
+    /// player still emits no record: the [ButtonColors] defaults are decimal floats (0.984, 0.953,
+    /// 0.878) that a config file round-trips through text, and a float compare would start emitting
+    /// three colour fields forever for a player who never opened the debug menu. On the uint8 code
+    /// 0.984 and 0.98400001 are the same byte, because they are the same pixel.</para>
+    ///
+    /// <para>ALPHA IS NOT COMPARED AND NOT WRITTEN. The range carries none (see
+    /// <see cref="TuneColorIdMin"/>); every colour it transports is opaque on both sides.</para>
+    /// </summary>
+    public static bool WriteTuneColorField(
+        byte[] payload, ref int i, byte id, UnityEngine.Color live, UnityEngine.Color shipped)
+    {
+        byte r = EncodeTuneColorChannel(live.r);
+        byte g = EncodeTuneColorChannel(live.g);
+        byte b = EncodeTuneColorChannel(live.b);
+        if ((r == EncodeTuneColorChannel(shipped.r) && g == EncodeTuneColorChannel(shipped.g)
+             && b == EncodeTuneColorChannel(shipped.b))
+            || i + 4 > payload.Length)
+            return false;
+        payload[i++] = id;
+        payload[i++] = r;
+        payload[i++] = g;
+        payload[i++] = b;
         return true;
     }
 

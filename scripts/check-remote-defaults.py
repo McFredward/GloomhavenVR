@@ -78,6 +78,42 @@ PAIRS = [
     # the shape of drift this file exists to catch and which nothing could have caught.
     ("Net/RemoteBoardFurniture.cs", "_transientCapW", "RoundButtons", "Width"),
     ("Net/RemoteBoardFurniture.cs", "_transientCapH", "RoundButtons", "Height"),
+    # The REST keycap's square side lengths (record 28 ids 99..100). They existed nowhere in Net/
+    # until 2026-08-09 because the mirrored rest cap had no Square branch to need them; it has one
+    # now (RemoteBoardFurniture.RestCap dispatches on the owner's [Cards] RestButtonShape_{board}),
+    # so they are wire-overridable fallbacks like every size above and belong on this list for the
+    # same reason: an untuned peer's square rest cap is drawn at the initialiser.
+    ("Net/RemoteBoardFurniture.cs", "_restCapW", "RestButtons", "Width"),
+    ("Net/RemoteBoardFurniture.cs", "_restCapH", "RestButtons", "Height"),
+    # THE [ButtonColors] FAMILY (record 28 ids 48..53 / 170). Nineteen float channels — six colours
+    # plus the label keyline's width — which this renderer did not read AT ALL until 2026-08-09, and
+    # that omission was not neutral: the shipped cap-face tint is 0.5 grey and the LOCAL caps are
+    # painted through it, so every mirrored keycap was drawn at TWICE its owner's brightness for two
+    # players who had never touched a slider. This list is where that class of bug is supposed to be
+    # caught, and it could not catch this one because there was nothing on either end to compare —
+    # which is the argument for adding the pairs the same day the renderer grows the reads.
+    #   Held as individual float CHANNELS rather than as Color fields precisely so they are
+    #   checkable: this script verifies that ONE constant names ONE annotated Defaults entry, and a
+    #   Color built inline from three of them would be an "expr" it could only shrug at.
+    ("Net/RemoteBoardFurniture.cs", "_labelR", "ButtonColors", "LabelR"),
+    ("Net/RemoteBoardFurniture.cs", "_labelG", "ButtonColors", "LabelG"),
+    ("Net/RemoteBoardFurniture.cs", "_labelB", "ButtonColors", "LabelB"),
+    ("Net/RemoteBoardFurniture.cs", "_labelOutlineR", "ButtonColors", "LabelOutlineR"),
+    ("Net/RemoteBoardFurniture.cs", "_labelOutlineG", "ButtonColors", "LabelOutlineG"),
+    ("Net/RemoteBoardFurniture.cs", "_labelOutlineB", "ButtonColors", "LabelOutlineB"),
+    ("Net/RemoteBoardFurniture.cs", "_labelOutlineWidth", "ButtonColors", "LabelOutlineWidth"),
+    ("Net/RemoteBoardFurniture.cs", "_boardCapTintR", "ButtonColors", "BoardCapTintR"),
+    ("Net/RemoteBoardFurniture.cs", "_boardCapTintG", "ButtonColors", "BoardCapTintG"),
+    ("Net/RemoteBoardFurniture.cs", "_boardCapTintB", "ButtonColors", "BoardCapTintB"),
+    ("Net/RemoteBoardFurniture.cs", "_dashCapTintR", "ButtonColors", "DashCapTintR"),
+    ("Net/RemoteBoardFurniture.cs", "_dashCapTintG", "ButtonColors", "DashCapTintG"),
+    ("Net/RemoteBoardFurniture.cs", "_dashCapTintB", "ButtonColors", "DashCapTintB"),
+    ("Net/RemoteBoardFurniture.cs", "_clusterCapTintR", "ButtonColors", "ClusterCapTintR"),
+    ("Net/RemoteBoardFurniture.cs", "_clusterCapTintG", "ButtonColors", "ClusterCapTintG"),
+    ("Net/RemoteBoardFurniture.cs", "_clusterCapTintB", "ButtonColors", "ClusterCapTintB"),
+    ("Net/RemoteBoardFurniture.cs", "_restCapTintR", "ButtonColors", "RestCapTintR"),
+    ("Net/RemoteBoardFurniture.cs", "_restCapTintG", "ButtonColors", "RestCapTintG"),
+    ("Net/RemoteBoardFurniture.cs", "_restCapTintB", "ButtonColors", "RestCapTintB"),
     # The mirrored keycap ANIMATIONS (2026-08-08 1:1 round). A peer's cap dips its own category's
     # TRAVEL on the synced press edge and crumbles/assembles over the ButtonAnim durations, so all
     # six numbers have a second home in Net/ and belong on this list for exactly the reason the

@@ -47,7 +47,7 @@ namespace GloomhavenVR.Net;
 /// <see cref="Sample"/> rebuilds the field list into a persistent buffer on every send;
 /// <see cref="BoardTunePageSender.Update"/> byte-compares it against the list it holds, so an
 /// unchanged config costs one memcmp and the serializer's write path is a bounded copy of one page.
-/// Rebuilding is cheap enough to run per send — it allocates nothing and touches ~105 config entries.
+/// Rebuilding is cheap enough to run per send — it allocates nothing and touches ~118 config entries.
 ///
 /// ─── AND THAT NUMBER IS NOW ALLOWED TO GROW ────────────────────────────────────────────────────
 /// It went 76 → 86 when the item-cue / item-berth re-art's ten dials were wired (ids 80 / 161..169),
@@ -56,10 +56,13 @@ namespace GloomhavenVR.Net;
 /// when the KEYCAP GEOMETRY family joined (ids 81..98 + 228) — the [RoundButtons] / [BoardButtons] /
 /// [BoardDashboard] / [RestButtons] cap sizes, seats and press travels, which were the single
 /// largest block of PENDING debt <c>scripts/check-wire-coverage.py</c> was carrying and were frozen
-/// constants in <c>RemoteBoardFurniture</c> for exactly as long as the ceiling stood. The complete
-/// field list is 370 bytes at its worst case now (was 314) and STILL splits into TWO pages, so the
-/// convergence bound written down in <see cref="BoardTunePages"/> — complete state by
-/// T + pageCount × 200 ms — is unchanged at ≤400 ms.
+/// constants in <c>RemoteBoardFurniture</c> for exactly as long as the ceiling stood. It went
+/// 105 → 118 when the COLOURS AND SHAPES joined (ids 48..53 on the new COLOUR range, 99..100,
+/// 170, 229..232) under the user's ruling that "das remote Board 1:1 das anzeigt was der Spieler
+/// sieht" — colours and shapes included. The complete field list is 411 bytes at its worst case now
+/// (was 370) and STILL splits into TWO pages, so the convergence bound written down in
+/// <see cref="BoardTunePages"/> — complete state by T + pageCount × 200 ms — is unchanged at
+/// ≤400 ms.
 /// </summary>
 /// <remarks>CLASSIFICATION: WIRE (extension record 28) — LOCAL CONFIG that is neither GLOBAL (each
 /// player has their own) nor derivable from anything already synced. See INVARIANTS-Net-Rig.md
@@ -68,7 +71,7 @@ internal static class BoardTuningSampler
 {
     /// <summary>
     /// Buffer size a caller must hand <see cref="Sample"/>: the FIELD-ID SPACE's own worst case,
-    /// <see cref="NetProtocol.BoardTuneMaxFieldBytes"/> = 969 — every one of the 247 usable ids
+    /// <see cref="NetProtocol.BoardTuneMaxFieldBytes"/> = 921 — every one of the 247 usable ids
     /// present at its own width.
     ///
     /// <para>IT USED TO READ 255, AND THAT WAS THE BUG THIS PASS EXISTS TO KILL. 255 is the
@@ -154,6 +157,34 @@ internal static class BoardTuningSampler
                  CardsConfig.SlotOverlayOffset(style), CardsConfig.BoardDefaults.SlotOverlayOffset[b]);
         n += Vec(payload, ref i, NetProtocol.TuneAssetOffset,
                  CardsConfig.AssetOffset(style), CardsConfig.BoardDefaults.AssetOffset[b]);
+
+        // ---- COLOUR fields (ids 48..53) — the [ButtonColors] family --------------------------
+        // SIX FIELDS, EIGHTEEN CHANNELS, TWENTY-FOUR BYTES. Sampled from the same ButtonTuning
+        // accessors the LOCAL caps read (LabelColor / LabelOutlineColor / CapTint), never from the
+        // raw config entries, so the sender's own clamps are already applied and the wire carries
+        // the colour the owner is actually looking at.
+        //
+        // THE DEFAULT SIDE IS Defaults.*, NOT ButtonTuning.Default*: the Bind()s take their default
+        // from Defaults, so that is what "the value the receiver already has" means. (Those two used
+        // to disagree for the outline triple — see the note in ButtonTuning.)
+        n += Col(payload, ref i, NetProtocol.TuneLabelColor,
+                 WorldUI.ButtonTuning.LabelColor,
+                 new Color(Defaults.LabelR, Defaults.LabelG, Defaults.LabelB, 1f));
+        n += Col(payload, ref i, NetProtocol.TuneLabelOutlineColor,
+                 WorldUI.ButtonTuning.LabelOutlineColor,
+                 new Color(Defaults.LabelOutlineR, Defaults.LabelOutlineG, Defaults.LabelOutlineB, 1f));
+        n += Col(payload, ref i, NetProtocol.TuneBoardCapTint,
+                 WorldUI.ButtonTuning.BoardCapTint,
+                 new Color(Defaults.BoardCapTintR, Defaults.BoardCapTintG, Defaults.BoardCapTintB, 1f));
+        n += Col(payload, ref i, NetProtocol.TuneDashCapTint,
+                 WorldUI.ButtonTuning.DashCapTint,
+                 new Color(Defaults.DashCapTintR, Defaults.DashCapTintG, Defaults.DashCapTintB, 1f));
+        n += Col(payload, ref i, NetProtocol.TuneClusterCapTint,
+                 WorldUI.ButtonTuning.ClusterCapTint,
+                 new Color(Defaults.ClusterCapTintR, Defaults.ClusterCapTintG, Defaults.ClusterCapTintB, 1f));
+        n += Col(payload, ref i, NetProtocol.TuneRestCapTint,
+                 WorldUI.ButtonTuning.RestCapTint,
+                 new Color(Defaults.RestCapTintR, Defaults.RestCapTintG, Defaults.RestCapTintB, 1f));
 
         // ---- LENGTH fields (ids 64..80) — scalars measured in metres ------------------------
         n += Len(payload, ref i, NetProtocol.TunePileSpacing,
@@ -245,14 +276,20 @@ internal static class BoardTuningSampler
                  WorldUI.ButtonTuning.DashDepth, Defaults.BoardDashboard_Depth);
         n += Len(payload, ref i, NetProtocol.TuneDashCapTravel,
                  WorldUI.ButtonTuning.DashTravel, Defaults.BoardDashboard_Travel);
-        // [RestButtons] Depth and Travel only: a peer's rest discs are drawn ROUND unconditionally
-        // (the mirrored renderer has no Square branch), so [RestButtons] Width/Height would be bytes
-        // no receiver reads — the FanCloseDuration rule. They stay a stated PENDING debt in
-        // scripts/check-wire-coverage.py rather than a false "covered".
+        // [RestButtons] — the WHOLE set now. Depth and Travel rode from the start; Width and Height
+        // were held back with a precise reason ("a peer's rest discs are drawn ROUND unconditionally,
+        // so these would be bytes no receiver reads" — the FanCloseDuration rule) and that reason is
+        // spent: RemoteBoardFurniture branches on the owner's [Cards] RestButtonShape_{board} (id
+        // 231) and its Square branch needs exactly these two. Wiring them WITH the branch, never
+        // before it, is the standard the un-wiring of FanCloseDuration set.
         n += Len(payload, ref i, NetProtocol.TuneRestCapDepth,
                  WorldUI.ButtonTuning.RestDepth, Defaults.RestButtons_Depth);
         n += Len(payload, ref i, NetProtocol.TuneRestCapTravel,
                  WorldUI.ButtonTuning.RestTravel, Defaults.RestButtons_Travel);
+        n += Len(payload, ref i, NetProtocol.TuneRestCapWidth,
+                 WorldUI.ButtonTuning.RestWidth, Defaults.RestButtons_Width);
+        n += Len(payload, ref i, NetProtocol.TuneRestCapHeight,
+                 WorldUI.ButtonTuning.RestHeight, Defaults.RestButtons_Height);
 
         // ---- FACTOR fields (ids 128..169) — dimensionless multipliers, plus the seconds- and
         // per-second-valued dials that ride this WIDTH (the id range fixes the width, not the unit)
@@ -366,6 +403,11 @@ internal static class BoardTuningSampler
                  CardsConfig.ItemBerthPingReach, Defaults.ItemBerthPingReach);
         n += Fac(payload, ref i, NetProtocol.TuneItemBerthRevealSeconds,
                  CardsConfig.ItemBerthRevealSeconds, Defaults.ItemBerthRevealSeconds);
+        // The keycap label's keyline WIDTH — a 0..1 fraction of the SDF spread, so it rides the
+        // factor width with the rest of the dimensionless dials. Its COLOUR is id 49 and its
+        // on/off id 229: three containers for one look, because the record's ranges are widths.
+        n += Fac(payload, ref i, NetProtocol.TuneLabelOutlineWidth,
+                 WorldUI.ButtonTuning.LabelOutlineW, Defaults.LabelOutlineWidth);
 
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -399,18 +441,32 @@ internal static class BoardTuningSampler
                        CardsConfig.FanSwapSpinDegrees, Defaults.FanSwapSpinDegrees, 1f);
         n += Quantized(payload, ref i, NetProtocol.TuneFanSwapOverlapPercent,
                        CardsConfig.FanSwapOverlap, Defaults.FanSwapOverlap, 100f);
-        // The turn-flow (SKIP) cap's SHAPE — an enum in the one-byte count width. It is the one
-        // shape dial with a live consumer on the receiving side (RemoteBoardFurniture already
-        // branches Round/Square when it builds the mirrored cap; it just branched on the SHIPPED
-        // default); the rest/generic shapes stay PENDING because their mirror has no branch at all.
+        // THE THREE CAP SHAPES — enums in the one-byte count width. The turn-flow cap's shape rode
+        // alone one build ago because it was the only one whose MIRROR could draw both members; the
+        // other two were a stated PENDING debt, not a decision. RemoteBoardFurniture branches
+        // Round/Square for the rest pair and the Confirm/Undo/USE column now, so all three ride and
+        // none of them is a field that reports "covered" while a peer still sees the wrong shape.
         n += Enum8(payload, ref i, NetProtocol.TuneRoundCapShape,
                    WorldUI.ButtonTuning.RoundShape, Defaults.RoundButtons_Shape);
+        // …and the two BOOLS of the [ButtonColors] family, which is what a two-state dial is in a
+        // one-byte container. A bool has no quantization to speak of, so "differs from the shipped
+        // default" is the code comparison every other kind here makes, trivially.
+        n += Bool8(payload, ref i, NetProtocol.TuneLabelOutlineOn,
+                   WorldUI.ButtonTuning.LabelOutline, Defaults.LabelOutline);
+        n += Bool8(payload, ref i, NetProtocol.TuneLabelUnderlayOn,
+                   WorldUI.ButtonTuning.LabelUnderlay, Defaults.LabelUnderlay);
+        // The PER-BOARD shapes, sampled for the sender's OWN style exactly like every other
+        // per-board dial (the style itself rides the extras block, so only one is ever sent).
+        n += Enum8(payload, ref i, NetProtocol.TuneRestCapShape,
+                   CardsConfig.RestButtonShape(style), Defaults.RestButtonShape_ByBoard[b]);
+        n += Enum8(payload, ref i, NetProtocol.TuneGenericCapShape,
+                   CardsConfig.GenericButtonShape(style), Defaults.GenericButtonShape_ByBoard[b]);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
 
         // THE ONE BOUND LEFT, CHECKED ON THE BYTES WE ACTUALLY PRODUCED. Paging removed the 255-byte
-        // ceiling; what remains is the FIELD-ID SPACE (247 usable ids, 969 bytes at their widths),
+        // ceiling; what remains is the FIELD-ID SPACE (247 usable ids, 921 bytes at their widths),
         // and reaching it needs a dial appended above with an id nobody could have declared. The
         // check is here rather than as a `MaxPayloadBytes > …` assertion because that form would be
         // constant-folded away — both sides are compile-time consts, so it could never fire — while
@@ -444,6 +500,23 @@ internal static class BoardTuningSampler
                            BepInEx.Configuration.ConfigEntry<Vector3>? live, Vector3 shipped) =>
         live == null ? 0
             : NetProtocol.WriteTuneVectorField(p, ref i, id, live.Value, shipped) ? 1 : 0;
+
+    /// <summary>
+    /// A COLOUR dial. Unlike every other appender here it takes a resolved <see cref="Color"/>
+    /// rather than a <c>ConfigEntry</c>, because a colour is THREE entries on the local side and the
+    /// live accessor that combines them (<c>WorldUI.ButtonTuning.LabelColor</c> and friends) is the
+    /// exact value the owner's own caps are painted with — including its clamps. Reaching past it to
+    /// the three raw entries would re-implement those clamps here, and a sender whose clamps differ
+    /// from its own renderer's is the divergence this whole record exists to end.
+    ///
+    /// <para>Those accessors are null-safe by construction (they fall back to the authored colour
+    /// before <c>Bind</c>), so there is no null guard to write: the pre-Bind value already equals
+    /// the shipped default and therefore writes no field, which is the same "no record ⇒ the
+    /// receiver's shipped constant" failure direction the other appenders get from their null
+    /// check.</para>
+    /// </summary>
+    private static int Col(byte[] p, ref int i, byte id, Color live, Color shipped) =>
+        NetProtocol.WriteTuneColorField(p, ref i, id, live, shipped) ? 1 : 0;
 
     private static int Len(byte[] p, ref int i, byte id,
                            BepInEx.Configuration.ConfigEntry<float>? live, float shipped) =>
@@ -490,6 +563,15 @@ internal static class BoardTuningSampler
         live == null ? 0
             : NetProtocol.WriteTuneCountField(p, ref i, id,
                 System.Convert.ToInt32(live.Value), System.Convert.ToInt32(shipped)) ? 1 : 0;
+
+    /// <summary>A BOOL dial in the one-byte COUNT width — 0 or 1, compared as the wire code like
+    /// every other kind here. The receiver reads it back as <c>code != 0</c>, so a corrupt sender's
+    /// third value can only ever mean "on", never crash a branch.</summary>
+    private static int Bool8(byte[] p, ref int i, byte id,
+                             BepInEx.Configuration.ConfigEntry<bool>? live, bool shipped) =>
+        live == null ? 0
+            : NetProtocol.WriteTuneCountField(p, ref i, id, live.Value ? 1 : 0, shipped ? 1 : 0)
+                ? 1 : 0;
 
     private static int Cnt(byte[] p, ref int i, byte id,
                            BepInEx.Configuration.ConfigEntry<int>? live, int shipped) =>
@@ -642,6 +724,46 @@ internal readonly struct RemoteBoardTuning
     public float RestCapDepth { get; }
     /// <summary>[RestButtons] Travel — the rest press travel.</summary>
     public float RestCapTravel { get; }
+    /// <summary>[RestButtons] Width — the rest keycap width while <see cref="RestCapShape"/> is
+    /// Square (a round disc takes <see cref="RestButtonDiameter"/> instead, exactly as locally).</summary>
+    public float RestCapWidth { get; }
+    /// <summary>[RestButtons] Height — its height while the shape is Square.</summary>
+    public float RestCapHeight { get; }
+
+    /// <summary>[Cards] RestButtonShape_{board} — ROUND disc or SQUARE keycap for the peer's rest
+    /// pair. Resolved through the same KNOWN-MEMBER test as <see cref="RoundCapShape"/>.</summary>
+    public ButtonShape RestCapShape { get; }
+
+    /// <summary>[Cards] GenericButtonShape_{board} — ROUND or SQUARE for the peer's Confirm / Undo /
+    /// item-USE column.</summary>
+    public ButtonShape GenericCapShape { get; }
+
+    // ---- the [ButtonColors] family (ids 48..53 + 170 + 229..230) -------------------------------
+    // A peer's caps are LETTERED and TINTED in their owner's colours now. Before this build
+    // RemoteBoardFurniture read none of these — not even at their defaults — so the mirrored caps
+    // were drawn at the raw state palette while every local cap is drawn at palette × a 0.5 TINT:
+    // two completely untuned players saw each other's boards at twice their own brightness. See the
+    // cap-palette block in RemoteBoardFurniture for the fix and NetProtocol.TuneLabelColor for the
+    // ruling that made the colours wire content rather than "a look decision".
+
+    /// <summary>[ButtonColors] LabelR/G/B — the fill colour of every engraved keycap letter.</summary>
+    public Color LabelColor { get; }
+    /// <summary>[ButtonColors] LabelOutlineR/G/B — the dark keyline ringing those letters.</summary>
+    public Color LabelOutlineColor { get; }
+    /// <summary>[ButtonColors] LabelOutlineWidth — that keyline's width, fraction of the SDF spread.</summary>
+    public float LabelOutlineWidth { get; }
+    /// <summary>[ButtonColors] LabelOutline — whether the keyline is drawn at all.</summary>
+    public bool LabelOutlineOn { get; }
+    /// <summary>[ButtonColors] LabelUnderlay — whether the drop-shadow underlay is drawn.</summary>
+    public bool LabelUnderlayOn { get; }
+    /// <summary>[ButtonColors] BoardCapTint — the Confirm / Undo / item-USE cap FACE multiplier.</summary>
+    public Color BoardCapTint { get; }
+    /// <summary>[ButtonColors] DashCapTint — the follow/pin plate face multiplier.</summary>
+    public Color DashCapTint { get; }
+    /// <summary>[ButtonColors] ClusterCapTint — the turn-flow SKIP cap face multiplier.</summary>
+    public Color ClusterCapTint { get; }
+    /// <summary>[ButtonColors] RestCapTint — the short/long rest cap face multiplier.</summary>
+    public Color RestCapTint { get; }
 
     // ---- FACTOR dials ------------------------------------------------------------------------
     public float ObjectivesScale { get; }
@@ -828,11 +950,9 @@ internal readonly struct RemoteBoardTuning
         // KNOWN-MEMBER test, not a cast: the wire byte selects a shape only when it names one this
         // build has. Anything else — a corrupt packet, a future sender's third shape — resolves to
         // the SHIPPED member, which is the same picture every pre-record build drew.
-        int shapeCode = C(payload, len, NetProtocol.TuneRoundCapShape,
-                          (int)Defaults.RoundButtons_Shape);
-        RoundCapShape = shapeCode == (int)ButtonShape.Round ? ButtonShape.Round
-            : shapeCode == (int)ButtonShape.Square ? ButtonShape.Square
-            : Defaults.RoundButtons_Shape;
+        RoundCapShape = Shape(C(payload, len, NetProtocol.TuneRoundCapShape,
+                                (int)Defaults.RoundButtons_Shape),
+                              Defaults.RoundButtons_Shape);
 
         BoardCapWidth = L(payload, len, NetProtocol.TuneBoardCapWidth, Defaults.BoardButtons_Width);
         BoardCapHeight = L(payload, len, NetProtocol.TuneBoardCapHeight, Defaults.BoardButtons_Height);
@@ -844,6 +964,46 @@ internal readonly struct RemoteBoardTuning
         DashCapTravel = L(payload, len, NetProtocol.TuneDashCapTravel, Defaults.BoardDashboard_Travel);
         RestCapDepth = L(payload, len, NetProtocol.TuneRestCapDepth, Defaults.RestButtons_Depth);
         RestCapTravel = L(payload, len, NetProtocol.TuneRestCapTravel, Defaults.RestButtons_Travel);
+        RestCapWidth = L(payload, len, NetProtocol.TuneRestCapWidth, Defaults.RestButtons_Width);
+        RestCapHeight = L(payload, len, NetProtocol.TuneRestCapHeight, Defaults.RestButtons_Height);
+
+        // The two PER-BOARD shapes, through the same KNOWN-MEMBER test as the turn-flow cap above:
+        // a wire byte selects a shape only when it names one this build has, and anything else is
+        // the shipped member for the PEER'S OWN style — which is the shape every build before this
+        // one drew unconditionally.
+        RestCapShape = Shape(C(payload, len, NetProtocol.TuneRestCapShape,
+                               (int)Defaults.RestButtonShape_ByBoard[b]),
+                             Defaults.RestButtonShape_ByBoard[b]);
+        GenericCapShape = Shape(C(payload, len, NetProtocol.TuneGenericCapShape,
+                                  (int)Defaults.GenericButtonShape_ByBoard[b]),
+                                Defaults.GenericButtonShape_ByBoard[b]);
+
+        // The [ButtonColors] family. The fallbacks are the SHIPPED colours rather than white or the
+        // authored palette: "field absent" has to mean "the value you already have", and for the
+        // four cap tints the value everyone already has is 0.5 grey, not identity.
+        LabelColor = Cl(payload, len, NetProtocol.TuneLabelColor,
+                        new Color(Defaults.LabelR, Defaults.LabelG, Defaults.LabelB, 1f));
+        LabelOutlineColor = Cl(payload, len, NetProtocol.TuneLabelOutlineColor,
+                               new Color(Defaults.LabelOutlineR, Defaults.LabelOutlineG,
+                                         Defaults.LabelOutlineB, 1f));
+        LabelOutlineWidth = F(payload, len, NetProtocol.TuneLabelOutlineWidth,
+                              Defaults.LabelOutlineWidth);
+        LabelOutlineOn = C(payload, len, NetProtocol.TuneLabelOutlineOn,
+                           Defaults.LabelOutline ? 1 : 0) != 0;
+        LabelUnderlayOn = C(payload, len, NetProtocol.TuneLabelUnderlayOn,
+                            Defaults.LabelUnderlay ? 1 : 0) != 0;
+        BoardCapTint = Cl(payload, len, NetProtocol.TuneBoardCapTint,
+                          new Color(Defaults.BoardCapTintR, Defaults.BoardCapTintG,
+                                    Defaults.BoardCapTintB, 1f));
+        DashCapTint = Cl(payload, len, NetProtocol.TuneDashCapTint,
+                         new Color(Defaults.DashCapTintR, Defaults.DashCapTintG,
+                                   Defaults.DashCapTintB, 1f));
+        ClusterCapTint = Cl(payload, len, NetProtocol.TuneClusterCapTint,
+                            new Color(Defaults.ClusterCapTintR, Defaults.ClusterCapTintG,
+                                      Defaults.ClusterCapTintB, 1f));
+        RestCapTint = Cl(payload, len, NetProtocol.TuneRestCapTint,
+                         new Color(Defaults.RestCapTintR, Defaults.RestCapTintG,
+                                   Defaults.RestCapTintB, 1f));
 
         ObjectivesScale = F(payload, len, NetProtocol.TuneObjectivesScale,
                             CardsConfig.BoardDefaults.ObjectivesScale[b]);
@@ -955,6 +1115,24 @@ internal readonly struct RemoteBoardTuning
 
     private static int C(byte[]? p, int len, byte id, int fallback) =>
         NetProtocol.BoardTuneCount(p, 0, len, id, fallback);
+
+    private static Color Cl(byte[]? p, int len, byte id, Color fallback) =>
+        NetProtocol.BoardTuneColor(p, 0, len, id, fallback);
+
+    /// <summary>
+    /// THE KNOWN-MEMBER TEST every shape on this record goes through, written once because there are
+    /// three of them now. A wire code selects a shape only when it NAMES a member this build has;
+    /// anything else — a corrupt packet, a future sender's third shape — resolves to
+    /// <paramref name="shipped"/>, which is the shape every build before the field existed drew.
+    ///
+    /// <para>Casting the byte to the enum instead would be the bug: C# would happily produce
+    /// <c>(ButtonShape)7</c>, every <c>== Round</c> test downstream would answer false, and a peer
+    /// would silently get the SQUARE branch of a renderer for a shape nobody authored.</para>
+    /// </summary>
+    private static ButtonShape Shape(int code, ButtonShape shipped) =>
+        code == (int)ButtonShape.Round ? ButtonShape.Round
+        : code == (int)ButtonShape.Square ? ButtonShape.Square
+        : shipped;
 
     /// <summary>One-line dump for the change-gated board-built log: a wrong seat is then answerable
     /// from the log without a screenshot, and the FIELD COUNT says at a glance whether the peer's
