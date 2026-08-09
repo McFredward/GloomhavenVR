@@ -363,6 +363,16 @@ internal static partial class WallSegmentFade
         /// <summary>Index into the room tables of the ONE room this wall belongs to (XZ-nearest
         /// room AABB, recomputed at rescan); -1 while unassociated.</summary>
         public int RoomIndex = -1;
+        /// <summary>ROOM SEAM (user report 2026-08-09 — the wall piece that faded "falsch rum"):
+        /// the OTHER decision-valid rooms whose bounds this wall also borders, i.e. every room
+        /// besides <see cref="RoomIndex"/> within <see cref="FadeDriver.RoomBorderBandWU"/> of
+        /// it. Empty for the overwhelming majority of walls; non-empty only for a wall standing
+        /// in the seam BETWEEN two rooms, where "which room is mine" is a coin flip and getting
+        /// it wrong inverts the fade. See <see cref="FadeDriver.BlockedFraction"/>.</summary>
+        public readonly List<int> BorderRooms = new();
+        /// <summary>Which room actually decided the last coverage reading (diag) — differs from
+        /// <see cref="RoomIndex"/> only for seam walls.</summary>
+        public int LastDecidingRoom = -1;
         /// <summary>R2 diag: which fade-shader variant(s) this segment's renderers carry.</summary>
         public bool VariantHigh;
         public bool VariantLow;
@@ -612,7 +622,10 @@ internal static partial class WallSegmentFade
             _nextSwapLog = 0f;
             _archRects.Clear();              // arch protection dies with the scene…
             _gateMemory.Clear();             // …and so does the reborn-gate state memory
+            _waterRects.Clear();             // …and the fountain/pond protection rects
+            _waterCensusSig = -1;            // …so the next scenario re-prints its census
             _lastLoggedReanchorCount = -1;   // re-print the re-anchor census
+            _lastLoggedSeamCount = -1;       // …and the room-seam census (2026-08-09)
             _peerFades.Clear();              // peers re-state their fades for the new scene
             _loggedToggleMats.Clear();       // …and the toggle-native material lines
         }
@@ -1125,11 +1138,13 @@ internal static partial class WallSegmentFade
             seg.LastBlocked = 0;
             seg.LastRoomVisible = 0;
             seg.LastRoomTotal = 0;
+            seg.LastDecidingRoom = -1;
             int room = seg.RoomIndex;
             if (room < 0 || room >= _roomSampleCount.Count)
                 return 0f;
             int total = _roomSampleCount[room];
             seg.LastRoomTotal = total;
+            seg.LastDecidingRoom = room;
             if (total <= 0)
                 return 0f;
 
@@ -1149,6 +1164,30 @@ internal static partial class WallSegmentFade
                 out int blocked, out int visible, out _);
             seg.LastBlocked = blocked;
             seg.LastRoomVisible = visible;
+
+            // ROOM SEAM (user report 2026-08-09, the wall that faded "falsch rum"): a wall
+            // standing BETWEEN two rooms owns both of them — see the long note in
+            // AssociateRooms for why picking one of them is a coin flip and why picking the
+            // wrong one inverts the fade exactly as reported. Its coverage is therefore the
+            // MAX over the rooms it borders: whichever room it is currently hiding from the
+            // head is the room the user wants opened, and the wall must fade from EITHER
+            // side. Segment.BorderRooms is empty for every wall that borders one room, so
+            // this loop does not run at all for them — their behaviour is untouched.
+            for (int i = 0; i < seg.BorderRooms.Count; i++)
+            {
+                int alt = seg.BorderRooms[i];
+                if (alt < 0 || alt >= _roomSampleCount.Count || _roomSampleCount[alt] <= 0)
+                    continue;
+                float altFraction = RoomBlockedFraction(seg, headPos, alt,
+                    out int altBlocked, out int altVisible, out int altTotal);
+                if (altFraction <= fraction)
+                    continue;
+                fraction = altFraction;
+                seg.LastBlocked = altBlocked;
+                seg.LastRoomVisible = altVisible;
+                seg.LastRoomTotal = altTotal;
+                seg.LastDecidingRoom = alt;
+            }
             return fraction;
         }
 
@@ -1296,8 +1335,19 @@ internal static partial class WallSegmentFade
                 name += "~"; // shader-adopted group
             Bounds b = seg.Bounds;
             _diagSb.Append(" | '").Append(name)
-                   .Append("' r").Append(seg.RoomIndex)
-                   .Append(" raw").Append(seg.LastRaw.ToString("F2"))
+                   .Append("' r").Append(seg.RoomIndex);
+            // ROOM SEAM (2026-08-09): a wall between two rooms is judged against both — print
+            // which one actually decided, so the next hardware log reads the side directly
+            // instead of leaving it to inference ("r0>1" = own room 0, room 1 won the max).
+            if (seg.BorderRooms.Count > 0)
+            {
+                _diagSb.Append('>');
+                if (seg.LastDecidingRoom >= 0)
+                    _diagSb.Append(seg.LastDecidingRoom);
+                else
+                    _diagSb.Append('?');
+            }
+            _diagSb.Append(" raw").Append(seg.LastRaw.ToString("F2"))
                    .Append(" ema").Append(seg.Smooth.ToString("F2"))
                    .Append(" blk").Append(seg.LastBlocked).Append('/').Append(seg.LastRoomTotal)
                    .Append(" v").Append(seg.LastRoomVisible)
@@ -1895,6 +1945,12 @@ internal static partial class WallSegmentFade
             Renderer[] sceneRenderers = UnityEngine.Object.FindObjectsOfType<Renderer>();
             AdoptShaderMatchedWalls(sceneRenderers);
 
+            // WATER FEATURES (user ruling 2026-08-09, brunnen.png — "lass den Brunnen niemals
+            // faden"): rebuild the fountain/pond protection rects BEFORE the ground strip and
+            // every adoption pass, so no pass can ever see a fountain's basin as fadeable and
+            // leave its water plane hanging in mid-air. See WallSegmentFade.Water.cs.
+            CollectWaterFeatures(sceneRenderers);
+
             RebuildSamples();
             AssociateRooms();
             StripGroundRenderers();
@@ -1957,7 +2013,13 @@ internal static partial class WallSegmentFade
                 for (int i = seg.Renderers.Count - 1; i >= 0; i--)
                 {
                     MeshRenderer r = seg.Renderers[i];
-                    if (r == null || r.bounds.max.y > ceiling)
+                    // WATER FEATURE (user ruling 2026-08-09, brunnen.png): a fountain's basin
+                    // stands just ABOVE the ground band — that is precisely why the ground
+                    // strip missed it and it faded with 'Wall 1' while its water plane, which
+                    // has no fade channel at all, stayed hanging in mid-air. Water-protected
+                    // pieces leave the segment on the same path as the ground band, so they
+                    // are held solid with the same machinery (block cleared, AABB rebuilt).
+                    if (r == null || (r.bounds.max.y > ceiling && !IsWaterProtected(r.bounds)))
                         continue;
                     if (seg.HasBlock)
                         r.SetPropertyBlock(null); // it was mid-fade — return it to solid NOW
@@ -1969,7 +2031,7 @@ internal static partial class WallSegmentFade
                 for (int i = seg.Foliage.Count - 1; i >= 0; i--)
                 {
                     MeshRenderer f = seg.Foliage[i];
-                    if (f == null || f.bounds.max.y > ceiling)
+                    if (f == null || (f.bounds.max.y > ceiling && !IsWaterProtected(f.bounds)))
                         continue;
                     if (seg.FoliageState != 0)
                         RestoreFoliageRenderer(f);
@@ -1986,7 +2048,7 @@ internal static partial class WallSegmentFade
                 for (int i = seg.Body.Count - 1; i >= 0; i--)
                 {
                     Renderer br = seg.Body[i].Renderer;
-                    if (br == null || br.bounds.max.y > ceiling)
+                    if (br == null || (br.bounds.max.y > ceiling && !IsWaterProtected(br.bounds)))
                         continue;
                     if (seg.BodyState != 0)
                         RestoreProp(seg.Body[i]);
@@ -2500,6 +2562,8 @@ internal static partial class WallSegmentFade
                                 continue;
                             if (c.bounds.max.y <= ceiling)
                                 continue; // floor-ish — never rides a fade, in any form
+                            if (IsWaterProtected(c.bounds))
+                                continue; // fountain/pond (user ruling 2026-08-09) — never fades
                             if (c.GetComponentInParent<ProceduralWall>() != null
                                 || c.GetComponentInParent<ActorBehaviour>() != null
                                 || c.GetComponentInParent<TileBehaviour>() != null)
@@ -2953,6 +3017,22 @@ internal static partial class WallSegmentFade
         private readonly List<string> _reanchorCensus = new();
         private int _lastLoggedReanchorCount = -1;
 
+        /// <summary>ROOM SEAM band (wu) — user report 2026-08-09, the wall piece that faded
+        /// "falsch rum". A wall whose AABB is within this of a SECOND decision-valid room's
+        /// box borders that room too and is judged against it as well (max coverage wins; see
+        /// the long note in <see cref="AssociateRooms"/>). Sized as ONE WALL THICKNESS, from
+        /// the hardware log itself: this tileset's slabs measure 0.8–1.8 wu across (segment
+        /// BlockEps 0.45–0.90 = half-thickness) and the two room boxes of the reported level
+        /// sit 0.65 wu apart, so a partition standing in that seam is within ~1.25 wu of both
+        /// while a wall well inside one room is not. Deliberately far below the 4.0 wu
+        /// re-anchor reach: this must catch partitions, never distant rooms.</summary>
+        private const float RoomBorderBandWU = 1.25f;
+
+        /// <summary>Census of the seam walls (name + the rooms they are judged against) —
+        /// change-triggered, so the next hardware log names them without spamming.</summary>
+        private readonly List<string> _seamCensus = new();
+        private int _lastLoggedSeamCount = -1;
+
         /// <summary>
         /// Is this material's wall-fade subgraph PRESENT AND DRIVEABLE (round-9 game-wide
         /// audit — all known gate spellings, each with its liveness rule)? Requires
@@ -3136,9 +3216,11 @@ internal static partial class WallSegmentFade
         private void AssociateRooms()
         {
             _reanchorCensus.Clear();
+            _seamCensus.Clear();
             foreach (Segment seg in _segments.Values)
             {
                 seg.RoomIndex = -1;
+                seg.BorderRooms.Clear();
                 if (!seg.HasBounds)
                     continue;
                 Bounds w = seg.Bounds;
@@ -3201,6 +3283,70 @@ internal static partial class WallSegmentFade
                         }
                     }
                 }
+
+                // ---- ROOM SEAM (user report 2026-08-09: one wall piece faded INVERTED) ------
+                // The pick above is "nearest room box, ties by nearest room centre". For a wall
+                // standing in the SEAM between two rooms that is a coin flip decided by tenths
+                // of a wu: the hardware log's two rooms are map tiles 'E' (x 17.1..25.9,
+                // z -4.1..4.1) and 'LL' (x 9.3..27.0, z 4.7..15.9) — their boxes are 0.65 wu
+                // apart, while a masonry slab here is 0.8..1.8 wu THICK. Every partition
+                // therefore overlaps or nearly overlaps BOTH boxes and the winner is decided by
+                // which side the slab happens to lean.
+                //
+                // That coin flip is the whole bug, because the coverage metric is what carries
+                // the side: a wall fades when it hides its OWN room's floor from the head, which
+                // is "outside-in" by construction — and measuring a seam wall against the room
+                // on the WRONG side inverts it exactly as reported ("von außen faded es nicht,
+                // aber von innen"). Standing in room 2 you are outside room 1, the wall hides
+                // room 1's floor, so it fades; standing outside room 2 it hides nothing of room
+                // 1, so it stays. Every other wall in the level borders one room and behaves.
+                //
+                // The fix does not try to guess the coin flip right — it removes the flip. A
+                // seam wall genuinely belongs to BOTH rooms it separates: from either side it is
+                // the thing hiding the room you are looking into, and the standing invariant
+                // ("Fading geht immer darum den Raum freizulegen von außen nach innen") holds
+                // for both. So the wall records every decision-valid room it BORDERS and
+                // BlockedFraction takes the max over them. This is NOT the retired round-3
+                // cross-room MAX, which maxed over ALL rooms including ones the wall stood far
+                // away from; the band is one wall thickness, so a wall that borders exactly one
+                // room — the overwhelming majority — is bit-for-bit unchanged.
+                //
+                // MULTIPLAYER: nothing to send. Which wall a head occludes is a per-player fact
+                // by definition, and the opt-in peer sync (wire record 17) already carries the
+                // RESULT — this only changes how the LOCAL decision is computed, from the same
+                // replicated room geometry on every machine, so the wire format, the key
+                // derivation and the record are untouched.
+                if (seg.RoomIndex >= 0)
+                {
+                    for (int r = 0; r < _roomBounds.Count; r++)
+                    {
+                        if (r == seg.RoomIndex || !RoomDecisionValid(r))
+                            continue;
+                        Bounds room = _roomBounds[r];
+                        float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
+                        float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
+                        if (gx * gx + gz * gz > RoomBorderBandWU * RoomBorderBandWU)
+                            continue;
+                        seg.BorderRooms.Add(r);
+                    }
+                    if (seg.BorderRooms.Count > 0 && _seamCensus.Count < 10)
+                    {
+                        string n = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                        _seamCensus.Add($"'{n}' r{seg.RoomIndex}+{string.Join("+", seg.BorderRooms)}");
+                    }
+                }
+            }
+            if (_seamCensus.Count != _lastLoggedSeamCount)
+            {
+                _lastLoggedSeamCount = _seamCensus.Count;
+                if (_seamCensus.Count > 0)
+                    VRLog.Info(Name,
+                        $"ROOM SEAM: {_seamCensus.Count} wall(s) stand between TWO rooms "
+                        + $"(both room boxes within {RoomBorderBandWU:0.00} wu = one wall "
+                        + "thickness) and are judged against EACH of them, max coverage wins — "
+                        + "the 2026-08-09 inverted-wall report: a seam wall hides whichever room "
+                        + "you are NOT in, so it must fade from either side. Non-seam walls keep "
+                        + $"strict own-room accounting unchanged: {string.Join(", ", _seamCensus)}.");
             }
             if (_reanchorCensus.Count != _lastLoggedReanchorCount)
             {
@@ -3578,6 +3724,9 @@ internal static partial class WallSegmentFade
             _archRects.Clear();
             _gateMemory.Clear();
             _gateSliverLogged.Clear();
+            // …and so is the water-feature protection (user ruling 2026-08-09).
+            _waterRects.Clear();
+            _waterCensusSig = -1;
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }

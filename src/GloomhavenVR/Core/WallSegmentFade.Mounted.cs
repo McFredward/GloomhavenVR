@@ -698,6 +698,11 @@ internal static partial class WallSegmentFade
                         : b;
                     if (IsArchProtected(archProbe, c.name))
                         continue; // the doorway's arch stays solid (user ruling 2026-08-07)
+                    // WATER FEATURE (user ruling 2026-08-09, brunnen.png): the fountain's own
+                    // waterfall/spark emitters sit inside its basin — they must not be mounted
+                    // onto a wall and dragged out with it while the water plane stays.
+                    if (IsWaterProtected(archProbe))
+                        continue;
                     float anchorY = particles ? c.transform.position.y : b.min.y;
                     float topY = particles ? c.transform.position.y : b.max.y;
                     // Tiny emissive FX quads (candle flames, glows) may ride from farther out
