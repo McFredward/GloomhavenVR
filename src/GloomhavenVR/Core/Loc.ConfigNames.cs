@@ -176,6 +176,8 @@ internal static partial class Loc
 
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
+            ["FigureGrab/PickRadiusMillimeters"] =
+                Pair("Figure: grab range at the hand (mm)", "Figur: Greifradius an der Hand (mm)"),
             ["FigureGrab/HeldUprightAtGrab"] = Pair("Figure: upright on grab", "Figur: aufrecht greifen"),
             ["FigureGrab/HeldUpright"] = Pair("Figure: hold upright", "Figur: aufrecht halten"),
             ["FigureGrab/*HeldOffsetSide"] = Pair("Figure: sideways (m)", "Figur: seitlich (m)"),

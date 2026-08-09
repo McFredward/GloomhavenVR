@@ -87,6 +87,13 @@ internal static class ConfigSteps
         ("Scale", 0.05d), ("Multiplier", 0.05d), ("Fraction", 0.05d), ("Opacity", 0.05d),
         ("Alpha", 0.05d), ("Gain", 0.05d), ("Falloff", 0.05d), ("Smoothing", 0.05d),
         ("Factor", 0.05d), ("Threshold", 0.05d), ("Deadband", 0.05d), ("Deadzone", 0.05d),
+        // lengths in MILLIMETRES — five of them a press. FIRST, because "Millimeters" ends in
+        // "Meters" and the suffix test is first-match-wins: below the metre entry it would read a
+        // 40 mm dial as a 40 m one and step it by a hundredth of a millimetre, the exact failure
+        // the header of this file is about. A key spells the unit out only where the quantity is
+        // genuinely sub-centimetre ([FigureGrab] PickRadiusMillimeters is a pinch, ~4 cm), which is
+        // also why the step is 5 and not 10: ten presses across the useful range.
+        ("Millimeters", 5d),
         // lengths, in metres — a centimetre a press
         ("Meters", 0.01d), ("Offset", 0.01d), ("Radius", 0.01d), ("Width", 0.01d),
         ("Height", 0.01d), ("Depth", 0.01d), ("Thickness", 0.01d), ("Diameter", 0.01d),

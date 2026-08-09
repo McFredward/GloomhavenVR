@@ -77,6 +77,24 @@ internal static partial class CanvasConversion
     private const float FitMinAlpha = 0.05f;
 
     /// <summary>
+    /// BREATHING ROOM the fit adds around the measured visible-content union, in uGUI px of the
+    /// host's own space, on EVERY side (see <see cref="TryMeasureContent"/>: the union is centered
+    /// in a host that is <c>union + 2 ×</c> this per axis). Historic 12 px value — unchanged.
+    ///
+    /// <para>INTERNAL BECAUSE A SEAT SOLVED FROM THE HOST RECT'S EDGE IS OFF BY EXACTLY THIS
+    /// (user, ModBuild 102: "Weiterhin rutschen die Elemente immer direkt so beginn tiefer als es
+    /// sein müsste. … sie sollten sich immer am oberen Rand orientieren"). The decision area is
+    /// laid out DOWNWARD from one ceiling
+    /// (<c>WorldUI.Surfaces.DecisionDockSurface.AreaCeilingUp</c>): the widget row measures its own
+    /// visible widget graphics and lands flush, but the prompt LINE and the use-bar drawer solved
+    /// their seats from <c>HostRect.rect.yMax</c> / <c>rect.height</c> — the PADDED box — so each
+    /// of them started this much below the ceiling AND handed the same error down to whatever hung
+    /// off its published bottom edge. Any surface that pins a host by a rect EDGE must subtract
+    /// this; that is what makes "the top edge is the offset" true to the pixel.</para>
+    /// </summary>
+    internal const float FitContentPaddingPx = 12f;
+
+    /// <summary>
     /// FIRST-OPEN SIZE BUG round 3 (hardware ModBuild 18): absolute per-axis epsilon (px) a
     /// measurement must hold to inside for the STRICT settle tier. WHY on top of the relative
     /// <see cref="FitChangeFraction"/> test in <see cref="MeasureMatches"/>: that tolerance is 2 %
@@ -806,8 +824,8 @@ internal static partial class CanvasConversion
         if (sz.x < 32f || sz.y < 32f)
             return false; // degenerate (mid scale-in animation) — caller retries
 
-        const float Padding = 12f;
-        sz += Vector2.one * (2f * Padding);
+        Vector2 unionSize = sz;
+        sz += Vector2.one * (2f * FitContentPaddingPx);
         sz.x = Mathf.Min(sz.x, frameMax.x - frameMin.x);
         sz.y = Mathf.Min(sz.y, frameMax.y - frameMin.y);
         // ROUND 7 ("vertikal zu lang", user, ModBuild 23): the full-screen-menu family's host
@@ -822,10 +840,19 @@ internal static partial class CanvasConversion
 
         size = sz;
         center = (min + max) * 0.5f;
+        // What the padding (and the clamps above) actually left around the union, PER SIDE — the
+        // number a seat solved from the host rect's EDGE has to subtract to land on the content.
+        // Derived, never assumed: the frame clamp and the canvas height cap can both eat into it.
+        s_lastMeasurePadding = Vector2.Max(Vector2.zero, (sz - unionSize) * 0.5f);
         s_lastMeasureSize = size;
         s_lastMeasureCenter = center;
         return true;
     }
+
+    /// <summary>Per-side slack the last <see cref="TryMeasureContent"/> pass left between the
+    /// visible-content union and the host size it produced (uGUI px). See
+    /// <see cref="FitContentPaddingPx"/> and <see cref="ConvertedPanel.FitContentPadding"/>.</summary>
+    private static Vector2 s_lastMeasurePadding;
 
     /// <summary>
     /// Keep the <see cref="MeasureTopCount"/> largest contributors of the running measure pass
@@ -912,6 +939,10 @@ internal static partial class CanvasConversion
 
         if (!TryMeasureContent(panel, root, out Vector2 size, out Vector2 center))
             return false; // nothing visible / degenerate yet (fade-in) — caller retries
+        // Published for the surfaces that pin this host by a rect EDGE (the decision area's
+        // top-down layout) — before the tolerance no-op below, because a panel sitting inside the
+        // 2 % dirty band still owes them the slack its rect carries.
+        panel.FitContentPadding = s_lastMeasurePadding;
 
         // Dirty check (test #14): within 2 % of the current host rect (size AND
         // centering) — nothing to do. Host pivot is centered, so local origin ==
@@ -931,9 +962,12 @@ internal static partial class CanvasConversion
         // steady for FitStableSeconds AND the last applied fit is at least
         // FitRefitMinIntervalSeconds old. Oscillating content keeps resetting the
         // stability clock and the host simply stays at its largest recent extent.
-        // The very first fit (FitMeasuredOnce false) is never damped.
+        // The very first fit (FitMeasuredOnce false) is never damped, and neither is a panel that
+        // opted out (ConvertedPanel.FitShrinkImmediate — the decision drawer, whose collapse must
+        // land in the frame it happens; that panel is held frozen on LAYOUT TRUTH instead, so no
+        // oscillation can reach this path).
         bool growth = size.x > host.width + tolX || size.y > host.height + tolY;
-        if (panel.FitMeasuredOnce && !growth && !force)
+        if (panel.FitMeasuredOnce && !growth && !force && !panel.FitShrinkImmediate)
         {
             float now = Time.unscaledTime;
             bool sameCandidate = Mathf.Abs(size.x - panel.FitPendingSize.x) <= tolX

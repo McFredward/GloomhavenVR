@@ -780,8 +780,12 @@ internal sealed class DecisionDockSurface : WorldSurface
         float ceilingUp = AreaCeilingUp(mount, up, trayScale, out string refNote);
 
         // Top/bottom-most VISIBLE widget graphics, world m above the host pivot (fall back
-        // to the fitted row edges when a prompt has no resolvable widgets).
-        WidgetBlockEdgesAbovePivot(host, up, rect.yMax * scale, rect.yMin * scale,
+        // to the fitted row edges when a prompt has no resolvable widgets). The FALLBACK is the
+        // host rect, which carries the fit's slack around the content on every side
+        // (ConvertedPanel.FitContentPadding) — take it off, or a prompt that falls back seats its
+        // row that much below the ceiling while every prompt that resolves its widgets is flush.
+        float padUp = Panel.FitContentPadding.y * scale;
+        WidgetBlockEdgesAbovePivot(host, up, rect.yMax * scale - padUp, rect.yMin * scale + padUp,
             out float blockTopAbovePivot, out float blockBottomAbovePivot);
 
         // TEXT→BUTTON DISTANCE, AND NOTHING ELSE TOUCHES IT (user ruling 2026-08-03: "Der Abstand
@@ -985,6 +989,16 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <c>[Cards] DecisionOffset_&lt;board&gt;</c>, and a mount-relative ceiling therefore carries it
     /// natively on all three axes — no <see cref="MountOffsetUp"/> correction, no cancellation to
     /// undo (see the block in <see cref="Place"/>).</para>
+    ///
+    /// <para>AND WHAT TOUCHES IT IS THE VISIBLE PIXEL, NOT THE HOST RECT (user ruling 2026-08-09:
+    /// "Der obere Rand des Entscheidungsbereichs wurde mit dem offset festgelegt. Von da sollen die
+    /// Elemente immer ausnahmslos anfangen und nach unten wachsen"). A converted host is the fitted
+    /// content union PLUS the fit's slack on every side, with the union centred inside it
+    /// (<see cref="ConvertedPanel.FitContentPadding"/>) — so a seat solved from <c>rect.yMax</c> put
+    /// the visible element that slack too low, and handed the same error to everything hanging off
+    /// its published bottom edge (the line → the row → the bars, three times over). All three
+    /// surfaces subtract it now; this row already measured its own widget graphics, so only its
+    /// no-widgets FALLBACK needed the correction.</para>
     ///
     /// <para>CLAMPED AT THE BOARD'S LOWER EDGE (<see cref="PromptReferenceUp"/>: the grab-bar bottom
     /// minus <see cref="BarClearanceMeters"/>). Dialling the offset far enough up would otherwise

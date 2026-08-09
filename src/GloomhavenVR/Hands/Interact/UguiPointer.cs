@@ -34,12 +34,35 @@ internal sealed class UguiPointer
     private const int RightHandRayPointerId = -112;
 
     /// <summary>
+    /// Every mod hand pointer id is &lt;= this; the game's MOUSE pointer (-1..-3) and any
+    /// touch pointer (&gt;= 0) are above it. THE single definition — <see cref="Cards.CardFaceRaycaster"/>
+    /// and <c>WorldUI.Patches.TooltipRaiseGuard</c> both read it here rather than mirroring the
+    /// number, because "is this event ours" is the question both of them decide on.
+    /// </summary>
+    internal const int ModPointerIdCeiling = -100;
+
+    /// <summary>
+    /// Was this uGUI event synthesized by one of the MOD's hand pointers (poke or laser) —
+    /// as opposed to the game's own mouse/touch pointer?
+    ///
+    /// <para>The distinction is load-bearing in VR and not a detail: the game's EventSystem
+    /// mouse pointer runs EVERY frame at the PARKED desktop mouse pixel
+    /// (<c>InControlInputModule.ProcessMouseEvent</c> → <c>GetMousePointerEventData</c> →
+    /// <c>InputSystemUtilities.GetMousePosition</c>) and its <c>RaycastAll</c> reaches every
+    /// enabled <see cref="GraphicRaycaster"/>, including the mod's WORLD-SPACE surfaces whose
+    /// <c>worldCamera</c> is the HEAD camera. A fixed pixel through a moving head is a world ray
+    /// that sweeps the room on its own, with no user input at all — which is exactly the defect
+    /// <see cref="Cards.CardFaceRaycaster"/> was written for on card faces.</para>
+    /// </summary>
+    internal static bool IsModPointerId(int pointerId) => pointerId <= ModPointerIdCeiling;
+
+    /// <summary>
     /// Is <paramref name="pointerId"/> one of the mod's FAR-RAY (laser) pointers?
     /// Consumed by <c>Cards.Patches</c> (laser-half-hover suppression): the docked
     /// half-selection cards take their half highlight from the beam's GEOMETRY, so the
     /// game's per-graphic <c>FullCardEventPusher</c> must be able to tell a laser event
     /// from a poke/mouse event. Kept here, next to the ID block, so the two can never
-    /// drift apart (CardFaceRaycaster mirrors the CEILING only, not the laser split).
+    /// drift apart.
     /// </summary>
     internal static bool IsLaserPointerId(int pointerId) =>
         pointerId == LeftHandRayPointerId || pointerId == RightHandRayPointerId;

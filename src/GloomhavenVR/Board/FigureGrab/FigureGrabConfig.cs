@@ -31,6 +31,54 @@ internal static class FigureGrabConfig
     public static ConfigEntry<bool> GrabFigures = null!;
 
     /// <summary>
+    /// How close the PINCH POINT has to come to a figure before it lights up as the grab
+    /// candidate, in REAL MILLIMETRES AT THE HAND — see <see cref="PickRadiusRealMeters"/> for
+    /// why the unit is the whole fix.
+    /// </summary>
+    public static ConfigEntry<float> PickRadiusMillimeters = null!;
+
+    /// <summary>
+    /// The figure pick radius as REAL METRES AT THE HAND — the distance your own hand travels,
+    /// never a distance on the board.
+    ///
+    /// <para>WHY THIS EXISTS AS ITS OWN NUMBER (user report 2026-08, "Der Bereich in dem die Hand
+    /// eine Figur zum grabben auswählt ist zu groß … Aktuell nehme ich so versehentlich Figuren in
+    /// die Hand"). Figures used to inherit the shared palm reach of the interactor,
+    /// <c>ProximityGrabber.ReachMeters</c> = 0.13 m — a HAND-SPAN, chosen for the card fan, where
+    /// a card is a hand-span wide. A figure is not: you grab one by closing your fingers ON it.
+    /// And because the mod's zoom scales the RIG and not the board, the board keeps its world
+    /// size while the player grows: 0.13 m at the hand is <c>0.13 × rigScale</c> WORLD units, so
+    /// measured in the only units the player can see next to a mini — hex widths — the volume is
+    /// <c>0.13 / (TargetHexSize / zoom) = 0.867 × zoom</c> hexes across. At the shipped zoom of
+    /// 2.8163 that is 2.4 HEXES of hover, most of it in mid-air above the mini, which is exactly
+    /// the report. Shrinking the number does not change that proportionality (nothing can, while
+    /// the reach is anchored to the hand — and the user asked for it to stay anchored there:
+    /// "der Bereich nicht größer wird mit dem zoomen sondern an der Hand bleibt"), but 40 mm from
+    /// the pinch point to the mini's own collider surface means you have to reach for the figure
+    /// at every zoom instead of waving near it.</para>
+    ///
+    /// <para>Clamped rather than trusted: 5 mm is the smallest radius a tracked hand can hold
+    /// steady, and 130 mm restores the old palm-reach behaviour exactly, which is what makes this
+    /// dial a safe answer to "it is now too small" as well.</para>
+    /// </summary>
+    internal static float PickRadiusRealMeters
+    {
+        get
+        {
+            float mm = PickRadiusMillimeters != null
+                ? PickRadiusMillimeters.Value
+                : Defaults.PickRadiusMillimeters;
+            return Mathf.Clamp(mm, PickRadiusMinMm, PickRadiusMaxMm) * 0.001f;
+        }
+    }
+
+    /// <summary>Smallest radius a tracked hand can hold steady (mm).</summary>
+    internal const float PickRadiusMinMm = 5f;
+
+    /// <summary>The legacy shared palm reach (<c>ProximityGrabber.ReachMeters</c>), in mm.</summary>
+    internal const float PickRadiusMaxMm = 130f;
+
+    /// <summary>
     /// Inspection zoom applied ON TOP of the figure's preserved board world-scale while
     /// held (1 = same size it is on the board, just in your hand; &gt;1 enlarges it).
     /// </summary>
@@ -238,6 +286,18 @@ internal static class FigureGrabConfig
             "Grab a board figure (hero OR monster) into your hand with the TRIGGER to " +
             "inspect it up close — pure immersion, no gameplay effect. Release to snap it " +
             "back to its board cell.");
+        PickRadiusMillimeters = config.Bind(
+            "FigureGrab", "PickRadiusMillimeters", Defaults.PickRadiusMillimeters,
+            new ConfigDescription(
+                "How close your PINCH POINT (where a held mini sits, between thumb and index) has " +
+                "to come to a figure before it lights up as the one you would grab, in REAL " +
+                "MILLIMETRES AT YOUR HAND — the distance your own hand moves, not a distance on " +
+                "the board. It does NOT grow when you zoom the table out: the same 40 mm of reach " +
+                "simply covers fewer board tiles once the minis are small. Measured to the " +
+                "figure's own surface, so a big mini is still easy to catch. Lower it if you " +
+                "still pick figures up by accident; 130 is the old palm-wide reach that made " +
+                "hovering anywhere above a mini enough.",
+                new AcceptableValueRange<float>(PickRadiusMinMm, PickRadiusMaxMm)));
         // The six entries below are LEGACY (see the per-STYLE block further down, which
         // superseded them): each is read exactly once, as the bind DEFAULT that seeds its
         // three per-style successors the first time this cfg file is written, and never

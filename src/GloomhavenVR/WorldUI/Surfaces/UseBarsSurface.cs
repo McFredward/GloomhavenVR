@@ -64,6 +64,15 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// tray/mount → HMD-anchored fallback float (the ModalFallback pattern: a decision must
 /// never be invisible).
 ///
+/// TOP-FLUSH, ALWAYS (user ruling 2026-08-09: "Der obere Rand des Entscheidungsbereichs
+/// wurde mit dem offset festgelegt. Von da sollen die Elemente immer ausnahmslos anfangen
+/// und nach unten wachsen."). The lane cursor is placed against the bar's VISIBLE top edge,
+/// not its host rect's: the content fit leaves slack around the measured union and centres
+/// the union inside the host it produces (<see cref="ConvertedPanel.FitContentPadding"/>),
+/// so pinning the host's own edge seated every bar that slack below the ceiling and
+/// compounded the error down the stack — the reported "die Elemente rutschen tiefer als es
+/// sein müsste".
+///
 /// FIT STABILITY (the "docked symbol jumps on hover/press" fix): the game's slot widgets
 /// REACT to interaction — <c>ExtendedButton</c> scales its target rect by
 /// <c>highlightScaleFactor</c> on pointer enter, and select/press toggles
@@ -80,9 +89,21 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// children — layout truth, hover scaling never touches it), and an OPEN element/option
 /// sub-picker (<c>UIElementPicker</c>/<c>UIOptionPicker.IsOpen</c> — the degenerate-fit
 /// growth that must keep working; the fit check is forced the same tick a picker opens,
-/// and stays live briefly after it closes so the damped shrink can hand the panel back).
+/// and every tick of the short close window so the growth is handed back at once).
 /// Poke presses never move the host physically (UguiPokeSurfaces writes no host
 /// transforms) — the press jump was purely this fit path.
+///
+/// AND THE COLLAPSE IS INSTANT (user ruling 2026-08-09: "Schließt man dieses 'Ausklappen'
+/// geht der button ca. 2 Sekunden verzögert wieder zu seiner Ursprungsposition. Das will
+/// ich sofort." — the Flitzstiefel's two-option column). That delay was never a tween: it
+/// is the SHARED fit machinery's shrink damping (<c>FitStableSeconds</c> 0.5 +
+/// <c>FitRefitMinIntervalSeconds</c> 1.5, plus the ~0.4 s periodic check throttle), which
+/// exists to stop OSCILLATING content re-fitting twice a second. This dock does not need a
+/// clock for that — the layout-truth hold above is strictly better, and it means no hover or
+/// press transient ever reaches the fit path — so the dock opts out
+/// (<see cref="ConvertedPanel.FitShrinkImmediate"/>) and the panel is now SYMMETRIC: growth
+/// was always immediate, shrink is too. The user's ruling explicitly overrides the project's
+/// "everything moves with the animation" rule for this one direction.
 ///
 /// STATUS: while a docked bar carries a decision the game is WAITING on (an unselected
 /// abilities-bar slot — infusion/choose-ability; a pending MANDATORY active bonus), a
@@ -1204,13 +1225,24 @@ internal sealed class UseBarsSurface
             float scale = fit / density * trayScale; // world m per uGUI px
 
             float h = rect.height * scale;
+            // THE LANE IS THE BAR'S OWN TOP EDGE, NOT ITS HOST'S (user, ModBuild 102: "Weiterhin
+            // rutschen die Elemente immer direkt so beginn tiefer als es sein müsste … sie sollten
+            // sich immer am oberen Rand orientieren"). The content fit leaves slack around the
+            // visible union and CENTERS the union in the host it produces
+            // (ConvertedPanel.FitContentPadding — 12 px per side here, unclipped because this dock
+            // fits degenerate), so pinning the HOST's top edge at the cursor seated every visible
+            // bar that far below it, and the error compounded down the stack. The pad is a fitted
+            // constant, not a live measurement: the stack stays as immune to hover/press breathing
+            // as the FitEnabled hold makes it.
+            float pad = panel.FitContentPadding.y * scale;
+            float visibleH = Mathf.Max(0f, h - 2f * pad);
             Transform host = panel.HostTransform;
             host.rotation = mount.rotation;
             host.localScale = Vector3.one * scale;
             host.position = mount.position
-                            + up * (cursor - h * 0.5f)
+                            + up * (cursor + pad - h * 0.5f)
                             + toViewer * (ProudStep * (index + 1) * trayScale);
-            cursor -= h + StackGap * trayScale;
+            cursor -= visibleH + StackGap * trayScale;
             index++;
 
             _docks[i].LogDockedRect(mount);
@@ -1392,11 +1424,17 @@ internal sealed class UseBarsSurface
         private const float SlotsSettleSeconds = 1.0f;
 
         /// <summary>
-        /// Fit window after a picker CLOSES — must exceed the fit machinery's shrink damping
-        /// (FitStableSeconds 0.5 + FitRefitMinIntervalSeconds 1.5) so the panel actually
-        /// hands its picker growth back before the hold re-freezes it.
+        /// Fit window after a picker CLOSES. It used to be 2.5 s because it had to OUTLAST the fit
+        /// machinery's shrink damping (FitStableSeconds 0.5 + FitRefitMinIntervalSeconds 1.5) —
+        /// which is exactly the delay the user reported ("Schließt man dieses 'Ausklappen' geht der
+        /// button ca. 2 Sekunden verzögert wieder zu seiner Ursprungsposition. Das will ich
+        /// sofort.", 2026-08-09). The damping is now off for this dock
+        /// (<see cref="ConvertedPanel.FitShrinkImmediate"/>, set in <see cref="OnConverted"/>), so
+        /// the window only has to cover the game's own picker-close animation — and every tick
+        /// inside it forces a check (<see cref="TickFitStability"/>), so the panel follows the
+        /// collapse frame by frame instead of stepping at the ~0.4 s periodic throttle.
         /// </summary>
-        private const float PickerSettleSeconds = 2.5f;
+        private const float PickerSettleSeconds = 0.5f;
 
         private readonly System.Func<RectTransform?> _root;
         private readonly System.Func<bool> _populated;
@@ -1429,6 +1467,10 @@ internal sealed class UseBarsSurface
         private float _fitLiveUntil;
         private int _slotChildrenHash;
         private bool _pickerWasOpen;
+
+        /// <summary>Unscaled time the every-tick forced fit check after a picker CLOSE ends — the
+        /// "collapse immediately" window (see <see cref="PickerSettleSeconds"/>).</summary>
+        private float _pickerClosingUntil;
 
         // Docked-rect log dedup (the TrayMountedPanelSurface diagnostic, simplified).
         private static readonly Vector3[] CornerScratch = new Vector3[4];
@@ -1787,8 +1829,18 @@ internal sealed class UseBarsSurface
                     panel.FitNextCheckFrame = 0; // skip the ~0.4 s periodic throttle: the popup
                                                  // is measured/covered the same frame it opens
                 else
-                    _fitLiveUntil = Mathf.Max(_fitLiveUntil, now + PickerSettleSeconds);
+                {
+                    // CLOSED: the collapse must land NOW, not at the next periodic check (user
+                    // 2026-08-09: "Das will ich sofort"). The shrink damping is already off for
+                    // this dock; _pickerClosingUntil additionally forces a check EVERY tick of the
+                    // close window, so the host follows the popup's own close animation down and
+                    // the stack re-seats against the shrunk rect in the same frames.
+                    _pickerClosingUntil = now + PickerSettleSeconds;
+                    _fitLiveUntil = Mathf.Max(_fitLiveUntil, _pickerClosingUntil);
+                }
             }
+            if (now < _pickerClosingUntil)
+                panel.FitNextCheckFrame = 0;
 
             bool wantFit = !panel.FitMeasuredOnce || pickerOpen || now < _fitLiveUntil;
             if (panel.FitEnabled != wantFit)
@@ -1874,12 +1926,21 @@ internal sealed class UseBarsSurface
             // plane) grow to cover it — see the class doc. The bar root is typically a
             // fullscreen stretch rect anyway, so the union is the only honest frame.
             Panel.FitFrameDegenerate = true;
+            // COLLAPSING GIVES THE GROWTH BACK IN THE SAME FRAME (user ruling 2026-08-09: "sobald
+            // es wieder eingeklappt wird soll es sofort reagieren"). Growth was always immediate;
+            // the shared machinery damped the SHRINK by FitStableSeconds + FitRefitMinIntervalSeconds
+            // — the reported "ca. 2 Sekunden verzögert" when the Flitzstiefel's option column
+            // closed. This dock does not need that clock: TickFitStability already holds the fit
+            // frozen unless the bar's LAYOUT TRUTH changed, so no hover/press transient can reach
+            // the fit path at all (see ConvertedPanel.FitShrinkImmediate).
+            Panel.FitShrinkImmediate = true;
             // Fresh dock: fit fully live through the settle window, then the stability
             // hold freezes it (TickFitStability). Hash 0 forces one slot-set snapshot on
             // the first tick (inside the settle window, so no extra fit churn).
             _fitLiveUntil = Time.unscaledTime + DockSettleSeconds;
             _slotChildrenHash = 0;
             _pickerWasOpen = false;
+            _pickerClosingUntil = 0f;
             _loggedMountId = 0;
             VRLog.Info("WorldUI", $"USE BARS: '{Name}' docked on the board drawer — the game's real " +
                                   "use-slot widgets (incl. their embedded element/option sub-pickers) " +

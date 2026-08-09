@@ -2304,6 +2304,15 @@ internal static partial class Loc
                 "Greife eine Figur vom Spielbrett (Held ODER Monster) mit dem TRIGGER in die Hand, um sie aus "
                 + "der Nähe zu betrachten — reine Immersion, keine Auswirkung auf das Spiel. Loslassen setzt "
                 + "sie zurück auf ihr Feld auf dem Spielbrett.",
+            ["FigureGrab/PickRadiusMillimeters"] =
+                "Wie nah dein GREIFPUNKT (die Stelle zwischen Daumen und Zeigefinger, an der eine gehaltene "
+                + "Figur sitzt) an eine Figur heran muss, damit sie als die zu greifende aufleuchtet — in "
+                + "echten MILLIMETERN AN DEINER HAND, also die Strecke, die deine eigene Hand zurücklegt, "
+                + "und keine Strecke auf dem Spielbrett. Der Bereich wächst NICHT mit, wenn du den Tisch "
+                + "kleiner zoomst: dieselben 40 mm Reichweite decken dann einfach weniger Felder ab. "
+                + "Gemessen wird bis zur Oberfläche der Figur, große Figuren bleiben also leicht zu "
+                + "erwischen. Kleiner stellen, falls du weiterhin versehentlich Figuren aufnimmst; 130 ist "
+                + "die alte handbreite Reichweite, bei der Schweben irgendwo über einer Figur genügte.",
             ["FigureGrab/HeldScale"] =
                 "VERALTET — ohne Wirkung, ersetzt durch [FigureGrab] Glove/Plate/ArcaneHeldScale. Dieser "
                 + "Eintrag wird genau einmal gelesen, als Startwert für jene Pro-Stil-Schlüssel beim ersten "

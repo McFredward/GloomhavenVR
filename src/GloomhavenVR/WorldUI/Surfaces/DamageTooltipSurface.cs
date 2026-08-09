@@ -549,10 +549,20 @@ internal sealed class DamageTooltipSurface : WorldSurface
         // this produces. rect.yMax is pivot-relative, so this solves the pivot from the top edge; a
         // two-line prompt therefore grows DOWNWARD (pushing its own buttons and the use bars down)
         // instead of upward past the ceiling, which is the whole ModBuild 90 report.
+        //
+        // AND IT IS THE LINE'S OWN TOP EDGE, NOT ITS HOST'S (user, ModBuild 102: "Weiterhin
+        // rutschen die Elemente immer direkt so beginn tiefer als es sein müsste … sie sollten
+        // sich immer am oberen Rand orientieren"). The content fit leaves slack around the
+        // measured glyph union and CENTERS the union in the host it produces
+        // (ConvertedPanel.FitContentPadding), so seating rect.yMax at the ceiling put the visible
+        // TEXT that slack below it — and then handed the same error down twice, because the row
+        // hangs one gap under the bottom edge published here and the use bars hang under the row.
+        // Subtracting the published slack is what makes "the top edge is the offset" exact.
         Vector3 up = mount.up;
         float ceilingUp = DecisionDockSurface.AreaCeilingUp(mount, up, trayScale, out string ceilNote);
-        float lineHeight = rect.height * worldPerPx;
-        float seatUp = ceilingUp - rect.yMax * worldPerPx;
+        float padUp = Panel.FitContentPadding.y * worldPerPx;
+        float lineHeight = Mathf.Max(0f, rect.height * worldPerPx - 2f * padUp);
+        float seatUp = ceilingUp - (rect.yMax * worldPerPx - padUp);
 
         Transform host = Panel.HostTransform;
         host.SetPositionAndRotation(mount.position + up * seatUp, mount.rotation);

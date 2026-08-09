@@ -51,6 +51,15 @@ internal static class ConfigStepVectors
         Unit(t, "FanRadius", 0.01d, ConfigSteps.UnitScope.Value);
         Unit(t, "TrayScale", 0.05d, ConfigSteps.UnitScope.Value);
 
+        // ---- MILLIMETRES ARE NOT METRES, and the suffix test cannot tell them apart on its own --
+        // "Millimeters" ENDS IN "Meters", so with the two entries in the wrong order a 40 mm dial
+        // would take the metre step of 0.01 — a hundredth of a millimetre a press, the same shape
+        // of defect as the axis-letter reports below and just as invisible from inside a headset.
+        // Pinned here because the only thing keeping it right is the ORDER of two rows in a table.
+        t.Case("configsteps/millimetres-before-metres");
+        Unit(t, "PickRadiusMillimeters", 5d, ConfigSteps.UnitScope.Value);
+        Unit(t, "BoardMinWidthMeters", 0.01d, ConfigSteps.UnitScope.Value);
+
         // ---- the variant tag (report #1: the asset rotation at 0.01°) ---------------------------
         // The tag is stripped for the unit lookup AND remembered: a per-board default is that
         // board's geometry, so it may coarsen the step but never sharpen it.

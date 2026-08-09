@@ -2977,7 +2977,10 @@ internal sealed class RemoteBoardFurniture
             float travel = 0f, Color? accent = null, bool clusterStyle = false)
         {
             GameObject go = NewRoot(parent, name, localPos);
-            Color face = color * capTint;   // the owner's cap-face tint — see InertCap._capTint
+            // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
+            // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
+            // materials, so it must clear the WELL behind it before SetTint ever runs.
+            Color face = WorldUI.ButtonTuning.SeatedCapColor(color * capTint);
 
             // Base plate: the recessed well the cap sits in (BoardButton's non-round branch).
             var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -2986,7 +2989,7 @@ internal sealed class RemoteBoardFurniture
             basePlate.transform.SetParent(go.transform, worldPositionStays: false);
             basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
             basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
-            TintLit(basePlate, new Color(0.15f, 0.12f, 0.08f));
+            TintLit(basePlate, WorldUI.ButtonTuning.CapWellColor); // the colour SeatedCapColor floors against
 
             float capThick = Mathf.Max(0.012f, depth);
             var capMesh = new GameObject("CapMesh");
@@ -3033,7 +3036,10 @@ internal sealed class RemoteBoardFurniture
             float travel = 0f, Color? accent = null, bool clusterStyle = false)
         {
             GameObject go = NewRoot(parent, name, localPos);
-            Color face = color * capTint;   // the owner's cap-face tint — see InertCap._capTint
+            // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
+            // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
+            // materials, so it must clear the WELL behind it before SetTint ever runs.
+            Color face = WorldUI.ButtonTuning.SeatedCapColor(color * capTint);
 
             var basePlate = new GameObject("Base");
             basePlate.transform.SetParent(go.transform, worldPositionStays: false);
@@ -3054,7 +3060,7 @@ internal sealed class RemoteBoardFurniture
             Material? disc = null;
             if (shader != null)
             {
-                baseMr.sharedMaterial = new Material(shader) { color = new Color(0.15f, 0.12f, 0.08f) };
+                baseMr.sharedMaterial = new Material(shader) { color = WorldUI.ButtonTuning.CapWellColor };
                 disc = Cards.PlayTray.NewKeycapMaterial(shader, face);
                 capMr.sharedMaterial = disc;
             }
@@ -3300,7 +3306,13 @@ internal sealed class RemoteBoardFurniture
         /// </summary>
         public void SetTint(Color color)
         {
-            Color applied = color * _capTint;
+            // SEATED, exactly as on the owner's own board (2026-08-09 round 3): the per-category
+            // face tint is applied here, in the one place — so the floor that keeps a cap from
+            // rendering darker than the WELL behind it belongs here too, or a peer's copy of the
+            // board would still show the hole-with-a-label the owner's no longer can. Same shared
+            // WorldUI.ButtonTuning helper both local builders call, so the 1:1 mirror rule holds by
+            // construction rather than by a second derivation that can drift.
+            Color applied = WorldUI.ButtonTuning.SeatedCapColor(color * _capTint);
             if (applied == _tint)
                 return;
             _tint = applied;

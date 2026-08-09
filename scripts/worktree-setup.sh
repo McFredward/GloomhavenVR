@@ -78,5 +78,13 @@ link Directory.Build.props.user
 # at all. Two workers in a row hit this and linked it by hand before reporting; linking it here
 # costs a line and removes the stumble.
 link .planning/debug/default
+# The refactor guard's compiled-form BASELINE (gitignored, so a fresh worktree has none and
+# `refactor-guard.sh check` aborts with "no baseline" — another of the gates every change must
+# pass). Linked ENTRY BY ENTRY on purpose, never the .guard directory itself: `current/` is the
+# scratch the check rewrites on every run and must stay LOCAL to the worktree. A worker who
+# linked the whole directory by hand once wrote through it and then took the main checkout's
+# baseline down with the link on cleanup, which cost a re-baseline to notice.
+link .planning/refactor/.guard/baseline
+link .planning/refactor/.guard/baseline.rev
 
 echo "worktree ready — 'bash scripts/build.sh Release' should now work"

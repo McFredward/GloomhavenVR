@@ -757,6 +757,107 @@ internal static class ButtonTuning
     /// untouched: every keycap material is OPAQUE (BoardLit, queue 2000) and this ramp must not be
     /// the thing that starts pretending otherwise.</para>
     /// </summary>
+    // ---- THE TWIN INVARIANT: A CAP'S *REST* COLOUR IS SEATED TOO -----------------------------
+    //
+    // USER REPORT 2026-08-09, THIRD OCCURRENCE: "Ich hatte in Tests wieder die Situation, dass die
+    // buttons unsichtbar waren und nur der text darauf sichtbar."
+    //
+    // The two rounds before this one both fixed the ANIMATION, and both fixed it correctly: round 1
+    // gave the fade an unscaled clock and a wall-clock deadline, round 2 replaced the
+    // multiply-toward-black ramp with <see cref="AssemblyColor"/>'s per-channel MAX, whose invariant
+    // is "an assembling cap is never darker than its own REST colour". ModBuild 102's hardware log
+    // proves neither mechanism was in play when the user hit it again: ZERO "KEYCAP FADE HEALED"
+    // lines and ZERO "KEYCAP MATERIAL MISSING/HEALED" lines in the whole session.
+    //
+    // The hole both rounds left is one word wide. They made the ANIMATION safe RELATIVE TO the rest
+    // colour, and never asked whether the REST COLOUR ITSELF is visible. It is not, and the same log
+    // states the numbers outright — the build-time cap diag of the very session the user reported on:
+    //
+    //     ITEMA cap diag — Confirm: … top RGBA(0.105, 0.080, 0.055), wall RGBA(0.102, 0.069, 0.041)
+    //
+    // against a WELL (the recessed base plate this same widget paints two millimetres behind the cap,
+    // <see cref="CapWellColor"/>) of (0.15, 0.12, 0.08). The cap face is DARKER THAN THE HOLE IT SITS
+    // IN, in every channel. There is nothing left to see: no silhouette, no value step, no edge — a
+    // hole in the board with a bright parchment label floating over it. That is the report, verbatim,
+    // and it is a STEADY STATE, not a race, which is why it has survived three builds and why the
+    // player sees it "come back after a while" (the state flips to enabled and the cap lights up).
+    //
+    // WHY IT NEEDS NO ANIMATION TO HAPPEN. The cap palette is authored bright enough
+    // (BoardButton.DisabledColor 0.21/0.16/0.11, the cluster's dark-wood lerp 0.17/0.13/0.09) — and
+    // then MULTIPLIED by the player's own [ButtonColors] face tint, which the well is NOT. At this
+    // user's tint of 0.5 the disabled face lands at 0.105 against a 0.15 well. The threshold is pure
+    // arithmetic: 0.21 × t < 0.15 for any t < 0.714. Every tint the config invites the player to dial
+    // ("lower = darker/less red, so white text reads") crosses it long before the slider runs out.
+    //
+    // THE FIX IS THE SAME SHAPE AS AssemblyColor's, ONE LEVEL DOWN. A cap face is never rendered
+    // darker than the well it is seated in, times a single contrast step. The reference is not a
+    // guessed brightness — it is the colour of the surface the cap is physically sitting in, which
+    // this mod paints itself and which is the same in all four builders. That makes the floor
+    // tint-proof (it does not move when the player moves the tint), MR-proof (a cap that beats its
+    // own well beats passthrough for the same reason the well does) and, unlike the AppearFadeFloor
+    // that round 2 rightly deleted, there is nothing here to re-guess per colour or per user.
+    //
+    // ONE HOME, THREE CONSUMERS — the same rule <see cref="AssemblyColor"/> already lives by, so the
+    // MULTIPLAYER 1:1 requirement holds by construction: Cards.PlayTray.BoardButton.StateColor,
+    // ButtonCluster.PhysicalButton.SetState and Net.RemoteBoardFurniture.InertCap.SetTint all end
+    // their colour derivation with this call.
+
+    /// <summary>
+    /// The recessed WELL / base plate every mod keycap is seated in — a solid warm dark wood, so
+    /// the recess around the cap reads as part of the physical panel rather than a hole under a
+    /// glassy key. Deliberately NOT multiplied by any [ButtonColors] face tint: the tint is a
+    /// property of the cap FACE (it exists so white label text reads over it), and the well is the
+    /// fixed surface that face has to stand out from.
+    ///
+    /// <para>This used to be the literal <c>new Color(0.15f, 0.12f, 0.08f)</c> in four separate
+    /// builders (the local board keycap, the local cluster cap and both mirrored copies). It is one
+    /// constant now because <see cref="SeatedCapColor"/> measures against it — a floor and its
+    /// reference drifting apart is exactly the failure this whole block exists to end.</para>
+    /// </summary>
+    internal static readonly Color CapWellColor = new(0.15f, 0.12f, 0.08f);
+
+    /// <summary>
+    /// How much brighter than its own <see cref="CapWellColor"/> a cap FACE must render before it
+    /// stops reading as a hole and starts reading as a raised key.
+    ///
+    /// <para>NOT A GUESS — it is READ OFF THE SHIPPED PALETTE. The darkest colour this mod ever
+    /// authored for a cap face is <c>BoardButton.DisabledColor</c> (0.21, 0.16, 0.11), and against
+    /// the well (0.15, 0.12, 0.08) that is a per-channel ratio of 1.40 / 1.33 / 1.38 — mean 1.37.
+    /// So the author of the palette already decided how much a cap has to beat its recess by; this
+    /// constant just states it, one hair under the mean so the shipped disabled look at the default
+    /// tint comes back unchanged to within 0.002 of one channel. It is a ratio against a real
+    /// surface rather than a fraction of a state colour, which is precisely why it does not have to
+    /// be re-guessed for another palette entry, another accent or another user tint — the failure
+    /// mode that got the AppearFadeFloor deleted in round 2.</para>
+    /// </summary>
+    private const float CapSeatContrast = 1.35f;
+
+    /// <summary>
+    /// Floor a cap FACE colour so it can never render darker than the well it is seated in (see the
+    /// block comment above). Per-channel <c>Max</c>, exactly like <see cref="AssemblyColor"/>'s hot
+    /// end, so it can only ever ADD light — no state, no accent and no user tint can push a cap
+    /// below the surface it sits on. Alpha is passed through untouched: every keycap material is
+    /// opaque (BoardLit, queue 2000) and this must not be the thing that starts pretending otherwise.
+    ///
+    /// <para>Above the floor this is the identity, so every look the player actually configured —
+    /// idle, accent, confirmed, the whole enabled palette — is returned bit-for-bit unchanged. Only
+    /// the sunk-below-the-board case moves, which is the case that has no pixels.</para>
+    /// </summary>
+    internal static Color SeatedCapColor(Color face) => new(
+        Mathf.Max(face.r, CapWellColor.r * CapSeatContrast),
+        Mathf.Max(face.g, CapWellColor.g * CapSeatContrast),
+        Mathf.Max(face.b, CapWellColor.b * CapSeatContrast),
+        face.a);
+
+    /// <summary>True when <see cref="SeatedCapColor"/> would actually lift <paramref name="face"/>,
+    /// i.e. the cap WOULD have rendered darker than its own well. Diagnostics only — it is what lets
+    /// the keycap surface log say "this cap was about to be invisible" instead of printing three
+    /// colour triples and leaving the reader to do the comparison.</summary>
+    internal static bool CapSeatFloorEngages(Color face) =>
+        face.r < CapWellColor.r * CapSeatContrast
+        || face.g < CapWellColor.g * CapSeatContrast
+        || face.b < CapWellColor.b * CapSeatContrast;
+
     internal static Color AssemblyColor(Color rest, float phase)
     {
         if (phase >= 1f)

@@ -1101,7 +1101,10 @@ internal sealed class ButtonCluster
             // like a real object, instead of the old unlit Overlay forced to ZTest Always.
             // T4: dark-WOOD base plaque (matches the tray button surrounds; the shared
             // wood-grain _MainTex from NewKeycapMaterial gives it the carved surface).
-            _baseRenderer.sharedMaterial = CreateLitMaterial(new Color(0.15f, 0.12f, 0.08f));
+            // ButtonTuning.CapWellColor, not a literal: SeatedCapColor floors the cap FACE against
+            // this exact colour (2026-08-09 round 3), and a floor whose reference can drift is the
+            // bug it was written to end.
+            _baseRenderer.sharedMaterial = CreateLitMaterial(ButtonTuning.CapWellColor);
 
             // Travelling cap: a SMOOTH generated disc (Round) or a boxy keycap (Shape=Square).
             // ROUND FIX (user: "you can see the CORNERS in the 'round' buttons"): the round puck
@@ -1447,6 +1450,17 @@ internal sealed class ButtonCluster
             // USER DEBUG OPTION: [ButtonColors] ClusterCapTint (multiplier, default white = no change)
             // lets the user darken/re-hue the round-phase caps live so the label reads over them.
             applied *= ButtonTuning.ClusterCapTint;
+            // SEATED (2026-08-09 round 3 — "die buttons waren unsichtbar und nur der text darauf
+            // sichtbar"). The line above is the one that made the comment two lines up untrue: the
+            // disabled look deliberately sinks toward DARK WOOD "instead of multiplying toward
+            // black", and then this multiply took it toward black anyway. At the user's 0.5 cluster
+            // tint the disabled cap lands near (0.085, 0.065, 0.045) against a
+            // ButtonTuning.CapWellColor (0.15, 0.12, 0.08) base plate — darker than its own recess.
+            // A cluster cap is a SINGLE material: unlike the board keycaps it has no bright bevel
+            // ring to keep a silhouette, so it goes uniformly black under a fully lit label, which
+            // is the report verbatim. SeatedCapColor is a per-channel Max, so every enabled look the
+            // player configured comes back bit-for-bit unchanged.
+            applied = ButtonTuning.SeatedCapColor(applied);
             if (applied != _appliedColor)
             {
                 _appliedColor = applied;

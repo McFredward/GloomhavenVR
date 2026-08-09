@@ -416,7 +416,49 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 102;
+    public const ushort ModBuild = 103;
+    // Build 103: six hardware reports, and three of them were the SAME defect class wearing
+    // different clothes — a transparent that decides its paint order from something that moves.
+    //   * The tooltip that flashed on the board while the laser swept the hand fan was never raised
+    //     by the laser. The game's EventSystem MOUSE runs every frame at the PARKED desktop pixel,
+    //     and its RaycastAll reaches the mod's WORLD-SPACE panels, whose camera is the HEAD. A fixed
+    //     pixel through a moving head is a world ray that sweeps the room with no user input at all;
+    //     every crossing of a tooltip target raised the game's one shared tooltip. The log proves it
+    //     twice over: the beam was PROVABLY off the panels those seconds ('occluded by the raised
+    //     card fan') while tooltips published anyway, with no hover ENTER from any mod pointer. Same
+    //     defect CardFaceRaycaster was written for on card faces, one surface family later. Guarded
+    //     at the RAISE: on a world-space canvas only a mod pointer may raise a tooltip, and while a
+    //     beam is on ANY fan nothing may raise one at all.
+    //   * The character quest line drew at order 0 — it is a scene-ROOT object that pose-follows the
+    //     objectives host, so the furniture adopter, which walks the tray SUBTREE, never saw it. It
+    //     was the last unranked transparent on the board; the info card it lost to sits at 148..276.
+    //   * The fog tiles still shimmered because round 2 fixed the fight INSIDE a hex and never asked
+    //     about the fight BETWEEN hexes. Per-hex settle gates let neighbours re-seat on different
+    //     frames, and two hexes answering two different snapshots can invert — a visible seam, since
+    //     the kit's hexes overlap in screen space and write depth. The field now decides as a FIELD:
+    //     one snapshot, every hex, applied atomically, so inversion is unrepresentable. Plus: a
+    //     mid-swap ladder is CONTRADICTORY (higher order to something farther) and was being
+    //     answered instead of waited out, and the ladder's 2 cm dead band is NARROWER than a seated
+    //     player's head sway, so the query point is now held until the eye really travels 8 cm.
+    //   * The invisible buttons, third report, were never an animation defect — both earlier fixes
+    //     were right and both stayed SILENT in this log (zero heal lines). The cap FACE is tinted by
+    //     [ButtonColors]; the WELL it sits in is not. At this user's tint of 0.5 a disabled face
+    //     lands at 0.105 against a 0.15 well: darker than the hole it sits in, no silhouette left,
+    //     and the label — a separate renderer no tint touches — keeps drawing. Pure arithmetic
+    //     (0.21 x t < 0.15 for any t < 0.714), which is why it is a steady state and survived three
+    //     builds. A cap face is now floored against its own well; the contrast step is READ OFF the
+    //     shipped palette (the darkest authored face already beats the well by 1.37x).
+    //   * The decision area's 2 s collapse was the shared fit machinery's SHRINK damping (0.5 s
+    //     stable + 1.5 s min interval + throttle); growth was always immediate. The dock opts out —
+    //     it holds the fit frozen on layout truth, which is strictly better than a clock. Its
+    //     'starts too low' was a second, independent defect: the fit pads the content by 12 px and
+    //     centres it, and three surfaces seated themselves from the PADDED edge, each handing the
+    //     error to the next — the same sag three times over.
+    //   * The figure pick volume was the interactor's 13 cm PALM reach — a hand-span, chosen for the
+    //     card fan, where a card is a hand-span wide. A mini is not. It was correctly anchored to the
+    //     hand already; what it was not is small. 40 mm from the pinch point now, [FigureGrab]
+    //     PickRadiusMillimeters, and 130 restores the old reach exactly.
+    // No wire change; the bump is the handshake key. Wire assertions 1389 -> 1395.
     // Build 102: the arm HUD turned around, and the previous round's turn-around was half a turn
     // short. Build 101 replaced the base rotation with the IDENTITY on the finding that wrist +Z
     // points out of the palm - which the prefab YAML confirms three times over (Anchor_Middle_Root

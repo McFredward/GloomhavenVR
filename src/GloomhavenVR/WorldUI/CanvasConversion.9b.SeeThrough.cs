@@ -104,6 +104,26 @@ internal static partial class CanvasConversion
     // the running minimum of everything nearer) restores "beat everything behind me / stay under
     // everything in front of me" as a statement about SETS, which is what the contract above
     // actually says, rather than about the one entry that happens to be adjacent.
+    //
+    // ---- ROUND 3 (2026-08-09): THE TWO SIDES CAN STILL CROSS, AND THAT IS A STATE, NOT A NUMBER
+    //
+    // The folds above make each side monotone SEPARATELY. They cannot stop the two sides from
+    // CROSSING, because a mid-swap ladder really is contradictory: for up to OrderSwapStableFrames
+    // frames a panel that is measurably FARTHER carries the HIGHER order, and a foreign surface
+    // whose distance falls between that pair is then asked to be at once above 'behindTop' and
+    // below a 'frontFloor' that is lower than it. <see cref="ResolveSeenThrough"/> has to answer
+    // something, and its clamp order answers 'behindTop' — i.e. it lifts the surface OVER a panel
+    // that is genuinely in front of it, for the length of the swap window, and drops it back
+    // afterwards. That is a six-frame excursion produced by nothing but the ladder's own
+    // hysteresis, repeated for every swap, and with nine ActorBars sitting within 0.6 m of each
+    // other in the shipped scene (hardware log, ModBuild 102: every 'PANEL DRAW ORDER' line reads
+    // RESORTED) the swaps never stop while the head moves.
+    //
+    // The number is not the fix; NOT ACTING is. <see cref="SeenThroughContradiction"/> lets a
+    // caller that keeps a decision RECOGNISE the state and hold what it already has until the
+    // ladder is self-consistent again — and because a completed swap does not change how MANY
+    // panels are behind a given distance, the decision it holds is the same one it would take
+    // afterwards. See Core.UnseenTileOrder's round-3 header for the full argument.
 
     /// <summary>Sentinel from <see cref="OrderSeenThrough"/>: the ladder has nothing behind this
     /// surface, so the caller must leave the surface's authored order alone.</summary>
@@ -269,10 +289,41 @@ internal static partial class CanvasConversion
         return ResolveSeenThrough(behindTop, frontFloor, lift);
     }
 
+    /// <summary>
+    /// True when this frame's snapshot puts a surface at these constraints under a pair that NO
+    /// order can satisfy — something measurably farther already carries a HIGHER order than
+    /// something measurably nearer. The only producer of that state is the panel ladder's own swap
+    /// hysteresis (see the ROUND 3 note in the header), so it is transient by construction and
+    /// lasts at most <see cref="OrderSwapStableFrames"/> frames.
+    ///
+    /// <para>A caller that keeps a STICKY decision must treat this as "no answer this frame" and
+    /// hold, rather than let <see cref="ResolveSeenThrough"/> resolve the contradiction in favour
+    /// of one side: resolving it moves the surface, and the move is undone the moment the ladder
+    /// finishes the swap, which is a visible flicker with no cause in the scene at all.</para>
+    /// </summary>
+    internal static bool SeenThroughContradiction(int behindTop, int frontFloor) =>
+        behindTop != NoSurfaceBehind && frontFloor != int.MaxValue && behindTop > frontFloor;
+
     /// <summary>The order that satisfies a pair of <see cref="SeenThroughBounds"/> constraints:
     /// <c>min(behindTop + lift, frontFloor)</c>, never below <paramref name="behindTop"/> — a
     /// nearer slot sitting BELOW a farther one (which the ladder's hysteresis permits mid-swap)
-    /// ties with what is behind, and Unity's own distance tie-break does the rest.</summary>
+    /// ties with what is behind, and Unity's own distance tie-break does the rest.
+    ///
+    /// <para>MONOTONICITY — the property a caller with MANY surfaces depends on, stated here
+    /// because it is a property of this function and of <see cref="SeenThroughBounds"/> together.
+    /// Read as a function of the query distance, <c>behindTop</c> is a prefix-maximum over a
+    /// prefix that only grows as the surface gets nearer, and <c>frontFloor</c> a suffix-minimum
+    /// over a suffix that only shrinks; both are therefore non-decreasing as the surface
+    /// approaches the eye, and <c>max(behindTop, min(behindTop + lift, frontFloor))</c> is a
+    /// composition of non-decreasing maps. The <see cref="NoSurfaceBehind"/> branch keeps that
+    /// true rather than breaking it: it is returned only for the FARTHEST surfaces (nothing of
+    /// ours is behind them), and its callers park those at an authored order below
+    /// <see cref="PanelOrderBase"/>. So for any set of surfaces resolved against the SAME
+    /// snapshot, a farther surface never receives a higher order than a nearer one — two such
+    /// surfaces can tie, and a tie falls to renderQueue and then to Unity's own back-to-front
+    /// distance sort, which is the same answer. That is what lets a caller paint a whole field of
+    /// co-planar foreign surfaces without them ever fighting each other, PROVIDED it applies one
+    /// snapshot's answers to all of them at once.</para></summary>
     internal static int ResolveSeenThrough(int behindTop, int frontFloor, int lift)
     {
         if (behindTop == NoSurfaceBehind)

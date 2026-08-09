@@ -80,6 +80,68 @@ namespace GloomhavenVR.Core;
 /// backing's order can only move it LATER, never earlier, so MR's own safety argument against the
 /// revealed floor (which is opaque, depth-writing, at queue ~2000 and wins by ZTest) is untouched.</para>
 ///
+/// <para>ROUND 3 (2026-08-09, verbatim): "Ich habe immer noch das Problem das ich Bewegungen in den
+/// unsee-tiles sehe wenn ich a) mein Kopf bewege und b) wenn ich das controllboard darüber oder
+/// darunter bewege. Dein letzter fix hat das mit den Kopf bewegungen weniger schlimm gemacht, aber
+/// es ist immer noch da. Es ist zum ersten mal aufgetreten bei deinem fix das controllboard
+/// vollständig darunter anzuzeigen."</para>
+///
+/// <para>WHAT THE HEX IS FIGHTING IS THE HEX NEXT TO IT. Round 2 removed the fight INSIDE one hex
+/// (three co-located renderers, three decisions); it did not even ask about the fight BETWEEN
+/// hexes, and that is the one the report is about — "Bewegungen IN den unseen-tiles", movement in
+/// the fog field itself, which is what a seam between two neighbouring hexes changing brightness
+/// looks like. The kit's hexes are large translucent surfaces (1.75 × 0.32 × 2.01 for the damage
+/// block) laid edge to edge on a table the player looks ACROSS, so from any seated angle a nearer
+/// hex overlaps the hexes behind it in screen space — and the family hardcodes ZWrite ON. Which of
+/// two overlapping hexes is painted first therefore decides whether the overlap is blended twice
+/// (far first, near over it) or once (near first, its depth rejecting the far one): a visibly
+/// different shade. Before this driver existed the whole family sat at one order (0) and Unity
+/// resolved them among themselves by renderQueue and then by DISTANCE — always back to front,
+/// always stable. This driver replaced that with 44 INDEPENDENT decisions taken from a ladder that
+/// renumbers itself continuously, which is precisely why the artefact "appeared with the fix that
+/// shows the control board underneath".</para>
+///
+/// <para>SO THE FIELD DECIDES AS A FIELD. Two properties do it, and neither is a tuning value:
+/// <list type="number">
+/// <item>ONE SNAPSHOT, ALL HEXES. <c>CanvasConversion.ResolveSeenThrough</c> is MONOTONE in the
+/// query distance (its doc carries the proof): resolved against the SAME frame's snapshot, a
+/// farther hex can never get a higher order than a nearer one. So the field is painted strictly
+/// back to front — the shipped behaviour — as long as every hex's order comes from ONE snapshot.
+/// A per-hex settle gate breaks exactly that: hex A re-seats on frame n and hex B, six frames
+/// behind on its own streak, still carries frame n−6's answer, and for those frames the pair is
+/// inverted. <see cref="Tick"/> therefore keeps ONE field-wide gate and writes EVERY hex from the
+/// snapshot that opened it. The TRIGGER is unchanged and still sticky — nothing is written unless
+/// some hex's current order actually stopped satisfying the ladder — so a ladder that merely
+/// renumbers itself still costs nothing.</item>
+/// <item>A CONTRADICTORY LADDER IS NOT ANSWERED, IT IS WAITED OUT. While the panel ladder is
+/// mid-swap it hands out a HIGHER order to a panel that is measurably FARTHER; a hex between the
+/// pair is then asked for an order that is both above and below, and the resolver's clamp answers
+/// "above" — lifting the hex over a panel in front of it and dropping it back six frames later,
+/// for no reason in the scene at all. <see cref="WorldUI.CanvasConversion.SeenThroughContradiction"/>
+/// names that state, and the field is never written on such a frame — the settle streak keeps
+/// counting through it, so the first self-consistent frame afterwards applies and nothing settles
+/// late. A completed swap does not change HOW MANY panels lie behind a given distance (the ladder
+/// hands out the same SET of slots either way, only permuted), so the decision held across the
+/// swap is the decision that is correct after it: holding costs nothing at all.</item>
+/// </list></para>
+///
+/// <para>AND THE QUERY ITSELF STOPS TWITCHING (report half a). The ladder's shared dead band is
+/// <c>OrderSwapMarginMeters</c> = 2 cm, and a seated player's head sway is several centimetres —
+/// the band is NARROWER than the motion it is supposed to reject, so sway alone kept walking
+/// panels across each hex's breakpoints. The fix is not a bigger shared margin (that would
+/// re-tune every panel on the ladder) but a dead band on THIS driver's own query point: the field
+/// is measured from a held eye position and that position only follows the head once it has
+/// genuinely travelled <see cref="EyeSwayDeadBandMeters"/>. Below that the query distances are
+/// bit-identical from frame to frame, so the bounds are, so the decisions are, so nothing is
+/// written. Sway is rejected by construction rather than by a streak that sway can outlast.</para>
+///
+/// <para>WHAT THIS COSTS: still no Unity call and no allocation on the per-frame path — one
+/// squared distance for the dead band, then per HEX one point-to-AABB distance, two binary
+/// searches over ~17 floats and a clamp. The clamp now runs every frame instead of only on a
+/// violation (a few integer compares per hex, ~44 hexes here) and buys the field-wide hash that
+/// makes the atomic gate possible. Writes happen only on an apply, and an apply needs a real
+/// violation plus <see cref="SettleFrames"/> stable frames.</para>
+///
 /// <para>MULTIPLAYER: local rendering only — no wire field, no packet, no shared state. A PEER's
 /// mirrored board is drawn by <c>Net/Remote*</c> at BoardVisual's fixed sub-ladder (orders 0/4/8),
 /// which is BELOW every value this driver can assign, so a peer board behind an undiscovered tile
@@ -105,10 +167,30 @@ internal static class UnseenTileOrder
     /// <c>ProceduralMapTile</c>s, not every renderer in the scene.</summary>
     private const float RescanSeconds = 2f;
 
-    /// <summary>Consecutive evaluations a NEW decision must be asked for before it is written,
-    /// once the current one has actually gone invalid. The second flicker gate, mirroring
-    /// <c>CanvasConversion.OrderSwapStableFrames</c>. Six frames is ~0.07 s at 90 Hz.</summary>
+    /// <summary>Consecutive evaluations the WHOLE FIELD's new answer must be asked for before it
+    /// is written, once the current one has actually gone invalid. The second flicker gate,
+    /// mirroring <c>CanvasConversion.OrderSwapStableFrames</c>. Six frames is ~0.07 s at 90 Hz.
+    ///
+    /// <para>FIELD-WIDE, NOT PER HEX (round 3) — a per-hex streak lets neighbouring hexes re-seat
+    /// on different frames, and two hexes carrying answers from two different snapshots are exactly
+    /// the pair that can end up inverted. See the class header.</para></summary>
     private const int SettleFrames = 6;
+
+    /// <summary>
+    /// How far the eye must actually TRAVEL (metres) before the field re-measures itself. The
+    /// query point is held between snaps, so every hex distance — and therefore every bound, every
+    /// wanted order and the field hash below — is bit-identical from frame to frame while the
+    /// player merely sways.
+    ///
+    /// <para>The number has to sit above natural seated head sway (several centimetres, which is
+    /// what walked panels across the ladder's own 2 cm dead band frame after frame) and far below
+    /// any motion whose perspective actually matters here: the fog field measures 6-23 m from the
+    /// eye in the shipped hardware scene and the panels it is ranked against are metres apart, so
+    /// 8 cm of held staleness cannot change which side of a panel a hex is on unless that panel is
+    /// already within a hand's width of the tile plane — where the answer is arbitrary in any case
+    /// and the only thing that matters is that it stays put.</para>
+    /// </summary>
+    private const float EyeSwayDeadBandMeters = 0.08f;
 
     /// <summary>
     /// How close two adopted renderers' bounds centres must be (metres) to be treated as ONE HEX
@@ -186,12 +268,17 @@ internal static class UnseenTileOrder
 
         /// <summary>False until the first decision has been written — a brand-new hex seats
         /// immediately rather than spending <see cref="SettleFrames"/> frames at order 0, which is
-        /// exactly the defect state.</summary>
+        /// exactly the defect state. An unseated hex seats the WHOLE field with it, so the field
+        /// never mixes a fresh answer with a stale one.</summary>
         public bool Seated;
 
-        public bool PendingParked;
-        public int PendingOrder;
-        public int Streak;
+        /// <summary>What this frame's snapshot would give this hex
+        /// (<see cref="WorldUI.CanvasConversion.NoSurfaceBehind"/> = park at the authored order).
+        /// Recomputed every frame for every hex and written only when the field applies — that is
+        /// what makes every applied order come from ONE snapshot.</summary>
+        public int Want;
+
+        public bool WantParked;
     }
 
     private static readonly List<Member> Members = new(1024);
@@ -238,6 +325,29 @@ internal static class UnseenTileOrder
     private static float _diagHeartbeatAt;
     private static int _diagLastHash;
 
+    /// <summary>The held query point (see <see cref="EyeSwayDeadBandMeters"/>) and whether one has
+    /// been taken yet.</summary>
+    private static Vector3 _queryEye;
+
+    private static bool _hasQueryEye;
+
+    /// <summary>The field-wide settle gate: how many consecutive frames the SAME wanted-order
+    /// vector has been asked for while the current one is invalid, and the hash identifying that
+    /// vector. One gate for the whole field, deliberately — see <see cref="SettleFrames"/>.</summary>
+    private static int _fieldStreak;
+
+    private static int _fieldWantHash;
+
+    /// <summary>Diagnostic only: the field is holding because the panel ladder is mid-swap and
+    /// hands out a contradictory pair of bounds (<see cref="Tick"/>).</summary>
+    private static bool _diagHeldContradiction;
+
+    /// <summary>Diagnostic only: how many times the field has been rewritten. THE number a
+    /// follow-up flicker report is read by — a rewrite is the only event this driver has that can
+    /// change anything on screen, so "the tiles moved while I only turned my head" and "applies did
+    /// not move" cannot both be true of this driver.</summary>
+    private static int _applies;
+
     /// <summary>
     /// Per-frame service, called from <c>CanvasConversion.TickPanelOrder</c> AFTER the panel
     /// ladder, the furniture bands and the ladder snapshot have been built for this frame — the
@@ -245,14 +355,15 @@ internal static class UnseenTileOrder
     /// what makes the answer current rather than one frame stale.
     ///
     /// <para>COST — the whole point of this shape (perf pass 2026-08-09). The loop below touches
-    /// NO Unity object at all: one managed point-to-AABB distance and two binary searches over a
-    /// ~17-entry array per HEX (113 of them in the shipped scene, for 333+ renderers), and a write
-    /// only when a decision actually changes. A steady scene writes nothing and reads nothing.
-    /// Everything that must ask Unity a question — the renderer scan, the bounds, the sorting
-    /// layer census — lives in <see cref="Rescan"/>, which runs at most every
-    /// <see cref="RescanSeconds"/>. The counters below turn "is the see-through driver expensive?"
-    /// into arithmetic: '[Perf] STEPS' UnseenTiles, '[Perf] COUNTS' UnseenTiles.Hexes /
-    /// UnseenTiles.Renderers / UnseenTiles.Rescans.</para>
+    /// NO Unity object at all: one managed point-to-AABB distance, two binary searches over a
+    /// ~17-entry array and a handful of integer compares per HEX (44-113 of them in the shipped
+    /// scene, for 132-333 renderers), and a write only when a decision actually changes. A steady
+    /// scene writes nothing and reads nothing; a merely swaying player does not even re-measure
+    /// (<see cref="EyeSwayDeadBandMeters"/>). Everything that must ask Unity a question — the
+    /// renderer scan, the bounds, the sorting layer census — lives in <see cref="Rescan"/>, which
+    /// runs at most every <see cref="RescanSeconds"/>. The counters below turn "is the see-through
+    /// driver expensive?" into arithmetic: '[Perf] STEPS' UnseenTiles, '[Perf] COUNTS'
+    /// UnseenTiles.Hexes / UnseenTiles.Renderers / UnseenTiles.Rescans / UnseenTiles.FieldApplies.</para>
     /// </summary>
     internal static void Tick(Vector3 eye)
     {
@@ -285,7 +396,36 @@ internal static class UnseenTileOrder
         PerfMonitor.Count("UnseenTiles.Renderers", Members.Count);
 
         _parked = false;
-        int lifted = 0, lowest = int.MaxValue, highest = int.MinValue;
+
+        // ---- (1) THE QUERY POINT IS HELD AGAINST HEAD SWAY ------------------------------------
+        //
+        // The field measures itself from _queryEye, not from the live eye, and _queryEye only
+        // follows once the head has genuinely travelled EyeSwayDeadBandMeters. Below that every
+        // AabbDistance below returns the SAME float as last frame, so every bound, every wanted
+        // order and the field hash are bit-identical and the gate at the bottom cannot fire.
+        // This is the half of the report that says "wenn ich meinen Kopf bewege": the ladder's own
+        // dead band is 2 cm and a seated player's sway is bigger than that, so sway alone kept
+        // pushing panels across each hex's breakpoints. Sway is now rejected before it is measured
+        // rather than after it has been turned into a decision.
+        if (!_hasQueryEye || (eye - _queryEye).sqrMagnitude > EyeSwayDeadBandMeters * EyeSwayDeadBandMeters)
+        {
+            _queryEye = eye;
+            _hasQueryEye = true;
+        }
+        Vector3 query = _queryEye;
+
+        // ---- (2) ONE PASS, ONE SNAPSHOT: what would the WHOLE field be right now ---------------
+        //
+        // Every hex's wanted order is computed here, for every hex, every frame - and NOT written.
+        // Writing is a field-wide decision taken once at the bottom, because
+        // CanvasConversion.ResolveSeenThrough is monotone in the query distance only WITHIN one
+        // snapshot: answers taken from two different snapshots can put a farther hex above a nearer
+        // one, and two overlapping translucent hexes in the wrong order is a visibly different
+        // shade along their seam. That is the "Bewegungen in den unseen-tiles" of the report, and
+        // it is the one failure mode a per-hex settle gate cannot avoid - it exists precisely to
+        // let hexes re-seat on different frames.
+        bool contradiction = false, anyInvalid = false, anyUnseated = false;
+        int wantHash = 17;
         float near = float.MaxValue, far = 0f;
         for (int g = 0; g < Groups.Count; g++)
         {
@@ -297,8 +437,19 @@ internal static class UnseenTileOrder
             // fog-of-war region spans ten metres and more (MAPTILE bounds in the hardware log), so
             // one distance for the whole region would rank its far edge by its near edge and hand
             // a panel that is genuinely in front of that far edge a wrong-side answer.
-            float d = AabbDistance(grp, eye);
+            float d = AabbDistance(grp, query);
             WorldUI.CanvasConversion.SeenThroughBounds(d, out int behindTop, out int frontFloor);
+
+            // The ladder is mid-swap across this hex: it is handing a HIGHER order to something
+            // measurably FARTHER, so no order satisfies both bounds. Whatever the resolver returns
+            // is a guess that will be revoked within OrderSwapStableFrames frames - hold instead.
+            if (WorldUI.CanvasConversion.SeenThroughContradiction(behindTop, frontFloor))
+                contradiction = true;
+
+            int want = WorldUI.CanvasConversion.ResolveSeenThrough(behindTop, frontFloor, TileOrderLift);
+            grp.Want = want;
+            grp.WantParked = want == WorldUI.CanvasConversion.NoSurfaceBehind;
+            wantHash = wantHash * 31 + want;
 
             // ---- STICKINESS: hysteresis on the DECISION, not on the distance -------------------
             //
@@ -324,8 +475,9 @@ internal static class UnseenTileOrder
             // still correct". An order that still clears everything behind and still stays under
             // everything in front is CORRECT, whatever the ladder renumbered itself to, so it is
             // kept and nothing is written. Only a genuine violation — something behind climbed over
-            // us, or something in front dropped below us — moves the hex, and then the settle gate
-            // below still has to agree six frames running.
+            // us, or something in front dropped below us — moves the field, and then the settle gate
+            // below still has to agree six frames running. THAT TEST IS UNCHANGED IN ROUND 3: what
+            // changed is only that it now decides for the field rather than for one hex.
             //
             // This also removes the OTHER cliff the first cut had: a hex with nothing behind it was
             // slammed back to its authored 0 the instant the farthest panel drifted past it. Now
@@ -335,53 +487,89 @@ internal static class UnseenTileOrder
             // single largest jump this driver was capable of producing.
             int currentTop = grp.Parked ? grp.AuthoredMax : grp.Applied;
             int currentLow = grp.Parked ? grp.AuthoredMin : grp.Applied;
-            bool valid = grp.Seated
-                         && currentTop <= frontFloor
+            bool valid = currentTop <= frontFloor
                          && (behindTop == WorldUI.CanvasConversion.NoSurfaceBehind
                              || currentLow >= behindTop);
+            if (!grp.Seated)
+                anyUnseated = true;
+            else if (!valid)
+                anyInvalid = true;
 
-            if (valid)
-            {
-                grp.Streak = 0;
-            }
-            else
-            {
-                int want = WorldUI.CanvasConversion.ResolveSeenThrough(behindTop, frontFloor, TileOrderLift);
-                bool wantParked = want == WorldUI.CanvasConversion.NoSurfaceBehind;
-                if (!grp.Seated)
-                {
-                    Apply(ref grp, wantParked, want); // newcomer rule: seat at once, no defect frames
-                }
-                else if (grp.Streak > 0 && wantParked == grp.PendingParked
-                         && (wantParked || want == grp.PendingOrder))
-                {
-                    if (++grp.Streak >= SettleFrames)
-                        Apply(ref grp, wantParked, want);
-                }
-                else
-                {
-                    grp.PendingParked = wantParked;
-                    grp.PendingOrder = want;
-                    grp.Streak = 1;
-                }
-            }
             Groups[g] = grp;
-
-            if (!grp.Parked)
-            {
-                lifted++;
-                if (grp.Applied < lowest) lowest = grp.Applied;
-                if (grp.Applied > highest) highest = grp.Applied;
-            }
             if (d < near) near = d;
             if (d > far) far = d;
+        }
+
+        // ---- (3) ONE GATE FOR THE WHOLE FIELD -------------------------------------------------
+        //
+        // A hex that has never been written sits at its authored 0, which IS the defect state, so
+        // it seats at once - and it seats the whole field with it, from this same snapshot, rather
+        // than being dropped into a field whose other members answer an older one.
+        bool apply;
+        if (anyUnseated)
+        {
+            apply = true;
+            _fieldStreak = 0;
+        }
+        else if (!anyInvalid)
+        {
+            // Everything still satisfies the ladder — the common case, and it holds no matter how
+            // much the ladder renumbers itself underneath us, because a permutation of the panel
+            // slots does not change HOW MANY of them lie behind a given distance. No writes.
+            apply = false;
+            _fieldStreak = 0;
+        }
+        else if (_fieldStreak > 0 && wantHash == _fieldWantHash)
+        {
+            // The settle gate is on the whole answer, so a contradictory frame's answer differs
+            // from the consistent frames around it and resets the streak by itself; the explicit
+            // test here is what stops the one case where it would not (a swap that happens to
+            // leave every wanted order unchanged) from being written on a mid-swap frame. The
+            // streak keeps counting through it, so the field applies on the first frame after the
+            // ladder is self-consistent again and nothing settles late.
+            apply = ++_fieldStreak >= SettleFrames && !contradiction;
+            if (apply)
+                _fieldStreak = 0;
+        }
+        else
+        {
+            _fieldWantHash = wantHash;
+            _fieldStreak = 1;
+            apply = false;
+        }
+        _diagHeldContradiction = contradiction && !apply;
+
+        if (apply)
+        {
+            PerfMonitor.Count("UnseenTiles.FieldApplies");
+            _applies++;
+            for (int g = 0; g < Groups.Count; g++)
+            {
+                Group grp = Groups[g];
+                Apply(ref grp, grp.WantParked, grp.Want);
+                Groups[g] = grp;
+            }
+        }
+
+        int lifted = 0, lowest = int.MaxValue, highest = int.MinValue;
+        for (int g = 0; g < Groups.Count; g++)
+        {
+            Group grp = Groups[g];
+            if (grp.Parked)
+                continue;
+            lifted++;
+            if (grp.Applied < lowest) lowest = grp.Applied;
+            if (grp.Applied > highest) highest = grp.Applied;
         }
 
         LogState(lifted, lowest, highest, near, far);
     }
 
-    /// <summary>Write one hex's decision onto every renderer that belongs to it. Called only when
-    /// the decision actually changed, which is why it may afford the Unity round trips.</summary>
+    /// <summary>Write one hex's decision onto every renderer that belongs to it. Called only from
+    /// the field apply in <see cref="Tick"/> — never for one hex on its own, which is what keeps
+    /// every applied order in the field an answer from the SAME snapshot — and the field applies
+    /// only when a decision actually stopped being correct, which is why it may afford the Unity
+    /// round trips.</summary>
     private static void Apply(ref Group grp, bool parked, int order)
     {
         for (int i = grp.First; i < grp.First + grp.Count; i++)
@@ -397,9 +585,6 @@ internal static class UnseenTileOrder
         grp.Parked = parked;
         grp.Applied = parked ? grp.AuthoredMax : order;
         grp.Seated = true;
-        grp.Streak = 0;
-        grp.PendingParked = parked;
-        grp.PendingOrder = order;
     }
 
     /// <summary>Distance from <paramref name="eye"/> to the nearest point of a hex's cached union
@@ -431,6 +616,10 @@ internal static class UnseenTileOrder
         _parked = true;
         _offLayer = 0;
         _diagLastHash = 0;
+        _hasQueryEye = false;
+        _fieldStreak = 0;
+        _fieldWantHash = 0;
+        _diagHeldContradiction = false;
         // Re-adopt on the very next tick rather than up to RescanSeconds later. A release is not a
         // teardown here - the usual cause is the ladder emptying for a moment (every panel closed,
         // a scene swap) - and waiting two seconds after it fills again would leave the tiles at
@@ -644,6 +833,11 @@ internal static class UnseenTileOrder
         }
         Carried.Clear();
         _parked = Groups.Count == 0;
+        // The group set changed, so the previous field hash describes a vector of a different
+        // length: it must not be allowed to match by accident and let a half-formed answer through
+        // the settle gate.
+        _fieldStreak = 0;
+        _fieldWantHash = 0;
     }
 
     /// <summary>Set-identity test for the scanned 'Preview' nodes against the adopted ones.
@@ -734,10 +928,21 @@ internal static class UnseenTileOrder
     /// artefact is not an ordering one". A FLICKER report is answered by the span: with the sticky
     /// decision in place the span must be quiet while the head moves, and a span that still breathes
     /// from line to line means the ladder underneath is churning, not this driver.
+    ///
+    /// <para>ROUND 3 ADDS THE TWO NUMBERS A FLICKER REPORT IS NOW READ BY. 'applies' is the count
+    /// of times the field has been rewritten since the mod started: a session in which the player
+    /// only looked around and moved the board must leave it nearly still, because every rewrite is
+    /// the only event that can change anything the player can see. 'held' says the field is
+    /// currently refusing to move because the panel ladder is mid-swap and self-contradictory —
+    /// expected in bursts while the ladder resorts, a defect only if it is permanent. Note that
+    /// even a rising apply count cannot produce movement BETWEEN hexes: an apply writes the whole
+    /// field from one snapshot and that snapshot is monotone in distance, so the fog stays painted
+    /// strictly back to front. What an apply can change is a hex's relation to a PANEL.</para>
     /// </summary>
     private static void LogState(int lifted, int lowest, int highest, float near, float far)
     {
-        int hash = (Groups.Count * 397) ^ (lifted * 31) ^ (lowest * 7) ^ highest;
+        int hash = (Groups.Count * 397) ^ (lifted * 31) ^ (lowest * 7) ^ highest
+                   ^ (_applies * 131) ^ (_diagHeldContradiction ? 0x5EED : 0);
         float now = Time.unscaledTime;
         bool changed = hash != _diagLastHash;
         bool heartbeat = now >= _diagHeartbeatAt;
@@ -754,11 +959,15 @@ internal static class UnseenTileOrder
         VRLog.Info("Core", $"UNSEEN TILE ORDER ({Nodes.Count} undiscovered 'Preview' node(s), " +
                            $"{Groups.Count} hex(es), {Members.Count} renderer(s) = " +
                            $"{perHex:F1}/hex, d={near:F1}..{far:F1}m): {lifted} hex(es) ranked " +
-                           $"onto the panel ladder, {span}. All renderers of ONE hex — the " +
+                           $"onto the panel ladder, {span}, {_applies} field apply(s) so far" +
+                           (_diagHeldContradiction ? ", HELD (ladder mid-swap)" : string.Empty) +
+                           ". All renderers of ONE hex — the " +
                            "authored trio and any MR backing built on them — share that single " +
-                           "order, so they can never fight each other; the order is only " +
-                           "rewritten when it stops satisfying the ladder, not when the ladder " +
-                           "renumbers itself. A ranked tile is painted AFTER everything behind " +
+                           "order, so they can never fight each other, and the whole FIELD is " +
+                           "written from one snapshot at one moment, so two hexes can never carry " +
+                           "answers from two different ladders and invert; the field is only " +
+                           "rewritten when some hex stops satisfying the ladder, not when the " +
+                           "ladder renumbers itself. A ranked tile is painted AFTER everything behind " +
                            "it: see-through while it is translucent (MR off), occluding while it " +
                            "is opaque (MR on). READ THE RATIO FIRST on any follow-up flicker " +
                            "report: it must be ~3/hex with MR off and higher with MR on. At " +

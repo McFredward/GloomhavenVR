@@ -1838,11 +1838,29 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// <summary>Gap between the panel's bottom edge and the label top (fraction of width).</summary>
     private const float QuestGapFrac = 0.03f;
 
+    /// <summary>
+    /// Sub-step lift of the battle-goal label above the ladder slot of the nearest panel BEHIND
+    /// it (<see cref="CanvasConversion.OrderAboveDistance"/>). Must stay under
+    /// <c>CanvasConversion.PanelOrderStep</c> (16) so the label can never climb into the next
+    /// panel's slot; 12 is the value the whole family of off-ladder plates already uses
+    /// (<c>Net.BoardVisual.TagPanelLift</c>, <c>Cards.CardCueOrder.CuePanelLift</c>,
+    /// <c>WristHud.PanelLift</c>) — a label that is genuinely in front of a window covers that
+    /// window's own decorations too (close X +2, grab bar +4, menu-laid tooltip +10).
+    /// </summary>
+    private const int QuestPanelLift = 12;
+
     private static readonly Vector3[] QuestCorners = new Vector3[4];
     private static bool s_questErrorLogged;
 
     private GameObject? _questGo;
     private TextMeshPro? _questTmp;
+    private Renderer? _questRenderer;
+
+    /// <summary>Last ladder order written onto <see cref="_questRenderer"/> (change-gate).
+    /// <c>int.MinValue</c> = never written, so a freshly built label is seated on its first
+    /// placed tick — the authored 0 is the defect band itself.</summary>
+    private int _questAppliedOrder = int.MinValue;
+
     private float _nextQuestRefresh;
     private string _questShown = "";
 
@@ -1883,6 +1901,8 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             Object.Destroy(_questGo);
         _questGo = null;
         _questTmp = null;
+        _questRenderer = null;
+        _questAppliedOrder = int.MinValue;
         _questShown = "";
         base.Shutdown();
     }
@@ -1944,6 +1964,74 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         t.rotation = Panel.HostTransform.rotation;
         t.localScale = Vector3.one * width;
         t.position = bottomCenter - up * (width * (QuestGapFrac + QuestRectHeightFrac * 0.5f));
+        RankQuestLabel(); // the pose just written is the one the rank is measured from
+    }
+
+    /// <summary>
+    /// PERSPECTIVE FOR THE BATTLE-GOAL LINE (user 2026-08-09, verbatim: "Noch ein Element
+    /// gefunden, dass die Perspektive nicht respektiert — wenn ich die Gegnerinfo, die erscheint
+    /// wenn ich eine Figur hochhebe, hinter den Quest-Text (Character-Quest) halte verschwindet
+    /// der Text. Da der Text vor der Info ist sollte er weiterhin davon sichtbar sein.").
+    ///
+    /// <para>ROOT CAUSE — the mod's standing defect for depth-less transparents. This label is a
+    /// mod-built <see cref="TextMeshPro"/> on a SCENE-ROOT GameObject
+    /// (<see cref="EnsureQuestLabel"/>), so it is neither a converted panel nor part of the
+    /// board's furniture group: it hangs off the objectives HOST's world rect, not under the
+    /// tray, so <c>PlayTray.AdoptFurniture</c> — which walks the tray subtree — never saw it, and
+    /// nothing ever wrote its <c>sortingOrder</c>. It therefore drew at the default <b>0</b>,
+    /// while the figure-grab info card (<c>StatPanelSurface</c>, converted at
+    /// <c>ModalFallback.ModalHostSortingOrder</c> and then ranked live on the distance ladder)
+    /// draws at <b>≥ CanvasConversion.PanelOrderBase (100)</b> — the hardware log has it at
+    /// 148…276. Unity resolves transparents by sortingLayer → sortingOrder → renderQueue →
+    /// distance, and neither surface writes depth, so 0 vs 148+ decided it outright: the info
+    /// card painted over the goal line no matter which of the two was actually nearer.</para>
+    ///
+    /// <para>THE FIX IS THE LADDER, NOT A BIGGER NUMBER — the seam every other off-ladder plate
+    /// already uses (<c>WorldTooltips</c>, <c>Net.BoardVisual</c> identity tags,
+    /// <c>Cards.CardCueOrder</c>, <c>WristHud</c>): rank by MEASURED eye distance, so an info card
+    /// held BEHIND the goal line is painted before it (line stays readable) and one held IN FRONT
+    /// of it still covers it. Consistency, which is what the report asks for — not "the text
+    /// wins".</para>
+    ///
+    /// <para>The distance measure is <c>CanvasConversion.PanelEyeDistance</c>'s, verbatim: the
+    /// eye to the CLOSEST POINT of the label's finite rect. The panels it is ranked against are
+    /// measured that way, so anything else would compare two different questions — and this label
+    /// is wide and thin, where a centre distance can be tens of centimetres off its near edge.
+    /// It also reads only the eye POSITION, so head rotation cannot move it.</para>
+    ///
+    /// <para>The MR backing plate needs nothing here: <c>MrBacking</c> copies its label
+    /// renderer's LIVE sortingOrder every tick (MrBacking.TickLabels), so it rides along at the
+    /// same slot and its earlier renderQueue keeps it just under the glyphs.</para>
+    ///
+    /// <para>Reads the PREVIOUS frame's ladder (<c>CanvasConversion.TickPanelOrder</c> runs last
+    /// in the WorldUI LateUpdate chain) — a one-frame lag on a hysteresis-damped ladder is not
+    /// observable, the same trade every other <c>OrderAboveDistance</c> caller accepts. Cost is
+    /// one clamp, one distance, one walk of the listed panels and a CHANGE-GATED int write, and
+    /// only while the label is actually shown.</para>
+    /// </summary>
+    private void RankQuestLabel()
+    {
+        if (_questTmp == null || _questRenderer == null)
+            return;
+        Camera? cam = CanvasConversion.WorldCamera;
+        if (cam == null)
+            return;
+
+        Vector3 eye = cam.transform.position;
+        RectTransform rect = _questTmp.rectTransform;
+        Vector3 local = rect.InverseTransformPoint(eye);
+        Rect r = rect.rect;
+        var onPlate = new Vector3(
+            Mathf.Clamp(local.x, r.xMin, r.xMax),
+            Mathf.Clamp(local.y, r.yMin, r.yMax),
+            0f);
+        float eyeDistance = Vector3.Distance(eye, rect.TransformPoint(onPlate));
+
+        int order = CanvasConversion.OrderAboveDistance(eyeDistance, QuestPanelLift);
+        if (order == _questAppliedOrder)
+            return;
+        _questAppliedOrder = order;
+        _questRenderer.sortingOrder = order;
     }
 
     /// <summary>Build (or rebuild after a scene unload) the quest TMP label. True when fresh.</summary>
@@ -1955,6 +2043,11 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             Object.Destroy(_questGo); // half-built remnant — never expected, but never leak
         _questGo = new GameObject("GloomhavenVR.BattleGoal");
         _questTmp = _questGo.AddComponent<TextMeshPro>();
+        // Ladder ranking (RankQuestLabel): cache the TMP's own MeshRenderer once and force the
+        // first placed tick to seat it — a rebuilt label starts at the authored order 0, which
+        // is precisely the band this ranking exists to leave.
+        _questRenderer = _questTmp.GetComponent<Renderer>();
+        _questAppliedOrder = int.MinValue;
         _questTmp.alignment = TextAlignmentOptions.Top;
         _questTmp.color = new Color(0.92f, 0.88f, 0.76f);
         NativeButtonSkin.ApplyFont(_questTmp); // native HUD font, like the pile captions

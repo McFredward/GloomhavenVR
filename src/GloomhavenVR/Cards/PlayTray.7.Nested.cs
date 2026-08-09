@@ -235,6 +235,69 @@ internal sealed partial class PlayTray
                 "Antique palette (T4): dark-wood plaque / parchment-glow available / aged-brass bevel inlay / dark-wood walls.");
         }
 
+        /// <summary>Throttle for <see cref="LogCapSurface"/> — a live tuning change rebuilds and
+        /// re-seats every cap on the board inside one frame.</summary>
+        private static float _nextCapSurfaceLogAt;
+
+        /// <summary>
+        /// KEYCAP SURFACE — the line that ends the "why was the button body missing while its text
+        /// was fine?" question WITHOUT another hardware round of inference.
+        ///
+        /// <para>The existing <see cref="LogCapDiagnostics"/> fires once per board, at build, for
+        /// three named caps only, and it reports geometry. It is silent about the two moments that
+        /// matter (the moment a cap is BUILT and the moment it is REVEALED), about every other cap,
+        /// and about the four facts that separate the surviving hypotheses from each other:</para>
+        /// <list type="bullet">
+        /// <item>MATERIAL SLOTS vs SUBMESHES — a body whose renderer carries fewer materials than
+        /// its mesh has submeshes draws only the submeshes that HAVE one (zero materials = nothing
+        /// at all), which is the documented reveal-clone failure shape from the static-batching
+        /// experiment. Names both counts so it is read, not deduced.</item>
+        /// <item>SHADER + RENDERQUEUE — separates "the bundle shader never resolved" and "something
+        /// pushed this body out of the opaque band" from a colour problem.</item>
+        /// <item>THE RENDERED COLOURS AGAINST THE WELL — the actual root cause of the 2026-08-09
+        /// round-3 report. Prints top/bevel/wall next to <c>ButtonTuning.CapWellColor</c> and says
+        /// outright whether the seat floor had to lift the face.</item>
+        /// <item>LAYER — a cap off <c>VRLayers.ModLayer</c> is eligible for the MixedReality
+        /// renderer sweeps and drops out of the head-camera/stereo masks.</item>
+        /// </list>
+        /// <para>Cheap by construction: no allocation until it actually logs, one line per 0.5 s
+        /// across all caps, and it runs only at build and at reveal — never per frame.</para>
+        /// </summary>
+        internal void LogCapSurface(string when)
+        {
+            if (Time.unscaledTime < _nextCapSurfaceLogAt)
+                return;
+            _nextCapSurfaceLogAt = Time.unscaledTime + 0.5f;
+            Mesh? sm = _capMeshRenderer is MeshRenderer meshR && meshR.GetComponent<MeshFilter>() is { sharedMesh: { } fm }
+                ? fm : null;
+            int subMeshes = sm != null ? sm.subMeshCount : (_capFace != null ? 1 : -1);
+            Material[] mats = _capMeshRenderer != null ? _capMeshRenderer.sharedMaterials : System.Array.Empty<Material>();
+            int slots = mats.Length;
+            int liveSlots = 0;
+            for (int i = 0; i < mats.Length; i++)
+                if (mats[i] != null)
+                    liveSlots++;
+            Material? m = _capMeshRenderer != null ? _capMeshRenderer.sharedMaterial : null;
+            string shaderName = m != null && m.shader != null ? m.shader.name : "<none>";
+            int queue = m != null ? m.renderQueue : -1;
+            Color face = _capFace != null ? _capFace.color : m != null ? m.color : StateColor();
+            bool seated = WorldUI.ButtonTuning.CapSeatFloorEngages(
+                (!_enabledState ? DisabledColor : _confirmed ? ConfirmedColor : _accent ? _accentColor : IdleColor)
+                * _capTint);
+            bool bodyDraws = _capMeshRenderer != null && _capMeshRenderer.enabled && liveSlots > 0
+                             && (subMeshes <= 0 || liveSlots >= subMeshes);
+            VRLog.Info("Cards", $"KEYCAP SURFACE [{when}] '{name}': layer {gameObject.layer} " +
+                $"(mod layer {Core.VRLayers.ModLayer}){(gameObject.layer == Core.VRLayers.ModLayer ? "" : " — OFF THE MOD LAYER")}, " +
+                $"shader '{shaderName}', renderQueue {queue}, submeshes {subMeshes} vs material slots " +
+                $"{slots} ({liveSlots} non-null){(subMeshes > liveSlots ? " — SLOTS MISSING: those submeshes draw NOTHING" : "")}. " +
+                $"State enabled={_enabledState} accent={_accent} confirmed={_confirmed}, tint {_capTint}. " +
+                $"Face {face}, bevel {(_capBevelMaterial != null ? _capBevelMaterial.color.ToString() : "<n/a>")}, " +
+                $"wall {(_capWallMaterial != null ? _capWallMaterial.color.ToString() : "<n/a>")} " +
+                $"vs the WELL it sits in {WorldUI.ButtonTuning.CapWellColor}. " +
+                $"Seat floor {(seated ? "ENGAGED — the untinted-well comparison says this cap WOULD have rendered darker than its own recess (the 'invisible button, visible text' shape) and was lifted" : "not needed (face already clears its well)")}. " +
+                $"Body draws: {(bodyDraws ? "YES" : "NO")}.");
+        }
+
         private TextMeshPro? _label;
         private Transform? _cap;
         private Color _accentColor;
@@ -533,7 +596,9 @@ internal sealed partial class PlayTray
             // UNDO / rest buttons keep Standard (they stay depth-correct, no RenderOnTop).
             // Item 1b: a solid warm dark-WOOD surround (not a near-black void) so the recessed
             // well around the cap reads as part of the physical panel, not a hole under a glassy key.
-            Tint(basePlate, new Color(0.15f, 0.12f, 0.08f), overlay: overlay);
+            // The colour is ButtonTuning.CapWellColor because SeatedCapColor floors every cap face
+            // against it (2026-08-09 round 3) — a floor and its reference must not be able to drift.
+            Tint(basePlate, WorldUI.ButtonTuning.CapWellColor, overlay: overlay);
 
             // Native look (test #25 item 3): when a live game button has been sampled,
             // the travelling cap is an EMPTY holder carrying the game's own 9-sliced
@@ -781,6 +846,20 @@ internal sealed partial class PlayTray
             // AFTER every sortingOrder write above; keycap rebuilds re-adopt here and the dead
             // renderers are pruned by the group on its next order apply.
             AdoptFurniture(go);
+            // MOD LAYER (2026-08-09 round 3). PlayTray runs Core.VRLayers.Apply over the tray root
+            // exactly ONCE, at board build, AFTER BuildButtons — so the caps of the FIRST build are
+            // on the mod layer and every cap born later is not. RebuildAttachedControls,
+            // RebuildDashboardButtons and RestControls.EnsureBuilt all DestroyImmediate their caps
+            // and `new GameObject` the replacements (this session's log shows that happening ten
+            // times over from live [BoardButtons] tuning alone), and Unity does not inherit a layer
+            // on re-parenting: those caps sat on layer 0 while their siblings sat on the mod layer.
+            // That is a real split-brain — the mod layer is what the head camera's mask, the stereo
+            // mirror and every MixedReality renderer sweep key off (MixedReality's sky sweep skips
+            // ModLayer/UI and then calls `r.enabled = false` on what is left). Layer the cap at the
+            // ONE place every cap is born instead; idempotent for the first build, and the same
+            // pattern RayInteractor's lazily-created laser/reticle already use.
+            Core.VRLayers.Apply(go);
+            button.LogCapSurface("BUILT");
             return button;
         }
 
@@ -908,6 +987,11 @@ internal sealed partial class PlayTray
                 // exact state colours, which is what an instant (animation-off) show needs.
                 _assemblyRest = StateColor();
                 UpdateColor();
+                // The REVEAL half of the keycap-surface diagnostic (see LogCapSurface): a cap can be
+                // built perfectly and still arrive on screen with a missing slot, a stale shader, a
+                // lost layer or a face sunk below its own well. Logged after UpdateColor so the
+                // colours printed are the ones the player is about to look at. Throttled shared.
+                LogCapSurface("REVEAL");
                 if (_showLeft > 0f)
                 {
                     WorldUI.ButtonTuning.LogAnim(name, "appear (assemble out of dust)");
@@ -966,10 +1050,20 @@ internal sealed partial class PlayTray
 
         /// <summary>Resting cap color for the current state (procedural fallback; dwell ramps AWAY
         /// from this). USER DEBUG OPTION: the shared state palette is multiplied by this button's
-        /// per-category <see cref="_capTint"/> (default white = unchanged).</summary>
+        /// per-category <see cref="_capTint"/> (default white = unchanged).
+        ///
+        /// <para>SEATED (2026-08-09 round 3 — "die buttons waren unsichtbar und nur der text darauf
+        /// sichtbar", the third report of the same look): the tinted result is floored so the cap
+        /// face can never render darker than the WELL this same widget paints behind it
+        /// (<c>Tint(basePlate, ButtonTuning.CapWellColor)</c> in <see cref="Create"/>). Without it
+        /// the DISABLED face at this user's 0.5 tint lands at (0.105, 0.080, 0.055) against a
+        /// (0.15, 0.12, 0.08) well — darker than its own recess, i.e. a hole in the board under a
+        /// fully lit label. See WorldUI.ButtonTuning.SeatedCapColor for why the well is the right
+        /// reference and why this is not the AppearFadeFloor that round 2 deleted.</para></summary>
         private Color StateColor() =>
-            (!_enabledState ? DisabledColor : _confirmed ? ConfirmedColor : _accent ? _accentColor : IdleColor)
-            * _capTint;
+            WorldUI.ButtonTuning.SeatedCapColor(
+                (!_enabledState ? DisabledColor : _confirmed ? ConfirmedColor : _accent ? _accentColor : IdleColor)
+                * _capTint);
 
         /// <summary>Native-skin face state for the current button state (test #25 item 3).</summary>
         private WorldUI.NativeButtonSkin.FaceState FaceState() =>
@@ -984,7 +1078,9 @@ internal sealed partial class PlayTray
                 WorldUI.NativeButtonSkin.Apply(_capFace, FaceState());
                 // USER DEBUG OPTION: tint the native sprite face too (the beige/brass button art
                 // the user reads white text on) — default white leaves the sampled sprite as-is.
-                _capFace.color *= _capTint;
+                // SEATED like the procedural face (see StateColor): the sprite face is the same cap
+                // body sitting in the same well, so the same floor keeps it out of the board.
+                _capFace.color = WorldUI.ButtonTuning.SeatedCapColor(_capFace.color * _capTint);
                 // A state change that lands DURING the assembly must re-aim it (see below) and then
                 // hand the surface straight back to the ramp — writing the settled colour and waiting
                 // for the next Update would flash the finished button inside its own arrival.
@@ -1414,7 +1510,9 @@ internal sealed partial class PlayTray
             if (_capFace != null)
                 // USER DEBUG OPTION: tint the native face (default white = unchanged); StateColor is
                 // already tinted, so the procedural branch below needs no extra multiply.
-                _capFace.color = Color.Lerp(WorldUI.NativeButtonSkin.ColorFor(FaceState()) * _capTint, DwellChargeColor, progress);
+                _capFace.color = Color.Lerp(
+                    WorldUI.ButtonTuning.SeatedCapColor(WorldUI.NativeButtonSkin.ColorFor(FaceState()) * _capTint),
+                    DwellChargeColor, progress);
             else if (_capMaterial != null)
                 SetCapColor(Color.Lerp(StateColor(), DwellChargeColor, progress));
 

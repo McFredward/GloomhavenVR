@@ -25,7 +25,7 @@ namespace GloomhavenVR.Cards;
 /// the fan/docked cards, firing enter/exit on the pushers purely from head motion.
 ///
 /// Fix: filter by pointer id. The mod's laser/poke pointers (<c>UguiPointer</c>:
-/// poke -101/-102, laser -111/-112 — keep <see cref="ModPointerIdCeiling"/> in sync)
+/// poke -101/-102, laser -111/-112 — see <see cref="Hands.Interact.UguiPointer.IsModPointerId"/>)
 /// raycast this canvas directly with their own <c>PointerEventData</c> and keep full
 /// hover + click behavior; the game's mouse pointer (-1..-3) and any touch pointer
 /// (&gt;= 0) get an empty result, so the head-swept ray can neither hover nor click a
@@ -35,16 +35,12 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class CardFaceRaycaster : GraphicRaycaster
 {
-    /// <summary>
-    /// Every mod hand pointer id is &lt;= this; mouse (-1..-3) and touch (&gt;= 0) are
-    /// above it. Mirrors the private id block in <c>Hands.Interact.UguiPointer</c>
-    /// (poke -101/-102, laser -111/-112) — keep in sync.
-    /// </summary>
-    private const int ModPointerIdCeiling = -100;
-
     public override void Raycast(PointerEventData eventData, List<RaycastResult> resultAppendList)
     {
-        if (eventData == null || eventData.pointerId > ModPointerIdCeiling)
+        // The id test is <see cref="Hands.Interact.UguiPointer.IsModPointerId"/> — the ONE
+        // definition of "this event is ours", read rather than mirrored so the ceiling cannot
+        // drift from the id block that produces it.
+        if (eventData == null || !Hands.Interact.UguiPointer.IsModPointerId(eventData.pointerId))
             return; // game mouse/touch pointer — this card face is invisible to it
         base.Raycast(eventData, resultAppendList);
     }

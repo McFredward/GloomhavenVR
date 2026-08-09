@@ -57,6 +57,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     // grabber itself would consider before we narrow it to the offset-anchor-nearest figure.
     private const float ReachMeters = 0.13f;
 
+    // Log dedupe (see LogPickVolume / LogElection): the last pick-volume line printed, and the
+    // figure each hand last elected as its pinch candidate. Diagnostics only — nothing reads these
+    // to decide anything.
+    private string _lastPickVolumeLog = string.Empty;
+    private FigureGrabbable? _lastElectedLeft;
+    private FigureGrabbable? _lastElectedRight;
+
     // Cached per-frame tick delegates ([Optimize] CacheTickDelegates — see Update).
     private System.Action? _tickRegistry;
     private System.Action? _tickAutoRelease;
@@ -288,7 +295,19 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             _rightClampFrame = Time.frameCount;
 
         if (hand.TriggerDown)
+        {
+            // THE LASER IS A DELIBERATE AIM, so it is not subject to the proximity arbitration —
+            // clear this hand's suppression on the target before plucking. Before the pinch-radius
+            // gate this could not matter: SelectByOffsetAnchor always elected SOME winner among the
+            // palm-reach figures, and TryLaserGrab early-outs while the grabber has a highlight, so
+            // a suppressed figure was never a laser target either. Now that a figure can be inside
+            // the palm reach with NO winner elected, the laser can reach one that is suppressed —
+            // and ForceGrab consults the same AllowsHand filter, so without this it would refuse a
+            // pluck the player aimed at. Safe to clear: the next frame either sees the hold (which
+            // clears suppression for the whole hand anyway) or re-derives it from scratch.
+            adopted.Grabbable.SetProximitySuppressed(hand.Side, false);
             hand.Grabber.ForceGrab(adopted.Grabbable, releaseOnTriggerUp: true);
+        }
     }
 
     /// <summary>
@@ -300,6 +319,14 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// can only highlight/grab the winner. Runs every frame per hand; uncontested figures (single
     /// figure in reach, or a far laser target out of proximity reach) are never suppressed, so the
     /// laser far-grab (which keeps using the ray pick) is untouched.
+    ///
+    /// <para>IT IS ALSO THE PICK VOLUME (user report 2026-08, accidental grabs). The same offset
+    /// anchor that decides WHICH figure wins now decides WHETHER any figure wins at all: a
+    /// candidate has to be within <see cref="FigureGrabConfig.PickRadiusRealMeters"/> — real metres
+    /// at the hand, converted to world units by the rig's own scale — of the pinch point, or every
+    /// figure is suppressed and nothing lights up. Doing it here rather than in
+    /// <see cref="ProximityGrabber"/> is deliberate: that reach is 13 cm because a CARD is a
+    /// hand-span wide, and narrowing it there would narrow the card fan with it.</para>
     /// </summary>
     private void TickOffsetAnchorSelect()
     {
@@ -317,16 +344,28 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
         {
             if (hand != null)
+            {
                 ClearSuppression(hand.Side);
+                LogElection(hand, null, 0f); // forget the candidate so re-entering it logs again
+            }
             return;
         }
 
         Vector3 palm = hand.Rig.PalmCenter.position;
         Vector3 offsetAnchor = hand.Rig.GrabAnchor.TransformPoint(FigureGrabConfig.HeldOffsetFor(hand.Side));
         float reach = ReachMeters * hand.WorldScale;
+        // THE PICK VOLUME, in REAL METRES AT THE HAND, converted to world units with the rig's own
+        // lossyScale — the mod's zoom is a scale on the RIG, so "one real metre at the hand" is
+        // `1 × hand.WorldScale` world units and nothing else. See FigureGrabConfig.PickRadiusRealMeters
+        // for why a figure may not keep the interactor's card-sized 0.13 m palm reach.
+        float pickWorld = FigureGrabConfig.PickRadiusRealMeters * hand.WorldScale;
+        LogPickVolume(hand, pickWorld);
 
-        // Pass 1: among figures within PALM reach (the grabber's own candidate set), find the one
-        // nearest the OFFSET ANCHOR — the figure the user is aiming the pinch at.
+        // Pass 1: among figures within PALM reach (the grabber's own candidate set) AND inside the
+        // pinch-radius volume, find the one nearest the OFFSET ANCHOR — the figure the user is
+        // aiming the pinch at. The palm reach is the interactor's own gate and stays as the outer
+        // filter (a figure it never considers can never be highlighted anyway); the pinch radius is
+        // the tight one that decides what the player can actually pick up.
         FigureGrabbable? winner = null;
         float bestAnchorDist = float.MaxValue;
         foreach (Adopted adopted in _adoptions.Values)
@@ -339,14 +378,19 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             if (Vector3.Distance(palm, collider.ClosestPoint(palm)) > reach)
                 continue; // not a proximity candidate this frame
             float anchorDist = Vector3.Distance(offsetAnchor, collider.ClosestPoint(offsetAnchor));
+            if (anchorDist > pickWorld)
+                continue; // in the palm's reach, but not in the PINCH — you have to reach for a mini
             if (anchorDist < bestAnchorDist)
             {
                 bestAnchorDist = anchorDist;
                 winner = adopted.Grabbable;
             }
         }
+        LogElection(hand, winner, bestAnchorDist);
 
-        // Pass 2: suppress every palm-reach candidate except the winner; clear everyone else.
+        // Pass 2: suppress every palm-reach candidate except the winner; clear everyone else. With
+        // no winner (nothing inside the pinch radius) that suppresses ALL of them, which is the
+        // whole point: a hand hovering a hand-span above the board highlights nothing at all.
         foreach (Adopted adopted in _adoptions.Values)
         {
             Collider collider = adopted.Collider;
@@ -356,6 +400,64 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             bool suppressed = inReach && !ReferenceEquals(adopted.Grabbable, winner);
             adopted.Grabbable.SetProximitySuppressed(hand.Side, suppressed);
         }
+    }
+
+    /// <summary>
+    /// THE NUMBERS BEHIND THE PICK VOLUME, printed whenever they change — the resolved radius in
+    /// REAL millimetres at the hand, the world units that comes to at the current zoom, the zoom
+    /// itself, and the width of one hex in the same real millimetres.
+    ///
+    /// <para>Written because "der Bereich ist zu groß" is unanswerable without them. The radius is
+    /// a constant at the HAND and a variable on the BOARD (the mod zooms by scaling the rig, so the
+    /// board keeps its world size while the player grows), and those two readings of the same
+    /// number are what the report and the code disagreed about. The hex width is the third column
+    /// for that reason: radius-in-hexes is the ratio the player actually sees next to a mini.</para>
+    ///
+    /// <para>Deduped on the formatted line, so it costs one line per zoom change or config edit —
+    /// both of which are human acts — and nothing at all while the player just plays.</para>
+    /// </summary>
+    private void LogPickVolume(VRHand hand, float pickWorld)
+    {
+        float mm = FigureGrabConfig.PickRadiusRealMeters * 1000f;
+        float scale = hand.WorldScale;
+        float hexMm = scale > 1e-4f
+            ? UnityGameEditorRuntime.s_TileSize.x / scale * 1000f
+            : 0f;
+        string line = $"PICK VOLUME: {mm:F0} mm real at the hand = {pickWorld:F2} world units "
+                      + $"(rig world scale {scale:F2}); one hex is {hexMm:F0} mm real at this zoom, "
+                      + $"so the volume spans {(hexMm > 1e-3f ? mm / hexMm : 0f):F2} hexes. Fixed at "
+                      + "the hand — zooming the table changes the hex column, never the first.";
+        if (line == _lastPickVolumeLog)
+            return;
+        _lastPickVolumeLog = line;
+        VRLog.Info("FigureGrab", line);
+    }
+
+    /// <summary>
+    /// One line per NEWLY elected pinch winner (per hand): which figure lit up and how far its own
+    /// surface was from the pinch point, in the same real millimetres the dial is set in. This is
+    /// the half that answers "it is STILL too big" — if a figure lights up at 38 mm the dial is
+    /// simply set too wide, and if one lights up at 300 mm something else is wrong.
+    /// </summary>
+    private void LogElection(VRHand hand, FigureGrabbable? winner, float anchorDistWorld)
+    {
+        bool left = hand.Side == HandSide.Left;
+        FigureGrabbable? last = left ? _lastElectedLeft : _lastElectedRight;
+        if (ReferenceEquals(last, winner))
+            return;
+        if (left)
+            _lastElectedLeft = winner;
+        else
+            _lastElectedRight = winner;
+        if (winner == null)
+            return; // losing the candidate is not news; only a new one carries a distance
+
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        ActorBehaviour actor = winner.Actor;
+        VRLog.Info("FigureGrab",
+            $"{hand.Side} pinch candidate '{(actor != null ? actor.name : "?")}' at "
+            + $"{anchorDistWorld / scale * 1000f:F0} mm real from the pinch point "
+            + $"(radius {FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm).");
     }
 
     private void ClearSuppression(HandSide side)

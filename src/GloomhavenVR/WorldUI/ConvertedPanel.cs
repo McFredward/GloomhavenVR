@@ -228,6 +228,36 @@ internal sealed class ConvertedPanel
     /// <summary>Time the pending candidate was first measured (stability clock).</summary>
     public float FitPendingSince;
 
+    /// <summary>
+    /// PER-SIDE SLACK between the visible content and this host's rect, in uGUI px of the host's
+    /// own space, as of the last measure (<c>CanvasConversion.FitContentPaddingPx</c>, minus
+    /// whatever the frame clamp / canvas height cap ate). The content is CENTERED in the host, so
+    /// the visible top edge is <c>HostRect.rect.yMax - FitContentPadding.y</c>.
+    ///
+    /// <para>WHY IT IS PUBLISHED: the decision area is laid out downward from one ceiling and a
+    /// surface that pins its host by <c>rect.yMax</c> therefore seats the CONTENT this far below
+    /// the ceiling — and passes the error on to everything hanging off its published bottom edge.
+    /// Zero until the first measure, which is safe: nothing places before it has fitted.</para>
+    /// </summary>
+    public Vector2 FitContentPadding;
+
+    /// <summary>
+    /// OPT OUT OF THE SHRINK DAMPING ABOVE — the panel gives its growth back in the frame the
+    /// content shrinks (user ruling 2026-08-09, the decision area: "sobald es wieder eingeklappt
+    /// wird soll es sofort reagieren"; the reported ~2 s lag IS
+    /// <c>FitStableSeconds</c> 0.5 + <c>FitRefitMinIntervalSeconds</c> 1.5 plus the periodic check
+    /// throttle). Growth was always immediate; this makes the panel symmetric.
+    ///
+    /// <para>ONLY FOR PANELS THAT HAVE A BETTER STABILITY MECHANISM THAN A CLOCK. The damping
+    /// exists so OSCILLATING content (the combat log's fading lines) cannot re-fit twice a second,
+    /// and a hover scale-up that decays would otherwise re-place the panel the instant it decays.
+    /// <c>UseBarsSurface.BarDock</c> qualifies: it holds <see cref="FitEnabled"/> OFF unless the
+    /// bar's LAYOUT TRUTH changed (slot set, open sub-picker, post-dock settle), so no hover or
+    /// press transient ever reaches this path at all. A panel that fits every frame must NOT set
+    /// this.</para>
+    /// </summary>
+    public bool FitShrinkImmediate;
+
     /// <summary>Host transform for placement by the owning surface.</summary>
     public Transform HostTransform => HostGo.transform;
 

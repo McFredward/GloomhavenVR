@@ -68,6 +68,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // should be grabbable; the losers are suppressed for THAT hand so the ProximityGrabber (which
     // otherwise picks nearest-to-palm) can only highlight/grab the offset-anchor winner. Set every
     // frame per hand by FigureGrabDriver.SelectByOffsetAnchor; consumed by AllowsHand below.
+    // It carries the PICK VOLUME too (2026-08 accidental-grab report): a figure that no hand has
+    // actually reached — nothing within [FigureGrab] PickRadiusMillimeters of the pinch point — is
+    // suppressed for every hand, so "no winner" and "loser" are the same state here.
     private bool _suppressLeft;
     private bool _suppressRight;
     private Transform? _origParent;
@@ -182,7 +185,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// <summary>
     /// Item 3: per-hand gate (<see cref="IGrabbableHandFilter"/>). Returns false while this figure
     /// is a proximity-grab LOSER for <paramref name="hand"/> — i.e. another figure sits nearer the
-    /// hand's offset anchor (the point where the held mini appears). Set each frame by
+    /// hand's offset anchor (the point where the held mini appears), OR the hand has not actually
+    /// reached this one at all ([FigureGrab] PickRadiusMillimeters, real millimetres at the hand —
+    /// the interactor's own 13 cm palm reach is a card's reach, not a mini's). Set each frame by
     /// <see cref="FigureGrabDriver"/>; the <see cref="ProximityGrabber"/> then skips the losers,
     /// leaving only the offset-anchor-nearest figure grabbable. Uncontested figures (single figure,
     /// or a far laser target out of proximity reach) are never suppressed, so far-grab is untouched.
