@@ -331,6 +331,17 @@ internal sealed class RemotePileFronts
     /// of the arc by one card until they put it back. That is a cosmetic mismatch inside a pile the
     /// viewer is allowed to read in full, never a disclosure; buying exactness would cost a per-card
     /// wire field, which is the one thing this feature is built to avoid.</para>
+    ///
+    /// <para>THE PILE-ARRIVAL RULE ADDS A SECOND, BOUNDED CASE OF THE SAME KIND, and it lands on the
+    /// harmless side by construction. Since the owner's stack label and browse arc defer a card until
+    /// its VR visual physically LANDS in the pile (CardsDriver "pile ARRIVAL" region), the sender's
+    /// arc omits a freshly discarded/burnt card for the ~0.4 s of its flight while THIS client's
+    /// model already lists it. But the game APPENDS to those lists
+    /// (<c>CCharacterClass.MoveAbilityCardToPile</c> → <c>DiscardRoundAbilityCards</c>), so the
+    /// omitted entries are always the TAIL — slabs 0..n-1 still align with model entries 0..n-1 and
+    /// the only effect is that the extra model entries have no slab to be drawn on, which is exactly
+    /// what the wire count already says. Nothing shifts, and it resolves the moment the flight
+    /// lands.</para>
     /// </summary>
     private bool Resolve(CPlayerActor actor, Content content)
     {

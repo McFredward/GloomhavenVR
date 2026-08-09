@@ -243,18 +243,125 @@ internal static class CharacterFocus
     // ------------------------------------------------------------------------------- turn state --
 
     /// <summary>
-    /// The character whose turn it is, or null. Reads the client-side authority
-    /// <c>Choreographer.CurrentPlayerActor</c> (Choreographer.cs:474 — it already resolves a hero
-    /// SUMMON to its summoner, which is what "whose board lights up" means), so a summon's turn
-    /// marks its owner's board rather than nobody's.
+    /// THE CHARACTER WHOSE TURN IT IS — <b>the turn, never the momentarily-acting figure</b>.
+    ///
+    /// <para>DEFECT (user, hardware: "Im Spiel gibt es die Situation mit Karten, dass man einer
+    /// Beschwörung oder einem anderen Character die Möglichkeit gibt anzugreifen — dies zählt aber
+    /// noch als der Zug des Characters der dies ausgelöst hat, daher sollen während dessen auch die
+    /// jeweiligen Karten liegen bleiben von dem ausgewählten Character. Beim Test war das
+    /// Controllboard leer als ich aktiv mit einer Beschwörung angegriffen habe über eine Karte die
+    /// mir das erlaubt hat.")</para>
+    ///
+    /// <para>THE GAME'S OWN MODEL, read at source, has TWO separate notions and the mod used to
+    /// know only one of them:</para>
+    /// <list type="bullet">
+    /// <item><c>GameState.s_TurnActor</c> (<c>GameState.TurnActor</c>, GameState.cs:471) is THE
+    ///   TURN. It is written in exactly two places — the initiative advance
+    ///   (<c>s_TurnActor = s_CurrentActor</c>, GameState.cs:1780), the extra-turn hand-off
+    ///   (GameState.cs:3626) — and cleared at EndRound (GameState.cs:2302). The game's own UI reads
+    ///   it for the "END TURN of &lt;name&gt;" button (SelectActionScenarioState.cs:32,
+    ///   SelectItemState.cs:35, LongRestScenarioState.cs:42), on every client.</item>
+    /// <item><c>GameState.s_CurrentActor</c> / <c>Choreographer.m_CurrentActor</c> is THE ACTING
+    ///   FIGURE, and a card may re-point it MID-TURN without the turn changing hands:
+    ///   <c>GameState.OverrideCurrentActorForOneAction</c> (GameState.cs:3478-3480) sets
+    ///   <c>s_CurrentActor = actor; OverridingCurrentActor = true;</c> and broadcasts
+    ///   <c>CUpdateCurrentActor_MessageData</c>, which every client applies straight onto
+    ///   <c>Choreographer.m_CurrentActor</c> (Choreographer.cs:10622). It NEVER touches
+    ///   <c>s_TurnActor</c>. That is literally the user's sentence, in the game's code.
+    ///   The two call sites the report names are
+    ///   <c>CSummonActiveBonus_CastAbilityFromSummon.cs:28</c> ("cast this ability FROM your
+    ///   summon" — the summon becomes the acting figure, the summoner stays the turn) and
+    ///   <c>CAbilityControlActor.cs:181</c> (give ANOTHER figure the action).</item>
+    /// </list>
+    ///
+    /// <para>SO THE RESOLUTION IS: while <c>GameState.OverridingCurrentActor</c> is set — and ONLY
+    /// then — the turn is <c>GameState.TurnActor</c>, mapped to the player character that owns it
+    /// (a <c>CHeroSummonActor</c> resolves to its <c>Summoner</c>, CHeroSummonActor.cs:116).
+    /// Otherwise this is byte-for-byte the pre-existing read,
+    /// <c>Choreographer.CurrentPlayerActor</c> (Choreographer.cs:474), which already resolves a
+    /// summon to its summoner — so every situation that worked before answers exactly as it did,
+    /// and the ONLY behaviour that changes is the one the report describes.</para>
+    ///
+    /// <para>WHY THE OVERRIDE FLAG IS THE GATE RATHER THAN "always prefer GameState.TurnActor".
+    /// The two statics live one layer apart: the Choreographer's actor is driven by the REPLICATED
+    /// message stream and is deliberately null through several between-turn steps (it is nulled at
+    /// Choreographer.cs:3587/3711/9398 — the enemy-information reveal among them), while
+    /// <c>s_TurnActor</c> keeps its value until EndRound. Preferring the rules-side field
+    /// unconditionally would therefore make "somebody is at turn" TRUE in windows where this mod
+    /// has already ruled that nobody is — most sharply <c>PlayTray.ConfirmCapsForeignView</c>'s
+    /// "NOT ATTRIBUTABLE ⇒ EVERYBODY'S" rule, which is keyed on <see cref="TurnActor"/> being null
+    /// during <c>MonsterClassesSelectAbilityCards</c> (user ruling, ModBuild 85). Gating on the
+    /// override flag adds the missing case without reopening any settled one.</para>
+    ///
+    /// <para>MULTIPLAYER: both reads are client-side and identical on every machine — the override
+    /// is announced by <c>CUpdateCurrentActor_MessageData</c> and the SRL turn advance runs from
+    /// the same replicated stream — so a peer's mirror (which derives the displayed character from
+    /// record 22, itself sampled from <see cref="LookingAt"/> ⇒ <see cref="AttentionActor"/> ⇒
+    /// this) follows the summoner's board exactly as the owner's own board does. No wire change.</para>
     /// </summary>
     internal static CPlayerActor? TurnActor
     {
         get
         {
+            try
+            {
+                if (GameState.OverridingCurrentActor)
+                {
+                    CPlayerActor? owner = TurnOwnerOf(GameState.TurnActor);
+                    if (owner != null)
+                        return owner;
+                }
+            }
+            catch (System.Exception)
+            {
+                // Presentation question: a half-torn rules state must never take the board with it.
+                // Falling through to the Choreographer read is the pre-existing answer.
+            }
             Choreographer c = Choreographer.s_Choreographer;
             return c != null ? c.CurrentPlayerActor : null;
         }
+    }
+
+    /// <summary>
+    /// The PLAYER CHARACTER an actor's turn belongs to: a hero summon's turn belongs to its
+    /// <c>Summoner</c> (CHeroSummonActor.cs:116 — the same mapping
+    /// <c>Choreographer.CurrentPlayerActor</c> makes at Choreographer.cs:476-479), a player
+    /// character's to itself, and an enemy's / object's to nobody. Null-safe by construction so a
+    /// summon whose summoner has left the scenario answers "nobody" rather than throwing.
+    /// </summary>
+    private static CPlayerActor? TurnOwnerOf(CActor? actor) => actor switch
+    {
+        CHeroSummonActor summon => summon.Summoner,
+        CPlayerActor player => player,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Does the CURRENT TURN belong to this hand's LOCALLY CONTROLLED character? This is
+    /// <c>CardsGameApi.IsActionTurn</c> with the one substitution the summon report forces:
+    /// <see cref="TurnActor"/> (the turn) instead of <c>Choreographer.CurrentActor is
+    /// CPlayerActor</c> (the acting figure).
+    ///
+    /// <para>WHY THE OLD EXPRESSION EMPTIED THE BOARD. <c>CHeroSummonActor</c> derives from
+    /// <c>CActor</c>, NOT from <c>CPlayerActor</c> (CHeroSummonActor.cs:10) — so the moment a card
+    /// hands the action to a summon (<c>CSummonActiveBonus_CastAbilityFromSummon.cs:28</c>) or a
+    /// move is driven for one (<c>Choreographer.cs:4269</c>,
+    /// <c>m_CurrentActor = m_MoveAbility.CurrentMovingActor</c>), the pattern match fails, the
+    /// predicate answers false for EVERY hand, and the round-card dock empties: the reported blank
+    /// board. Asking the TURN cannot fail that way — the turn stays with the character that played
+    /// the card, which is precisely what the user says the rules mean.</para>
+    ///
+    /// <para>DELIBERATELY NOT a change to <c>CardsGameApi.IsActionTurn</c> itself: that predicate
+    /// also gates ITEM usability (<c>Cards.ItemsPile</c>), where "the acting figure" is the game's
+    /// own gate and must keep agreeing with it. This is the BOARD-CONTENT question, and it has one
+    /// consumer — <see cref="RoundCardDock"/>.</para>
+    /// </summary>
+    private static bool TurnOwnedBy(CardsHandUI hand)
+    {
+        CPlayerActor? turn = TurnActor;
+        if (turn == null || hand.PlayerActor == null || !ReferenceEquals(turn, hand.PlayerActor))
+            return false;
+        return !FFSNetwork.IsOnline || turn.IsUnderMyControl;
     }
 
     /// <summary>Stable wire id of <see cref="TurnActor"/> (0 = nobody / no scenario).</summary>
@@ -730,10 +837,33 @@ internal static class CharacterFocus
     /// Does the mod's ROUND-CARD dock apply to <paramref name="hand"/> — i.e. may the board's two
     /// card slots show this character's CHOSEN cards — and if not, WHY not?
     ///
-    /// <para>VANILLA PATH (no focus override) is unchanged: <c>CardsGameApi.IsActionTurn</c>, which
-    /// is "this hand's locally-controlled player is the one <c>Choreographer.CurrentActor</c> is on
-    /// right now". That is the state the interactive half-play affordance belongs to and it stays
-    /// keyed to the turn, exactly as before.</para>
+    /// <para>VANILLA PATH (no focus override): <see cref="TurnOwnedBy"/> — "the CURRENT TURN belongs
+    /// to this hand's locally-controlled player". That is the state the interactive half-play
+    /// affordance belongs to and it is still keyed to the turn; what changed is only WHERE the turn
+    /// is read from.</para>
+    ///
+    /// <para>IT USED TO BE <c>CardsGameApi.IsActionTurn</c>, i.e. <c>Choreographer.CurrentActor is
+    /// CPlayerActor cur &amp;&amp; cur == hand.PlayerActor</c> — the ACTING FIGURE. Two user reports
+    /// are the same defect in that one expression, and both are "the board went blank while the
+    /// game was still in my character's turn":</para>
+    /// <list type="bullet">
+    /// <item>"Beim Test war das Controllboard leer als ich aktiv mit einer Beschwörung angegriffen
+    ///   habe über eine Karte die mir das erlaubt hat." — the summon becomes
+    ///   <c>Choreographer.m_CurrentActor</c> (<c>GameState.OverrideCurrentActorForOneAction</c> →
+    ///   <c>CUpdateCurrentActor_MessageData</c> → Choreographer.cs:10622) and a
+    ///   <c>CHeroSummonActor</c> is not a <c>CPlayerActor</c> (CHeroSummonActor.cs:10), so the
+    ///   pattern match failed and NOBODY's cards docked;</item>
+    /// <item>"Während dessen eine Bewegung oder ein Angriff bestätigt werden muss … werden die
+    ///   ausgewählten Karten auf dem Controllboard nicht mehr angezeigt" — the same hole, reached
+    ///   through the movement/targeting messages, which re-point the acting figure at the FIGURE
+    ///   BEING MOVED or TARGETED (<c>Choreographer.cs:4269</c>
+    ///   <c>m_CurrentActor = m_MoveAbility.CurrentMovingActor</c>, <c>:5996</c>
+    ///   <c>ActorIsSelectingTargetingFocus</c>, <c>:9878/:10013</c> push/pull) — a summon or an
+    ///   ally, while the turn never left the character who played the card.</item>
+    /// </list>
+    /// <para>Reading the TURN instead of the figure closes both with one substitution, and leaves
+    /// every pre-existing situation identical (see <see cref="TurnActor"/>: outside an override the
+    /// expression IS the old one).</para>
     ///
     /// <para>FOCUS PATH (user 2026-08-08: "die Kartenslots sind leer — ich will AUCH, dass dort dann
     /// immer die jeweiligen ausgewählten Karten liegen"). The turn key was WRONG here, and that was
@@ -772,11 +902,14 @@ internal static class CharacterFocus
 
         if (!_readOnlyView)
         {
-            // Vanilla path, byte-for-byte the pre-feature decision.
-            bool own = CardsGameApi.IsActionTurn(hand);
+            // Vanilla path: the CURRENT TURN, not the momentarily-acting figure (see the doc's
+            // "IT USED TO BE CardsGameApi.IsActionTurn" paragraph — a summon or a commanded ally
+            // takes the action without taking the turn, and the board must follow the turn).
+            bool own = TurnOwnedBy(hand);
             source = own
-                ? "the game's own action turn (CardsGameApi.IsActionTurn)"
-                : "not this character's action turn (CardsGameApi.IsActionTurn)";
+                ? "this character owns the CURRENT TURN (CharacterFocus.TurnActor — the turn, not " +
+                  "the momentarily-acting figure, so a summon/ally action keeps the cards docked)"
+                : "this character does not own the current turn (CharacterFocus.TurnActor)";
             return own;
         }
 

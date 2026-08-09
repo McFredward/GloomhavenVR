@@ -348,8 +348,31 @@ internal sealed class PileViewer
             _itemsBrowse.RetirePlacedCardIfAny("the pile stacks are hidden");
             return; // hidden ([Cards] PileViewer off / no hand) — no counts, no logs
         }
-        int discard = CardsGameApi.DiscardedCount(counted);
-        int burnt = CardsGameApi.BurntCount(counted);
+        // THE NUMBER BECOMES TRUE WHEN THE CARD LANDS, NOT WHEN THE MODEL MOVES IT (user report:
+        // "Wenn man gerade eine Karte abgeworfen oder verbrannt hat, sie aber noch auf dem
+        // Controllboard liegt, wird aber schon der Pile aktualisiert. So kann es sein, dass zwar im
+        // Pile '1' steht, wenn man ihn aber öffnen will nichts angezeigt wird … So wird es nie
+        // einen '0er-Fächer' geben.").
+        //
+        // The rules engine puts the card in its pile list the instant the action resolves, while on
+        // the VR table the same card is still lying in a board slot / burning where it lies / arcing
+        // over the board. CardsDriver.PendingPileArrivals counts exactly those — the cards the MODEL
+        // already lists in this pile whose VISUAL has not arrived — and it is recomputed from live
+        // objects every frame, so any way a flight ends (landed, cancelled, card destroyed, board
+        // switch, hand switch, scenario teardown, the bounded burn-artwork hold expiring) converges
+        // this number back onto the model on the next frame. See the region header at
+        // CardsDriver.4.Rebuild.cs "pile ARRIVAL" for the full self-healing argument.
+        //
+        // IT EXTENDS THE ModBuild-89 FIX RATHER THAN REVERTING IT: the character these counts belong
+        // to is still `counted` (the hand the BOARD presents), which is what made the burnt count
+        // follow a focus switch at all. This only changes WHEN a card enters the number.
+        //
+        // Max() is belt only — PendingPileArrivals counts members of the pile's own widget list, so
+        // it can never exceed the pile — and it keeps a torn model from ever printing a negative.
+        int discard = Mathf.Max(0, CardsGameApi.DiscardedCount(counted)
+                                   - CardsDriver.PendingPileArrivals(counted, PileKind.Discard));
+        int burnt = Mathf.Max(0, CardsGameApi.BurntCount(counted)
+                                 - CardsDriver.PendingPileArrivals(counted, PileKind.Burnt));
         // The character is part of the change key: switching to a character whose piles happen to
         // hold the SAME two numbers is still a state change worth one line, and without the id the
         // log would go silent across exactly the switch a "die Zahlen stimmen nicht" report needs.
@@ -357,11 +380,21 @@ internal sealed class PileViewer
         if (_loggedCounts != (discard, burnt, countedId))
         {
             _loggedCounts = (discard, burnt, countedId);
+            int modelDiscard = CardsGameApi.DiscardedCount(counted);
+            int modelBurnt = CardsGameApi.BurntCount(counted);
             VRLog.Info("Cards", $"Piles: discard={discard}, burnt={burnt} for " +
                                 $"'{Board.CharacterFocus.Describe(counted.PlayerActor)}' " +
                                 "(authoritative CCharacterClass piles, read against the character " +
                                 "the BOARD presents — CharacterFocus.PresentedHand, so the numbers " +
-                                "follow a focus switch on the same edge the rest of the board does).");
+                                "follow a focus switch on the same edge the rest of the board does)" +
+                                (modelDiscard != discard || modelBurnt != burnt
+                                    ? $". DEFERRED: the model already lists discard={modelDiscard}, " +
+                                      $"burnt={modelBurnt}, but {modelDiscard - discard} discard / " +
+                                      $"{modelBurnt - burnt} burnt card(s) are still ON THEIR WAY " +
+                                      "(lying on the board, held by their burn artwork, or in " +
+                                      "flight). The label becomes true when they LAND — so the fan " +
+                                      "can never open emptier than the number claims."
+                                    : "."));
         }
         _discard.SetCount(discard);
         _burnt.SetCount(burnt);
