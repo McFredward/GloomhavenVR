@@ -2706,14 +2706,29 @@ internal sealed class RemoteBoardFurniture
         /// <c>CurrentCapColor</c>.</summary>
         private Color CurrentStateColor() => _tint;
 
-        /// <summary>Write a colour onto the cap's live materials WITHOUT touching the change gate —
-        /// the animator's fade ramp uses this, so completing a fade restores the true state colour
-        /// through <see cref="SetTint"/>'s gate rather than fighting it.</summary>
-        private void PaintCap(Color color)
+        /// <summary>
+        /// Write the ASSEMBLY ramp onto the cap's live materials WITHOUT touching the change gate —
+        /// the animator uses this, so completing a transition restores the true state colour through
+        /// <see cref="SetTint"/>'s gate rather than fighting it.
+        ///
+        /// <para>Mirror of <c>PlayTray.BoardButton.ApplyAssembly</c>, and deliberately built out of
+        /// the SAME <c>WorldUI.ButtonTuning</c> helpers rather than a copy of the curve: the peer's
+        /// cap therefore crumbles and assembles with the owner's own bevel-leads / walls-trail
+        /// stagger, at the owner's own dust colour, by construction. <paramref name="k"/> is the
+        /// overall progress (0 = pure dust, 1 = settled); <paramref name="rest"/> is the settled TOP
+        /// colour the bevel/wall tints are derived from, exactly as at rest.</para>
+        /// </summary>
+        private void PaintCap(Color rest, float k)
         {
-            if (_topMat != null) _topMat.color = color;
-            if (_bevelMat != null) _bevelMat.color = BevelTint(color);
-            if (_wallMat != null) _wallMat.color = WallTint(color);
+            if (_topMat != null)
+                _topMat.color = WorldUI.ButtonTuning.AssemblyColor(rest,
+                    WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Top));
+            if (_bevelMat != null)
+                _bevelMat.color = WorldUI.ButtonTuning.AssemblyColor(BevelTint(rest),
+                    WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Bevel));
+            if (_wallMat != null)
+                _wallMat.color = WorldUI.ButtonTuning.AssemblyColor(WallTint(rest),
+                    WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Wall));
         }
 
         /// <summary>
@@ -2727,6 +2742,15 @@ internal sealed class RemoteBoardFurniture
             if (color == _tint)
                 return;
             _tint = color;
+            // A state change that lands DURING a mirrored appear/dissolve re-aims the ramp instead of
+            // painting the settled colour over it — otherwise a peer's cap flashes finished inside
+            // its own arrival. Mirror of PlayTray.BoardButton.UpdateColor's re-aim, and the reason
+            // the owner's and the peer's cap survive a mid-transition state flip identically.
+            if (_fx != null && _fx.Transitioning)
+            {
+                _fx.ReAim(color);
+                return;
+            }
             if (_topMat != null) _topMat.color = color;
             if (_bevelMat != null) _bevelMat.color = BevelTint(color);
             if (_wallMat != null) _wallMat.color = WallTint(color);
@@ -2800,16 +2824,29 @@ internal sealed class RemoteCapFx : MonoBehaviour
     /// scripts/check-mirrors.sh.</summary>
     private const float PressDecayPerSecond = 6f;
 
-    /// <summary>Mirror of the brightness the local materialize fade starts its surface ramp from
-    /// (<c>BoardButton.Update</c>: <c>Mathf.SmoothStep(0.15f, 1f, k)</c>).</summary>
-    private const float AppearFadeFloor = 0.15f;
+    // THE APPEAR/DISSOLVE SURFACE RAMP IS NO LONGER MIRRORED — IT IS SHARED. This class used to
+    // carry `AppearFadeFloor = 0.15f`, a hand-kept copy of the local `Mathf.SmoothStep(0.15f, 1f, k)`
+    // that scripts/check-mirrors.sh could only describe in prose (the local half was an inline
+    // literal, so its float extractor could not reach it). The 2026-08-09 invisible-cap round
+    // replaced that multiply-toward-black fade with the assembly ramp in
+    // <c>WorldUI.ButtonTuning.AssemblyColor</c>/<c>AssemblyPhase</c>, and this side simply CALLS it —
+    // so owner and peer are the same code rather than two numbers that have to agree. Same
+    // resolution <c>DecisionDockSurface.BarClearanceMeters</c> got, and the one check-mirrors.sh
+    // itself recommends: delete the second copy instead of linting it. The DURATIONS stay frozen
+    // <c>Defaults</c>-backed constants (machine-checked by scripts/check-remote-defaults.py) and the
+    // press spring keeps its own mirrored decay rate below.
 
     private Transform? _capMesh;
     private float _restZ;
     private float _travel;
     private float _footprint;
     private System.Func<Color>? _stateColor;
-    private System.Action<Color>? _paint;
+
+    /// <summary>Paints the cap's three submeshes at an assembly progress k (0 = pure dust, 1 =
+    /// settled), around the given settled TOP colour — the mirror of
+    /// <c>PlayTray.BoardButton.ApplyAssembly</c>, wired to <see cref="RemoteBoardFurniture.InertCap"/>
+    /// so the bevel/wall derivation stays with the cap that owns those materials.</summary>
+    private System.Action<Color, float>? _paint;
 
     private float _press;
     private float _hideLeft;
@@ -2841,8 +2878,29 @@ internal sealed class RemoteCapFx : MonoBehaviour
     /// re-show has to CANCEL the shrink rather than no-op on "already active".</summary>
     internal bool Hiding => _hideLeft > 0f;
 
+    /// <summary>True while EITHER transition is repainting the cap's surface, i.e. while the
+    /// animator — not the state gate — owns its colour. See <see cref="ReAim"/>.</summary>
+    internal bool Transitioning => _hideLeft > 0f || _showLeft > 0f;
+
+    /// <summary>
+    /// Point the running transition at a NEW settled colour and repaint at the progress it has
+    /// already reached. Called when the owner's cap changes state mid-animation (a confirm going
+    /// accented as it arrives, say): the mirrored cap then finishes assembling into the colour it is
+    /// actually becoming, instead of the peer seeing the settled look punched in for one frame and
+    /// the ramp resuming from the old one. Mirror of the re-aim in
+    /// <c>PlayTray.BoardButton.UpdateColor</c>.
+    /// </summary>
+    internal void ReAim(Color rest)
+    {
+        _appearTarget = rest;
+        float k = _hideLeft > 0f
+            ? Mathf.Clamp01(_hideLeft / RemoteBoardFurniture.DissolveSeconds)
+            : 1f - Mathf.Clamp01(_showLeft / RemoteBoardFurniture.AppearSeconds);
+        _paint?.Invoke(rest, k);
+    }
+
     internal void Init(Transform? capMesh, float restZ, float travel, float footprint,
-        System.Func<Color> stateColor, System.Action<Color> paint)
+        System.Func<Color> stateColor, System.Action<Color, float> paint)
     {
         _capMesh = capMesh;
         _restZ = restZ;
@@ -2871,6 +2929,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
         _hideLeft = RemoteBoardFurniture.DissolveSeconds;
         _hideDeadline = Time.unscaledTime + _hideLeft + FadeWatchdogSlack; // watchdog (see the field header)
         _showDeadline = float.PositiveInfinity;
+        _appearTarget = Current(); // the settled colour the crumble runs BACK from (shared with the appear)
         WorldUI.ButtonTuning.LogAnim(name, "disappear (dust dissolve) — MIRRORED");
         WorldUI.ButtonDissolveFx.Play(CapWorldCenter(), -transform.forward,
             _footprint * Mathf.Abs(transform.lossyScale.x), Current());
@@ -2885,7 +2944,11 @@ internal sealed class RemoteCapFx : MonoBehaviour
         _showDeadline = Time.unscaledTime + _showLeft + FadeWatchdogSlack; // watchdog (see the field header)
         _hideDeadline = float.PositiveInfinity;
         _appearTarget = Current();
-        WorldUI.ButtonTuning.LogAnim(name, "appear (materialize-from-dust) — MIRRORED");
+        // Frame ZERO of the assembly, painted here rather than on the next Update — otherwise the
+        // peer sees one frame of the finished cap before it starts arriving, which is the pop the
+        // whole animation exists to remove (mirror of the same line in BoardButton.SetVisible).
+        _paint?.Invoke(_appearTarget, 0f);
+        WorldUI.ButtonTuning.LogAnim(name, "appear (assemble out of dust) — MIRRORED");
         if (WorldUI.ButtonTuning.AppearParticlesEnabled)
             WorldUI.ButtonDissolveFx.PlayMaterialize(CapWorldCenter(), -transform.forward,
                 _footprint * Mathf.Abs(transform.lossyScale.x), _appearTarget);
@@ -2901,7 +2964,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
         _showDeadline = float.PositiveInfinity;
         _press = 0f;
         transform.localScale = _shownScale;
-        _paint?.Invoke(Current());
+        _paint?.Invoke(Current(), 1f); // 1 = fully settled material, no dust
         SeatCap(0f);
     }
 
@@ -2937,32 +3000,31 @@ internal sealed class RemoteCapFx : MonoBehaviour
                 _hideLeft = 0f; // watchdog: never leave a peer's cap parked half-shrunk
             float k = Mathf.Max(0f, _hideLeft / RemoteBoardFurniture.DissolveSeconds);
             transform.localScale = _shownScale * k;
+            _paint?.Invoke(_appearTarget, k); // the assembly ramp, run backwards — walls first, brass frame last
             if (_hideLeft <= 0f)
             {
                 _hideDeadline = float.PositiveInfinity;
                 transform.localScale = _shownScale; // restore for the next show
+                _paint?.Invoke(Current(), 1f);      // leave the exact state colour behind
                 gameObject.SetActive(false);
             }
             return;
         }
 
-        // Materialize: full scale IN PLACE while the opaque surface brightens from the dust up to
-        // the true state colour, which is then re-asserted exactly.
+        // Assemble: full scale IN PLACE while the opaque surface cools out of the warm dust into the
+        // true state colour, which is then re-asserted exactly.
         if (_showLeft > 0f)
         {
             _showLeft -= Time.unscaledDeltaTime;
             if (_showLeft > 0f && Time.unscaledTime >= _showDeadline)
-                _showLeft = 0f; // watchdog: never leave a peer's cap parked at 15% (invisible under its label)
+                _showLeft = 0f; // watchdog: never leave a peer's cap parked mid-assembly
             float k = 1f - Mathf.Max(0f, _showLeft / RemoteBoardFurniture.AppearSeconds);
             transform.localScale = _shownScale;
-            float b = Mathf.SmoothStep(AppearFadeFloor, 1f, k);
-            Color faded = _appearTarget * b;
-            faded.a = _appearTarget.a;
-            _paint?.Invoke(faded);
+            _paint?.Invoke(_appearTarget, k);
             if (_showLeft <= 0f)
             {
                 _showDeadline = float.PositiveInfinity;
-                _paint?.Invoke(Current());
+                _paint?.Invoke(Current(), 1f);
             }
         }
 
