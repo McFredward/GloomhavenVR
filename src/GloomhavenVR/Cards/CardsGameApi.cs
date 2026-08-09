@@ -955,6 +955,27 @@ internal static class CardsGameApi
     /// (<c>ActiveBonusUsed</c>: <c>Actor.Inventory.AllItems.Find(s =&gt; s.ID == BaseCard.ID)</c>), so
     /// id is the identity the game trusts here and reference equality is not guaranteed to hold.</para>
     ///
+    /// <para>─── AND THAT IS WHY <paramref name="owner"/> EXISTS, AND WHY IT IS NOT OPTIONAL (user
+    /// report 2026-08-09, the item-pile focus regression: "Der Item Pile soll von dem Fächer und der
+    /// Nummer immer dasjenige anzeigen dessen Character gerade ausgewählt ist"). <c>CItem.ID</c> is
+    /// the item CARD id, NOT a per-copy identity — <c>CItem</c> inherits it from <c>CBaseCard</c>
+    /// (CItem.cs:228, <c>base(id, ECardType.Item, id.ToString())</c>) and the per-copy identity is
+    /// <c>ItemGuid</c>/<c>NetworkID</c>. Two characters who both bought the same item (the shop
+    /// stocks several copies of most) therefore hold two CItem instances with the SAME ID. The
+    /// game's own by-id lookup is safe because it searches ONE inventory —
+    /// <c>Actor.Inventory.AllItems</c>, the bonus's own actor. This one searched the whole BAR, so
+    /// asking it about character B's copy while character A's bonus was on offer answered YES.</para>
+    ///
+    /// <para>Harmless while everything on the item stack was driven by the acting character (the
+    /// item asked about was always the bar's own actor's). The moment the fan and the stack follow
+    /// the FOCUSED character it stops being harmless in BOTH directions: the watched character's
+    /// stack would wear the usable cue for a question that is not theirs, and — the dangerous half —
+    /// <c>ItemsPile.OnChipReleased</c> routes a drop by this very predicate, so placing the watched
+    /// character's card would have toggled the ACTING character's bonus through
+    /// <c>ConfirmPendingBonus</c>. Requiring the bonus's own <c>Actor</c> (public, CActiveBonus.cs:186
+    /// — the actor the game charges in <c>ActiveBonusUsed</c>) to BE the item's owner closes both.
+    /// Null owner ⇒ no match: an unattributable card may not reach a bonus seam at all.</para>
+    ///
     /// <para>Deliberately ignores <c>gameObject.activeSelf</c>: the mod itself deactivates these very
     /// rows (<c>UseBarsSurface.EnforceActiveBonusSplit</c>) — that is the whole point of this pass —
     /// so requiring an active slot would make the placement flow disappear together with the button
@@ -963,9 +984,9 @@ internal static class CardsGameApi
     /// slot (and neither does the game's own <c>GetSlotForActiveBonus</c>, which
     /// <c>TakeDamagePanelSafety</c> and <c>ProxyUseActiveBonus</c> both use).</para>
     /// </summary>
-    internal static CActiveBonus? PlaceableBonusForItem(CItem? item)
+    internal static CActiveBonus? PlaceableBonusForItem(CItem? item, CPlayerActor? owner)
     {
-        if (item == null)
+        if (item == null || owner == null)
             return null;
         UIActiveBonusBar? bar = Singleton<UIActiveBonusBar>.IsInitialized
             ? Singleton<UIActiveBonusBar>.Instance : null;
@@ -974,6 +995,11 @@ internal static class CardsGameApi
         foreach (KeyValuePair<CActiveBonus, UIUseActiveBonus> kv in bar.activeBonusSlots)
         {
             if (kv.Value == null || !BonusIsPlaceable(kv.Key))
+                continue;
+            // The bonus must belong to the character who owns this copy of the card — see the
+            // by-id note above. ReferenceEquals, not ==: CActor has no equality override and the
+            // actor instances are the scenario's own singletons per player.
+            if (!ReferenceEquals(kv.Key.Actor, owner))
                 continue;
             if (kv.Key.BaseCard != null && kv.Key.BaseCard.ID == item.ID)
                 return kv.Key;

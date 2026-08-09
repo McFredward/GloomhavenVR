@@ -1874,6 +1874,18 @@ internal sealed partial class CardsDriver
     /// starts or expires) without any of the mod's rebuild events. Poll a cheap signature
     /// of the active pile + round and flip dirty on any edge; <see cref="UpdateActive"/> is
     /// the sole executor. Allocation-free, no-op when steady.
+    ///
+    /// <para>FED THE PRESENTED HAND, because that is the hand its executor renders: Rebuild calls
+    /// <see cref="UpdateActive"/> with <c>CharacterFocus.ResolveHand(CurrentHand())</c>. Found while
+    /// fixing the item pile's twin of this (user report 2026-08-09, see
+    /// <c>PileViewer.TickStatus</c>) — a DISPLAY surface whose change-gate watched the GAME's hand
+    /// while its build read the FOCUSED one is the same defect shape, and a watchdog that watches
+    /// the wrong character simply stops firing: the focused character's active set could change (a
+    /// bonus expiring at a round boundary during somebody else's turn) with nothing marking the
+    /// board dirty. Low blast radius — <see cref="UpdateActive"/> shows nothing at all unless it is
+    /// that character's own action turn or the shared selection phase — but the two halves must read
+    /// the same hand or the signature compares two different characters' piles across a focus
+    /// switch, which is a spurious dirty in the other direction.</para>
     /// </summary>
     private void PollActive(CardsHandUI? hand)
     {

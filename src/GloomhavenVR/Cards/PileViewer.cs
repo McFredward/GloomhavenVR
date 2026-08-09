@@ -30,11 +30,12 @@ internal sealed class PileViewer
     private PileStack? _items;
     private bool _locHooked;
     private (int discard, int burnt, int actorId) _loggedCounts = (int.MinValue, int.MinValue, 0);
-    private int _loggedItems = int.MinValue;
+    private (int items, int actorId) _loggedItems = (int.MinValue, 0);
 
     // Usable-item highlight diagnostic (throttled + change-gated) — see TickItemsUsableHighlight.
     private float _nextUsableLogAt;
     private int _loggedUsable = int.MinValue;
+    private int _loggedUsableActor;
     private bool _loggedStackCue;
 
     /// <summary>
@@ -46,7 +47,18 @@ internal sealed class PileViewer
     /// </summary>
     private readonly ItemsPile _itemsBrowse = new();
 
-    /// <summary>The active hand last seen in <see cref="TickStatus"/> — the items pile's inventory source.</summary>
+    /// <summary>
+    /// The hand the BOARD PRESENTS, last seen in <see cref="TickStatus"/> — the items pile's
+    /// inventory source, and what <see cref="DispatchPoke"/> opens the item fan with.
+    ///
+    /// <para>It is <c>CharacterFocus.PresentedHand(CurrentHand())</c>, NOT the game's own hand (user
+    /// report 2026-08-09: "Der Item Pile soll von dem Fächer und der Nummer immer dasjenige anzeigen
+    /// dessen Character gerade ausgewählt ist - nicht desjenigen das am Zug ist"). The long argument
+    /// for why the item ACTION paths follow it too — instead of a second hand being threaded through
+    /// beside it — lives on <see cref="ItemsPile"/>'s own <c>_hand</c> field; the short version is
+    /// that they are gated unreachable off-turn, so following the focus can never make a seam name
+    /// the wrong character.</para>
+    /// </summary>
     private CardsHandUI? _hand;
 
     /// <summary>Stack poked (finger/laser) — CardsDriver toggles the browse fan. The
@@ -126,7 +138,17 @@ internal sealed class PileViewer
 
     /// <summary>Item-surrender pick (event consume/refresh mali): per-frame pump, driven by the
     /// CardsDriver INDEPENDENTLY of the stack visibility gate in <see cref="TickStatus"/> —
-    /// the demand can arrive at scenario start before any pile UI has ever shown.</summary>
+    /// the demand can arrive at scenario start before any pile UI has ever shown.
+    ///
+    /// <para><paramref name="hand"/> IS THE GAME'S HAND AND MUST STAY SO — this is the one item
+    /// entry point the 2026-08-09 focus fix deliberately left on <c>CardsDriver.CurrentHand()</c>
+    /// while everything else on the items stack moved to the presented character. These two pumps
+    /// do not DISPLAY the character's items; they mirror a decision the GAME addressed to a
+    /// particular actor (<see cref="ItemsPile.TickDemandPick"/> literally tests
+    /// <c>ReferenceEquals(hand.PlayerActor, picker's actor)</c>), and a watched character must
+    /// neither claim that demand nor make it disappear. Their drop seams are safe against a
+    /// mismatched fan by construction — they key reference-identical CItem instances out of the
+    /// game's own dictionaries — so the two hands may legitimately disagree here.</para></summary>
     internal void TickItemDemand(CardsHandUI? hand)
     {
         _itemsBrowse.TickDemandPick(hand);
@@ -310,8 +332,9 @@ internal sealed class PileViewer
         _items = null;
         _hand = null;
         _loggedCounts = (int.MinValue, int.MinValue, 0);
-        _loggedItems = int.MinValue;
+        _loggedItems = (int.MinValue, 0);
         _loggedUsable = int.MinValue;
+        _loggedUsableActor = 0;
         _loggedStackCue = false;
     }
 
@@ -329,7 +352,6 @@ internal sealed class PileViewer
     /// </summary>
     internal void TickStatus(CardsHandUI? hand, CardsHandUI? presented)
     {
-        _hand = hand;
         // THE COUNTS BELONG TO THE CHARACTER ON THE BOARD, not to the one the game presents (user
         // report, hardware ModBuild 89 — "Wird der Character gewechselt sollen immer sofort die
         // jeweiligen richtigen Zahlen des Characters angezeigt werden", and its twin "beim
@@ -339,10 +361,41 @@ internal sealed class PileViewer
         // the fan, the slots, the active column and the piles' CONTENT and left the two NUMBERS on
         // the previous character — and a card the focused character burned never reached the burnt
         // label at all, which is exactly the "discard went to 1, burnt stayed 0" in the hardware
-        // log (LogOutput.log:4513). `presented` is the focus-resolved hand and is DISPLAY ONLY;
-        // `hand` (the game's) still drives every item path below, because those reach real game
-        // seams (item use / the surrender pick) and must never name a merely-watched character.
+        // log (LogOutput.log:4513).
+        //
+        // ─── THAT FIX WAS DRAWN TOO COARSELY, AND THIS IS THE REST OF IT (user report 2026-08-09,
+        // verbatim: "Wenn gerade ein Character am Zug ist, und man wechselt zu einem anderen
+        // Character - dann ändert sich der Item Pile nicht, es bleibt der Item Pile des Characters
+        // der gerade am Zug ist. Das soll nicht sein und ist eine Regression. Der Item Pile soll von
+        // dem Fächer und der Nummer immer dasjenige anzeigen dessen Character gerade ausgewählt ist -
+        // nicht desjenigen das am Zug ist.").
+        //
+        // The line that used to stand here said `presented` is DISPLAY ONLY and `hand` (the game's)
+        // "still drives every item path below, because those reach real game seams (item use / the
+        // surrender pick)". The SPLIT is right and is kept; where it was drawn was not. It put the
+        // whole items STACK — the fan's contents, the number on the stack, and the usable cue — on
+        // the acting character, because all three are read through the same argument that the item
+        // ACTIONS are. So the discard and burnt numbers followed a focus switch and the third stack
+        // beside them did not: exactly the reported regression, and the ModBuild-89 defect surviving
+        // in the one stack that fix did not cover.
+        //
+        // The split now runs INSIDE the item path instead of around it (see ItemsPile._hand for the
+        // full argument and for why the field moved rather than a second display-hand being added):
+        //   * DISPLAY — the fan's contents, the stack count, the usable cue, the per-card frame:
+        //     `counted`, the character the board is SHOWING. That is this whole paragraph's rule.
+        //   * ACTION — item use, the element sub-choice, the active-bonus toggle: they name
+        //     ItemsPile._hand, which IS `counted`, and they are made unreachable for a merely-watched
+        //     character by CardsGameApi.IsActionTurn (false by construction off-turn) rather than by
+        //     naming somebody else. No seam runs for the wrong person because no seam runs at all.
+        //   * THE FLOW PUMPS — the item-surrender pick and the take-damage shield place — keep the
+        //     GAME's hand and are driven separately from TickItemDemand(hand) below: they mirror a
+        //     decision the game addressed to the acting/deciding actor, and their own drop seams key
+        //     reference-identical CItem instances out of the game's dictionaries, so a watched
+        //     character's card is refused there structurally.
         CardsHandUI? counted = presented != null ? presented : hand;
+        // The items browse renders — and acts on — the character the BOARD shows. DispatchPoke opens
+        // the fan with this hand, so poking the stack while watching somebody fans out THEIR items.
+        _hand = counted;
         if (_discard == null || _burnt == null || hand == null || counted == null)
         {
             CurrentCounts = null; // nothing displayed ⇒ nothing for the wire to claim
@@ -411,17 +464,29 @@ internal sealed class PileViewer
         _discard.SetCount(discard);
         _burnt.SetCount(burnt);
 
-        // Item 4: the character-items stack count + its browse follow/refresh.
-        int items = _itemsBrowse.Count(hand);
+        // Item 4: the character-items stack count + its browse follow/refresh — all on `counted`,
+        // the character the BOARD shows, exactly like the two numbers above (user report 2026-08-09,
+        // see the paragraph at the top of this method). ItemsPile.Tick's own hand-change guard reads
+        // this same argument, so a focus switch closes a fan that was opened for the old character
+        // instead of silently re-labelling somebody else's cards.
+        int items = _itemsBrowse.Count(counted);
         if (_items != null)
             _items.SetCount(items);
-        if (_loggedItems != items)
+        // The character is part of the change key for the SAME reason it is part of the discard/burnt
+        // one above: switching to a character who happens to carry the same NUMBER of items is still
+        // the state change a "der Item Pile ändert sich nicht" report needs to see in the log, and
+        // without the id this line would go silent across exactly that switch.
+        if (_loggedItems != (items, countedId))
         {
-            _loggedItems = items;
-            VRLog.Info("Cards", $"Piles: items={items} (Inventory.AllItems).");
+            _loggedItems = (items, countedId);
+            VRLog.Info("Cards", $"Piles: items={items} (Inventory.AllItems) for " +
+                                $"'{Board.CharacterFocus.Describe(counted.PlayerActor)}' — read against " +
+                                "the character the BOARD presents (CharacterFocus.PresentedHand), so " +
+                                "the fan and the number follow a focus switch on the same edge the " +
+                                "discard/burnt numbers do.");
         }
-        _itemsBrowse.Tick(hand);
-        TickItemsUsableHighlight(hand, items);
+        _itemsBrowse.Tick(counted);
+        TickItemsUsableHighlight(counted, items);
 
         // MULTIPLAYER seam (extras extension record 15): the numbers this board is DISPLAYING
         // right now, published for NetAvatarDriver's extras sender. Deliberately the RENDERED
@@ -472,11 +537,26 @@ internal sealed class PileViewer
     /// the chips and <c>UseItemService</c> use, so the stack can never advertise a use the game would
     /// reject, and the stack cue and the per-card frames can never disagree.
     ///
-    /// <para>Since 2026-08-09 that predicate has a SECOND arm, and it is why the cue can now light up
+    /// <para>Since 2026-08-09 that predicate has a SECOND arm, and it is why the cue can light up
     /// off-turn: an item whose ACTIVE BONUS is being offered (the "Brille" asking, per attack or per
     /// incoming hit, whether to spend itself) is playable by placing its card, and the game offers
     /// that question in windows that are not the owner's action turn. The user asked for exactly
     /// this cue — "dann soll die Brille im Gegenstands-Pile gehighlighted werden".</para>
+    ///
+    /// <para>─── AND THE USER'S NEXT RULE, THE SAME DAY, POINTS THE OTHER WAY: "Weiterhin möchte ich
+    /// das die Pile-Animation das etwas nutzbar ist NUR bei dem Character sichtbar ist der gerade am
+    /// Zug ist, denn nur da ist aktuell wirklich gerade etwas nutzbar, bei den anderen ja nicht."
+    /// The two are NOT in conflict and no second gate was added: the rule's REASON — "nur da ist
+    /// wirklich gerade etwas nutzbar" — is the predicate itself. This method now asks
+    /// <see cref="ItemsPile.UsableCount"/> about the character the board is SHOWING (`counted`, the
+    /// same argument the three numbers are read against), and that count is 0 for a character who
+    /// has nothing to play: the ordinary arm needs their own action turn, and the bonus arm needs the
+    /// game to be holding a bonus row OF THEIR OWN — which it now genuinely does, because
+    /// <c>CardsGameApi.PlaceableBonusForItem</c> is scoped to the bonus's own <c>Actor</c> since this
+    /// pass (it matched by item CARD id before, and two characters can carry copies of one item, so
+    /// the acting character's offer could light up a watched character's stack — that leak WAS the
+    /// user's rule). A blanket action-turn gate would instead have deleted the Brille cue, which the
+    /// game only ever offers during somebody else's turn.</para>
     ///
     /// Runs every frame the tray shows (a turn check + a pass over a handful of items), so it tracks
     /// turn/phase changes live. Purely local visual — nothing here touches game state or the network.
@@ -488,19 +568,29 @@ internal sealed class PileViewer
         _items?.SetUsableHighlight(on);
         // …and the SAME answer goes on the wire in the same statement group (board-UI byte 2 bit 7,
         // see ItemsUsableCueOn): a peer's mirrored items stack now beats on the owner's edges, which
-        // it never did — the whole cue was invisible to everybody but its owner.
+        // it never did — the whole cue was invisible to everybody but its owner. Since `hand` here is
+        // the PRESENTED character, the mirrored cue follows the owner's focus for free, which is what
+        // the standing MP rule ("the remote board shows what THAT PLAYER sees") requires.
         ItemsUsableCueOn = on;
 
         // Throttled + change-gated diagnostic so the next hardware log can verify the cue end-to-end:
-        // how many items are usable this instant, and whether the stack's ember drift is actually running.
+        // how many items are usable this instant, and whether the stack's ember drift is actually
+        // running. The character is part of the key (as in the two count logs above): switching to a
+        // character with the same tally is exactly the edge a "die Animation zeigt den Falschen"
+        // report needs to be able to read.
+        int actorId = hand != null ? Net.NetFigures.StableActorId(hand.PlayerActor) : 0;
         if (Time.unscaledTime < _nextUsableLogAt)
             return;
         _nextUsableLogAt = Time.unscaledTime + 2f;
-        if (usable == _loggedUsable && on == _loggedStackCue)
+        if (usable == _loggedUsable && on == _loggedStackCue && actorId == _loggedUsableActor)
             return;
         _loggedUsable = usable;
         _loggedStackCue = on;
-        VRLog.Info("Cards", $"ITEM highlight: {usable}/{itemCount} item(s) usable now — " +
+        _loggedUsableActor = actorId;
+        VRLog.Info("Cards", $"ITEM highlight: {usable}/{itemCount} item(s) usable now for " +
+                            $"'{(hand != null ? Board.CharacterFocus.Describe(hand.PlayerActor) : "?")}' " +
+                            "(the character the BOARD presents — turn-gated ordinary use OR an active " +
+                            "bonus offered to THAT actor) — " +
                             $"stack cue {(on ? "ON" : "off")} (ember puffs + outward rings on a " +
                             $"{CardsConfig.ItemCueBeatSeconds.Value:0.00}s heartbeat), " +
                             $"fan {(_itemsBrowse.IsOpen ? "open" : "closed")} " +
