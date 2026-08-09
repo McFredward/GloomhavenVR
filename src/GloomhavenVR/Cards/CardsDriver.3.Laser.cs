@@ -2060,10 +2060,21 @@ internal sealed partial class CardsDriver
     private void UpdateItemFanLaser()
     {
         VRHand? dom = VRHands.Primary;
+        // …OR the arc is DOWN and a card is still LYING IN the use recess (user report 2026-08-09:
+        // "Ich will das die Gegenstandskarte die auf dem Overlay liegt auch nach oben hinweg
+        // gehighlighted wird wenn man mit dem Laser drüberfährt"). That card outlives its fan on
+        // purpose (ItemsPile._keptClip) and is the state the player spends most of the decision in,
+        // but this whole path was gated on the ARC being open — so the beam passed straight through
+        // it: no hover, no lift, and no laser click either, although ItemChip.OnPoke has carried the
+        // "the far laser puts a placed card back" branch for it since ModBuild 92. Exactly the same
+        // shape UpdateBoardFanHandTrigger already needed for the HAND (`ItemsBrowseOpen ||
+        // ItemCardInRecess`), and for the same reason; the pick itself is served by
+        // ItemsPile.TryLaserRaycast, which now scans that survivor.
+        bool itemsReachable = _piles.ItemsBrowseOpen || _piles.ItemCardInRecess;
         // _boardHover / _trayCardHover left the guard for the same reason they left
         // UpdateBrowseLaser's: the item fan also floats ABOVE the board, so "the board hovered
         // something" was never evidence that the board is in FRONT. Arbitrated by distance below.
-        if (!_piles.ItemsBrowseOpen || dom == null || dom == _gateHand || !dom.HasPose
+        if (!itemsReachable || dom == null || dom == _gateHand || !dom.HasPose
             || !dom.Ray.Active || dom.Grabber.Held != null
             || _laserHover != null
             || _browseHover != null)
@@ -2127,7 +2138,14 @@ internal sealed partial class CardsDriver
             // through the same ForeignInteraction seam as the discard/burnt browser's click-away.
             // COMMIT gate (laser ruling 2026-08): not under a blocking modal — a trigger meant
             // for the modal must not close the player's item fan.
-            if (dom.TriggerDown && !_modalInputBlocked)
+            //
+            // …and ONLY WHILE THERE IS AN ARC TO DISMISS. This method now also runs for the lone card
+            // lying in the recess with the fan already closed (see `itemsReachable`), and in that
+            // state there is no fan the player could be clicking away from: letting a nothing-hit
+            // trigger reach ForeignInteraction there would make every stray board pull a foreign
+            // interaction against a fan that is not up. The dismiss is a property of the OPEN arc,
+            // so it is gated on the open arc.
+            if (dom.TriggerDown && !_modalInputBlocked && _piles.ItemsBrowseOpen)
                 ForeignInteraction("click-away (trigger off the item fan)");
             return;
         }

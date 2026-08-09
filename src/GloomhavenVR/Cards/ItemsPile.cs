@@ -168,6 +168,12 @@ internal sealed class ItemsPile
     }
 
     private readonly List<ItemChip> _chips = new(12);
+
+    /// <summary>Scratch candidate set for <see cref="TryLaserRaycast"/> — the arc while it is up, the
+    /// single card still lying in the recess while it is down. A REUSED list (cleared and refilled,
+    /// never re-allocated) because that pick runs per frame per hand and the whole path is written to
+    /// be allocation-free.</summary>
+    private readonly List<ItemChip> _laserScan = new(12);
     private Transform? _root;
     private TextMeshPro? _title;
     // The ITEMS stack transform (PileViewer.EnsureBuilt passes _items.transform; the shared pile
@@ -1434,6 +1440,36 @@ internal sealed class ItemsPile
     private static bool s_loggedHoverFeedback;
 
     /// <summary>
+    /// One-shot session confirmation that the card LYING IN THE USE RECESS now speaks the same
+    /// feedback language as a card lying in one of the board's slot recesses — the grep line the next
+    /// hardware log is read for (<c>"Item recess hover feedback ACTIVE"</c>), modelled on
+    /// <see cref="LogHoverFeedbackOnce"/> so the arc and the berth are checked the same way. Fired on
+    /// the first lift of a session only; the per-hover evidence is already carried by the item-fan
+    /// laser line and by the stand-down's own "item use recess" zone.
+    /// </summary>
+    private static void LogRecessFeedbackOnce()
+    {
+        if (s_loggedRecessFeedback)
+            return;
+        s_loggedRecessFeedback = true;
+        VRLog.Info("Cards", "Item recess hover feedback ACTIVE (parity pass 2026-08-09): the card lying " +
+                            "in the item-USE berth now LIFTS on hover — up 0.012 m + [Cards] " +
+                            "FanSelectedPopForward toward the viewer, ×1.18, ramped at 8/s, applied in " +
+                            "SLOT-local space (its rotation is identity there, so a spent card's tapped " +
+                            "roll cannot send it sideways). Both channels feed it, exactly as they do " +
+                            "for a slot-docked ability card: the BEAM through ItemChip.OnPokeEnter " +
+                            "(pop + HoverTick) and the HAND through IGrabHighlight, i.e. the very " +
+                            "ProximityGrabber highlight edge that already plays HoverTick — so the buzz " +
+                            "and the lift are one event. The chip stays OUT of the arc sweep " +
+                            "(SweepEligible is unchanged): it is not at an arc position and takes no " +
+                            "part in the split, the pivot or the grab gate. A placed card whose active " +
+                            "bonus the game has LOCKED still lifts for nobody.");
+    }
+
+    /// <summary>One-shot guard for <see cref="LogRecessFeedbackOnce"/>.</summary>
+    private static bool s_loggedRecessFeedback;
+
+    /// <summary>
     /// ONE hand's election over the arc — the per-hand half of <see cref="UpdateHandSweep"/>'s two
     /// elections, with that hand's OWN incumbent so the two can never steal each other's
     /// hysteresis (the same separation <c>CardsDriver</c> keeps between its dominant-hand and
@@ -1572,6 +1608,26 @@ internal sealed class ItemsPile
     /// when the dominant hand lifts nothing. Deterministic, so a peer never sees the highlight
     /// flicker between two chips, and a one-handed sweep — either hand — is byte-identical to
     /// before.</para>
+    ///
+    /// <para>THE CARD LYING IN THE USE RECESS TRAVELS ON THIS FIELD TOO (user report 2026-08-09,
+    /// "auch nach oben hinweg gehighlighted"). Its lift is an ANIMATION of a card lying on the
+    /// control board, so the standing 1:1 ruling covers it — and the mod has already answered
+    /// exactly this question for both fans: a highlighted card's POSITION is mirrored, the haptic is
+    /// not (see <see cref="UpdateHandSweep"/>'s haptic note). Following that same line needs NO wire
+    /// change and no new dial: the clipped chip has a perfectly good ARC INDEX — it is the very
+    /// number record 26 already sends (<see cref="ClippedChipIndex"/>) — so naming it here makes the
+    /// existing bare position on record 6 mean "the owner is singling this one out", whether it is
+    /// standing in the arc or lying in the recess. <c>Net.RemoteItemFan</c> recognises the case by
+    /// comparing it against the clip index it already holds, lifts that slab in ITS recess frame and
+    /// splits nothing (the owner's arc does not split around it either — the clipped chip is not a
+    /// sweep winner and never becomes the layout pivot).</para>
+    ///
+    /// <para>LOWEST PRECEDENCE, so nothing that already travels changes: the hand sweep's pivot
+    /// first, then an arc chip's own combined pop, and only then the recess card. The three are
+    /// mutually exclusive in practice anyway — the sweep cannot elect a clipped chip
+    /// (<c>SweepEligible</c>) and a clipped chip answers false to <c>IsHighlighted</c> — so the
+    /// ordering only decides the two-handed case where one hand sweeps the arc while the other
+    /// reaches into the berth, and there the ARC keeps the wire exactly as it does today.</para>
     /// </summary>
     internal int HighlightedIndex
     {
@@ -1585,6 +1641,12 @@ internal sealed class ItemsPile
             {
                 ItemChip c = _chips[i];
                 if (c != null && c.IsHighlighted)
+                    return i;
+            }
+            for (int i = 0; i < _chips.Count; i++)
+            {
+                ItemChip c = _chips[i];
+                if (c != null && c.RecessHighlighted && c.Holder == null)
                     return i;
             }
             return -1;
@@ -1735,7 +1797,27 @@ internal sealed class ItemsPile
         distance = float.PositiveInfinity;
         LastLaserPick = FanSweep.FanLaserPick.None;
 
-        if (!IsOpen || _root == null)
+        // WHAT THE BEAM MAY SEE. With the arc UP that is the arc, unchanged — including the clipped
+        // chip, which has always been scanned on purpose (see the loop's own note: the far laser puts
+        // a placed card back). With the arc DOWN it is the ONE card still lying in the recess
+        // (<see cref="_keptClip"/>), and that case is new.
+        //
+        // WHY IT HAD TO BE ADDED (user report 2026-08-09, "die Gegenstandskarte die auf dem Overlay
+        // liegt … wenn man mit dem Laser drüberfährt"). The card outliving the fan is the state the
+        // player spends most of the decision in — they lay it in, click the arc away and go on
+        // playing — and in exactly that state this scan answered "no chips" because the ARC was
+        // closed. So the beam passed straight through the card: no hover, no lift, and no
+        // laser-click either, even though `ItemChip.OnPoke` has carried the "the far laser puts it
+        // back" branch for it since ModBuild 92. The card is the same object with the same live
+        // transform, the same face rect and the same board-anchored pose in both states; only the arc
+        // it is no longer part of had gone away. No new rule is introduced here — the existing one
+        // simply reaches the state it could not see.
+        _laserScan.Clear();
+        if (IsOpen && _root != null)
+            _laserScan.AddRange(_chips);
+        else if (_keptClip != null)
+            _laserScan.Add(_keptClip);
+        if (_laserScan.Count == 0)
             return false;
 
         // ANGULAR RESCUE bookkeeping (the "I cannot reliably laser-hover the chips" report). The
@@ -1754,9 +1836,9 @@ internal sealed class ItemsPile
         var miss = FanSweep.FanLaserPick.None;
         float missOvershoot = float.MaxValue;
 
-        for (int i = 0; i < _chips.Count; i++)
+        for (int i = 0; i < _laserScan.Count; i++)
         {
-            ItemChip c = _chips[i];
+            ItemChip c = _laserScan[i];
             // Held chips ride the hand (never laser targets). A clipped (PendingUse) chip stays
             // pickable on purpose: the old collider path let the laser pull it back out of the
             // use slot, and that must keep working (its live transform sits at the slot pose).
@@ -4313,7 +4395,7 @@ internal sealed class ItemsPile
     /// hosted card's own state FX (UpdateState); consumed chips carry NO separate burn plume.
     /// </summary>
     internal sealed class ItemChip : GrabbableBehaviour, IPokeable, IGrabbableHandFilter,
-        IFanSweepTarget
+        IGrabHighlight, IFanSweepTarget
     {
         internal enum Visual { Ready, Spent, Consumed }
 
@@ -4413,6 +4495,37 @@ internal sealed class ItemsPile
         private SmokeClamp[]? _smokeClamps; // ItemCardEffects emitters bounded card-local; restored before recycle
         private bool _fingerPopped;
         private bool _laserPopped;
+
+        /// <summary>
+        /// THE HAND-PROXIMITY POP OF THE CARD LYING IN THE USE RECESS — set by
+        /// <see cref="OnGrabHighlight"/>, i.e. by <c>ProximityGrabber</c> electing this chip as the
+        /// hand's grab candidate. Read ONLY through <see cref="RecessHighlighted"/>; the chips
+        /// standing in the ARC keep their own channel (<see cref="_fingerPopped"/>, written by the
+        /// owner's single-winner sweep) and this flag is inert for them.
+        ///
+        /// <para>WHY A SEPARATE FLAG AND NOT THE SWEEP (user report 2026-08-09: "Ich will das die
+        /// Gegenstandskarte die auf dem Overlay liegt auch nach oben hinweg gehighlighted wird wenn
+        /// man mit dem Laser drüberfährt oder mit der Hand hinkommt … Soll sich da also gleich
+        /// verhalten vom Feedback."). A clipped chip is excluded from the arc sweep BY CONSTRUCTION —
+        /// <c>IFanSweepTarget.SweepEligible</c> is <c>Holder == null &amp;&amp; !PendingUse</c> — and that
+        /// exclusion is load-bearing, not an oversight: the sweep decides the arc's LAYOUT (which
+        /// chip is the split pivot), the mirrored highlight INDEX and the single-winner grab gate,
+        /// and a card that is not at an arc position must take part in none of those. So the card in
+        /// the recess is given its own contact signal instead of being let back in.</para>
+        ///
+        /// <para>AND THE SIGNAL IS THE ONE THAT ALREADY EXISTS FOR THIS STATE, not a second one:
+        /// <c>ItemsPile.HandOwnedChip</c>'s first branch — "the grabber's highlight IS the clipped
+        /// chip" — is precisely "this hand is on the placed card", and it is what already routes the
+        /// trigger and the laser stand-down for it. <see cref="IGrabHighlight"/> is that branch AT ITS
+        /// SOURCE: the very event <c>ProximityGrabber.SetHighlighted</c> raises, on the very edge it
+        /// already plays its <see cref="HapticPreset.HoverTick"/> on. That makes the buzz and the
+        /// lift the SAME event by construction — which is, word for word, the property
+        /// <c>UpdateHandSweep</c>'s haptic note names as the reason the ability card feels different
+        /// ("VRCard implements IGrabHighlight, so the grabber's tick and the card's pop are the same
+        /// event by construction"). A docked ability card's hand-proximity lift comes from exactly
+        /// this hook and nothing else; the placed item card now uses the identical one.</para>
+        /// </summary>
+        private bool _recessPopped;
         private float _pop; // smoothed 0..1
         // Actual rendered card size (item aspect) — set by TryHostRealCard, drives the backing + collider.
         private float _faceWidth;
@@ -5240,6 +5353,7 @@ internal sealed class ItemsPile
             _collapseSpin = Quaternion.Euler(0f, 0f, spinSign * CardsConfig.ItemFanOpenSpinDegrees.Value);
             _fingerPopped = false;
             _laserPopped = false;
+            _recessPopped = false; // a folding chip is nobody's grab candidate any more
             if (_box != null)
                 _box.enabled = false;
         }
@@ -5355,6 +5469,12 @@ internal sealed class ItemsPile
             transform.SetParent(slot, worldPositionStays: true);
             _clipScale = UseSlotFitScale(this);
             _clipSettle = ClipSettleSeconds;
+            // The card arrives SEATED, never pre-lifted: the settle's target is the slot frame
+            // itself, and a ramp carried in from the arc/hand would make the recess lift (TickRecessPop)
+            // start halfway up the moment the settle window closes. Every path into the recess goes
+            // through here — the ordinary placement, the resolving-card return and the locked-bonus
+            // spring-back — so this is the one place that has to say it.
+            _pop = 0f;
         }
 
         /// <summary>
@@ -5381,6 +5501,93 @@ internal sealed class ItemsPile
             transform.localPosition = Vector3.Lerp(transform.localPosition, Vector3.zero, t);
             transform.localRotation = Quaternion.Slerp(transform.localRotation, Quaternion.identity, t);
             transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _clipScale, t);
+        }
+
+        /// <summary>
+        /// ─── THE LIFT OF THE CARD LYING IN THE USE RECESS (user report 2026-08-09) ──────────────
+        ///
+        /// "Ich will das die Gegenstandskarte die auf dem Overlay liegt auch nach oben hinweg
+        ///  gehighlighted wird wenn man mit dem Laser drüberfährt oder mit der Hand hinkommt, genauso
+        ///  wie beim Highlighting der Handkarten die auf dem Controllboard-Overlay liegen. Soll sich
+        ///  da also gleich verhalten vom Feedback."
+        ///
+        /// <para>WHY IT DID NOT HAPPEN. Not a missing hover — a missing RENDERING of one. Both contact
+        /// signals were already reaching this chip (the beam through <see cref="OnPokeEnter"/>, which
+        /// even ticked the controller; the hand through the grabber highlight that routes its trigger
+        /// and stands its laser down), and <see cref="Update"/> simply returned before any pose work
+        /// for a <see cref="PendingUse"/> chip. So the card in the berth was the one card on the
+        /// board that could be hovered and never showed it.</para>
+        ///
+        /// <para>THE MOTION IS <c>VRCard</c>'S, TERM FOR TERM — the same three numbers a card docked in
+        /// one of the board's slot recesses lifts by, which is the parity the report names: UP out of
+        /// the berth by <see cref="PopUp"/>, toward the viewer by <c>[Cards] FanSelectedPopForward</c>,
+        /// ×<see cref="PopScale"/>, ramped at <see cref="PopLerpSpeed"/>. No new dial and no second
+        /// set of constants: this is the arc chips' own lift block, read from the same fields.</para>
+        ///
+        /// <para>AND IT IS APPLIED IN SLOT-LOCAL SPACE, which is the recess's edition of the fan-local
+        /// argument the arc lift already carries. A clipped chip's local ROTATION is identity by
+        /// construction (<see cref="TickClipSettle"/> lands it square in the slot frame), so the extra
+        /// 90° roll a SPENT chip wears in the arc is simply not present here and cannot send a tapped
+        /// card sideways. The slot frame's own +Y is the board's up and its −Z is out of the board
+        /// toward the player (<c>PlayTray.BuildItemUseSlot</c>: "+Z is INTO the board, so all three
+        /// [berth layers] sit BEHIND the z=0 plane a clipped-in card is parented at") — so the very
+        /// same <c>(0, +PopUp, −popForward)</c> vector means "up and out at the player" here, which is
+        /// the report's "nach oben hinweg". Both quantities are board-local metres, the same space the
+        /// berth's own geometry is authored in, so the lift reads at the same physical size as the
+        /// arc's and scales with the board for free.</para>
+        ///
+        /// <para>WHAT THE BERTH DOES WHILE THE CARD IS LIFTED: NOTHING, deliberately, and no line of
+        /// <c>PlayTray.4.Slots.cs</c> was touched.
+        /// <list type="number">
+        /// <item>There is nothing to un-fight. All three berth layers are authored at POSITIVE local Z
+        ///   (field 0.0035, ping 0.0030, outline 0.0025 — INTO the board) behind the card's z=0 plane.
+        ///   The lift travels along −Z, so it can only ever INCREASE that separation; the one way a
+        ///   berth could genuinely fight a card — co-planar surfaces deciding their order per frame,
+        ///   the defect that drove the "USE" caption out of the recess — is moved further away by this
+        ///   change, not closer.</item>
+        /// <item>The lift REVEALS the berth rather than hiding it. At the shipped numbers the card is
+        ///   fitted to 0.94 × 1.04 = 0,978 of the card box (<see cref="ItemsPile.UseSlotFitScale"/>)
+        ///   inside a 1,08 outline: rising 12 mm out of a ~95 mm-tall berth opens the berth's lower
+        ///   field under it, and the ×1,18 growth adds ~2 mm of overhang on each vertical band —
+        ///   35 mm IN FRONT of it, ordinary parallax, for as long as a hand is there.</item>
+        /// <item>Parity, which is the whole point of the round: an ability card docked in a slot
+        ///   recess pops over that recess's own ring in exactly this way and the recess does nothing
+        ///   about it. A bespoke hover reaction here would be a second set of numbers for the same
+        ///   idea — the drift the item-fan parity round existed to remove.</item>
+        /// <item>The berth is the PLACEMENT flow's state, not the hover's: it arrives when a card
+        ///   becomes placeable, pings inward while one approaches, and departs with the cancel. Making
+        ///   it react to a hover would announce a change in the placement that did not happen — and
+        ///   this round may not touch the placement flow at all.</item>
+        /// <item>Multiplayer settles it: the berth is board FURNITURE, mirrored by
+        ///   <c>Net.RemoteBoardFurniture</c> and linted against it, so any reaction of its own would be
+        ///   a control-board animation the 1:1 ruling requires on the wire — a new tuning dial. The
+        ///   CARD's lift needs none: it rides the fan-highlight record this pile already sends (see
+        ///   <see cref="ItemsPile.HighlightedIndex"/>).</item>
+        /// </list></para>
+        ///
+        /// <para>NOTHING IS WRITTEN WHILE THE CARD LIES STILL. The whole reason the clip is a
+        /// re-parent instead of a chase (see <see cref="ClipIntoSlot"/>'s root cause: the card used to
+        /// swim behind head movement) is that a settled card costs zero per-frame transform work, and
+        /// that property survives here: with the ramp at rest AND no hover, this returns before
+        /// touching the transform, so the hierarchy goes on holding the card exactly as before. The
+        /// frame the ramp reaches 0 still writes, and writes the seated pose exactly.</para>
+        /// </summary>
+        private void TickRecessPop()
+        {
+            bool popped = RecessHighlighted;
+            if (!popped && _pop <= 0f)
+                return; // seated and un-hovered: the hierarchy owns the pose, we touch nothing
+            if (popped && _pop <= 0f)
+                LogRecessFeedbackOnce();
+            float udt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // unscaled: the lift plays while paused
+            _pop = Mathf.MoveTowards(_pop, popped ? 1f : 0f, PopLerpSpeed * udt);
+            float popForward = CardsConfig.FanSelectedPopForward != null
+                ? CardsConfig.FanSelectedPopForward.Value : Defaults.FanSelectedPopForward;
+            transform.localPosition = new Vector3(0f, PopUp * _pop, -popForward * _pop);
+            transform.localScale = Vector3.one * (_clipScale * (1f + (PopScale - 1f) * _pop));
+            // localRotation is left alone on purpose: the settle landed it on identity and a lift is
+            // not a rotation. (Re-asserting it every frame would also be the per-frame work the
+            // paragraph above exists to avoid.)
         }
 
         /// <summary>
@@ -5468,6 +5675,7 @@ internal sealed class ItemsPile
             _useFxBaseRot = transform.localRotation;
             _fingerPopped = false;
             _laserPopped = false;
+            _recessPopped = false; // the decision is over: the flourish owns the pose, not a hover
             if (_box != null)
                 _box.enabled = false; // no grabbing during the flourish
             // Consumed flourish = a brief hold on the card's OWN state FX (the game's ItemCardEffects
@@ -5623,9 +5831,12 @@ internal sealed class ItemsPile
             // a window in which a grabbed chip is "clipped": Update would take the settle branch and
             // freeze it, and Relayout would skip it, for a card the player is holding.
             PendingUse = false;
-            // Drop the pop so the grabbed chip starts from a clean pose.
+            // Drop the pop so the grabbed chip starts from a clean pose — the recess lift included
+            // (the card is IN the hand now; the grabber's own un-highlight edge would clear it a
+            // frame later anyway, and a lift that outlived the grab by a frame is a flicker).
             _fingerPopped = false;
             _laserPopped = false;
+            _recessPopped = false;
             _pop = 0f;
             // A chip in the hand (or clipped into the use slot) is no longer part of the arc: give
             // it its FULL grab box back so pulling it out of the slot again stays easy, and clear
@@ -5882,6 +6093,59 @@ internal sealed class ItemsPile
         /// </summary>
         internal bool IsHighlighted => Holder == null && !PendingUse && (_fingerPopped || _laserPopped);
 
+        /// <summary>
+        /// <see cref="IGrabHighlight"/> — <c>ProximityGrabber</c> made this chip
+        /// <paramref name="hand"/>'s grab candidate (or stopped doing so). The flag is written
+        /// unconditionally and READ only while the chip lies in the recess
+        /// (<see cref="RecessHighlighted"/>), which is the whole of the arbitration: for a chip
+        /// standing in the ARC the owner's single-winner sweep owns the lift and a second, grabber-
+        /// driven pop would be exactly the "what lights up is not what I get" defect that sweep was
+        /// written to end. Writing it always (rather than gating the write on
+        /// <see cref="PendingUse"/>) is what keeps it stale-proof across the grab: the clear arrives
+        /// on the grabber's own un-highlight edge even though the flag stopped being read the moment
+        /// <see cref="OnGrab"/> dropped <see cref="PendingUse"/>.
+        ///
+        /// <para>The HAPTIC that goes with this lift is not sent here and must not be: the grabber
+        /// itself plays <see cref="HapticPreset.HoverTick"/> on this very edge
+        /// (<c>ProximityGrabber.UpdateHighlight</c>), debounced by its own
+        /// <c>SwitchMarginMeters</c> hysteresis. Same preset, same edge, same debounce as the
+        /// ability card and as the item fan's own chips — and sending a second one from here would
+        /// make the recess card the loudest object on the board.</para>
+        /// </summary>
+        public void OnGrabHighlight(VRHand hand, bool highlighted)
+        {
+            _ = hand;
+            _recessPopped = highlighted;
+        }
+
+        /// <summary>
+        /// TRUE while the card LYING IN THE USE RECESS is being singled out — the recess counterpart
+        /// of <see cref="IsHighlighted"/> (which deliberately answers false here, because a clipped
+        /// chip has no ARC position for a peer to mirror through the fan-highlight record).
+        ///
+        /// <para>Both hover channels, exactly as the ability card combines its own: the hand
+        /// (<see cref="_recessPopped"/> — the grabber highlight, see that field) and the beam
+        /// (<see cref="_laserPopped"/> — <see cref="OnPokeEnter"/>, which is the same
+        /// <c>SetLaserHover</c> + <c>HoverTick</c> pair <c>CardsDriver.UpdateBoardLaser</c> gives a
+        /// slot-docked card).</para>
+        ///
+        /// <para>AND THE GRAB-PROMISE GATE, which is not decoration: a lift is the mod's promise that
+        /// a grab would be taken (<c>VRCard</c> enforces the same thing through its ROOTED
+        /// predicate — "a card that cannot be grabbed in this phase makes no grab promise: zero pop,
+        /// zero scale change"). The ONE placed card that refuses every hand is the one whose ACTIVE
+        /// BONUS the game has LOCKED (<see cref="ItemsPile.PlacedCardIsLocked"/> —
+        /// <c>CActiveBonus.IsToggleLocked</c>): it may not budge, and lifting it would advertise a
+        /// take-back the rules will not perform. The hand channel gates itself (the grabber never
+        /// highlights a chip whose <see cref="AllowsHand"/> is false), the BEAM does not — hence the
+        /// explicit term. Nothing about the refusal itself changes: the deliberate laser click still
+        /// reaches <see cref="ItemsPile.RefuseLockedBonusRemoval"/>, which is where the player is
+        /// told why.</para>
+        /// </summary>
+        internal bool RecessHighlighted =>
+            PendingUse && Holder == null && CanGrab
+            && (_owner == null || !_owner.PlacedCardIsLocked(this))
+            && (_recessPopped || _laserPopped);
+
         /// <summary>True while the dominant index tip / palm is within this chip's collider reach.</summary>
         internal bool TryFingertipDistance(Vector3 worldPoint, out float distance)
         {
@@ -6129,7 +6393,19 @@ internal sealed class ItemsPile
             if (PendingUse)
             {
                 if (_clipSettle > 0f)
+                {
+                    // THE PLACEMENT LANDS FIRST, THEN THE HOVER LIFTS. The settle is a bounded
+                    // window that eases the card onto the slot's own frame; letting the hover ramp
+                    // run underneath it would give the same transform two disagreeing targets in the
+                    // same frame and, worse, would leave the pop already at 1 when the settle's final
+                    // exact assignment lands — a visible jump the instant the window closed. Holding
+                    // the ramp at zero means the lift always starts from the seated pose and eases up
+                    // over its own 1/8 s, so nothing pops.
+                    _pop = 0f;
                     TickClipSettle();
+                    return;
+                }
+                TickRecessPop();
                 return;
             }
 
@@ -6210,6 +6486,20 @@ internal sealed class ItemsPile
         public void OnPokeEnter(VRHand hand)
         {
             if (Holder != null)
+                return;
+            // THE GRAB-PROMISE GATE, the laser half (VRCard.OnPokeEnter's "rooted gate", user bug B:
+            // "zero pop, zero haptic while the card refuses grabs"). It is a single case here and it
+            // is the one card on this board that refuses EVERY hand: a placed card whose ACTIVE BONUS
+            // the game has LOCKED (ItemsPile.PlacedCardIsLocked / CActiveBonus.IsToggleLocked). It may
+            // not be lifted out, so it may not be lifted at all — buzzing and popping it would
+            // advertise a take-back the rules will not perform. Only reachable since the recess card
+            // renders its hover (TickRecessPop); before that the flag set here was invisible for a
+            // clipped chip. Nothing about the refusal changes: a deliberate CLICK still runs
+            // ItemsPile.RefuseLockedBonusRemoval, which is where the player is told why.
+            //
+            // ARC chips are deliberately NOT gated on AllowsHand: the sweep's per-hand suppression is
+            // a statement about the HAND's grab, and the laser arbitrates itself (see AllowsHand).
+            if (_owner != null && _owner.PlacedCardIsLocked(this))
                 return;
             _laserPopped = true;
             hand.SendHaptic(HapticPreset.HoverTick);
