@@ -408,6 +408,16 @@ internal static partial class CanvasConversion
         // ranks against the same measured distances - see part 9's root-cause header.
         TickFurnitureOrder(eye);
 
+        // (6) FOREIGN transparent surfaces the mod cannot re-author rank against the same
+        // numbers, and for the same reason (user 2026-08-09: with MR off, the see-through
+        // undiscovered tiles hide the decision symbols, the initiative track and some board
+        // text). The game's fog-of-war hex kit is translucent AND writes depth at sortingOrder
+        // 0, so it is painted before every panel and erases whatever lies behind it; ranking it
+        // by measured distance paints it LAST instead, where its depth write can no longer erase
+        // anything. Runs HERE, after (4) and (5), because it reads the orders those two just
+        // assigned - see Core.UnseenTileOrder and part 9b.
+        Core.UnseenTileOrder.Tick(eye);
+
         LogPanelOrder();
     }
 
