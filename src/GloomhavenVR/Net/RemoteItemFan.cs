@@ -157,6 +157,29 @@ internal sealed class RemoteItemFan
     /// owner's rather than ours (id 157).</summary>
     private float _lerpSpeed = Defaults.CardLerpSpeed;
 
+    // ---- and the owner's own HOVER dials (record 28, ids 74 / 75 / 140 / 141) -------------------
+    // THE 1:1 GAP THIS CLOSES (user report 2026-08-09, "das selbe Feedback … auch visuell"). The
+    // owner's item fan does TWO things when a chip is singled out: it LIFTS that chip and it SPLITS
+    // the arc apart around it (ItemsPile.Relayout, through the shared FanSweep.SplitOffset). This
+    // renderer reproduced the lift and not the split, so a peer watching that fan saw a card rise
+    // out of a rank that never made room for it — half an animation, and the standing 1:1 ruling
+    // names animations explicitly. These are the SAME four ability-fan dials RemoteHandFan already
+    // reads for the hand fan (it is literally the same split, on the same wire ids), so there is
+    // nothing new to sample and no new id: the item fan simply starts consuming what record 28 has
+    // been carrying since it was paged.
+    //
+    // WHAT IS DELIBERATELY *NOT* MIRRORED: the CONTROLLER TICK the owner feels when a chip lifts
+    // under their hand (ItemsPile.UpdateHandSweep). That is not board state — it is a pulse in the
+    // motor of the owner's own controller, caused by the owner's own hand being at that chip. A peer
+    // has no hand there, so replaying it would be a phantom rather than a mirror. Everything a peer
+    // can SEE of that hover — which chip, how far it lifts, and the gap the arc opens around it — is
+    // synced, which is what the 1:1 ruling asks for; the ability fan draws the line in exactly the
+    // same place (RemoteHandFan replays the highlight INDEX and never a haptic).
+    private float _popForward = Defaults.FanSelectedPopForward;
+    private float _splitMultiplier = Defaults.FanSplitMultiplier;
+    private float _splitFalloff = Defaults.FanSplitFalloff;
+    private float _splitScale = Defaults.FanHoverSplitScale;
+
     /// <summary>The <see cref="RemoteAvatar.BoardTuningRevision"/> the eight dials above were last
     /// refreshed at (−1 = never). Latched, not value-compared — the resolve already happens once
     /// per real change in <see cref="RemoteAvatar"/>.</summary>
@@ -508,15 +531,32 @@ internal sealed class RemoteItemFan
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * _radius, (Mathf.Cos(rad) - 1f) * _radius, -ZStagger * i);
             Quaternion rot = Quaternion.Euler(0f, 0f, -angle);
-            // The POP, exactly as the owner's own chip applies it (ItemsPile.ItemChip: PopLift
-            // toward the viewer along the chip's local −Z, ×PopScale enlargement, eased at
-            // PopLerpSpeed): reproduced from the synced INDEX alone — the ramp runs on the LOCAL
-            // clock, so the wire carries a position and never an animation. −Z is toward the
-            // owner's head here (the fan billboards its back at everyone else), which matches the
-            // local chip popping toward ITS viewer.
+            // THE WHOLE-ARC SPLIT around the singled-out chip (ItemsPile.Relayout: "the pivot holds
+            // still, its neighbours slide along their OWN local right so the winner reads
+            // unmistakably"). This renderer used to reproduce the lift and NOT the split, which made
+            // the mirrored fan the only one of the three that showed half of its owner's hover
+            // animation — a 1:1 miss the standing ruling names explicitly. Same shared formula, same
+            // ×ChipScale gain, and the pivot itself does not move: its lift comes below, exactly as
+            // the owner's chip applies its pop on top of the finished arc pose.
+            if (hovered >= 0 && i != hovered)
+                pos += rot * new Vector3(SplitOffset(i - hovered) * ChipScale, 0f, 0f);
+
+            // THE LIFT, exactly as the owner's own chip applies it (ItemsPile.ItemChip.Update):
+            // PopUp out of the arc along fan-local +Y, the owner's own [Cards] FanSelectedPopForward
+            // toward their viewer along local −Z, ×PopScale enlargement, ramped at PopLerpSpeed.
+            // Reproduced from the synced INDEX alone — the ramp runs on the LOCAL clock, so the wire
+            // carries a position and never an animation. −Z is toward the owner's head here (the fan
+            // billboards its back at everyone else), which matches the local chip popping toward ITS
+            // viewer, and +Y is that same viewer's up.
+            //
+            // NOT rotated by `rot`, mirroring the owner term for term. The forward component is
+            // indifferent (every rotation in this arc is a ROLL about Z, which leaves Z alone), but
+            // the UP component is not: a SPENT item lies tapped at a further 90°, and lifting it
+            // along its own local up would send that one card sideways while its neighbours rise.
+            // See ItemsPile.ItemChip.Update for the full derivation.
             float popT = PopAmount(i, hovered, dt);
             if (popT > 0f)
-                pos += rot * new Vector3(0f, 0f, -PopLift * popT);
+                pos += new Vector3(0f, PopUp * popT, -_popForward * popT);
             float scale = 1f + (PopScale - 1f) * popT;
             Transform t = _cards[i].transform;
             if (easing)
@@ -566,15 +606,40 @@ internal sealed class RemoteItemFan
     // ---------------------------------------------------------------- highlight (record 6) --
 
     /// <summary>ItemsPile.ItemChip.PopScale — the enlargement a lifted item chip takes locally
-    /// (×1.18). Local copy of the authored value, like every geometry constant in this file.</summary>
+    /// (×1.18, which is VRCard's own number). Local copy of the authored value, like every geometry
+    /// constant in this file.</summary>
     private const float PopScale = 1.18f;
 
-    /// <summary>ItemsPile.ItemChip.PopLift — how far the lifted chip comes toward its viewer
-    /// (local −Z, metres at chip scale 1).</summary>
-    private const float PopLift = 0.02f;
+    /// <summary>ItemsPile.ItemChip.PopUp — the UPWARD component of the lift (fan-local metres),
+    /// <c>VRCard</c>'s 0.012 m, the same constant <see cref="RemoteBrowserFan"/> mirrors for the
+    /// browse arc. The owner's chip gained this term in the parity pass (its lift used to be
+    /// forward-only); without it here the mirrored chip would creep toward the viewer while the
+    /// owner's rises out of the arc. The FORWARD component is not a constant at all any more — it is
+    /// the owner's own <c>[Cards] FanSelectedPopForward</c>, see <see cref="_popForward"/>.</summary>
+    private const float PopUp = 0.012f;
 
-    /// <summary>ItemsPile.ItemChip.PopLerpSpeed — the exponential ease rate of the local pop.</summary>
-    private const float PopLerpSpeed = 16f;
+    /// <summary>ItemsPile.ItemChip.PopLerpSpeed — the ramp rate of the local pop (units/second),
+    /// which the parity pass set to <c>VRCard</c>'s own 8/s. See <see cref="PopAmount"/> for the
+    /// matching change of CURVE: the owner ramps on MoveTowards (linear), as do
+    /// <see cref="RemoteHandFan"/> and <see cref="RemoteBrowserFan"/>; this file was the only one
+    /// easing exponentially, so its lift arrived on a different curve than the one it mirrors.</summary>
+    private const float PopLerpSpeed = 8f;
+
+    /// <summary>ItemsPile.ChipScale — item chips stand in the arc 1.25× the authored card size, and
+    /// the owner scales the shared split offset by it (ItemsPile.Relayout) so the gap keeps pace with
+    /// the wider chips. Same fan-local metric space here (the arc radius is the owner's own, off the
+    /// wire), so the mirror must apply the same factor or its arc opens 25 % too narrow.</summary>
+    private const float ChipScale = 1.25f;
+
+    /// <summary>Sideways slide of a split neighbour <paramref name="signed"/> slots away from the
+    /// highlighted chip — <c>FanSweep.SplitOffset</c> (the shape the hand fan, the browse fan and the
+    /// item fan all split on) against the OWNER's resolved dials rather than ours. Byte-for-byte
+    /// <c>RemoteHandFan.SplitOffset</c>; the two fans genuinely share this one formula.</summary>
+    private float SplitOffset(int signed)
+    {
+        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, _splitFalloff);
+        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * _splitMultiplier * Mathf.Max(0f, _splitScale);
+    }
 
     /// <summary>Per-slab pop ramp (0..1), index-aligned with <c>_cards</c> — per slab so a lift
     /// MOVING along the arc has the old chip relaxing while the new one rises, exactly like the
@@ -591,13 +656,14 @@ internal sealed class RemoteItemFan
         while (_pop.Count <= i)
             _pop.Add(0f);
         float target = i == hovered ? 1f : 0f;
-        float t = Mathf.Lerp(_pop[i], target, 1f - Mathf.Exp(-PopLerpSpeed * Mathf.Max(dt, 0f)));
-        // Snap the tail so a settled ramp stops writing transforms (the exponential never quite
-        // arrives on its own).
-        if (Mathf.Abs(t - target) < 0.005f)
-            t = target;
-        _pop[i] = t;
-        return t;
+        // MoveTowards, not an exponential Lerp: the owner's chip ramps
+        // `Mathf.MoveTowards(_pop, target, PopLerpSpeed * dt)` (ItemsPile.ItemChip.Update), exactly
+        // as VRCard does and as RemoteHandFan/RemoteBrowserFan mirror for the other two fans. This
+        // renderer was the odd one out — an exponential ease reaches ~63 % in the time the linear
+        // ramp reaches 100 %, so the mirrored lift lagged the owner's for its whole travel and then
+        // needed a snap threshold to finish at all. Linear arrives on its own; no tail snap needed.
+        _pop[i] = Mathf.MoveTowards(_pop[i], target, PopLerpSpeed * Mathf.Max(dt, 0f));
+        return _pop[i];
     }
 
     /// <summary>Drop every pop ramp (fan closed / rebuilt) so a re-opened fan never starts with a
@@ -975,6 +1041,17 @@ internal sealed class RemoteItemFan
         _radius = Mathf.Max(0.02f, t.FanRadius * t.FanRadiusFactorItems);
         _maxStepDegrees = Mathf.Max(0.5f, t.FanStepDegreesItems);
         _lerpSpeed = Mathf.Max(0.5f, t.CardLerpSpeed);
+        // The HOVER response (parity pass 2026-08-09): the owner's lift distance and the arc split
+        // they open around the lifted chip. The very same four ability-fan dials RemoteHandFan reads
+        // for the hand fan — the item fan splits on the identical shared formula, so it consumes the
+        // identical wire ids (74 / 75 / 140 / 141) and needs none of its own. Unclamped on purpose,
+        // like RemoteHandFan: a zero or negative split is a legitimate "no split" setting and a lift
+        // of zero is a legitimate "no pop", where a zero RADIUS would collapse the arc onto a point,
+        // which is why that one is guarded above.
+        _popForward = t.FanSelectedPopForward;
+        _splitMultiplier = t.FanSplitMultiplier;
+        _splitFalloff = t.FanSplitFalloff;
+        _splitScale = t.FanHoverSplitScale;
     }
 
     /// <summary>
