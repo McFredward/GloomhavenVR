@@ -160,6 +160,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     private readonly List<Transform> _walk = new(256);
     private readonly List<Transform> _stack = new(64);
 
+    /// <summary>Depth of each node of the last <see cref="Walk"/>, index-aligned with
+    /// <see cref="_walk"/>. Feeds the subtree extents that make the per-frame drive skippable — see
+    /// <see cref="Sync"/>.</summary>
+    private readonly List<int> _walkDepth = new(256);
+
+    /// <summary>Depth scratch for <see cref="Walk"/>, parallel to <see cref="_stack"/>.</summary>
+    private readonly List<int> _stackDepth = new(64);
+
     /// <summary>The source subtree this clone was built from (Unity-null aware).</summary>
     private Transform? _source;
 
@@ -298,6 +306,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 
             Sync();
             Fit();
+            AuditCloneGrowth();
             State = Fidelity.MirroredWidget;
             Reason = string.Empty;
             return true;
@@ -405,11 +414,21 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             return false;
         }
 
+        // Subtree extents FIRST: they are read off the clone walk that is still in _walkDepth, and
+        // they are what lets the per-frame drive jump over a switched-off branch (see
+        // BuildSubtreeExtents). Built once per rebuild, never per frame.
+        var skipTo = new int[n];
+        BuildSubtreeExtents(skipTo);
+
         _pairs = new Pair[n];
         for (int i = 0; i < n; i++)
-            _pairs[i] = new Pair(srcNodes[i], _walk[i]);
+            _pairs[i] = new Pair(srcNodes[i], _walk[i], skipTo[i]);
         int secret = SuppressSecretBranches(clone.transform);
         RebuildStamp++; // CloneOf holders must re-resolve against the fresh clone
+        // A clone rebuild is an Instantiate of a whole game panel plus a full re-pair — the single
+        // most expensive thing this class can do. Counting it makes "the mirror is REBUILDING, not
+        // just driving" a number in the log instead of an inference from a log-line histogram.
+        Core.PerfMonitor.Count("Mirror.CloneRebuilds");
 
         // Own head camera renders the mod layer only; the whole clone is ours, so re-layering it is
         // safe (and required — the game face was on a game UI layer).
@@ -649,20 +668,131 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     private void Walk(Transform root, List<Transform> into)
     {
         into.Clear();
+        _walkDepth.Clear();
         _stack.Clear();
+        _stackDepth.Clear();
         _stack.Add(root);
+        _stackDepth.Add(0);
         while (_stack.Count > 0)
         {
             int last = _stack.Count - 1;
             Transform t = _stack[last];
+            int depth = _stackDepth[last];
             _stack.RemoveAt(last);
+            _stackDepth.RemoveAt(last);
             into.Add(t);
+            // Depth rides alongside the node because the flat list is PRE-ORDER: a node's whole
+            // subtree is the contiguous run of following entries with a GREATER depth. That is the
+            // one fact <see cref="BuildSubtreeExtents"/> needs to turn "this branch is off" into a
+            // single index jump instead of a walk over every hidden descendant.
+            _walkDepth.Add(depth);
             // Push in reverse so children come out in sibling order — the clone is walked the same
             // way, which is what makes the two flat lists index-aligned.
             for (int i = t.childCount - 1; i >= 0; i--)
+            {
                 _stack.Add(t.GetChild(i));
+                _stackDepth.Add(depth + 1);
+            }
         }
     }
+
+    /// <summary>
+    /// Turn the pre-order depths of the last <see cref="Walk"/> into, for every node, the index of
+    /// the first entry that is NOT one of its descendants.
+    ///
+    /// <para>THIS IS THE PER-FRAME DRIVE'S WHOLE COST MODEL. <see cref="Sync"/> used to touch all
+    /// N nodes every frame per peer, whether or not their branch was even switched on; on the
+    /// hardware log's initiative track that is 767 nodes × ~20 Unity property accesses × once per
+    /// peer per frame, and it measured as 85–96 ms/s of <c>Net.Avatar</c> with a single peer (0.9 ms
+    /// per frame at the start of a scenario, 2.7 ms once the track was full). Most of those nodes
+    /// live under a branch the game has switched OFF — vanilla's initiative module keeps pooled
+    /// entries, condition-icon slots and popup panels inactive — and driving the interior of an
+    /// invisible branch changes nothing anybody can see.</para>
+    ///
+    /// <para>With the extents in hand, an off branch costs ONE <c>activeSelf</c> read and one index
+    /// jump. Nothing is skipped that could be visible: the moment a branch's own node reports
+    /// active again, the loop continues into it IN THE SAME FRAME (the jump only happens on the
+    /// false result), so there is no staleness and no one-frame catch-up.</para>
+    /// </summary>
+    private void BuildSubtreeExtents(int[] skipTo)
+    {
+        int n = skipTo.Length;
+        for (int i = n - 1; i >= 0; i--)
+        {
+            int depth = _walkDepth[i];
+            int j = i + 1;
+            // Hop subtree by subtree rather than node by node: every j reached here is already
+            // resolved (we walk backwards), so this is O(n) overall, not O(n²).
+            while (j < n && _walkDepth[j] > depth)
+                j = skipTo[j];
+            skipTo[i] = j;
+        }
+    }
+
+    /// <summary>
+    /// THE TRIPWIRE FOR OBJECTS PARENTED ONTO A CLONE AND NEVER TAKEN OFF AGAIN.
+    ///
+    /// <para>WHY IT EXISTS (2026-08-09, and it is the most expensive lesson in this file).
+    /// <see cref="StructureMatches"/> validates the SOURCE subtree only — that is its job, because
+    /// the source is what the pairing describes. Nothing validated the CLONE. But the clone is a
+    /// public surface: callers legitimately decorate it through <see cref="CloneOf"/> (the peer's
+    /// track rings are the shipped case), and a decorator that adds on every content tick and
+    /// removes on none has no other detector at all. One did exactly that — two ring objects per
+    /// initiative entry, four times a second, forever, each an Image on the mirrored board's
+    /// world-space canvas.</para>
+    ///
+    /// <para>AND IT WAS INVISIBLE TO EVERY EXISTING NUMBER. The mod's Update steps stayed flat per
+    /// second, because the cost is not in Update: Unity rebuilds canvases after LateUpdate and
+    /// before the render loop, so an ever-larger canvas shows up in the frame split as "blocked
+    /// (waiting on GPU/compositor)" and looks like a network or GPU problem. The renderer census
+    /// could not see it either — a uGUI Graphic is not a <c>Renderer</c>. Both instruments have
+    /// since been widened; this one is the SOURCE-side counterpart, and it is the cheapest of the
+    /// three because the mirror already knows exactly how many nodes it built.</para>
+    ///
+    /// <para>MEASURE, NEVER ACT. Excess is legitimate by design, so this must not trigger a rebuild
+    /// and must not delete anything it did not create — a mirror that tore off a caller's rings
+    /// would break the feature it is instrumenting. It counts, and it says so ONCE per doubling, on
+    /// the content cadence (4 Hz), which is where the callers add.</para>
+    /// </summary>
+    private void AuditCloneGrowth()
+    {
+        if (_clone == null || _pairs.Length == 0)
+            return;
+
+        // _walk still holds the SOURCE walk that StructureMatches just took, so re-walking the
+        // CLONE here would clobber it for nobody's benefit — but the walk buffers are reusable and
+        // this runs at 4 Hz, not per frame, so a fresh walk is affordable and unambiguous.
+        Walk(_clone.transform, _walk);
+        int live = _walk.Count;
+        int excess = live - _pairs.Length;
+        if (excess < 0)
+            excess = 0;
+        Core.PerfMonitor.Count("Mirror.CloneExcessNodes", excess);
+
+        // One line per DOUBLING of the excess, so a decorator that adds a bounded set of rings is
+        // silent forever and one that adds two per entry per tick names itself within seconds.
+        if (excess <= _loggedExcess * 2 || excess < ExcessLogFloor)
+            return;
+        _loggedExcess = excess;
+        VRLog.Warn("Net", $"Remote board '{_name}' mirror: the CLONE now carries {live} node(s) "
+                          + $"against {_pairs.Length} paired — {excess} extra object(s) that this "
+                          + "mirror did not build. That is legitimate when a caller decorates the "
+                          + "clone through CloneOf (the per-peer track rings do), and it is an "
+                          + "OBJECT LEAK when it keeps climbing: every extra uGUI node is batched "
+                          + "into this board's world-space canvas and re-batched on every rebuild, "
+                          + "a cost that lands in the frame split's 'blocked' bucket rather than in "
+                          + "any mod step. Cross-check '[Perf] COUNTS' Mirror.CloneExcessNodes and "
+                          + "the uGUI half of the '[Perf] SPLIT' scene census: if all three climb "
+                          + "together with a steady scenario, the decorator is not releasing.");
+    }
+
+    /// <summary>Below this many extra clone nodes the audit stays silent — a handful of decorations
+    /// is the designed case and must not produce a warning.</summary>
+    private const int ExcessLogFloor = 16;
+
+    /// <summary>Last excess this mirror warned about; the gate is a DOUBLING, so a bounded
+    /// decoration logs at most once.</summary>
+    private int _loggedExcess = ExcessLogFloor;
 
     /// <summary>True while the cached pairing still describes the live source exactly (same nodes,
     /// same order, none destroyed). A single mismatch — a round ended and the track re-spawned its
@@ -687,8 +817,33 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     private void Sync()
     {
         Pair[] pairs = _pairs;
-        for (int i = 0; i < pairs.Length; i++)
-            pairs[i].Apply(isRoot: i == 0);
+        int n = pairs.Length;
+        int driven = 0;
+        int i = 0;
+        while (i < n)
+        {
+            if (pairs[i].Apply(isRoot: i == 0))
+            {
+                driven++;
+                i++;
+                continue;
+            }
+            // The node is suppressed or its branch is switched off on the source: its whole subtree
+            // is invisible, so jump past it in one step (see BuildSubtreeExtents). The guard is
+            // structural paranoia, not a real case — a zero extent would spin this loop forever,
+            // and an infinite loop inside a per-frame net tick is not a failure mode worth risking
+            // on a pre-built index.
+            int next = pairs[i].SkipTo;
+            i = next > i ? next : i + 1;
+        }
+
+        // MEASUREMENT LEFT BEHIND (see the class doc's cost model). Two counters, both free when
+        // the perf monitor is off: how many nodes this mirror actually drove, and how many the
+        // extents let it skip. Their ratio is the answer to "is the mirrored board still the
+        // expensive thing?" in the next hardware log, without a profiler and without a rebuild —
+        // grep '[Perf] COUNTS' for Mirror.NodesDriven / Mirror.NodesSkipped.
+        Core.PerfMonitor.Count("Mirror.NodesDriven", driven);
+        Core.PerfMonitor.Count("Mirror.NodesSkipped", n - driven);
     }
 
     /// <summary>
@@ -948,6 +1103,12 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         public readonly Transform Src;
         public readonly Transform Dst;
 
+        /// <summary>Index of the first pair that is NOT a descendant of this one — i.e. where this
+        /// node's subtree ends in the pre-order pairing. Built once per rebuild by
+        /// <see cref="BuildSubtreeExtents"/>; <see cref="Sync"/> jumps here when
+        /// <see cref="Apply"/> reports the branch is not live.</summary>
+        public readonly int SkipTo;
+
         /// <summary>PERMANENTLY off: this node renders a per-character SECRET (a battle goal, a
         /// personal quest) and must never appear on a mirrored board. See
         /// <see cref="SuppressSecretBranches"/> for the evidence and the rule.</summary>
@@ -981,10 +1142,11 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         private readonly CanvasGroup? _srcGroup;
         private readonly CanvasGroup? _dstGroup;
 
-        public Pair(Transform src, Transform dst)
+        public Pair(Transform src, Transform dst, int skipTo)
         {
             Src = src;
             Dst = dst;
+            SkipTo = skipTo;
             _srcRect = src as RectTransform;
             _dstRect = dst as RectTransform;
             _srcGraphic = src.GetComponent<Graphic>();
@@ -1012,26 +1174,36 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         /// currently DISPLAYING the panel is a local presentation question (the flat HUD is hidden
         /// in VR; a WorldUI surface can be switched off) and has nothing to do with whether a PEER's
         /// board should show it. The remote board's own visibility gate decides that.
+        ///
+        /// <para>RETURNS whether this node's SUBTREE is live and therefore worth walking. False
+        /// means suppressed, destroyed, or switched off on the source — in every one of those cases
+        /// the descendants render nothing, so <see cref="Sync"/> jumps the whole run
+        /// (<see cref="SkipTo"/>) instead of paying ~20 Unity property accesses per hidden node.
+        /// The frame a branch comes back on, this returns true again and the interior is driven in
+        /// that same frame, so nothing is ever a frame stale.</para>
         /// </summary>
-        public void Apply(bool isRoot)
+        public bool Apply(bool isRoot)
         {
             if (Src == null || Dst == null)
-                return;
+                return false;
 
             // SECRECY, before anything else: a suppressed branch is never driven and never
-            // re-activated, whatever the source does. See SuppressSecretBranches.
+            // re-activated, whatever the source does. See SuppressSecretBranches. Skipping the
+            // interior is strictly SAFER than driving it — a suppressed node's descendants could
+            // previously re-activate themselves from the source, inside a branch whose whole point
+            // is that it must never be visible.
             if (Suppressed)
             {
                 if (Dst.gameObject.activeSelf)
                     Dst.gameObject.SetActive(false);
-                return;
+                return false;
             }
 
             bool on = isRoot || Src.gameObject.activeSelf;
             if (Dst.gameObject.activeSelf != on)
                 Dst.gameObject.SetActive(on);
             if (!on)
-                return; // an invisible branch's interior does not need driving
+                return false; // an invisible branch's interior does not need driving
 
             if (_srcRect != null && _dstRect != null)
             {
@@ -1087,6 +1259,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 
             if (_srcGroup != null && _dstGroup != null && _dstGroup.alpha != _srcGroup.alpha)
                 _dstGroup.alpha = _srcGroup.alpha;
+
+            return true;
         }
 
         /// <summary>

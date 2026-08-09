@@ -640,8 +640,17 @@ internal sealed class RemoteControlBoard
         // so the drive, all four overrides and the rings settle in one frame.
         _track?.SetPeerTrackOrder(_owner.TrackOrderIds, _owner.TrackOrderCount,
                                   _owner.TrackOrderOwnedMask);
-        _track?.TickLive();
-        _objectives?.TickLive();
+        // THE MEASURED SEAM (2026-08-09 multiplayer perf pass). These two live clones are, between
+        // them, the largest per-peer per-frame cost the mod has: the initiative track's clone was
+        // 767 nodes in the hardware log and was driven node by node every frame, whether the branch
+        // was switched on or not. RemoteWidgetMirror now jumps whole switched-off subtrees; this
+        // scope plus the Mirror.NodesDriven / Mirror.NodesSkipped counters are how the next
+        // hardware log states — rather than implies — whether that was enough.
+        using (Core.PerfMonitor.Scope("Net.BoardMirrors"))
+        {
+            _track?.TickLive();
+            _objectives?.TickLive();
+        }
     }
 
     /// <summary>The actorless subset of <see cref="RefreshContent"/> (join-time, before the host

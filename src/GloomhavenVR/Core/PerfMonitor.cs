@@ -274,6 +274,65 @@ internal static class PerfMonitor
     internal static Measure Scope(string name) => new(name);
 
     // ==========================================================================================
+    //  Work counters ("how much work", not "how long it took")
+    // ==========================================================================================
+
+    /// <summary>
+    /// One named counter's window accumulator. A CLASS for the same reason <see cref="Step"/> is:
+    /// the hot path mutates it in place after a single dictionary lookup, with no copy-back.
+    /// </summary>
+    private sealed class Tally
+    {
+        public Tally(string name) => Name = name;
+        public readonly string Name;
+        public long WindowTotal;
+        public long WindowWorstFrame;
+        private long _frame;
+
+        public void Add(long amount)
+        {
+            WindowTotal += amount;
+            _frame += amount;
+            if (_frame > WindowWorstFrame)
+                WindowWorstFrame = _frame;
+        }
+
+        public void RollFrame() => _frame = 0L;
+        public void ResetWindow() { WindowTotal = 0L; WindowWorstFrame = 0L; _frame = 0L; }
+    }
+
+    private static readonly Dictionary<string, Tally> Counters = new(16);
+    private static readonly List<Tally> CounterOrder = new(16);
+
+    /// <summary>
+    /// COUNT WORK, NOT TIME. A millisecond figure says a step got slower; it never says WHY, and a
+    /// timing-only harness is exactly what let the 2026-08-09 multiplayer collapse be argued about
+    /// instead of measured — "the mirrored board got expensive" and "the mirrored board is walking
+    /// more nodes" are different claims and only the second one is falsifiable from a log.
+    ///
+    /// <para>So subsystems whose cost is driven by a COUNT (nodes driven, clones rebuilt, packets
+    /// applied, objects created) report that count here, and the summary prints it per second next
+    /// to the timings. A counter that climbs while the session runs IS an accumulation, stated as a
+    /// number rather than inferred from a curve.</para>
+    ///
+    /// <para>Free when measurement is off (one static bool test), allocation-free once warm: the
+    /// name is a compile-time literal, so the dictionary miss happens at most once per counter per
+    /// session.</para>
+    /// </summary>
+    internal static void Count(string name, long amount = 1L)
+    {
+        if (!StepsActive || amount == 0L)
+            return;
+        if (!Counters.TryGetValue(name, out Tally tally))
+        {
+            tally = new Tally(name);
+            Counters[name] = tally;
+            CounterOrder.Add(tally);
+        }
+        tally.Add(amount);
+    }
+
+    // ==========================================================================================
     //  Lifecycle
     // ==========================================================================================
 
@@ -334,6 +393,8 @@ internal static class PerfMonitor
         Steps.Clear();
         StepOrder.Clear();
         Ranked.Clear();
+        Counters.Clear();
+        CounterOrder.Clear();
         _depth = 0;
         _frameModSeconds = 0d;
         _capsLogged = false;
@@ -444,6 +505,8 @@ internal static class PerfMonitor
             s.FrameSeconds = 0d;
             s.FrameCalls = 0;
         }
+        for (int i = 0; i < CounterOrder.Count; i++)
+            CounterOrder[i].RollFrame();
         _frameModSeconds = 0d;
         // A step body that threw between Begin and End would otherwise leave the depth counter
         // stuck above 0 and silently stop the mod-total from ever accumulating again.
@@ -518,6 +581,8 @@ internal static class PerfMonitor
             s.WindowFrames = 0;
             s.WindowCalls = 0;
         }
+        for (int i = 0; i < CounterOrder.Count; i++)
+            CounterOrder[i].ResetWindow();
     }
 
     // ==========================================================================================
@@ -688,6 +753,7 @@ internal static class PerfMonitor
 
         VRLog.Info(Scope0, sb.ToString());
         LogSteps(windowSeconds);
+        LogCounters(windowSeconds);
         LogSplit(windowSeconds, mean);
         LogSceneProfile();
     }
@@ -788,6 +854,48 @@ internal static class PerfMonitor
     }
 
     private static int CompareWindowDesc(Step a, Step b) => b.WindowSeconds.CompareTo(a.WindowSeconds);
+
+    /// <summary>
+    /// The WORK counters (<see cref="Count"/>) for this window, in registration order — one line,
+    /// grep <c>'[Perf] COUNTS'</c>.
+    ///
+    /// <para>Registration order, not "ranked by size", ON PURPOSE: these numbers are read as a
+    /// TIME SERIES across windows ("did Mirror.NodesDriven climb over the session?"), and a line
+    /// whose columns reorder between windows cannot be read that way. Rates are per second so two
+    /// windows are comparable even when the frame rate between them collapsed — which is precisely
+    /// the situation the counters exist to diagnose.</para>
+    /// </summary>
+    private static void LogCounters(float windowSeconds)
+    {
+        if (!PerfConfig.Attribution.Value || CounterOrder.Count == 0)
+            return;
+
+        bool any = false;
+        for (int i = 0; i < CounterOrder.Count && !any; i++)
+            any = CounterOrder[i].WindowTotal > 0L;
+        if (!any)
+            return;
+
+        StringBuilder sb = Sb;
+        sb.Length = 0;
+        sb.Append("COUNTS ").Append(windowSeconds.ToString("F1"))
+          .Append("s — the mod's WORK counters (how much, not how long): ");
+        bool first = true;
+        for (int i = 0; i < CounterOrder.Count; i++)
+        {
+            Tally t = CounterOrder[i];
+            if (t.WindowTotal <= 0L)
+                continue;
+            sb.Append(first ? string.Empty : " | ").Append(t.Name).Append(' ')
+              .Append((t.WindowTotal / Mathf.Max(0.001f, windowSeconds)).ToString("F0"))
+              .Append("/s (total ").Append(t.WindowTotal)
+              .Append(", worst frame ").Append(t.WindowWorstFrame).Append(')');
+            first = false;
+        }
+        sb.Append(" | a counter that CLIMBS window over window while the scenario stands still is an "
+                  + "accumulation — that is the shape to look for, not the absolute value.");
+        VRLog.Info(Scope0, sb.ToString());
+    }
 
     /// <summary>
     /// One line per over-budget frame — the judder itself, not its average. Names the worst mod

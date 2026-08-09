@@ -1368,13 +1368,33 @@ internal sealed class RemoteAvatar
         _ghostRight.Apply(ghostR ? _rightRig : null, GhostAlpha);
 
         // Cosmetic add-ons (own their own guards; stubs today).
-        _handFan.Tick(dt);
-        _controlBoard.Tick(dt);
-        _itemFan.Tick(dt);
-        _emptyFanHint.Tick();
-        _cardFx.Tick(dt);
-        _browserFan.Tick(dt);
-        _nameTag.Tick();
+        //
+        // PER-PEER ATTRIBUTION (2026-08-09 multiplayer perf pass). The hardware log could say the
+        // whole of Net.Avatar cost 85-96 ms/s with ONE peer, and nothing about which of these seven
+        // calls that was — every diagnosis below the driver was therefore a guess. The scopes are
+        // free when the monitor is off (one static bool test each) and cost two Stopwatch reads
+        // when it is on, so they can stay in permanently. Grep '[Perf] STEPS' for Net.Board vs
+        // Net.Fans: those two answer "is it the mirrored control board or the mirrored hands?"
+        // without another hardware round-trip.
+        // THE CALL ORDER BELOW IS UNCHANGED — the scopes wrap, they do not regroup. (The hand fan
+        // runs before the board because the board reads the fan's resolved geometry; keeping the
+        // sequence byte-identical is what makes this a pure measurement change.)
+        using (Core.PerfMonitor.Scope("Net.Fans"))
+            _handFan.Tick(dt);
+        using (Core.PerfMonitor.Scope("Net.Board"))
+            _controlBoard.Tick(dt);
+        using (Core.PerfMonitor.Scope("Net.Fans"))
+        {
+            _itemFan.Tick(dt);
+            _emptyFanHint.Tick();
+        }
+        using (Core.PerfMonitor.Scope("Net.AvatarExtras"))
+            _cardFx.Tick(dt);
+        using (Core.PerfMonitor.Scope("Net.Fans"))
+            _browserFan.Tick(dt);
+        using (Core.PerfMonitor.Scope("Net.AvatarExtras"))
+            _nameTag.Tick();
+        Core.PerfMonitor.Count("Net.AvatarTicks");
     }
 
     private static void UpdatePart(Transform holder, bool valid, in RigPose pose, float k)

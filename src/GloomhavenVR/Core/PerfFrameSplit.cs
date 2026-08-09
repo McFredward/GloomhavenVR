@@ -692,6 +692,25 @@ internal static class PerfFrameSplit
     /// loaded object and allocates the array, which is far too expensive for a frame budget and
     /// would make the instrumentation the stutter. At a 30 s cadence it is one hitch of a few
     /// milliseconds per window, and it is skipped entirely while the census is switched off.</para>
+    ///
+    /// <para>IT COUNTS uGUI GRAPHICS TOO, AND THAT HALF EXISTS BECAUSE ITS ABSENCE COST A SESSION
+    /// (2026-08-09). <c>Graphic</c> does NOT derive from <see cref="Renderer"/> — a uGUI Image is a
+    /// <c>CanvasRenderer</c> — so a census of Renderers is structurally BLIND to every UI object in
+    /// the game. In the multiplayer capture that blindness was total: the renderer count sat at
+    /// 1543-1558 for forty minutes while the frame rate slid from 78 fps to 8 fps on BOTH machines,
+    /// which read as "the scene is not growing, so this is not a mod leak" — and it was a mod leak,
+    /// of Image objects being parented onto a mirrored board's world-space canvas four times a
+    /// second and never removed.</para>
+    ///
+    /// <para>WHY THAT LEAK HID FROM EVERY OTHER NUMBER HERE, WHICH IS THE POINT OF THIS COMMENT.
+    /// Unity rebuilds canvases in <c>PostLateUpdate.PlayerUpdateCanvases</c> — AFTER the tail
+    /// LateUpdate that closes the logic span, and BEFORE the camera callbacks that open the render
+    /// span. So <c>Canvas.SendWillRenderCanvases</c> and <c>BuildBatch</c> land in NEITHER measured
+    /// span: their whole cost falls into the "blocked (waiting on GPU/compositor)" remainder, whose
+    /// name then actively misleads. That is exactly what the capture shows — logic flat, render
+    /// loop flat at ~2.3 ms, camera passes flat at 4.0, renderers flat, and "blocked" climbing 5 ms
+    /// → 83 ms. A growing graphic count is the ONE number that separates "the compositor is
+    /// struggling" from "we are rebuilding an ever-larger canvas", and it is one line of census.</para>
     /// </summary>
     internal static void AppendSceneCensus(System.Text.StringBuilder sb)
     {
@@ -719,6 +738,48 @@ internal static class PerfFrameSplit
           .Append(enabled).Append(" enabled, ").Append(visible)
           .Append(" visible to at least one camera (sampled once per window — the per-frame cost of "
                   + "this walk would itself be a stutter)");
+        AppendGraphicCensus(sb);
+    }
+
+    /// <summary>The uGUI half of <see cref="AppendSceneCensus"/> — see there for why it exists.
+    /// Separate method so a throw inside it cannot cost the renderer census that already
+    /// succeeded.</summary>
+    private static void AppendGraphicCensus(System.Text.StringBuilder sb)
+    {
+        UnityEngine.UI.Graphic[] graphics;
+        try
+        {
+            graphics = UnityEngine.Object.FindObjectsOfType<UnityEngine.UI.Graphic>();
+        }
+        catch (Exception e)
+        {
+            sb.Append("; uGUI census n/a (").Append(e.GetType().Name).Append(')');
+            return;
+        }
+
+        int enabled = 0, mod = 0;
+        for (int i = 0; i < graphics.Length; i++)
+        {
+            UnityEngine.UI.Graphic g = graphics[i];
+            if (g == null || !g.enabled)
+                continue;
+            enabled++;
+            // MOD-OWNED means "under one of our own world-space hosts", which is where a mirrored
+            // panel's clone lives. Splitting them out is what turns "UI is growing" into "OUR UI is
+            // growing" without a second capture: the game's own HUD churns legitimately, ours must
+            // not. Resolved by layer, which costs an int compare — no name string, no allocation.
+            if (g.gameObject.layer == VRLayers.ModLayer)
+                mod++;
+        }
+
+        sb.Append("; uGUI: ").Append(graphics.Length).Append(" graphic(s), ")
+          .Append(enabled).Append(" enabled, ").Append(mod)
+          .Append(" on the mod's own layer. A Graphic is NOT a Renderer, so the count "
+                  + "above cannot see these — and canvas rebuild runs after LateUpdate and before "
+                  + "the render loop, so its cost shows up as 'blocked', not as logic or submit. "
+                  + "A mod count that CLIMBS window over window with a steady scenario is an object "
+                  + "leak onto a world-space canvas, which is precisely the shape that collapsed "
+                  + "both machines of the 2026-08-09 multiplayer session");
     }
 
     /// <summary>One clause for the startup CAPS line.</summary>
