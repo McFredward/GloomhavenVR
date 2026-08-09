@@ -1229,9 +1229,11 @@ internal static partial class Loc
                 + "ihrer festen Basis oben rechts), board-lokale Meter (Z = Herausstehen zum Spieler hin). "
                 + "Startwert 0 (Oak).",
             ["Cards/ClusterOffset_*"] =
-                "Versatz, der zur lokalen Position der Aufhängung der KNOPFGRUPPE für den Zugablauf "
-                + "(Rückgängig|Bereit|Überspringen) ADDIERT wird (zusätzlich zu ihrer festen Basis unter den "
-                + "Slots), board-lokale Meter. Startwert 0 (Oak).",
+                "Versatz, der zur lokalen Position der KNOPFGRUPPE für den Zugablauf ADDIERT wird — am Board "
+                + "ist das die ÜBERSPRINGEN-Taste ('Bewegung/Angriff überspringen') — zusätzlich zu ihrer "
+                + "festen Basis, board-lokale Meter (Z = Herausstehen zum Spieler hin). Addiert sich im "
+                + "selben Bezugssystem und derselben Einheit zu [RoundButtons] OffsetX/Y/Z. Live. "
+                + "Startwert 0 (Oak).",
             ["Cards/ClusterScale_*"] =
                 "Größen-MULTIPLIKATOR der KNOPFGRUPPE für den Zugablauf (zusätzlich zu ihrer festen "
                 + "Dock-Skalierung von 0.7x). Startwert 1 (Oak).",

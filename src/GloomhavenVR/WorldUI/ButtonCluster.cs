@@ -74,7 +74,8 @@ namespace GloomhavenVR.WorldUI;
 /// fast board drag the cluster rendered one frame behind and visibly trailed. As a child
 /// of the tray root it now rides the same transform pass as Confirm/Undo — zero latency,
 /// no per-frame world-pose writes; the local pose is recomputed only when config/layout
-/// changes (ButtonTuning.Version rebuild, tray/board switch, per-board cluster scale). A
+/// changes (tray/board switch, per-board cluster scale, per-board [Cards] ClusterOffset seat,
+/// [RoundButtons] group offset — the last two live, without a rebuild). A
 /// tray teardown destroys the parented cluster with it — Tick detects the dead root,
 /// releases the poke registrations and lazily rebuilds against the next tray.
 /// Labels flip flat onto the caps there (the table-edge label sign would lie
@@ -139,7 +140,9 @@ internal sealed class ButtonCluster
     // base plate clears the RAISED board rim instead of z-fighting/sinking into the slab.
     // A CONSTANT (not per-board): CardsConfig has no cluster-proud tunable of its own — the
     // per-board ClusterOffset is already consumed by PlayTray to place ButtonClusterMount, so
-    // reading it here would double-apply it. 10 mm matches PlayTray's proud magnitude
+    // reading CardsConfig.ClusterOffset here would double-apply it. (That prohibition still
+    // stands and is why AttachDocked takes the seat as a DELTA off the mount's own transform —
+    // PlayTray.ButtonClusterOffset — rather than re-reading the config.) 10 mm matches PlayTray's proud magnitude
     // (FixedProudZ = 5 mm) with generous headroom over the mount's own 6 mm; the caps already
     // stand ~24 mm proud so this never reads as "floating". Scaled by the mount's world scale
     // (rig × grab × 0.7 dock) so it tracks the cluster's rendered size on every board variant.
@@ -184,7 +187,28 @@ internal sealed class ButtonCluster
     private bool _dockedNow;
     private float _rootToLocal = 1f / 0.7f; // root-local → cluster-local unit factor (mount carries the 0.7 dock scale)
     private float _dockLocalFactor = -1f;   // tray-root-local dock scale the rigid attach was computed at
-    private int _tuningVersion;             // ButtonTuning pull-based live-apply (rebuild on change)
+    private int _tuningVersion;             // ButtonTuning pull-based live-apply (see Tick)
+
+    // The four values BuildProcedural bakes into the cap mesh, recorded at Build. A ButtonTuning
+    // change that leaves all four alone needs no rebuild — see the block in Tick.
+    private bool _builtRoundShape;
+    private float _builtCapW, _builtCapH, _builtCapD;
+
+    /// <summary>True when a [RoundButtons] change actually altered the cap MESH (shape, or the
+    /// square cap's W/H/D) and the buttons must therefore be rebuilt. Everything else in
+    /// <see cref="ButtonTuning"/> is re-read by a live path and must NOT cost a teardown.</summary>
+    private bool BuiltCapGeometryChanged()
+    {
+        bool round = ButtonTuning.TransientRound;
+        if (round != _builtRoundShape)
+            return true;
+        if (round)
+            return false; // a round puck's size comes from RelayoutColumn's radius, not from W/H/D
+        return !Mathf.Approximately(_builtCapW, ButtonTuning.RoundCapWidth)
+               || !Mathf.Approximately(_builtCapH, ButtonTuning.RoundCapHeight)
+               || !Mathf.Approximately(_builtCapD, ButtonTuning.RoundCapDepth);
+    }
+
     private int _lastLayoutCount = -1;
     private float _lastLayoutRadius;
     private readonly System.Collections.Generic.List<PhysicalButton> _layoutScratch = new(3);
@@ -217,13 +241,30 @@ internal sealed class ButtonCluster
         if (_root == null && _ready != null)
             Shutdown();
 
-        // ButtonTuning live-apply (user #8/#9): ANY [RoundButtons] entry change (offsets,
-        // shape, cap size, W/H/D/travel) rebuilds the cluster's buttons from scratch —
-        // cheap (three buttons) and covers every knob with one path; the rebuild also
-        // re-attaches the rigid dock pose with the fresh offsets.
+        // ButtonTuning live-apply (user #8/#9) — REBUILD ONLY WHAT NEEDS REBUILDING.
+        //
+        // This used to tear the cluster down and rebuild it on ANY ButtonTuning.Version move, on
+        // the reasoning that it is cheap (three buttons) and covers every knob with one path. It
+        // does cover every knob — but a teardown is Object.Destroy + a fresh Build, i.e. the cap
+        // VANISHES AND REAPPEARS in one frame with no crumble and no assemble. That is the exact
+        // shape of pop the standing rule forbids ("nothing pops; keycaps move/appear through the
+        // authored animation"), and it fired for dials that change nothing about the cap's mesh —
+        // the offsets (a pose), the cap size (RelayoutColumn re-reads it every frame), the press
+        // travel (TravelLocal is a per-frame property), every [ButtonColors] tint (applied in the
+        // state pass) and every [ButtonAnim] entry.
+        //
+        // So the rebuild is now gated on the four values BuildProcedural actually BAKES into the
+        // mesh — the cap shape and, for the square shape, its W/H/D. Everything else re-reads
+        // itself: the seat through AttachDocked's pose gate (which now compares the solved pose),
+        // the size through RelayoutColumn, the rest per frame. Moving an offset stepper therefore
+        // SLIDES the group to its new seat, exactly like the per-board mounts do.
         ButtonTuning.Bind();
         if (_root != null && _tuningVersion != ButtonTuning.Version)
-            Shutdown();
+        {
+            _tuningVersion = ButtonTuning.Version;
+            if (BuiltCapGeometryChanged())
+                Shutdown();
+        }
 
         if (_root == null)
             Build();
@@ -584,6 +625,12 @@ internal sealed class ButtonCluster
         // Mod layer (render-only — pokes go through the VRInteractables registry).
         VRLayers.Apply(_root);
         _tuningVersion = ButtonTuning.Version; // fresh build reflects current config
+        // …and record what the caps were BAKED from, so the next Version move can tell a mesh
+        // change (rebuild) from a pose/size/colour change (live, no pop) — see Tick.
+        _builtRoundShape = ButtonTuning.TransientRound;
+        _builtCapW = ButtonTuning.RoundCapWidth;
+        _builtCapH = ButtonTuning.RoundCapHeight;
+        _builtCapD = ButtonTuning.RoundCapDepth;
         VRLog.Info("WorldUI", $"ButtonCluster geometry config applied — {ButtonTuning.Describe()}.");
         VRLog.Info("WorldUI", "ButtonCluster built (Undo | Ready | Skip) — DEPTH-CORRECT: lit opaque " +
                               $"BoardLit caps at natural ZTest LEqual, seated {ClusterProudOffset * 1000f:0} mm " +
@@ -619,7 +666,7 @@ internal sealed class ButtonCluster
             RegisterTrayLaserTargets();
             if (!mount.gameObject.activeInHierarchy)
                 return false; // tray hidden (deferred placement) → cluster hides with it
-            AttachDocked(t, trayRoot, mount);
+            AttachDocked(t, trayRoot, mount, tray!.ButtonClusterOffset);
             _dockedNow = true;
             return true;
         }
@@ -640,37 +687,73 @@ internal sealed class ButtonCluster
 
     /// <summary>
     /// Rigid dock (the lag fix): parent the cluster under the tray ROOT and give it a
-    /// FIXED local pose — the right-column anchor (constants above) plus the configurable
-    /// [RoundButtons] group offset (X sideways, Y up-board, Z toward the player) and the
+    /// FIXED local pose — the right-column anchor (constants above) plus the PER-BOARD seat
+    /// (<paramref name="boardOff"/>) plus the configurable [RoundButtons] group offset
+    /// (X sideways, Y up-board, Z toward the player) and the
     /// depth-correct proud seat along the board-face normal. The tray's own transform pass
     /// then carries the cluster with ZERO latency, exactly like the Confirm/Undo keycaps —
     /// no per-frame world-pose writes. Recomputed only when the attachment parameters
-    /// change: fresh build (config change → Version rebuild → re-attach with new offsets),
-    /// tray/board switch (parent differs) or a per-board cluster-scale change (the
-    /// localFactor epsilon below). The frame matches the old pose-follow EXACTLY:
+    /// change: fresh build (geometry change → rebuild → re-attach), tray/board switch
+    /// (parent differs), a per-board cluster-scale change (the localFactor epsilon below),
+    /// a per-board seat change (<paramref name="boardOff"/>) or a [RoundButtons] offset
+    /// change — the last two WITHOUT a rebuild, so the group slides to its new seat instead
+    /// of blinking out and back. The frame matches the old pose-follow EXACTLY:
     /// world rotation = mount.rotation × 180° yaw (+Z toward the player, +Y out of the
     /// board), world scale = mount lossy scale — both re-expressed as constants local to
     /// the tray root, so the docked look is bit-identical, just rigid.
+    ///
+    /// <para>THE PER-BOARD SEAT WAS THE MISSING TERM (user, hardware ModBuild 97: "Die Offsets bei
+    /// den Überspringen-Tasten haben keinen Einfluss. Alles andere scheint zu funktionieren, aber
+    /// die Offsets verändern nichts."). Before the rigid dock the cluster was a CHILD of
+    /// ButtonClusterMount, so <c>[Cards] ClusterOffset_{board}</c> moved it for free by moving the
+    /// mount. The lag fix reparented it to the tray root and carried over the mount's rotation and
+    /// scale — but not its translation, which is the one thing that dial writes. The fresh log
+    /// shows the consequence directly: ~25 "[Cards] Debug live-apply [Oak]: cluster offset …"
+    /// lines (all three axes, walked out and back to zero) with no answering movement, while
+    /// ClusterScale — which DOES survive, through <c>localFactor</c> — worked in the same minute.
+    /// It arrives here as a delta off the mount's own transform (<c>PlayTray.ButtonClusterOffset</c>),
+    /// never as a second read of <c>CardsConfig.ClusterOffset</c>, so it cannot be double-applied:
+    /// PlayTray converts the config to meters exactly once, when it seats the mount.</para>
     /// </summary>
-    private void AttachDocked(Transform t, Transform trayRoot, Transform mount)
+    private void AttachDocked(Transform t, Transform trayRoot, Transform mount, Vector3 boardOff)
     {
         float trayLossy = trayRoot.lossyScale.x;
         float mountLossy = mount.lossyScale.x;
         if (trayLossy < 1e-6f || mountLossy < 1e-6f)
             return; // degenerate mid-teardown scales — keep the last good attachment
         float localFactor = mountLossy / trayLossy; // 0.7 dock shrink × per-board ClusterScale
-        if (t.parent == trayRoot && Mathf.Abs(localFactor - _dockLocalFactor) < 1e-4f)
-            return; // already rigidly attached with current parameters
-
         // DEPTH-CORRECT proud seat: lift the cluster ClusterProudOffset along the board-face
         // normal toward the player (mount.up in world = tray-root-local -Z) so the lit opaque
         // caps and base plate stand clear of the raised board rim. The user's OffsetZ rides
-        // the same outward axis (+ = further toward the player). Both are tray-root-local
-        // meters; the proud offset scales with the dock factor so it tracks the rendered size.
+        // the same outward axis (+ = further toward the player). The PER-BOARD seat adds RAW,
+        // exactly as it does for every other [Cards] *Offset_{board} dial (PlayTray.SetPinOffset,
+        // SetElementsLayout, SetDecisionLayout all write `Base + offset` straight into the mount's
+        // localPosition) — same frame, same sign convention, so a player who has learned what
+        // "Position Z +0.01" does to their rest plate gets the same motion here. All terms are
+        // tray-root-local meters; only the proud offset scales with the dock factor, so it tracks
+        // the rendered size.
         Vector3 cfgOff = ButtonTuning.TransientOffset;
         Vector3 outward = Quaternion.Inverse(trayRoot.rotation) * mount.up; // ≈ (0, 0, -1)
         Vector3 localPos = new Vector3(ColumnCenterX + cfgOff.x, ColumnCenterY + cfgOff.y, ColumnRootZ)
+                           + boardOff
                            + outward * (ClusterProudOffset * localFactor + cfgOff.z);
+        // THE GATE IS OVER THE WHOLE SOLVE, not just the scale. It used to compare the parent and
+        // localFactor only, which meant a re-pose could only ever reach the transform by way of a
+        // full teardown+rebuild (the [RoundButtons] path) — and for the per-board seat, which has
+        // no rebuild trigger of its own, not at all. Comparing the RESULT keeps this a no-op on the
+        // overwhelming majority of frames while making every seat dial live by construction: any
+        // input that changes where the group belongs changes localPos, and nothing else can.
+        //
+        // THE DEAD-BAND IS 0.1 mm (1e-8 = the square of 1e-4 m), not an exact compare, and the
+        // reason is `outward`: it is derived through two WORLD quaternions, so while the board is
+        // being carried it can wobble in the last couple of float digits even though the local
+        // relationship is fixed. That wobble is ~1e-9 m here — three orders below the band — while
+        // the finest thing a player can dial is 5 mm, so nothing real is ever swallowed and no
+        // board grab can turn the re-seat line below into a per-frame log storm.
+        if (t.parent == trayRoot
+            && Mathf.Abs(localFactor - _dockLocalFactor) < 1e-4f
+            && (t.localPosition - localPos).sqrMagnitude < 1e-8f)
+            return; // already rigidly attached at this pose
         // Same frame semantics as the old pose-follow: the mount's +Z points "away from the
         // player" (up the board), so the standard 180° yaw puts the cluster's +Z toward the
         // player; +Y comes OUT of the board (cap travel presses into the board).
@@ -685,10 +768,18 @@ internal sealed class ButtonCluster
         t.localScale = Vector3.one * localFactor;
         _rootToLocal = 1f / localFactor; // RelayoutColumn's root-local → cluster-local budget factor
         _dockLocalFactor = localFactor;
-        if (reparented)
-            VRLog.Info("WorldUI", "ButtonCluster docked RIGIDLY under the tray root (fixed local pose, " +
-                                  $"dock scale {localFactor:F3}, offset ({cfgOff.x:F3}, {cfgOff.y:F3}, {cfgOff.z:F3}) m) — " +
-                                  "board motion carries it with zero latency (no per-frame pose-follow).");
+        // The line fires on a RE-POSE as well as on the first attach, and prints the two seat
+        // terms separately. That split is the whole point: the report this round answers was
+        // "the offsets do nothing", and the only way to tell from a log which offset a build
+        // honoured is to see both of them, named, next to the pose they produced.
+        VRLog.Info("WorldUI", (reparented
+                                  ? "ButtonCluster docked RIGIDLY under the tray root"
+                                  : "ButtonCluster re-seated in place (no rebuild, no pop)") +
+                              $" — dock scale {localFactor:F3}, board seat ([Cards] ClusterOffset) " +
+                              $"({boardOff.x:F3}, {boardOff.y:F3}, {boardOff.z:F3}) m, group offset " +
+                              $"([RoundButtons] Offset) ({cfgOff.x:F3}, {cfgOff.y:F3}, {cfgOff.z:F3}) m " +
+                              $"→ tray-root-local pose ({localPos.x:F3}, {localPos.y:F3}, {localPos.z:F3}); " +
+                              "board motion carries it with zero latency (no per-frame pose-follow).");
     }
 
     private void SetDockedLabels(bool docked)

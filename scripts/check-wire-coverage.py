@@ -155,9 +155,14 @@ EXEMPT = {
     ("Cards", "ConfirmUndoInsetX"): ("NO-OP", "LEGACY — superseded by GenericButtonSpacing_{board}"),
     ("Cards", "BoardScaleDefault04Applied"): ("NO-OP", "a one-shot migration marker; must start false on a fresh install"),
     ("Cards", "DecisionOffsetYRebased"): ("NO-OP", "a one-shot migration marker"),
-    ("Cards", "ClusterOffset_{board}"): ("NO-OP", "ButtonCluster.AttachDocked reads the mount's ROTATION and SCALE only — the "
-                                                  "position never moves the rendered cluster, locally or remotely "
-                                                  "(RemoteBoardFurniture's task-3(b) note)"),
+    # ("Cards", "ClusterOffset_{board}") STOOD HERE as a NO-OP and is gone (ModBuild 97). The line
+    # read "ButtonCluster.AttachDocked reads the mount's ROTATION and SCALE only — the position
+    # never moves the rendered cluster, locally or remotely". Every word of that was true, and it
+    # was a BUG REPORT written as an exemption: the user's "Die Offsets bei den Überspringen-Tasten
+    # haben keinen Einfluss" is that sentence seen from inside the headset. NO-OP is for dials with
+    # no rendered effect BY DESIGN (legacy keys, migration markers) — not for a live debug-menu
+    # stepper that lost its consumer in a refactor. The consumer is back on both ends, so the dial
+    # rides id 16 and needs no exemption.
 
     # ---- PENDING: real gaps, parked with the reason and what unblocks them ---------------------
     # These are DEBTS. The count is printed on every run so it cannot creep upward unnoticed.

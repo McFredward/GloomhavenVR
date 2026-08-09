@@ -1198,8 +1198,10 @@ internal static class CardsConfig
                 $"[{board}] offset ADDED to the ROUND readout ('Runde N') local position (on top of its fixed " +
                 "top-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
             _clusterOffset[i] = _file.Bind("Cards", $"ClusterOffset_{board}", Defaults.ClusterOffset_ByBoard[i],
-                $"[{board}] offset ADDED to the turn-flow BUTTON CLUSTER (Undo|Ready|Skip) mount local position " +
-                "(on top of its fixed under-slots base), board-local meters. Seeded 0 (Oak).");
+                $"[{board}] offset ADDED to the turn-flow BUTTON CLUSTER — docked, that is the SKIP key " +
+                "('Bewegung/Angriff überspringen') — on top of its fixed base, board-local meters " +
+                "(Z = proud toward the player). Adds to the shared [RoundButtons] OffsetX/Y/Z in the same " +
+                "frame and the same unit. Live. Seeded 0 (Oak).");
             _clusterScale[i] = _file.Bind("Cards", $"ClusterScale_{board}", Defaults.ClusterScale_ByBoard[i],
                 $"[{board}] size MULTIPLIER of the turn-flow BUTTON CLUSTER (on top of its fixed 0.7x dock scale). " +
                 "Seeded 1 (Oak).");
