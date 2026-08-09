@@ -2817,6 +2817,26 @@ internal sealed class RemoteCapFx : MonoBehaviour
     private Vector3 _shownScale = Vector3.one;
     private Color _appearTarget = Color.white;
 
+    // ---- SURFACE-FADE WATCHDOG (2026-08-09 invisible-cap round) --------------------------------
+    //
+    // Mirror of the fix on the owner's own caps (see the long header on
+    // PlayTray.BoardButton's _showDeadline). The materialize fade below paints the cap at
+    // AppearFadeFloor (15%) of its colour and the ONLY thing that ever repaints the true colour is
+    // this countdown reaching zero — so a countdown that stops advancing leaves a peer's mirrored
+    // cap invisible under a fully readable mirrored label, which is precisely the defect the owner
+    // reported on their own board. The countdowns run on the UNSCALED clock (every other animation
+    // in this mod does, because the game stops simulation time behind menus/dialogs and during card
+    // phases) and carry a wall-clock deadline that force-completes them through the same completion
+    // path. NONE of the mirrored CONSTANTS move: DissolveSeconds / AppearSeconds / AppearFadeFloor /
+    // PressDecayPerSecond are untouched, and the press spring deliberately keeps its Time.deltaTime
+    // so it stays byte-identical to the local `Time.deltaTime * 6f` that check-mirrors.sh names.
+    private float _hideDeadline = float.PositiveInfinity;
+    private float _showDeadline = float.PositiveInfinity;
+
+    /// <summary>Wall-clock grace before the watchdog force-completes a mirrored fade — mirror of
+    /// <c>PlayTray.BoardButton.FadeWatchdogSlack</c>.</summary>
+    private const float FadeWatchdogSlack = 0.35f;
+
     /// <summary>True while the dust dissolve is still shrinking the cap out — the window in which a
     /// re-show has to CANCEL the shrink rather than no-op on "already active".</summary>
     internal bool Hiding => _hideLeft > 0f;
@@ -2849,6 +2869,8 @@ internal sealed class RemoteCapFx : MonoBehaviour
         _showLeft = 0f;
         _shownScale = transform.localScale;
         _hideLeft = RemoteBoardFurniture.DissolveSeconds;
+        _hideDeadline = Time.unscaledTime + _hideLeft + FadeWatchdogSlack; // watchdog (see the field header)
+        _showDeadline = float.PositiveInfinity;
         WorldUI.ButtonTuning.LogAnim(name, "disappear (dust dissolve) — MIRRORED");
         WorldUI.ButtonDissolveFx.Play(CapWorldCenter(), -transform.forward,
             _footprint * Mathf.Abs(transform.lossyScale.x), Current());
@@ -2860,6 +2882,8 @@ internal sealed class RemoteCapFx : MonoBehaviour
         _hideLeft = 0f;
         transform.localScale = _shownScale;
         _showLeft = RemoteBoardFurniture.AppearSeconds;
+        _showDeadline = Time.unscaledTime + _showLeft + FadeWatchdogSlack; // watchdog (see the field header)
+        _hideDeadline = float.PositiveInfinity;
         _appearTarget = Current();
         WorldUI.ButtonTuning.LogAnim(name, "appear (materialize-from-dust) — MIRRORED");
         if (WorldUI.ButtonTuning.AppearParticlesEnabled)
@@ -2873,6 +2897,8 @@ internal sealed class RemoteCapFx : MonoBehaviour
     {
         _hideLeft = 0f;
         _showLeft = 0f;
+        _hideDeadline = float.PositiveInfinity;
+        _showDeadline = float.PositiveInfinity;
         _press = 0f;
         transform.localScale = _shownScale;
         _paint?.Invoke(Current());
@@ -2906,11 +2932,14 @@ internal sealed class RemoteCapFx : MonoBehaviour
         // Dust dissolve: the cap shrinks out under the burst, then really goes away.
         if (_hideLeft > 0f)
         {
-            _hideLeft -= Time.deltaTime;
+            _hideLeft -= Time.unscaledDeltaTime;
+            if (_hideLeft > 0f && Time.unscaledTime >= _hideDeadline)
+                _hideLeft = 0f; // watchdog: never leave a peer's cap parked half-shrunk
             float k = Mathf.Max(0f, _hideLeft / RemoteBoardFurniture.DissolveSeconds);
             transform.localScale = _shownScale * k;
             if (_hideLeft <= 0f)
             {
+                _hideDeadline = float.PositiveInfinity;
                 transform.localScale = _shownScale; // restore for the next show
                 gameObject.SetActive(false);
             }
@@ -2921,7 +2950,9 @@ internal sealed class RemoteCapFx : MonoBehaviour
         // the true state colour, which is then re-asserted exactly.
         if (_showLeft > 0f)
         {
-            _showLeft -= Time.deltaTime;
+            _showLeft -= Time.unscaledDeltaTime;
+            if (_showLeft > 0f && Time.unscaledTime >= _showDeadline)
+                _showLeft = 0f; // watchdog: never leave a peer's cap parked at 15% (invisible under its label)
             float k = 1f - Mathf.Max(0f, _showLeft / RemoteBoardFurniture.AppearSeconds);
             transform.localScale = _shownScale;
             float b = Mathf.SmoothStep(AppearFadeFloor, 1f, k);
@@ -2929,7 +2960,10 @@ internal sealed class RemoteCapFx : MonoBehaviour
             faded.a = _appearTarget.a;
             _paint?.Invoke(faded);
             if (_showLeft <= 0f)
+            {
+                _showDeadline = float.PositiveInfinity;
                 _paint?.Invoke(Current());
+            }
         }
 
         // Press spring-back — the local impulse, decay rate and seat formula, unchanged.

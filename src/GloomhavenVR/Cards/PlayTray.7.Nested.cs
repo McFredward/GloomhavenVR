@@ -343,6 +343,88 @@ internal sealed partial class PlayTray
         private Color _appearTarget = Color.white; // the cap colour the materialize fade ramps UP to
         private Vector3 _shownScale = Vector3.one;
 
+        // ---- SURFACE-FADE WATCHDOG ------------------------------------------------------------
+        //
+        // USER REPORT 2026-08-09: "Beim Testen hatte ich kurz die Situation, dass die Buttons wie
+        // 'Bewegung bestätigen' und 'Wegpunkt löschen' unsichtbar waren - nur der Text auf den
+        // Buttons war noch zu sehen - nach einer kurzen Zeit kamen sie wieder."
+        //
+        // THE ASYMMETRY IS THE WHOLE CLUE, and it points at exactly ONE place in this class. The cap
+        // BODY and the cap LABEL are different renderers with different materials, and the ONLY code
+        // that darkens the body without touching the label is the materialize-from-dust appear fade
+        // in Update: it multiplies the cap's top/bevel/wall colours by SmoothStep(0.15, 1, k). At
+        // k = 0 the cap is at 15 % of its state colour. On this user's board that is not "dim", it is
+        // GONE: their [ButtonColors] BoardCapTint is 0.5 (halved already), so the confirmed/sage
+        // CONFIRM top (0.35,0.46,0.28) renders at 0.5 × 0.15 = (0.026,0.035,0.021) and the dark-wood
+        // disabled top at (0.008,0.006,0.004) — black on a black board. The TMP label is a separate
+        // renderer on its own font-material instance which the fade never touches, so it keeps
+        // drawing at full bright parchment. "Button invisible, only the text still there" is the
+        // literal rendered result of a cap sitting in the first frames of this fade.
+        //
+        // WHY IT LASTED LONG ENOUGH TO SEE, AND WHY IT HEALED BY ITSELF. The fade is authored at
+        // 0.15 s and it had exactly ONE exit: the countdown reaching zero inside Update, which is
+        // also the only call site that restores the true state colour (UpdateColor()). Two things
+        // wrong with that:
+        //   (1) IT RAN ON THE SCALED CLOCK (Time.deltaTime). Every other animation in this mod
+        //       deliberately runs UNSCALED for the documented reason that the game stops simulation
+        //       time behind menus and dialogs and during card phases (VRCard.ReleaseGlideSeconds,
+        //       CardsDriver's BurnSlab, Rig/Flight, NonDominantHold — all say so at their fix site).
+        //       Any frame where the scaled clock does not advance leaves the cap parked at 15 %.
+        //   (2) NOTHING ELSE PUTS THE COLOUR BACK. SetState() early-returns when the state has not
+        //       changed, so a cap left mid-fade is NOT repaired by the per-tick status pass — it
+        //       stays dark until the countdown happens to run out or the game state changes on its
+        //       own. That is the "it came back after a short time" half of the report: a recovery by
+        //       luck (the next state flip), not by design.
+        // The same freeze is reachable whenever this GameObject stops ticking mid-fade (its parent
+        // anchor/tray deactivating), and the cluster twin of this code (ButtonCluster.PhysicalButton
+        // .Animate) is worse still — its Animate() is skipped outright on any tick where the cluster
+        // is not placed, so a frozen fade there needs no clock stall at all.
+        //
+        // THE FIX IS A DEADLINE, NOT A HOPE. Both countdowns now run on the UNSCALED clock like the
+        // rest of the mod, AND each one is armed with a WALL-CLOCK deadline when it starts. Once the
+        // deadline passes the animation is force-completed on the next tick — which runs the very
+        // same completion path (scale restored, UpdateColor() re-seats the exact state colours), so
+        // a cap can never be left dark by a stalled clock, a skipped tick or a deactivated parent.
+        // The forced completion logs (throttled) with the wall-clock time the cap actually spent
+        // faded, so the NEXT hardware log shows this window explicitly instead of depending on the
+        // user noticing it.
+        private float _showDeadline = float.PositiveInfinity; // unscaled wall clock; appear must be done by then
+        private float _hideDeadline = float.PositiveInfinity; // unscaled wall clock; dissolve must be done by then
+        private float _fadeStartedAt;                          // unscaled time the running fade was armed
+
+        /// <summary>
+        /// Wall-clock grace on top of a fade's authored duration before the watchdog force-completes
+        /// it. Generous enough that a normal frame-time spike (this session's log carries 24–34 ms
+        /// frames routinely and two &gt; 500 ms hitches) never trips it, tight enough that a genuinely
+        /// stalled fade is repaired long before a player could read it as a broken button.
+        /// </summary>
+        private const float FadeWatchdogSlack = 0.35f;
+
+        /// <summary>Throttle for the watchdog line — a relayout can force several caps at once.</summary>
+        private static float _nextFadeHealLogAt;
+
+        /// <summary>
+        /// True when this cap's body was built WITHOUT the bundled <c>GloomhavenVR/BoardLit</c>
+        /// shader (see <see cref="TryHealCapMaterial"/>). The competing hypothesis for the same user
+        /// report is a cap whose material resolved to nothing, so the build path now records the
+        /// fact and this flag drives both the log line and a bounded re-skin once the shader lands.
+        /// </summary>
+        private bool _capShaderFallback;
+
+        /// <summary>Remaining bounded re-probe attempts for <see cref="TryHealCapMaterial"/>.</summary>
+        private int _capHealBudget;
+
+        /// <summary>Next unscaled time <see cref="TryHealCapMaterial"/> may re-probe.</summary>
+        private float _nextCapHealAt;
+
+        /// <summary>Re-probe cadence for the cap-material heal (cheap, but never per frame).</summary>
+        private const float CapHealIntervalSeconds = 0.5f;
+
+        /// <summary>Bounded re-probe attempts (~10 s of board life). A bundle that genuinely lacks
+        /// the shader must not turn the heal into a probe storm of the mod's own making — the same
+        /// budgeting rule <see cref="CardArtGuard"/> applies to its own reload heal.</summary>
+        private const int CapHealAttempts = 20;
+
         /// <summary>
         /// Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>
         /// (private there), used by the finger-follow press to turn tip distance into
@@ -422,6 +504,10 @@ internal sealed partial class PlayTray
             Material? capMaterial = null;
             Material? capBevelMaterial = null; // item 4: the bright bevel-ring material instance (boxy caps only)
             Material? capWallMaterial = null;  // item 4: the dark warm side-wall material instance (boxy caps only)
+            // 2026-08-09 invisible-cap round: true when the cap body did NOT get the bundled
+            // GloomhavenVR/BoardLit shader (bundle not loadable yet). Drives the build-time log line
+            // and the bounded in-place re-skin in TryHealCapMaterial.
+            bool capShaderFallback = false;
             SpriteRenderer? capFace = null;
             Renderer? capMeshRenderer = null; // item A diagnostic: the cap body renderer (cube/disc/sprite)
             var cap = new GameObject("Cap");
@@ -463,6 +549,7 @@ internal sealed partial class PlayTray
                 // per-rest accent tints (parchment-gold / slate-blue) and the [ButtonColors] RestCapTint
                 // are untouched. The engraved parchment label (StyleEngravedLabel below) already matches.
                 Shader? shader = BoxCapShader();
+                capShaderFallback = shader == null || !shader.name.Contains("BoardLit");
                 if (shader != null)
                 {
                     capMaterial = NewKeycapMaterial(shader, DisabledColor);
@@ -512,12 +599,18 @@ internal sealed partial class PlayTray
                 capCube.transform.localScale = Vector3.one;       // mesh is authored at real size
                 capCube.transform.localPosition = Vector3.zero;   // mesh already spans −capThick..0
                 capFrontZ = CapRestZ - capThick; // the beveled plateau protrudes the full cap thickness toward the viewer
+                // GEOMETRY FIRST, MATERIAL SECOND (2026-08-09 invisible-cap round): the beveled
+                // keycap mesh does not depend on any shader, so it is built unconditionally. It used
+                // to sit INSIDE the `shader != null` branch, which meant a cap built before the
+                // bundle was loadable kept Unity's 1×1×1 primitive cube — and could then never be
+                // repaired in place, because the heal would have had to re-author the mesh too.
+                var mf = capCube.GetComponent<MeshFilter>();
+                if (mf != null)
+                    mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, SquareCapBevel);
                 Shader? shader = BoxCapShader();
+                capShaderFallback = shader == null || !shader.name.Contains("BoardLit");
                 if (shader != null)
                 {
-                    var mf = capCube.GetComponent<MeshFilter>();
-                    if (mf != null)
-                        mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, SquareCapBevel);
                     // Task #5a: each submesh material carries the shared carved-grain texture on
                     // _MainTex (grayscale grain × the state/bevel/wall tint) when the bundle ships
                     // it — a real wood/parchment surface — else EXACTLY the prior plain tint.
@@ -609,6 +702,18 @@ internal sealed partial class PlayTray
 
             var button = go.AddComponent<BoardButton>();
             button._onClick = onClick;
+            // 2026-08-09 invisible-cap round: a cap that could NOT resolve the bundled BoardLit
+            // shader says so ONCE, right here, naming itself — so the next hardware log distinguishes
+            // "the material never resolved" from "the surface fade stalled" without any inference.
+            // TryHealCapMaterial then re-skins it in place the moment the shader turns up.
+            button._capShaderFallback = capShaderFallback && capMaterial != null && capFace == null;
+            button._capHealBudget = button._capShaderFallback ? CapHealAttempts : 0;
+            if (button._capShaderFallback)
+                VRLog.Warn("Cards", $"KEYCAP MATERIAL MISSING: '{go.name}' was built WITHOUT " +
+                    "'GloomhavenVR/BoardLit' (the mod bundle was not loadable at build time) and wears " +
+                    "the flat Standard/Sprites fallback — its walls and bevel will not shade. Re-probing " +
+                    $"every {CapHealIntervalSeconds:F2} s for up to {CapHealAttempts} attempts; a " +
+                    "'KEYCAP MATERIAL HEALED' line follows when the shader lands.");
             button._capMaterial = capMaterial;
             button._capBevelMaterial = capBevelMaterial; // item 4: bright bevel-ring instance (null on non-boxy caps)
             button._capWallMaterial = capWallMaterial;   // item 4: dark warm side-wall instance (null on non-boxy caps)
@@ -746,6 +851,11 @@ internal sealed partial class PlayTray
                 // the button has ticked (suppresses the build-then-settle storm) and while the
                 // animation is enabled ([ButtonAnim] Enable). Input/collider are already live above.
                 _showLeft = _ticked && WorldUI.ButtonTuning.ButtonAnimEnabled ? WorldUI.ButtonTuning.AppearSeconds : 0f;
+                // Watchdog armed on the UNSCALED wall clock (see the field header): whatever happens
+                // to the frame clock or this object's ticking from here, the fade is over by then.
+                _fadeStartedAt = Time.unscaledTime;
+                _showDeadline = _showLeft > 0f ? _fadeStartedAt + _showLeft + FadeWatchdogSlack : float.PositiveInfinity;
+                _hideDeadline = float.PositiveInfinity;
                 if (_showLeft > 0f)
                 {
                     _appearTarget = CurrentCapColor(); // the colour the surface fades UP to
@@ -779,6 +889,12 @@ internal sealed partial class PlayTray
             _shownScale = transform.localScale;
             _showLeft = 0f;
             _hideLeft = WorldUI.ButtonTuning.DissolveSeconds;
+            // Same wall-clock deadline for the shrink-out: a dissolve that stops advancing would
+            // otherwise leave a part-shrunk cap parked on the board forever (it is the SAME early
+            // -return in Update that also blocks the appear fade from ever completing).
+            _fadeStartedAt = Time.unscaledTime;
+            _hideDeadline = _fadeStartedAt + _hideLeft + FadeWatchdogSlack;
+            _showDeadline = float.PositiveInfinity;
             WorldUI.ButtonTuning.LogAnim(name, "disappear (dust dissolve)");
             Vector3 center = _cap != null ? _cap.position : transform.position;
             float footprint = Collider is BoxCollider bc ? Mathf.Max(bc.size.x, bc.size.y) : 0.05f;
@@ -813,11 +929,101 @@ internal sealed partial class PlayTray
                 // USER DEBUG OPTION: tint the native sprite face too (the beige/brass button art
                 // the user reads white text on) — default white leaves the sampled sprite as-is.
                 _capFace.color *= _capTint;
+                // A state change that lands DURING the materialize fade must re-aim it (see below).
+                if (_showLeft > 0f)
+                    _appearTarget = _capFace.color;
                 return;
             }
             if (_capMaterial == null)
                 return;
-            SetCapColor(StateColor());
+            Color top = StateColor();
+            // FADE RE-AIM (same 2026-08-09 report). TickStatus always calls SetVisible(true) BEFORE
+            // SetState(), so _appearTarget was captured from the colour the cap wore while it was
+            // still HIDDEN — i.e. the PREVIOUS state's colour. The fade then spent its whole run
+            // ramping toward the wrong (usually darker, disabled) colour and only snapped to the
+            // right one at the very end. Re-aiming here makes a mid-fade state change ramp toward
+            // what the cap is actually becoming, so the fade brightens toward the live colour
+            // instead of dragging the stale one across the visible window.
+            if (_showLeft > 0f)
+                _appearTarget = top;
+            SetCapColor(top);
+        }
+
+        /// <summary>
+        /// Watchdog line for the 2026-08-09 "the buttons were invisible, only their text was left"
+        /// report: a surface animation that did not finish inside its authored duration plus
+        /// <see cref="FadeWatchdogSlack"/> was force-completed. This is the log the next hardware
+        /// run needs — it names the cap, the animation and the WALL-CLOCK seconds the cap actually
+        /// spent in the faded (near-black) state, so the window is visible in the log instead of
+        /// depending on the player noticing it. Throttled: one relayout can force several caps.
+        /// </summary>
+        private void LogFadeForced(string anim, float authored)
+        {
+            float held = Time.unscaledTime - _fadeStartedAt;
+            if (Time.unscaledTime < _nextFadeHealLogAt)
+                return;
+            _nextFadeHealLogAt = Time.unscaledTime + 0.5f;
+            VRLog.Warn("Cards", $"KEYCAP FADE HEALED: '{name}' was still mid-'{anim}' after " +
+                $"{held:F2} s of WALL-CLOCK time (authored {authored:F2} s " +
+                $"+ {FadeWatchdogSlack:F2} s slack; Time.timeScale {Time.timeScale:F2}) — force-completed and the " +
+                "exact state colours re-seated. While that fade is running the cap body renders at as " +
+                "little as 15% of its colour (on this board's tint that is effectively black) while its " +
+                "TMP label keeps drawing at full brightness — the 'button invisible, only the text " +
+                "visible' look. A line here means the animation clock stalled, not that a material failed.");
+        }
+
+        /// <summary>
+        /// BOUNDED CAP-MATERIAL HEAL — the second half of the 2026-08-09 report's differential.
+        ///
+        /// <para>The competing explanation for an invisible cap under a perfectly fine label is a cap
+        /// whose MATERIAL resolved to nothing: <c>GloomhavenVR/BoardLit</c> lives in the mod's asset
+        /// bundle, and <c>Shader.Find</c> cannot see a bundled shader until something has loaded it
+        /// (the exact trap already documented on <c>PlayTray.OverlayShader</c>, and this session's log
+        /// shows Overlay missing at line 78 and present at 461). A cap built inside that window took
+        /// the Standard/Sprites fallback — and used to keep it FOREVER, because the caps are only
+        /// re-skinned by a full rebuild, which happens when some unrelated thing (an item clipping
+        /// into the use slot) happens to bump the tray. That is healing by luck.</para>
+        ///
+        /// <para>This re-probes on a <see cref="CapHealIntervalSeconds"/> cadence with a bounded
+        /// budget (a bundle that genuinely lacks the shader must never become a per-tick probe storm
+        /// of the mod's own making — the CardArtGuard rule), and re-skins the cap in place the moment
+        /// BoardLit appears. Both the miss at build time and the heal are logged, so the next hardware
+        /// log states which of the two mechanisms was in play instead of leaving it to inference.</para>
+        /// </summary>
+        private void TryHealCapMaterial()
+        {
+            if (!_capShaderFallback || _capHealBudget <= 0 || _capMaterial == null || _capFace != null)
+                return;
+            if (Time.unscaledTime < _nextCapHealAt)
+                return;
+            _nextCapHealAt = Time.unscaledTime + CapHealIntervalSeconds;
+            _capHealBudget--;
+            Shader? lit = BoardLitShader();
+            if (lit == null)
+            {
+                if (_capHealBudget == 0)
+                    VRLog.Warn("Cards", $"KEYCAP MATERIAL: '{name}' stays on its fallback shader — " +
+                        "'GloomhavenVR/BoardLit' never turned up in any loaded bundle. The cap still " +
+                        "renders (Standard/Sprites tint), but its walls/bevel do not shade.");
+                return;
+            }
+            Color top = StateColor();
+            _capMaterial = NewKeycapMaterial(lit, top);
+            if (_capBevelMaterial != null && _capWallMaterial != null && _capMeshRenderer != null)
+            {
+                _capBevelMaterial = NewKeycapMaterial(lit, BevelTint(top));
+                _capWallMaterial = NewKeycapMaterial(lit, WallTint(top));
+                _capMeshRenderer.sharedMaterials = new[] { _capMaterial, _capBevelMaterial, _capWallMaterial };
+            }
+            else if (_capMeshRenderer != null)
+            {
+                _capMeshRenderer.sharedMaterial = _capMaterial;
+            }
+            _capShaderFallback = false;
+            VRLog.Info("Cards", $"KEYCAP MATERIAL HEALED: '{name}' was built before " +
+                "'GloomhavenVR/BoardLit' was loadable and wore the flat Standard/Sprites fallback; the " +
+                "shader has since resolved, so the cap has been re-skinned in place with the real " +
+                "carved-grain keycap materials (top/bevel/wall) — no rebuild, no state change needed.");
         }
 
         /// <summary>
@@ -852,17 +1058,28 @@ internal sealed partial class PlayTray
             // (collider off) — finish the visual shrink, then deactivate for real.
             if (_hideLeft > 0f)
             {
-                _hideLeft -= Time.deltaTime;
+                // UNSCALED clock + wall-clock deadline (see the _showDeadline field header): the
+                // shrink-out used Time.deltaTime, which stops advancing whenever the game stops
+                // simulation time — the same stall that could park the appear fade at 15 % could
+                // park this one at a fraction of the cap's size.
+                _hideLeft -= Time.unscaledDeltaTime;
+                if (_hideLeft > 0f && Time.unscaledTime >= _hideDeadline)
+                {
+                    LogFadeForced("dust dissolve", WorldUI.ButtonTuning.DissolveSeconds);
+                    _hideLeft = 0f;
+                }
                 float k = Mathf.Max(0f, _hideLeft / WorldUI.ButtonTuning.DissolveSeconds);
                 transform.localScale = _shownScale * k;
                 if (_hideLeft <= 0f)
                 {
+                    _hideDeadline = float.PositiveInfinity;
                     transform.localScale = _shownScale; // restore for the next show
                     gameObject.SetActive(false);
                 }
                 return;
             }
             _ticked = true;
+            TryHealCapMaterial();
 
             // MATERIALIZE-FROM-DUST fade-in (user: emerge from dust, NOT a scale pop) — runs
             // alongside the normal press logic. The cap stays at full scale IN PLACE while its
@@ -871,7 +1088,17 @@ internal sealed partial class PlayTray
             // converging dust cloud. On completion UpdateColor() restores the exact state colours.
             if (_showLeft > 0f)
             {
-                _showLeft -= Time.deltaTime;
+                // UNSCALED clock + wall-clock deadline. This countdown reaching zero is the ONLY
+                // thing that ever restores the cap's true state colour (UpdateColor below), which is
+                // exactly why a stalled clock or a skipped tick read to the player as a permanently
+                // invisible button with its label still floating in place. The deadline guarantees
+                // the restore happens whatever the frame clock does.
+                _showLeft -= Time.unscaledDeltaTime;
+                if (_showLeft > 0f && Time.unscaledTime >= _showDeadline)
+                {
+                    LogFadeForced("materialize-from-dust", WorldUI.ButtonTuning.AppearSeconds);
+                    _showLeft = 0f;
+                }
                 float k = 1f - Mathf.Max(0f, _showLeft / WorldUI.ButtonTuning.AppearSeconds);
                 transform.localScale = _shownScale; // materialize in place — no grow/scale pop
                 float b = Mathf.SmoothStep(0.15f, 1f, k);
@@ -882,6 +1109,7 @@ internal sealed partial class PlayTray
                     SetCapColor(faded);
                 if (_showLeft <= 0f)
                 {
+                    _showDeadline = float.PositiveInfinity;
                     transform.localScale = _shownScale;
                     UpdateColor(); // snap back to the exact state colour (top/bevel/wall or native face)
                 }
