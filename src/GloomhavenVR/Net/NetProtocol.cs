@@ -416,7 +416,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 97;
+    public const ushort ModBuild = 98;
+    // Build 98: keycap COLOURS and SHAPES ride the wire (user: "so dass das remote Board 1:1 das
+    // anzeigt was der Spieler sieht"), and the audit note that had filed them as "a look decision,
+    // not a wire gap" turned out to be hiding the real defect: the mirror read NONE of the colour
+    // dials, so the shipped 0.5 cap-face TINT — which the local cap multiplies its palette by — was
+    // never applied and EVERY mirrored keycap was twice as bright as the cap it copies, for two
+    // untuned players. Three more drifts alongside it, the worst being that the label keyline was
+    // read from the VIEWER's config, so recolouring your own grew every team-mate's, on your screen.
+    // A new COLOUR width was carved out of the vec range's unused tail — 6 ids / 24 bytes against
+    // 18 / 54 — because the id space is the only bound this record still has. Shapes were wired WITH
+    // their renderer, never before it, retiring last round's blocker. PENDING debts 46 -> 16.
+    // Also: the item pile follows the FOCUSED character (the ModBuild 89 display/action split
+    // surviving in the one stack it missed), and the offered-bonus cue COULD LEAK ACROSS CHARACTERS
+    // — it matched on CItem.ID, which is the item CARD id shared by every copy of that item; the
+    // game's own by-id lookup is safe only because it searches ONE inventory. Now scoped by the
+    // bonus's own Actor. Page count unmoved; convergence still <=400 ms.
     // Build 97: the Skip cap is not a PlayTray BoardButton but a ButtonCluster member, so the
     // per-character ownership machinery of builds 84-91 had never applied to it — it now computes
     // the SAME four facts from the same sources as ConfirmCapsForeignView, nuance included. Its dial
