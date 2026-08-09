@@ -1202,6 +1202,69 @@ internal sealed class ItemsPile
         _handWinnerLeft?.SetFingertipPop(true);
         _handWinnerRight?.SetFingertipPop(true);
 
+        // ---- THE TICK THAT GOES WITH THE LIFT (user report 2026-08-09, "Controller-Vibrationen") --
+        //
+        // The ability fan ticks the hand the instant a card starts lifting under it —
+        // CardFan.UpdateFingertipHover ends its state change with `dom.SendHaptic(HoverTick)`, and
+        // VRCard.OnPokeEnter does the same for a fingertip poke. The item fan raised its chip in
+        // complete silence: this election, the ONE event that decides which chip lifts, never spoke
+        // to the controller at all. (A HoverTick did reach the hand from ProximityGrabber's own
+        // highlight edge, but that is a DIFFERENT edge with a different reach and a different
+        // debounce, so the buzz and the lift routinely landed at different moments on different
+        // chips — which is exactly why the feedback read as absent rather than as merely weak. The
+        // ability card does not have that split: VRCard implements IGrabHighlight, so the grabber's
+        // tick and the card's pop are the same event by construction.)
+        //
+        // SAME PRESET, SAME EDGE, SAME DEBOUNCE — deliberately not a new haptic vocabulary:
+        //   * HapticPreset.HoverTick, the mod's single "a hover/highlight started" effect (0.15
+        //     amplitude / 12 ms), which is what every other hover in the mod plays, item chips
+        //     included (ItemChip.OnPokeEnter already ticks the laser hover with it).
+        //   * On the hand whose OWN election changed, so a two-handed sweep ticks the hand that
+        //     actually moved — the per-hand elections are separate for exactly this reason.
+        //   * On the winner-CHANGE edge only, never per frame. The debounce is the election's own
+        //     incumbent hysteresis (FanReach.Sticky, the same margin ProximityGrabber's
+        //     SwitchMarginMeters serves): an incumbent keeps its lift until a rival is DECISIVELY
+        //     closer, so a hand drawn across an arc of overlapping chips cannot machine-gun the
+        //     controller at the strip boundaries. This is CardFan's "debounced: only on card change"
+        //     word for word.
+        //
+        // AND DELIBERATELY NOT DE-DUPLICATED AGAINST ProximityGrabber's OWN TICK, because two
+        // proximity tick sources per card IS the ability fan's behaviour and this is a parity task.
+        // A card crossed by a sweeping hand can tick twice as well — once when ProximityGrabber's
+        // highlight moves to it (palm reach) and once when CardFan.UpdateFingertipHover's pop moves
+        // to it (index-tip reach) — because those are two genuinely different reaches answering two
+        // genuinely different questions ("which card would my grab take" vs "which card is my finger
+        // on"). Suppressing one of the chip's two would make the item fan QUIETER than the ability
+        // fan, which is the opposite of the report. Both effects are the same 0.15 amplitude / 12 ms
+        // impulse, so a frame in which both fire reads as one slightly firmer tick, not as a rattle.
+        //
+        // NO TICK FOR A CHIP THAT MAKES NO GRAB PROMISE, structurally rather than by a new guard: a
+        // held chip, a chip clipped into the use recess and a chip whose USE is still resolving are
+        // all PendingUse or Holder-bound, and IFanSweepTarget.SweepEligible rejects both, so such a
+        // chip can never BE a winner here. A buzz over the berth would contradict it, and the berth
+        // is the placement flow's to own.
+        //
+        // MULTIPLAYER: NOTHING TO MIRROR HERE, and that is an answer to the 1:1 ruling rather than an
+        // exception to it. The ruling governs what a peer SEES of this player's board ("alle anderen
+        // sehen … bei seinem board"), and it is honoured in full: the chip that lifts, how far it
+        // lifts and the arc that opens around it all ride extension record 6 + record 28 and are
+        // replayed by Net/RemoteItemFan. A haptic is not board state — it is a pulse in the motor of
+        // THIS player's controller, produced by THIS player's hand being at THIS chip. There is no
+        // hand of theirs at that chip on a peer's machine, and buzzing a peer's controller for
+        // somebody else's hover would be a phantom, not a mirror. The ability fan takes the identical
+        // position (CardFan/VRCard tick locally and sync only the highlight INDEX), so this is the
+        // established reading of the rule and not a new carve-out.
+        if (!ReferenceEquals(prevLeft, _handWinnerLeft) && _handWinnerLeft != null)
+        {
+            left?.SendHaptic(HapticPreset.HoverTick);
+            LogHoverFeedbackOnce();
+        }
+        if (!ReferenceEquals(prevRight, _handWinnerRight) && _handWinnerRight != null)
+        {
+            right?.SendHaptic(HapticPreset.HoverTick);
+            LogHoverFeedbackOnce();
+        }
+
         // ARC SPLIT / MP index: one pivot, because splitting an arc around two pivots at once is
         // not a layout. The DOMINANT hand's winner is the pivot when it has one (it is the hand the
         // laser and every other single-owner rule already defer to), else the other hand's — so a
@@ -1287,6 +1350,31 @@ internal sealed class ItemsPile
                 _handSuppressed.Add(c);
         }
     }
+
+    /// <summary>
+    /// One-shot session confirmation that the item fan's PHYSICAL-contact channel now speaks the
+    /// ability fan's language — the grep line a hardware log is read for
+    /// (<c>"Item-fan hover feedback ACTIVE"</c>), modelled on <c>CardFan</c>'s own
+    /// <c>s_loggedFingertipHover</c> line so the two fans are checked the same way. One line per
+    /// session, so it can never compete with the per-change <c>FanSweep.LogWinner</c> evidence that
+    /// already names the chip, the hand and the reaches.
+    /// </summary>
+    private static void LogHoverFeedbackOnce()
+    {
+        if (s_loggedHoverFeedback)
+            return;
+        s_loggedHoverFeedback = true;
+        VRLog.Info("Cards", "Item-fan hover feedback ACTIVE (parity pass 2026-08-09): the elected " +
+                            "chip now lifts on VRCard's own pop (up 0.012 m + [Cards] " +
+                            "FanSelectedPopForward toward the viewer, ×1.18, ramped at 8/s) and the " +
+                            "electing hand gets the standard HapticPreset.HoverTick on the " +
+                            "winner-change edge — the same preset, edge and hysteresis the ability " +
+                            "hand fan uses. The laser channel already ticked (ItemChip.OnPokeEnter) " +
+                            "and now shares the same lift.");
+    }
+
+    /// <summary>One-shot guard for <see cref="LogHoverFeedbackOnce"/>.</summary>
+    private static bool s_loggedHoverFeedback;
 
     /// <summary>
     /// ONE hand's election over the arc — the per-hand half of <see cref="UpdateHandSweep"/>'s two
@@ -4172,11 +4260,48 @@ internal sealed class ItemsPile
         /// </summary>
         internal bool HasOfferedBonus => CardsGameApi.PlaceableBonusForItem(Item) != null;
 
-        // Pop/enlarge for readability (fingertip sweep OR laser hover — spatially exclusive, so
-        // one effective pop). Mirrors VRCard's pop: a small grow + a nudge toward the viewer.
+        // ---- THE LIFT AN ABILITY CARD GIVES, TERM FOR TERM (user report 2026-08-09) ------------
+        //
+        // "Mir gefällt der neue Gegenstandsoverlay sehr gut, ich möchte das dort das selbe Feedback
+        //  implementiert ist wie beim anderen Kartenoverlay auch, also Controller-Vibrationen, aber
+        //  auch visuell. So gehen im normalen Overlay die Karten nach oben bzw. highlighten wenn man
+        //  physisch dran ist oder mit dem Laser drüber hovered um anzuzeigen dass man sie nehmen
+        //  kann. Gleiche die Experience hier an."
+        //
+        // WHAT WAS ACTUALLY DIFFERENT. The chip already had a pop, a single-winner election and a
+        // laser hover — the hooks were all here, which is why this reads as a tuning gap rather than
+        // a missing feature. Three numbers, all of them private re-inventions of numbers the ability
+        // card already carries, made it read as a different language:
+        //   * NO UPWARD COMPONENT AT ALL. VRCard's pop is `(0, 0.012, -FanSelectedPopForward)`; the
+        //     chip's was `(0, 0, -0.02)`. The card literally rises out of the arc — which is the half
+        //     of the report the user names first ("gehen die Karten nach oben") — and the chip only
+        //     ever crept toward the eye, a motion that is nearly invisible head-on because a card
+        //     coming straight at you changes no silhouette, only its size.
+        //   * A SMALLER FORWARD PUSH from a PARALLEL constant: 0.02 m against the ability fan's
+        //     authored [Cards] FanSelectedPopForward (0.035 m). That dial means exactly this — "how
+        //     far a lifted card comes toward the viewer" — so the chip now READS it instead of
+        //     mirroring it badly. One dial, both fans, one thing to tune, and it is already on the
+        //     wire (extension record 28, id 75), so a peer's mirrored fan lifts by the owner's own
+        //     number for free. This is the mirrored-constant lesson applied: a second set of numbers
+        //     for the same idea is how the two fans drifted apart in the first place.
+        //   * TWICE THE RAMP RATE (16/s vs VRCard's 8/s). Same tween, same MoveTowards form — the
+        //     chip simply snapped where the card eases, which is what makes an otherwise identical
+        //     lift feel like a different mechanism.
+        //
+        // The +18 % enlargement was already VRCard's number and is unchanged.
         private const float PopScale = 1.18f;
-        private const float PopLift = 0.02f;   // local -Z (toward the viewer) at full pop
-        private const float PopLerpSpeed = 16f;
+
+        /// <summary>
+        /// The UPWARD component of the lift, in fan-local metres — <c>VRCard</c>'s own 0.012 m
+        /// (see its home-pose update; <c>Net.RemoteBrowserFan.PopUp</c> mirrors the same value for
+        /// the browse arc). Deliberately a shared authored CONSTANT rather than a new [Cards] dial:
+        /// the ability side has never had one either, and minting a second dial for the ability
+        /// card's own number is precisely the parallel set this change exists to remove.
+        /// </summary>
+        private const float PopUp = 0.012f;
+
+        /// <summary>VRCard's pop RAMP rate (units/second, MoveTowards) — see the block above.</summary>
+        private const float PopLerpSpeed = 8f;
 
         /// <summary>Grab-box margin around the rendered face (card-local metres) — a little slack
         /// for easy laser/finger targeting. Named because <see cref="SetGrabStrip"/> has to rebuild
@@ -5926,8 +6051,25 @@ internal sealed class ItemsPile
             float udt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // unscaled: pop/glide play while paused
             bool popped = _fingerPopped || _laserPopped;
             _pop = Mathf.MoveTowards(_pop, popped ? 1f : 0f, PopLerpSpeed * udt);
-            // Pop applied on top of the arc home: grow a touch + nudge toward the viewer (local -Z).
-            Vector3 posTarget = _homePos + new Vector3(0f, 0f, -PopLift * _pop);
+            // THE LIFT, on top of the arc home, exactly as VRCard applies it: UP out of the arc, a
+            // push toward the viewer along local -Z, and 18 % bigger. See the PopUp/PopScale block.
+            //
+            // WHY THE OFFSET IS FAN-LOCAL AND NOT ROTATED BY _homeRot, where VRCard rotates by its
+            // own home rotation. Two reasons, both of them properties of THIS fan:
+            //   * A SPENT item lies "tapped" — Relayout gives it an extra 90° roll (requirement 3).
+            //     Lifting along that chip's OWN up would send a tapped card sideways out of the arc
+            //     while its neighbours rise, i.e. the one card the player most needs to read would
+            //     move in a direction nothing else in the fan does.
+            //   * The item arc's roll is small (-angle·0.85 over a capped sweep) where the palm fan's
+            //     is not, so fan-local up and card-local up differ by a few percent for every chip
+            //     that is NOT tapped. The fan root billboards the head every frame (Tick), so
+            //     fan-local +Y is the viewer's up: the motion the report asks for, "nach oben".
+            // The forward term is unaffected by the choice either way — every rotation in this arc is
+            // a ROLL about Z, and a roll leaves Z alone. (Net.RemoteItemFan.Layout applies the same
+            // two terms the same way, which is what keeps the mirrored fan 1:1.)
+            float popForward = CardsConfig.FanSelectedPopForward != null
+                ? CardsConfig.FanSelectedPopForward.Value : Defaults.FanSelectedPopForward;
+            Vector3 posTarget = _homePos + new Vector3(0f, PopUp * _pop, -popForward * _pop);
             float scaleTarget = _homeScale * (1f + (PopScale - 1f) * _pop);
 
             if (_emerging)
