@@ -416,7 +416,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 98;
+    public const ushort ModBuild = 99;
+    // Build 99: the shipped defaults are re-based onto the user's tuned setup (21 values, board
+    // seat and tray pose dominating). Three reports, two of them dials with a hole on one side:
+    //   * 'die Offsets bei den Ueberspringen-Tasten haben keinen Einfluss' — the [RoundButtons]
+    //     offsets were live all along; the dial he was turning is [Cards] ClusterOffset in the
+    //     same debug block, and THAT was orphaned: the rigid-dock lag fix reparented the cluster
+    //     from its mount to the tray root and carried the mount's rotation and scale but not its
+    //     TRANSLATION. The mount kept moving; it had stopped having children. It is now a delta
+    //     off the mount's own transform (wire id 16). Fell out with it: the cluster no longer
+    //     tears itself down on EVERY tuning move — that teardown was a cap vanishing and
+    //     reappearing with no crumble and no assemble.
+    //   * the card lying in the item-use recess now lifts and highlights like a slot-docked card.
+    //     Both contact signals already reached it; ItemChip.Update returned before any pose work
+    //     while PendingUse was set, so it was the one card that could be hovered and never showed
+    //     it. The pop rides IGrabHighlight, so buzz and lift are the SAME event.
+    //   * and it stops VANISHING from peers when the owner closes the fan: record 26 was derived
+    //     from ItemsPile.Current, which Close() nulls. The receiver had been built to survive that
+    //     close — so its whole _clipDetached re-adoption path had never once run.
     // Build 98: keycap COLOURS and SHAPES ride the wire (user: "so dass das remote Board 1:1 das
     // anzeigt was der Spieler sieht"), and the audit note that had filed them as "a look decision,
     // not a wire gap" turned out to be hiding the real defect: the mirror read NONE of the colour
