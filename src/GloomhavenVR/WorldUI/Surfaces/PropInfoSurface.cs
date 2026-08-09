@@ -154,6 +154,36 @@ internal sealed class PropInfoSurface
                     pokeable: false, flatten2D: true);
                 if (watch.Panel != null)
                 {
+                    // MR BACKING OPT-OUT (user report 2026-08-09, verbatim: "Die fliegenden
+                    // Hinweise beim Hovern wie 'Geschlossene Tür' haben in mixed reality auch
+                    // einen größeren Hintergrund, da sie nicht transparent sind oder transparente
+                    // Stellen haben, brauchen sie das nicht - entferne das dort.")
+                    //
+                    // These two windows are the game's OWN hover prop cards and they carry their
+                    // own fully opaque card art, exactly like the figure-grab stat card that got
+                    // this same exclusion on 2026-08-04 (StatPanelSurface, "hier wird das nicht
+                    // gebraucht"). MrBacking.TickPanels plates every live ConvertedPanel by
+                    // default — deliberately, because under-coverage is the reported bug and
+                    // over-coverage is normally invisible behind opaque art. It is NOT invisible
+                    // here: the plate is fitted to the HOST RECT (the hardware log reads
+                    // "Converted 'TextInfoPanel' to world space (336x200 px)"), which is the
+                    // content fit's union of the visible graphics' rectangles and therefore
+                    // LARGER than the drawn card, and MrBacking.GlyphTrueRect then grows it
+                    // further for any line that renders past that union plus the standard label
+                    // margin. The result is the reported dark border proud of the card — "einen
+                    // größeren Hintergrund" — added for a card that never had a transparent pixel
+                    // to protect in the first place.
+                    //
+                    // WHICH HINTS THIS EXEMPTS, precisely: the two windows THIS surface converts
+                    // and nothing else — UITextInfoPanel ('Geschlossene Tür', '3 Gold', chests,
+                    // pressure plates) and UIPropInfoPanel (trap / hazardous terrain / difficult
+                    // terrain / carryable quest item). The test is STRUCTURAL, not name-based:
+                    // the flag is written by the owning surface on the panel it just converted,
+                    // so no other panel family can ever be caught by it, and every genuinely bare
+                    // free-floating label (MrBacking.Label registrants) keeps its plate untouched.
+                    // Per conversion, like every other flag here: the hover show/hide hysteresis
+                    // re-converts these windows constantly and each fresh ConvertedPanel needs it.
+                    watch.Panel.MrBackingSuppressed = true;
                     CountConversion(watch, name);
                     PlaceWatch(watch);
                     // MIP BAKE (user report 2026-08: "Die Linien und Rahmen auf allen Karten und

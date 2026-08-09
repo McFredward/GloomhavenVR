@@ -22,8 +22,8 @@ namespace GloomhavenVR.WorldUI;
 /// - <see cref="Opacify(Graphic)"/> / <see cref="Opacify(Material)"/> — a MOD-OWNED translucent
 ///   backing (wrist-HUD backdrop, pick-banner parchment, remote plates) is driven to alpha 1
 ///   while MR is on and restored exactly on off. Only mod-owned objects are ever registered.
-/// - <see cref="Surface"/> — a MOD-OWNED world CANVAS that is not a <see cref="ConvertedPanel"/>
-///   and therefore invisible to the panel sweep below. The shipped case is a REMOTE board's
+/// - <see cref="Surface"/> — a world CANVAS that is not a <see cref="ConvertedPanel"/> and
+///   therefore invisible to the panel sweep below. The first shipped case is a REMOTE board's
 ///   <c>Net.RemoteWidgetMirror</c> clones (user report 2026-08-08: "die Mixed-Reality-Hintergründe
 ///   sollen auch für das Remote-Board genauso angezeigt werden — aktuell sind die Hintergründe
 ///   nur auf meinem eigenen Board sichtbar"). The asymmetry was structural, not cosmetic: on the
@@ -34,6 +34,14 @@ namespace GloomhavenVR.WorldUI;
 ///   The registrant reports its own anchor/size/centre/order each tick (the mirror already
 ///   measures all four in its fit pass), and gets the SAME plate, the SAME material, the SAME
 ///   ladder contract and the SAME bit-identical OFF path as a converted panel.
+///   <para>The second case is the GAME's shared tooltip widget (<c>WorldTooltips</c>, user report
+///   2026-08-09: "Der Hintergrund der Tooltipps erscheint grün im mixed-reality Modus"). That
+///   canvas is the game's own <c>CanvasManager.tooltipCanvas</c> — never converted, never adopted,
+///   so neither sweep below has ever seen it — and its frame is a 9-sliced sprite under a
+///   CanvasGroup the game tweens 0→1 on every show, i.e. genuinely translucent over the chroma
+///   key. The PLATE is still mod-owned and still a child of a rect the registrant nominates, so
+///   nothing here reaches into game state; see <see cref="Release"/> for the extra teardown that
+///   a plate parented under a GAME object needs and the panel plates do not.</para>
 /// - Converted panels need no registration: <see cref="Tick"/> sweeps
 ///   <see cref="CanvasConversion.ActivePanels"/> and keeps a host-rect plate behind EVERY live
 ///   converted panel. That deliberately includes the ModalFallback float families whose native
@@ -43,7 +51,9 @@ namespace GloomhavenVR.WorldUI;
 ///   so over-coverage is harmless while under-coverage is the reported bug. The ONLY exceptions
 ///   are panels whose owner set <see cref="ConvertedPanel.MrBackingSuppressed"/> (user ruling
 ///   2026-08-04: actor health bars and the figure-grab stat cards — see that flag's doc for the
-///   full reasoning); the sweep never plates those and destroys any plate they already carry.
+///   full reasoning; joined 2026-08-09 by the hover PROP-INFO cards, "Geschlossene Tür" and
+///   friends, whose own card art is already opaque — see <c>Surfaces.PropInfoSurface</c>); the
+///   sweep never plates those and destroys any plate they already carry.
 ///
 /// PLATE RENDERING: the bundled Overlay shader forced to _ZWrite=1 / _ZTest=4 (LEqual) /
 /// _Cull=0 / Blend One Zero at renderQueue 2998 — after all opaque geometry and before the
@@ -293,6 +303,38 @@ internal static class MrBacking
                 return;
         }
         Surfaces.Add(new SurfaceEntry { Surface = surface });
+    }
+
+    /// <summary>
+    /// Unregister a <see cref="Surface"/> AND destroy its plate NOW, whatever MR is doing.
+    ///
+    /// <para>WHY THIS EXISTS AND THE OTHER REGISTRATION KINDS DO NOT NEED IT. Every other plate in
+    /// this class hangs under a MOD-OWNED object that dies on its own (a converted panel's host, a
+    /// mirror's clone canvas, a label the owner destroys), and the MR-OFF contract is therefore
+    /// "deactivate, do not destroy" — a deactivated mod object under a mod object is bit-identical
+    /// rendering and the next MR-ON reuses it. A plate parented under a GAME rect is a different
+    /// promise: <c>WorldTooltips</c> hands its whole presentation back the instant the mod leaves
+    /// scenario mode (render mode, worldCamera, scale, sorting, the flatten, the added mask, the
+    /// widened fade — all restored verbatim), and leaving an inactive mod quad parented under the
+    /// game's shared tooltip widget would be the one piece of that teardown that did not happen.
+    /// So the registrant releases explicitly and this is the only path that can run while MR is
+    /// OFF (<see cref="TickSurfaces"/>, which normally prunes dead registrants, does not tick
+    /// then). Idempotent: releasing an unregistered surface is a no-op, so a restore that runs
+    /// twice costs one list walk.</para>
+    /// </summary>
+    internal static void Release(IBackedSurface? surface)
+    {
+        if (surface == null)
+            return;
+        for (int i = Surfaces.Count - 1; i >= 0; i--)
+        {
+            if (!ReferenceEquals(Surfaces[i].Surface, surface))
+                continue;
+            if (Surfaces[i].Plate != null)
+                Object.Destroy(Surfaces[i].Plate!.gameObject);
+            Surfaces.RemoveAt(i);
+            return;
+        }
     }
 
     /// <summary>Register a MOD-OWNED translucent plate material: alpha 1 while MR, restored off.</summary>
