@@ -838,6 +838,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             if (RestControls.LongRestEnabled) capStates |= NetProtocol.BoardUiCapLongRestEnabledBit;
             if (RestControls.LongRestAccent) capStates |= NetProtocol.BoardUiCapLongRestAccentBit;
             if (WorldUI.ButtonCluster.BoardSkipEnabled) capStates |= NetProtocol.BoardUiCapSkipEnabledBit;
+            // …AND THE ONE BIT IN THIS BYTE THAT IS NOT A CAP (bit 7, the last free bit in the whole
+            // record): the owner's CLOSED items pile is wearing its "something in here is playable"
+            // cue. It rides here rather than in a record of its own because it has to arrive in the
+            // SAME packet as byte 0's item-recess and item-USE bits — the three of them are one
+            // picture of the item flow, and a peer that gets them in different frames paints half of
+            // it against the other half's state. Read off PileViewer's own published render answer,
+            // never re-derived from the inventory, so the mirrored stack cannot beat while the
+            // owner's is dark (or the reverse). See NetProtocol.BoardUiCapItemPileUsableBit.
+            if (PileViewer.ItemsUsableCueOn) capStates |= NetProtocol.BoardUiCapItemPileUsableBit;
             boardUiNow = buttons | ((overlays & NetProtocol.BoardUiOverlayMask) << 8)
                          | ((capStates & NetProtocol.BoardUiCapStateDefinedMask) << 16);
         }
@@ -1606,7 +1615,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                   $"longRest={DescribeRestCapState(boardUiNow, NetProtocol.BoardUiCapLongRestEnabledBit, NetProtocol.BoardUiCapLongRestAccentBit)}, " +
                                   $"skip={(((boardUiNow >> 16) & NetProtocol.BoardUiCapSkipEnabledBit) != 0 ? "enabled" : "DIMMED")} — " +
                                   "peers paint their mirrored caps in exactly these state colours " +
-                                  "instead of the single colour the cap was built with.");
+                                  "instead of the single colour the cap was built with. " +
+                                  $"ITEM-PILE CUE (byte 2 bit 7, new this build) = " +
+                                  $"{(((boardUiNow >> 16) & NetProtocol.BoardUiCapItemPileUsableBit) != 0 ? "BEATING" : "off")}" +
+                                  " — the closed items stack's ember puffs and outward rings now " +
+                                  "run on every peer's copy too, on their own clock from this " +
+                                  "bit's edges. It is the last free bit in record 4.");
             }
             else
             {

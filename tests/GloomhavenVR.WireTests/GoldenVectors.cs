@@ -487,16 +487,21 @@ internal static class GoldenVectors
         t.Equal((byte)0x00, (byte)(0xFF & ~NetProtocol.BoardUiOverlayMask),
                 "and NO reserved overlay bit is left — the next overlay field needs a new byte, " +
                 "not a free bit in this one");
-        // The cap-state byte gets the same hygiene: bit 7 is the last reserved one there, and a
-        // sender writing it must not have it survive into a receiver's state.
+        // The cap-state byte gets the same hygiene — and as of the item-pile cue bit it is FULL too.
+        // This expectation moved 0x7F -> 0xFF when BoardUiCapItemPileUsableBit (bit 7) was claimed,
+        // which is exactly the assertion that would have caught the mask being widened on only one
+        // side of the codec.
         m = PresenceSerializer.Write(new PresenceState
         {
             HasBoardUi = true, BoardButtonsMask = 0x00, BoardCapStateMask = 0xFF,
         }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cs), "cap-state packet parses");
         t.True(cs.HasBoardCapStates, "and the 3-byte record delivers its cap-state byte");
-        t.Equal((byte)0x7F, cs.BoardCapStateMask,
-                "cap-state bit 7 is reserved and masked off on both sides (0xFF -> 0x7F)");
+        t.Equal((byte)0xFF, cs.BoardCapStateMask,
+                "every defined cap-state bit survives (0xFF -> 0xFF: bit 7 is the item-pile cue now)");
+        t.Equal((byte)0x00, (byte)(0xFF & ~NetProtocol.BoardUiCapStateDefinedMask),
+                "and NO reserved bit is left in byte 2 either — record 4 is FULL in all three " +
+                "bytes, so the next board-UI flag needs a FOURTH byte, not a free bit");
 
         // -- 7f. FOLLOW/PIN (board-UI byte 1 bit 2) ----------------------------------------
         // The cross-version contract in both directions, byte-exact.
@@ -729,6 +734,84 @@ internal static class GoldenVectors
         t.Equal((byte)0x00, preCapState.BoardCapStateMask,
                 "and the mask stays clear, so a consumer that forgets the flag still gets zeros " +
                 "rather than garbage");
+
+        // -- 7f5. THE ITEM-PILE USABLE CUE (board-UI BYTE 2, BIT 7) ------------------------
+        // The last free bit anywhere in record 4, spent on the closed items pile's "an item can be
+        // played right now" heartbeat cue. Before it, a peer's mirrored items stack was three inert
+        // slabs and a number while the owner's puffed embers and threw rings — a straight breach of
+        // the standing 1:1 ruling on board ANIMATIONS, and one that cost nothing to fix because this
+        // byte already rides every packet that carries a board pose.
+        t.Case("7f5. extras, item-pile usable cue");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true,
+            // The whole item flow in ONE packet, which is the reason the bit lives in this record at
+            // all: the recess (byte 0 bit 2), the USE cap (byte 0 bit 3) and the pile cue (byte 2
+            // bit 7) are one picture, and a peer that got them in different frames would paint half
+            // of it against the other half's state.
+            BoardButtonsMask = (byte)(NetProtocol.BoardUiItemRecessBit
+                                      | NetProtocol.BoardUiItemUseCapBit),
+            BoardCapStateMask = NetProtocol.BoardUiCapItemPileUsableBit,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80               // flags: block only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0
+            01               // tail: 1 record
+            04 03 0C 00 80   // id 4, len 3, buttons 0x0C = item recess | item USE cap,
+                             //   overlays 0x00, cap states 0x80 = the item-pile usable cue.
+                             //   ZERO extra bytes over the previous build: the cue is a bit in a
+                             //   byte that was already being written.
+            "), ext, m, "the item-pile cue is bit 7 of the board-UI record's existing third byte");
+        t.Equal(16, m, "and the packet is the same 16 bytes a cue-less one costs — a new record " +
+                       "would have been three more");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cue), "and it parses");
+        t.True(cue.HasBoardCapStates, "the cap-state byte is delivered");
+        t.True((cue.BoardCapStateMask & NetProtocol.BoardUiCapItemPileUsableBit) != 0,
+               "the peer's mirrored items stack beats: embers puff and rings fly on the shared " +
+               "item heartbeat, driven on the receiver's own clock from this bit's edges");
+        t.Equal((byte)0x00,
+                (byte)(cue.BoardCapStateMask & ~NetProtocol.BoardUiCapItemPileUsableBit),
+                "and NOTHING bled into the seven CAP bits below it — a lit pile must not accent a " +
+                "cap or enable a rest disc");
+        t.True((cue.BoardButtonsMask & NetProtocol.BoardUiItemRecessBit) != 0
+               && (cue.BoardButtonsMask & NetProtocol.BoardUiItemUseCapBit) != 0,
+               "with the recess and the USE cap arriving in the SAME packet, which is why the bit " +
+               "rides record 4 rather than one of its own");
+
+        // A PRE-CUE sender (every build up to this one): the byte is present — it has carried the
+        // cap states since ModBuild 88 — but bit 7 is clear, and clear has to mean "no cue", because
+        // that is exactly what those builds' receivers drew (nothing at all on the mirrored stack).
+        // The same "0 is the old look" rule the PINNED and SNAP fields follow.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x00,
+            BoardCapStateMask = NetProtocol.BoardUiCapSkipEnabledBit, // 0x40 — bit 7 clear
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState preCue),
+               "a cap-state byte without bit 7 still parses");
+        t.True(preCue.HasBoardCapStates
+               && (preCue.BoardCapStateMask & NetProtocol.BoardUiCapItemPileUsableBit) == 0,
+               "and reads as NO cue — the mirrored stack stays dark, which is what every build " +
+               "before this one rendered");
+
+        // AN OLD READER, the symmetric half. Builds that shipped before this bit mask byte 2 with
+        // their own narrower 0x7F, so a packet from a player whose pile IS lit must decode on their
+        // machine as the seven cap states they know and nothing else — dropped, never mis-rendered
+        // as an eighth cap state.
+        const byte LegacyCapStateMask = 0x7F; // BoardUiCapStateDefinedMask before the cue bit
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardUi = true, BoardButtonsMask = 0x00,
+            BoardCapStateMask = (byte)(NetProtocol.BoardUiCapItemPileUsableBit
+                                       | NetProtocol.BoardUiCapConfirmAccentBit),
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState oldCue), "old-reader packet parses");
+        t.Equal((byte)NetProtocol.BoardUiCapConfirmAccentBit,
+                (byte)(oldCue.BoardCapStateMask & LegacyCapStateMask),
+                "an old reader sees ONLY its own seven bits (here: the accented CONFIRM cap) and " +
+                "drops the cue bit — additive, never corrupting");
 
         // ---- BACKWARD COMPATIBILITY, the explicit assertion ------------------------------
         // An OLD reader (build <= 18) masks byte 1 with its OWN narrower overlay mask, 0x07. Feed

@@ -283,6 +283,7 @@ internal sealed class PileViewer
     internal void Destroy()
     {
         CurrentCounts = null; // a torn-down viewer displays nothing — the wire must not claim it does
+        ItemsUsableCueOn = false; // …and neither must the item-cue bit (board-UI byte 2 bit 7)
         if (_locHooked)
         {
             Core.Loc.OnChanged -= RefreshLabels;
@@ -336,6 +337,7 @@ internal sealed class PileViewer
         if (_discard == null || _burnt == null || hand == null || counted == null)
         {
             CurrentCounts = null; // nothing displayed ⇒ nothing for the wire to claim
+            ItemsUsableCueOn = false; // TickItemsUsableHighlight is skipped below — never latch the cue
             // A card lying in the item-use recess is serviced from _itemsBrowse.Tick below, which
             // this return skips — so it must not be left there unserviced (it would be frozen on a
             // board nobody is ticking, with a decision nobody can resolve).
@@ -345,6 +347,7 @@ internal sealed class PileViewer
         if (!_discard.gameObject.activeSelf)
         {
             CurrentCounts = null;
+            ItemsUsableCueOn = false; // the stack itself is hidden — its cue cannot be on anywhere
             _itemsBrowse.RetirePlacedCardIfAny("the pile stacks are hidden");
             return; // hidden ([Cards] PileViewer off / no hand) — no counts, no logs
         }
@@ -431,6 +434,24 @@ internal sealed class PileViewer
     internal static (int discard, int burnt, int items)? CurrentCounts { get; private set; }
 
     /// <summary>
+    /// TRUE while the LOCAL board's closed items stack is wearing its "something in here is
+    /// playable" cue — the ember puffs and the outward rings on the shared item heartbeat.
+    ///
+    /// <para>THE SENDER-SIDE SOURCE OF board-UI record byte 2 bit 7
+    /// (<c>NetProtocol.BoardUiCapItemPileUsableBit</c>). Published from
+    /// <see cref="TickItemsUsableHighlight"/> at the exact line that drives the local stack, so —
+    /// like <see cref="CurrentCounts"/> beside it — the wire state IS the rendered state by
+    /// construction rather than a second read of the same predicate. Static for the same reason:
+    /// the viewer instance is a private of CardsDriver and the Net layer must not thread through
+    /// it.</para>
+    ///
+    /// <para>It goes FALSE with the stacks (torn-down viewer, hidden piles, no presented hand) —
+    /// the three points that also null <see cref="CurrentCounts"/> — because a latched true would
+    /// leave a peer's mirrored stack beating for a board that is not being ticked at all.</para>
+    /// </summary>
+    internal static bool ItemsUsableCueOn { get; private set; }
+
+    /// <summary>
     /// USABLE-HIGHLIGHT on the CLOSED items stack: drift soft gold embers off the "Gegenstände" stack
     /// whenever AT LEAST ONE equipped item can be used right now, so the player sees there is something
     /// to play WITHOUT having to open the fan — and the emission stops again the moment nothing is
@@ -456,6 +477,10 @@ internal sealed class PileViewer
         int usable = _itemsBrowse.UsableCount(hand);
         bool on = usable > 0;
         _items?.SetUsableHighlight(on);
+        // …and the SAME answer goes on the wire in the same statement group (board-UI byte 2 bit 7,
+        // see ItemsUsableCueOn): a peer's mirrored items stack now beats on the owner's edges, which
+        // it never did — the whole cue was invisible to everybody but its owner.
+        ItemsUsableCueOn = on;
 
         // Throttled + change-gated diagnostic so the next hardware log can verify the cue end-to-end:
         // how many items are usable this instant, and whether the stack's ember drift is actually running.

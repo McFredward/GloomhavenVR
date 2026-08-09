@@ -442,6 +442,19 @@ internal sealed class RemoteAvatar
     public byte CapStateMask { get; private set; }
 
     /// <summary>
+    /// TRUE while at least one of the owner's equipped items can be played RIGHT NOW — i.e. while
+    /// their own closed items pile is wearing its heartbeat cue (board-UI record byte 2 bit 7,
+    /// <see cref="NetProtocol.BoardUiCapItemPileUsableBit"/>).
+    ///
+    /// <para>Resolves to FALSE for a sender that predates the bit, which is exactly what every
+    /// earlier build's receiver drew (nothing at all on the mirrored stack). The peer's copy of the
+    /// cue is animated entirely on THIS client's clock from the edges of this flag — the same
+    /// synced-state / locally-animated split the wanted-slot glow and the keycap dust use, so a cue
+    /// that beats twice a second costs no traffic beyond the two edges.</para>
+    /// </summary>
+    public bool ItemsPileUsableCue { get; private set; }
+
+    /// <summary>
     /// The owner's most recent board keycap PRESS as a (cap id, sequence) pair packed
     /// <c>cap | seq &lt;&lt; 8</c>, or -1 while none is in flight. The renderer plays the mirrored
     /// dip when this value CHANGES — the field is a latch that rides several packets, so "set" is
@@ -1067,6 +1080,24 @@ internal sealed class RemoteAvatar
                                     "/ confirmed colours instead of the single colour they were built in"
                                   : "none (record 4 carried no cap-state byte — pre-record sender; " +
                                     "the mirrored caps keep their built colour, as before)") + ".");
+        }
+        // THE ITEM-PILE CUE rides that same byte (bit 7) but is NOT a cap, so it gets its own field
+        // and its own change-gated log line: it is the one bit in the record whose consumer is the
+        // pile stack rather than the furniture, and a hardware log has to be able to say which of
+        // the two disagreed with the owner.
+        bool itemCue = capStates && (capStateMask & NetProtocol.BoardUiCapItemPileUsableBit) != 0;
+        if (itemCue != ItemsPileUsableCue)
+        {
+            ItemsPileUsableCue = itemCue;
+            VRLog.Info("Net", $"Item-pile usable cue RECEIVED from player {PlayerId}: " +
+                              (itemCue
+                                  ? "ON — their mirrored items stack now puffs embers and throws " +
+                                    "rings on the shared item heartbeat, exactly as their own does"
+                                  : "off — the mirrored stack's rings collapse out and the embers " +
+                                    "stop being emitted (the ones in flight finish their fade)") +
+                              " (board-UI byte 2 bit 7). A boolean about THIS player's own board: " +
+                              "no item identity rides it, and the animation runs on this client's " +
+                              "clock from these edges alone.");
         }
         // CAP PRESS (record 14 byte 0 bits 3..7). A LATCH: it rides several packets per press, so
         // the renderer animates on the value CHANGING, never on it being set. -1 = none in flight.

@@ -436,7 +436,17 @@ internal sealed class RemoteBoardFurniture
     private readonly InertCap? _longRest;
 
     private readonly Transform _itemUse;
-    private readonly Material _itemUseGlowMat;
+
+    /// <summary>The mirrored berth's arrival/departure driver — see <see cref="BuildItemUseRecess"/>.
+    /// Null only in a shader-less environment where the generated cue art could not be built; the
+    /// recess then falls back to the plain activeSelf flip it had before.</summary>
+    private readonly WorldUI.SoftCueReveal? _itemUseReveal;
+
+    /// <summary>What <see cref="SetItemUseShown"/> was last asked for, as opposed to what is on
+    /// screen while the departure animation is still running — the receiver-side twin of the owner's
+    /// <c>PlayTray._itemUseSlotWanted</c>, and for the same reason: the root outlives the decision by
+    /// the length of the collapse, so its <c>activeSelf</c> is not the state to gate on.</summary>
+    private bool _itemUseWanted = true;
 
     /// <summary>
     /// The mirrored item-USE RECESS's own transform — the frame a card the owner has laid into that
@@ -459,16 +469,24 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     internal Transform ItemUseRecess => _itemUse;
 
-    /// <summary>Inner-plate factor of the mirrored item-use recess — the FrameInner quad inside the
-    /// 1.12× gold frame, MIRROR of <c>Cards.ItemsPile.UseSlotInnerFactor</c> (which mirrors
-    /// <c>PlayTray.BuildItemUseSlot</c>). That dark plate IS the clear area a card lying in the
-    /// recess has to sit inside, on the owner's board and on its copy alike, which is why the two
-    /// numbers are linted together (scripts/check-mirrors.sh).</summary>
+    /// <summary>CLEAR-AREA factor of the mirrored item-use berth — MIRROR of
+    /// <c>Cards.ItemsPile.UseSlotInnerFactor</c>, the box a card laid into the recess is fitted
+    /// into, on the owner's board and on its copy alike; the two numbers are linted together
+    /// (scripts/check-mirrors.sh).
+    ///
+    /// <para>IT IS NO LONGER A PLATE, ON EITHER BOARD. This used to be the size of an opaque
+    /// near-black "FrameInner" quad inside a 1.12× gold frame, and the doc named it that way. The
+    /// 2026-08-09 re-art deleted the plate from both builders (see <see cref="BuildItemUseRecess"/>
+    /// for the geometric reason — this berth hangs below the board with the player's room behind
+    /// it), so what survives here is the number's REAL job, which the plate only happened to
+    /// coincide with: the clear area the card has to sit inside. The berth's outline is drawn just
+    /// OUTSIDE it (1.08×) and its warm field just inside it (1.03×), so a seated card never covers
+    /// the cue that named its destination.</para></summary>
     internal const float UseSlotInnerFactor = 1.04f;
 
-    /// <summary>Board-local size of that inner plate on THIS board — what a mirrored card lying in
+    /// <summary>Board-local size of that clear area on THIS board — what a mirrored card lying in
     /// the recess is fitted into (<see cref="RemoteItemFan"/>). Derived from the very constants
-    /// <see cref="BuildItemUseRecess"/> builds the plate from, so the fit and the plate cannot
+    /// <see cref="BuildItemUseRecess"/> lays the berth out from, so the fit and the art cannot
     /// drift apart.</summary>
     internal const float ItemUseInnerWidth = ItemCardW * UseSlotInnerFactor;
 
@@ -796,7 +814,7 @@ internal sealed class RemoteBoardFurniture
                 travel: TransientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
-        _itemUse = BuildItemUseRecess(ItemUseMount + tuning.ItemUseSlotOffset, out _itemUseGlowMat);
+        _itemUse = BuildItemUseRecess(ItemUseMount + tuning.ItemUseSlotOffset, out _itemUseReveal);
 
         // ---- shared decision drawer -----------------------------------------------------------
         // ANCHORED WHERE THE OWNER'S DOCK REALLY HANGS (task 2 — the detached "ENTSCHEIDUNGEN"
@@ -985,7 +1003,7 @@ internal sealed class RemoteBoardFurniture
                 _shortRest?.SetShown((buttons & NetProtocol.BoardUiShortRestBit) != 0, animate);
                 _longRest?.SetShown((buttons & NetProtocol.BoardUiLongRestBit) != 0, animate);
                 _skip.SetShown((buttons & NetProtocol.BoardUiSkipBit) != 0, animate);
-                SetShown(_itemUse, (buttons & NetProtocol.BoardUiItemRecessBit) != 0);
+                SetItemUseShown((buttons & NetProtocol.BoardUiItemRecessBit) != 0, animate);
                 // The decision drawer: drawn only while a prompt is actually docked on the
                 // owner's board — an idle local board shows nothing at that mount.
                 SetShown(_decision, (buttons & NetProtocol.BoardUiDecisionBit) != 0);
@@ -998,7 +1016,7 @@ internal sealed class RemoteBoardFurniture
                 _shortRest?.SetShown(true, animate);
                 _longRest?.SetShown(true, animate);
                 _skip.SetShown(true, animate);
-                SetShown(_itemUse, true);
+                SetItemUseShown(true, animate);
                 SetShown(_decision, true);
             }
         }
@@ -1051,20 +1069,24 @@ internal sealed class RemoteBoardFurniture
         // predates the bit reads as FOLLOW, which is the look every previous build already drew.
         SetPinned(owner.TrayPinned);
 
-        // ---- item-use USE cap + recess ARMED look ---------------------------------------------
+        // ---- item-use USE cap -----------------------------------------------------------------
         // SYNCED: the USE cap is its own wire bit (it exists on the owner's board only while a
-        // card is clipped into the recess), and the recess glows armed exactly then. LEGACY
-        // (pre-record sender): the old knowable proxy — armed while their item fan is open.
+        // card is clipped into the recess). LEGACY (pre-record sender): the old knowable proxy —
+        // armed while their item fan is open.
+        //
+        // THE RECESS'S OWN "ARMED" REPAINT IS GONE, and its absence is parity rather than a loss.
+        // This branch used to swing a glow-rim material between a bright and a dim colour, mirroring
+        // a local look that no longer exists: since the 2026-08-09 re-art the owner's berth is an
+        // open two-tone outline whose material is written once at build and never again (their
+        // `_itemUseSlotGlow` is the field quad's material and nothing reads it back). Their berth
+        // therefore does not change appearance when a card is clipped in — the armed state is
+        // carried by the USE keycap alone — so neither may its mirror.
         bool armed = synced
             ? (buttons & NetProtocol.BoardUiItemUseCapBit) != 0
             : owner.ItemCardCount > 0;
         if (armed != _shownArmed)
         {
             _shownArmed = armed;
-            // Additive/alpha glow rim: bright while armed, a dim outline while idle.
-            _itemUseGlowMat.color = armed
-                ? new Color(1f, 0.82f, 0.35f, 0.80f)
-                : new Color(0.30f, 0.25f, 0.12f, 0.35f);
             // The USE cap is a real keycap that appears and disappears with the item decision, so
             // it takes the same mirrored dust transition as the rest of the column.
             _use.SetShown(armed, _settled);
@@ -1339,6 +1361,80 @@ internal sealed class RemoteBoardFurniture
             root.gameObject.SetActive(shown);
     }
 
+    /// <summary>
+    /// Show/hide the mirrored item-use BERTH — the receiver-side twin of
+    /// <c>PlayTray.SetItemUseSlotVisible</c>, and the reason this is not the plain
+    /// <see cref="SetShown"/> the recess used to get.
+    ///
+    /// <para>NOTHING POPS, on the peer's board either. The owner's berth grows in with a back-ease
+    /// overshoot and collapses out; a mirror that blinked on the same edge would be showing a
+    /// different widget. The edge itself is already exact: <c>PlayTray.ItemUseSlotShown</c> reports
+    /// the LOGICAL state (<c>_itemUseSlotWanted</c>) rather than the root's <c>activeSelf</c>,
+    /// specifically so <see cref="NetProtocol.BoardUiItemRecessBit"/> flips when the owner's own
+    /// animation STARTS — not when it finishes, which is when an activeSelf-derived bit would have
+    /// flipped on the way out and would have left this copy a fifth of a second late.</para>
+    ///
+    /// <para><paramref name="animate"/> is the furniture's usual first-refresh suppression: the
+    /// recess is BUILT shown, so the first application of the owner's real mask is state SEEDING,
+    /// not a transition they made — it snaps, exactly as the keycaps skip their dust burst on the
+    /// same frame.</para>
+    ///
+    /// <para>ON HIDE THE ROOT STAYS ACTIVE FOR THE LENGTH OF THE COLLAPSE, because
+    /// <see cref="WorldUI.SoftCueReveal"/> switches it off at the END of the out-animation (a
+    /// component cannot animate its own disappearance from inside a deactivated GameObject). The one
+    /// consumer that reads this root's <c>activeInHierarchy</c> — <see cref="RemoteItemFan"/>'s clip
+    /// resolver, which decides whether the owner's placed card may lie in the recess — therefore
+    /// sees it true a moment longer. That is the correct direction: the card's own authority is the
+    /// owner's <c>ItemUseClipIndex</c> (record 26), which goes to −1 on the same edge, so the card
+    /// flies home while the berth collapses under it rather than being orphaned in mid-air by a
+    /// recess that vanished first.</para>
+    /// </summary>
+    private void SetItemUseShown(bool shown, bool animate)
+    {
+        if (_itemUse == null)
+            return;
+        bool active = _itemUse.gameObject.activeSelf;
+
+        // SEEDING PASS — deliberately NOT change-gated, and that is the point. The berth is built
+        // ACTIVE but its reveal has never run, so it is drawn at the authored size while the
+        // component still believes it is at phase 0. Skipping the seed because "shown already
+        // matches" would leave that disagreement in place, and the FIRST real Hide() would then
+        // collapse from phase 0 — i.e. deactivate in one frame, which is the pop this whole method
+        // exists to remove. Snapping here makes the component's state and the picture agree before
+        // any owner edge can arrive.
+        if (!animate)
+        {
+            _itemUseWanted = shown;
+            if (active != shown)
+                _itemUse.gameObject.SetActive(shown);
+            if (shown)
+                _itemUseReveal?.SnapShown();
+            return;
+        }
+
+        // Re-assert a SHOW whose root went inactive under us; the wanted flag alone would latch the
+        // berth away for the rest of the owner's decision.
+        if (shown == _itemUseWanted && (!shown || active))
+            return;
+        _itemUseWanted = shown;
+        if (_itemUseReveal == null)
+        {
+            if (active != shown)
+                _itemUse.gameObject.SetActive(shown); // shader-less fallback: no art, no reveal
+            return;
+        }
+        if (shown)
+        {
+            if (!active)
+                _itemUse.gameObject.SetActive(true);
+            _itemUseReveal.Show();
+        }
+        else
+        {
+            _itemUseReveal.Hide(); // deactivates the root once the collapse has played out
+        }
+    }
+
     // ---------------------------------------------------------------- labels --
 
     /// <summary>
@@ -1392,34 +1488,159 @@ internal sealed class RemoteBoardFurniture
 
     // ---------------------------------------------------------------- sub-builders --
 
+    // ---- the mirrored item-use BERTH's geometry (mirror of PlayTray.4.Slots' own constants) ----
+
+    /// <summary>The berth OUTLINE's rectangle, as a factor of the card box — mirror of
+    /// <c>PlayTray.ItemBerthRectFactor</c>. Just outside the 1.04× clear area a placed card is
+    /// fitted into (<see cref="UseSlotInnerFactor"/>) and the 0.94 of it the card actually fills,
+    /// so the outline stays visible all the way round a seated card.</summary>
+    private const float ItemBerthRectFactor = 1.08f;
+
+    /// <summary>The warm FIELD inside the berth, as a factor of the card box — mirror of
+    /// <c>PlayTray.ItemBerthFieldFactor</c>.</summary>
+    private const float ItemBerthFieldFactor = 1.03f;
+
+    /// <summary>Corner rounding of the berth outline as a factor of the card WIDTH — mirror of
+    /// <c>PlayTray.ItemBerthCornerFactor</c>. Item cards are rounded rectangles; a berth with square
+    /// corners reads as a picture frame hung around them rather than as the slot they belong in.</summary>
+    private const float ItemBerthCornerFactor = 0.10f;
+
+    // Board-local Z of the three berth layers, verbatim from PlayTray.4.Slots. +Z is INTO the board
+    // on BOTH boards, so all three sit BEHIND the z = 0 plane a clipped-in card is parented at
+    // (RemoteItemFan seats the mirrored card at localPosition zero on this very root) — the card
+    // lies ON the berth, and the berth's own layers never fight each other for depth.
+    private const float ItemBerthFieldZ = 0.0035f;
+    private const float ItemBerthPingZ = 0.0030f;
+    private const float ItemBerthOutlineZ = 0.0025f;
+
+    // ---- frozen berth dials -------------------------------------------------------------------
+    // The owner's own [Cards] ItemBerth* values do NOT ride the wire: extension record 28 (BOARD
+    // TUNING) is at its exact 255-byte per-record ceiling and cannot carry another field, so a peer
+    // draws this berth at the SHIPPED defaults. Naming the Defaults entries rather than re-typing
+    // the numbers is what keeps an untuned table in agreement when a default moves; the pairs are
+    // pinned in scripts/check-remote-defaults.py so this second home can never be forgotten.
+    private const float ItemBerthRingThickness = Defaults.ItemBerthRingThickness;
+    private const float ItemBerthGlow = Defaults.ItemBerthGlow;
+    private const float ItemBerthPingSeconds = Defaults.ItemBerthPingSeconds;
+    private const float ItemBerthPingReach = Defaults.ItemBerthPingReach;
+    private const float ItemBerthRevealSeconds = Defaults.ItemBerthRevealSeconds;
+
     /// <summary>
-    /// The item-USE clip-in recess: gold frame + dark inner + glow rim + the localized "USE"
-    /// caption BELOW the recess — the exact composition (and the exact 1.12 / 1.04 / 1.28 card-size
-    /// multipliers, and the caption's one-half-card drop) of <c>PlayTray.BuildItemUseSlot</c>, minus
-    /// the pulse driver and minus anything droppable.
+    /// The item-USE clip-in BERTH plus the localized "USE" caption below it — the mirror of
+    /// <c>PlayTray.BuildItemUseSlot</c> as it stands after the 2026-08-09 re-art, minus anything
+    /// droppable.
+    ///
+    /// <para>WHAT THIS USED TO BUILD, AND WHY IT HAD TO GO. Until now it was a faithful copy of the
+    /// OLD local recess: an opaque gold 1.12× frame, an opaque near-black 1.04× inner plate and a
+    /// 1.28× glow quad that switched between a bright and a dim colour. The owner's side deleted
+    /// exactly those three quads, and the argument for deleting them applies to this copy WORD FOR
+    /// WORD, because the geometry is the same on both boards: this berth hangs BELOW the board's
+    /// lower edge with nothing behind it, so in mixed reality its backdrop is the viewer's own room
+    /// — and near the BLACK chroma-key preset a dark plate is not a rectangle at all, it is a hole
+    /// punched through to the passthrough camera. The two play-slot recesses this composition was
+    /// copied from lie ON the board's opaque slab, which is what makes their dark inner plate read;
+    /// this one never had that slab. So the plate is gone here too.</para>
+    ///
+    /// <para>WHAT IT BUILDS NOW — the owner's four pieces, in the same generated art
+    /// (<see cref="WorldUI.SoftCueArt"/>), so the two boards are the same widget:</para>
+    /// <list type="number">
+    /// <item>"A CARD GOES HERE" — a card-shaped, constant-thickness, rounded soft OUTLINE at the
+    ///   size a card actually lands at. TWO-TONE (bright gold core, dark shoulder either side),
+    ///   which is what keeps it legible over a white wall and a dark room alike: a cue drawn in ONE
+    ///   tone is only visible where it differs in luminance from a background nobody controls, and
+    ///   on a PEER's board that background is even less controlled than on the owner's.</item>
+    /// <item>The middle filled with LIGHT rather than darkness — <c>BuildUseGhost</c>'s pale warm
+    ///   wash at the berth's resting level, so the room shows through and the berth is the drop
+    ///   ghost's rest state rather than a second visual idea.</item>
+    /// <item>"NOW" — an INWARD <see cref="WorldUI.SoftCuePing"/> closing onto the outline: the exact
+    ///   mirror of the outward ring the items pile throws ("look here" ↔ "put it in here"), and the
+    ///   replacement for the border sine the old glow quad breathed on.</item>
+    /// <item>An ARRIVAL and a DEPARTURE (<see cref="WorldUI.SoftCueReveal"/>). This is the half that
+    ///   needed the wire, and it already had it: the owner's <c>ItemUseSlotShown</c> reports the
+    ///   LOGICAL edge — what <c>SetItemUseSlotVisible</c> was last asked for — rather than the root's
+    ///   <c>activeSelf</c>, precisely because the root now outlives the decision by the length of the
+    ///   collapse animation. So <see cref="NetProtocol.BoardUiItemRecessBit"/> flips at the instant
+    ///   the owner's own animation STARTS, and this mirror can play a matching one instead of
+    ///   popping a frame late. (Verified at the source: PlayTray.4.Slots'
+    ///   <c>ItemUseSlotShown => _itemUseSlot != null &amp;&amp; _itemUseSlotWanted</c>.)</item>
+    /// </list>
+    ///
+    /// <para>THE ARMED REPAINT IS GONE WITH THE GLOW MATERIAL, and that is parity rather than a
+    /// loss: the owner's berth no longer changes appearance when a card is clipped in — their
+    /// <c>_itemUseSlotGlow</c> is now the field quad's material and nothing writes it after build.
+    /// The armed state is carried by the USE keycap alone, on both boards.</para>
     /// </summary>
-    private Transform BuildItemUseRecess(Vector3 mount, out Material glowMat)
+    private Transform BuildItemUseRecess(Vector3 mount, out WorldUI.SoftCueReveal? reveal)
     {
         var root = new GameObject("ItemUseRecess").transform;
         root.SetParent(_root, worldPositionStays: false);
         root.localPosition = mount;
 
-        glowMat = BoardVisual.Unlit(new Color(0.30f, 0.25f, 0.12f, 0.35f));
-        BoardVisual.Quad(root, "Glow", new Vector2(ItemCardW * 1.28f, ItemCardH * 1.28f), glowMat)
-            .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
-        BoardVisual.Quad(root, "Frame", new Vector2(ItemCardW * 1.12f, ItemCardH * 1.12f),
-            BoardVisual.Unlit(new Color(0.55f, 0.45f, 0.22f, 1f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.001f);
-        BoardVisual.Quad(root, "FrameInner", new Vector2(ItemUseInnerWidth, ItemUseInnerHeight),
-            BoardVisual.Unlit(new Color(0.12f, 0.10f, 0.08f, 1f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.0005f);
+        // EVERYTHING THAT ANIMATES HANGS OFF ONE NODE (the owner's structure, kept): the arrival and
+        // the departure are then a single motion of a single object, and the ROOT keeps the plain
+        // activeSelf semantics RemoteItemFan reads when it decides whether the mirrored card may lie
+        // in this recess at all.
+        var berthGo = new GameObject("Berth");
+        berthGo.transform.SetParent(root, worldPositionStays: false);
+        berthGo.transform.localPosition = Vector3.zero;
+        berthGo.transform.localRotation = Quaternion.identity;
+        Transform berth = berthGo.transform;
+        var rev = berthGo.AddComponent<WorldUI.SoftCueReveal>();
+        rev.DeactivateTarget = root.gameObject;
+        rev.Configure(ItemBerthRevealSeconds);
+        reveal = rev;
+
+        float rectW = ItemCardW * ItemBerthRectFactor;
+        float rectH = ItemCardH * ItemBerthRectFactor;
+        float band = Mathf.Max(0.0008f, ItemBerthRingThickness);
+        float corner = ItemCardW * ItemBerthCornerFactor;
+        // The berth's gold, run through the chroma-key guard exactly as the owner's is, so no key
+        // preset can turn a peer's berth into a hole through to their passthrough room. KeySafe
+        // reads the LOCAL player's key colour, which is correct: this is drawn on their headset.
+        Color berthGold = WorldUI.SoftCueArt.KeySafe(new Color(1f, 0.80f, 0.36f, 0.92f));
+
+        // 1. THE FIELD — light in the berth, never a dark plate. (0 = a completely open berth.)
+        float glow = Mathf.Clamp01(ItemBerthGlow);
+        if (glow > 0.002f)
+        {
+            GameObject field = WorldUI.SoftCueArt.FieldQuad("Field", berth,
+                new Vector3(0f, 0f, ItemBerthFieldZ),
+                ItemCardW * ItemBerthFieldFactor, ItemCardH * ItemBerthFieldFactor,
+                new Color(0.92f, 0.85f, 0.5f, glow)); // BuildUseGhost's own wash, at rest level
+            rev.Track(field);
+        }
+
+        // 2. THE OUTLINE — the card-shaped destination itself.
+        GameObject outline = WorldUI.SoftCueArt.RectOutlineQuad("Outline", berth,
+            new Vector3(0f, 0f, ItemBerthOutlineZ), rectW, rectH, band, corner, berthGold);
+        rev.Track(outline);
+
+        // 3. THE INWARD PING — "put it in HERE", on the shared item beat, from 1.5× onto 1.0×.
+        float pingSeconds = ItemBerthPingSeconds;
+        float pingReach = Mathf.Max(1f, ItemBerthPingReach);
+        if (pingSeconds > 0.01f && pingReach > 1.001f)
+        {
+            GameObject ping = WorldUI.SoftCueArt.RectOutlineQuad("Ping", berth,
+                new Vector3(0f, 0f, ItemBerthPingZ), rectW, rectH, band, corner, berthGold);
+            ping.AddComponent<WorldUI.SoftCuePing>().Init(
+                ping.GetComponent<MeshRenderer>(), berthGold,
+                new Vector3(rectW * pingReach, rectH * pingReach, 1f),
+                new Vector3(rectW, rectH, 1f),
+                pingSeconds);
+        }
 
         // LABEL, not keycap — the mirror of the local restyle (user report 2026-08-08, "Das 'Use'
         // unten drunter erscheint eher wie ein button"): the pile captions' muted parchment tone,
         // their 0.095 × 0.024 fit box at a 0.22 ceiling, and NO bold. The peer's board must show the
         // owner's board, so the two builders keep the same numbers — the full styling rationale is
         // written once, at PlayTray.BuildItemUseSlot.
-        TextMeshPro caption = RemoteBoardContent.Label(root, "Label",
+        //
+        // IT HANGS OFF THE ANIMATED NODE, like the owner's: the caption grows in and collapses out
+        // WITH the outline it names instead of blinking beside a widget that is animating. It rides
+        // the reveal's SCALE only — SoftCueReveal deliberately never writes a TMP's colour, because
+        // a TextMeshPro draws through one font-atlas material shared with every label in the game
+        // and its MR backing plate through one shared plate material (see SoftCueReveal.Track).
+        TextMeshPro caption = RemoteBoardContent.Label(berth, "Label",
             new Vector3(0f, -(ItemCardH * 0.5f + 0.026f), -0.001f),
             new Vector2(0.095f, 0.024f), 0.22f,
             new Color(0.85f, 0.8f, 0.7f), TextAlignmentOptions.Center);

@@ -854,13 +854,54 @@ internal static class NetProtocol
     /// reproduces both.</summary>
     public const byte BoardUiCapSkipEnabledBit = 1 << 6;
 
-    /// <summary>Every DEFINED bit of the board-UI record's byte 2 (bit 7 reserved, written 0 and
-    /// masked on read). Same discipline as <see cref="BoardUiOverlayMask"/>.</summary>
+    /// <summary>
+    /// Board-UI record BYTE 2, bit 7 — AT LEAST ONE EQUIPPED ITEM IS USABLE RIGHT NOW on the
+    /// owner's board, i.e. their CLOSED items pile is wearing its "something in here is playable"
+    /// cue (<c>PileViewer.ItemsUsableCueOn</c> ← <c>ItemsPile.UsableCount &gt; 0</c>).
+    ///
+    /// <para>WHY IT IS ON THE WIRE AT ALL. It was a straight, pre-existing breach of the standing
+    /// 1:1 ruling ("alle Interaktionen, <b>Animationen</b> und Anzeigen des Controllboards"): the
+    /// owner's items stack drifts gold embers and throws rings of light on the shared item
+    /// heartbeat while an item can be played, and a peer's mirrored stack showed NOTHING — three
+    /// inert slabs and a number. The whole point of that cue is to be readable without looking at
+    /// it; on a peer's board it did not exist at any amplitude. It is also the last piece of the
+    /// item flow that had no wire: the recess (byte 0 bit 2), the USE cap (byte 0 bit 3), the fan
+    /// (records 5/26) and the placed card (record 26) all already travel.</para>
+    ///
+    /// <para>WHY BYTE 2 AND NOT A NEW RECORD, and why this byte although it is documented as the
+    /// CAP-STATE byte. Three reasons, in the order they decided it. (1) ATOMICITY: this bit is read
+    /// beside byte 0's item-recess and item-USE bits by the same receiver pass, and the item cue,
+    /// the recess and the cap must never arrive in different packets or a peer paints one half of
+    /// the item flow against the other half's state — exactly the argument
+    /// <see cref="BoardUiCapConfirmAccentBit"/> makes for putting the cap states here rather than in
+    /// a record of their own. (2) COST: this byte is already written on every packet that carries a
+    /// board pose, so the bit is FREE, where a new record costs 3 bytes (id + len + payload) at
+    /// 5 Hz for one boolean. (3) VALIDITY FOR NOTHING: the record's TLV LENGTH already gates byte 2
+    /// (<see cref="BoardUiRecordBytes"/>), so a sender that predates this build reads as "no cue",
+    /// which is precisely what every earlier build's receiver drew. Byte 0 and byte 1 are FULL
+    /// (0xFF / <see cref="BoardUiOverlayMask"/> == 0xFE with the last bit spent), so this was the
+    /// only free bit in the record — and it is now the LAST one. The next board-UI flag needs a
+    /// fourth byte, not a bit.</para>
+    ///
+    /// <para>ANTI-CHEAT: no identity, and nothing that is not already public. It says "this player
+    /// could play some item now" — one boolean about a state vanilla already publishes far more of,
+    /// since any player may open ANY other player's full card overview straight off the initiative
+    /// track (<c>InitiativeTrackPlayerAvatar.OnClick</c> → <c>CardsHandManager.ToggleViewAllCards</c>),
+    /// which lists the equipped items themselves. WHICH item is usable never travels.</para>
+    /// </summary>
+    public const byte BoardUiCapItemPileUsableBit = 1 << 7;
+
+    /// <summary>Every DEFINED bit of the board-UI record's byte 2. The byte is FULL as of
+    /// <see cref="BoardUiCapItemPileUsableBit"/> — the mask is 0xFF and there is no reserved bit
+    /// left here. Same discipline as <see cref="BoardUiOverlayMask"/>: the writer masks so an
+    /// undefined bit can never be pre-claimed by garbage, and the reader masks again (an OLD
+    /// reader, whose mask is the previous 0x7F, therefore DROPS the item-cue bit instead of
+    /// mis-rendering it — the same cross-version contract that let the snap field widen byte 1).</summary>
     public const byte BoardUiCapStateDefinedMask =
         (byte)(BoardUiCapConfirmAccentBit | BoardUiCapConfirmReadyBit
                | BoardUiCapShortRestEnabledBit | BoardUiCapShortRestAccentBit
                | BoardUiCapLongRestEnabledBit | BoardUiCapLongRestAccentBit
-               | BoardUiCapSkipEnabledBit);
+               | BoardUiCapSkipEnabledBit | BoardUiCapItemPileUsableBit);
 
     /// <summary>
     /// Extension record id: the board-local ANCHOR POSITION of the sender's open BOARD-ANCHORED
@@ -1529,6 +1570,14 @@ internal static class NetProtocol
     // Id 26 was the one hole between 25 and 27 and is TAKEN since 2026-08-09: ITEM-USE CLIP
     // (declared beside record 25, because the two item-flow records belong together). The claim was
     // stated in that change's report per the rule above. Ids 18..21 remain free, and so does 29+.
+    //
+    // THE SAME RULE APPLIES TO BITS, NOT ONLY TO RECORD IDS, and a bit was claimed on 2026-08-09:
+    // BOARD-UI RECORD BYTE 2, BIT 7 (BoardUiCapItemPileUsableBit — "at least one equipped item is
+    // usable right now", the closed items pile's heartbeat cue). It was the LAST free bit anywhere
+    // in record 4: byte 0 is full (bits 0..7 all named), byte 1 is full (BoardUiOverlayMask ==
+    // 0xFE, and 0x01 of it is the two-bit wanted mask's low bit — nothing spare), and byte 2 is now
+    // 0xFF. A worker who needs another board-UI flag must add a FOURTH byte to the record (the TLV
+    // length gates it exactly as it gates byte 2) — there is nothing left to take here.
 
     /// <summary>
     /// Extension record id: WHICH CHARACTER THE SENDER IS CURRENTLY LOOKING AT — their EFFECTIVE
