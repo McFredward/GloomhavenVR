@@ -47,15 +47,15 @@ internal static partial class Defaults
     internal const float HeldForward = 0.005f;                                                        // => [Cards] HeldForward
     internal const float HeldOffPalm = 0.0148f;                                                       // => [Cards] HeldOffPalm
     internal static readonly Vector3 HeldPinchOffset = new Vector3(-0.055f, 0.035f, 0f);              // => [Cards] HeldPinchOffset
-    internal const float TrayForward = 0.65573f;                                                      // => [Cards] TrayForward
-    internal const float TrayDown = 0.17618f;                                                         // => [Cards] TrayDown
-    internal const float TrayRight = -0.32717f;                                                       // => [Cards] TrayRight
+    internal const float TrayForward = 0.58529f;                                                      // => [Cards] TrayForward
+    internal const float TrayDown = 0.09393f;                                                         // => [Cards] TrayDown
+    internal const float TrayRight = -0.264224f;                                                      // => [Cards] TrayRight
     internal const float TrayTilt = 30f;                                                              // => [Cards] TrayTilt  (legacy: read once as the seed for its successor)
-    internal const float TrayYaw = -38.485f;                                                          // => [Cards] TrayYaw
-    internal const float TrayScale = 0.92568f;                                                        // => [Cards] TrayScale
-    internal const bool TrayFollow = true;                                                            // => [Cards] TrayFollow
+    internal const float TrayYaw = -41.0015f;                                                         // => [Cards] TrayYaw
+    internal const float TrayScale = 0.57247f;                                                        // => [Cards] TrayScale
+    internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode
-    internal const float TrayPitch = 28.808f;                                                         // => [Cards] TrayPitch
+    internal const float TrayPitch = 32.953f;                                                         // => [Cards] TrayPitch
     internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees  (legacy: superseded by the per-board BoardPitchMin_<board>)
     internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees  (legacy: superseded by the per-board BoardPitchMax_<board>)
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
@@ -284,7 +284,7 @@ internal static partial class Defaults
     internal const float BoardYaw_Oak = 0f;                                                           // => [Cards] BoardYaw_Oak
     internal const float BoardYaw_Steel = 0f;                                                         // => [Cards] BoardYaw_Steel
     internal const float BoardYaw_Bronze = 0f;                                                        // => [Cards] BoardYaw_Bronze
-    internal const float BoardScale_Oak = 0.83448f;                                                   // => [Cards] BoardScale_Oak
+    internal const float BoardScale_Oak = 0.92378f;                                                   // => [Cards] BoardScale_Oak
     internal const float BoardScale_Steel = 0.29909f;                                                 // => [Cards] BoardScale_Steel
     internal const float BoardScale_Bronze = 0.4f;                                                    // => [Cards] BoardScale_Bronze
     internal static readonly Vector3 AssetRotation_Oak = new Vector3(0f, 0f, 0f);                     // => [Cards] AssetRotation_Oak  (legacy: read once as the seed for its successor)

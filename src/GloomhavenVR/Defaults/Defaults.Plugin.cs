@@ -89,7 +89,7 @@ internal static partial class Defaults
     internal static readonly float[] LateralTrim_ByStyle = { GloveLateralTrim, PlateLateralTrim, ArcaneLateralTrim };
     internal static readonly float[] VerticalTrim_ByStyle = { GloveVerticalTrim, PlateVerticalTrim, ArcaneVerticalTrim };
     internal static readonly float[] ForwardTrim_ByStyle = { GloveForwardTrim, PlateForwardTrim, ArcaneForwardTrim };
-    internal const float GloveScale = 1.02f;                                 // => [Hands] GloveScale
+    internal const float GloveScale = 1.12f;                                 // => [Hands] GloveScale
     internal const float PlateScale = 0.62f;                                 // => [Hands] PlateScale
     internal const float ArcaneScale = 0.62f;                                // => [Hands] ArcaneScale
 }

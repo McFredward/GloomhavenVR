@@ -194,8 +194,9 @@ internal sealed class WristHud
 
     /// <summary>
     /// THE PALM BASE — a half turn about the wrist's own +Y (the finger axis). See Build's
-    /// rotation block for the measured derivation; the live pitch/yaw/roll compose in the panel's
-    /// own local frame on top of it, so a trim of 0/0/0 IS the shipped orientation.
+    /// rotation block for the measured derivation; the live pitch/yaw/roll compose in the WRIST
+    /// frame BEFORE it (see <see cref="ApplyPose"/>), so a trim of 0/0/0 IS the shipped orientation
+    /// and a trim tuned against the previous base still means what it meant.
     ///
     /// <para>Half a turn and not the identity because a uGUI canvas is READ FROM ITS -Z SIDE: a
     /// canvas with identity rotation is the one Unity's default camera — parked at negative z,
@@ -219,12 +220,30 @@ internal sealed class WristHud
     /// Item 10: re-apply the wrist HUD pose from the live-tunable offset + tilt. Called once in
     /// Build and every Tick, so the "Wrist" steppers move the watch face immediately.
     /// </summary>
+    /// <remarks>
+    /// TRIM FIRST, THEN THE HALF TURN — the order is load-bearing, not style.
+    ///
+    /// <para>Composed the other way round (base × trim, as the un-mirrored round shipped it) the
+    /// trims would rotate in the PLATE's own frame, on top of a base that has just turned 180°.
+    /// Every angle a player had already dialled in would then mean its own opposite: a pitch that
+    /// tipped the plate toward the forearm now tips it toward the fingers, i.e. it moves by TWICE
+    /// the trim. The user's tuned 32° would have swung the face by 64°.</para>
+    ///
+    /// <para>Trim × base instead applies the trims in the WRIST frame and turns the plate over
+    /// afterwards. Algebraically it is R_old·Ry(180), which keeps the plate's PLANE and its text-up
+    /// exactly where they were and flips only which face points at the reader — precisely "mach es
+    /// richtig rum", with nothing else moving. That is why the palm flip needs no key rename and no
+    /// migration marker, unlike the turn-around before it: every saved value survives it meaning
+    /// the same thing. It also reads better on the dials — pitch tips about the across-hand axis,
+    /// yaw spins about the finger axis, roll rolls about the palm normal, none of them dependent on
+    /// what the other two are set to.</para>
+    /// </remarks>
     private void ApplyPose()
     {
         if (_root == null)
             return;
         _root.transform.localPosition = new Vector3(OffsetX, OffsetY, OffsetZ);
-        _root.transform.localRotation = PalmFlat * Quaternion.Euler(PitchDeg, YawDeg, RollDeg);
+        _root.transform.localRotation = Quaternion.Euler(PitchDeg, YawDeg, RollDeg) * PalmFlat;
     }
 
     public void Tick()
@@ -450,10 +469,10 @@ internal sealed class WristHud
         // the seat roll/yaw and the pinky counter-abduction, which mirror because they are stated
         // in the CONTROLLER's frame. Left wrist and right wrist get the same, correct plate.
         //
-        // The per-style pitch/yaw/roll keep meaning exactly what they meant — a tilt in the
-        // plate's own frame on top of the base — but they sit on a base that is already the
-        // wanted orientation, so all three styles ship 0/0/0 (Defaults.Hands.cs) and only the
-        // OFFSETS need dialling per hand model. The pre-turn-around trims could not be carried
+        // The per-style pitch/yaw/roll keep meaning exactly what they meant, because they are
+        // applied in the WRIST frame BEFORE this half turn (ApplyPose's remarks give the algebra):
+        // a pose tuned against the identity base keeps its plane and its text-up and only turns
+        // its readable face around. The pre-turn-around trims could not be carried
         // over: they were the correction for a base that no longer exists, so their KEYS were
         // renamed ({Style}PalmPitch etc., HandsConfig) — a saved -180° yaw silently surviving
         // into the new base would have put the plate straight back on the knuckles, which is
