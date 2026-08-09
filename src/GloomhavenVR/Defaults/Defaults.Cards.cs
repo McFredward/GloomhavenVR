@@ -47,15 +47,15 @@ internal static partial class Defaults
     internal const float HeldForward = 0.005f;                                                        // => [Cards] HeldForward
     internal const float HeldOffPalm = 0.0148f;                                                       // => [Cards] HeldOffPalm
     internal static readonly Vector3 HeldPinchOffset = new Vector3(-0.055f, 0.035f, 0f);              // => [Cards] HeldPinchOffset
-    internal const float TrayForward = 0.60591f;                                                      // => [Cards] TrayForward
-    internal const float TrayDown = 0.21182f;                                                         // => [Cards] TrayDown
-    internal const float TrayRight = -0.076693f;                                                      // => [Cards] TrayRight
+    internal const float TrayForward = 0.65573f;                                                      // => [Cards] TrayForward
+    internal const float TrayDown = 0.17618f;                                                         // => [Cards] TrayDown
+    internal const float TrayRight = -0.32717f;                                                       // => [Cards] TrayRight
     internal const float TrayTilt = 30f;                                                              // => [Cards] TrayTilt  (legacy: read once as the seed for its successor)
-    internal const float TrayYaw = -17.5718f;                                                         // => [Cards] TrayYaw
-    internal const float TrayScale = 1.39938f;                                                        // => [Cards] TrayScale
-    internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
+    internal const float TrayYaw = -38.485f;                                                          // => [Cards] TrayYaw
+    internal const float TrayScale = 0.92568f;                                                        // => [Cards] TrayScale
+    internal const bool TrayFollow = true;                                                            // => [Cards] TrayFollow
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode
-    internal const float TrayPitch = 30.3474f;                                                        // => [Cards] TrayPitch
+    internal const float TrayPitch = 28.808f;                                                         // => [Cards] TrayPitch
     internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees  (legacy: superseded by the per-board BoardPitchMin_<board>)
     internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees  (legacy: superseded by the per-board BoardPitchMax_<board>)
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
@@ -147,14 +147,14 @@ internal static partial class Defaults
     // A plate would therefore have added nothing behind the card and a visible dark rectangle
     // around it — and a rectangle that flies with the card is a different animation, which is
     // exactly what he asked us not to do.
-    internal const float ItemFanOpenDuration = 0.48f;                                                 // => [Cards] ItemFanOpenDuration
-    internal const float ItemFanOpenStagger = 0.075f;                                                 // => [Cards] ItemFanOpenStagger
-    internal const float ItemFanOpenArc = 0.09f;                                                      // => [Cards] ItemFanOpenArc
+    internal const float ItemFanOpenDuration = 0.34f;                                                 // => [Cards] ItemFanOpenDuration
+    internal const float ItemFanOpenStagger = 0.055f;                                                 // => [Cards] ItemFanOpenStagger
+    internal const float ItemFanOpenArc = 0.06f;                                                      // => [Cards] ItemFanOpenArc
     internal const float ItemFanOpenSpinDegrees = 52f;                                                // => [Cards] ItemFanOpenSpinDegrees
-    internal const float ItemFanSeedScale = 0.3f;                                                     // => [Cards] ItemFanSeedScale
+    internal const float ItemFanSeedScale = 0.12f;                                                    // => [Cards] ItemFanSeedScale
     internal const float ItemFanSettleOvershoot = 1.4f;                                               // => [Cards] ItemFanSettleOvershoot
-    internal const float ItemFanCloseDuration = 0.42f;                                                // => [Cards] ItemFanCloseDuration
-    internal const float ItemFanCloseStagger = 0.045f;                                                // => [Cards] ItemFanCloseStagger
+    internal const float ItemFanCloseDuration = 0.3f;                                                 // => [Cards] ItemFanCloseDuration
+    internal const float ItemFanCloseStagger = 0.032f;                                                // => [Cards] ItemFanCloseStagger
 
     // ---- THE "AN ITEM CAN BE USED" CUE ON THE CLOSED ITEMS PILE (user report 2026-08-09, the THIRD
     // on this area: "Die Animation über dem Pile die anzeigt dass ein Gegenstand genutzt werden kann
@@ -284,7 +284,7 @@ internal static partial class Defaults
     internal const float BoardYaw_Oak = 0f;                                                           // => [Cards] BoardYaw_Oak
     internal const float BoardYaw_Steel = 0f;                                                         // => [Cards] BoardYaw_Steel
     internal const float BoardYaw_Bronze = 0f;                                                        // => [Cards] BoardYaw_Bronze
-    internal const float BoardScale_Oak = 0.55668f;                                                   // => [Cards] BoardScale_Oak
+    internal const float BoardScale_Oak = 0.83448f;                                                   // => [Cards] BoardScale_Oak
     internal const float BoardScale_Steel = 0.29909f;                                                 // => [Cards] BoardScale_Steel
     internal const float BoardScale_Bronze = 0.4f;                                                    // => [Cards] BoardScale_Bronze
     internal static readonly Vector3 AssetRotation_Oak = new Vector3(0f, 0f, 0f);                     // => [Cards] AssetRotation_Oak  (legacy: read once as the seed for its successor)
@@ -436,7 +436,7 @@ internal static partial class Defaults
     internal static readonly Vector3 InitiativeOffset_Oak = new Vector3(0f, 0.17f, -0.048f);          // => [Cards] InitiativeOffset_Oak
     internal static readonly Vector3 InitiativeOffset_Steel = new Vector3(0f, 0.2f, -0.07f);          // => [Cards] InitiativeOffset_Steel
     internal static readonly Vector3 InitiativeOffset_Bronze = new Vector3(0f, 0.2f, -2e-09f);        // => [Cards] InitiativeOffset_Bronze
-    internal const float DecisionGap_Oak = 0.042291f;                                                 // => [Cards] DecisionGap_Oak
+    internal const float DecisionGap_Oak = 0.013678f;                                                 // => [Cards] DecisionGap_Oak
     internal const float DecisionGap_Steel = 0.042675f;                                               // => [Cards] DecisionGap_Steel
     internal const float DecisionGap_Bronze = 0.042675f;                                              // => [Cards] DecisionGap_Bronze
     internal static readonly Vector3 PickBannerOffset_Oak = new Vector3(1e-10f, 0.02f, 0f);           // => [Cards] PickBannerOffset_Oak
@@ -447,7 +447,7 @@ internal static partial class Defaults
     // from the tray's measured renderer extents (PlayTray.MeasureBoardLocalExtents — top-left
     // corner of the VISIBLE board, frame included), so "starts top-left" already holds on Oak,
     // Steel and Bronze without a per-board constant that could drift from the real meshes.
-    internal static readonly Vector3 HoverHintOffset_Oak = new Vector3(0.125f, 2e-09f, 0f);           // => [Cards] HoverHintOffset_Oak
+    internal static readonly Vector3 HoverHintOffset_Oak = new Vector3(0.12f, 2e-09f, 0f);            // => [Cards] HoverHintOffset_Oak
     internal static readonly Vector3 HoverHintOffset_Steel = new Vector3(0f, 0f, 0f);                 // => [Cards] HoverHintOffset_Steel
     internal static readonly Vector3 HoverHintOffset_Bronze = new Vector3(0f, 0f, 0f);                // => [Cards] HoverHintOffset_Bronze
     internal static readonly Vector3 AssetOffset_Oak = new Vector3(0f, 0f, 0f);                       // => [Cards] AssetOffset_Oak
@@ -495,7 +495,7 @@ internal static partial class Defaults
     // now starts from "no displacement". CardsConfig.DecisionOffsetYRebased carries an existing
     // config file across the same step. Do not "restore" the −0.157 — it would drop the whole
     // area (row + prompt text + use bars) 157 mm below the shipped seat.
-    internal static readonly Vector3 DecisionOffset_Oak = new Vector3(1e-10f, 0f, 1e-10f);            // => [Cards] DecisionOffset_Oak
+    internal static readonly Vector3 DecisionOffset_Oak = new Vector3(1e-10f, 0.088f, 1e-10f);        // => [Cards] DecisionOffset_Oak
     internal static readonly Vector3 DecisionOffset_Steel = new Vector3(0f, 0f, 0f);              // => [Cards] DecisionOffset_Steel
     internal static readonly Vector3 DecisionOffset_Bronze = new Vector3(1e-10f, 0f, 0f);             // => [Cards] DecisionOffset_Bronze
 

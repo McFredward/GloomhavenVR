@@ -43,7 +43,7 @@ internal static partial class Defaults
     internal const float RoundButtons_CapSize = 0.042f;                                 // => [RoundButtons] CapSize
     internal const float RoundButtons_Width = 0.089f;                                   // => [RoundButtons] Width
     internal const float RoundButtons_Height = 0.035f;                                  // => [RoundButtons] Height
-    internal const float RoundButtons_Depth = 0.014f;                                   // => [RoundButtons] Depth
+    internal const float RoundButtons_Depth = 0.009f;                                   // => [RoundButtons] Depth
     internal const float RoundButtons_Travel = 0.008f;                                  // => [RoundButtons] Travel
     internal const float BoardButtons_Width = 0.063f;                                   // => [BoardButtons] Width
     internal const float BoardButtons_Height = 0.065f;                                  // => [BoardButtons] Height

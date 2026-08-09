@@ -75,8 +75,8 @@ internal static partial class Defaults
     internal const string RenderMode = nameof(StereoModeConfig.Mode.MultiPass);  // => [Stereo] RenderMode
 
     // ---- Core/WallSegmentFade.cs ---------------------------------------------------
-    internal const float OnFraction = 0.3f;                  // => [WallFade] OnFraction
-    internal const float OffFraction = 0.3f;                 // => [WallFade] OffFraction
+    internal const float OnFraction = 0.1f;                  // => [WallFade] OnFraction
+    internal const float OffFraction = 0.2f;                 // => [WallFade] OffFraction
     internal const float ExitDwellMovedSeconds = 2.5f;       // => [WallFade] ExitDwellMovedSeconds
     internal const float ExitDwellStationarySeconds = 3.6f;  // => [WallFade] ExitDwellStationarySeconds
     internal const bool StackedShellFade = true;             // => [WallFade] StackedShellFade
