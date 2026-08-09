@@ -416,7 +416,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 99;
+    public const ushort ModBuild = 100;
+    // Build 100: the multiplayer performance collapse, and it was TWO defects that had been
+    // invisible to the instruments rather than one expensive feature.
+    //   * THE ESCALATION was an unbounded ring leak on the mirrored initiative track: the hover
+    //     cache is invalidated every content tick, EnsureHoverCache built two rings per entry every
+    //     time, and StructureMatches only walks the SOURCE - so a ring added to the CLONE had no
+    //     detector and the old pair was merely dropped from a List. 8 entries x 2 x 4 Hz over ~20
+    //     min is ~77k objects at ~1.5 KB = ~115 MB, against +112 MB measured in the post-GC heap
+    //     floor. The scene census missed it because it counts Renderer and a uGUI Image is a
+    //     CanvasRenderer; the frame split missed it because canvas rebuilds run in
+    //     PostLateUpdate, after the tail LateUpdate and before the camera callbacks - in NEITHER
+    //     measured span, so the whole cost fell into the remainder labelled 'blocked'.
+    //   * THE FLOOR was the input-field watch, dead since the commit that added it: it asked
+    //     Harmony for DeactivateInputField() with no parameters, but this game ships TMP 3.0.x
+    //     where the only declaration takes a bool. The lookup returned null and degraded both
+    //     seams, so the FindObjectsOfType sweep it existed to KILL never stopped running - 90-99
+    //     ms of every second, on both machines, with or without a peer.
+    // The reported host/peer asymmetry is not in the data: the peer's own log ends at 105 ms mean
+    // frametime after the identical slide from 68. Both mirrored, both leaked, both collapsed.
+    // Also this build: a see-through tile now shows the WHOLE board behind it (the unseen material
+    // is queue 3000 at sortingOrder 0 with a HARDCODED ZWrite, so it painted first and stamped
+    // depth over everything drawn later); my own focus ring stops being cloned onto peer boards;
+    // and the hand fan's character-swap exchange finally mirrors - its replay machinery was
+    // complete, but the receiver's trigger read an id that deliberately does not move during the
+    // secret card-selection phase, which is exactly when a two-character player swaps hands.
     // Build 99: the shipped defaults are re-based onto the user's tuned setup (21 values, board
     // seat and tray pose dominating). Three reports, two of them dials with a hole on one side:
     //   * 'die Offsets bei den Ueberspringen-Tasten haben keinen Einfluss' — the [RoundButtons]

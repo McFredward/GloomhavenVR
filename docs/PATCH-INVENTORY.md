@@ -122,8 +122,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `ShowUIWindowSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs:111</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `EscMenuInputBlock`:79 |
 | `EscMenuEscapeSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs:152</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `EscMenuInputBlock`:80 |
 | `InitiativeHoverCardBlock`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InitiativeHoverCardBlock.cs:39</sub> | `CardsHandManager.Preview(CPlayerActor, Transform)` | prefix | `WorldUIModule`:49 |
-| `InputFieldActivateWatch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:142</sub> | `TMP_InputField.ActivateInputField()` | postfix | `InputFieldFocusWatch`:105 |
-| `InputFieldDeactivateWatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:157</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `InputFieldFocusWatch`:106 |
+| `InputFieldActivateWatch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:180</sub> | `TMP_InputField.ActivateInputField()` | postfix | `InputFieldFocusWatch`:119 |
+| `InputFieldDeactivateWatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:216</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `InputFieldFocusWatch`:131 |
 | `KeyboardHideSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/KeyboardAutoHideBlock.cs:91</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `KeyboardAutoHideBlock`:62 |
 | `SettingsClickExemption` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs:102</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `SettingsClickExemption`:146 |
 | `TakeDamagePanelSafety`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TakeDamagePanelSafety.cs:58</sub> | `TakeDamagePanel.TakeDamage()` | prefix | `WorldUIModule`:48 |
