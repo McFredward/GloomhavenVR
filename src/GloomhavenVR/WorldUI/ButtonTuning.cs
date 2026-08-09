@@ -601,6 +601,140 @@ internal static class ButtonTuning
     /// <summary>Seconds of the materialize-from-dust surface fade-in when a keycap appears (floored at 0.05 — see above).</summary>
     internal static float AppearSeconds => Clamped(AnimAppearDuration, DefaultAppearSeconds, 0.05f, 1.0f);
 
+    // ---- THE AUTHORED "ASSEMBLES OUT OF DUST" SURFACE RAMP --------------------------------
+    //
+    // USER REPORT 2026-08-09, second round: "Auch kam beim Test in diesem Zustand der Fall dass
+    // die Buttons die wegen dem Gegenstand noch kommen: 'Ziele bestätigen' und 'Rückgängig machen'
+    // teilweise unsichtbar waren und nur der Text lesbar war." (He had reported the same shape once
+    // before: "die Buttons … waren unsichtbar - nur der Text auf den Buttons war noch zu sehen".)
+    //
+    // WHAT THE OLD RAMP DID, AND WHY IT COULD NOT BE MADE TO WORK. The appear multiplied the cap's
+    // state colour by `Mathf.SmoothStep(0.15f, 1f, k)` — it faded the cap toward BLACK and back.
+    // ModBuild 94 shipped diagnostics for the two competing explanations and the fresh hardware log
+    // answered both, in the negative: "KEYCAP FADE HEALED" 0 hits (no stranded/stalled fade) and
+    // "KEYCAP MATERIAL" 0 hits (no unresolved material) — while the per-cap diag reports a perfectly
+    // healthy cap ("shader 'GloomhavenVR/BoardLit', renderQueue 2000. OPAQUE: YES"). What is left is
+    // the ramp itself, doing exactly what it was written to do. This player's [ButtonColors]
+    // BoardCapTint is 0.5, so the sage CONFIRM top (0.35,0.46,0.28) starts every appear at
+    // 0.5 × 0.15 = (0.026,0.035,0.021) — black on a black board — while the TMP label is a SEPARATE
+    // renderer the ramp never touches and keeps drawing at full parchment. "Button invisible, only
+    // the text readable" is the literal rendered result of a cap in the first frames of that ramp.
+    // And it is not rare: the same session's log carries 33 keycap builds, each re-running it.
+    //
+    // WHY NOT SIMPLY RAISE THE 0.15 FLOOR. Because a floor is a number that has to be re-guessed for
+    // every cap colour AND every user tint — and the tint is a config the player owns. 0.15 was
+    // "clearly dim but visible" at the shipped tint and is invisible at 0.5; any replacement fails at
+    // some other tint, and we would be back here. The AXIS was wrong, not the number: multiplying
+    // toward black is the one direction that can pass through "not there" on a dark board, and mixed
+    // reality makes it worse still — behind a passthrough-lit cap the background is the player's real
+    // room, so a black cap reads as a hole rather than as a dim button.
+    //
+    // WHAT IT DOES INSTEAD. The cap ASSEMBLES. It starts as the warm parchment/brass DUST it is being
+    // built out of (the same powder ButtonDissolveFx sprays) and COOLS INTO its own state colour,
+    // with the BEVEL RING leading: the bright 45° catch-light chamfer that is the whole "this key is
+    // raised" cue (BoardButton.BevelHighlight, and the log's own "BRIGHT lit bevel ring") lands
+    // first, the top plateau fills in behind it, the side walls settle last. The dissolve runs the
+    // identical curve backwards — walls crumble first, the brass frame is the last thing to go — so
+    // the pair still reads as one matched crumble/assemble, which is what the user asked for
+    // originally ("emerge from dust, matched to the crumble").
+    //
+    // THE INVARIANT THAT MAKES IT TINT-PROOF. <see cref="AssemblyColor"/> never renders a cap DARKER
+    // THAN ITS OWN REST COLOUR in any channel: the hot end is a per-channel MAX of the rest colour and
+    // the dust pull. So whatever the player dials BoardCapTint / RestCapTint / ClusterCapTint to, an
+    // assembling cap is at least as visible as the settled cap they configured — and the settled cap
+    // is by definition the look they chose. The ANIMATION is the dust; the BUTTON is theirs again the
+    // moment it lands. There is no floor left to re-guess, at any tint, in either lighting.
+    //
+    // ONE HOME, THREE CONSUMERS. <c>Cards.PlayTray.BoardButton</c> (the board keycaps),
+    // <see cref="ButtonCluster"/>'s PhysicalButton (the round-phase caps) and <c>Net.RemoteCapFx</c>
+    // (a peer's mirrored board) all call these two methods, so the MULTIPLAYER 1:1 rule holds by
+    // construction rather than by a lint: one recipe, nothing to drift. This deliberately RETIRES the
+    // AppearFadeFloor mirror pair that scripts/check-mirrors.sh described in prose — the same
+    // resolution DecisionDockSurface.BarClearanceMeters got, and the one that file itself recommends:
+    // delete the second copy instead of linting it.
+
+    /// <summary>Which face of a beveled keycap the assembly ramp is painting. The three are
+    /// STAGGERED so the cap builds itself edge-first; a single-material cap (round puck, native
+    /// sprite face, cluster cap) uses <see cref="CapPart.Top"/>.</summary>
+    internal enum CapPart
+    {
+        /// <summary>The lit 45° chamfer ring — leads the assembly (it is the "raised" cue).</summary>
+        Bevel,
+
+        /// <summary>The state-coloured top plateau — follows the bevel.</summary>
+        Top,
+
+        /// <summary>The dark warm side walls — settle last.</summary>
+        Wall,
+    }
+
+    /// <summary>Fraction of the animation over which the BEVEL ring completes. Under 1 because it
+    /// LEADS: the frame is already solid brass while the faces are still dust.</summary>
+    private const float AssemblyBevelSpan = 0.55f;
+
+    /// <summary>Fraction of the animation the TOP plateau waits before it starts to solidify.</summary>
+    private const float AssemblyTopDelay = 0.12f;
+
+    /// <summary>Fraction of the animation the side WALLS wait before they start (they settle last,
+    /// so the cap's silhouette fills in from its lit edge inward).</summary>
+    private const float AssemblyWallDelay = 0.30f;
+
+    /// <summary>
+    /// The dust a keycap assembles out of and crumbles into: the board's own warm parchment-brass
+    /// powder (in key with <c>BoardButton.BevelHighlight</c> and the engraved parchment labels), and
+    /// bright enough to read against BOTH the near-black board and mixed-reality passthrough, where
+    /// the backdrop is whatever room the player is sitting in.
+    /// </summary>
+    internal static readonly Color AssemblyDust = new(0.88f, 0.76f, 0.52f);
+
+    /// <summary>How far a cap's colour is pulled toward <see cref="AssemblyDust"/> at the very start
+    /// of the assembly (1 = anonymous flash of pure dust). Held under 1 on purpose so a strongly
+    /// tinted or accented cap still carries its own hue through the dust — the player can tell WHICH
+    /// button is arriving before it has finished arriving.</summary>
+    private const float AssemblyDustLerp = 0.82f;
+
+    /// <summary>
+    /// This face's own 0..1 progress at overall animation progress <paramref name="k"/> (0 = pure
+    /// dust, 1 = solid material), including the bevel-leads-walls-trail stagger and the eased
+    /// in/out. Feed the result to <see cref="AssemblyColor"/>.
+    /// </summary>
+    internal static float AssemblyPhase(float k, CapPart part)
+    {
+        k = Mathf.Clamp01(k);
+        float phase = part switch
+        {
+            CapPart.Bevel => k / AssemblyBevelSpan,
+            CapPart.Wall => (k - AssemblyWallDelay) / (1f - AssemblyWallDelay),
+            _ => (k - AssemblyTopDelay) / (1f - AssemblyTopDelay),
+        };
+        return Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(phase));
+    }
+
+    /// <summary>
+    /// The colour a face wears at <paramref name="phase"/> (from <see cref="AssemblyPhase"/>) on its
+    /// way to / from its settled <paramref name="rest"/> colour.
+    ///
+    /// <para>THE HOT END IS A PER-CHANNEL MAX — that is the whole tint-proofing (see the block
+    /// comment above). Pulling toward the dust can only ever ADD light to a channel, never remove it,
+    /// so no user tint, no accent and no disabled state can put an assembling cap below the
+    /// brightness of the cap the player already accepted as visible. Alpha is passed through
+    /// untouched: every keycap material is OPAQUE (BoardLit, queue 2000) and this ramp must not be
+    /// the thing that starts pretending otherwise.</para>
+    /// </summary>
+    internal static Color AssemblyColor(Color rest, float phase)
+    {
+        if (phase >= 1f)
+            return rest;
+        var hot = new Color(
+            Mathf.Max(rest.r, Mathf.Lerp(rest.r, AssemblyDust.r, AssemblyDustLerp)),
+            Mathf.Max(rest.g, Mathf.Lerp(rest.g, AssemblyDust.g, AssemblyDustLerp)),
+            Mathf.Max(rest.b, Mathf.Lerp(rest.b, AssemblyDust.b, AssemblyDustLerp)),
+            rest.a);
+        Color c = Color.Lerp(hot, rest, Mathf.Clamp01(phase));
+        c.a = rest.a;
+        return c;
+    }
+
     // Throttle so a relayout that shows/hides several caps in one frame logs once, not a storm.
     private static float _nextAnimLogTime;
 

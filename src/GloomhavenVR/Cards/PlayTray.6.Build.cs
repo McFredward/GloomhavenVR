@@ -345,29 +345,65 @@ internal sealed partial class PlayTray
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
 
-        // Requirement 9a: while the item "Use" confirm is a live cluster member, build it as a GENERIC
+        // Requirement 9a: while the item "Use" confirm is a live cluster member, it is a GENERIC
         // cluster board button in THIS column at index 1 (the slot directly ABOVE Undo) — same board
-        // keycap look as Confirm/Undo (never the old bespoke keycap beside the slot). Built only while
-        // active (SetItemUseConfirmVisible flips _itemUseActive + rebuilds); onClick routes to the
-        // ItemsPile-supplied use action.
-        if (_itemUseActive)
-        {
-            _itemUseConfirm = BoardButton.Create(confirmParent, rectSize,
-                new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
-                // Same MOD string the recess caption below now carries (Loc "item_use_area"): the
-                // game key GUI_USE does not resolve in this build, so BOTH used to ship the English
-                // fallback and a German board read "USE" on the cap and "USE" on the engraving. The
-                // cap's live wording still rides wire record 13, so peers keep seeing the owner's
-                // word — and the surrender picks still override the label entirely.
-                _itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"),
+        // keycap look as Confirm/Undo (never the old bespoke keycap beside the slot); onClick routes
+        // to the ItemsPile-supplied use action.
+        //
+        // IT IS NOW BUILT UNCONDITIONALLY AND HIDDEN, instead of being built when it becomes active
+        // and destroyed when it stops. User report 2026-08-09: "Wenn man einen abgelegten Gegenstand
+        // von der 'Benutzen'-Overlay-Area wieder aufhebt, verschwinden die Knöpfe … ABER die
+        // verschwinden und tauchen ohne die Animation die sonst kommt auf." A cap that is DESTROYED
+        // cannot crumble and a cap that is CREATED cannot assemble — construction is the one
+        // transition the mod's authored appear/disappear can never cover. Existing from the board's
+        // first frame and toggling through SetVisible puts it on the same animated path as every
+        // other cap on the board. (Hidden means gameObject inactive with the collider off, so it is
+        // not laser-targetable either — the board laser scan skips !enabled/!activeInHierarchy
+        // colliders, CardsDriver.3.Laser.cs.)
+        _itemUseConfirm = BoardButton.Create(confirmParent, rectSize,
+            new Color(0.35f, 0.46f, 0.28f), // muted sage green — the "use / go" accent, like Confirm
+            // Same MOD string the recess caption below now carries (Loc "item_use_area"): the
+            // game key GUI_USE does not resolve in this build, so BOTH used to ship the English
+            // fallback and a German board read "USE" on the cap and "USE" on the engraving. The
+            // cap's live wording still rides wire record 13, so peers keep seeing the owner's
+            // word — and the surrender picks still override the label entirely.
+            _itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"),
+            () => _itemUseConfirmAction?.Invoke(),
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+        _itemUseConfirm.WireCap = Net.NetProtocol.CapPressItemUse;
+        _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
+        RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
 
-                () => _itemUseConfirmAction?.Invoke(),
-                round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
-                capCategory: WorldUI.ButtonTuning.CapCategory.Board);
-            _itemUseConfirm.WireCap = Net.NetProtocol.CapPressItemUse;
-            _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
-            RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
-        }
+        // SEAT EVERY CAP'S VISIBILITY BEFORE IT CAN EVER BE RENDERED — the ORDER half of the
+        // 2026-08-09 report ("Weiterhin sieht man den 'Rückgängig machen' Knopf ganz kurz aufblitzen
+        // und wieder verschwinden. Es ist richtig, dass der Knopf hierzu nicht angezeigt werden soll
+        // - verhindere nur dieses 'Aufblitzen'.").
+        //
+        // A BoardButton is born VISIBLE (`_logicalVisible = true`, GameObject active) because that is
+        // the only sensible default for a freshly built control. The predicates that decide whether
+        // Confirm/Undo may be shown at all live in TickStatus and run on the NEXT tick — so a rebuilt
+        // Undo was drawn for a frame or two and then taken away again, which is exactly a flash. Note
+        // the second half of the ugliness: by the time TickStatus hid it, the fresh cap had ticked, so
+        // it did not merely vanish, it played a full crumble for a button that was never meant to be
+        // there at all.
+        //
+        // The fix is the ORDER, not a second suppressor: whoever rebuilds these caps remembers what
+        // the live ones were showing and hands it back here, and it is applied INSIDE the build call,
+        // before the first render and inside the new cap's build-then-settle window — so the re-seat
+        // is silent by construction (BoardButton.SetVisible pops when !Settled) rather than by a
+        // special case. `null` means "no previous state to restore" (a first build), where born-
+        // visible is right and TickStatus refines it a tick later exactly as it always did.
+        if (_confirmShownBeforeRebuild == false)
+            _confirm?.SetVisible(false);
+        if (_undoShownBeforeRebuild == false)
+            _undo?.SetVisible(false);
+        _confirmShownBeforeRebuild = null;
+        _undoShownBeforeRebuild = null;
+        // The item-use cap is the one whose resting state is HIDDEN: it exists on every board from
+        // frame one and only shows while a usable card is clipped into the recess.
+        if (!_itemUseActive)
+            _itemUseConfirm?.SetVisible(false);
 
         SetConfirmUndoOffset(off, spacing); // count-aware: Confirm(top)/[Use]/Undo(bottom), Z proud
         VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
@@ -375,7 +411,40 @@ internal sealed partial class PlayTray
                             (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));
         VRLog.Info("Cards", $"Board: button geometry config applied — {WorldUI.ButtonTuning.Describe()}.");
         _tuningVersion = WorldUI.ButtonTuning.Version; // fresh build reflects current config
+        _capGeometryKey = CapGeometryKey(); // what these caps were BUILT from (see RebuildAttachedControls)
     }
+
+    /// <summary>
+    /// What the live Confirm/Undo/Use caps were BUILT from — everything <see cref="BuildButtons"/>
+    /// bakes into the geometry of a cap and therefore cannot change without a real rebuild: the
+    /// active board, the cap SHAPE, and the <c>[BoardButtons]</c> W/H/D/travel + <c>[ButtonColors]</c>
+    /// tints that <c>ButtonTuning.Version</c> covers.
+    ///
+    /// <para>Deliberately NOT in here: the cluster OFFSET, the SPACING and the member COUNT. Those
+    /// only move caps, and <see cref="SetConfirmUndoOffset"/> moves them in place from the live
+    /// count — which is the whole reason the item-use toggle no longer needs to destroy anything.
+    /// (The caps have not been auto-SIZED from the count since the user's "der Use-Button soll
+    /// genauso groß sein" ruling; if that ever comes back, the count belongs in this key.)</para>
+    /// </summary>
+    private int CapGeometryKey()
+    {
+        ControlBoard board = CardsConfig.CurrentBoard;
+        int key = (int)board;
+        key = key * 31 + (int)CardsConfig.GenericButtonShape(board).Value;
+        key = key * 31 + WorldUI.ButtonTuning.Version;
+        return key;
+    }
+
+    /// <summary>The <see cref="CapGeometryKey"/> the live caps were built from.</summary>
+    private int _capGeometryKey;
+
+    /// <summary>
+    /// What the Confirm / Undo caps were SHOWING when a rebuild tore them down, handed forward so
+    /// <see cref="BuildButtons"/> can seat the replacements in the same state before they are ever
+    /// drawn. Null = nothing to restore (first build). See the seat block in BuildButtons.
+    /// </summary>
+    private bool? _confirmShownBeforeRebuild;
+    private bool? _undoShownBeforeRebuild;
 
     private Transform NewAnchor(string name, Vector3 localPos)
     {

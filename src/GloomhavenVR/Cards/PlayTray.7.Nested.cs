@@ -337,11 +337,42 @@ internal sealed partial class PlayTray
         /// seam (<c>PlayTray.ConfirmControlShown</c> / <c>UndoControlShown</c>).</summary>
         internal bool LogicalVisible => _logicalVisible;
 
-        private bool _ticked;      // false until the first Update — a hide before then is silent (initial state settling)
         private float _hideLeft;   // dissolve shrink countdown, seconds
         private float _showLeft;   // materialize-from-dust fade-in countdown, seconds
-        private Color _appearTarget = Color.white; // the cap colour the materialize fade ramps UP to
+        private Color _assemblyRest = Color.white; // the SETTLED cap colour the assembly ramp runs to (appear) / from (dissolve)
         private Vector3 _shownScale = Vector3.one;
+
+        /// <summary>
+        /// Unscaled wall-clock time this cap was created (<see cref="Create"/>) — the reference for
+        /// <see cref="Settled"/>.
+        ///
+        /// <para>THIS REPLACED A `_ticked` FLAG, and the replacement is a bug fix, not a tidy-up
+        /// (user report 2026-08-09: "die verschwinden und tauchen ohne die Animation die sonst kommt
+        /// auf"). The flag was set in <see cref="Update"/> and gated both transitions, so it read
+        /// "has this GameObject ever run a frame" — which is NOT the question. A cap that is built
+        /// and immediately hidden (the item-use confirm, which now exists from the board's first
+        /// frame and spends most of its life inactive) never runs a frame, so `_ticked` stayed false
+        /// forever and EVERY show it ever played was suppressed as "initial state settling". The
+        /// button that is shown and hidden the most often on the board was therefore the one button
+        /// that could never animate. Wall-clock time answers the question the flag was standing in
+        /// for — "is the board still assembling itself?" — for an active and an inactive cap
+        /// alike.</para>
+        /// </summary>
+        private float _bornAt = float.NegativeInfinity;
+
+        /// <summary>
+        /// How long after a cap is created its show/hide stays SILENT. The board builds its keycaps
+        /// and then immediately settles them against the live game state (TickStatus hides Confirm,
+        /// Undo, the item-use cap on the very next tick) — animating that burst would mean every
+        /// board build opens with a shower of dust for buttons the player never saw. One quarter of a
+        /// second covers the build-then-settle storm with room for a bad frame, and is far below the
+        /// gap between a build and any state change a player can cause.
+        /// </summary>
+        private const float BuildSettleSeconds = 0.25f;
+
+        /// <summary>True once this cap is past its build-then-settle window, i.e. once a show/hide is
+        /// a real event the player should see animate. See <see cref="_bornAt"/>.</summary>
+        private bool Settled => Time.unscaledTime - _bornAt >= BuildSettleSeconds;
 
         // ---- SURFACE-FADE WATCHDOG ------------------------------------------------------------
         //
@@ -351,15 +382,24 @@ internal sealed partial class PlayTray
         //
         // THE ASYMMETRY IS THE WHOLE CLUE, and it points at exactly ONE place in this class. The cap
         // BODY and the cap LABEL are different renderers with different materials, and the ONLY code
-        // that darkens the body without touching the label is the materialize-from-dust appear fade
-        // in Update: it multiplies the cap's top/bevel/wall colours by SmoothStep(0.15, 1, k). At
-        // k = 0 the cap is at 15 % of its state colour. On this user's board that is not "dim", it is
-        // GONE: their [ButtonColors] BoardCapTint is 0.5 (halved already), so the confirmed/sage
-        // CONFIRM top (0.35,0.46,0.28) renders at 0.5 × 0.15 = (0.026,0.035,0.021) and the dark-wood
-        // disabled top at (0.008,0.006,0.004) — black on a black board. The TMP label is a separate
-        // renderer on its own font-material instance which the fade never touches, so it keeps
-        // drawing at full bright parchment. "Button invisible, only the text still there" is the
-        // literal rendered result of a cap sitting in the first frames of this fade.
+        // that darkens the body without touching the label is the appear fade in Update. It USED TO
+        // multiply the cap's top/bevel/wall colours by SmoothStep(0.15, 1, k), i.e. at k = 0 the cap
+        // was at 15 % of its state colour. On this user's board that is not "dim", it is GONE: their
+        // [ButtonColors] BoardCapTint is 0.5 (halved already), so the sage CONFIRM top
+        // (0.35,0.46,0.28) rendered at 0.5 × 0.15 = (0.026,0.035,0.021) and the dark-wood disabled
+        // top at (0.008,0.006,0.004) — black on a black board. The TMP label is a separate renderer
+        // on its own font-material instance which the fade never touches, so it kept drawing at full
+        // bright parchment. "Button invisible, only the text still there" was the literal rendered
+        // result of a cap sitting in the first frames of that fade.
+        //
+        // THAT MULTIPLY IS GONE (2026-08-09 round 2 — the user reported it again, and the ModBuild 94
+        // diagnostics below came back empty, which is what ruled out every OTHER explanation and left
+        // the ramp itself). The appear no longer darkens anything: the cap now ASSEMBLES out of the
+        // warm parchment-brass dust and cools into its state colour, and that ramp cannot render a
+        // cap darker than its own rest colour at any user tint. See
+        // WorldUI.ButtonTuning.AssemblyColor for the recipe and the invariant. The watchdog below
+        // stays exactly as it was — a stalled animation is still a stalled animation, it just can no
+        // longer strand the cap at "invisible", only at "a bit too bright".
         //
         // WHY IT LASTED LONG ENOUGH TO SEE, AND WHY IT HEALED BY ITSELF. The fade is authored at
         // 0.15 s and it had exactly ONE exit: the countdown reaching zero inside Update, which is
@@ -701,6 +741,7 @@ internal sealed partial class PlayTray
             box.isTrigger = true;
 
             var button = go.AddComponent<BoardButton>();
+            button._bornAt = Time.unscaledTime; // starts the build-then-settle window (see the field)
             button._onClick = onClick;
             // 2026-08-09 invisible-cap round: a cap that could NOT resolve the bundled BoardLit
             // shader says so ONCE, right here, naming itself — so the next hardware log distinguishes
@@ -845,27 +886,37 @@ internal sealed partial class PlayTray
                     Collider.enabled = true;
                 if (!gameObject.activeSelf)
                     gameObject.SetActive(true);
-                // APPEAR = MATERIALIZE FROM DUST (user: emerge from dust, matched to the crumble —
-                // NOT a scale/grow pop): converging dust motes settle onto the cap while its surface
-                // fades up from the dust to its full state colour, IN PLACE (no scaling). Only once
-                // the button has ticked (suppresses the build-then-settle storm) and while the
-                // animation is enabled ([ButtonAnim] Enable). Input/collider are already live above.
-                _showLeft = _ticked && WorldUI.ButtonTuning.ButtonAnimEnabled ? WorldUI.ButtonTuning.AppearSeconds : 0f;
+                // APPEAR = ASSEMBLE OUT OF DUST (user: emerge from dust, matched to the crumble —
+                // NOT a scale/grow pop): converging dust motes settle onto the cap while the cap's
+                // own surface cools out of that dust into its state colour, bevel ring first, IN
+                // PLACE (no scaling). Runs once the cap is past its build-then-settle window (see
+                // Settled) and while the animation is enabled ([ButtonAnim] Enable). Input/collider
+                // are already live above.
+                _showLeft = Settled && WorldUI.ButtonTuning.ButtonAnimEnabled ? WorldUI.ButtonTuning.AppearSeconds : 0f;
                 // Watchdog armed on the UNSCALED wall clock (see the field header): whatever happens
                 // to the frame clock or this object's ticking from here, the fade is over by then.
                 _fadeStartedAt = Time.unscaledTime;
                 _showDeadline = _showLeft > 0f ? _fadeStartedAt + _showLeft + FadeWatchdogSlack : float.PositiveInfinity;
                 _hideDeadline = float.PositiveInfinity;
+                // Aim the ramp at the cap's SETTLED colour, and paint frame ZERO of the assembly
+                // right here. Waiting for the next Update would show one frame of the finished cap
+                // (or, after a cancelled dissolve, one frame of a stale mid-ramp colour) before it
+                // starts arriving — a pop in front of the anti-pop animation. UpdateColor does both
+                // halves while an appear is running: it re-aims _assemblyRest (the native-face branch
+                // is the only one whose settled colour is not simply StateColor()) and hands the
+                // surface straight to ApplyAssembly. With no appear running it just re-seats the
+                // exact state colours, which is what an instant (animation-off) show needs.
+                _assemblyRest = StateColor();
+                UpdateColor();
                 if (_showLeft > 0f)
                 {
-                    _appearTarget = CurrentCapColor(); // the colour the surface fades UP to
-                    WorldUI.ButtonTuning.LogAnim(name, "appear (materialize-from-dust)");
+                    WorldUI.ButtonTuning.LogAnim(name, "appear (assemble out of dust)");
                     if (WorldUI.ButtonTuning.AppearParticlesEnabled)
                     {
                         Vector3 c = _cap != null ? _cap.position : transform.position;
                         float fp = Collider is BoxCollider b ? Mathf.Max(b.size.x, b.size.y) : 0.05f;
                         WorldUI.ButtonDissolveFx.PlayMaterialize(c, -transform.forward,
-                            fp * Mathf.Abs(transform.lossyScale.x), _appearTarget);
+                            fp * Mathf.Abs(transform.lossyScale.x), _assemblyRest);
                     }
                 }
                 return;
@@ -877,10 +928,10 @@ internal sealed partial class PlayTray
                 CancelDwell();
             if (Collider != null)
                 Collider.enabled = false;
-            if (!_ticked || !gameObject.activeInHierarchy || !WorldUI.ButtonTuning.ButtonAnimEnabled)
+            if (!Settled || !gameObject.activeInHierarchy || !WorldUI.ButtonTuning.ButtonAnimEnabled)
             {
-                // Initial state settling (built then hidden the same frame), already invisible
-                // with the tray, or the animation is disabled — pop away silently, no dust.
+                // Initial state settling (built then hidden inside the build window), already
+                // invisible with the tray, or the animation is disabled — pop away silently, no dust.
                 gameObject.SetActive(false);
                 return;
             }
@@ -888,6 +939,11 @@ internal sealed partial class PlayTray
             // burst sweeps face-colored powder sideways; Update deactivates at the end.
             _shownScale = transform.localScale;
             _showLeft = 0f;
+            // Re-seat the exact state colours before capturing them: an interrupted APPEAR would
+            // otherwise hand the dissolve a mid-assembly colour to crumble from (and to tint its
+            // dust burst with), so a fast show/hide pair would drift brighter each time.
+            UpdateColor();
+            _assemblyRest = CurrentCapColor();
             _hideLeft = WorldUI.ButtonTuning.DissolveSeconds;
             // Same wall-clock deadline for the shrink-out: a dissolve that stops advancing would
             // otherwise leave a part-shrunk cap parked on the board forever (it is the SAME early
@@ -899,7 +955,7 @@ internal sealed partial class PlayTray
             Vector3 center = _cap != null ? _cap.position : transform.position;
             float footprint = Collider is BoxCollider bc ? Mathf.Max(bc.size.x, bc.size.y) : 0.05f;
             WorldUI.ButtonDissolveFx.Play(center, -transform.forward,
-                footprint * Mathf.Abs(transform.lossyScale.x), CurrentCapColor());
+                footprint * Mathf.Abs(transform.lossyScale.x), _assemblyRest);
         }
 
         /// <summary>The cap's face color right now (native face, tinted material, or the palette fallback).</summary>
@@ -929,24 +985,71 @@ internal sealed partial class PlayTray
                 // USER DEBUG OPTION: tint the native sprite face too (the beige/brass button art
                 // the user reads white text on) — default white leaves the sampled sprite as-is.
                 _capFace.color *= _capTint;
-                // A state change that lands DURING the materialize fade must re-aim it (see below).
+                // A state change that lands DURING the assembly must re-aim it (see below) and then
+                // hand the surface straight back to the ramp — writing the settled colour and waiting
+                // for the next Update would flash the finished button inside its own arrival.
                 if (_showLeft > 0f)
-                    _appearTarget = _capFace.color;
+                {
+                    _assemblyRest = _capFace.color;
+                    ApplyAssembly(AssemblyProgress);
+                }
                 return;
             }
             if (_capMaterial == null)
                 return;
             Color top = StateColor();
             // FADE RE-AIM (same 2026-08-09 report). TickStatus always calls SetVisible(true) BEFORE
-            // SetState(), so _appearTarget was captured from the colour the cap wore while it was
+            // SetState(), so _assemblyRest was captured from the colour the cap wore while it was
             // still HIDDEN — i.e. the PREVIOUS state's colour. The fade then spent its whole run
             // ramping toward the wrong (usually darker, disabled) colour and only snapped to the
             // right one at the very end. Re-aiming here makes a mid-fade state change ramp toward
             // what the cap is actually becoming, so the fade brightens toward the live colour
             // instead of dragging the stale one across the visible window.
             if (_showLeft > 0f)
-                _appearTarget = top;
+            {
+                _assemblyRest = top;
+                ApplyAssembly(AssemblyProgress); // stay inside the ramp — see the face branch above
+                return;
+            }
             SetCapColor(top);
+        }
+
+        /// <summary>How far the running APPEAR has got (0 = pure dust, 1 = settled). Meaningless
+        /// unless <c>_showLeft &gt; 0</c>; used to re-paint mid-ramp after a state change.</summary>
+        private float AssemblyProgress =>
+            1f - Mathf.Clamp01(_showLeft / WorldUI.ButtonTuning.AppearSeconds);
+
+        /// <summary>
+        /// Paint this cap at overall assembly progress <paramref name="k"/> (0 = pure dust, 1 =
+        /// settled material), around its <see cref="_assemblyRest"/> colour. Shared by the APPEAR
+        /// (k rising) and the DISSOLVE (k falling), which is what keeps the pair a matched
+        /// crumble/assemble rather than two animations that merely happen to be opposites.
+        ///
+        /// <para>The three submeshes of a beveled keycap are staggered by
+        /// <c>WorldUI.ButtonTuning.AssemblyPhase</c> — the BRIGHT bevel ring leads, the top plateau
+        /// follows, the dark walls settle last — so the cap visibly builds itself edge-first instead
+        /// of the whole silhouette changing brightness at once. Round pucks, native sprite faces and
+        /// any single-material cap take the TOP phase alone.</para>
+        /// </summary>
+        private void ApplyAssembly(float k)
+        {
+            if (_capFace != null)
+            {
+                _capFace.color = WorldUI.ButtonTuning.AssemblyColor(_assemblyRest,
+                    WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Top));
+                return;
+            }
+            if (_capMaterial == null)
+                return;
+            Color top = _assemblyRest;
+            _capMaterial.color = WorldUI.ButtonTuning.AssemblyColor(top,
+                WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Top));
+            if (_capBevelMaterial != null)
+                _capBevelMaterial.color = WorldUI.ButtonTuning.AssemblyColor(BevelTint(top),
+                    WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Bevel));
+            if (_capWallMaterial != null)
+                _capWallMaterial.color = WorldUI.ButtonTuning.AssemblyColor(WallTint(top),
+                    WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Wall));
         }
 
         /// <summary>
@@ -966,10 +1069,10 @@ internal sealed partial class PlayTray
             VRLog.Warn("Cards", $"KEYCAP FADE HEALED: '{name}' was still mid-'{anim}' after " +
                 $"{held:F2} s of WALL-CLOCK time (authored {authored:F2} s " +
                 $"+ {FadeWatchdogSlack:F2} s slack; Time.timeScale {Time.timeScale:F2}) — force-completed and the " +
-                "exact state colours re-seated. While that fade is running the cap body renders at as " +
-                "little as 15% of its colour (on this board's tint that is effectively black) while its " +
-                "TMP label keeps drawing at full brightness — the 'button invisible, only the text " +
-                "visible' look. A line here means the animation clock stalled, not that a material failed.");
+                "exact state colours re-seated. Since the assembly ramp replaced the multiply-toward-black " +
+                "fade, a stalled animation strands the cap BRIGHTER than its state colour (parchment-brass " +
+                "dust), never invisible — so a line here is a clock/tick problem to investigate, and it is " +
+                "no longer capable of producing the 'button invisible, only the text visible' report.");
         }
 
         /// <summary>
@@ -1070,22 +1173,29 @@ internal sealed partial class PlayTray
                 }
                 float k = Mathf.Max(0f, _hideLeft / WorldUI.ButtonTuning.DissolveSeconds);
                 transform.localScale = _shownScale * k;
+                // The surface runs the SAME assembly curve backwards: the walls go back to dust
+                // first, the brass bevel frame is the last thing left. Purely additive brightness
+                // (see ButtonTuning.AssemblyColor) — a crumbling cap never darkens toward the board,
+                // which is what would make it vanish before it has finished crumbling, in MR most of
+                // all (behind it is the player's real room, not a black board).
+                ApplyAssembly(k);
                 if (_hideLeft <= 0f)
                 {
                     _hideDeadline = float.PositiveInfinity;
                     transform.localScale = _shownScale; // restore for the next show
+                    UpdateColor();                      // leave the exact state colours behind for the next show
                     gameObject.SetActive(false);
                 }
                 return;
             }
-            _ticked = true;
             TryHealCapMaterial();
 
-            // MATERIALIZE-FROM-DUST fade-in (user: emerge from dust, NOT a scale pop) — runs
-            // alongside the normal press logic. The cap stays at full scale IN PLACE while its
-            // OPAQUE surface brightens from the dust (0.15×) up to its true state colour (a real
-            // fade with no transparency needed — safe on the BoardLit/Standard caps), under the
-            // converging dust cloud. On completion UpdateColor() restores the exact state colours.
+            // ASSEMBLE-OUT-OF-DUST appear (user: emerge from dust, NOT a scale pop) — runs alongside
+            // the normal press logic. The cap stays at full scale IN PLACE while its OPAQUE surface
+            // cools out of the warm parchment-brass dust into its true state colour, bevel ring
+            // first, under the converging dust cloud. No transparency is needed or used (the
+            // BoardLit/Standard caps are opaque, queue 2000). On completion UpdateColor() restores
+            // the exact state colours.
             if (_showLeft > 0f)
             {
                 // UNSCALED clock + wall-clock deadline. This countdown reaching zero is the ONLY
@@ -1096,17 +1206,12 @@ internal sealed partial class PlayTray
                 _showLeft -= Time.unscaledDeltaTime;
                 if (_showLeft > 0f && Time.unscaledTime >= _showDeadline)
                 {
-                    LogFadeForced("materialize-from-dust", WorldUI.ButtonTuning.AppearSeconds);
+                    LogFadeForced("assemble-out-of-dust", WorldUI.ButtonTuning.AppearSeconds);
                     _showLeft = 0f;
                 }
                 float k = 1f - Mathf.Max(0f, _showLeft / WorldUI.ButtonTuning.AppearSeconds);
                 transform.localScale = _shownScale; // materialize in place — no grow/scale pop
-                float b = Mathf.SmoothStep(0.15f, 1f, k);
-                Color faded = _appearTarget * b; faded.a = _appearTarget.a;
-                if (_capFace != null)
-                    _capFace.color = faded;
-                else
-                    SetCapColor(faded);
+                ApplyAssembly(k);
                 if (_showLeft <= 0f)
                 {
                     _showDeadline = float.PositiveInfinity;

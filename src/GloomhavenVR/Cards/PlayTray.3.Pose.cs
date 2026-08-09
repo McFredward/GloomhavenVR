@@ -354,15 +354,70 @@ internal sealed partial class PlayTray
     }
 
     /// <summary>
-    /// PART F live-apply: rebuild the square Confirm/Undo buttons in place (size changes need a
-    /// rebuilt cap). Re-parents onto the SAME anchors, purges the dead laser targets and rebuilds
-    /// them from current config. The rest discs are rebuilt separately by CardsDriver
+    /// PART F live-apply: bring the Confirm / Undo / item-use keycaps back in line with the current
+    /// config — REBUILDING them only when their geometry really changed (a cap's size, depth, travel
+    /// and shape are baked into its mesh, so those need a fresh cap), and otherwise UPDATING THE
+    /// LIVE CAPS IN PLACE. Re-parents onto the SAME anchors and purges dead laser targets either
+    /// way. The rest discs are rebuilt separately by CardsDriver
     /// (<c>RestControls.Destroy(); EnsureBuilt(...)</c>).
+    ///
+    /// <para>WHY THE IN-PLACE PATH EXISTS (user report 2026-08-09, "die verschwinden und tauchen
+    /// ohne die Animation die sonst kommt auf" — the item-flow caps skipping their appear/disappear).
+    /// This method was an unconditional teardown, and <c>SetItemUseConfirmVisible</c> calls it every
+    /// time a card enters or leaves the use recess, because adding/removing the "Use" member changes
+    /// the cluster COUNT. The fresh hardware log shows what that costs: <b>33</b> "Confirm/Undo built
+    /// as 3D square keycaps" lines in one session, every single one of them immediately followed by
+    /// an "ITEM clip-in" / "ITEM clip-in CANCEL" line, and ZERO from a tuning change. So every clip-in
+    /// and every take-back DESTROYED and RECREATED all three caps — and destruction/creation is the
+    /// one transition the mod's authored crumble/assemble can never cover: a destroyed cap cannot
+    /// dissolve and a newborn cap cannot materialize. That is the reported defect, exactly.</para>
+    ///
+    /// <para>NOTHING ABOUT THE PAIR ACTUALLY DEPENDED ON THE COUNT. The caps stopped being auto-sized
+    /// from the member count when the user ruled that the Use button must keep the tuned
+    /// <c>[BoardButtons]</c> size ("der Use-Button soll genauso groß sein …"); all the count still
+    /// drives is each cap's local Y, which <see cref="SetConfirmUndoOffset"/> writes on the live
+    /// transforms. With the item-use cap now BUILT ONCE AND HIDDEN (see <c>BuildButtons</c>), a
+    /// clip-in is a re-layout plus three <c>SetVisible</c> calls — i.e. the ordinary animated path
+    /// every other cap on the board already uses — and the rebuild storm is gone with it.</para>
     /// </summary>
     internal void RebuildAttachedControls()
     {
         if (_root == null)
             return;
+        // Did anything a cap's GEOMETRY is baked from actually change? (Board, shape, and the
+        // [BoardButtons]/[ButtonColors] entries ButtonTuning.Version covers — see CapGeometryKey.)
+        // If not, and the caps are alive, update them where they stand.
+        if (_confirm != null && _undo != null && _itemUseConfirm != null
+            && CapGeometryKey() == _capGeometryKey)
+        {
+            // The item-use cap's wording is a live property, not a build input: the surrender picks
+            // relabel it ("ITEM ABGEBEN") without changing a single dimension. TMP auto-sizing
+            // (Core.TmpFit.Fit leaves enableAutoSizing on) re-fits the new string inside the same
+            // cap, which is what the rebuild used to be doing the long way round.
+            _itemUseConfirm.SetLabel(_itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"));
+            // Re-lay-out for the live member count (2 ↔ 3) and re-read the per-board offsets.
+            ControlBoard live = CardsConfig.CurrentBoard;
+            SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(live).Value,
+                CardsConfig.GenericButtonSpacing(live).Value);
+            // CardsDriver's control-rebuild path relies on this call to drop the laser targets of
+            // the REST caps it destroyed just before calling us (see CardsDriver.ApplyBoardTuning),
+            // so the purge happens on both paths, not only on the teardown one.
+            LaserTargets.RemoveAll(static t => t.Collider == null);
+            // Debug channel, not Info: this is the path the item flow takes on EVERY clip-in, and the
+            // whole point of the change is that it stops being an event worth a line in the log. The
+            // Info line that IS worth reading ("Confirm/Undo built as 3D … keycaps") now marks a real
+            // rebuild — if the next hardware log shows it once per board instead of 33 times per
+            // session, this is why.
+            VRLog.Debug("Cards", "Board: control caps updated IN PLACE (label + layout only) — no " +
+                                 "geometry input changed, so nothing was destroyed and every cap keeps " +
+                                 "its authored appear/disappear.");
+            return;
+        }
+        // Remember what the live caps were SHOWING so the replacements can be seated in the same
+        // state before their first render — the anti-flash ordering (see the seat block in
+        // BuildButtons). Captured here, where the old caps still exist.
+        _confirmShownBeforeRebuild = _confirm != null ? _confirm.LogicalVisible : (bool?)null;
+        _undoShownBeforeRebuild = _undo != null ? _undo.LogicalVisible : (bool?)null;
         Transform? confirmAnchor = _confirm != null ? _confirm.transform.parent : _confirmAnchor;
         Transform? undoAnchor = _undo != null ? _undo.transform.parent : _undoAnchor;
         if (_confirm != null)

@@ -658,10 +658,16 @@ internal sealed class ButtonCluster
         //
         // The cluster twin of the PlayTray.BoardButton defect — see the long root-cause header on
         // BoardButton's _showDeadline field for the full mechanism. Short version: the appear fade
-        // below multiplies the cap's colour by SmoothStep(0.15, 1, k), so while it runs the cap body
-        // is at 15% of its colour (black on a dark board) while the TMP label — a different renderer
-        // on its own material, untouched by the fade — keeps drawing at full brightness. The ONLY
-        // exit from that state is the countdown reaching zero inside Animate().
+        // below USED TO multiply the cap's colour by SmoothStep(0.15, 1, k), so while it ran the cap
+        // body was at 15% of its colour (black on a dark board) while the TMP label — a different
+        // renderer on its own material, untouched by the fade — kept drawing at full brightness. The
+        // ONLY exit from that state is the countdown reaching zero inside Animate().
+        //
+        // THE MULTIPLY IS GONE (2026-08-09 round 2): the appear now runs the shared assembly ramp
+        // (ButtonTuning.AssemblyColor), which cannot render a cap darker than its own rest colour at
+        // any user tint. A stranded animation therefore strands a cap BRIGHT, not invisible. The
+        // watchdog below is unchanged and still wanted — the strand is still a bug, it is simply no
+        // longer able to produce the reported look.
         //
         // AND HERE THAT IS STRICTLY WORSE THAN ON THE BOARD BUTTONS, because Animate() is not a
         // MonoBehaviour Update: it is called from ButtonCluster.Tick, which RETURNS EARLY on every
@@ -997,10 +1003,11 @@ internal sealed class ButtonCluster
             VRLog.Warn("WorldUI", $"KEYCAP FADE HEALED: '{(_rootGo != null ? _rootGo.name : "cluster cap")}' " +
                 $"was still mid-'{anim}' after {held:F2} s of WALL-CLOCK time (authored {authored:F2} s " +
                 $"+ {FadeWatchdogSlack:F2} s slack; Time.timeScale {Time.timeScale:F2}) — force-completed " +
-                "and the exact cap colour re-seated. While that fade runs the cap body renders at as " +
-                "little as 15% of its colour while its label keeps drawing at full brightness, which is " +
-                "exactly the 'button gone, text still floating' look; Animate() is skipped on any tick " +
-                "the cluster is not placed, so this is the path that can strand one.");
+                "and the exact cap colour re-seated. Since the assembly ramp replaced the " +
+                "multiply-toward-black fade, a stranded cap sits BRIGHTER than its rest colour (dust), " +
+                "never invisible — so this line no longer explains a 'button gone, text still floating' " +
+                "report; Animate() is skipped on any tick the cluster is not placed, so this is still " +
+                "the path that can strand one, and it is still worth knowing about.");
         }
 
         /// <summary>Register with the tray's board-laser registry (docked mode).</summary>
@@ -1105,7 +1112,14 @@ internal sealed class ButtonCluster
                     _collider.enabled = _interactable; // re-sync after the hide forced it off
                     if (_appearLeft > 0f)
                     {
-                        ButtonTuning.LogAnim(_rootGo.name, "appear (materialize-from-dust)");
+                        // Paint frame ZERO of the assembly here, not on the next Animate: waiting
+                        // would show one frame of the finished cap before it starts arriving — a
+                        // pop in front of the anti-pop animation.
+                        if (_capRenderer != null)
+                            _capRenderer.sharedMaterial.color =
+                                ButtonTuning.AssemblyColor(_appliedColor,
+                                    ButtonTuning.AssemblyPhase(0f, ButtonTuning.CapPart.Top));
+                        ButtonTuning.LogAnim(_rootGo.name, "appear (assemble out of dust)");
                         if (ButtonTuning.AppearParticlesEnabled)
                             ButtonDissolveFx.PlayMaterialize(_cap.position, _rootGo.transform.up,
                                 BaseRadius * 2f * Mathf.Abs(_rootGo.transform.lossyScale.x),
@@ -1163,7 +1177,13 @@ internal sealed class ButtonCluster
             if (applied != _appliedColor)
             {
                 _appliedColor = applied;
-                _capRenderer.sharedMaterial.color = applied;
+                // A state change that lands DURING an assembly re-aims the ramp instead of writing
+                // the settled colour over it — otherwise the cap flashes finished inside its own
+                // arrival (the twin of BoardButton.UpdateColor's re-aim).
+                _capRenderer.sharedMaterial.color = _appearLeft > 0f
+                    ? ButtonTuning.AssemblyColor(applied, ButtonTuning.AssemblyPhase(
+                        1f - Mathf.Clamp01(_appearLeft / ButtonTuning.AppearSeconds), ButtonTuning.CapPart.Top))
+                    : applied;
             }
             if (_label != null)
             {
@@ -1214,10 +1234,18 @@ internal sealed class ButtonCluster
                 }
                 float k = Mathf.Max(0f, _dissolveLeft / ButtonTuning.DissolveSeconds);
                 _rootGo.transform.localScale = _slotScale * k;
+                // Same assembly curve, run backwards — the cap crumbles back into the warm dust it
+                // was built out of instead of shrinking as a dark chip (see ButtonTuning's block
+                // comment; brightness here is purely additive, so no tint can make it vanish early).
+                if (_capRenderer != null)
+                    _capRenderer.sharedMaterial.color = ButtonTuning.AssemblyColor(_appliedColor,
+                        ButtonTuning.AssemblyPhase(k, ButtonTuning.CapPart.Top));
                 if (_dissolveLeft <= 0f)
                 {
                     _dissolveDeadline = float.PositiveInfinity;
                     _rootGo.transform.localScale = _slotScale; // restore for the next show
+                    if (_capRenderer != null)
+                        _capRenderer.sharedMaterial.color = _appliedColor; // leave the exact colour behind
                     _rootGo.SetActive(false);
                 }
                 return;
@@ -1226,30 +1254,29 @@ internal sealed class ButtonCluster
                 return;
             _everShown = true;
 
-            // Materialize-from-dust fade-in (user: emerge from dust, NOT a scale pop; purely
-            // visual — input is live from frame one). The cap stays at its layout scale IN PLACE
-            // while its OPAQUE surface brightens from the dust (0.15×) up to its applied colour,
+            // Assemble-out-of-dust appear (user: emerge from dust, NOT a scale pop; purely visual —
+            // input is live from frame one). The cap stays at its layout scale IN PLACE while its
+            // OPAQUE surface cools out of the warm parchment-brass dust into its applied colour,
             // under the converging dust cloud. On completion it snaps back to the exact colour.
             if (_appearLeft > 0f)
             {
                 // UNSCALED clock + wall-clock deadline. Reaching zero here is the ONLY thing that
                 // restores the cap's real colour, and this method is skipped entirely on any tick
-                // where the cluster is not placed — so without the deadline a cap could sit at 15%
-                // brightness (invisible) under a fully readable label indefinitely.
+                // where the cluster is not placed — so without the deadline a cap could sit
+                // mid-assembly under a fully readable label indefinitely. (Before the assembly ramp
+                // replaced the multiply-toward-black fade, "mid-assembly" meant 15% brightness, i.e.
+                // invisible; now it means too bright. The deadline stays either way.)
                 _appearLeft -= Time.unscaledDeltaTime;
                 if (_appearLeft > 0f && Time.unscaledTime >= _appearDeadline)
                 {
-                    LogFadeForced("materialize-from-dust", ButtonTuning.AppearSeconds);
+                    LogFadeForced("assemble-out-of-dust", ButtonTuning.AppearSeconds);
                     _appearLeft = 0f;
                 }
                 float k = 1f - Mathf.Max(0f, _appearLeft / ButtonTuning.AppearSeconds);
                 _rootGo.transform.localScale = _slotScale; // materialize in place — no grow/scale pop
                 if (_capRenderer != null)
-                {
-                    float b = Mathf.SmoothStep(0.15f, 1f, k);
-                    Color faded = _appliedColor * b; faded.a = _appliedColor.a;
-                    _capRenderer.sharedMaterial.color = faded;
-                }
+                    _capRenderer.sharedMaterial.color = ButtonTuning.AssemblyColor(_appliedColor,
+                        ButtonTuning.AssemblyPhase(k, ButtonTuning.CapPart.Top));
                 if (_appearLeft <= 0f)
                 {
                     _appearDeadline = float.PositiveInfinity;
