@@ -112,6 +112,9 @@ internal static class PerfConfig
     /// <summary>Seconds between wall see-through visibility evaluations (0 = every frame, today's behaviour).</summary>
     internal static ConfigEntry<float> WallFadeEvalInterval = null!;
 
+    /// <summary>Seconds between initiative-row depth normalisations (0 = every frame, today's behaviour).</summary>
+    internal static ConfigEntry<float> InitiativeDepthEvalInterval = null!;
+
     /// <summary>Suppress the high-cadence per-subsystem diagnostic lines (wall fade, fan depth curve, uGUI clicks).</summary>
     internal static ConfigEntry<bool> QuietDiagnostics = null!;
 
@@ -155,6 +158,10 @@ internal static class PerfConfig
     /// <summary>[Optimize] WallFadeEvalInterval, defaulting to 0 (every frame) while unbound.</summary>
     internal static float WallFadeInterval =>
         WallFadeEvalInterval == null ? 0f : Mathf.Clamp(WallFadeEvalInterval.Value, 0f, 0.25f);
+
+    /// <summary>[Optimize] InitiativeDepthEvalInterval, defaulting to 0 (every frame) while unbound.</summary>
+    internal static float InitiativeDepthInterval =>
+        InitiativeDepthEvalInterval == null ? 0f : Mathf.Clamp(InitiativeDepthEvalInterval.Value, 0f, 0.25f);
 
     /// <summary>[Optimize] QuietDiagnostics, defaulting to off (keep today's diagnostics) while unbound.</summary>
     internal static bool Quiet => QuietDiagnostics != null && QuietDiagnostics.Value;
@@ -329,14 +336,25 @@ internal static class PerfConfig
             + "cut 11x, because the runtime had locked the app to 45 Hz throughout. The spans here "
             + "are built from the mod's own clock reads at known points in Unity's frame, so they "
             + "bind on every platform with no player-setting prerequisite. Cost: two timer reads per "
-            + "frame plus two per camera render, and no allocation.");
+            + "frame plus two per camera render, and no allocation. ALSO CARRIES THE ZOOM AXIS: the "
+            + "same per-frame roll records where the head was standing (height above the board "
+            + "plane, distance from the board centre) and how many renderers the head camera kept, "
+            + "which is what lets the SPLIT line's ZOOM clause bucket the window's frames into "
+            + "near/middle/far thirds and print each third's own p50 frametime, logic and render. "
+            + "Without that, every claim about zoom has to be made by correlating the 10 s "
+            + "heartbeat's head pose against these 30 s windows by hand.");
         SceneCensus = _file.Bind("Perf", "SceneCensus", Defaults.SceneCensus,
             "Append a renderer census (total / enabled / visible to at least one camera) to the "
             + "[Perf] SPLIT line. UnityStats' batch and draw-call counters are editor-only, so this "
             + "is the closest runtime proxy for 'how much is there to submit', and together with the "
             + "camera-pass count it prices one extra full-scene render. Deliberately sampled ONCE "
             + "PER WINDOW: the object walk behind it allocates and would be a stutter of its own at "
-            + "frame rate. Switch OFF for a capture where even a per-window hitch matters.");
+            + "frame rate. Switch OFF for a capture where even a per-window hitch matters. That "
+            + "once-per-window number is a single INSTANT and shows no trend, which is why the same "
+            + "walk now also SEEDS the per-frame visible-renderer estimate on the ZOOM clause: from "
+            + "the seed, each frame re-reads a fixed 64-renderer slice of the roster round-robin and "
+            + "adjusts a running total, so the count is live and at most half a second stale without "
+            + "any per-frame full-scene walk. Switching this entry off takes that estimate with it.");
 
         // DEFAULT OFF, and off for a reason that is not caution: an earlier version of the walk
         // behind this entry hung the game outright at the first window close (2026-07), which
@@ -414,6 +432,16 @@ internal static class PerfConfig
             + "Schmitt trigger with second-scale dwell hysteresis, so sampling it at e.g. 0.05 "
             + "(20 Hz) cannot change which walls fade — it only stops re-deciding a decision that is "
             + "deliberately slow. Inert unless [Compat] WallFade is on.",
+            new AcceptableValueRange<float>(0f, 0.25f)));
+        InitiativeDepthEvalInterval = _file.Bind("Optimize", "InitiativeDepthEvalInterval", Defaults.InitiativeDepthEvalInterval, new ConfigDescription(
+            "Minimum seconds between two DEPTH NORMALISATIONS of the docked initiative row — the "
+            + "pass that walks every active portrait's subtree and clamps the row's authored "
+            + "front-to-back spread to [WorldUI] InitiativeDepthMaxSpreadPx. 0 = every frame, "
+            + "today's behaviour, and the measured cost of that walk rises with the number of "
+            + "figures in the round. The pass is IDEMPOTENT and re-derives every target from the "
+            + "recorded authored z, so running it at e.g. 0.05 (20 Hz) cannot change where a "
+            + "portrait ends up — it only delays by at most that interval when a NEWLY pooled "
+            + "portrait is first flattened.",
             new AcceptableValueRange<float>(0f, 0.25f)));
         QuietDiagnostics = _file.Bind("Optimize", "QuietDiagnostics", Defaults.QuietDiagnostics,
             "Suppress the high-cadence per-subsystem DIAGNOSTIC log lines (the wall-fade 'diag:' "

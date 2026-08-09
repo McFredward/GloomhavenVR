@@ -65,6 +65,7 @@ internal static partial class Defaults
     internal const bool TooltipScanGate = true;              // => [Optimize] TooltipScanGate
     internal const float FanRelayoutMinInterval = 0f;        // => [Optimize] FanRelayoutMinInterval
     internal const float WallFadeEvalInterval = 0f;          // => [Optimize] WallFadeEvalInterval
+    internal const float InitiativeDepthEvalInterval = 0f;   // => [Optimize] InitiativeDepthEvalInterval
     internal const bool QuietDiagnostics = false;            // => [Optimize] QuietDiagnostics
     internal const float RemoteContentInterval = 0f;         // => [Optimize] RemoteContentInterval
     internal const bool HeadDepthPrepass = false;            // => [Optimize] HeadDepthPrepass

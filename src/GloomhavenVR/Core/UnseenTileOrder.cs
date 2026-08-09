@@ -289,6 +289,9 @@ internal static class UnseenTileOrder
 
     private static readonly List<Renderer> ScanScratch = new(1024);
     private static readonly List<Transform> NodeScratch = new(8);
+    /// <summary>Rescan scratch for the map-tile registry read that replaced this file's
+    /// full-scene <c>FindObjectsOfType&lt;ProceduralMapTile&gt;</c> (see <see cref="Rescan"/>).</summary>
+    private static readonly List<ProceduralMapTile> TileScratch = new(16);
 
     /// <summary>Per-renderer group index produced by the first pass of <see cref="Rescan"/>, and
     /// the per-group member counts the second pass turns into slice offsets. Fields rather than
@@ -657,10 +660,17 @@ internal static class UnseenTileOrder
     private static void Rescan()
     {
         NodeScratch.Clear();
-        ProceduralMapTile[] tiles = Object.FindObjectsOfType<ProceduralMapTile>();
-        for (int t = 0; t < tiles.Length; t++)
+        // PERF S1 (2026-08-09, .planning/perf-zoomed-out.md): this was
+        // Object.FindObjectsOfType<ProceduralMapTile>(), and it was essentially the WHOLE cost
+        // of this rescan — the step measured 20.2 ms every 2 s in the big room while the two
+        // subtree walks below are a few hundred renderers. The call is O(every loaded object),
+        // not O(tiles). The registry returns the identical set (same activeInHierarchy and
+        // hideFlags filters — see Core/SceneRegistry.cs), so the node set, the two change
+        // tests and every ordering decision downstream are bit-for-bit what they were.
+        SceneRegistry.MapTiles.Collect(TileScratch);
+        for (int t = 0; t < TileScratch.Count; t++)
         {
-            ProceduralMapTile tile = tiles[t];
+            ProceduralMapTile tile = TileScratch[t];
             if (tile == null)
                 continue;
             Transform? preview = FindPreviewNode(tile.transform);

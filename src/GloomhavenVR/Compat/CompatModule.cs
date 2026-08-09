@@ -76,6 +76,18 @@ internal sealed class CompatModule : IVRModule
         // the diorama when a card is swept to a pile — pinned off through the game's own low-spec
         // switch (see CardParticlesOff; live-gated by [Cards] GameCardParticles).
         CardParticlesOff.Install();
+
+        // PERF S1 (2026-08-09, .planning/perf-zoomed-out.md): the mod's periodic full-scene
+        // FindObjectsOfType sweeps cost ~10-15 ms EACH in a 3000-renderer room and were the
+        // measured cause of the 20-100 ms hitches. These three registries let the game enrol
+        // its own occlusion volumes / door props / map tiles, and every reader below gets the
+        // IDENTICAL set (same active + hideFlags filter) from a ten-entry list instead.
+        // Installed BEFORE WallSegmentFade and the loader watchdog, which read them.
+        // SceneRegistry.Install() arms the three enrolment postfixes itself and falls back to
+        // the old sweep for any that could not be applied — an empty registry must be
+        // impossible, because for the wall system it would read as "no rooms, no doors".
+        SceneRegistry.Install();
+
         WallSegmentFade.Install();
 
         // Revealed-room geometry (fehlender_boden2.png root cause): Apparance synthesizes
@@ -182,6 +194,7 @@ internal sealed class CompatModule : IVRModule
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert
         CardParticlesOff.Uninstall();     // restores the game's own NoCardsParticles value verbatim
+        SceneRegistry.Shutdown();         // the enrolment postfixes go with UnpatchSelf — the lists must not outlive them
         if (_hooked)
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;

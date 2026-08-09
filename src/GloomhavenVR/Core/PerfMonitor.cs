@@ -45,6 +45,10 @@ namespace GloomhavenVR.Core;
 /// <item><c>[Perf] CAPS</c> — one startup line stating which counters resolved and which did not.</item>
 /// <item><c>[Perf] SPLIT</c> — <see cref="PerfFrameSplit"/>'s decomposition of the frame into
 /// main-thread logic, render-loop submission and blocked time, with a verdict naming the wall.</item>
+/// <item><c>view</c> (a clause on FRAME) and <c>ZOOM</c> (a clause on SPLIT) — WHERE the window was
+/// looked at from, and how frame time, logic and render vary across the window's nearest, middle
+/// and farthest thirds by viewing distance. Grep <c>ZOOM</c> to price the zoom effect from a single
+/// log; see <c>PerfFrameSplit.Zoom.cs</c>.</item>
 /// <item><c>[Perf] MARK</c> — an A/B boundary: a setting changed, so the window is closed here and
 /// the next summary describes ONLY the new state.</item>
 /// <item><c>[Perf] DISPLAY</c> — the runtime changed presentation rate (a reprojection lock).</item>
@@ -422,7 +426,7 @@ internal static class PerfMonitor
                 ResetWindow(Time.unscaledTime);
             _frameModSeconds = 0d;
             _depth = 0;
-            PerfFrameSplit.RollFrame(enabled: false, record: false);
+            PerfFrameSplit.RollFrame(enabled: false, record: false, frameMs: 0f);
             return;
         }
 
@@ -448,10 +452,10 @@ internal static class PerfMonitor
             _firstSampleDone = true;
             _frameModSeconds = 0d;
             _depth = 0;
-            PerfFrameSplit.RollFrame(splitOn, record: false);
+            PerfFrameSplit.RollFrame(splitOn, record: false, frameMs: 0f);
             return;
         }
-        PerfFrameSplit.RollFrame(splitOn, record: true);
+        PerfFrameSplit.RollFrame(splitOn, record: true, frameMs: dt * 1000f);
         SampleGpuTime();
 
         FrameMs[_frameWrite] = dt * 1000f;
@@ -713,6 +717,12 @@ internal static class PerfMonitor
         if (!PerfConfig.Attribution.Value)
             sb.Append(" [attribution OFF — mod share not measured]");
 
+        // WHERE the window was looked at from. On the FRAME line and not only on SPLIT because a
+        // frametime with no viewpoint beside it is the exact gap that forced the 2026-08 analysis to
+        // correlate 10 s heartbeats against 30 s windows by hand; the p50 belongs next to the p50 it
+        // explains. Two interop calls per frame paid for it — see PerfFrameSplit.Zoom.cs.
+        PerfFrameSplit.AppendViewClause(sb);
+
         if (PerfConfig.Allocations.Value)
         {
             sb.Append(" | gc gen0+").Append(GC.CollectionCount(0) - _gc0)
@@ -854,6 +864,22 @@ internal static class PerfMonitor
     }
 
     private static int CompareWindowDesc(Step a, Step b) => b.WindowSeconds.CompareTo(a.WindowSeconds);
+
+    /// <summary>
+    /// One named step's window average (ms per frame it ran), for a line that wants to state its OWN
+    /// cost inline. The STEPS ranking only prints the top <c>[Perf] TopSteps</c>, so a step that is
+    /// cheap — which is exactly what an instrument's self-measurement should be — never appears
+    /// there, and "it costs nothing" would then be an assertion instead of a number. False when
+    /// attribution is off or the step never ran in this window.
+    /// </summary>
+    internal static bool TryGetStepAverageMs(string name, out double avgMs)
+    {
+        avgMs = 0d;
+        if (!Steps.TryGetValue(name, out Step step) || step.WindowFrames <= 0)
+            return false;
+        avgMs = step.WindowSeconds * 1000d / step.WindowFrames;
+        return true;
+    }
 
     /// <summary>
     /// The WORK counters (<see cref="Count"/>) for this window, in registration order — one line,

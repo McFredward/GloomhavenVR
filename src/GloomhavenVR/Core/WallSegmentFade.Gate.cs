@@ -264,7 +264,7 @@ internal static partial class WallSegmentFade
         /// the stacked pass sees its bounds and face domain). The segment is keyed by the
         /// door prop COMPONENT — distinct from the doorway segment's transform anchor.
         /// </summary>
-        private void SeedGateColumns(UnityGameEditorDoorProp[] doorProps)
+        private void SeedGateColumns(List<UnityGameEditorDoorProp> doorProps)
         {
             foreach (UnityGameEditorDoorProp dp in doorProps)
             {

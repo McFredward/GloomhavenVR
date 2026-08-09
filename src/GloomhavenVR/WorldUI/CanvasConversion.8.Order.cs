@@ -193,6 +193,18 @@ internal static partial class CanvasConversion
     private static float s_orderDiagHeartbeatAt;
     private static int s_orderDiagLastHash;
 
+    // ---- work counters (S2 perf round) --------------------------------------------------------
+    // COUNT WORK, NOT TIME (PerfMonitor.Count's own doctrine): the hardware log prices this step at
+    // ~0.45 ms/frame with 29 panels, and a millisecond figure cannot say whether that is the 29
+    // distance measures, the sortingOrder writes a churning ladder produces, or the diagnostic hash.
+    // These four counters make the next capture answer it arithmetically. They are plain ints
+    // accumulated in the frame and handed to PerfMonitor ONCE per frame, so the per-item cost is an
+    // increment and never a dictionary lookup.
+    private static int s_orderDistanceMeasures;
+    private static int s_orderWrites;
+    private static int s_orderResorts;
+    private static int s_orderHashNodes;
+
     /// <summary>
     /// Register a mod-owned <see cref="Canvas"/> that must ride <paramref name="panel"/>'s ladder
     /// order at a fixed <paramref name="offset"/> (1..<see cref="PanelOrderStep"/>-1: above its own
@@ -319,6 +331,11 @@ internal static partial class CanvasConversion
             return;
         Vector3 eye = cam.transform.position;
 
+        s_orderDistanceMeasures = 0;
+        s_orderWrites = 0;
+        s_orderResorts = 0;
+        s_orderHashNodes = 0;
+
         // (1) Drop entries whose panel died or was released. Cheap flag, no set lookup: Release and
         // the dead-panel prune clear OrderListed (CanvasConversion.4.Lifecycle.cs).
         for (int i = OrderedPanels.Count - 1; i >= 0; i--)
@@ -340,34 +357,47 @@ internal static partial class CanvasConversion
         // freshly floated window must land in the right slot on its first frame - it is revealed at
         // its final pose (ConvertedPanel.RevealPending), so there is nothing to converge toward and
         // no reason to make it climb the ladder one swap at a time.
-        for (int i = 0; i < Active.Count; i++)
+        //
+        // SUB-SCOPE (S2 perf round). 'CanvasConversion.Order' measured 0.45 ms/frame with 29 panels
+        // on hardware (ModBuild 102), and a single number cannot say whether that is the distance
+        // measures (two Unity transform interop calls plus a RectTransform.rect read per panel), the
+        // sortingOrder writes a churning ladder produces, or the foreign-surface pass. Three nested
+        // scopes split it, and PerfMonitor.Measure is an allocation-free struct whose whole cost off
+        // the clock is one static bool test.
+        using (Core.PerfMonitor.Scope("Order.Measure"))
         {
-            ConvertedPanel panel = Active[i];
-            if (!panel.IsAlive || panel.HostCanvas == null || panel.HostRect == null)
-                continue;
-            panel.OrderDistance = PanelEyeDistance(panel, eye);
-            if (panel.OrderListed)
-                continue;
-            int at = OrderedPanels.Count;
-            for (int j = 0; j < OrderedPanels.Count; j++)
+            for (int i = 0; i < Active.Count; i++)
             {
-                ConvertedPanel other = OrderedPanels[j];
-                // Far to near. A tie inside the swap margin falls to the CONVERSION tier, which is
-                // the one thing ModalHostSortingOrder still decides: two panels the player cannot
-                // tell apart in depth put the modal in front of the HUD panel it is a dialog for.
-                bool nearerThanOther = panel.OrderDistance < other.OrderDistance - OrderSwapMarginMeters;
-                bool tiedAndDominant = !nearerThanOther
-                                       && panel.OrderDistance <= other.OrderDistance + OrderSwapMarginMeters
-                                       && panel.BaseSortingOrder > other.BaseSortingOrder;
-                if (nearerThanOther || tiedAndDominant)
+                ConvertedPanel panel = Active[i];
+                if (!panel.IsAlive || panel.HostCanvas == null || panel.HostRect == null)
                     continue;
-                at = j;
-                break;
+                panel.OrderDistance = PanelEyeDistance(panel, eye);
+                s_orderDistanceMeasures++;
+                if (panel.OrderListed)
+                    continue;
+                int at = OrderedPanels.Count;
+                for (int j = 0; j < OrderedPanels.Count; j++)
+                {
+                    ConvertedPanel other = OrderedPanels[j];
+                    // Far to near. A tie inside the swap margin falls to the CONVERSION tier, which
+                    // is the one thing ModalHostSortingOrder still decides: two panels the player
+                    // cannot tell apart in depth put the modal in front of the HUD panel it is a
+                    // dialog for.
+                    bool nearerThanOther = panel.OrderDistance < other.OrderDistance - OrderSwapMarginMeters;
+                    bool tiedAndDominant = !nearerThanOther
+                                           && panel.OrderDistance <= other.OrderDistance + OrderSwapMarginMeters
+                                           && panel.BaseSortingOrder > other.BaseSortingOrder;
+                    if (nearerThanOther || tiedAndDominant)
+                        continue;
+                    at = j;
+                    break;
+                }
+                OrderedPanels.Insert(at, panel);
+                s_orderResorts++;
+                panel.OrderListed = true;
+                panel.OrderSwapPeer = null;
+                panel.OrderSwapStreak = 0;
             }
-            OrderedPanels.Insert(at, panel);
-            panel.OrderListed = true;
-            panel.OrderSwapPeer = null;
-            panel.OrderSwapStreak = 0;
         }
 
         // (3) ONE hysteresis-gated adjacent-swap pass (see OrderSwapMarginMeters /
@@ -394,19 +424,26 @@ internal static partial class CanvasConversion
             far.OrderSwapPeer = null;
             OrderedPanels[i] = near;
             OrderedPanels[i + 1] = far;
+            s_orderResorts++;
             i++; // the pair just settled - do not re-test it in the same pass
         }
 
         // (4) Assign. Change-gated inside ApplyPanelOrder.
-        for (int i = 0; i < OrderedPanels.Count; i++)
+        using (Core.PerfMonitor.Scope("Order.Apply"))
         {
-            int rank = i < PanelOrderMaxRank ? i : PanelOrderMaxRank;
-            ApplyPanelOrder(OrderedPanels[i], PanelOrderBase + rank * PanelOrderStep);
+            for (int i = 0; i < OrderedPanels.Count; i++)
+            {
+                int rank = i < PanelOrderMaxRank ? i : PanelOrderMaxRank;
+                ApplyPanelOrder(OrderedPanels[i], PanelOrderBase + rank * PanelOrderStep);
+            }
         }
 
         // (5) Non-canvas transparent furniture (the control board's placard/labels/glows)
         // ranks against the same measured distances - see part 9's root-cause header.
-        TickFurnitureOrder(eye);
+        using (Core.PerfMonitor.Scope("Order.Furniture"))
+        {
+            TickFurnitureOrder(eye);
+        }
 
         // (6) FOREIGN transparent surfaces the mod cannot re-author rank against the same
         // numbers, and for the same reason (user 2026-08-09: with MR off the see-through
@@ -421,10 +458,23 @@ internal static partial class CanvasConversion
         // two just assigned: the ladder is snapshotted ONCE into the small sorted table part 9b
         // documents, and every foreign surface then resolves against that table with no Unity call
         // at all - see Core.UnseenTileOrder and part 9b.
-        BuildSeenThroughLadder(eye);
+        using (Core.PerfMonitor.Scope("Order.SeenThrough"))
+        {
+            BuildSeenThroughLadder(eye);
+        }
         Core.UnseenTileOrder.Tick(eye);
 
         LogPanelOrder();
+
+        // One handoff per frame, four counters, all no-ops while [Perf] Attribution is off
+        // (PerfMonitor.Count early-outs on a static bool). 'Order.Panels' is the denominator every
+        // other number is read against; 'Order.Writes' is the one that lands in the frame's BLOCKED
+        // span, because a Canvas.sortingOrder write is what re-sorts a canvas.
+        Core.PerfMonitor.Count("Order.Panels", OrderedPanels.Count);
+        Core.PerfMonitor.Count("Order.Distances", s_orderDistanceMeasures);
+        Core.PerfMonitor.Count("Order.Writes", s_orderWrites);
+        Core.PerfMonitor.Count("Order.Resorts", s_orderResorts);
+        Core.PerfMonitor.Count("Order.HashNodes", s_orderHashNodes);
     }
 
     /// <summary>
@@ -461,7 +511,10 @@ internal static partial class CanvasConversion
     {
         panel.DrawSortingOrder = order;
         if (panel.HostCanvas != null && panel.HostCanvas.sortingOrder != order)
+        {
             panel.HostCanvas.sortingOrder = order;
+            s_orderWrites++;
+        }
         for (int i = panel.OrderFollowers.Count - 1; i >= 0; i--)
         {
             OrderFollower f = panel.OrderFollowers[i];
@@ -469,14 +522,20 @@ internal static partial class CanvasConversion
             {
                 int want = order + f.Offset;
                 if (f.Canvas.sortingOrder != want)
+                {
                     f.Canvas.sortingOrder = want;
+                    s_orderWrites++;
+                }
                 continue;
             }
             if (f.Renderer != null)
             {
                 int want = order + f.Offset;
                 if (f.Renderer.sortingOrder != want)
+                {
                     f.Renderer.sortingOrder = want;
+                    s_orderWrites++;
+                }
                 continue;
             }
             panel.OrderFollowers.RemoveAt(i); // destroyed with its owner
@@ -494,18 +553,34 @@ internal static partial class CanvasConversion
     /// </summary>
     private static void LogPanelOrder()
     {
+        float now = Time.unscaledTime;
+        bool heartbeat = now >= s_orderDiagHeartbeatAt;
+
+        // THROTTLE FIRST, HASH SECOND (S2 perf round). The hash is one Unity GetInstanceID interop
+        // call PER PANEL and it exists for exactly one purpose: to decide whether to emit a line
+        // that is rate-limited to OrderDiagMinIntervalSeconds anyway. In the shipped hardware scene
+        // the ladder reports RESORTED on every single diagnostic line, i.e. the hash changes
+        // essentially every frame and is then thrown away ~130 frames out of every 135.
+        //
+        // PROVABLY IDENTICAL OUTPUT. Below BOTH throttles the old body could only reach one of its
+        // two returns — `!changed && !heartbeat` or `changed && now < nextAllowed && !heartbeat` —
+        // and neither of them wrote a field or logged anything. So the value of the hash was
+        // unobservable there, in the log AND in this class's own state. Hoisting the throttle above
+        // the hash therefore changes when the hash is COMPUTED and nothing else: the same frames
+        // log, with the same text, and s_orderDiagLastHash still carries the hash of the last frame
+        // that was allowed to log — which is the only frame it was ever compared against.
+        if (!heartbeat && now < s_orderDiagNextAllowed)
+            return;
+
         int hash = 17;
         for (int i = 0; i < OrderedPanels.Count; i++)
         {
             ConvertedPanel p = OrderedPanels[i];
             hash = hash * 31 + (p.HostGo != null ? p.HostGo.GetInstanceID() : 0);
         }
-        float now = Time.unscaledTime;
+        s_orderHashNodes = OrderedPanels.Count;
         bool changed = hash != s_orderDiagLastHash;
-        bool heartbeat = now >= s_orderDiagHeartbeatAt;
         if (!changed && !heartbeat)
-            return;
-        if (changed && now < s_orderDiagNextAllowed && !heartbeat)
             return;
         s_orderDiagLastHash = hash;
         s_orderDiagNextAllowed = now + OrderDiagMinIntervalSeconds;

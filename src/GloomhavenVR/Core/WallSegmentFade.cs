@@ -567,6 +567,13 @@ internal static partial class WallSegmentFade
 
         private float _nextRescan;
         private int _builtRoomCount = -1;
+        /// <summary>Rescan scratch for the two registry reads that replaced the rescan's
+        /// <c>FindObjectsOfType&lt;TilesOcclusionVolume&gt;</c> and
+        /// <c>FindObjectsOfType&lt;UnityGameEditorDoorProp&gt;</c> walks (PERF S1 — see
+        /// <see cref="SceneRegistry"/>). Reused, so the swap allocates nothing per rescan
+        /// where the sweeps allocated a fresh array each time.</summary>
+        private readonly List<TilesOcclusionVolume> _volumeScratch = new();
+        private readonly List<UnityGameEditorDoorProp> _doorPropScratch = new();
 
         // Perspective-change tracking (arms aggressive re-evaluation for ReevalArmSeconds).
         private float _lastReevalTime = float.NegativeInfinity;
@@ -628,6 +635,9 @@ internal static partial class WallSegmentFade
             _lastLoggedSeamCount = -1;       // …and the room-seam census (2026-08-09)
             _peerFades.Clear();              // peers re-state their fades for the new scene
             _loggedToggleMats.Clear();       // …and the toggle-native material lines
+            _segmentListedIndex.Clear();     // scene renderers died with the scene — no dead keys
+            _volumeScratch.Clear();
+            _doorPropScratch.Clear();
         }
 
         /// <summary>
@@ -679,7 +689,13 @@ internal static partial class WallSegmentFade
             if (now >= _nextRescan || gen!.m_RoomRenderers.Count != _builtRoomCount)
             {
                 _nextRescan = now + RescanIntervalSeconds;
-                Rescan(gen!);
+                // PERF S1: its own scope. Until 2026-08-09 the 50-97 ms rescans were invisible
+                // INSIDE 'WallFade.Late' and could only be INFERRED from a mean/median gap
+                // (1.73 vs 0.14 ms) — which is exactly why nobody could price them. Nested
+                // scopes are attributed individually by PerfMonitor and only depth-0 feeds the
+                // mod total, so this cannot double-count against 'WallFade.Late'.
+                using (PerfMonitor.Scope("WallFade.Rescan"))
+                    Rescan(gen!);
             }
             if (_segments.Count == 0 || _roomBounds.Count == 0)
                 return;
@@ -884,8 +900,20 @@ internal static partial class WallSegmentFade
             if (_heartbeatLogged && _censusFadeRenderers != _heartbeatFadeRenderers)
                 _heartbeatLogged = false;
 
-            if (!_heartbeatLogged)
+            // [Optimize] QuietDiagnostics (PERF S1, 2026-08-09): the heartbeat block below is
+            // the mod's second-largest burst and it was NOT gated. It re-arms on any ±5
+            // segment change — i.e. constantly under Apparance's regen churn — and then runs
+            // TWO more full-scene FindObjectsOfType walks (LogFloorColumnCensus's
+            // MeshRenderer(includeInactive) sweep and LogMapTileCensus's ProceduralMapTile
+            // one, ~10-15 ms EACH in the big room) plus a whole-table walk and a 40-line
+            // string. It is pure DIAGNOSTIC output — nothing below writes a renderer, a
+            // material or a segment — so suppressing it cannot change a single pixel; a
+            // capture that wants only the [Perf] lines gets its frame time back. Leaving
+            // _heartbeatLogged false means the census prints on the very next tick if the
+            // switch is turned back off mid-session.
+            if (!_heartbeatLogged && !PerfConfig.Quiet)
             {
+                using var _censusScope = PerfMonitor.Scope("WallFade.Census");
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _segments.Count;
                 _heartbeatFadeRenderers = _censusFadeRenderers;
@@ -1706,6 +1734,15 @@ internal static partial class WallSegmentFade
 
         private void Rescan(TilesOcclusionGenerator gen)
         {
+            // PERF S1: one memo scope for the whole (synchronous) rescan — see
+            // FigureAncestryMemo for why that cannot change a single figure verdict.
+            BeginFigureMemo();
+            try { RescanCore(gen); }
+            finally { EndFigureMemo(); }
+        }
+
+        private void RescanCore(TilesOcclusionGenerator gen)
+        {
             // Figures first (round 7): nothing below may keep or re-take an actor renderer.
             PurgeFigureRenderers();
             // Tile-plane anchors (round 7): each TilesOcclusionVolume knows its room's
@@ -1716,8 +1753,14 @@ internal static partial class WallSegmentFade
             _floorYByRenderer.Clear();
             _roomMapByRenderer.Clear();
             _roomMapLabelByRenderer.Clear();
-            TilesOcclusionVolume[] volumes = UnityEngine.Object.FindObjectsOfType<TilesOcclusionVolume>();
-            foreach (TilesOcclusionVolume v in volumes)
+            // PERF S1: was a full-scene FindObjectsOfType<TilesOcclusionVolume> (~10-15 ms in
+            // the big room — the call is O(every loaded object), not O(volumes)). The registry
+            // returns the IDENTICAL set: every volume enrols in its own Start (the method that
+            // also announces it to the occlusion generator), the store was seeded from a real
+            // sweep at install, and Collect applies the same activeInHierarchy + hideFlags
+            // filters FindObjectsOfType does. See Core/SceneRegistry.cs.
+            SceneRegistry.Volumes.Collect(_volumeScratch);
+            foreach (TilesOcclusionVolume v in _volumeScratch)
             {
                 if (v == null || v.CentralTile == null || v.Renderers == null)
                     continue;
@@ -1919,9 +1962,10 @@ internal static partial class WallSegmentFade
             // 2026-08-02): the live door props, refreshed before the adoption sweep so
             // FindDoorwayRoot can re-anchor frame/pillar renderers per door.
             _doorRoots.Clear();
-            UnityGameEditorDoorProp[] doorProps =
-                UnityEngine.Object.FindObjectsOfType<UnityGameEditorDoorProp>();
-            foreach (UnityGameEditorDoorProp dp in doorProps)
+            // PERF S1: registry read instead of the second full-scene FindObjectsOfType —
+            // identical set, see the volume comment above and Core/SceneRegistry.cs.
+            SceneRegistry.DoorProps.Collect(_doorPropScratch);
+            foreach (UnityGameEditorDoorProp dp in _doorPropScratch)
             {
                 if (dp != null)
                     _doorRoots.Add(dp.transform);
@@ -1929,7 +1973,7 @@ internal static partial class WallSegmentFade
             // GATE COLUMNS (user ruling 2026-08-07): the wall EMBEDDING each doorway fades
             // like any wall — only the arch rect stays solid. Seeded before the adoption/
             // stacked passes so they see the gate's bounds and face domain.
-            SeedGateColumns(doorProps);
+            SeedGateColumns(_doorPropScratch);
 
             // Second discovery source: ADOPT every other fade-capable renderer in the scene.
             // The user report behind this ("fortgeschritteneres Szenario mit ganz anderen
@@ -2950,11 +2994,79 @@ internal static partial class WallSegmentFade
         /// <see cref="PurgeFigureRenderers"/> each rescan (restitution: a previously-adopted
         /// figure renderer is restored the moment this guard classifies it).
         /// </summary>
-        private static bool IsFigureOrActorRenderer(Renderer r) =>
-            r is SkinnedMeshRenderer
-            || r.GetComponentInParent<ActorBehaviour>() != null
-            || r.GetComponentInParent<CInteractableActor>() != null
-            || r.GetComponentInParent<Animator>() != null;
+        private static bool IsFigureOrActorRenderer(Renderer r)
+        {
+            if (r is SkinnedMeshRenderer)
+                return true;
+            // FAST PATH (PERF S1) — only inside an open memo scope, and only for a renderer
+            // whose whole ancestor chain is active. See FigureAncestryMemo.
+            if (_figureMemoActive && r.gameObject.activeInHierarchy)
+                return FigureAncestry(r.transform);
+            return r.GetComponentInParent<ActorBehaviour>() != null
+                || r.GetComponentInParent<CInteractableActor>() != null
+                || r.GetComponentInParent<Animator>() != null;
+        }
+
+        /// <summary>
+        /// PERF S1 (2026-08-09): memo for <see cref="IsFigureOrActorRenderer"/>'s ancestor
+        /// search, keyed by transform.
+        ///
+        /// <para>WHY IT WAS WORTH IT. The guard runs THREE separate
+        /// <c>GetComponentInParent</c> walks, and the stacked-shell candidate prefilter calls
+        /// it for EVERY renderer in the scene — ~3000 of them per rescan, each walk visiting
+        /// every level up to the scene root. That is tens of thousands of native component
+        /// lookups per rescan, and it was the largest non-<c>FindObjectsOfType</c> item in the
+        /// 50-97 ms rescan.</para>
+        ///
+        /// <para>WHY THE VERDICT IS UNCHANGED, RENDERER FOR RENDERER. "Is there an
+        /// ActorBehaviour / CInteractableActor / Animator on this transform or any ancestor"
+        /// is exactly what the three <c>GetComponentInParent</c> calls answer, and it is a
+        /// property of the CHAIN, so a transform's answer is its own components OR its
+        /// parent's answer — which is what <see cref="FigureAncestry"/> computes and caches.
+        /// Two guards keep it exact rather than merely equivalent-in-practice:</para>
+        /// <list type="bullet">
+        /// <item>ACTIVE CHAINS ONLY. <c>GetComponentInParent&lt;T&gt;()</c> without
+        ///   <c>includeInactive</c> considers only active GameObjects; for a renderer that is
+        ///   <c>activeInHierarchy</c> every ancestor is active by definition, so on that path
+        ///   the qualifier is vacuous and the memo cannot disagree. A renderer whose chain is
+        ///   NOT fully active takes the original three calls verbatim.</item>
+        /// <item>SCOPED, NEVER PERSISTENT. The memo is only consulted between
+        ///   <see cref="BeginFigureMemo"/> and <see cref="EndFigureMemo"/>, which bracket ONE
+        ///   synchronous pass (a rescan, a fast-reclaim sweep). No game code runs inside such
+        ///   a pass, so nothing can re-parent an actor mid-pass — the case the round-7 "belt
+        ///   over the prefilter" re-check exists for is a re-parent between FRAMES, and the
+        ///   memo is empty at every frame boundary.</item>
+        /// </list>
+        /// </summary>
+        private static readonly Dictionary<Transform, bool> FigureAncestryMemo = new(1024);
+        private static bool _figureMemoActive;
+
+        private static void BeginFigureMemo()
+        {
+            FigureAncestryMemo.Clear();
+            _figureMemoActive = true;
+        }
+
+        private static void EndFigureMemo()
+        {
+            _figureMemoActive = false;
+            FigureAncestryMemo.Clear(); // never hold transform references across frames
+        }
+
+        /// <summary>Does this transform or any ancestor carry one of the figure components?
+        /// (Memoized upward — see <see cref="FigureAncestryMemo"/>.)</summary>
+        private static bool FigureAncestry(Transform t)
+        {
+            if (FigureAncestryMemo.TryGetValue(t, out bool cached))
+                return cached;
+            bool here = t.GetComponent<ActorBehaviour>() != null
+                || t.GetComponent<CInteractableActor>() != null
+                || t.GetComponent<Animator>() != null;
+            Transform? parent = t.parent;
+            bool verdict = here || (parent != null && FigureAncestry(parent));
+            FigureAncestryMemo[t] = verdict;
+            return verdict;
+        }
 
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
         private bool RendererUsesFoliage(MeshRenderer r)

@@ -66,6 +66,14 @@ namespace GloomhavenVR.Core;
 /// mismatch on some other Unity version degrades to n/a instead of taking the instrumentation
 /// down.</para>
 ///
+/// <para>THE VIEWPOINT (see <c>PerfFrameSplit.Zoom.cs</c>). Every recorded frame also carries WHERE
+/// IT WAS SEEN FROM: the head's height above the board plane, its distance from the board centre,
+/// and a rolling estimate of how many renderers the head camera kept after culling. Because those
+/// samples share this class's index space, the SPLIT line can cut the window's frames into distance
+/// thirds and report each third's own p50 frametime, logic and render — which answers "how does
+/// frame time vary with viewing distance" from ONE window, where it previously took a hand-made
+/// correlation between 10 s heartbeats and 30 s windows. That file states the per-frame cost.</para>
+///
 /// <para>COST. Two <see cref="Stopwatch.GetTimestamp"/> reads per frame for the logic span, two
 /// per camera render — three with <c>[Perf] CullSubmitSplit</c> on, which is what pays for the
 /// cull/submit seam and is why it is a switch and defaults off (four cameras in a scenario), one
@@ -79,7 +87,7 @@ namespace GloomhavenVR.Core;
 /// two static camera-callback subscriptions, both dropped in <see cref="Shutdown"/>. It never
 /// touches a game object, game state or wire traffic.</para>
 /// </summary>
-internal static class PerfFrameSplit
+internal static partial class PerfFrameSplit
 {
     private const string Scope0 = "Perf";
 
@@ -224,6 +232,7 @@ internal static class PerfFrameSplit
         Cameras.Clear();
         CameraOrder.Clear();
         Ranked.Clear();
+        ResetRoster();
         ResetWindow();
         _ftFaulted = false;
         _ftFault = string.Empty;
@@ -283,8 +292,10 @@ internal static class PerfFrameSplit
     /// first instant of frame N and every span recorded below belongs to frame N−1, whose logic,
     /// rendering and present have all completed. <paramref name="record"/> is false for the very
     /// first sampled frame (which carries the load hitch) and while the monitor is off.
+    /// <paramref name="frameMs"/> is that frame's complete wall time, passed in rather than re-read
+    /// so the zoom buckets quote the SAME frametime the FRAME line does, for the same frame.
     /// </summary>
-    internal static void RollFrame(bool enabled, bool record)
+    internal static void RollFrame(bool enabled, bool record, float frameMs)
     {
         SetActive(enabled);
         long now = Stopwatch.GetTimestamp();
@@ -307,6 +318,10 @@ internal static class PerfFrameSplit
                     : 0f;
                 LogicMs[_count] = logicMs;
                 RenderMs[_count] = renderMs;
+                // Same slot, same gate: the viewpoint is only ever written for a frame whose logic
+                // and render spans were also written, which is what lets the ZOOM clause quote
+                // logic/render medians per distance third without aligning two populations.
+                SampleView(_count, frameMs);
                 _count++;
                 _logicSum += logicMs;
                 _renderSum += renderMs;
@@ -472,6 +487,7 @@ internal static class PerfFrameSplit
     internal static void ResetWindow()
     {
         _count = 0;
+        _viewPrepared = false;   // the distance ordering below belongs to the window that just closed
         _logicSum = 0d;
         _renderSum = 0d;
         _logicMax = 0f;
@@ -540,6 +556,7 @@ internal static class PerfFrameSplit
           .Append((_passSum / (float)_count).ToString("F1"));
         AppendCameras(sb);
         AppendFrameTimings(sb);
+        AppendZoom(sb);
 
         sb.Append(" | VERDICT: ").Append(Verdict(logicMean, renderMean, blockedMean, frameMeanMs));
     }
@@ -724,20 +741,32 @@ internal static class PerfFrameSplit
             sb.Append(" | scene census n/a (").Append(e.GetType().Name).Append(')');
             return;
         }
+        // The walk doubles as the ZOOM axis's SEED: every renderer's visibility is written into the
+        // shadow array and the total into the running counter, so the per-frame slice sampler starts
+        // correct instead of ramping up over its first sweep. Costs one bool store per renderer on a
+        // walk that was already happening.
+        bool[] shadow = RosterShadow(all.Length);
         int enabled = 0, visible = 0;
         for (int i = 0; i < all.Length; i++)
         {
             Renderer r = all[i];
-            if (r == null || !r.enabled)
-                continue;
-            enabled++;
-            if (r.isVisible)
-                visible++;
+            bool vis = false;
+            if (r != null && r.enabled)
+            {
+                enabled++;
+                vis = r.isVisible;
+                if (vis)
+                    visible++;
+            }
+            shadow[i] = vis;
         }
+        SeedRoster(all, visible, shadow);
         sb.Append(" | scene census: ").Append(all.Length).Append(" renderer(s), ")
           .Append(enabled).Append(" enabled, ").Append(visible)
-          .Append(" visible to at least one camera (sampled once per window — the per-frame cost of "
-                  + "this walk would itself be a stutter)");
+          .Append(" visible to at least one camera (ONE INSTANT, sampled once per window — the "
+                  + "per-frame cost of this walk would itself be a stutter, which is why this "
+                  + "number shows no trend across windows and the ZOOM clause above carries the "
+                  + "per-frame estimate instead. This walk is also that estimate's seed)");
         AppendGraphicCensus(sb);
     }
 
@@ -786,6 +815,11 @@ internal static class PerfFrameSplit
     internal static string Describe() =>
         "frameSplit=ok (own clocks: logic span, render-loop span, per-camera passes"
         + (PerfConfig.CullSubmitSplitOn ? " split into cull/submit" : "; cull/submit split OFF")
+        + ") "
+        + "zoomAxis=ok (head height/distance vs the board focus per frame; visible-renderer estimate "
+        + (PerfConfig.SceneCensus == null || PerfConfig.SceneCensus.Value
+            ? $"from a {RenderersPerFrame}-renderer slice per frame, seeded by the census walk"
+            : "OFF — [Perf] SceneCensus is off, so there is no roster to sample")
         + ") "
         + "frameTimingManager=probed-per-frame";
 

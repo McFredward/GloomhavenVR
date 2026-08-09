@@ -166,6 +166,15 @@ internal static partial class Loc
                 + "Abtastung mit z. B. 0.05 (20 Hz) nicht ändern, welche Wände ausblenden — sie hört nur auf, "
                 + "eine bewusst träge Entscheidung ständig neu zu treffen. Ohne Wirkung, solange [Compat] "
                 + "WallFade nicht an ist.",
+            ["Optimize/InitiativeDepthEvalInterval"] =
+                "Mindestabstand in Sekunden zwischen zwei TIEFEN-NORMALISIERUNGEN der angedockten "
+                + "Initiativreihe — dem Durchlauf, der den Unterbaum jedes aktiven Porträts abläuft und die "
+                + "vom Spiel angelegte Tiefenstaffelung der Reihe auf [WorldUI] InitiativeDepthMaxSpreadPx "
+                + "begrenzt. 0 = jeden Frame, heutiges Verhalten; die gemessenen Kosten dieses Durchlaufs "
+                + "steigen mit der Zahl der Figuren in der Runde. Der Durchlauf ist IDEMPOTENT und leitet "
+                + "jedes Ziel erneut aus dem gespeicherten Original-z ab, deshalb kann ein Takt von z. B. "
+                + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet — er verzögert höchstens um dieses "
+                + "Intervall, wann ein NEU eingereihtes Porträt zum ersten Mal flachgelegt wird.",
             ["Optimize/QuietDiagnostics"] =
                 "Unterdrückt die hochfrequenten DIAGNOSE-Logzeilen einzelner Subsysteme (den "
                 + "\"diag:\"-Durchlauf der Wandüberblendung, den \"Fan depth-curve:\"-Rekorder des "

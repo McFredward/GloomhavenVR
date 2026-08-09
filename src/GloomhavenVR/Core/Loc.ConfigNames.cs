@@ -376,6 +376,7 @@ internal static partial class Loc
             ["Optimize/TooltipScanGate"] = Pair("Tooltip scan on demand", "Tooltip-Scan bei Bedarf"),
             ["Optimize/FanRelayoutMinInterval"] = Pair("Fan relayout min (s)", "Fächer-Relayout (s)"),
             ["Optimize/WallFadeEvalInterval"] = Pair("Wall check interval (s)", "Wand-Prüfintervall (s)"),
+            ["Optimize/InitiativeDepthEvalInterval"] = Pair("Row depth interval (s)", "Reihen-Tiefenintervall (s)"),
             ["Optimize/QuietDiagnostics"] = Pair("Quiet diagnostics", "Diagnose-Zeilen dämpfen"),
             ["Optimize/RemoteContentInterval"] = Pair("Remote board scan (s)", "Mitspieler-Scan (s)"),
             ["Optimize/HeadDepthPrepass"] = Pair("Keep depth prepass", "Tiefen-Prepass behalten"),

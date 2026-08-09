@@ -416,7 +416,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 103;
+    public const ushort ModBuild = 104;
+    // Build 104: the zoomed-out performance round, and the whole of it is invisible by ruling —
+    // the user declined every strategy that trades look for speed, so nothing here may change a
+    // position, a paint order, a fade or a timing.
+    //   * FIVE PERIODIC SWEEPS WERE ONE DEFECT. Object.FindObjectsOfType<T>() is O(every loaded
+    //     object), not O(objects of that type), and three independent hardware readings price ONE
+    //     call in the big room at 10-15 ms: UnseenTiles.Rescan is 20.2 ms and carries one, plus two
+    //     short subtree walks; Compat.LoaderHeal is 23 ms and carries one; WallFade's rescan is
+    //     50-97 ms and carries THREE. Seven calls a second is the ~89 ms/s the analysis measured,
+    //     delivered as 20-100 ms hitches - the judder itself, as opposed to the frame rate. Now
+    //     three self-maintaining registries (Core/SceneRegistry.cs) filled by Harmony postfixes on
+    //     the components' own lifecycle methods, seeded at install and applying the SAME active +
+    //     hideFlags filters, so a read can neither miss nor widen a caller's set. Fail-open: a
+    //     registry whose patch did not take falls back to the sweep it replaced.
+    //   * And two QUADRATIC bodies inside the wall rescan, which no registry would have touched:
+    //     the figure test ran three GetComponentInParent walks for each of ~3000 renderers (now
+    //     memoised per pass, exact because the answer is a property of the chain and no game code
+    //     runs inside a synchronous pass), and the segment-listed test was O(candidates x segments
+    //     x list) (now one hash index built per pass from the same five lists).
+    //   * The world UI's per-frame work: change gates that skip a write only on BIT-IDENTICAL
+    //     values (no epsilon anywhere - an epsilon would hold a permanent sub-epsilon error, which
+    //     is a look change however small), frame-constant reads hoisted, the ladder's per-frame
+    //     instance-id hash moved behind the 1.5 s throttle it only ever fed, and ~20 bars' 2 s
+    //     depth rescans de-synchronised - they all started at zero and stepped by the same amount,
+    //     so they landed in ONE frame forever. The stagger SUBTRACTS, so no bar is ever scanned
+    //     later than before.
+    //   * THE INSTRUMENT COULD NOT SEE ZOOM AT ALL, which is why the analysis had to correlate 10 s
+    //     heartbeats against 30 s windows by hand. FRAME/SPLIT now carry a viewpoint axis and
+    //     bucket each window's frames into near/middle/far thirds with their own p50s. The visible-
+    //     renderer count was ONE instant per 30 s window (1925 vs 2129 is noise, not signal); it is
+    //     now seeded by that same walk and refreshed 64 renderers per frame, round-robin.
+    // No wire change; the bump is the handshake key. Wire assertions 1395.
     // Build 103: six hardware reports, and three of them were the SAME defect class wearing
     // different clothes — a transparent that decides its paint order from something that moves.
     //   * The tooltip that flashed on the board while the laser swept the hand fan was never raised

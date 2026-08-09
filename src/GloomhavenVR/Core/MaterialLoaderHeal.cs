@@ -364,16 +364,61 @@ internal static class MaterialLoaderHeal
             public bool GaveUp;
         }
 
+        /// <summary>
+        /// PERF S1 (2026-08-09, .planning/perf-zoomed-out.md): how often the per-tile SEED
+        /// walk runs. It used to run on every 1 s scan and cost ~23 ms in the big room — one
+        /// full-scene <c>FindObjectsOfType&lt;ProceduralMapTile&gt;</c> plus a deep
+        /// <c>GetComponentsInChildren</c> per tile — i.e. TWO dropped frames every second at
+        /// 90 Hz, from the sweep this file's own ROUND-7 header already calls redundant.
+        ///
+        /// <para>WHY IT CAN BE THIS RARE WITHOUT MISSING A LOADER. Every state this watchdog
+        /// heals — never-started, null-result, pending-forever, done-stuck — presupposes that
+        /// <c>MaterialLoader.LoadMaterials()</c> RAN: never-started means the entry was
+        /// filtered out INSIDE that call, and the other three classify its handles. That
+        /// method is the game's only trigger (called from <c>Start</c>), and the Harmony
+        /// postfix on it enrols the loader unconditionally. So in steady state the registry
+        /// is complete by construction and the seed finds nothing new: a tile revealed
+        /// mid-scenario brings loaders whose <c>Start</c> runs after the patch landed, and
+        /// they enrol themselves the moment they begin loading.</para>
+        ///
+        /// <para>The seed's only real job is the pre-patch backlog — loaders that already ran
+        /// when the postfix was installed (hot reload into a live scenario). That is why it
+        /// runs EAGERLY for <see cref="SeedBurstScans"/> scans after install and after every
+        /// scene load, and only then falls back to this rare belt-and-braces backstop.</para>
+        /// </summary>
+        private const float SeedIntervalSeconds = 30f;
+
+        /// <summary>Consecutive scans that run the seed walk after install / a scene load —
+        /// a revealed tile streams its content in over several frames, so the eager window
+        /// covers the whole build-up rather than sampling one moment of it.</summary>
+        private const int SeedBurstScans = 5;
+
         private readonly Dictionary<MaterialLoaderData, Track> _tracks = new();
         private readonly List<MaterialLoader> _loaderScratch = new();
         private readonly List<MaterialLoader> _tileLoaderScratch = new();
+        private readonly List<ProceduralMapTile> _tileScratch = new();
         private readonly List<MaterialLoaderData> _pruneScratch = new();
         private readonly HashSet<MaterialLoader> _touchedLoaders = new();
         private float _nextScan;
         private float _nextPrune;
+        private float _nextSeed;
+        private int _seedBurst = SeedBurstScans;
         private System.Action? _tick;
 
         private void Awake() => _tick = Tick; // cached delegate — TickGuard hot-path contract
+
+        private void OnEnable() => UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+
+        private void OnDisable() => UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+
+        /// <summary>A new (additive) scene brings tiles whose loaders may have started before
+        /// anything of ours looked at them — re-arm the eager seed window.</summary>
+        private void OnSceneLoaded(
+            UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+        {
+            _seedBurst = SeedBurstScans;
+            _nextSeed = 0f;
+        }
 
         private void Update() => TickGuard.Run("Compat.LoaderHeal", _tick!, Name);
 
@@ -405,6 +450,18 @@ internal static class MaterialLoaderHeal
 
         private void HealAllLoaders(float now)
         {
+            // Seed/fallback FIRST (see SeedIntervalSeconds): anything it discovers is in the
+            // registry before the scratch list is built, so a freshly seeded loader is healed
+            // on THIS scan exactly as it was when the walk ran inline.
+            if (_seedBurst > 0 || now >= _nextSeed)
+            {
+                if (_seedBurst > 0)
+                    _seedBurst--;
+                _nextSeed = now + SeedIntervalSeconds;
+                using (PerfMonitor.Scope("Compat.LoaderHeal.Seed"))
+                    SeedFromMapTiles();
+            }
+
             _loaderScratch.Clear();
             // Primary: the Harmony-fed registry (see the ROUND 7 header) — complete for
             // every loader whose LoadMaterials ever ran, wherever Apparance parented it.
@@ -420,25 +477,6 @@ internal static class MaterialLoaderHeal
                     continue;
                 }
                 _loaderScratch.Add(reg);
-            }
-            // Seed/fallback: deep per-tile transform walk, includeInactive — immune to the
-            // HideAndDontSave flags that blind FindObjectsOfType (the round-6 failure) and
-            // covers loaders that ran before the Harmony patch landed (hot reload).
-            ProceduralMapTile[] tiles = FindObjectsOfType<ProceduralMapTile>();
-            foreach (ProceduralMapTile tile in tiles)
-            {
-                if (tile == null)
-                    continue;
-                _tileLoaderScratch.Clear();
-                tile.GetComponentsInChildren(includeInactive: true, _tileLoaderScratch);
-                foreach (MaterialLoader tl in _tileLoaderScratch)
-                {
-                    if (tl != null && RegisteredSet.Add(tl))
-                    {
-                        RegisteredLoaders.Add(tl);
-                        _loaderScratch.Add(tl);
-                    }
-                }
             }
             if (_loaderScratch.Count == 0)
                 return;
@@ -593,6 +631,29 @@ internal static class MaterialLoaderHeal
                     $"MaterialLoaderHeal: completed {nDone} stalled renderer(s) directly — "
                     + "reason: done-stuck (all handles loaded, the game's CheckAllMaterialLoaded "
                     + "never re-enabled them)");
+            }
+        }
+
+        /// <summary>
+        /// Seed/fallback discovery: deep per-tile transform walk, includeInactive — immune to
+        /// the HideAndDontSave flags that blind <c>FindObjectsOfType</c> (the round-6 failure)
+        /// and covers loaders that ran before the Harmony patch landed (hot reload). Cadence
+        /// and the completeness argument: see <see cref="SeedIntervalSeconds"/>. The tile list
+        /// itself comes from <see cref="SceneRegistry.MapTiles"/> — the same set the
+        /// <c>FindObjectsOfType&lt;ProceduralMapTile&gt;()</c> this replaced returned, for a
+        /// ten-entry walk instead of a heap scan.
+        /// </summary>
+        private void SeedFromMapTiles()
+        {
+            SceneRegistry.MapTiles.Collect(_tileScratch);
+            foreach (ProceduralMapTile tile in _tileScratch)
+            {
+                if (tile == null)
+                    continue;
+                _tileLoaderScratch.Clear();
+                tile.GetComponentsInChildren(includeInactive: true, _tileLoaderScratch);
+                foreach (MaterialLoader tl in _tileLoaderScratch)
+                    Register(tl);
             }
         }
 

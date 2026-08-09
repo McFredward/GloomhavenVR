@@ -415,7 +415,26 @@ internal static partial class WallSegmentFade
         {
             if (!WallFadeTuning.StackedShells || now < _nextFastReclaim)
                 return;
+            // PERF S1: same one-pass figure memo the rescan opens (see FigureAncestryMemo) —
+            // this sweep classifies every scene renderer four times a second.
+            BeginFigureMemo();
+            try { FastReclaimSweep(now); }
+            finally { EndFigureMemo(); }
+        }
+
+        private void FastReclaimSweep(float now)
+        {
             _nextFastReclaim = now + FastReclaimIntervalSeconds;
+            // PERF S1: its own scope. This sweep is a full-scene FindObjectsOfType FOUR TIMES
+            // A SECOND while any stack-carrying wall is held faded — i.e. precisely in the
+            // zoomed-out overview — and it has never been measured separately (the 2026-08-09
+            // capture's WallFade.Late total is too small for it to have run at all in that
+            // session, so it is a latent cost, not a proven one). It stays at 0.25 s: the
+            // cadence is the whole point of the fix it implements (Apparance regenerates shell
+            // content between 2 s rescans and a fresh piece arrives VISIBLE), so moving it to
+            // the fade edge would leave regenerated pieces standing inside a faded wall for up
+            // to two seconds — a look change, which this round forbids.
+            using var _fastScope = PerfMonitor.Scope("WallFade.FastReclaim");
             _fastSegScratch.Clear();
             foreach (Segment seg in _segments.Values)
             {
@@ -450,17 +469,65 @@ internal static partial class WallSegmentFade
                     if (mp.Renderer != null) _fastOwnedScratch.Add(mp.Renderer);
             }
 
+            // PERF S1 — UNION PREFILTER, and why it cannot change a single adoption. Every
+            // path below that can claim a renderer (the face-domain 'best' branch AND the
+            // corner branch) requires, for SOME faded segment, all three of:
+            //   HorizontalGap(seg.Bounds, b) <= StackLinkMaxXZ,
+            //   b.min.y >= that segment's band floor, and
+            //   b.min.y <= seg.Bounds.max.y + StackMaxRiseWU.
+            // A gap within StackLinkMaxXZ implies the candidate's XZ AABB lies within that
+            // margin of the segment's, so failing the UNION of all faded segments' XZ rects
+            // (grown by the link reach) means failing every individual one; likewise a
+            // b.min.y below the LOWEST band floor or above the HIGHEST band ceiling can
+            // satisfy no segment. The test is therefore a necessary condition for adoption:
+            // everything it rejects, the per-segment loop rejected too. What it saves is the
+            // work that used to run FIRST for all ~3000 scene renderers, four times a second
+            // — IsModObject (which reads r.name, i.e. an interop string ALLOCATION per
+            // renderer per sweep), two set probes, and the arch/water rect scans. Those are
+            // pure predicates, so hoisting the cheap AABB compare above them is a reordering
+            // of side-effect-free guards and leaves the outcome identical.
+            float bandFloor = float.PositiveInfinity, bandCeil = float.NegativeInfinity;
+            float unionMinX = float.PositiveInfinity, unionMaxX = float.NegativeInfinity;
+            float unionMinZ = float.PositiveInfinity, unionMaxZ = float.NegativeInfinity;
+            foreach (Segment seg in _fastSegScratch)
+            {
+                float lower = seg.Renderers.Count == 0 && seg.Body.Count > 0
+                    ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                    : seg.StackOrigTop - StackMaxOverlapDownWU;
+                // The unconditional ground-band floor applies to every segment as well.
+                lower = Mathf.Max(lower, _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU);
+                if (lower < bandFloor)
+                    bandFloor = lower;
+                float ceil = seg.Bounds.max.y + StackMaxRiseWU;
+                if (ceil > bandCeil)
+                    bandCeil = ceil;
+                if (seg.Bounds.min.x < unionMinX) unionMinX = seg.Bounds.min.x;
+                if (seg.Bounds.max.x > unionMaxX) unionMaxX = seg.Bounds.max.x;
+                if (seg.Bounds.min.z < unionMinZ) unionMinZ = seg.Bounds.min.z;
+                if (seg.Bounds.max.z > unionMaxZ) unionMaxZ = seg.Bounds.max.z;
+            }
+            unionMinX -= StackLinkMaxXZ;
+            unionMaxX += StackLinkMaxXZ;
+            unionMinZ -= StackLinkMaxXZ;
+            unionMaxZ += StackLinkMaxXZ;
+
             MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
             int claimed = 0;
             foreach (MeshRenderer r in all)
             {
-                if (r == null || !r.enabled || IsModObject(r))
+                if (r == null || !r.enabled)
+                    continue;
+                Bounds b = r.bounds;
+                if (b.max.x < unionMinX || b.min.x > unionMaxX
+                    || b.max.z < unionMinZ || b.min.z > unionMaxZ
+                    || b.min.y < bandFloor || b.min.y > bandCeil)
+                    continue; // outside every faded segment's reach — see the prefilter note
+                if (IsModObject(r))
                     continue;
                 if (_mountedTouched.ContainsKey(r))
                     continue; // already ours (hidden or ramped)
                 if (_fastOwnedScratch.Contains(r))
                     continue; // another segment's renderer/attachment — never fast-claimed
-                Bounds b = r.bounds;
                 if (IsArchProtected(b, r.name))
                     continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                 if (IsWaterProtected(b))
@@ -616,6 +683,10 @@ internal static partial class WallSegmentFade
             bool enabled = WallFadeTuning.StackedShells;
             if (enabled && sceneRenderers != null && _segments.Count > 0)
             {
+                // PERF S1: the membership index IsSegmentListedRenderer reads, built once
+                // here — see BuildSegmentListedIndex for why it answers identically.
+                BuildSegmentListedIndex();
+
                 // STICKY OWNERSHIP while the wall is mid-fade or held faded (the mounted
                 // lesson): pieces are carried over untested — and their AABBs re-extend the
                 // bounds so the coverage decision stays consistent across rescans — because
@@ -758,29 +829,59 @@ internal static partial class WallSegmentFade
         /// pass mis-filed as dressing in an earlier rescan (log: 'polySurface2' [mesh→cutoff]
         /// → 'Wall 4') is untouched at fade 0 and must be RECLASSIFIABLE as stacked shell —
         /// the mounted pass then sees it in <c>_mountedOwned</c> and lets it go cleanly.</summary>
-        private bool IsSegmentListedRenderer(MeshRenderer r)
+        private bool IsSegmentListedRenderer(MeshRenderer r) => _segmentListedIndex.Contains(r);
+
+        /// <summary>Membership index behind <see cref="IsSegmentListedRenderer"/>.</summary>
+        private readonly HashSet<Renderer> _segmentListedIndex = new();
+
+        /// <summary>
+        /// PERF S1 (2026-08-09): flatten the predicate above into one set, once per stacked
+        /// pass, instead of re-walking every segment's five lists per candidate. The old shape
+        /// was O(candidates × segments × list length) inside the candidate prefilter, which
+        /// runs over every scene renderer — quadratic work in exactly the two quantities the
+        /// big room grew (renderers 1583 → 3051, tracked segments with them).
+        ///
+        /// <para>SAME ANSWER, GUARANTEED. The predicate reads five per-segment lists
+        /// (<c>Renderers</c>, <c>Foliage</c>, <c>Siblings</c>, <c>Body</c>, and
+        /// <c>Mounted</c> when that segment's dressing is live) and this builds the union of
+        /// exactly those, under exactly the same per-segment condition. It is rebuilt at the
+        /// top of the stacked pass, and NONE of those five lists is written between that
+        /// point and the pass's last query: the sticky/candidate/adoption/corner stages only
+        /// ever touch <c>Stacked</c>, <c>Bounds</c> and <c>_cornerPieces</c>. The mounted and
+        /// sibling passes that DO rewrite those lists run strictly after this pass ends.</para>
+        /// </summary>
+        private void BuildSegmentListedIndex()
         {
+            _segmentListedIndex.Clear();
             foreach (Segment seg in _segments.Values)
             {
-                if (seg.Renderers.Contains(r) || seg.Foliage.Contains(r)
-                    || seg.Siblings.Contains(r))
-                    return true;
+                foreach (MeshRenderer sr in seg.Renderers)
+                {
+                    if (sr != null) _segmentListedIndex.Add(sr);
+                }
+                foreach (MeshRenderer sf in seg.Foliage)
+                {
+                    if (sf != null) _segmentListedIndex.Add(sf);
+                }
+                foreach (MeshRenderer ss in seg.Siblings)
+                {
+                    if (ss != null) _segmentListedIndex.Add(ss);
+                }
                 // Wall BODY meshes (round 6) are the wall itself — never stack candidates.
                 foreach (MountedProp p in seg.Body)
                 {
-                    if (ReferenceEquals(p.Renderer, r))
-                        return true;
+                    if (p.Renderer != null) _segmentListedIndex.Add(p.Renderer);
                 }
+                // A MOUNTED entry blocks adoption only while its owner is actually fading —
+                // the reclassification rule the original predicate encoded, kept verbatim.
                 if (seg.MountedState != 0 || seg.Fade > 0f)
                 {
                     foreach (MountedProp p in seg.Mounted)
                     {
-                        if (ReferenceEquals(p.Renderer, r))
-                            return true;
+                        if (p.Renderer != null) _segmentListedIndex.Add(p.Renderer);
                     }
                 }
             }
-            return false;
         }
 
         /// <summary>

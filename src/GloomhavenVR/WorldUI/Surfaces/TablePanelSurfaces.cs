@@ -383,11 +383,25 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Authored (raw) local z per portrait transform, for idempotent remap + restore.</summary>
     private readonly Dictionary<Transform, float> _rawDepth = new(16);
 
+    /// <summary>A depth-bearing transform found this tick, WITH the authored z the walk already
+    /// read out of <see cref="_rawDepth"/>. Carrying the value avoids a third dictionary lookup per
+    /// node in the apply loop — and a <c>Dictionary&lt;Transform,…&gt;</c> lookup is not free: the
+    /// default comparer goes through <c>UnityEngine.Object</c>'s Equals/GetHashCode override.</summary>
+    private struct DepthNode
+    {
+        public Transform T;
+        public float Raw;
+    }
+
     /// <summary>Depth-bearing transforms this tick (reused; no per-frame allocation).</summary>
-    private readonly List<Transform> _depthScratch = new(64);
+    private readonly List<DepthNode> _depthScratch = new(64);
 
     /// <summary>DFS work stack for the per-portrait subtree walk (reused; no per-frame allocation).</summary>
     private readonly List<Transform> _depthStack = new(64);
+
+    /// <summary>Next unscaled time <see cref="NormalizeDepth"/> may run when
+    /// <c>[Optimize] InitiativeDepthEvalInterval</c> is non-zero. Inert at the default 0.</summary>
+    private float _nextDepthEval;
 
     /// <summary>
     /// Host canvas this surface registered its per-portrait depth picker against
@@ -550,8 +564,31 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // FitSettleSeconds docs): both policies write the SAME switch, so they are decided in
             // one place instead of fighting over ConvertedPanel.FitEnabled.
             UpdateFitHold();
+            // Sub-scope (S2 perf round): 'Surface:InitiativeTrackSurface' measured 0.30 ms EVERY
+            // frame on hardware and this DFS over every active portrait subtree is the only
+            // O(entries × nodes) thing in the step. Naming it makes the next capture attribute the
+            // step arithmetically instead of by inference. PerfMonitor.Measure is an
+            // allocation-free struct; off the clock it costs one static bool test.
+            //
+            // [Optimize] InitiativeDepthEvalInterval throttles it. DEFAULT 0 ⇒ the condition is
+            // `0f <= 0f` for the interval branch, i.e. the pass runs on exactly the frames it runs
+            // on today and the shipped behaviour is bit-identical. The knob exists because the pass
+            // is IDEMPOTENT (every target is re-derived from the RECORDED authored z, never from
+            // the live compressed value), so a slower cadence can only delay by at most one
+            // interval when a newly pooled portrait is first flattened — it can never land a
+            // portrait anywhere else.
             if (!_reorderActive)
-                NormalizeDepth();
+            {
+                float depthInterval = PerfConfig.InitiativeDepthInterval;
+                if (depthInterval <= 0f || Time.unscaledTime >= _nextDepthEval)
+                {
+                    _nextDepthEval = Time.unscaledTime + depthInterval;
+                    using (PerfMonitor.Scope("InitTrack.NormalizeDepth"))
+                    {
+                        NormalizeDepth();
+                    }
+                }
+            }
             // Aliasing round 4: keep the portraits/frames on their mip-baked copies (the game
             // swaps the mipless originals back on round changes and async art arrival).
             if (Time.unscaledTime >= _nextMipRescan)
@@ -977,10 +1014,17 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         // geometric protrusion; draw order is hierarchy-based, so the selection glow stays
         // visible (whose turn it is is never hidden) — the row just goes flat.
         _depthScratch.Clear();
+        int visited = 0;
         float rawMin = 0f; // the holder plane (local z == 0) is the shallow reference
         float rawMax = 0f;
-        foreach (Transform rootChild in holder)
+        // INDEXED, not `foreach (Transform rootChild in holder)` (S2 perf round). Transform's
+        // enumerator is a CLASS returned as a non-generic IEnumerator, so the foreach allocated one
+        // object per tick on a per-frame path — gen0 pressure for nothing. GetChild(i) in index
+        // order visits exactly the same children in exactly the same order.
+        int rootCount = holder.childCount;
+        for (int r = 0; r < rootCount; r++)
         {
+            Transform rootChild = holder.GetChild(r);
             if (!rootChild.gameObject.activeSelf)
                 continue;
             // The ENTRY ROOTS themselves are deliberately NOT candidates (round 2). Their authored
@@ -992,7 +1036,13 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // recession into noise (the remap factor is cap / spread). The row's axis guard owns
             // an entry root's z; this pass owns the depth NESTED inside each portrait, which is
             // where the game actually authored it.
-            for (int k = 0; k < rootChild.childCount; k++)
+            // childCount hoisted here and at the DFS node below: it is a Unity interop property
+            // read, it was evaluated on EVERY loop iteration, and neither loop body can change the
+            // child count of the transform it is reading (both only push onto _depthStack). Same
+            // children, same order, ~one interop call per node instead of one per node PLUS one per
+            // child.
+            int seedCount = rootChild.childCount;
+            for (int k = 0; k < seedCount; k++)
             {
                 Transform seed = rootChild.GetChild(k);
                 if (seed.gameObject.activeSelf)
@@ -1004,26 +1054,42 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 Transform t = _depthStack[last];
                 _depthStack.RemoveAt(last);
 
+                visited++;
+
                 // Record the authored z once; thereafter the remap reads from here, so a
                 // prior frame's compressed value never becomes the new baseline. Only
                 // depth-BEARING transforms are tracked (|z| >= epsilon) — a flat transform's
                 // target is always 0, so tracking it would only add pointless writes.
-                if (!_rawDepth.TryGetValue(t, out float raw))
+                //
+                // ONE dictionary lookup per node instead of two (S2 perf round). The shipped body
+                // asked TryGetValue and then ContainsKey for the very same key on every node of
+                // every portrait subtree, every frame. The three cases are enumerated and each is
+                // bit-identical to the shipped answer: key present ⇒ tracked with the stored raw;
+                // key absent and |z| ≥ epsilon ⇒ recorded, then tracked with that z (which is what
+                // ContainsKey found); key absent and |z| < epsilon ⇒ not recorded, not tracked.
+                bool tracked;
+                if (_rawDepth.TryGetValue(t, out float raw))
+                {
+                    tracked = true;
+                }
+                else
                 {
                     raw = t.localPosition.z;
-                    if (Mathf.Abs(raw) >= DepthEpsilonPixels)
+                    tracked = Mathf.Abs(raw) >= DepthEpsilonPixels;
+                    if (tracked)
                         _rawDepth[t] = raw;
                 }
-                if (_rawDepth.ContainsKey(t))
+                if (tracked)
                 {
-                    _depthScratch.Add(t);
+                    _depthScratch.Add(new DepthNode { T = t, Raw = raw });
                     if (raw < rawMin)
                         rawMin = raw;
                     if (raw > rawMax)
                         rawMax = raw;
                 }
 
-                for (int i = 0; i < t.childCount; i++)
+                int childCount = t.childCount;
+                for (int i = 0; i < childCount; i++)
                 {
                     Transform c = t.GetChild(i);
                     if (c.gameObject.activeSelf)
@@ -1033,6 +1099,8 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         }
 
         float rawSpread = rawMax - rawMin;
+        PerfMonitor.Count("InitDepth.Nodes", visited);
+        PerfMonitor.Count("InitDepth.Tracked", _depthScratch.Count);
         if (_depthScratch.Count == 0 || rawSpread < DepthEpsilonPixels)
             return; // genuinely flat row (or depth not yet laid out) — nothing to compress
 
@@ -1045,14 +1113,22 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         // change re-clamps next tick (idempotent — target always from the recorded RAW z).
         float maxSpread = Mathf.Max(0f, WorldUIConfig.InitiativeDepthMaxSpreadPx.Value);
         float scale = Mathf.Min(1f, maxSpread / rawSpread);
+        int writes = 0;
         for (int i = 0; i < _depthScratch.Count; i++)
         {
-            Transform t = _depthScratch[i];
-            float target = _rawDepth[t] * scale;
-            Vector3 lp = t.localPosition;
+            DepthNode node = _depthScratch[i];
+            // node.Raw IS _rawDepth[node.T] — the walk above only ever records a node with the
+            // value it just read out of (or wrote into) that dictionary, so dropping the lookup
+            // here changes nothing but the cost.
+            float target = node.Raw * scale;
+            Vector3 lp = node.T.localPosition;
             if (Mathf.Abs(lp.z - target) > 0.001f)
-                t.localPosition = new Vector3(lp.x, lp.y, target);
+            {
+                node.T.localPosition = new Vector3(lp.x, lp.y, target);
+                writes++;
+            }
         }
+        PerfMonitor.Count("InitDepth.Writes", writes);
     }
 
     /// <summary>Restore each recorded portrait's authored z (reversibility) and forget them.</summary>

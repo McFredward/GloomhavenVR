@@ -128,8 +128,47 @@ internal static class ActorBars
         /// <summary>Next unscaled time this bar is rescanned for new (pooled) graphics.</summary>
         public float NextDepthScan;
 
+        /// <summary>
+        /// Per-bar PHASE OFFSET (seconds, 0 ≤ phase &lt; <see cref="DepthScanIntervalSeconds"/>)
+        /// subtracted from this bar's FIRST reschedule so ~20 bars stop rescanning in one frame
+        /// forever (S2 defect 7). See <see cref="ScanPhased"/> for the no-regression argument.
+        /// </summary>
+        public float ScanPhase;
+
+        /// <summary>
+        /// False until the phase offset above has been spent. The FIRST scan is deliberately NOT
+        /// staggered — it is the scan that installs the depth-test materials and clears
+        /// raycastTarget, and delaying it would be a visible bleed-through/pick window — so the
+        /// stagger is applied to the first RESCHEDULE and is a SUBTRACTION: every bar's period is
+        /// therefore ≤ <see cref="DepthScanIntervalSeconds"/> at every moment, i.e. no bar is ever
+        /// rescanned LATER than it is today. Only the phases differ, and after the offset is spent
+        /// every bar runs at exactly the shipped 2 s period, so they stay spread apart.
+        /// </summary>
+        public bool ScanPhased;
+
         /// <summary>True once the one-shot per-bar log line fired.</summary>
         public bool DepthLogged;
+
+        // ---- pose change gate (S2 defect 1) ---------------------------------------------------
+        // The last pose/scale THIS class wrote onto the host transform. Compared with EXACT float
+        // equality (see ActorBars.Same) — no epsilon anywhere, so a write is skipped only when the
+        // value we would write is bit-identical to the value we last wrote, and no error can
+        // accumulate over frames by construction.
+        //
+        // A SHADOW rather than a read-back of the transform, because a read-back would cost three
+        // interop GETS to save two interop SETS. The shadow is only sound while this class is the
+        // sole writer of an adopted bar host's transform, which it is: the game's own two writers
+        // are Harmony prefix-skipped for adopted panels (WorldspaceDisplayPanelBase.TrackCharacter
+        // and its LateUpdate, see the patches at the bottom of this file); MrBacking is suppressed
+        // per adoption (Adopt sets MrBackingSuppressed); a bar is converted pokeable:false and is
+        // never floated, grabbed or spawn-resolved, so ModalFallback/GrabbableModal never see it;
+        // and CanvasConversion.PlaceHost is only ever called by the surface that owns a panel — a
+        // bar has no surface. The remaining external event is the hide/show toggle below, which
+        // clears HasPose explicitly.
+        public bool HasPose;
+        public Vector3 LastPos;
+        public Quaternion LastRot;
+        public Vector3 LastScale;
 
         // ---- raycast state -------------------------------------------------------------------
         // A bar is DISPLAY ONLY: it is converted with pokeable:false, so it is never registered in
@@ -152,6 +191,34 @@ internal static class ActorBars
 
     /// <summary>Rescan cadence for late-spawned bar graphics (HealthBar mark pooling).</summary>
     private const float DepthScanIntervalSeconds = 2f;
+
+    /// <summary>Number of distinct rescan phases handed out round-robin (<see cref="Adopted.ScanPhase"/>).
+    /// A power of two so the counter wraps with a mask; 16 buckets over the 2 s period puts at most
+    /// two of ~20 bars in the same frame instead of all of them.</summary>
+    private const int DepthScanPhaseBuckets = 16;
+
+    /// <summary>Round-robin source for <see cref="Adopted.ScanPhase"/>. Monotonic and masked, so a
+    /// long session of pooled adopt/release churn keeps spreading the phases rather than drifting
+    /// back into a single bucket.</summary>
+    private static int s_depthScanPhaseSeq;
+
+    // ---- per-frame work counters (S2 perf round) --------------------------------------------
+    // Priced so the next hardware capture can answer "did the pose gate land?" arithmetically:
+    // Bars.PoseWrites / Bars.ScaleWrites against Bars.Bars is the hit rate of the change gate, and
+    // Bars.DepthScans per frame shows whether the 2 s rescans are still landing in one frame.
+    private static int s_barPoseWrites;
+    private static int s_barScaleWrites;
+    private static int s_barDepthScans;
+
+    /// <summary>EXACT component-wise equality — deliberately not Vector3's <c>==</c>, which is an
+    /// approximate compare with a 1e-5 distance epsilon. A gate that skips a write only on
+    /// bit-identical values is invisible by construction and cannot accumulate drift; an epsilon
+    /// gate could hold a permanent sub-epsilon error, which is a look change however small.</summary>
+    private static bool Same(in Vector3 a, in Vector3 b) => a.x == b.x && a.y == b.y && a.z == b.z;
+
+    /// <summary>EXACT component-wise equality for a quaternion; see <see cref="Same(in Vector3, in Vector3)"/>.</summary>
+    private static bool Same(in Quaternion a, in Quaternion b) =>
+        a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
 
     // ---- BarsOccluded config (standalone binding) --------------------------------------------
     // FRESH key in its OWN module file (dev.gloomhavenvr.bars.cfg) on purpose: the BepInEx
@@ -260,6 +327,19 @@ internal static class ActorBars
 
         bool anyHeld = HeldFigures.Count > 0;
 
+        // Hoisted out of the per-bar loop (S2): three values that CANNOT change while this loop
+        // runs — a config entry is not written from inside it, and Time.unscaledTime is constant
+        // for the whole frame by definition. Reading them once instead of once per bar is the same
+        // arithmetic with the same inputs, and it removes ~40 BepInEx property reads per frame at
+        // 20 bars. BarsOccluded in particular ran its lazy BindConfig null-check twice per bar.
+        bool barsOccluded = BarsOccluded;
+        bool barFixedSize = WorldUIConfig.BarFixedSize.Value;
+        float now = Time.unscaledTime;
+
+        s_barPoseWrites = 0;
+        s_barScaleWrites = 0;
+        s_barDepthScans = 0;
+
         foreach (KeyValuePair<WorldspacePanelUIController, Adopted> pair in Adoptions)
         {
             WorldspacePanelUIController controller = pair.Key;
@@ -309,20 +389,46 @@ internal static class ActorBars
             // after adopt (health marks). The SAME scan clears raycastTarget on every bar graphic
             // (see Adopted.RaycastOff) — that part is ungated: the bar's invisible band must not eat
             // picks whatever the occlusion setting is.
-            float now = Time.unscaledTime;
             if (now >= adopted.NextDepthScan)
             {
-                adopted.NextDepthScan = now + DepthScanIntervalSeconds;
-                ScanBarGraphics(adopted, controller.name, depthTest: BarsOccluded);
+                // STAGGER (S2 defect 7). Every bar shipped with NextDepthScan = 0, and Tick adopts
+                // every controller of a freshly revealed room in ONE frame, so all ~20 bars did
+                // their FIRST scan together and — because each then rescheduled by exactly the same
+                // 2 s — stayed locked in the same frame for the rest of the session: a synchronised
+                // 20-bar walk (~178 graphics each) once every 2 s, self-inflicted.
+                //
+                // The first scan stays immediate (it installs the depth materials and clears
+                // raycastTarget; delaying it would be visible). The stagger is SUBTRACTED from the
+                // first reschedule only, so this bar's next scan comes EARLIER than it does today,
+                // never later — no pooled graphic is picked up any later than in the shipped build,
+                // which is what makes this invisible — and from then on the period is exactly the
+                // shipped 2 s again, with the bars now spread across the phase.
+                if (!adopted.ScanPhased)
+                {
+                    adopted.ScanPhased = true;
+                    adopted.NextDepthScan = now + DepthScanIntervalSeconds - adopted.ScanPhase;
+                }
+                else
+                {
+                    adopted.NextDepthScan = now + DepthScanIntervalSeconds;
+                }
+                ScanBarGraphics(adopted, controller.name, depthTest: barsOccluded);
+                s_barDepthScans++;
             }
-            if (!BarsOccluded && adopted.DepthMats.Count > 0)
+            if (!barsOccluded && adopted.DepthMats.Count > 0)
             {
                 // Live config-off: give every graphic its original material back.
                 RestoreBarDepthTest(adopted);
             }
 
             if (panel.HostGo.activeSelf == hide)
+            {
                 panel.HostGo.SetActive(!hide);
+                // The pose shadow only speaks for a host this class has been writing continuously.
+                // Force the next shown frame to write unconditionally rather than reason about what
+                // happened while the host was off.
+                adopted.HasPose = false;
+            }
             if (hide)
                 continue;
 
@@ -341,17 +447,48 @@ internal static class ActorBars
             // up to 2.5x with head distance) made bars visibly GROW when the player
             // stepped away and is now the opt-in legacy path.
             float grow = 1f;
-            if (!WorldUIConfig.BarFixedSize.Value)
+            if (!barFixedSize)
             {
                 // Legacy: distance in HMD-relative REAL meters (world ÷ diorama scale).
                 float realDistance = fromHead.magnitude / worldScale;
                 grow = Mathf.Clamp(realDistance / 0.6f, 1f, 2.5f);
             }
 
+            // CHANGE GATE (S2 defect 1). Both writes used to be unconditional, so every bar dirtied
+            // its world-space canvas transform every frame whether or not anything about it had
+            // moved — and a dirtied canvas transform is paid for again in PostLateUpdate's canvas
+            // update, which lands in the frame's BLOCKED span.
+            //
+            // INVISIBLE BY CONSTRUCTION: the comparison is EXACT (see Same) against the value THIS
+            // class last wrote, so a write is skipped only when the transform already holds exactly
+            // the bits the write would deposit. There is no epsilon, therefore no residual error to
+            // accumulate. With the default [WorldUI] BarFixedSize the scale term is
+            // metersPerPixel × worldScale × 0.35 — three frame-constant factors — so the scale gate
+            // holds every frame the diorama is not being zoomed, while the pose gate only holds
+            // while the head is genuinely still (rot is derived from the head position, and VR head
+            // tracking moves it by sub-millimetres every frame). The counters below report which.
+            Vector3 scale = Vector3.one * (metersPerPixel * worldScale * 0.35f * grow);
             Transform t = panel.HostGo.transform;
-            t.SetPositionAndRotation(pos, rot);
-            t.localScale = Vector3.one * (metersPerPixel * worldScale * 0.35f * grow);
+            if (!adopted.HasPose || !Same(pos, adopted.LastPos) || !Same(rot, adopted.LastRot))
+            {
+                t.SetPositionAndRotation(pos, rot);
+                adopted.LastPos = pos;
+                adopted.LastRot = rot;
+                s_barPoseWrites++;
+            }
+            if (!adopted.HasPose || !Same(scale, adopted.LastScale))
+            {
+                t.localScale = scale;
+                adopted.LastScale = scale;
+                s_barScaleWrites++;
+            }
+            adopted.HasPose = true;
         }
+
+        PerfMonitor.Count("Bars.Bars", Adoptions.Count);
+        PerfMonitor.Count("Bars.PoseWrites", s_barPoseWrites);
+        PerfMonitor.Count("Bars.ScaleWrites", s_barScaleWrites);
+        PerfMonitor.Count("Bars.DepthScans", s_barDepthScans);
     }
 
     /// <summary>
@@ -454,10 +591,20 @@ internal static class ActorBars
         // create/destroy churn of pooled bar controllers re-applies it on every re-adoption.
         panel.MrBackingSuppressed = true;
 
+        // Round-robin rescan phase (S2 defect 7). Handed out at ADOPT, which is where the
+        // synchronisation was created: every controller of a revealed room is adopted in the same
+        // Tick, so every bar shipped with an identical scan clock. The offset is strictly less than
+        // one full interval, and it is only ever SUBTRACTED from a reschedule (see LateTick), so it
+        // can only make a scan happen earlier.
+        float phase = DepthScanIntervalSeconds
+                      * (s_depthScanPhaseSeq++ & (DepthScanPhaseBuckets - 1))
+                      / DepthScanPhaseBuckets;
+
         Adoptions[controller] = new Adopted
         {
             Controller = controller,
             Panel = panel,
+            ScanPhase = phase,
             AnchorOffsetWU = ComputeAnchorOffsetWU(controller),
             Actor = controller.m_ObjectToTrack != null
                 ? ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)
@@ -640,6 +787,10 @@ internal static class ActorBars
         adopted.DepthMatIds.Clear();
         adopted.DepthLogged = false;
         adopted.NextDepthScan = 0f;
+        // A live config flip calls this for EVERY bar in one frame, which would re-synchronise the
+        // rescan clocks the phase offset exists to separate. Re-arm the offset so the first
+        // reschedule after the forced scan spreads them again (still a subtraction: never later).
+        adopted.ScanPhased = false;
     }
 
     /// <summary>
