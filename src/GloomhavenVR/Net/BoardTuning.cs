@@ -47,13 +47,17 @@ namespace GloomhavenVR.Net;
 /// <see cref="Sample"/> rebuilds the field list into a persistent buffer on every send;
 /// <see cref="BoardTunePageSender.Update"/> byte-compares it against the list it holds, so an
 /// unchanged config costs one memcmp and the serializer's write path is a bounded copy of one page.
-/// Rebuilding is cheap enough to run per send — it allocates nothing and touches ~86 config entries.
+/// Rebuilding is cheap enough to run per send — it allocates nothing and touches ~105 config entries.
 ///
 /// ─── AND THAT NUMBER IS NOW ALLOWED TO GROW ────────────────────────────────────────────────────
 /// It went 76 → 86 when the item-cue / item-berth re-art's ten dials were wired (ids 80 / 161..169),
 /// which is worth stating because under the OLD scheme it could not have: those ten are the exact
-/// dials that had to ship as frozen constants while the record stood at 255 bytes. The complete
-/// field list is 314 bytes at its worst case now (was 284) and still splits into TWO pages, so the
+/// dials that had to ship as frozen constants while the record stood at 255 bytes. It went 86 → 105
+/// when the KEYCAP GEOMETRY family joined (ids 81..98 + 228) — the [RoundButtons] / [BoardButtons] /
+/// [BoardDashboard] / [RestButtons] cap sizes, seats and press travels, which were the single
+/// largest block of PENDING debt <c>scripts/check-wire-coverage.py</c> was carrying and were frozen
+/// constants in <c>RemoteBoardFurniture</c> for exactly as long as the ceiling stood. The complete
+/// field list is 370 bytes at its worst case now (was 314) and STILL splits into TWO pages, so the
 /// convergence bound written down in <see cref="BoardTunePages"/> — complete state by
 /// T + pageCount × 200 ms — is unchanged at ≤400 ms.
 /// </summary>
@@ -196,6 +200,59 @@ internal static class BoardTuningSampler
         // could not carry them. The paging round reserved the ids for them; this claims the first.
         n += Len(payload, ref i, NetProtocol.TuneItemBerthRingThickness,
                  CardsConfig.ItemBerthRingThickness, Defaults.ItemBerthRingThickness);
+        // ---- THE KEYCAP GEOMETRY FAMILY (ids 81..98, plus the shape at 228 below) --------------
+        // Every 3D keycap standing on a control board — the turn-flow SKIP cap, the Confirm/Undo
+        // pads, the gear/Fixiert plates and the rest discs — was mirrored on a peer's board from a
+        // FROZEN constant in RemoteBoardFurniture, and scripts/check-wire-coverage.py carried the
+        // whole set as one PENDING debt whose stated blocker ("the renderer is owned by a parallel
+        // round") has expired. The user report that cashed it in is about the SKIP cap's dials
+        // specifically (ModBuild 96: "vermisse ich die Einstellungen im Debug Menu für genau diese
+        // 'Überspringen'-Tasten (offsets, Form, Größe, etc..)") — and under the 1:1 ruling, a dial
+        // the player can now find is a dial every peer must see them turn.
+        //
+        // The three [RoundButtons] offsets are sampled as three SEPARATE lengths rather than one
+        // vec3 because they ARE three separate config entries; see NetProtocol's block comment on
+        // TuneRoundOffsetX for why that matters to the coverage guard.
+        n += Len(payload, ref i, NetProtocol.TuneRoundOffsetX,
+                 WorldUI.ButtonTuning.RoundOffsetX, Defaults.RoundButtons_OffsetX);
+        n += Len(payload, ref i, NetProtocol.TuneRoundOffsetY,
+                 WorldUI.ButtonTuning.RoundOffsetY, Defaults.RoundButtons_OffsetY);
+        n += Len(payload, ref i, NetProtocol.TuneRoundOffsetZ,
+                 WorldUI.ButtonTuning.RoundOffsetZ, Defaults.OffsetZ);
+        n += Len(payload, ref i, NetProtocol.TuneRoundCapSize,
+                 WorldUI.ButtonTuning.RoundCapSize, Defaults.RoundButtons_CapSize);
+        n += Len(payload, ref i, NetProtocol.TuneRoundCapWidth,
+                 WorldUI.ButtonTuning.RoundWidth, Defaults.RoundButtons_Width);
+        n += Len(payload, ref i, NetProtocol.TuneRoundCapHeight,
+                 WorldUI.ButtonTuning.RoundHeight, Defaults.RoundButtons_Height);
+        n += Len(payload, ref i, NetProtocol.TuneRoundCapDepth,
+                 WorldUI.ButtonTuning.RoundDepth, Defaults.RoundButtons_Depth);
+        n += Len(payload, ref i, NetProtocol.TuneRoundCapTravel,
+                 WorldUI.ButtonTuning.RoundTravel, Defaults.RoundButtons_Travel);
+        n += Len(payload, ref i, NetProtocol.TuneBoardCapWidth,
+                 WorldUI.ButtonTuning.BoardWidth, Defaults.BoardButtons_Width);
+        n += Len(payload, ref i, NetProtocol.TuneBoardCapHeight,
+                 WorldUI.ButtonTuning.BoardHeight, Defaults.BoardButtons_Height);
+        n += Len(payload, ref i, NetProtocol.TuneBoardCapDepth,
+                 WorldUI.ButtonTuning.BoardDepth, Defaults.BoardButtons_Depth);
+        n += Len(payload, ref i, NetProtocol.TuneBoardCapTravel,
+                 WorldUI.ButtonTuning.BoardTravel, Defaults.BoardButtons_Travel);
+        n += Len(payload, ref i, NetProtocol.TuneDashPinWidth,
+                 WorldUI.ButtonTuning.DashPinWidth, Defaults.PinWidth);
+        n += Len(payload, ref i, NetProtocol.TuneDashCapHeight,
+                 WorldUI.ButtonTuning.DashHeight, Defaults.BoardDashboard_Height);
+        n += Len(payload, ref i, NetProtocol.TuneDashCapDepth,
+                 WorldUI.ButtonTuning.DashDepth, Defaults.BoardDashboard_Depth);
+        n += Len(payload, ref i, NetProtocol.TuneDashCapTravel,
+                 WorldUI.ButtonTuning.DashTravel, Defaults.BoardDashboard_Travel);
+        // [RestButtons] Depth and Travel only: a peer's rest discs are drawn ROUND unconditionally
+        // (the mirrored renderer has no Square branch), so [RestButtons] Width/Height would be bytes
+        // no receiver reads — the FanCloseDuration rule. They stay a stated PENDING debt in
+        // scripts/check-wire-coverage.py rather than a false "covered".
+        n += Len(payload, ref i, NetProtocol.TuneRestCapDepth,
+                 WorldUI.ButtonTuning.RestDepth, Defaults.RestButtons_Depth);
+        n += Len(payload, ref i, NetProtocol.TuneRestCapTravel,
+                 WorldUI.ButtonTuning.RestTravel, Defaults.RestButtons_Travel);
 
         // ---- FACTOR fields (ids 128..169) — dimensionless multipliers, plus the seconds- and
         // per-second-valued dials that ride this WIDTH (the id range fixes the width, not the unit)
@@ -342,6 +399,12 @@ internal static class BoardTuningSampler
                        CardsConfig.FanSwapSpinDegrees, Defaults.FanSwapSpinDegrees, 1f);
         n += Quantized(payload, ref i, NetProtocol.TuneFanSwapOverlapPercent,
                        CardsConfig.FanSwapOverlap, Defaults.FanSwapOverlap, 100f);
+        // The turn-flow (SKIP) cap's SHAPE — an enum in the one-byte count width. It is the one
+        // shape dial with a live consumer on the receiving side (RemoteBoardFurniture already
+        // branches Round/Square when it builds the mirrored cap; it just branched on the SHIPPED
+        // default); the rest/generic shapes stay PENDING because their mirror has no branch at all.
+        n += Enum8(payload, ref i, NetProtocol.TuneRoundCapShape,
+                   WorldUI.ButtonTuning.RoundShape, Defaults.RoundButtons_Shape);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
@@ -413,6 +476,20 @@ internal static class BoardTuningSampler
                            BepInEx.Configuration.ConfigEntry<float>? live, float shipped) =>
         live == null ? 0
             : NetProtocol.WriteTuneAngleField(p, ref i, id, live.Value, shipped) ? 1 : 0;
+
+    /// <summary>
+    /// A two-member ENUM dial carried in the one-byte COUNT width: sampled as its integer value and
+    /// compared against the shipped member's, so "differs from the default" is decided on the WIRE
+    /// CODE exactly like every other kind here. The receiver never indexes an enum with a wire
+    /// number — see <see cref="RemoteBoardTuning"/>'s shape resolution, which maps anything it does
+    /// not recognise back to the shipped member.
+    /// </summary>
+    private static int Enum8<T>(byte[] p, ref int i, byte id,
+                                BepInEx.Configuration.ConfigEntry<T>? live, T shipped)
+        where T : struct, System.Enum =>
+        live == null ? 0
+            : NetProtocol.WriteTuneCountField(p, ref i, id,
+                System.Convert.ToInt32(live.Value), System.Convert.ToInt32(shipped)) ? 1 : 0;
 
     private static int Cnt(byte[] p, ref int i, byte id,
                            BepInEx.Configuration.ConfigEntry<int>? live, int shipped) =>
@@ -516,6 +593,55 @@ internal readonly struct RemoteBoardTuning
     /// <summary>[Cards] ItemBerthRingThickness — the outline thickness of the mirrored item-use
     /// berth, in metres.</summary>
     public float ItemBerthRingThickness { get; }
+
+    // ---- the KEYCAP GEOMETRY family (ids 81..98 + the shape at 228). Every one of these was a
+    // frozen constant in RemoteBoardFurniture until this build; see NetProtocol's block comment on
+    // TuneRoundOffsetX for the debt they pay off and the report that cashed it in.
+
+    /// <summary>[RoundButtons] OffsetX — the turn-flow SKIP cap group's sideways seat.</summary>
+    public float RoundOffsetX { get; }
+    /// <summary>[RoundButtons] OffsetY — that group's up-board seat.</summary>
+    public float RoundOffsetY { get; }
+    /// <summary>[RoundButtons] OffsetZ — how far out of the board face it is seated.</summary>
+    public float RoundOffsetZ { get; }
+    /// <summary>[RoundButtons] CapSize — the turn-flow cap radius.</summary>
+    public float RoundCapSize { get; }
+    /// <summary>[RoundButtons] Width — its width while the shape is Square.</summary>
+    public float RoundCapWidth { get; }
+    /// <summary>[RoundButtons] Height — its height while the shape is Square.</summary>
+    public float RoundCapHeight { get; }
+    /// <summary>[RoundButtons] Depth — its extrusion toward the player.</summary>
+    public float RoundCapDepth { get; }
+    /// <summary>[RoundButtons] Travel — how far it sinks under a press.</summary>
+    public float RoundCapTravel { get; }
+
+    /// <summary>[RoundButtons] Shape — Round puck or Square keycap. Resolved through a KNOWN-MEMBER
+    /// test, never by casting the wire byte: an unrecognised code falls back to the shipped shape,
+    /// so a corrupt or future sender can only ever make the cap look like this build's default.</summary>
+    public ButtonShape RoundCapShape { get; }
+
+    /// <summary>[BoardButtons] Width — the Confirm/Undo keycap width.</summary>
+    public float BoardCapWidth { get; }
+    /// <summary>[BoardButtons] Height.</summary>
+    public float BoardCapHeight { get; }
+    /// <summary>[BoardButtons] Depth.</summary>
+    public float BoardCapDepth { get; }
+    /// <summary>[BoardButtons] Travel.</summary>
+    public float BoardCapTravel { get; }
+
+    /// <summary>[BoardDashboard] PinWidth — the follow/pin plate width.</summary>
+    public float DashPinWidth { get; }
+    /// <summary>[BoardDashboard] Height.</summary>
+    public float DashCapHeight { get; }
+    /// <summary>[BoardDashboard] Depth.</summary>
+    public float DashCapDepth { get; }
+    /// <summary>[BoardDashboard] Travel.</summary>
+    public float DashCapTravel { get; }
+
+    /// <summary>[RestButtons] Depth — the rest disc thickness.</summary>
+    public float RestCapDepth { get; }
+    /// <summary>[RestButtons] Travel — the rest press travel.</summary>
+    public float RestCapTravel { get; }
 
     // ---- FACTOR dials ------------------------------------------------------------------------
     public float ObjectivesScale { get; }
@@ -690,6 +816,34 @@ internal readonly struct RemoteBoardTuning
         FanRadius = L(payload, len, NetProtocol.TuneFanRadius, Defaults.FanRadius);
         ItemBerthRingThickness = L(payload, len, NetProtocol.TuneItemBerthRingThickness,
                                    Defaults.ItemBerthRingThickness);
+
+        RoundOffsetX = L(payload, len, NetProtocol.TuneRoundOffsetX, Defaults.RoundButtons_OffsetX);
+        RoundOffsetY = L(payload, len, NetProtocol.TuneRoundOffsetY, Defaults.RoundButtons_OffsetY);
+        RoundOffsetZ = L(payload, len, NetProtocol.TuneRoundOffsetZ, Defaults.OffsetZ);
+        RoundCapSize = L(payload, len, NetProtocol.TuneRoundCapSize, Defaults.RoundButtons_CapSize);
+        RoundCapWidth = L(payload, len, NetProtocol.TuneRoundCapWidth, Defaults.RoundButtons_Width);
+        RoundCapHeight = L(payload, len, NetProtocol.TuneRoundCapHeight, Defaults.RoundButtons_Height);
+        RoundCapDepth = L(payload, len, NetProtocol.TuneRoundCapDepth, Defaults.RoundButtons_Depth);
+        RoundCapTravel = L(payload, len, NetProtocol.TuneRoundCapTravel, Defaults.RoundButtons_Travel);
+        // KNOWN-MEMBER test, not a cast: the wire byte selects a shape only when it names one this
+        // build has. Anything else — a corrupt packet, a future sender's third shape — resolves to
+        // the SHIPPED member, which is the same picture every pre-record build drew.
+        int shapeCode = C(payload, len, NetProtocol.TuneRoundCapShape,
+                          (int)Defaults.RoundButtons_Shape);
+        RoundCapShape = shapeCode == (int)ButtonShape.Round ? ButtonShape.Round
+            : shapeCode == (int)ButtonShape.Square ? ButtonShape.Square
+            : Defaults.RoundButtons_Shape;
+
+        BoardCapWidth = L(payload, len, NetProtocol.TuneBoardCapWidth, Defaults.BoardButtons_Width);
+        BoardCapHeight = L(payload, len, NetProtocol.TuneBoardCapHeight, Defaults.BoardButtons_Height);
+        BoardCapDepth = L(payload, len, NetProtocol.TuneBoardCapDepth, Defaults.BoardButtons_Depth);
+        BoardCapTravel = L(payload, len, NetProtocol.TuneBoardCapTravel, Defaults.BoardButtons_Travel);
+        DashPinWidth = L(payload, len, NetProtocol.TuneDashPinWidth, Defaults.PinWidth);
+        DashCapHeight = L(payload, len, NetProtocol.TuneDashCapHeight, Defaults.BoardDashboard_Height);
+        DashCapDepth = L(payload, len, NetProtocol.TuneDashCapDepth, Defaults.BoardDashboard_Depth);
+        DashCapTravel = L(payload, len, NetProtocol.TuneDashCapTravel, Defaults.BoardDashboard_Travel);
+        RestCapDepth = L(payload, len, NetProtocol.TuneRestCapDepth, Defaults.RestButtons_Depth);
+        RestCapTravel = L(payload, len, NetProtocol.TuneRestCapTravel, Defaults.RestButtons_Travel);
 
         ObjectivesScale = F(payload, len, NetProtocol.TuneObjectivesScale,
                             CardsConfig.BoardDefaults.ObjectivesScale[b]);

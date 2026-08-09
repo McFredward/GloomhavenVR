@@ -120,11 +120,35 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // The SKIP cap's block, and the third repetition of the same shape: per-board
+                    // seat + scale, then the shared [RoundButtons] geometry.
+                    //
+                    // THE REPORT (user, hardware ModBuild 96): "Weiterhin vermisse ich die
+                    // Einstellungen im Debug Menu für genau diese 'Überspringen'-Tasten (offsets,
+                    // Form, Größe, etc..) - die Einstellungen sollen unter der Tasten-Kategorie
+                    // genauso einstellbar sein." The nine [RoundButtons] entries were bound, named,
+                    // described and reachable — in the OTHER topic (Tasten ▸ Rundentasten), while
+                    // this block held only their per-board halves. That is precisely the split this
+                    // file's own header calls the report it was created to answer ("Best./Zurück:
+                    // Breite/Höhe/Tiefe/Hub lived in one topic while Position/Abstand/Form lived in
+                    // another"), repeated for the one keycap family nobody had walked yet. The
+                    // docked cluster shows a single member — the SKIP cap; ButtonCluster.Tick forces
+                    // the Ready/Undo twins permanently off — so [RoundButtons] IS that cap's dial
+                    // set, and "genauso einstellbar" means: in the same place as its siblings.
                     LocKey = "vr_bg_cluster",
                     Entries = new[]
                     {
                         new BoardRef("Cards", "ClusterOffset"),
                         new BoardRef("Cards", "ClusterScale"),
+                        new BoardRef("RoundButtons", "OffsetX", perBoard: false),
+                        new BoardRef("RoundButtons", "OffsetY", perBoard: false),
+                        new BoardRef("RoundButtons", "OffsetZ", perBoard: false),
+                        new BoardRef("RoundButtons", "Shape", perBoard: false),
+                        new BoardRef("RoundButtons", "CapSize", perBoard: false),
+                        new BoardRef("RoundButtons", "Width", perBoard: false),
+                        new BoardRef("RoundButtons", "Height", perBoard: false),
+                        new BoardRef("RoundButtons", "Depth", perBoard: false),
+                        new BoardRef("RoundButtons", "Travel", perBoard: false),
                         new BoardRef("Cards", "PinOffset"),
                     },
                 },

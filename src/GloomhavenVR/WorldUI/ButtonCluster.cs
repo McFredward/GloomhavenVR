@@ -81,6 +81,19 @@ namespace GloomhavenVR.WorldUI;
 /// across the slot captions), the buttons register as tray laser targets (poke AND
 /// laser on every board element — the board contract), and the cluster hides with
 /// the tray. The floating table-edge slot remains the no-tray fallback.
+///
+/// <para>ONE CHARACTER OWNS THE SKIP (user, hardware ModBuild 96). The docked cluster's only live
+/// member — the SKIP cap — obeys the same per-character ownership rule the board's CONFIRM/UNDO
+/// keycaps and the decision dock already do, including the "nobody is at turn ⇒ it belongs to
+/// everybody" nuance the user ruled on in ModBuild 85. See <see cref="SkipCapForeignView"/> for the
+/// predicate, why it is the established one term for term, and why the multiplayer mirror follows
+/// with no wire change.</para>
+///
+/// <para>GEOMETRY IS CONFIG, AND SYNCED. The cap's seat, shape, size and press travel are the
+/// <c>[RoundButtons]</c> family (<see cref="ButtonTuning"/>) — surfaced in the debug menu's
+/// control-board page under Tasten ▸ "Überspringen- &amp; Fixier-Taste" beside their per-board
+/// siblings, and carried to every peer on extension record 28 (ids 81..88 + the shape at 228) so a
+/// player who reshapes their skip cap is seen reshaping it.</para>
 /// </summary>
 internal sealed class ButtonCluster
 {
@@ -236,7 +249,19 @@ internal sealed class ButtonCluster
         // it still shows this cluster, but Ready/Undo are intentionally hidden there too.
         _ready!.MirrorReady(null, locked);
         _undo!.MirrorUndo(null, locked);
-        _skip!.MirrorSkip(choreographer!.m_SkipButton, locked);
+        // ONE CHARACTER OWNS THE SKIP, TOO (user, hardware ModBuild 96): "Wenn man mit einem
+        // Character in der Phase ist eine Attacke oder Bewegung zu bestätigen oder zu überspringen,
+        // bleibt trotzdem der 'Angriff überspringen' bzw. 'Bewegung überspringen' Knopf noch am Board
+        // sichtbar, obwohl ein anderer Character ausgewählt wurde — er soll wie die anderen Buttons
+        // auch nur bei dem Character angezeigt werden, der diese Wahl aktuell treffen muss."
+        //
+        // Handing MirrorSkip a NULL button is the whole fix, and it is deliberately the same lever
+        // the two dead twins above already pull: MirrorSkip(null) runs SetState(visible: false),
+        // which is the cap's ordinary logical hide — collider off, layout reflowed, and the AUTHORED
+        // crumble-to-dust played on the way out (and the matched materialize-from-dust on the way
+        // back). Nothing here reaches for SetActive, which is precisely the class of pop ModBuild 96
+        // fixed for the item-flow caps.
+        _skip!.MirrorSkip(SkipCapForeignView() ? null : choreographer!.m_SkipButton, locked);
 
         // Publish the docked Skip's live visibility for the multiplayer board-UI record — the
         // one cluster member a peer's copy of this board draws.
@@ -359,6 +384,157 @@ internal sealed class ButtonCluster
         return Mathf.Min(slotH, slotW) / BaseFootprint;
     }
 
+    /// <summary>Change-gate for the skip-ownership line below: the last (foreign, owner, focused,
+    /// recoverable, attributable) tuple we logged, folded into one int from the game's own actor ids
+    /// so the per-frame resolve builds no string at all. 0 = nothing logged yet.</summary>
+    private int _skipOwnerLogKey;
+
+    /// <summary>
+    /// ONE CHARACTER OWNS THE SKIP — the cluster edition of the rule
+    /// <c>Cards.PlayTray.ConfirmCapsForeignView</c> applies to the board's CONFIRM/UNDO keycaps,
+    /// <c>WorldUI.Surfaces.DecisionDockSurface.UpdateFocusVisibility</c> to the decision row and
+    /// <c>WorldUI.Surfaces.UseBarsSurface.UpdateFocusVisibility</c> to the use bars. True while the
+    /// docked SKIP cap must be HIDDEN because the choice it commits does not belong to the character
+    /// the player is currently looking at.
+    ///
+    /// <para>THE BUG (user, hardware ModBuild 96): "…bleibt trotzdem der 'Angriff überspringen' bzw.
+    /// 'Bewegung überspringen' Knopf noch am Board sichtbar, obwohl ein anderer Character ausgewählt
+    /// wurde — er soll wie die anderen Buttons auch nur bei dem Character angezeigt werden, der diese
+    /// Wahl aktuell treffen muss." The per-character ownership machinery ModBuild 84–91 built was
+    /// applied to the PlayTray caps and to the decision dock, and the Skip simply never joined it:
+    /// it is not a <c>PlayTray.BoardButton</c> at all but a <see cref="PhysicalButton"/> of this
+    /// cluster, mirrored straight off the ONE global <c>Choreographer.m_SkipButton</c>
+    /// (<see cref="PhysicalButton.MirrorSkip"/>) — a single scenario-wide widget with no character
+    /// in it, exactly like the <c>ReadyButton</c> that produced the original ModBuild 84 report.</para>
+    ///
+    /// <para>THE PREDICATE IS THE ESTABLISHED ONE, TERM FOR TERM, AND THAT IS THE POINT. It is not
+    /// "a rule of the same spirit": it computes the identical four facts from the identical sources
+    /// as <c>ConfirmCapsForeignView</c> —
+    /// <list type="bullet">
+    /// <item>OWNER = the hand the GAME presents, <c>DecidingHand() ?? ActiveHand()</c> gated on
+    ///   <c>IsLocalHand</c>. That expression IS <c>CardsDriver.CurrentHand()</c> (CardsDriver.2.
+    ///   Update.cs:941-942), which is private and per-instance; it is re-derived here rather than
+    ///   plumbed because both halves are static <c>CardsGameApi</c> members and the chain itself was
+    ///   extracted into <see cref="Cards.CardsGameApi.DecidingHand"/> for precisely this reason —
+    ///   "so a SECOND caller can ask the question that method only answers implicitly".</item>
+    /// <item>FOCUSED = <c>CharacterFocus.Focused</c>, the plain field, NOT <c>ReadOnlyView</c>:
+    ///   ReadOnlyView is latched by the edge-driven rebuild while this runs every frame.</item>
+    /// <item>RECOVERABLE = <c>CharacterFocus.CanFocus(owner)</c> — the deadlock interlock. The cap
+    ///   is only ever taken away while the one portrait click that brings it back is available.</item>
+    /// <item>ATTRIBUTABLE = <c>CharacterFocus.TurnActor != null || DecidingHand() != null</c> — the
+    ///   ModBuild 85 nuance the user ruled on and the reason this is not a stricter rule than its
+    ///   sibling. In the phase where nobody is at turn ("in dieser Phase macht eine Differenzierung
+    ///   weniger Sinn … soll jeder Character den Fortfahren Knopf haben") the control belongs to
+    ///   EVERY character, so the gate falls open and the cap shows on every board.</item>
+    /// </list>
+    /// Same inputs ⇒ same answer, so the Skip cap and the Confirm/Undo caps standing beside it can
+    /// never disagree about who owns the step — which is the property that actually matters, and
+    /// which a differently-shaped rule would not have.</para>
+    ///
+    /// <para>WHY THE SHARED HALF LIVES HERE AND NOT IN ONE PLACE WITH ITS SIBLING. <c>PlayTray.5.
+    /// Status.cs</c> is owned by another worker in this round and may not be edited from here, so
+    /// the predicate is written where this round owns the code. The two are a MIRROR PAIR in the
+    /// sense <c>scripts/check-mirrors.sh</c> uses, and the honest resolution is the one that file
+    /// itself recommends — fold the second copy into the first — which is a one-line change the
+    /// moment PlayTray is editable again: make this method <c>internal static</c> (it already is)
+    /// and have <c>ConfirmCapsForeignView</c> call it with its own <c>hand</c>. Nothing about the
+    /// rule is duplicated in a form that can drift silently in the meantime: every fact above is
+    /// read from the same static, and a divergence would show up as the two caps disagreeing on
+    /// screen, which is exactly the symptom this whole family of fixes is about.</para>
+    ///
+    /// <para>THE GAME'S OWN GATE IS UNTOUCHED, and it is worth saying because Skip has one that
+    /// CONFIRM does not: <see cref="PhysicalButton.MirrorSkip"/> already requires the game's own
+    /// visibility (<c>canvasGroup.alpha &gt; 0.5</c>, which needs
+    /// <c>Choreographer.ThisPlayerHasTurnControl</c>) — the 2026-08-04 MP-leak fix. So this gate can
+    /// only ever hide a cap the game was already showing to THIS client, never reveal one; it
+    /// narrows "my party may skip" to "the character I am looking at may skip".</para>
+    ///
+    /// <para>MULTIPLAYER — NO WIRE CHANGE, and none is possible: the hide runs through
+    /// <c>SetState(visible: false)</c>, which clears <c>_logicalVisible</c>, and
+    /// <see cref="BoardSkipShown"/> is DEFINED as that flag (<c>_dockedNow &amp;&amp;
+    /// _skip.VisibleNow</c>). <c>NetAvatarDriver</c> reads it for <c>BoardUiSkipBit</c>, gates
+    /// <see cref="BoardSkipEnabled"/> on it and drops the <c>ExtIdCapLabels</c> skip string when it
+    /// is false, so a peer's <c>RemoteBoardFurniture</c> crumbles its mirrored cap away through the
+    /// records that already exist — the standing rule that a remote board shows what THAT PLAYER
+    /// sees holds by construction here, because the mirror is sampled from the very flag the local
+    /// renderer obeys.</para>
+    ///
+    /// <para>Cheap and silent: two static reads and a reference compare per tick, and the log line
+    /// is change-gated on an id tuple so no string is built unless the state actually moves.</para>
+    /// </summary>
+    internal bool SkipCapForeignView()
+    {
+        CardsHandUI? deciding;
+        ScenarioRuleLibrary.CPlayerActor? owner;
+        ScenarioRuleLibrary.CPlayerActor? focused;
+        bool recoverable;
+        bool attributable;
+        try
+        {
+            deciding = Cards.CardsGameApi.DecidingHand();
+            CardsHandUI? presented = deciding ?? Cards.CardsGameApi.ActiveHand();
+            if (presented != null && !Cards.CardsGameApi.IsLocalHand(presented))
+                presented = null;
+            owner = presented != null ? presented.PlayerActor : null;
+            focused = Board.CharacterFocus.Focused;
+            recoverable = owner != null && Board.CharacterFocus.CanFocus(owner);
+            attributable = Board.CharacterFocus.TurnActor != null || deciding != null;
+        }
+        catch (System.Exception)
+        {
+            // Presentation question, asked every frame off a half-torn game model during scene
+            // changes. FAIL OPEN — a thrown resolve must never take a reachable control away.
+            return false;
+        }
+
+        bool foreign = focused != null && owner != null
+                       && !ReferenceEquals(focused, owner)
+                       && recoverable
+                       && attributable;
+
+        int key = (foreign ? 1 : 2) * 31 + (owner != null ? owner.ID : 0);
+        key = key * 31 + (focused != null ? focused.ID : 0);
+        key = key * 31 + (recoverable ? 1 : 0);
+        key = key * 31 + (attributable ? 1 : 0);
+        if (key == _skipOwnerLogKey)
+            return foreign;
+        _skipOwnerLogKey = key;
+
+        string ownerName = Board.CharacterFocus.Describe(owner);
+        string focusName = Board.CharacterFocus.Describe(focused);
+        if (foreign)
+            VRLog.Info("WorldUI", "ButtonCluster: SKIP cap HIDDEN — the skip belongs to " +
+                                  $"'{ownerName}' (the hand the game presents; the press routes to " +
+                                  "the ONE global SkipButton, which the game only arms for the " +
+                                  $"character it is acting on) and the player is looking at " +
+                                  $"'{focusName}' (focus override). Same rule the CONFIRM/UNDO " +
+                                  "keycaps obey, same authored crumble on the way out; one portrait " +
+                                  $"click on '{ownerName}' brings it straight back, and nothing in " +
+                                  "the game was touched.");
+        else
+            VRLog.Info("WorldUI", "ButtonCluster: SKIP cap NOT hidden by the owner gate — " +
+                                  (owner == null
+                                      ? "no presented hand this tick, so the game's own visibility " +
+                                        "decides (MirrorSkip still requires the SkipButton's own " +
+                                        "canvas alpha, i.e. this client's turn control)."
+                                      : focused == null
+                                          ? $"owner '{ownerName}' is in view (no focus override — " +
+                                            "following the game)."
+                                          : !recoverable
+                                              ? $"owner '{ownerName}' cannot be focused right now " +
+                                                "(exhausted / no live scenario / card selection), so " +
+                                                "the cap stays reachable rather than strand the " +
+                                                $"player while looking at '{focusName}'."
+                                              : !attributable
+                                                  ? "the skip is NOT ATTRIBUTABLE to any character " +
+                                                    "— nobody is at turn and no decision flow claims " +
+                                                    "the presented hand — so it belongs to EVERY " +
+                                                    "character and shows on every board (presented " +
+                                                    $"hand '{ownerName}', looking at '{focusName}')."
+                                                  : $"owner '{ownerName}' is the character in view."));
+        return foreign;
+    }
+
     public void Shutdown()
     {
         _ready?.Destroy();
@@ -369,6 +545,12 @@ internal sealed class ButtonCluster
         _dockedNow = false;
         BoardSkipShown = false;
         BoardSkipLabel = null;
+        // …and the cap-STATE seam with them. It was missing here while its two siblings were reset,
+        // so a teardown between two Ticks left BoardSkipEnabled true with BoardSkipShown false — a
+        // peer read "enabled" for a cap the record says is not on the board. Harmless today (the
+        // receiver reads the bit only while the shown bit is set) and wrong regardless.
+        BoardSkipEnabled = false;
+        _skipOwnerLogKey = 0;   // the ownership line must fire again for the rebuilt cluster
         _dockLocalFactor = -1f;
         _lastLayoutCount = -1;
         _lastLayoutRadius = 0f;

@@ -57,11 +57,16 @@ namespace GloomhavenVR.Net;
 /// <para>"TODAY'S TWO PAGES" IS A NUMBER THAT MOVES, so it is checked rather than remembered. The
 /// sampler's complete field run went 76 dials / 284 bytes to 86 / 314 when the item-cue and
 /// item-berth dials were wired (record 28 ids 80 / 161..169) — the first dials added since the
-/// ceiling came down — and it still splits into TWO pages, because page 0 fills to 246 of its 248
-/// field bytes either way and everything the ten added lands on page 1. So the bound is still
-/// ≤400 ms. There is room for ~60 more 3-byte dials before page 1 fills and the bound becomes
-/// ≤600 ms; <c>tests/GloomhavenVR.WireTests</c> pins the split at the real census so the day it
-/// moves is the day a test says so, in a sentence, instead of the day somebody re-derives it.</para>
+/// ceiling came down — and then to 105 / 370 when the KEYCAP GEOMETRY family joined (ids 81..98 +
+/// 228: the [RoundButtons] / [BoardButtons] / [BoardDashboard] / [RestButtons] cap sizes, seats and
+/// press travels, which had been frozen constants in <c>Net/RemoteBoardFurniture.cs</c> for as long
+/// as the ceiling stood). It STILL splits into TWO pages: page 0 fills to 246 of its 248 field
+/// bytes in every one of those three censuses — the eighteen new lengths simply push twelve factor
+/// fields over onto page 1 instead of the twenty-nine that used to make the split — and page 1 now
+/// holds 124 of its own 248. So the bound is still ≤400 ms, with room for ~41 more 3-byte dials
+/// before page 1 fills and the bound becomes ≤600 ms; <c>tests/GloomhavenVR.WireTests</c> pins the
+/// split at the real census so the day it moves is the day a test says so, in a sentence, instead
+/// of the day somebody re-derives it.</para>
 ///
 /// <para>NO TORN VIEW, NO FLICKER. The receiver accumulates pages into a working set and PUBLISHES
 /// only when it holds every page of ONE generation (the <c>sig</c> is the generation id — an FNV-1a

@@ -706,8 +706,23 @@ internal static class ConfigCatalog
         // page). [RestButtons] moves with it: the rest keycaps are split across the same two
         // families ([Cards] RestButton*_{board} + [RestButtons] W/H/D/T), so leaving them behind
         // would recreate the exact misfiling one report later.
+        //
+        // …AND [RoundButtons] JOINS THEM (user, hardware ModBuild 96): "Weiterhin vermisse ich die
+        // Einstellungen im Debug Menu für genau diese 'Überspringen'-Tasten (offsets, Form, Größe,
+        // etc..) — die Einstellungen sollen unter der Tasten-Kategorie genauso einstellbar sein."
+        // The dials existed and were never missing from the menu — they were in the OTHER of the two
+        // places a keycap family can live, which is the very misfiling the two lines above were
+        // written to end. The docked turn-flow cluster shows exactly one member, the SKIP cap
+        // (ButtonCluster.Tick forces the Ready/Undo twins off), and its geometry is split across the
+        // same two families every sibling is: [Cards] ClusterOffset_*/ClusterScale_* on the
+        // control-board page and [RoundButtons] Offset/Shape/CapSize/W/H/D/Travel over in Tasten. A
+        // player who opens the board page's "Tasten" heading and finds Best./Zurück and Rast-Tasten
+        // complete has every reason to conclude the skip cap simply has no dials. Now all nine sit
+        // in the "Rundenknöpfe & Fixier-Taste" block beside ClusterOffset/ClusterScale — see
+        // VROptionsTab.6.BoardTopic.cs, whose tree claims them.
         if (string.Equals(section, "BoardButtons", StringComparison.Ordinal)
-            || string.Equals(section, "RestButtons", StringComparison.Ordinal))
+            || string.Equals(section, "RestButtons", StringComparison.Ordinal)
+            || string.Equals(section, "RoundButtons", StringComparison.Ordinal))
             return ConfigTopic.BoardGeometry;
 
         if (string.Equals(module, ModuleConfig.MainModule, StringComparison.Ordinal))

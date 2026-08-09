@@ -449,15 +449,26 @@ internal static partial class Loc
             ["Keyboard/AutoCapitalise"] = Pair("Capitalise words", "Wörter großschreiben"),
 
             // ---- [RoundButtons] / [BoardButtons] / [BoardDashboard] / [RestButtons] ---------
-            ["RoundButtons/OffsetX"] = Pair("Round btns: sideways (m)", "Rundentasten: quer (m)"),
-            ["RoundButtons/OffsetY"] = Pair("Round btns: up-board (m)", "Rundentasten: hoch (m)"),
-            ["RoundButtons/OffsetZ"] = Pair("Round btns: proud (m)", "Rundentasten: heraus (m)"),
-            ["RoundButtons/Shape"] = Pair("Round btns: shape", "Rundentasten: Form"),
-            ["RoundButtons/CapSize"] = Pair("Round btns: cap size (m)", "Rundentasten: Größe (m)"),
-            ["RoundButtons/Width"] = Pair("Round btns: width (m)", "Rundentasten: Breite (m)"),
-            ["RoundButtons/Height"] = Pair("Round btns: height (m)", "Rundentasten: Höhe (m)"),
-            ["RoundButtons/Depth"] = Pair("Round btns: depth (m)", "Rundentasten: Tiefe (m)"),
-            ["RoundButtons/Travel"] = Pair("Round btns: travel (m)", "Rundentasten: Hub (m)"),
+            // THE [RoundButtons] ROWS SAY "SKIP" / "Überspringen" NOW (user, hardware ModBuild 96:
+            // "Weiterhin vermisse ich die Einstellungen im Debug Menu für genau diese
+            // 'Überspringen'-Tasten (offsets, Form, Größe, etc..)"). They were captioned after the
+            // config SECTION — "Rundentasten", the transient round-phase button GROUP — and that
+            // group has exactly one visible member on a docked board: the skip cap. Every twin it
+            // could have shared the name with is forced permanently off (ButtonCluster.Tick calls
+            // MirrorReady(null)/MirrorUndo(null) so the board never shows a duplicate Fortfahren or
+            // Undo beside the right-hand pads). So the section name described an internal grouping
+            // and the row said nothing about the button the player was looking at. Naming the
+            // CONTROL rather than the container is what the sibling families already do
+            // ("Best./Zurück", "Rast-Tasten"), and it is the whole of the user's complaint.
+            ["RoundButtons/OffsetX"] = Pair("Skip key: sideways (m)", "Überspringen: quer (m)"),
+            ["RoundButtons/OffsetY"] = Pair("Skip key: up-board (m)", "Überspringen: hoch (m)"),
+            ["RoundButtons/OffsetZ"] = Pair("Skip key: proud (m)", "Überspringen: heraus (m)"),
+            ["RoundButtons/Shape"] = Pair("Skip key: shape", "Überspringen: Form"),
+            ["RoundButtons/CapSize"] = Pair("Skip key: cap size (m)", "Überspringen: Größe (m)"),
+            ["RoundButtons/Width"] = Pair("Skip key: width (m)", "Überspringen: Breite (m)"),
+            ["RoundButtons/Height"] = Pair("Skip key: height (m)", "Überspringen: Höhe (m)"),
+            ["RoundButtons/Depth"] = Pair("Skip key: depth (m)", "Überspringen: Tiefe (m)"),
+            ["RoundButtons/Travel"] = Pair("Skip key: travel (m)", "Überspringen: Hub (m)"),
             ["BoardButtons/Width"] = Pair("Confirm/Undo: width (m)", "Best./Zurück: Breite"),
             ["BoardButtons/Height"] = Pair("Confirm/Undo: height (m)", "Best./Zurück: Höhe"),
             ["BoardButtons/Depth"] = Pair("Confirm/Undo: depth (m)", "Best./Zurück: Tiefe"),

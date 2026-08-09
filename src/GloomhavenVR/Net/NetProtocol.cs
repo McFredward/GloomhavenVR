@@ -2280,6 +2280,78 @@ internal static class NetProtocol
     /// written by <c>BoardTuningSampler.Sample</c> and resolved by <c>RemoteBoardTuning</c>.</summary>
     public const byte TuneItemBerthRingThickness = 80;
 
+    // ---- THE KEYCAP GEOMETRY FAMILY (ids 81..98 + 228), 2026-08-09 ------------------------------
+    //
+    // WHY THESE EIGHTEEN LENGTHS AND ONE ENUM ARRIVE TOGETHER. They are the [RoundButtons] /
+    // [BoardButtons] / [BoardDashboard] / [RestButtons] cap dials — the sizes, seats and press
+    // travels of every 3D keycap standing on a control board — and until this build EVERY ONE of
+    // them was mirrored on a peer's board as a FROZEN CONSTANT in RemoteBoardFurniture
+    // (BoardCapW/H/D, PinCapW, DashCapH/D, RestCapD, TransientCapR/D and the four *Travel copies,
+    // all pinned by scripts/check-remote-defaults.py). scripts/check-wire-coverage.py carried the
+    // whole set as PENDING with one shared reason: "the renderer is owned by a parallel round —
+    // wire it when that lands". That round HAS landed, so the reason expired and the debt is paid
+    // here rather than restated.
+    //
+    // THE REPORT THAT FORCED THE ISSUE (user, hardware ModBuild 96, on the SKIP cap): "Weiterhin
+    // vermisse ich die Einstellungen im Debug Menu für genau diese 'Überspringen'-Tasten (offsets,
+    // Form, Größe, etc..)". The [RoundButtons] set IS that cap's dial family — the docked cluster
+    // shows only its Skip member (ButtonCluster.Tick forces the Ready/Undo twins off) — so making
+    // those dials findable and making them REACH THE PEERS are the same task under the 1:1 ruling:
+    // a player who re-shapes their skip cap must be seen re-shaping it, and a peer's copy currently
+    // draws the shipped square regardless.
+    //
+    // WHY LENGTHS RATHER THAN ONE VEC3 FOR THE OFFSETS. [RoundButtons] OffsetX/Y/Z are three
+    // SEPARATE config entries (ButtonTuning binds them individually; only the accessor composes a
+    // Vector3), and scripts/check-wire-coverage.py resolves coverage per (section, key) from a
+    // field id's own doc comment — one id can name exactly one key. Three length fields therefore
+    // cost one byte more than a vec3 and buy honest per-dial coverage; the vec3 range is for dials
+    // that are ONE config entry holding three components.
+
+    /// <summary>[RoundButtons] OffsetX — sideways seat of the docked turn-flow cap group (the SKIP
+    /// cap), tray-root-local metres. Added to <c>ButtonCluster</c>'s fixed column anchor.</summary>
+    public const byte TuneRoundOffsetX = 81;
+    /// <summary>[RoundButtons] OffsetY — up-board seat of the same group.</summary>
+    public const byte TuneRoundOffsetY = 82;
+    /// <summary>[RoundButtons] OffsetZ — how far out of the board face the group is seated, on top
+    /// of the depth-correct proud lift.</summary>
+    public const byte TuneRoundOffsetZ = 83;
+    /// <summary>[RoundButtons] CapSize — the turn-flow cap RADIUS ceiling (its exact radius while a
+    /// single cap occupies the column, which docked is always the case).</summary>
+    public const byte TuneRoundCapSize = 84;
+    /// <summary>[RoundButtons] Width — the turn-flow cap's width while its shape is Square.</summary>
+    public const byte TuneRoundCapWidth = 85;
+    /// <summary>[RoundButtons] Height — the same cap's height while Square.</summary>
+    public const byte TuneRoundCapHeight = 86;
+    /// <summary>[RoundButtons] Depth — the turn-flow cap's extrusion toward the player.</summary>
+    public const byte TuneRoundCapDepth = 87;
+    /// <summary>[RoundButtons] Travel — how far the turn-flow cap sinks under a press. A peer's
+    /// mirrored cap dips this far on the synced press edge, so a re-tuned press looks the same on
+    /// every screen.</summary>
+    public const byte TuneRoundCapTravel = 88;
+
+    /// <summary>[BoardButtons] Width — the Confirm/Undo keycap width.</summary>
+    public const byte TuneBoardCapWidth = 89;
+    /// <summary>[BoardButtons] Height — the Confirm/Undo keycap height.</summary>
+    public const byte TuneBoardCapHeight = 90;
+    /// <summary>[BoardButtons] Depth — the Confirm/Undo keycap extrusion.</summary>
+    public const byte TuneBoardCapDepth = 91;
+    /// <summary>[BoardButtons] Travel — the Confirm/Undo press travel.</summary>
+    public const byte TuneBoardCapTravel = 92;
+
+    /// <summary>[BoardDashboard] PinWidth — the follow/pin ('Fixiert') plate width.</summary>
+    public const byte TuneDashPinWidth = 93;
+    /// <summary>[BoardDashboard] Height — the gear / follow-pin plate height.</summary>
+    public const byte TuneDashCapHeight = 94;
+    /// <summary>[BoardDashboard] Depth — the gear / follow-pin plate extrusion.</summary>
+    public const byte TuneDashCapDepth = 95;
+    /// <summary>[BoardDashboard] Travel — the gear / follow-pin press travel.</summary>
+    public const byte TuneDashCapTravel = 96;
+
+    /// <summary>[RestButtons] Depth — the short/long rest disc thickness (both shapes).</summary>
+    public const byte TuneRestCapDepth = 97;
+    /// <summary>[RestButtons] Travel — the short/long rest press travel.</summary>
+    public const byte TuneRestCapTravel = 98;
+
     // FACTOR (2 B, thousandths): dimensionless multipliers.
 
     /// <summary>[Cards] ObjectivesScale_{board}.</summary>
@@ -2486,6 +2558,22 @@ internal static class NetProtocol
     /// quantisation is invisible by construction. Same convention note as the item-fan seconds
     /// above: an id range fixes the value WIDTH, never the unit.</summary>
     public const byte TuneFanSwapOverlapPercent = 227;
+
+    // AN ENUM IN THE COUNT RANGE, DELIBERATELY. An id range fixes the value WIDTH and never the
+    // unit — the same convention the seconds-valued dials in the factor range carry — and a
+    // two-member shape needs exactly one byte. The receiver never indexes an enum with a wire
+    // number: RemoteBoardTuning maps an unrecognised code back to the shipped member, which is the
+    // standing rule for every code this protocol reads.
+    //
+    // WHY IT IS ON THE WIRE AT ALL, when the per-board rest and generic shape dials are still
+    // PENDING: those two are hardwired in the remote RENDERER (a peer's rest discs are always drawn
+    // round), so a field for them would be bytes no receiver reads. This one has a live consumer —
+    // RemoteBoardFurniture already branches Round/Square when it builds the mirrored skip cap; it
+    // simply branched on the SHIPPED default instead of on the owner's choice.
+
+    /// <summary>[RoundButtons] Shape — whether the docked turn-flow (SKIP) cap is a ROUND puck
+    /// (code 0) or a SQUARE keycap (code 1): <c>Cards.ButtonShape</c> as its integer value.</summary>
+    public const byte TuneRoundCapShape = 228;
 
     /// <summary>Payload width of a board-tuning field with this id — 6 / 2 / 1, or 0 for a
     /// RESERVED id whose width this build does not know (the reader then abandons the rest of the
