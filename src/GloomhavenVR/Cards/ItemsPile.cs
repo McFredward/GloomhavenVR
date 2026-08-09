@@ -395,10 +395,25 @@ internal sealed class ItemsPile
         else
             PlaceAtHead(); // no board — head-relative fallback
         EmergeAll(); // req #5: fly the chips OUT of the pile stack (after _root is placed)
+        // ANIMATION TELEMETRY, on the open line itself. The 2026-08-09 round of "die Animation ist
+        // immer noch zu dezent" had to be diagnosed by reading the hovered chip's face width out of
+        // unrelated laser diagnostics, because the log said NOTHING about what this animation was
+        // actually configured to do — so the first question ("are the shipped defaults even in
+        // effect?") could only be answered from the absence of an override. It is answered here now:
+        // the effective dials, and the total wall-clock the deal takes for THIS many chips.
+        float openDur = Mathf.Max(0.01f, CardsConfig.ItemFanOpenDuration.Value);
+        float openStag = Mathf.Max(0f, CardsConfig.ItemFanOpenStagger.Value);
+        float total = openDur + (_chips.Count > 1 ? (_chips.Count - 1) * 0.5f * openStag : 0f);
         VRLog.Info("Cards", $"ITEM FAN OPEN ({(boardRoot != null ? "board-anchored" : "head-relative fallback")}, " +
                             $"{_chips.Count} item(s)) — trigger: {(by != null ? $"USER stack poke/laser ({by.Side})" : "USER (unattributed)")}. " +
                             "There is NO automatic open path any more; if this line ever appears without a " +
-                            "user trigger, a flow called Open() again.");
+                            "user trigger, a flow called Open() again. " +
+                            $"DEAL: {openDur:F2}s per card + {openStag:F3}s centre-out stagger per place = " +
+                            $"{total:F2}s total, seed {CardsConfig.ItemFanSeedScale.Value:F2}× → 1.00×, " +
+                            $"bow {CardsConfig.ItemFanOpenArc.Value:F3} toward the viewer, roll " +
+                            $"{CardsConfig.ItemFanOpenSpinDegrees.Value:F0}°, settle overshoot " +
+                            $"{CardsConfig.ItemFanSettleOvershoot.Value:F2}. If these are not the shipped " +
+                            "defaults, a cfg is overriding the presence pass.");
     }
 
     /// <summary>
@@ -1663,6 +1678,71 @@ internal sealed class ItemsPile
     /// and by the fan-CLOSED stack highlight (<see cref="UsableCount"/>): non-passive AND in a
     /// Useable/Selected slot state — byte-for-byte the gate <c>UseItemService.UseItem</c> enforces, so a
     /// highlight can never promise a use the service would reject. Read-only on game data.
+    ///
+    /// <para>─── THE ITEM AUDIT (user question, 2026-08-09, verbatim): "Geh alle Karten so durch die
+    /// im Spiel existieren — Gibt es überhaupt eine Itemkarte (die nicht nur einen passiven oder
+    /// dauerhaften Effekt hat) und nicht durch ein physisches Hinlegen der Karten aktiviert werden
+    /// können?" Answered here because THIS predicate is the fork the answer turns on.</para>
+    ///
+    /// <para>The per-item YML is not shippable with the mod and is not on the build machine — the
+    /// item cards live in <c>&lt;GameDir&gt;/Gloomhaven_Data/StreamingAssets/Rulebase/*.ruleset</c>
+    /// zip archives (GH.Runtime/YMLLoading.cs:140-172, :512-515), and <c>ressources/</c> holds only
+    /// the Managed DLLs. So the audit is done over the game's own CODE, which is strictly stronger
+    /// than a card list: it enumerates the KINDS an item can be, and every item that exists is one
+    /// of them by construction (ItemCardYMLData.Validate, :99-147, rejects any item with
+    /// <c>Trigger: None</c>).</para>
+    ///
+    /// <para>ALL EIGHT TRIGGERS (<c>CItem.EItemTrigger</c>, ScenarioRuleLibrary/CItem.cs:59-70 —
+    /// and although it is <c>[Flags]</c>, the parser takes exactly ONE name per item,
+    /// ItemCardYML.cs:191-209, so these are eight disjoint classes):
+    /// <c>PassiveEffect</c>, <c>AtStartOfRound</c>, <c>DuringOwnTurn</c>, <c>SingleTarget</c>,
+    /// <c>SingleAbility</c>, <c>EntireAction</c>, <c>OnAttacked</c>, <c>AtEndOfTurn</c>.</para>
+    ///
+    /// <para>THE ANSWER IS NO — with exactly one class of exception, and it is not a counter-example
+    /// to the rule but the definition of it. <c>UseItemService.UseItem</c> (GH.Runtime, :29-38) is
+    /// the ONE seam through which any item is ever activated, and it admits an item on precisely the
+    /// two conditions this predicate reads: not <c>PassiveEffect</c>, and <c>SlotState</c> in
+    /// {Useable, Selected}. The board's recess confirm calls that same seam. So for every one of the
+    /// SEVEN non-passive triggers, placing the card IS a legal, complete activation — there is no
+    /// item the placement flow structurally cannot activate. What some items additionally OWE is a
+    /// further answer AFTER the item has been chosen, and there are exactly five such mechanisms:
+    /// <list type="bullet">
+    /// <item>the ELEMENT choice — <c>Consumes</c> containing <c>Any</c> (CInventory.cs:425 refuses
+    /// activation until <c>ChosenElement</c> is filled). Already handled: the card is placed like
+    /// any other and the picker opens in the decision area (ModBuild 92).</item>
+    /// <item>the INFUSION pick — unselected <c>IsAnyElement</c> infusions
+    /// (UIUseItemsBar.cs:85/:160-179). Same flow.</item>
+    /// <item>the CHOICE among several effects — <c>Data.Abilities</c> containing a <c>Choose</c>
+    /// ability (UIUseItemScenario.cs:161-169).</item>
+    /// <item>the TARGET pick — <c>Trigger: SingleTarget</c>, answered into <c>CItem.SingleTarget</c>
+    /// (CInventory.cs:487-490).</item>
+    /// <item>the CARD pick — <c>RefreshItemCards</c>/<c>ConsumeItemCards</c>, an n-of-m pick over
+    /// OTHER item cards (ItemCardRefreshPicker.cs:22-32); the mod already answers this one by
+    /// placing cards too (<see cref="TickDemandPick"/>).</item>
+    /// </list>
+    /// None of those five is a "use this item" button. They are the follow-up question, and the
+    /// decision area is exactly where they belong — which is the line the user drew.</para>
+    ///
+    /// <para>THE ONE GENUINE EXCEPTION, named as asked: an item with <c>Usage: Unrestricted</c>,
+    /// <c>Trigger: PassiveEffect</c> and <c>UsedWhenEquipped != true</c> does not go through
+    /// UseItemService at all. The game builds it a <c>CActiveBonus</c> off its item card
+    /// (CActiveBonus.cs:395-400) and charges the item only when that bonus is USED
+    /// (<c>CActiveBonus.ActiveBonusUsed</c>, :683-694 — that triple is the literal predicate there).
+    /// Its toggle therefore lives on <c>UIActiveBonusBar</c>, not on the items bar, and placing its
+    /// card can never activate it: UseItemService returns immediately for a passive item ("Passive
+    /// items can't be selected"). This is the "Brille"-shaped class — a worn item that keeps asking,
+    /// per attack or per event, whether to spend itself — and its button MUST stay in the decision
+    /// area, because there is no other way to answer it. It is also the same bar that carries the
+    /// initiative-boots ± picker, which is why that bar is left entirely alone.</para>
+    ///
+    /// <para>CONSEQUENCE for the use bars, and it is already the shipped behaviour rather than a
+    /// change: no item USE button survives in the decision area for anything placement covers.
+    /// PLAIN item slots are suppressed by <c>UseBarsSurface.EnforceItemsSplit</c>, CHOICE slots by
+    /// <see cref="EnforceChoiceSlotSplit"/> (which keeps exactly the slot belonging to the card
+    /// currently LYING in the recess), and <c>UseBarsSurface.ItemsPopulated</c> then finds nothing
+    /// to dock for, so the items bar releases and the row stops existing. The mirror half of that —
+    /// a bar left masked into wire record 25 with zero visible slots, which drew an empty caption
+    /// plate on the peer's board — is fixed in <c>UseBarsSurface.SampleWire</c>.</para>
     /// </summary>
     private static bool IsItemActivatable(CItem? item) =>
         item != null && item.YMLData != null
@@ -2515,9 +2595,28 @@ internal sealed class ItemsPile
             }
         }
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
-        PlayTray.Current?.SetItemUseSlotVisible(false);
-        _useSlotShownLogged = false;
-        VRLog.Info("Cards", $"ITEM clip-in CANCEL ({why}) — card returns to the deck, NOT used.");
+        // THE RECESS OUTLIVES A CANCEL-BY-TAKING-IT-BACK (same user report as UnclipFromSlot's
+        // note — the pick-it-up-again gesture). When the cancel fires because a HAND took the card,
+        // that card is still usable and still in that hand, so <see cref="Tick"/>'s ordinary
+        // action-turn gate will show the recess again on the very next tick. Hiding it here would
+        // therefore (a) flash the recess overlay off and back on for one frame — the "nothing pops"
+        // ruling — and, worse, (b) open a real failure window for the user's own release rule:
+        // <see cref="OnChipReleased"/> refuses any drop while the slot object is inactive, so a
+        // player who grabbed the card and let go again quickly, right over the recess, would have
+        // the re-clip REFUSED and watch the card glide back to the fan instead. Every other cancel
+        // (play moved on, the board rebuilt, the laser put it back) leaves no card in a hand and
+        // still hides the recess here.
+        if (chip == null || chip.Holder == null)
+        {
+            PlayTray.Current?.SetItemUseSlotVisible(false);
+            _useSlotShownLogged = false;
+        }
+        VRLog.Info("Cards", $"ITEM clip-in CANCEL ({why}) — card returns to the deck, NOT used." +
+                            (chip != null && chip.Holder != null
+                                ? $" It is IN THE {chip.Holder.Side} HAND (taken back out of the recess): the" +
+                                  " hand keeps it, the recess stays up, and where it is released decides —" +
+                                  " over the recess it clips back in, anywhere else it goes home."
+                                : string.Empty));
     }
 
     /// <summary>
@@ -4267,6 +4366,49 @@ internal sealed class ItemsPile
         internal void UnclipFromSlot(Transform? fanRoot)
         {
             _clipSettle = 0f; // the settle targets SLOT-local zero — it must not survive the exit
+
+            // ─── A HAND OWNS THE HIERARCHY. THIS METHOD MAY NOT TAKE IT AWAY. ──────────────────
+            //
+            // USER REPORT (2026-08-09, THIRD round on this defect): "Ich kann immer noch keine
+            // Itemkarte greifen wenn sie auf dem Itemoverlay liegt zum 'usen'. Stattdessen bleibt
+            // die item karte in der Mitte des Controllboards in der Nähe des Fächers kleben solange
+            // ich mit dem Trigger gedrückt halte."
+            //
+            // ROOT CAUSE — and it is NOT the entry-point split ModBuild 93 made (that part works;
+            // the grab genuinely happens). The chip is grabbed, <see cref="OnGrab"/> unclips it and
+            // <c>GrabbableBehaviour.AttachToHand</c> re-parents it to the hand's GrabAnchor. ONE
+            // TICK LATER the owner's per-tick service notices <c>Holder != null</c> — the
+            // "grabbed back out of the slot" cancel, in ALL THREE placement flows
+            // (<see cref="ItemsPile.CancelPendingUse"/> from <see cref="ItemsPile.TickPendingUse"/>,
+            // <see cref="ItemsPile.TickDemandPick"/>, <see cref="ItemsPile.TickTakeDamagePick"/>) —
+            // and every one of them calls <see cref="ItemsPile.UnclipChip"/> to "put the card back
+            // in the fan's frame". The comment at CancelPendingUse claimed that was "no-op when a
+            // grab already took it out of the slot hierarchy". IT IS NOT: the guard below only
+            // compared the parent against the FAN ROOT, and a held chip's parent is the GrabAnchor,
+            // which is not the fan root — so the call RE-PARENTED THE CARD OUT OF THE PLAYER'S HAND
+            // and into the fan root, one frame after the grab.
+            //
+            // WHY THE SYMPTOM LOOKS LIKE "STICKS NEAR THE FAN WHILE THE TRIGGER IS HELD": the
+            // grabber still holds the chip (Holder stays set, _attached stays true), so
+            // <see cref="Update"/> keeps taking the held branch and <see cref="TickHeldPose"/> keeps
+            // lerping transform.localPosition toward <c>_heldPos</c> — a pinch point expressed in
+            // GRABANCHOR-LOCAL space. Interpreted in FAN-ROOT-local space instead, that is a fixed
+            // point a few centimetres off the fan root's origin: the middle of the control board,
+            // right next to the fan, held there for exactly as long as the trigger is down. On
+            // trigger-up the base detach restores the pre-grab parent and the ordinary release glide
+            // takes it back to the arc — "die Karte bleibt kleben … solange ich den Trigger halte",
+            // verbatim.
+            //
+            // THE FIX is the guard, not a caller-by-caller audit: while a hand holds the chip the
+            // HAND owns its parent, full stop. <c>DetachFromHand</c> already restores the parent
+            // that OnGrab's own unclip installed (ClipParkParent), so the frame the cancel wanted is
+            // waiting for the card the moment it is let go — nothing is lost by declining here, and
+            // the three flows keep their game-side back-out (which is the part that actually
+            // matters). OnGrab's own unclip is unaffected: it runs BEFORE base.OnGrab, when Holder
+            // is still null.
+            if (Holder != null)
+                return;
+
             if (fanRoot == null || transform.parent == fanRoot)
                 return;
             transform.SetParent(fanRoot, worldPositionStays: true);
@@ -4434,6 +4576,12 @@ internal sealed class ItemsPile
 
         public override void OnGrab(VRHand hand)
         {
+            // GRAB-EDGE FORENSICS (see UnclipFromSlot's root-cause note): this defect has now been
+            // mis-diagnosed twice from logs that only said a grab was ATTEMPTED. Record what the
+            // chip actually was before the grab, so the line below can state what it BECAME.
+            bool wasClipped = PendingUse;
+            string parentBefore = transform.parent != null ? transform.parent.name : "<none>";
+
             // Leave the use slot BEFORE the base records the pre-grab parent. A clipped chip is a
             // CHILD of the slot (ClipIntoSlot), and base.OnRelease restores exactly the parent it saw
             // here — so grabbing a clipped card and dropping it elsewhere would have put it back under
@@ -4477,7 +4625,20 @@ internal sealed class ItemsPile
             // ITEM 4 (card sounds): the SAME pluck/grab SFX ability cards play on grab (laser-pluck
             // routes through OnPoke → ForceGrab → OnGrab, so it fires there too — no double sound).
             CardsDriver.PlayCardSound(CardsConfig.CardGrabSound.Value, transform);
-            VRLog.Info("Cards", $"Item chip '{name}' taken into hand ({hand.Side}) — readable (state {State}).");
+            // THE GRAB EDGE, STATED IN FULL. Holder / parent / world+local pose / held target, so
+            // the next hardware log answers "what did the chip actually become?" without a fourth
+            // guess. The parent MUST read as the hand's GrabAnchor from here until the release: any
+            // later line showing this chip parented to the fan root or the board while Holder is
+            // still set is the ripped-out-of-the-hand defect (UnclipFromSlot) coming back.
+            Transform? p = transform.parent;
+            Vector3 wp = transform.position;
+            Vector3 lp = transform.localPosition;
+            VRLog.Info("Cards", $"Item chip '{name}' taken into hand ({hand.Side}) — readable (state {State}). " +
+                                $"GRAB EDGE: fromRecess={wasClipped} parent '{parentBefore}' → " +
+                                $"'{(p != null ? p.name : "<none>")}' (anchor='{hand.Rig.GrabAnchor.name}', " +
+                                $"match={ReferenceEquals(p, hand.Rig.GrabAnchor)}), Holder={Holder?.Side.ToString() ?? "<null>"}, " +
+                                $"world=({wp.x:F3},{wp.y:F3},{wp.z:F3}) local=({lp.x:F3},{lp.y:F3},{lp.z:F3}) → " +
+                                $"heldTarget=({_heldPos.x:F3},{_heldPos.y:F3},{_heldPos.z:F3}) scale {_heldScale:F3}.");
         }
 
         /// <summary>

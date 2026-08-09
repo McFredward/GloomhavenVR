@@ -616,6 +616,36 @@ internal sealed class UseBarsSurface
                                           "cadence; peers simply do not draw it.");
                 }
             }
+            // A BAR WITH NO ROWS IS NOT A BAR — DROP IT FROM THE MASK.
+            //
+            // ROOT CAUSE (found auditing the item use-bar removal, user report 2026-08-09: "Den
+            // Button will ich hier also nicht sehen"). The mask above is set from "this bar is
+            // DOCKED and not focus-hidden", but the rows a peer draws come from the SLOT WALK, and
+            // the two can legitimately disagree: every slot in a docked bar may be suppressed by
+            // the place-to-use split (<see cref="EnforceItemsSplit"/>'s plain-item half and
+            // <c>ItemsPile.EnforceChoiceSlotSplit</c>'s choice half both SetActive(false), which is
+            // exactly what <see cref="BarDock.SampleWireSlots"/> skips), while the DOCK itself only
+            // releases on the next level-triggered tick — and during take-damage/surrender the two
+            // halves stand down and re-arm on different ticks again. So "docked, zero visible
+            // slots" is a reachable steady state, not a one-frame race.
+            //
+            // What that published on the peer: <c>RemoteBoardFurniture.SetUseBars</c> builds a row
+            // for EVERY masked bar before it ever looks at the count — plate, MR-opacified backing
+            // and caption first, then `new Material[n]` tiles — so n = 0 produced a full-width
+            // empty caption plate hanging in the mirrored drawer under a decision row, describing a
+            // bar the owner is not showing a single symbol of. That is precisely the "empty drawer /
+            // stale plate on the peer's side" this pass had to rule out, and it is the mirror image
+            // of the local rule the whole surface is built on ("empty bars never dock").
+            //
+            // Fixed on the SENDER, deliberately: record 25's format is untouched (no new field, no
+            // new id), every peer — including one running an older receiver — simply stops being
+            // told about a bar that has nothing in it, and the receiver's existing mask == 0 path
+            // then hides the whole drawer exactly as it already does when no bar is docked at all.
+            if (count == 0)
+            {
+                mask &= (byte)~BarBit(i);
+                flags = 0;
+            }
             WireBarFlagsBuffer[i] = flags;
             WireBarSlotCountBuffer[i] = (byte)count;
             for (int s = count; s < Net.NetProtocol.UseBarsMaxSlots; s++)
