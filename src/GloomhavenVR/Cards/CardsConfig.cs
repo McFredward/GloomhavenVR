@@ -381,6 +381,44 @@ internal static class CardsConfig
     /// <summary>Item fan: per-slot close delay — the fold-in runs outermost chip first.</summary>
     internal static ConfigEntry<float> ItemFanCloseStagger = null!;
 
+    // ---- THE "an item can be USED" cue, and the berth a card is used IN --------------------------
+    // One rhythm, two sentences: the closed items pile says LOOK HERE (rings thrown outward), the
+    // item-use recess says PUT IT HERE (a ring closing inward). See Defaults.Cards.cs for the user
+    // report each of these was authored against and the reasoning behind every number.
+
+    /// <summary>Item cue: seconds per heartbeat — the shared clock of the pile's rings, the ember
+    /// bursts, the item cards' frames and the use berth's ping.</summary>
+    internal static ConfigEntry<float> ItemCueBeatSeconds = null!;
+
+    /// <summary>Item cue: how far a ring travels out from the closed pile, as a factor of the pile's
+    /// own footprint. 1 = the ring never leaves the stack (no travel).</summary>
+    internal static ConfigEntry<float> ItemCueRingReach = null!;
+
+    /// <summary>Item cue: peak opacity of the pile's travelling rings. 0 = no rings, embers only.</summary>
+    internal static ConfigEntry<float> ItemCueRingAlpha = null!;
+
+    /// <summary>Item cue: embers per second drifting off the closed items pile (0 = none).</summary>
+    internal static ConfigEntry<float> ItemCueEmberRate = null!;
+
+    /// <summary>Item cue: ember size multiplier over the original (subtle-by-construction) size.</summary>
+    internal static ConfigEntry<float> ItemCueEmberSize = null!;
+
+    /// <summary>Item berth: thickness of the card-shaped outline around the use recess, real meters.</summary>
+    internal static ConfigEntry<float> ItemBerthRingThickness = null!;
+
+    /// <summary>Item berth: peak brightness of the warm ADDITIVE field inside the recess. 0 = a fully
+    /// open berth (outline only), which is the extreme the old black plate was the opposite of.</summary>
+    internal static ConfigEntry<float> ItemBerthGlow = null!;
+
+    /// <summary>Item berth: seconds per inward "put it here" ping (0 = no ping).</summary>
+    internal static ConfigEntry<float> ItemBerthPingSeconds = null!;
+
+    /// <summary>Item berth: how far outside the card rect that ping starts, as a factor. 1 = no travel.</summary>
+    internal static ConfigEntry<float> ItemBerthPingReach = null!;
+
+    /// <summary>Item berth: seconds the recess takes to grow in / collapse out.</summary>
+    internal static ConfigEntry<float> ItemBerthRevealSeconds = null!;
+
     /// <summary>Game audio item played once when the fan reveals ("" = silent).</summary>
     internal static ConfigEntry<string> FanRevealSound = null!;
 
@@ -805,6 +843,78 @@ internal static class CardsConfig
                 "Item fan closing: per-place delay, run OUTERMOST CARD FIRST so the fold-in is the " +
                 "opening exactly reversed. 0 = every card leaves at the same moment.",
                 new AcceptableValueRange<float>(0f, 0.2f)));
+
+        // THE "an item can be USED" CUE and the BERTH it is used in (user reports 2026-08-09:
+        // "Die Animation über dem Pile … ist immer noch zu dezent und kann man schnell übersehen"
+        // and "Überarbeite das Aussehen des Item-Overlays … einfach so ein schwarzes Rechteck").
+        // Defaults.Cards.cs carries the derivation; the short version is that neither cue was too
+        // SMALL — one had the wrong rhythm for peripheral vision and neither had a luminance edge
+        // that survives an unknown passthrough background.
+        ItemCueBeatSeconds = _file.Bind("Cards", "ItemCueBeatSeconds", Defaults.ItemCueBeatSeconds,
+            new ConfigDescription(
+                "Item cue: seconds per HEARTBEAT — the one clock the whole item cue runs on (the " +
+                "rings thrown off the closed items pile, the ember bursts, the frames around usable " +
+                "cards in the open fan, and the ping inside the use recess). It is a beat with a " +
+                "REST in it rather than a steady breath on purpose: the corner of your eye reports " +
+                "sudden change and ignores slow ramps, so the pause between beats is what makes the " +
+                "next one visible. Shorter = more urgent; much longer and the rest reads as 'off'.",
+                new AcceptableValueRange<float>(0.4f, 4f)));
+        ItemCueRingReach = _file.Bind("Cards", "ItemCueRingReach", Defaults.ItemCueRingReach,
+            new ConfigDescription(
+                "Item cue: how far each ring of light travels out from the closed items pile, as a " +
+                "multiple of the pile's own size. A ring that GROWS is a change of shape, and a " +
+                "change of shape is the one thing a bright, busy mixed-reality room cannot swallow " +
+                "— brightness it competes with and wins. 1 = the ring never leaves the stack.",
+                new AcceptableValueRange<float>(1f, 5f)));
+        ItemCueRingAlpha = _file.Bind("Cards", "ItemCueRingAlpha", Defaults.ItemCueRingAlpha,
+            new ConfigDescription(
+                "Item cue: peak opacity of those rings. They are drawn as a bright core with a DARK " +
+                "edge on both sides, so they keep a visible outline over a white wall and over a " +
+                "dark room alike. 0 = no rings at all (drifting embers only, the old cue).",
+                new AcceptableValueRange<float>(0f, 1f)));
+        ItemCueEmberRate = _file.Bind("Cards", "ItemCueEmberRate", Defaults.ItemCueEmberRate,
+            new ConfigDescription(
+                "Item cue: soft gold embers per second lifting off the closed items pile. They now " +
+                "arrive in a PUFF on each heartbeat instead of as a steady trickle. 0 = no embers.",
+                new AcceptableValueRange<float>(0f, 60f)));
+        ItemCueEmberSize = _file.Bind("Cards", "ItemCueEmberSize", Defaults.ItemCueEmberSize,
+            new ConfigDescription(
+                "Item cue: how much bigger each ember is than the original 'subtle by construction' " +
+                "size. A few millimetres across is under a degree of visual angle at reading " +
+                "distance, which is where a mote stops being an object and becomes shimmer.",
+                new AcceptableValueRange<float>(0.5f, 5f)));
+        ItemBerthRingThickness = _file.Bind("Cards", "ItemBerthRingThickness", Defaults.ItemBerthRingThickness,
+            new ConfigDescription(
+                "Item berth: how thick the card-shaped outline around the use recess is drawn, in " +
+                "real meters. The recess is a hollow outline with an OPEN middle now, so this line " +
+                "is the whole shape — thick enough to read from across the table, thin enough that " +
+                "it never becomes a plate again.",
+                new AcceptableValueRange<float>(0.001f, 0.02f)));
+        ItemBerthGlow = _file.Bind("Cards", "ItemBerthGlow", Defaults.ItemBerthGlow,
+            new ConfigDescription(
+                "Item berth: peak brightness of the warm light FILLING the recess. It is added " +
+                "light, not a dark plate — so on a dark scene the berth glows and in mixed reality " +
+                "your own room shows through it instead of a black rectangle. 0 = a completely " +
+                "open berth (just the outline and the ping).",
+                new AcceptableValueRange<float>(0f, 1f)));
+        ItemBerthPingSeconds = _file.Bind("Cards", "ItemBerthPingSeconds", Defaults.ItemBerthPingSeconds,
+            new ConfigDescription(
+                "Item berth: seconds per INWARD ping — a ring that closes onto the card outline, " +
+                "the mirror image of the outward rings the items pile throws. Outward says 'look " +
+                "here'; inward says 'put it in here'. 0 = no ping.",
+                new AcceptableValueRange<float>(0f, 4f)));
+        ItemBerthPingReach = _file.Bind("Cards", "ItemBerthPingReach", Defaults.ItemBerthPingReach,
+            new ConfigDescription(
+                "Item berth: how far outside the card outline that inward ping starts, as a " +
+                "multiple of the card. Bigger = it sweeps in from further away and is easier to " +
+                "catch out of the corner of your eye. 1 = no travel.",
+                new AcceptableValueRange<float>(1f, 3f)));
+        ItemBerthRevealSeconds = _file.Bind("Cards", "ItemBerthRevealSeconds", Defaults.ItemBerthRevealSeconds,
+            new ConfigDescription(
+                "Item berth: seconds the recess takes to GROW IN when an item becomes placeable and " +
+                "to collapse out again when it stops. It used to blink in and out instantly — the " +
+                "one transition in the item flow that was never animated.",
+                new AcceptableValueRange<float>(0.05f, 1f)));
         BoardMinWidthMeters = _file.Bind("Cards", "BoardMinWidthMeters", Defaults.BoardMinWidthMeters,
             new ConfigDescription(
                 "Smallest the control board may ever get, measured as its APPARENT WIDTH in real " +

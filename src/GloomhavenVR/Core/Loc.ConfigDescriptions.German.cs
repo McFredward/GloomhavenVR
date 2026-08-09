@@ -1403,6 +1403,57 @@ internal static partial class Loc
             ["Cards/ItemFanCloseStagger"] =
                 "Gegenstands-Fächer schließen: Verzug pro Platz, ÄUSSERSTE KARTE ZUERST, sodass das "
                 + "Einklappen das Öffnen exakt rückwärts ist. 0 = alle Karten lösen sich gleichzeitig.",
+            ["Cards/ItemCueBeatSeconds"] =
+                "Gegenstands-Hinweis: Sekunden pro HERZSCHLAG — die eine Uhr, nach der der ganze Hinweis "
+                + "läuft (die Ringe, die der geschlossene Gegenstands-Stapel abwirft, die Funken-Stöße, "
+                + "die Rahmen um nutzbare Karten im offenen Fächer und der Ping in der Ablage). Bewusst "
+                + "ein Schlag mit einer PAUSE darin statt eines gleichmäßigen Atmens: der Augenwinkel "
+                + "meldet plötzliche Änderungen und überliest langsame Verläufe — die Pause ist das, was "
+                + "den nächsten Schlag sichtbar macht. Kürzer = drängender; viel länger und die Pause "
+                + "wirkt wie 'aus'.",
+            ["Cards/ItemCueRingReach"] =
+                "Gegenstands-Hinweis: wie weit jeder Lichtring vom geschlossenen Gegenstands-Stapel nach "
+                + "außen wandert, als Vielfaches der Stapelgröße. Ein Ring, der WÄCHST, ist eine "
+                + "Formänderung — und eine Formänderung ist das Einzige, was ein heller, unruhiger "
+                + "Mixed-Reality-Raum nicht schlucken kann; bei Helligkeit gewinnt der Raum. 1 = der Ring "
+                + "verlässt den Stapel nie.",
+            ["Cards/ItemCueRingAlpha"] =
+                "Gegenstands-Hinweis: Spitzen-Deckkraft dieser Ringe. Sie werden als heller Kern mit "
+                + "einem DUNKLEN Saum auf beiden Seiten gezeichnet, damit sie vor einer weißen Wand "
+                + "genauso einen sichtbaren Umriss behalten wie vor einem dunklen Raum. 0 = gar keine "
+                + "Ringe (nur die treibenden Funken, der alte Hinweis).",
+            ["Cards/ItemCueEmberRate"] =
+                "Gegenstands-Hinweis: weiche Goldfunken pro Sekunde, die vom geschlossenen "
+                + "Gegenstands-Stapel aufsteigen. Sie kommen jetzt als STOSS auf jedem Herzschlag statt "
+                + "als gleichmäßiges Rieseln. 0 = keine Funken.",
+            ["Cards/ItemCueEmberSize"] =
+                "Gegenstands-Hinweis: wie viel größer ein Funke ist als in der ursprünglichen, "
+                + "'bewusst dezenten' Größe. Wenige Millimeter sind auf Lesedistanz unter einem "
+                + "Winkelgrad — dort hört ein Funke auf, ein Objekt zu sein, und wird zu Flimmern.",
+            ["Cards/ItemBerthRingThickness"] =
+                "Ablage (Gegenstand benutzen): wie dick der kartenförmige Umriss der Ablage gezeichnet "
+                + "wird, in echten Metern. Die Ablage ist jetzt ein hohler Umriss mit OFFENER Mitte, "
+                + "also ist diese Linie die ganze Form — dick genug, um vom anderen Tischende zu lesen, "
+                + "dünn genug, dass daraus nie wieder eine Platte wird.",
+            ["Cards/ItemBerthGlow"] =
+                "Ablage: Spitzenhelligkeit des warmen Lichts, das die Ablage FÜLLT. Es ist "
+                + "hinzugefügtes Licht, keine dunkle Platte — auf dunkler Szene leuchtet die Ablage, "
+                + "und in Mixed Reality scheint dein eigener Raum hindurch statt eines schwarzen "
+                + "Rechtecks. 0 = eine völlig offene Ablage (nur Umriss und Ping).",
+            ["Cards/ItemBerthPingSeconds"] =
+                "Ablage: Sekunden pro EINWÄRTS-Ping — ein Ring, der sich auf den Kartenumriss "
+                + "zusammenzieht, das Spiegelbild der Ringe, die der Gegenstands-Stapel nach außen "
+                + "wirft. Nach außen heißt 'schau hierher', nach innen heißt 'leg es hier hinein'. "
+                + "0 = kein Ping.",
+            ["Cards/ItemBerthPingReach"] =
+                "Ablage: wie weit außerhalb des Kartenumrisses dieser Einwärts-Ping beginnt, als "
+                + "Vielfaches der Karte. Größer = er fegt aus größerer Entfernung herein und ist im "
+                + "Augenwinkel leichter zu erwischen. 1 = kein Weg.",
+            ["Cards/ItemBerthRevealSeconds"] =
+                "Ablage: Sekunden, die die Ablage zum HINEINWACHSEN braucht, wenn ein Gegenstand "
+                + "ablegbar wird, und zum Zusammenfallen, wenn er es nicht mehr ist. Früher blinkte sie "
+                + "übergangslos ein und aus — der einzige Übergang im Gegenstands-Ablauf, der nie "
+                + "animiert war.",
             ["Cards/FanRevealSound"] =
                 "Spiel-Audio-Item, das einmal abgespielt wird, wenn sich der Handflächen-Fächer aufdeckt "
                 + "(Demeo spielt MotherbrainAudio.OnCardHandShow, CardHandView.cs:682). PlaySound_EnemyCardDraw "

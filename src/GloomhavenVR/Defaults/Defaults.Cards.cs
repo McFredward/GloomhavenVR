@@ -156,6 +156,103 @@ internal static partial class Defaults
     internal const float ItemFanCloseDuration = 0.42f;                                                // => [Cards] ItemFanCloseDuration
     internal const float ItemFanCloseStagger = 0.045f;                                                // => [Cards] ItemFanCloseStagger
 
+    // ---- THE "AN ITEM CAN BE USED" CUE ON THE CLOSED ITEMS PILE (user report 2026-08-09, the THIRD
+    // on this area: "Die Animation über dem Pile die anzeigt dass ein Gegenstand genutzt werden kann
+    // ist immer noch zu dezent und kann man schnell übersehen. Ich mag die Animation aber sie muss
+    // mehr herausstechen.") ------------------------------------------------------------------------
+    //
+    // He LIKES the drifting gold embers. They stay. What changed is the two things that decide
+    // whether a cue is SEEN by someone who is not looking at it — and neither of them is amplitude,
+    // which is why the previous two rounds of "turn it up" did not land.
+    //
+    // WHAT THE CUE USED TO BE, in its own words: PileViewer.PileStack.SetUsableHighlight's doc block
+    // said "SUBTLE BY CONSTRUCTION: ~5 motes a second, each a few millimetres across, living under
+    // two seconds, at well under half opacity, drifting a couple of centimetres. At any instant there
+    // are under a dozen on screen — a shimmer you notice in peripheral vision, not an effect that
+    // competes with the board." Every clause of that is a design decision against being noticed, and
+    // it was written for a black VR skybox. Against chroma-keyed passthrough — a live video feed of a
+    // lit room, full of its own edges, contrast, grain and parallax — "a shimmer" is below the noise
+    // floor. And the ModBuild 94 finding compounds it: the mip-bake budget starved item art, so what
+    // little there was ALIASED, and in stereo the two eyes alias differently. Half of "dezent" was
+    // literally shimmer.
+    //
+    // THE TWO AXES THAT ACTUALLY DECIDE IT, and the reason each number below exists:
+    //
+    //   • RHYTHM, not brightness. The retina's PERIPHERY is what "übersehen" is about — the player
+    //     is looking at their hand or at the map, not at the pile — and the periphery is a TRANSIENT
+    //     detector: it answers to sudden change and is nearly blind to a slow ramp. A steady trickle
+    //     of motes and a sine-breathing outline are both continuous states, i.e. the two rhythms the
+    //     periphery reports least. The cue now runs on a double HEARTBEAT with a REST between beats
+    //     (WorldUI/SoftCueArt.Heartbeat) — the rest is what makes the next beat a change rather than
+    //     a continuation. The ember emission bursts on that beat, the item-card frames in the open
+    //     fan beat on the same clock, and so does the pile's new ring, so the whole item cue speaks
+    //     with one pulse instead of three unrelated flickers.
+    //
+    //   • A CHANGING SILHOUETTE, not a changing brightness. Passthrough competes with the mod on
+    //     contrast and wins; it contains nothing that changes SIZE. So each beat now throws a soft
+    //     ROUND ring of light outward off the pile, growing and fading — the one class of motion a
+    //     busy room structurally cannot mask, and in stereo unambiguously in front of the room. It
+    //     is round, not rectangular, on purpose: PileStack's own doc records the ruling that a frame
+    //     around the stack "would be exactly the rectangle of light the user rejected", and a ring is
+    //     the hollow sibling of the mote texture the cue is already made of, so this is the SAME
+    //     visual family enlarged, not a new effect. Two rings share the period at opposite phases, so
+    //     the cue is never continuous and never silent for long.
+    //
+    // …and the third thing, which is neither: a cue drawn in ONE tone can only be seen where it
+    // differs in luminance from a background nobody controls. Every band in this family is now
+    // two-tone — a bright core with a dark contour on both sides — so it keeps a luminance edge over
+    // a white wall and over a dark room alike. See the CONTOUR note in WorldUI/SoftCueArt.cs.
+    //
+    // These numbers ARE the louder look; nobody should have to tune anything to get what he asked
+    // for. 0 on the amplitudes is the honest "turn it back down" position and is reachable from the
+    // in-VR steppers.
+    internal const float ItemCueBeatSeconds = 1.25f;                                                  // => [Cards] ItemCueBeatSeconds
+    internal const float ItemCueRingReach = 2.3f;                                                     // => [Cards] ItemCueRingReach
+    internal const float ItemCueRingAlpha = 0.95f;                                                    // => [Cards] ItemCueRingAlpha
+    internal const float ItemCueEmberRate = 22f;                                                      // => [Cards] ItemCueEmberRate
+    internal const float ItemCueEmberSize = 2.1f;                                                     // => [Cards] ItemCueEmberSize
+
+    // ---- THE ITEM-USE BERTH — the recess on the board a card is laid into to use it (user report
+    // 2026-08-09: "Überarbeite das Aussehen des Item-Overlays. Aktuell ist es einfach so ein
+    // schwarzes Rechteck, das am Rand pulsiert. Das sieht nicht sehr gut aus. Überlege dir eine
+    // andere Darstellung die visuell ansprechender ist aber immer noch das selbe vermittelt.") -----
+    //
+    // WHAT IT WAS: three stacked quads — a gold 1.12× frame, an opaque near-black 1.04× inner plate,
+    // and a 1.28× additive gold quad breathing on PlayTray.SlotPulse's sine. On a board that hangs in
+    // the air with a real room behind it (this recess sits BELOW the board's lower edge — it has no
+    // opaque slab behind it, unlike the two play slots it was copied from), that is a black rectangle
+    // with a glowing rim, and "schwarzes Rechteck" is a precise description rather than an opinion.
+    // It also fails the mixed-reality rule from the other direction: a cue whose identity is
+    // "dark" cannot work over a dark room, and near the BLACK chroma-key preset a dark plate is not
+    // a rectangle at all, it is a hole cut through to the passthrough camera.
+    //
+    // WHAT IT IS NOW — an OPEN BERTH, not a plate. Four pieces, in the board's own vocabulary:
+    //   1. a card-shaped, constant-thickness, two-tone SOFT OUTLINE at exactly the size the card
+    //      lands at (the ItemsPile clear-area factor), with rounded corners: the same SoftCueArt
+    //      outline language the item cards' "usable" frame and the initiative ring already wear, so
+    //      the destination is drawn in the same hand as the thing that will fill it;
+    //   2. NOTHING opaque inside it — the middle is left open, so in mixed reality the player's own
+    //      room shows through the berth and the widget can never be a dark rectangle again. What
+    //      fills it instead is a faint ADDITIVE warm field (ItemBerthGlow) — light added, not
+    //      darkness laid on, i.e. the mod's existing gold-glow voice (CardGlow.MakeGlowMaterial, the
+    //      same material the slot snap telegraph is made of);
+    //   3. an INWARD ring ping that closes onto the card rect on the shared item beat — the
+    //      "put it HERE" sentence, the exact mirror of the pile's outward "look here" ring, and the
+    //      replacement for the border sine;
+    //   4. an ARRIVAL and a DEPARTURE. The recess used to blink in and out on a raw SetActive, the
+    //      last unanimated transition in the item flow and a straight breach of the standing
+    //      "nothing pops" rule. It now grows in with a back-ease overshoot and collapses out.
+    //
+    // AND IT IS STILL NOT A BUTTON (the constraint that forced the "USE" caption's restyle one round
+    // earlier). Every one of the mod's buttons is a raised, filled KEYCAP with a bright face and
+    // travel; this is a hollow outline with an open middle, no face, no travel and no press state.
+    // A hole you put something into and a cap you push are now maximally different objects.
+    internal const float ItemBerthRingThickness = 0.0042f;                                            // => [Cards] ItemBerthRingThickness
+    internal const float ItemBerthGlow = 0.34f;                                                       // => [Cards] ItemBerthGlow
+    internal const float ItemBerthPingSeconds = 1.5f;                                                 // => [Cards] ItemBerthPingSeconds
+    internal const float ItemBerthPingReach = 1.5f;                                                   // => [Cards] ItemBerthPingReach
+    internal const float ItemBerthRevealSeconds = 0.26f;                                              // => [Cards] ItemBerthRevealSeconds
+
     internal const float BoardMinWidthMeters = 0.18f;                                                 // => [Cards] BoardMinWidthMeters
     internal const float BoardMaxWidthMeters = 1.4f;                                                  // => [Cards] BoardMaxWidthMeters
     internal const bool SpawnLeftOfHead = true;                                                       // => [Cards] SpawnLeftOfHead
