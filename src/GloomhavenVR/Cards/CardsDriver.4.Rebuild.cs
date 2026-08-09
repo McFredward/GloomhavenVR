@@ -539,10 +539,16 @@ internal sealed partial class CardsDriver
                 // is that actor during its turn). Long rest is unaffected: the long-rester's own
                 // turn keeps CurrentActor == its player (IsActionTurn true) with an empty round
                 // pile, exactly as before.
-                // ONE SEAM for "may the board's card slots show this hand's chosen cards": with no
-                // focus override CharacterFocus.RoundCardDock IS CardsGameApi.IsActionTurn, so this
-                // branch is unchanged; routing it through the same method keeps the vanilla answer
-                // and the focus answer from ever drifting apart in two places.
+                // ONE SEAM for "may the board's card slots show this hand's chosen cards":
+                // CharacterFocus.RoundCardDock. With no focus override it asks whether this hand's
+                // locally-controlled character owns the CURRENT TURN — deliberately the turn and
+                // NOT Choreographer.CurrentActor, because a card that hands the action to a SUMMON
+                // or a commanded ally re-points the acting figure mid-turn while the turn itself
+                // never moves (GameState.OverrideCurrentActorForOneAction, GameState.cs:3478-3480,
+                // leaves GameState.s_TurnActor alone). Keying on the figure emptied the board for
+                // the whole summon action and for every move/attack confirmation driven for another
+                // figure — the two reports RoundCardDock's doc quotes. Routing both the vanilla and
+                // the focus answer through that one method keeps them from drifting apart.
                 bool actionTurn = Board.CharacterFocus.RoundCardDock(hand, out _);
                 if (actionTurn)
                 {
@@ -1739,6 +1745,159 @@ internal sealed partial class CardsDriver
     /// OVER the (possibly tilted) control board. Falls back to world-up before the tray exists.
     /// </summary>
     private Vector3 BoardUp() => _tray.Root != null ? _tray.Root.up : Vector3.up;
+
+    // ------------------------------------------------------- pile ARRIVAL (the count defers) --
+    //
+    // USER REPORT (verbatim): "Wenn man gerade eine Karte abgeworfen oder verbrannt hat, sie aber
+    // noch auf dem Controllboard liegt, wird aber schon der Pile aktualisiert. So kann es sein,
+    // dass zwar im Pile '1' steht, wenn man ihn aber öffnen will nichts angezeigt wird. Das soll so
+    // nicht sein — der Pile (und die Zahl darauf) soll sich erst unmittelbar aktualisieren, wenn
+    // die jeweiligen Karten IN den Pile fliegen. So wird es nie einen '0er-Fächer' geben."
+    //
+    // THE MODEL AND THE TABLE DISAGREE ABOUT *WHEN*, AND BOTH ARE RIGHT. The rules engine moves a
+    // card into CCharacterClass.Discarded/Lost/PermanentlyLostAbilityCards the instant the action
+    // resolves (CCharacterClass.MoveAbilityCardToPile, :418 / DiscardRoundAbilityCards, :505) —
+    // that is the RULES truth and the mod must never argue with it. On the VR table the same card
+    // is still lying in a board slot, or burning where it lies, or arcing over the board. Reading
+    // the model list for the stack LABEL therefore stated a fact about a pile the card had not
+    // physically reached, and the browse arc — which deliberately refuses to borrow a visual the
+    // board is still showing (BoardOwnsCardVisual, CardsDriver.6.Flows.cs) — then opened empty
+    // under a label that said "1". The number and the fan were reading two different clocks.
+    //
+    // ONE PREDICATE FIXES BOTH, because both now ask the SAME question: a card is IN the pile once
+    // its VR visual has ARRIVED there. Everything else — docked, held by the burn artwork, in
+    // flight, shrinking out in place — is EN ROUTE and is subtracted from the count and skipped by
+    // the arc. Count and contents can no longer disagree: they are computed from one classifier.
+    //
+    // IT IS SELF-HEALING BY CONSTRUCTION, NOT BY BOOKKEEPING. There is NO ledger, no latch, no
+    // timer and no "remember that a flight started" table anywhere in this feature — every read is
+    // recomputed from scratch, this frame, from live objects (PileViewer.TickStatus calls it per
+    // frame). "Still en route" is therefore only ever true while an object is observably in that
+    // state, so EVERY way a flight can end converges the count on the model on the very next frame:
+    //   * it lands            → the completion callback parks the card → IsParked ⇒ arrived;
+    //   * it is cancelled     → VRCard.Park calls CancelFly (VRCard.cs:2094) ⇒ _flying false, and
+    //                           the card is parked anyway ⇒ arrived;
+    //   * the card is destroyed / recycled / the scenario is torn down → _factory.Find returns null
+    //                           ⇒ arrived (no visual anywhere means it can only be in the pile);
+    //   * a board switch      → RebuildBoard parks every card and clears the burn holds ⇒ arrived;
+    //   * a hand/character switch → FlushBurnHolds LAUNCHES every held burn, and the launch lands
+    //                           like any other ⇒ arrived;
+    //   * the artwork hold    → bounded by BurnEffectMaxHoldSeconds (3 s) inside
+    //                           TryTakeBurnFlightSlot, which then releases the flight;
+    //   * a phase change / the browser opening mid-flight → neither is consulted at all, so neither
+    //                           can strand the count.
+    // The pathological case a ledger would have — an entry for a card nobody will ever land — is
+    // not representable: there is nothing to leak. The worst reachable state is a card genuinely
+    // still lying on the board, which is exactly the state the user asked us to wait for.
+
+    /// <summary>Reused resolve buffer for <see cref="PileArrivalsPending"/> — the per-frame count
+    /// query allocates nothing.</summary>
+    private readonly List<AbilityCardUI> _arrivalWidgetBuffer = new(16);
+
+    /// <summary>
+    /// Is this card physically ON ITS WAY into a pile right now — i.e. does the mod still own its
+    /// movement? Three live states, each of which ends on its own (see the region header):
+    /// mid-flight (<see cref="TryStartFlyToPile"/> / <see cref="TryStartBurnFly"/> /
+    /// <see cref="LaunchBurnFlight"/>), shrinking out in place (the dock vanish, which parks itself
+    /// at the end), or lying on the board inside the BURN-ARTWORK HOLD that
+    /// <see cref="TryTakeBurnFlightSlot"/> keeps it in while the game's own burn timeline plays.
+    ///
+    /// <para><c>_flyingToPile</c> membership is asked ALONGSIDE <c>IsFlying</c> rather than instead
+    /// of it: the set can hold a stale entry for a card something else parked (Park cancels the fly
+    /// without running the completion callback — see RebuildBoard), so it is a hint, never the
+    /// truth. <c>IsFlying</c> is the truth, and a stale-set card is only ever ALSO parked, which
+    /// the caller checks.</para>
+    /// </summary>
+    private bool CardEnRouteToPile(VRCard? card)
+    {
+        if (card == null)
+            return false;
+        if (card.IsFlying || _flyingToPile.Contains(card))
+            return true;
+        if (card.IsVanishing)
+            return true; // shrinking out where it lay; it parks itself at the end (≤ DockVanishSeconds)
+        AbilityCardUI? widget = card.GameCard;
+        return widget != null && _burnHoldSince.ContainsKey(widget);
+    }
+
+    /// <summary>
+    /// How many of this character's cards the MODEL already lists in <paramref name="kind"/> but
+    /// whose VR visual has NOT arrived in that stack yet — the number
+    /// <c>PileViewer.TickStatus</c> subtracts from the model count so the label becomes true at the
+    /// moment the card LANDS rather than at the moment the rules moved it.
+    ///
+    /// <para>Never negative, never larger than the pile: it is a count of members of the pile's own
+    /// widget list (<c>CardsGameApi.GetPileWidgets</c> — the same call, in the same order, that
+    /// fills the browse arc and a peer's mirrored arc), so the subtraction cannot underflow. A
+    /// half-torn hand answers 0, which defers nothing and shows the plain model number — the safe
+    /// direction, because a count that is merely EARLY is the pre-existing behaviour while a count
+    /// that never arrives would be a new bug.</para>
+    /// </summary>
+    private int PileArrivalsPending(CardsHandUI? hand, PileKind kind)
+    {
+        if (hand == null || hand.PlayerActor == null)
+            return 0;
+        // CHEAP EXIT FIRST — this runs twice per frame from PileViewer.TickStatus, and
+        // GetPileWidgets is an O(pile × cardsUI) scan. Nothing can be en route unless the mod is
+        // holding at least one card OUTSIDE the pool: a flight, a burn hold, a docked round card, a
+        // play-slot occupant, a pick-field card or the short-rest sacrifice. In the steady state
+        // (an enemy turn, a hand being read, the whole card-selection phase) every one of these is
+        // empty and the query costs six compares. The ACTIVE column is deliberately absent: an
+        // activated card is in ActivatedCards, never in a discard/lost list, so it can never be a
+        // member of the set this method counts.
+        if (_flyingToPile.Count == 0 && _burnHoldSince.Count == 0 && _halfBuffer.Count == 0
+            && _fieldCards.Count == 0 && _shortRestCard == null
+            && _tray.Occupant(0) == null && _tray.Occupant(1) == null)
+            return 0;
+        try
+        {
+            CardsGameApi.GetPileWidgets(hand, kind == PileKind.Burnt, _arrivalWidgetBuffer);
+            int pending = 0;
+            for (int i = 0; i < _arrivalWidgetBuffer.Count; i++)
+            {
+                AbilityCardUI widget = _arrivalWidgetBuffer[i];
+                if (widget == null || widget.AbilityCard == null || widget.IsLongRest)
+                    continue;
+                // The hold is keyed on the WIDGET and can outlive the VR card (the fallback-slab
+                // path burns a card whose visual was already recycled), so it is asked first.
+                if (_burnHoldSince.ContainsKey(widget))
+                {
+                    pending++;
+                    continue;
+                }
+                VRCard? card = _factory.Find(widget);
+                if (card == null)
+                    continue; // no visual anywhere ⇒ nothing is on its way ⇒ it IS in the pile
+                if (CardEnRouteToPile(card))
+                {
+                    pending++;
+                    continue;
+                }
+                if (IsParked(card))
+                    continue; // pooled: the flight (if any) is over and the card is in the stack
+                // Still lying in a board zone the rebuild is showing — the docked round cards, a
+                // play slot, the pick field, the short-rest recess, the active column. This is the
+                // literal case the report opens with ("sie aber noch auf dem Controllboard liegt").
+                // NOTE the browse arc is deliberately NOT one of those zones: a card lying in the
+                // fan has arrived — it is being read OUT of the pile, not carried INTO it.
+                if (BoardOwnsCardVisual(card))
+                    pending++;
+            }
+            return pending;
+        }
+        catch (System.Exception)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="PileArrivalsPending"/> for the pile surfaces, which are private members of this
+    /// driver and must not thread an instance through the Cards module. No driver (flat play /
+    /// pre-build) ⇒ 0, i.e. the plain model count.
+    /// </summary>
+    internal static int PendingPileArrivals(CardsHandUI? hand, PileKind kind) =>
+        Instance != null ? Instance.PileArrivalsPending(hand, kind) : 0;
 
     // ---------------------------------------------------------------- MP card-FX anchors --
     //

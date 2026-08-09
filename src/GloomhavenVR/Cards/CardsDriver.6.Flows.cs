@@ -1709,7 +1709,16 @@ internal sealed partial class CardsDriver
             // empty the moment the discard fan was opened and closed again). Skipping it here is
             // the single point where that ownership is decided; every downstream browse path
             // (layout, hover, pluck-return, collapse) then simply never sees it.
-            if (BoardOwnsCardVisual(card))
+            // …AND A CARD THAT IS STILL ON ITS WAY IN IS NOT THE FAN'S EITHER (pile-arrival rule,
+            // user report "der Pile … soll sich erst unmittelbar aktualisieren, wenn die jeweiligen
+            // Karten IN den Pile fliegen"). BoardOwnsCardVisual names the zones a card is PARKED in;
+            // it says nothing about a card mid-flight, mid-vanish or held by its burn artwork —
+            // which is precisely the state a card is in for the ~0.4 s after the model discarded it.
+            // Borrowing one of those would have the arc snatch a flying card out of its own
+            // animation and lay it in the fan (a browse opened mid-flight was exactly that), and it
+            // would also make the arc disagree with the stack label, which now defers those same
+            // cards (CardsDriver.PendingPileArrivals). One classifier, both surfaces.
+            if (BoardOwnsCardVisual(card) || CardEnRouteToPile(card))
             {
                 leftOnBoard++;
                 continue;
@@ -1724,17 +1733,36 @@ internal sealed partial class CardsDriver
             card.PileOrigin = kind;
             _browseBuffer.Add(card);
         }
-        // The close is gated on the GAME's pile being empty, never on the borrowed count: a pile
-        // whose every card happens to be lying on the board (the tutorial's "both cards played and
-        // discarded" state) is NOT empty, and auto-closing there would make the pile un-openable.
-        if (pileCount == 0)
+        // ARRIVED = the pile as the PLAYER sees it: the model's cards minus the ones whose visual is
+        // still on the board / in flight. It is `_browseBuffer.Count` by construction (the loop
+        // above put every arrived card in it and counted every other one into leftOnBoard), named
+        // here so the two statements below read as the one rule they are.
+        int arrived = pileCount - leftOnBoard;
+        // THE TITLE IS THE ARRIVED COUNT, NOT THE MODEL COUNT (user report: "So kann es sein, dass
+        // zwar im Pile '1' steht, wenn man ihn aber öffnen will nichts angezeigt wird. Das soll so
+        // nicht sein"). It used to be the TRUE model size deliberately — "the player is told what
+        // the pile holds, even when some of those cards are physically on the board" — but that is
+        // the very mismatch the report is about, and the stack LABEL next to it now defers by the
+        // same rule (PileViewer.TickStatus → CardsDriver.PendingPileArrivals). A title that
+        // disagreed with both the arc under it and the stack it came out of has nobody left to be
+        // right for.
+        //
+        // …AND THE CLOSE FOLLOWS IT. Auto-closing on the model count would leave an arc open and
+        // empty under a "(2)" while both cards still lie on the board; auto-closing on the arrived
+        // count closes it exactly when there is nothing to look at, which is also when the stack
+        // reads 0 — so "empty" means the same thing on the stack, in the title and in the fan. The
+        // pile is not made un-openable by this: it is openable in every phase (BrowseAllowed has no
+        // count gate at all), and it fills the instant the cards land.
+        if (arrived <= 0)
         {
-            CloseBrowser("pile empty");
+            CloseBrowser(pileCount == 0
+                ? "pile empty"
+                : $"pile empty for now — all {pileCount} card(s) the model lists are still on their " +
+                  "way in (lying on the board / burning / in flight); the fan re-opens with them " +
+                  "the moment they land");
             return;
         }
-        // Title keeps the TRUE pile size — the player is told what the pile holds, even when some
-        // of those cards are physically on the board instead of in the arc.
-        _browser.SetCards(_browseBuffer, $"{PileViewer.Caption(kind)} ({pileCount})");
+        _browser.SetCards(_browseBuffer, $"{PileViewer.Caption(kind)} ({arrived})");
 
         // Borrow ledger for the close-path Info line (requirement 5), plus a change-gated line here
         // so the log also shows what the OPEN fan decided to borrow.

@@ -219,7 +219,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
 
     // ------------------------------------------------------------------ lifecycle --
 
-    /// <summary>One-shot guard for the BoardTargeting Grab-policy grant (survives driver rebuilds).</summary>
+    /// <summary>One-shot guard for the BoardTargeting Grab/PalmGate-policy grant (survives driver
+    /// rebuilds).</summary>
     private static bool s_grabPolicyGranted;
 
     /// <summary>The live driver, for the static request entry points (<see cref="RequestBoardRecall"/>).
@@ -263,16 +264,54 @@ internal sealed partial class CardsDriver : MonoBehaviour
         // always drag windows during targeting; per-object gates (VRCard.CanGrab,
         // GrabVisible) keep deciding WHAT is grabbable. Granted through the mode
         // machine's documented extension API (never a patch on the frozen class).
+        //
+        // …AND THE PALM GATE, for exactly the same reason one build later (user report: "Während
+        // dessen eine Bewegung oder ein Angriff bestätigt werden muss … die Handkarten werden nicht
+        // angezeigt — auch während hier auf Bestätigung gewartet wird, soll man beliebig wechseln
+        // können und von jedem die Handkarten ansehen INKLUSIVE dem Character der gerade die
+        // Entscheidung treffen muss").
+        //
+        // ROOT CAUSE, and why it looked like a card-pipeline bug when it is an INPUT-POLICY one:
+        // a move destination / attack focus / push / pull / tile pick parks the Choreographer in
+        // one of VRModeStateMachine.TargetingStates, i.e. VRMode.BoardTargeting — and the Phase-2
+        // BoardTargeting rows carried Ray|Poke only. PalmGate is the interactor that MEASURES the
+        // wrist roll (VRHand.SetInteractorPolicy → PalmGate.Enabled), and CardsDriver.UpdatePalmGate
+        // gates the whole reveal on `gate.Enabled` (`revealed = gate.Enabled && …`). So the fan
+        // could not be opened AT ALL for the entire confirmation wait, for EVERY character —
+        // including the one that owes the confirmation. The hardware log states it plainly:
+        // "fan state: mode=ActionSelection, widgets=24, fanBuffer=6, gateEnabled=False, open=False
+        //  (vrMode=BoardTargeting)" — the mod had BUILT six hand cards and had no way to show them.
+        //
+        // That is a straight violation of the standing 2026-08-08 ruling this codebase already
+        // states at Board.CharacterFocus.HandInspectable: a hand card may ALWAYS be picked up and
+        // inspected, in every phase. A phase in which the hand cannot even be REVEALED is the
+        // strongest possible form of that block, so the grant is not a new permission — it is the
+        // removal of one more place where the rule was silently not in force.
+        //
+        // SAFE BY THE SAME ARGUMENT AS THE GRAB GRANT: the palm gate only decides whether the fan
+        // is SHOWN. What may be done with a card in it is decided per card, unchanged, by
+        // CardsDriver.Rebuild's grabbable/inspect funnel (`commitGrab` is still false outside the
+        // real selection window, so the fan comes up as CardFan.FanMode.Inspect: readable, never
+        // committable) and by VRCard.CanGrab. The dominant hand keeps its ray for the board pick —
+        // the fan hangs off the NON-dominant palm and the far pick exclusively consumes
+        // VRHands.PrimaryPick — so nothing is taken away from targeting itself. Desktop parity: the
+        // 2D client can open any hand at any time from the initiative track.
         if (!s_grabPolicyGranted)
         {
             s_grabPolicyGranted = true;
             VRModeStateMachine.SetHandInteractorPolicy(VRMode.BoardTargeting, HandRole.Dominant,
-                Core.Events.Interactors.Ray | Core.Events.Interactors.Poke | Core.Events.Interactors.Grab);
+                Core.Events.Interactors.Ray | Core.Events.Interactors.Poke | Core.Events.Interactors.Grab
+                | Core.Events.Interactors.PalmGate);
             VRModeStateMachine.SetHandInteractorPolicy(VRMode.BoardTargeting, HandRole.NonDominant,
-                Core.Events.Interactors.Poke | Core.Events.Interactors.Grab);
-            VRLog.Info("Cards", "BoardTargeting interactor policy now includes Grab (both hands) — " +
-                                "control-board/panel bars and figure grabs stay usable during " +
-                                "move/target selection (user bug A).");
+                Core.Events.Interactors.Poke | Core.Events.Interactors.Grab
+                | Core.Events.Interactors.PalmGate);
+            VRLog.Info("Cards", "BoardTargeting interactor policy now includes Grab AND PalmGate " +
+                                "(both hands) — control-board/panel bars and figure grabs stay " +
+                                "usable during move/target selection (user bug A), and the HAND FAN " +
+                                "can be revealed while the game waits for a move/attack confirmation " +
+                                "(the hand is inspectable in EVERY phase, by standing ruling — see " +
+                                "Board.CharacterFocus.HandInspectable). The fan comes up read-only " +
+                                "there: nothing about what a card may DO changed.");
         }
 
         VRModeStateMachine.ModeChanged += OnModeChanged;
