@@ -265,17 +265,23 @@ internal static class HandsConfig
         StyleValue(StyleSeatSpread, style, Seat(DefaultSeatSpread, style));
 
     // ---- per-STYLE wrist-HUD pose (2026-07 request B) --------------------------------------
-    // The watch-face wrist HUD (WorldUI.WristHud) rests on the back of the hand MESH, whose
-    // thickness/shape differs per hand style — so its pose (tilt + offset from the wrist
-    // anchor) is PER STYLE too, exactly like the seat controls above. Section [WristHud] of
-    // this cfg file; each style is SEEDED on first bind from the legacy global [WorldUI]
-    // WristHud* entries (bound idempotently right before the seed reads them, because
-    // HandsModule inits BEFORE WorldUIModule), so a tuned wrist pose carries over to all
-    // three styles instead of resetting. WristHud.ApplyPose re-reads the ACTIVE style every
-    // Tick, so edits AND style switches live-apply. The HUD's on/off toggle stays GLOBAL
-    // ([WorldUI] WristHud) — enabling it is not a geometry preference.
+    // The wrist HUD (WorldUI.WristHud) hovers over the hand MESH, whose thickness/shape differs
+    // per hand style — so its pose (tilt + offset from the wrist anchor) is PER STYLE too,
+    // exactly like the seat controls above. Section [WristHud] of this cfg file.
+    // WristHud.ApplyPose re-reads the ACTIVE style every Tick, so edits AND style switches
+    // live-apply. The HUD's on/off toggle stays GLOBAL ([WorldUI] WristHud) — enabling it is
+    // not a geometry preference.
+    //
+    // KEYS RENAMED TO *Palm* (2026-08-09). The HUD was turned around onto the PALM side at the
+    // user's request, which meant replacing the base rotation it is trimmed against — and every
+    // saved trim was the correction for the OLD base (a ~-90° pitch that undid the wrist
+    // anchor's own +90°, plus a -180° yaw). Keeping the key names would have let those saved
+    // numbers ride silently into the new base and land the plate back on the knuckles: two
+    // rotations cancelling, the exact failure the request warned about. A trim against a
+    // different base is a different setting, so it gets a different name and the shipped
+    // default (0°, WristHud's PalmFlat IS the wanted orientation) applies to everyone.
 
-    /// <summary>Per-style wrist-HUD pitch (degrees) on top of the flat-on-hand base.</summary>
+    /// <summary>Per-style wrist-HUD pitch (degrees) on top of the palm base.</summary>
     public static ConfigEntry<float>[]? StyleWristPitch;
 
     /// <summary>Per-style wrist-HUD yaw (degrees).</summary>
@@ -284,29 +290,52 @@ internal static class HandsConfig
     /// <summary>Per-style wrist-HUD roll (degrees).</summary>
     public static ConfigEntry<float>[]? StyleWristRoll;
 
-    /// <summary>Per-style wrist-HUD offset along wrist X (meters).</summary>
+    /// <summary>Per-style wrist-HUD offset across the hand (wrist +X, meters).</summary>
     public static ConfigEntry<float>[]? StyleWristOffsetX;
 
-    /// <summary>Per-style wrist-HUD offset out the back of the hand (wrist +Y, meters).</summary>
+    /// <summary>Per-style wrist-HUD offset toward the fingers (wrist +Y, meters).</summary>
     public static ConfigEntry<float>[]? StyleWristOffsetY;
 
-    /// <summary>Per-style wrist-HUD offset toward the fingers (wrist +Z, meters).</summary>
+    /// <summary>Per-style wrist-HUD offset out of the palm (wrist +Z, meters).</summary>
     public static ConfigEntry<float>[]? StyleWristOffsetZ;
 
+    // WHY THE THREE OFFSET KEYS END IN THE WORD "Offset" AND NOT IN AN AXIS LETTER — this is the
+    // fix for "Der X-Offset beim Arm-HUD hat keinen Einfluss, alle anderen Werte und Offsets
+    // funktionieren" (2026-08-09), and the dial was never unwired: it was unMOVABLE.
+    //
+    // One ◀/▶ press is derived per entry (ConfigCatalog.ResolveStep) in falling order: a step
+    // written down for it, else the unit named in its KEY, else a fiftieth of the declared range,
+    // else a fiftieth of the shipped default's MAGNITUDE. ConfigSteps matches its unit words as a
+    // SUFFIX ("Meters", "Offset", "Degrees", …), and the old keys were {Style}OffsetX/Y/Z — the
+    // axis letter sat between the unit word and the end of the name, so the test never saw
+    // "Offset" and all three fell through to the magnitude rule. That rule scales the step to the
+    // DIAL, and X shipped the smallest default of the three (-0.003 for the glove against Y's
+    // -0.053): 0.003/50 -> 0.00005, i.e. one press moved the HUD by a twentieth of a millimetre
+    // while Y moved by one. Exactly the defect ConfigSteps' own remarks already record for the
+    // per-board asset rotation, where the trailing "_Oak" hid the unit the same way and "the user
+    // pressed his way to -0.04° and correctly reported 'no effect'".
+    //
+    // Naming the DIRECTION rather than the axis fixes the step (all three now end in "Offset", so
+    // the unit rule gives them a centimetre, bounded below by their own scale — 1 cm for the
+    // centred side offset, 5 mm for the other two) and fixes the caption at the same time: "X"
+    // meant the wrist ANCHOR's X, which is not a frame anyone can guess from a letter. The
+    // remaining hole is ConfigSteps' own — any OTHER key in the project ending in a bare axis
+    // letter still misses its unit word — and it is reported rather than fixed here, because
+    // TryUnit is shared with dials this round has no business re-stepping.
+
     // ---- shipped per-style wrist-HUD pose, indexed by (int)HandStyle: Glove, Plate, Arcane ----
-    // MEASURED, NOT DERIVED — the same story as DefaultSeat* above. These used to be seeded at
-    // runtime from the legacy global [WorldUI] WristHud* entries, one value for all three styles,
-    // which cannot express what the hardware pass actually found: the glove's thin back of hand
-    // wants a different HUD pose than the two armored styles' bulk. The values below are those
-    // dial-ins and are now the shipped defaults outright. Existing configs are untouched
-    // (BepInEx returns a saved value over a changed default), and the legacy [WorldUI] WristHud*
-    // entries stay bound where they are.
-    private static readonly float[] DefaultWristPitch = { Defaults.GlovePitch, Defaults.PlatePitch, Defaults.ArcanePitch };
-    private static readonly float[] DefaultWristYaw = { Defaults.GloveYaw, Defaults.PlateYaw, Defaults.ArcaneYaw };
-    private static readonly float[] DefaultWristRoll = { Defaults.GloveRoll, Defaults.PlateRoll, Defaults.ArcaneRoll };
-    private static readonly float[] DefaultWristOffsetX = { Defaults.GloveOffsetX, Defaults.PlateOffsetX, Defaults.ArcaneOffsetX };
-    private static readonly float[] DefaultWristOffsetY = { Defaults.GloveOffsetY, Defaults.PlateOffsetY, Defaults.ArcaneOffsetY };
-    private static readonly float[] DefaultWristOffsetZ = { Defaults.GloveOffsetZ, Defaults.PlateOffsetZ, Defaults.ArcaneOffsetZ };
+    // The per-style ARRAYS stay (the three meshes really do have different bulk under the plate,
+    // and a player who trims one style must not have the other two move with it), but the palm
+    // turn-around reset all three to one pose: the base rotation IS the wanted orientation now,
+    // so every trim ships 0°, and the offset is a plate floating clear of the palm, which clears
+    // all three meshes by the same margin. Tuning them apart again is a hardware question — that
+    // is what the rows are for.
+    private static readonly float[] DefaultWristPitch = { Defaults.GlovePalmPitch, Defaults.PlatePalmPitch, Defaults.ArcanePalmPitch };
+    private static readonly float[] DefaultWristYaw = { Defaults.GlovePalmYaw, Defaults.PlatePalmYaw, Defaults.ArcanePalmYaw };
+    private static readonly float[] DefaultWristRoll = { Defaults.GlovePalmRoll, Defaults.PlatePalmRoll, Defaults.ArcanePalmRoll };
+    private static readonly float[] DefaultWristOffsetX = { Defaults.GlovePalmSideOffset, Defaults.PlatePalmSideOffset, Defaults.ArcanePalmSideOffset };
+    private static readonly float[] DefaultWristOffsetY = { Defaults.GlovePalmFingerOffset, Defaults.PlatePalmFingerOffset, Defaults.ArcanePalmFingerOffset };
+    private static readonly float[] DefaultWristOffsetZ = { Defaults.GlovePalmLiftOffset, Defaults.PlatePalmLiftOffset, Defaults.ArcanePalmLiftOffset };
 
     /// <summary>
     /// Index of the ACTIVE hand style ([Hands] HandStyle, clamped; Glove before Plugin
@@ -507,11 +536,9 @@ internal static class HandsConfig
                 "in the hand. Live-tunable.");
         }
         // PER-STYLE wrist-HUD pose (request B): each style ships the pose measured for it
-        // (DefaultWrist* above) rather than a seed read from the legacy global [WorldUI]
-        // WristHud* entries, for the same reason the seat controls stopped being seeded.
-        // WorldUIConfig.Bind stays called here — it is idempotent, and HandsModule inits
-        // before WorldUIModule, so this keeps the [WorldUI] entries bound from the same point
-        // in the sequence they always were.
+        // (DefaultWrist* above). WorldUIConfig.Bind stays called here — it is idempotent, and
+        // HandsModule inits before WorldUIModule, so this keeps the [WorldUI] entries bound
+        // from the same point in the sequence they always were.
         WorldUI.WorldUIConfig.Bind();
         StyleWristPitch = new ConfigEntry<float>[HandStyles.Count];
         StyleWristYaw = new ConfigEntry<float>[HandStyles.Count];
@@ -522,27 +549,38 @@ internal static class HandsConfig
         for (int i = 0; i < HandStyles.Count; i++)
         {
             string s = styleNames[i];
-            string per = $"PER-STYLE absolute value while the {s} hand style is worn " +
-                "(supersedes the shared [WorldUI] WristHud* entry it was seeded from on first " +
-                "run). Live-tunable — WristHud re-applies every tick.";
+            string per = $"PER-STYLE absolute value while the {s} hand style is worn. " +
+                "Live-tunable — WristHud re-applies every tick.";
+            // The three TRIMS sit on top of the palm base (WristHud.PalmFlat), which already IS
+            // the shipped orientation — so 0 means "as shipped" and the numbers stay small and
+            // readable. No declared range on any of these six: a bounded scalar is rendered as a
+            // SLIDER (VROptionsTab.2.Rows.cs), and a bar you drag is the wrong instrument for a
+            // millimetre trim on your own wrist. They stay steppers.
             StyleWristPitch[i] = config.Bind(
-                "WristHud", $"{s}Pitch", Seat(DefaultWristPitch, i),
-                $"Wrist overview HUD tilt (pitch, degrees) on top of the flat-on-hand base. {per}");
+                "WristHud", $"{s}PalmPitch", Seat(DefaultWristPitch, i),
+                $"Wrist HUD tilt (pitch, degrees) on top of the palm base — 0 is the shipped " +
+                $"orientation, flat on the palm and read by turning your palm up. {per}");
             StyleWristYaw[i] = config.Bind(
-                "WristHud", $"{s}Yaw", Seat(DefaultWristYaw, i),
-                $"Wrist overview HUD yaw (degrees). {per}");
+                "WristHud", $"{s}PalmYaw", Seat(DefaultWristYaw, i),
+                $"Wrist HUD yaw (degrees) on top of the palm base; 0 is the shipped orientation. {per}");
             StyleWristRoll[i] = config.Bind(
-                "WristHud", $"{s}Roll", Seat(DefaultWristRoll, i),
-                $"Wrist overview HUD roll (degrees). {per}");
+                "WristHud", $"{s}PalmRoll", Seat(DefaultWristRoll, i),
+                $"Wrist HUD roll (degrees) on top of the palm base; 0 is the shipped orientation. {per}");
+            // The three OFFSETS are stated in the WRIST ANCHOR's frame, measured off the shipped
+            // prefabs (see WristHud.Build): across the hand, toward the fingers, out of the palm.
+            // Their names end in the unit word on purpose — see the block above the arrays.
             StyleWristOffsetX[i] = config.Bind(
-                "WristHud", $"{s}OffsetX", Seat(DefaultWristOffsetX, i),
-                $"Wrist overview HUD offset along wrist X, real meters. {per}");
+                "WristHud", $"{s}PalmSideOffset", Seat(DefaultWristOffsetX, i),
+                $"Wrist HUD offset ACROSS the hand, real meters (wrist +X — toward the little " +
+                $"finger on the right hand, the thumb on the left). {per}");
             StyleWristOffsetY[i] = config.Bind(
-                "WristHud", $"{s}OffsetY", Seat(DefaultWristOffsetY, i),
-                $"Wrist overview HUD offset out the back of the hand (wrist +Y), real meters. {per}");
+                "WristHud", $"{s}PalmFingerOffset", Seat(DefaultWristOffsetY, i),
+                $"Wrist HUD offset toward the FINGERS, real meters (wrist +Y; negative slides it " +
+                $"back down the forearm, which is where it ships). {per}");
             StyleWristOffsetZ[i] = config.Bind(
-                "WristHud", $"{s}OffsetZ", Seat(DefaultWristOffsetZ, i),
-                $"Wrist overview HUD offset toward the fingers (wrist +Z), real meters. {per}");
+                "WristHud", $"{s}PalmLiftOffset", Seat(DefaultWristOffsetZ, i),
+                $"Wrist HUD offset OUT OF THE PALM, real meters (wrist +Z — how far clear of the " +
+                $"hand the plate floats). {per}");
         }
 
         VRLog.Info("Hands", "[Hands] Per-style seat controls bound: " +

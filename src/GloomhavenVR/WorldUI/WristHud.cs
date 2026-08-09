@@ -11,7 +11,10 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>
 /// Compact character status on the non-dominant wrist (ROADMAP P3c #5): HP, XP,
-/// gold, level and condition counts, look-at activated (watch-check gesture).
+/// gold, level and condition counts, look-at activated. Since 2026-08-09 it is a PALM
+/// plate — you read it by turning your palm up, not by glancing at your knuckles (user:
+/// "ich will nun, dass der Arm-HUD zu sehen ist wenn man die Handflächen anschaut"); see
+/// the measured wrist frame in <see cref="Build"/>.
 /// Test #13: topped by a PROMINENT character identity row — class portrait + name
 /// of the character the player is currently acting for ("whose cards am I picking").
 ///
@@ -47,16 +50,29 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed class WristHud
 {
-    // Look-at hysteresis on the panel NORMAL (wrist +Y). Lowered this round because
-    // VISIBILITY is the #1 requirement: the back of the hand only needs to be roughly
-    // toward the HMD for the watch-check glance to register.
+    // Look-at hysteresis on the panel's OWN normal (see the gate in Tick). Lowered in an
+    // earlier round because VISIBILITY is the #1 requirement: the readable face only needs
+    // to be roughly toward the HMD for the glance to register.
     private const float ShowDot = 0.35f;
     private const float HideDot = 0.2f;
     private const float RefreshInterval = 0.25f;
 
+    /// <summary>
+    /// Sub-step lift above the farthest-still-behind panel's ladder slot (Test 3, user
+    /// 2026-08-09: "Auch das Arm-HUD soll sich mit allen anderen Dingen im Spiel an
+    /// Perspektive halten"). Same value and the same reasoning as
+    /// <c>Cards.CardCueOrder.CuePanelLift</c> and <c>Net.BoardVisual.TagPanelLift</c>: it must
+    /// stay under <c>CanvasConversion.PanelOrderStep</c> (16) so the HUD can never climb into
+    /// the NEXT panel's slot, and 12 clears that window's own decorations too (close X +2,
+    /// grab bar +4, menu-laid tooltip +10) — a wrist HUD genuinely in front of a window covers
+    /// the whole window, its furniture included.
+    /// </summary>
+    private const int PanelLift = 12;
+
     private readonly StringBuilder _sb = new(256);
 
     private GameObject? _root;
+    private Canvas? _canvas;
     private CanvasGroup? _group;
     private TextMeshProUGUI? _text;
     private VRHand? _hand;
@@ -72,26 +88,47 @@ internal sealed class WristHud
     private string _lastIdentity = string.Empty;
     private bool _eventsAttached;
 
+    /// <summary>Last ladder order written to <see cref="_canvas"/> (change-gate).
+    /// <c>int.MinValue</c> = never written, so the first shown tick always seats the plate —
+    /// a one-frame gap at order 0 is the defect band itself.</summary>
+    private int _appliedOrder = int.MinValue;
+
     // ---- Item 10 + per-style rework: live-tunable pose (the "Wrist" debug category) --------
     // The watch-face pose — its OFFSET from the wrist anchor and its TILT (pitch/yaw/roll on
-    // top of the flat-on-hand base) — is re-read and re-applied every Tick (ApplyPose), so
-    // nudging a stepper in the VR debug menu moves the HUD immediately.
+    // top of the palm base) — is re-read and re-applied every Tick (ApplyPose), so nudging a
+    // stepper in the VR settings menu moves the HUD immediately.
     //
-    // PER HAND STYLE (2026-07 request B): the HUD rests on the hand MESH, whose shape differs
+    // PER HAND STYLE (2026-07 request B): the HUD rests over the hand MESH, whose shape differs
     // per style (Glove/Plate/Arcane), so the persistent home of the pose is the PER-STYLE
-    // [WristHud] section of dev.gloomhavenvr.hands.cfg (HandsConfig.StyleWrist*, seeded once
-    // from the legacy global [WorldUI] WristHud* entries so a tuned pose carried over to all
-    // three styles). The accessors below read/write the ACTIVE style ([Hands] HandStyle), so
-    // the debug steppers edit the style currently worn and a style switch re-poses the HUD on
-    // the very next Tick. The legacy [WorldUI] entries stay bound (WorldUIConfig assigns them
-    // here) purely as the pre-Bind fallback + the per-style seed source; the statics are the
-    // last-resort in-session fallback. The HUD's on/off toggle ([WorldUI] WristHud) is global.
-#pragma warning disable CS0649
-    internal static ConfigEntry<float>? PitchEntry, YawEntry, RollEntry,
-                                         OffsetXEntry, OffsetYEntry, OffsetZEntry;
-#pragma warning restore CS0649
+    // [WristHud] section of dev.gloomhavenvr.hands.cfg (HandsConfig.StyleWrist*). The accessors
+    // below read/write the ACTIVE style ([Hands] HandStyle), so the steppers edit the style
+    // currently worn and a style switch re-poses the HUD on the very next Tick. The HUD's
+    // on/off toggle ([WorldUI] WristHud) is global.
+    //
+    // ONE DIAL, ONE OWNER (user 2026-08-09: "Der X-Offset beim Arm-HUD hat keinen Einfluss,
+    // alle anderen Werte und Offsets funktionieren"). This class used to accept its pose from
+    // TWO places: the per-style [WristHud] entries above AND a second, older set of six global
+    // [WorldUI] WristHud* entries assigned into static ConfigEntry fields here. The per-style
+    // array always wins (it is bound during HandsConfig.Bind, which runs long before the first
+    // Tick), so those six were unreachable — six dials in the settings menu, each carrying the
+    // SAME localized caption as the live one ("Arm-HUD: X (m)"), every one of them dead. That
+    // is the exact disease the reparented cluster dial and the consumer-less wire field were:
+    // a control the player can move with nothing to show for it. They are gone from here and
+    // marked LEGACY at their bind site (WorldUIConfig), which drops them from the menu.
+    //
+    // (The X dial's OWN failure was a STEP, not an owner, and the two are worth telling apart —
+    // see the block above the arrays in HandsConfig: the key ended in "X", so ConfigSteps' unit
+    // rule never saw the word "Offset" and the step fell to a fiftieth of the shipped default's
+    // magnitude. X had the smallest default of the three, so it moved the HUD by a twentieth of
+    // a millimetre per press while Y moved it by one.)
+    //
+    // The statics below are the last-resort in-session fallback for the window before
+    // HandsConfig.Bind has run (a hot reload, a config file that failed to open). They carry
+    // the shipped palm pose so that window looks like the shipped one rather than like origin.
     private static float _pitch, _yaw, _roll;
-    private static float _offX = 0f, _offY = 0.015f, _offZ = 0.01f;
+    private static float _offX = Defaults.GlovePalmSideOffset,
+                         _offY = Defaults.GlovePalmFingerOffset,
+                         _offZ = Defaults.GlovePalmLiftOffset;
 
     /// <summary>The ACTIVE style's element of a per-style pose array, else <paramref name="fallback"/>.</summary>
     private static float StyleGet(ConfigEntry<float>[]? styled, float fallback)
@@ -126,50 +163,53 @@ internal sealed class WristHud
 
     internal static float PitchDeg
     {
-        get => StyleGet(HandsConfig.StyleWristPitch, PitchEntry?.Value ?? _pitch);
-        set { if (!StyleSet(HandsConfig.StyleWristPitch, value)) { if (PitchEntry != null) PitchEntry.Value = value; else _pitch = value; } }
+        get => StyleGet(HandsConfig.StyleWristPitch, _pitch);
+        set { if (!StyleSet(HandsConfig.StyleWristPitch, value)) _pitch = value; }
     }
     internal static float YawDeg
     {
-        get => StyleGet(HandsConfig.StyleWristYaw, YawEntry?.Value ?? _yaw);
-        set { if (!StyleSet(HandsConfig.StyleWristYaw, value)) { if (YawEntry != null) YawEntry.Value = value; else _yaw = value; } }
+        get => StyleGet(HandsConfig.StyleWristYaw, _yaw);
+        set { if (!StyleSet(HandsConfig.StyleWristYaw, value)) _yaw = value; }
     }
     internal static float RollDeg
     {
-        get => StyleGet(HandsConfig.StyleWristRoll, RollEntry?.Value ?? _roll);
-        set { if (!StyleSet(HandsConfig.StyleWristRoll, value)) { if (RollEntry != null) RollEntry.Value = value; else _roll = value; } }
+        get => StyleGet(HandsConfig.StyleWristRoll, _roll);
+        set { if (!StyleSet(HandsConfig.StyleWristRoll, value)) _roll = value; }
     }
     internal static float OffsetX
     {
-        get => StyleGet(HandsConfig.StyleWristOffsetX, OffsetXEntry?.Value ?? _offX);
-        set { if (!StyleSet(HandsConfig.StyleWristOffsetX, value)) { if (OffsetXEntry != null) OffsetXEntry.Value = value; else _offX = value; } }
+        get => StyleGet(HandsConfig.StyleWristOffsetX, _offX);
+        set { if (!StyleSet(HandsConfig.StyleWristOffsetX, value)) _offX = value; }
     }
     internal static float OffsetY
     {
-        get => StyleGet(HandsConfig.StyleWristOffsetY, OffsetYEntry?.Value ?? _offY);
-        set { if (!StyleSet(HandsConfig.StyleWristOffsetY, value)) { if (OffsetYEntry != null) OffsetYEntry.Value = value; else _offY = value; } }
+        get => StyleGet(HandsConfig.StyleWristOffsetY, _offY);
+        set { if (!StyleSet(HandsConfig.StyleWristOffsetY, value)) _offY = value; }
     }
     internal static float OffsetZ
     {
-        get => StyleGet(HandsConfig.StyleWristOffsetZ, OffsetZEntry?.Value ?? _offZ);
-        set { if (!StyleSet(HandsConfig.StyleWristOffsetZ, value)) { if (OffsetZEntry != null) OffsetZEntry.Value = value; else _offZ = value; } }
+        get => StyleGet(HandsConfig.StyleWristOffsetZ, _offZ);
+        set { if (!StyleSet(HandsConfig.StyleWristOffsetZ, value)) _offZ = value; }
     }
 
-    // Flat-on-hand base rotation (see Build's rotation block): panel normal = wrist +Y, plane
-    // spans wrist X/Z. The live pitch/yaw/roll compose in the panel's own local frame on top.
-    private static readonly Quaternion FlatBackOfHand =
-        Quaternion.LookRotation(Vector3.up, Vector3.forward);
+    /// <summary>
+    /// THE PALM BASE — the identity of the wrist anchor's own frame, and the whole reason this
+    /// class no longer needs a LookRotation at all. See Build's rotation block for the measured
+    /// derivation; the live pitch/yaw/roll compose in the panel's own local frame on top of it,
+    /// so a trim of 0/0/0 IS the shipped orientation.
+    /// </summary>
+    private static readonly Quaternion PalmFlat = Quaternion.identity;
 
     /// <summary>
     /// Item 10: re-apply the wrist HUD pose from the live-tunable offset + tilt. Called once in
-    /// Build and every Tick, so the "Wrist" debug steppers move the watch face immediately.
+    /// Build and every Tick, so the "Wrist" steppers move the watch face immediately.
     /// </summary>
     private void ApplyPose()
     {
         if (_root == null)
             return;
         _root.transform.localPosition = new Vector3(OffsetX, OffsetY, OffsetZ);
-        _root.transform.localRotation = FlatBackOfHand * Quaternion.Euler(PitchDeg, YawDeg, RollDeg);
+        _root.transform.localRotation = PalmFlat * Quaternion.Euler(PitchDeg, YawDeg, RollDeg);
     }
 
     public void Tick()
@@ -198,21 +238,68 @@ internal sealed class WristHud
         // steppers move the HUD live (allocation-free — a Vector3 + two quaternions).
         ApplyPose();
 
-        // Look-at gate: the HUD is a flat watch-face shelf lying in the back-of-hand
-        // plane; its readable front (panel NORMAL) points out the BACK of the hand along
-        // wrist +Y (= Root.up — see Build's rotation block). It is visible while that
-        // normal turns toward the HMD, i.e. when you glance DOWN at the back of your hand
-        // (the watch-check gesture). Gate axis is wrist +Y (Root.up), matching the normal.
+        // Look-at gate: the HUD is a flat plate lying in the PALM plane, readable from the
+        // palm side (user 2026-08-09: "ich will nun, dass der Arm-HUD zu sehen ist wenn man
+        // die Handflächen anschaut"). It is visible while its readable face turns toward the
+        // HMD — i.e. when you turn your palm up to read it.
+        //
+        // GATE AXIS IS THE PANEL'S OWN NORMAL, not a rig axis. Every previous round wrote the
+        // gate as a hand-picked rig axis that had to be kept in agreement with the base
+        // rotation BY HAND, and the file's own history is three rounds of that agreement
+        // breaking (normal on +Y with the gate on +Z, then the reverse). `_root.forward` IS
+        // the readable face by construction: it follows the base AND the per-style yaw/pitch/
+        // roll trims, so no future re-aim can desynchronize the two again. Costs the same one
+        // matrix read the old `hand.Rig.Root.up` did.
         Camera? head = CanvasConversion.WorldCamera;
         if (head != null && _group != null)
         {
             Vector3 toHead = (head.transform.position - _root.transform.position).normalized;
-            float dot = Vector3.Dot(hand.Rig.Root.up, toHead);
+            float dot = Vector3.Dot(_root.transform.forward, toHead);
             if (!_shown && dot > ShowDot) _shown = true;
             else if (_shown && dot < HideDot) _shown = false;
 
             float target = _shown ? 1f : 0f;
             _group.alpha = Mathf.MoveTowards(_group.alpha, target, Time.deltaTime * 6f);
+
+            // ---- PERSPECTIVE (user 2026-08-09) ----------------------------------------------
+            // "Auch das Arm-HUD soll sich mit allen anderen Dingen im Spiel an Perspektive
+            // halten, aktuell kann ich die Healthbars hindurch sehen die dahinter sind und ich
+            // kann die Menü-Fenster hindurch sehen die auch dahinter sind."
+            //
+            // ROOT CAUSE, and it is the mod's standing one for depth-less transparents: this
+            // canvas shipped at the default sortingOrder 0 while every converted panel — the
+            // health bars (ActorBars converts each bar host, ActorBars.cs BarHostSortingOrder)
+            // and every menu window — rides the distance ladder at >= PanelOrderBase (100).
+            // Unity sorts transparents by sortingLayer -> sortingOrder -> renderQueue ->
+            // distance, so order beat distance and a panel SEVEN METRES AWAY painted last, over
+            // a HUD an arm's length from the eye. Nothing here writes depth (a ZWrite on an
+            // alpha-blended plate stamps its bounding RECTANGLE — the hard-edged hole
+            // CanvasConversion.8.Order.cs exists to have removed), so depth cannot arbitrate.
+            //
+            // THE FIX IS THE LADDER, NOT A BIGGER NUMBER. OrderAboveDistance ranks this plate by
+            // its MEASURED eye distance among the panels, exactly as the board tooltip
+            // (WorldTooltips), the avatar identity tags (Net.BoardVisual) and the card cue art
+            // (Cards.CardCueOrder, ModBuild 94) already do. A menu genuinely IN FRONT of the
+            // wrist still covers it; one behind it no longer shows through. That is the user's
+            // sentence — consistency — rather than "the HUD wins".
+            //
+            // Reads the PREVIOUS frame's ladder (TickPanelOrder runs last in the WorldUI
+            // LateUpdate chain): a one-frame lag on a hysteresis-damped ladder is not
+            // observable, the same trade every other OrderAboveDistance caller accepts.
+            //
+            // COST (there is a live performance budget): one Vector3.Distance, one walk over the
+            // ~30 listed panels and a CHANGE-GATED int write — and only while the plate is
+            // actually on screen. A hidden HUD does none of it.
+            if (_canvas != null && (_shown || _group.alpha > 0.001f))
+            {
+                float eyeDistance = Vector3.Distance(head.transform.position, _root.transform.position);
+                int order = CanvasConversion.OrderAboveDistance(eyeDistance, PanelLift);
+                if (order != _appliedOrder)
+                {
+                    _appliedOrder = order;
+                    _canvas.sortingOrder = order;
+                }
+            }
         }
 
         if (_shown && Time.unscaledTime >= _nextRefresh)
@@ -235,6 +322,8 @@ internal sealed class WristHud
             Object.Destroy(_root);
             _root = null;
         }
+        _canvas = null;
+        _appliedOrder = int.MinValue;
         _hand = null;
         _portraitGo = null;
         _portrait = null;
@@ -294,64 +383,67 @@ internal sealed class WristHud
         _root.layer = 5; // UI
         Transform wrist = hand.Rig.Wrist;
         _root.transform.SetParent(wrist, worldPositionStays: false);
-        // Panel position: a flat "watch face" shelf resting just proud of the BACK of the
-        // hand near the wrist. Because the panel now lies FLAT in the wrist X/Z plane (see
-        // rotation below), its 9.6 cm width spans wrist X and its 7.8 cm height spans wrist
-        // Z (along the fingers) — NEITHER dimension extends along +Y anymore, so no large
-        // radial lift is needed. We only push it ~1.5 cm out along +Y so it hovers just
-        // proud of the hand mesh, and nudge it slightly toward the fingers (+Z) so the
-        // tray sits over the back of the hand rather than the forearm.
-        // Item 10: position (and the tilt below) now come from the live-tunable pose
-        // (ApplyPose). Its defaults match the values described here — OffsetX 0, OffsetY
-        // +1.5 cm (proud of the hand), OffsetZ +1 cm (toward the fingers) — so the resting
-        // look is unchanged; the "Wrist" debug category nudges them live.
-        // Wrist frame (HandRig contract, HandRig.cs:45): +Z along the fingers, +Y out of
-        // the BACK of the hand, +X shared left/right by both hands.
+        // ============================ THE PALM PLATE (2026-08-09) ============================
+        // USER REQUEST, verbatim: "Bitte drehe einmal den Arm-HUD um 180 Grad - ich will nun,
+        // dass der Arm-HUD zu sehen ist wenn man die Handflächen anschaut, nicht die Oberseite
+        // der Hand wie es aktuell der Fall ist."
         //
-        // GOAL (user, hardware-tested): the panel must lie FLAT/HORIZONTAL on the back of
-        // the hand — a watch face / small tray you read by glancing DOWN at your hand
-        // ("flach, horizontal, am unteren Rand der Hand"). Flat-on-hand means the panel
-        // NORMAL points straight out the BACK of the hand = wrist +Y, and the panel plane
-        // spans wrist X and wrist Z.
+        // THE FRAME THIS PARENTS INTO — MEASURED, NOT ASSUMED. Every earlier round of this
+        // block reasoned in the frame documented for HandRig.ROOT ("+Z along the fingers, +Y
+        // out of the BACK of the hand") and silently applied it to HandRig.WRIST, which is a
+        // DIFFERENT transform. The parent here is Socket_Wrist, a zero-offset child of the
+        // prefabs' `Anchor_Wrist`, and that anchor carries a +90° X rotation relative to the
+        // prefab root. Read out of all six shipped prefabs (VRHand_L/R, VRHandPlate_L/R,
+        // VRHandArcane_L/R — every one of them identical, and identical between LEFT and RIGHT:
+        // only the anchor's POSITION mirrors, its axes do not), the wrist frame is
+        //     wrist +X -> root +X   lateral across the hand   (shared by both hands)
+        //     wrist +Y -> root +Z   ALONG THE FINGERS
+        //     wrist +Z -> root -Y   OUT OF THE PALM
+        // and the prefabs corroborate it twice over in their own data: Anchor_Palm sits at
+        // wrist-local (0.008, 0.049, 0.003) — 4.9 cm along +Y, i.e. the palm centre up the hand
+        // — and Anchor_Grab at (0.010, 0.059, 0.013), a further centimetre out along +Z, which
+        // is exactly where a held object rests ON the palm. That is why every shipped trim used
+        // to be a ~-90° pitch: it was undoing this +90° by hand, from the wrong frame.
         //
-        // HARDWARE HISTORY (this has flip-flopped — document the FINAL mapping explicitly):
-        //   - An earlier round used LookRotation(forward=+Y, up=+Z): normal on +Y but the
-        //     glance/gate axis was mismatched, so it read as a vertical billboard.
-        //   - Last round over-corrected to LookRotation(forward=+Z, up=-Y): that put the
-        //     normal on wrist +Z (the FINGER axis), i.e. the panel stood PERPENDICULAR to
-        //     the back-of-hand plane → edge-on and INVISIBLE when glancing down. Regression.
+        // SO THE BASE IS THE IDENTITY. The wrist anchor's own axes already ARE the palm plate:
+        //   canvas +Z (READABLE FRONT) -> wrist +Z = out of the PALM, toward the player looking
+        //                                 at their own palm. (That this uGUI/TMP canvas reads
+        //                                 from local +Z is not a guess: it is the hardware
+        //                                 finding of the un-mirror fix, commit 3cc7ac8.)
+        //   canvas +Y (text top)       -> wrist +Y = toward the FINGERS, so the stats read
+        //                                 upright when you raise your palm — the same
+        //                                 "12-o'clock points up your hand" convention the
+        //                                 back-of-hand version had.
+        //   canvas +X (text right)     -> wrist +X
+        // The plate spans wrist X/Y = the PALM plane, its normal is the palm normal. Identity is
+        // a proper rotation (det +1), so THE TEXT IS NEVER MIRRORED, and because the wrist frame
+        // is anatomically identical on both hands this needs NO per-hand sign flip — unlike the
+        // seat roll/yaw and the pinky counter-abduction, which mirror because they are stated in
+        // the CONTROLLER's frame. Left wrist and right wrist get the same, correct plate.
         //
-        // FINAL (this round): LookRotation(forward=+Y, up=+Z) = LookRotation(Vector3.up,
-        // Vector3.forward). Unity's LookRotation maps local +Z -> forward-arg and local +Y
-        // -> up-arg (orthogonalised). Verified axis decomposition (Unity left-handed:
-        // x = Cross(up, forward)):
-        //   canvas +Z (READABLE FRONT) -> wrist +Y  (straight out the back of the hand,
-        //                                             toward the down-glancing HMD => the
-        //                                             text face is what you see)
-        //   canvas +Y (text top)       -> wrist +Z  (toward the FINGERS => 12-o'clock of
-        //                                             the watch points up your hand, so the
-        //                                             stats read upright when glanced down
-        //                                             at, like a watch face)
-        //   canvas +X (text right)     -> wrist -X
-        // Panel normal = wrist +Y and the plane spans wrist X and wrist Z = FLAT/HORIZONTAL
-        // on the back of the hand. This is a PROPER rotation (det +1), so the front face is
-        // NEVER mirrored: a world-space canvas always reads correctly when viewed from its
-        // +Z side, which is exactly the down-glance viewer here. The look-at gate above was
-        // updated to match this normal (wrist +Y = Root.up).
+        // The per-style pitch/yaw/roll keep meaning exactly what they meant — a tilt in the
+        // plate's own frame on top of the base — but they now sit on a base that is already the
+        // wanted orientation, so all three styles ship 0/0/0 (Defaults.Hands.cs) and the user
+        // has nothing to tune. The old trims could not be carried over: they were the correction
+        // for a base that no longer exists, so their KEYS were renamed ({Style}PalmPitch etc.,
+        // HandsConfig) — a saved -180° yaw silently surviving into the new base would have put
+        // the plate straight back on the knuckles, which is precisely the "two rotations that
+        // cancel" trap.
         //
-        // FLIP FALLBACK (the ONE thing that can't be verified without a headset):
-        //   * If the text reads UPSIDE-DOWN (rotated 180 deg in-plane), swap the up-arg
-        //     sign — LookRotation(Vector3.up, Vector3.back) — no gate change needed.
-        //   * If you see the BACK face / it stays edge-on-invisible (normal pointing the
-        //     wrong way), flip the forward-arg — LookRotation(Vector3.down, Vector3.forward)
-        //     — AND flip the gate axis to Vector3.Dot(-hand.Rig.Root.up, toHead).
-        // Item 10: base flat-on-hand rotation (LookRotation(up, forward)) composed with the
-        // live pitch/yaw/roll, plus the offset above — all applied by ApplyPose.
+        // POSITION, same frame: the shipped offsets put the plate over the inner wrist, a couple
+        // of centimetres clear of the mesh on the palm side (Defaults.GlovePalmOffset*). It is
+        // driven live by ApplyPose, so the "Wrist" rows nudge it in real time.
         ApplyPose();
 
         var canvas = _root.AddComponent<Canvas>();
+        _canvas = canvas;
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.worldCamera = CanvasConversion.WorldCamera;
+        // Seated on the distance ladder from the first shown tick (see Tick's PERSPECTIVE
+        // block). PanelOrderBase is where the panels start, so a plate left at the Unity
+        // default 0 is under every one of them; this is only the pre-measurement seat.
+        canvas.sortingOrder = 0;
+        _appliedOrder = int.MinValue;
         var rect = (RectTransform)_root.transform;
         rect.sizeDelta = new Vector2(240f, 196f); // +46 px identity row (test #13)
         rect.localScale = Vector3.one * 0.0004f; // 0.4 mm/px → 9.6 × 7.8 cm watch face
@@ -424,7 +516,13 @@ internal sealed class WristHud
         _nextRefresh = 0f;
         // Mod layer in VR (inline 5s remain the dev-sim fallback; CAMERA-POLICY §2).
         VRLayers.Apply(_root);
-        VRLog.Info("WorldUI", $"WristHud built on {hand.Side} wrist.");
+        // The resolved pose goes in the log so a "it sits wrong" report can be read against the
+        // numbers that produced it — which style's row was live, and what it held.
+        VRLog.Info("WorldUI", $"WristHud built on {hand.Side} wrist (palm plate, style " +
+                              $"{(HandStyle)HandsConfig.ActiveStyleIndex}): offset " +
+                              $"{OffsetX * 1000f:0}/{OffsetY * 1000f:0}/{OffsetZ * 1000f:0} mm " +
+                              $"in the wrist frame (+X across, +Y to the fingers, +Z out of the " +
+                              $"palm), trim {PitchDeg:0.#}/{YawDeg:0.#}/{RollDeg:0.#}°.");
     }
 
     // ---- data --------------------------------------------------------------------------

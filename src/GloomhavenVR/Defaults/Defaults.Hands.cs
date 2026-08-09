@@ -63,22 +63,34 @@ internal static partial class Defaults
     internal const float GloveSpreadOffset = 0.07f;         // => [Hands] GloveSpreadOffset
     internal const float PlateSpreadOffset = 0.05f;         // => [Hands] PlateSpreadOffset
     internal const float ArcaneSpreadOffset = 0.05f;        // => [Hands] ArcaneSpreadOffset
-    internal const float GlovePitch = -88f;                 // => [WristHud] GlovePitch
-    internal const float PlatePitch = -102f;                // => [WristHud] PlatePitch
-    internal const float ArcanePitch = -102f;               // => [WristHud] ArcanePitch
-    internal const float GloveYaw = -180f;                  // => [WristHud] GloveYaw
-    internal const float PlateYaw = -180f;                  // => [WristHud] PlateYaw
-    internal const float ArcaneYaw = -180f;                 // => [WristHud] ArcaneYaw
-    internal const float GloveRoll = -3f;                   // => [WristHud] GloveRoll
-    internal const float PlateRoll = 0f;                    // => [WristHud] PlateRoll
-    internal const float ArcaneRoll = 0f;                   // => [WristHud] ArcaneRoll
-    internal const float GloveOffsetX = -0.003f;            // => [WristHud] GloveOffsetX
-    internal const float PlateOffsetX = 0.0185f;            // => [WristHud] PlateOffsetX
-    internal const float ArcaneOffsetX = 0.0185f;           // => [WristHud] ArcaneOffsetX
-    internal const float GloveOffsetY = -0.053f;            // => [WristHud] GloveOffsetY
-    internal const float PlateOffsetY = -0.147f;            // => [WristHud] PlateOffsetY
-    internal const float ArcaneOffsetY = -0.147f;           // => [WristHud] ArcaneOffsetY
-    internal const float GloveOffsetZ = -0.005f;            // => [WristHud] GloveOffsetZ
-    internal const float PlateOffsetZ = 0.052f;             // => [WristHud] PlateOffsetZ
-    internal const float ArcaneOffsetZ = 0.052f;            // => [WristHud] ArcaneOffsetZ
+    // ---- the wrist HUD's PALM pose (2026-08-09 turn-around) -------------------------------
+    // The plate now hangs on the palm side and the base rotation IS the wanted orientation
+    // (WristHud.PalmFlat = the wrist anchor's own frame, derived in WristHud.Build), so every
+    // per-style TRIM ships 0 and the user has nothing to dial to get the requested look. The
+    // OFFSETS are in that same wrist frame: Side = across the hand, Finger = toward the
+    // fingertips, Lift = out of the palm. 2 cm back down the forearm and 2 cm clear of the palm
+    // puts a 9.6 x 7.8 cm plate over the inner wrist, where a watch is worn, without
+    // intersecting any of the three hand meshes. Predecessors (GlovePitch/GloveOffsetX/...
+    // against the old back-of-hand base) are deliberately gone rather than renamed in place:
+    // those numbers were the correction for a base that no longer exists, and carrying them
+    // over would cancel the turn-around. The offsets are also no longer named for an axis
+    // LETTER — that is what made the X row unsteppable; see HandsConfig's bind block.
+    internal const float GlovePalmPitch = 0f;               // => [WristHud] GlovePalmPitch
+    internal const float PlatePalmPitch = 0f;               // => [WristHud] PlatePalmPitch
+    internal const float ArcanePalmPitch = 0f;              // => [WristHud] ArcanePalmPitch
+    internal const float GlovePalmYaw = 0f;                 // => [WristHud] GlovePalmYaw
+    internal const float PlatePalmYaw = 0f;                 // => [WristHud] PlatePalmYaw
+    internal const float ArcanePalmYaw = 0f;                // => [WristHud] ArcanePalmYaw
+    internal const float GlovePalmRoll = 0f;                // => [WristHud] GlovePalmRoll
+    internal const float PlatePalmRoll = 0f;                // => [WristHud] PlatePalmRoll
+    internal const float ArcanePalmRoll = 0f;               // => [WristHud] ArcanePalmRoll
+    internal const float GlovePalmSideOffset = 0f;          // => [WristHud] GlovePalmSideOffset
+    internal const float PlatePalmSideOffset = 0f;          // => [WristHud] PlatePalmSideOffset
+    internal const float ArcanePalmSideOffset = 0f;         // => [WristHud] ArcanePalmSideOffset
+    internal const float GlovePalmFingerOffset = -0.02f;    // => [WristHud] GlovePalmFingerOffset
+    internal const float PlatePalmFingerOffset = -0.02f;    // => [WristHud] PlatePalmFingerOffset
+    internal const float ArcanePalmFingerOffset = -0.02f;   // => [WristHud] ArcanePalmFingerOffset
+    internal const float GlovePalmLiftOffset = 0.02f;       // => [WristHud] GlovePalmLiftOffset
+    internal const float PlatePalmLiftOffset = 0.02f;       // => [WristHud] PlatePalmLiftOffset
+    internal const float ArcanePalmLiftOffset = 0.02f;      // => [WristHud] ArcanePalmLiftOffset
 }
