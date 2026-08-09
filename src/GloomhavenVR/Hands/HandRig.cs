@@ -66,9 +66,19 @@ internal sealed class HandRig
     ///   wrist +Y -> root +Z   ALONG THE FINGERS
     ///   wrist +Z -> root -Y   OUT OF THE PALM
     /// </code>
-    /// The prefabs state it in their own data twice over: <c>Anchor_Palm</c> sits at wrist-local
-    /// (0.008, 0.049, 0.003) — the palm centre, 4.9 cm up +Y — and <c>Anchor_Grab</c> a further
-    /// centimetre out along +Z, which is where a held object rests ON the palm.</para>
+    /// The prefabs state it in their own data three times over: <c>Anchor_Middle_Root</c> sits at
+    /// wrist-local (0.010, 0.096, -0.017), nearly 10 cm straight up +Y to the knuckle;
+    /// <c>Anchor_Palm</c> at (0.008, 0.049, 0.003), the palm centre half way along that line, with
+    /// <c>Anchor_Grab</c> a further centimetre out along +Z where a held object rests ON the palm;
+    /// and <c>Anchor_Palm</c>'s own rotation (0, .7071, .7071, 0) — a half turn about (0,1,1) —
+    /// maps its local +Y, which the Hands README requires to point OUT OF THE PALM, onto wrist +Z.
+    /// No hand prefab carries a negative scale, so nothing parented here is mirrored by the rig.</para>
+    ///
+    /// <para>PARENTING A CANVAS HERE: a uGUI canvas is read from its <b>-Z</b> side (identity
+    /// canvas, Unity's default camera at negative z), so a plate meant to be read off the PALM
+    /// needs its -Z on wrist +Z — a half turn about wrist +Y, not the identity. Getting that
+    /// backwards does not hide the plate; it shows it mirror-reversed, because uGUI's shader does
+    /// not cull the back face. See <c>WorldUI.WristHud.PalmFlat</c>.</para>
     ///
     /// <para>WHY THIS IS WRITTEN DOWN (2026-08-09): <c>WorldUI.WristHud</c> parented its plate here
     /// and reasoned in Root's frame for four consecutive rounds. Nothing failed loudly — the pose

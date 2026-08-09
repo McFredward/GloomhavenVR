@@ -907,7 +907,14 @@ internal static partial class Loc
         // ---- figure-grab debug tuning (item 2b) ----
 
         // ---- wrist HUD debug tuning (item 10) ----
-        ["cat_wrist"] = Pair("Wrist", "Handgelenk"),
+        // Heads the [WristHud] block on the HANDS page (ConfigCatalog.SectionLabel). Named after
+        // the WIDGET, not the body part, because that is what every row under it is called
+        // ("Arm-HUD: quer (m)", "Arm-HUD: Neigung (°)") and because the six retired [WorldUI]
+        // twins that used to carry the same captions on the panels page are gone — a player who
+        // goes looking where those used to be needs the surviving block to announce itself by the
+        // name they were reading (user 2026-08-09: "Ich finde die offsets an der Stelle im Debug
+        // nicht mehr wo sie vorher waren").
+        ["cat_wrist"] = Pair("Arm HUD", "Arm-HUD"),
 
         // ---- WristHud ----
         ["no_character"] = Pair("no character", "kein Charakter"),

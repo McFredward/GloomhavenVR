@@ -416,7 +416,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 101;
+    public const ushort ModBuild = 102;
+    // Build 102: the arm HUD turned around, and the previous round's turn-around was half a turn
+    // short. Build 101 replaced the base rotation with the IDENTITY on the finding that wrist +Z
+    // points out of the palm - which the prefab YAML confirms three times over (Anchor_Middle_Root
+    // 9.6 cm up wrist +Y to the knuckle; Anchor_Palm half way along that line with Anchor_Grab a
+    // centimetre further along +Z; and Anchor_Palm's own half turn about (0,1,1), which maps the
+    // +Y the Hands README requires to point OUT of the palm onto wrist +Z). What it got wrong is
+    // WHICH FACE OF A CANVAS READS: uGUI reads from -Z, not +Z. An identity plate therefore aimed
+    // its readable face out of the BACK of the hand while the new gate revealed it from the PALM
+    // side, so the player was shown the canvas's back - and uGUI does not cull it, it draws it
+    // mirrored. Hence 'ich sehe das HUD jetzt spiegelverkehrt'. Base is now a half turn about
+    // wrist +Y (readable -Z out of the palm, text top still on the fingers) and the look-at gate
+    // reads that same readable face, so the two cannot drift apart again.
+    //   * The 'readable +Z' note it trusted came from commit 3cc7ac8, which measured a plate whose
+    //     +Z pointed along the FINGERS - a screenshot from there cannot tell the two sides apart.
+    //     Three independent sources say -Z: PanelPlacement.Facing, VRCard, and Unity's own default
+    //     (identity canvas, camera at negative z). So do the user's own pre-turn-around trims:
+    //     LookRotation(up, forward) with pitch -102 / yaw -180 composes to within 12 degrees of the
+    //     identity, i.e. THAT plate's +Z pointed out of the palm, away from a player reading it off
+    //     the back of their hand. The build log now prints readable-dot-palmOut (+1 correct, -1
+    //     mirrored) so the next report is answerable from the numbers.
+    //   * 'Ich finde die Offsets nicht mehr wo sie vorher waren': the rows the user had been
+    //     reaching for were the six [WorldUI] WristHud* twins, retired last round because they were
+    //     decoys. The live per-style rows are in the HANDS topic and always were; their block was
+    //     headed 'Handgelenk' while every row in it reads 'Arm-HUD: ...'. The heading is now the
+    //     widget's name in both languages.
+    // No wire change; the bump is the handshake key. Wire assertions 1389.
     // Build 101: three reports that all came back to ONE resolver, plus the fog tile and the
     // tooltip plate.
     //   * 'der X-Offset beim Arm-HUD hat keinen Einfluss' was not an orphaned dial - it was an

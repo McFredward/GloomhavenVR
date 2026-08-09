@@ -193,12 +193,27 @@ internal sealed class WristHud
     }
 
     /// <summary>
-    /// THE PALM BASE — the identity of the wrist anchor's own frame, and the whole reason this
-    /// class no longer needs a LookRotation at all. See Build's rotation block for the measured
-    /// derivation; the live pitch/yaw/roll compose in the panel's own local frame on top of it,
-    /// so a trim of 0/0/0 IS the shipped orientation.
+    /// THE PALM BASE — a half turn about the wrist's own +Y (the finger axis). See Build's
+    /// rotation block for the measured derivation; the live pitch/yaw/roll compose in the panel's
+    /// own local frame on top of it, so a trim of 0/0/0 IS the shipped orientation.
+    ///
+    /// <para>Half a turn and not the identity because a uGUI canvas is READ FROM ITS -Z SIDE: a
+    /// canvas with identity rotation is the one Unity's default camera — parked at negative z,
+    /// looking along +z — renders right way round, so <c>transform.forward</c> points AWAY from
+    /// the reader. Identity here therefore aimed the readable face out of the BACK of the hand
+    /// while the look-at gate revealed the plate from the PALM side: the player was shown the
+    /// canvas's back face, which uGUI's Cull-Off shader draws mirror-reversed (user 2026-08-09:
+    /// "Weiterhin sehe ich das HUD jetzt spiegelverkehrt!"). Rotating 180° about +Y turns the
+    /// readable -Z face out of the palm and keeps the text top on the fingers.</para>
     /// </summary>
-    private static readonly Quaternion PalmFlat = Quaternion.identity;
+    private static readonly Quaternion PalmFlat = Quaternion.Euler(0f, 180f, 0f);
+
+    /// <summary>
+    /// The plate's READABLE face in world space — the side the text can be read from, which is the
+    /// canvas's -Z (see <see cref="PalmFlat"/>). Single source for the look-at gate so the gate and
+    /// the base rotation can never drift apart again, whatever trims are dialled in on top.
+    /// </summary>
+    private Vector3 ReadableFace => _root != null ? -_root.transform.forward : Vector3.forward;
 
     /// <summary>
     /// Item 10: re-apply the wrist HUD pose from the live-tunable offset + tilt. Called once in
@@ -243,18 +258,22 @@ internal sealed class WristHud
         // die Handflächen anschaut"). It is visible while its readable face turns toward the
         // HMD — i.e. when you turn your palm up to read it.
         //
-        // GATE AXIS IS THE PANEL'S OWN NORMAL, not a rig axis. Every previous round wrote the
-        // gate as a hand-picked rig axis that had to be kept in agreement with the base
+        // GATE AXIS IS THE PANEL'S OWN READABLE FACE, not a rig axis. Every previous round wrote
+        // the gate as a hand-picked rig axis that had to be kept in agreement with the base
         // rotation BY HAND, and the file's own history is three rounds of that agreement
-        // breaking (normal on +Y with the gate on +Z, then the reverse). `_root.forward` IS
-        // the readable face by construction: it follows the base AND the per-style yaw/pitch/
-        // roll trims, so no future re-aim can desynchronize the two again. Costs the same one
-        // matrix read the old `hand.Rig.Root.up` did.
+        // breaking (normal on +Y with the gate on +Z, then the reverse). ReadableFace IS the
+        // side the text can be read from by construction: it follows the base AND the per-style
+        // yaw/pitch/roll trims, so no future re-aim can desynchronize the two again. Costs the
+        // same one matrix read the old `hand.Rig.Root.up` did.
+        //
+        // It is -forward, not +forward: the last round gated on +forward, which is the canvas's
+        // BACK, so the plate faded in exactly when the player was positioned to see it mirrored.
+        // A gate on the readable face cannot express that state at all.
         Camera? head = CanvasConversion.WorldCamera;
         if (head != null && _group != null)
         {
             Vector3 toHead = (head.transform.position - _root.transform.position).normalized;
-            float dot = Vector3.Dot(_root.transform.forward, toHead);
+            float dot = Vector3.Dot(ReadableFace, toHead);
             if (!_shown && dot > ShowDot) _shown = true;
             else if (_shown && dot < HideDot) _shown = false;
 
@@ -388,47 +407,57 @@ internal sealed class WristHud
         // dass der Arm-HUD zu sehen ist wenn man die Handflächen anschaut, nicht die Oberseite
         // der Hand wie es aktuell der Fall ist."
         //
-        // THE FRAME THIS PARENTS INTO — MEASURED, NOT ASSUMED. Every earlier round of this
-        // block reasoned in the frame documented for HandRig.ROOT ("+Z along the fingers, +Y
-        // out of the BACK of the hand") and silently applied it to HandRig.WRIST, which is a
-        // DIFFERENT transform. The parent here is Socket_Wrist, a zero-offset child of the
-        // prefabs' `Anchor_Wrist`, and that anchor carries a +90° X rotation relative to the
-        // prefab root. Read out of all six shipped prefabs (VRHand_L/R, VRHandPlate_L/R,
-        // VRHandArcane_L/R — every one of them identical, and identical between LEFT and RIGHT:
-        // only the anchor's POSITION mirrors, its axes do not), the wrist frame is
+        // THE FRAME THIS PARENTS INTO — MEASURED, NOT ASSUMED. Every round before the previous
+        // one reasoned in the frame documented for HandRig.ROOT ("+Z along the fingers, +Y out
+        // of the BACK of the hand") and silently applied it to HandRig.WRIST, which is a
+        // DIFFERENT transform: the parent here is the prefabs' `Anchor_Wrist` itself
+        // (HandVisuals.BindRig), and its chain to the prefab root nets out to a +90° rotation
+        // about X (Model +90 · rig bone -90 · anchor +90). Re-read straight out of the prefab
+        // YAML for this round, for all six shipped hands (VRHand_L/R, VRHandPlate_L/R,
+        // VRHandArcane_L/R — every one identical, and identical between LEFT and RIGHT: only the
+        // anchor's POSITION mirrors, its axes do not, and no hand carries a negative scale), the
+        // wrist frame is
         //     wrist +X -> root +X   lateral across the hand   (shared by both hands)
         //     wrist +Y -> root +Z   ALONG THE FINGERS
         //     wrist +Z -> root -Y   OUT OF THE PALM
-        // and the prefabs corroborate it twice over in their own data: Anchor_Palm sits at
-        // wrist-local (0.008, 0.049, 0.003) — 4.9 cm along +Y, i.e. the palm centre up the hand
-        // — and Anchor_Grab at (0.010, 0.059, 0.013), a further centimetre out along +Z, which
-        // is exactly where a held object rests ON the palm. That is why every shipped trim used
-        // to be a ~-90° pitch: it was undoing this +90° by hand, from the wrong frame.
+        // The prefabs corroborate it three times in their own data: Anchor_Middle_Root sits at
+        // wrist-local (0.010, 0.096, -0.017), i.e. nearly 10 cm straight up +Y to the knuckle;
+        // Anchor_Palm at (0.008, 0.049, 0.003), the palm centre half way up that line; and
+        // Anchor_Palm's OWN rotation (0, .7071, .7071, 0) — a half turn about (0,1,1) — maps its
+        // local +Y, which the Hands README requires to point OUT OF THE PALM, onto wrist +Z.
         //
-        // SO THE BASE IS THE IDENTITY. The wrist anchor's own axes already ARE the palm plate:
-        //   canvas +Z (READABLE FRONT) -> wrist +Z = out of the PALM, toward the player looking
-        //                                 at their own palm. (That this uGUI/TMP canvas reads
-        //                                 from local +Z is not a guess: it is the hardware
-        //                                 finding of the un-mirror fix, commit 3cc7ac8.)
+        // A uGUI CANVAS IS READ FROM ITS -Z SIDE, which is where the previous round went wrong.
+        // It took the "readable +Z" note of commit 3cc7ac8 at face value; that commit measured a
+        // plate whose +Z pointed along the FINGERS (it reasoned in the root frame too), so its
+        // screenshot could not tell the two sides apart. The rest of this repo says -Z in two
+        // independent places (PanelPlacement.Facing "+Z away from viewer", VRCard "viewer on the
+        // -Z side"), Unity's own default setup says it (identity canvas, camera at -z), and so do
+        // the user's hand-tuned trims from the back-of-hand era: LookRotation(up, forward) with
+        // pitch -102°/yaw -180° composes to within 12° of the IDENTITY, i.e. that plate's +Z
+        // pointed out of the palm — away from a player reading it off the back of their hand.
+        //
+        // SO THE BASE IS A HALF TURN ABOUT +Y (PalmFlat), which lands
+        //   canvas -Z (READABLE FACE)  -> wrist +Z = out of the PALM, toward the player looking
+        //                                 at their own palm.
         //   canvas +Y (text top)       -> wrist +Y = toward the FINGERS, so the stats read
         //                                 upright when you raise your palm — the same
         //                                 "12-o'clock points up your hand" convention the
         //                                 back-of-hand version had.
-        //   canvas +X (text right)     -> wrist +X
-        // The plate spans wrist X/Y = the PALM plane, its normal is the palm normal. Identity is
-        // a proper rotation (det +1), so THE TEXT IS NEVER MIRRORED, and because the wrist frame
-        // is anatomically identical on both hands this needs NO per-hand sign flip — unlike the
-        // seat roll/yaw and the pinky counter-abduction, which mirror because they are stated in
-        // the CONTROLLER's frame. Left wrist and right wrist get the same, correct plate.
+        //   canvas +X (text right)     -> wrist -X
+        // The plate spans wrist X/Y = the PALM plane, its normal is the palm normal. A half turn
+        // is a proper rotation (det +1), so THE TEXT IS NEVER MIRRORED, and because the wrist
+        // frame is anatomically identical on both hands this needs NO per-hand sign flip — unlike
+        // the seat roll/yaw and the pinky counter-abduction, which mirror because they are stated
+        // in the CONTROLLER's frame. Left wrist and right wrist get the same, correct plate.
         //
         // The per-style pitch/yaw/roll keep meaning exactly what they meant — a tilt in the
-        // plate's own frame on top of the base — but they now sit on a base that is already the
-        // wanted orientation, so all three styles ship 0/0/0 (Defaults.Hands.cs) and the user
-        // has nothing to tune. The old trims could not be carried over: they were the correction
-        // for a base that no longer exists, so their KEYS were renamed ({Style}PalmPitch etc.,
-        // HandsConfig) — a saved -180° yaw silently surviving into the new base would have put
-        // the plate straight back on the knuckles, which is precisely the "two rotations that
-        // cancel" trap.
+        // plate's own frame on top of the base — but they sit on a base that is already the
+        // wanted orientation, so all three styles ship 0/0/0 (Defaults.Hands.cs) and only the
+        // OFFSETS need dialling per hand model. The pre-turn-around trims could not be carried
+        // over: they were the correction for a base that no longer exists, so their KEYS were
+        // renamed ({Style}PalmPitch etc., HandsConfig) — a saved -180° yaw silently surviving
+        // into the new base would have put the plate straight back on the knuckles, which is
+        // precisely the "two rotations that cancel" trap.
         //
         // POSITION, same frame: the shipped offsets put the plate over the inner wrist, a couple
         // of centimetres clear of the mesh on the palm side (Defaults.GlovePalmOffset*). It is
@@ -518,11 +547,17 @@ internal sealed class WristHud
         VRLayers.Apply(_root);
         // The resolved pose goes in the log so a "it sits wrong" report can be read against the
         // numbers that produced it — which style's row was live, and what it held.
+        // The resolved pose AND the direction the text can actually be read from go in the log: a
+        // "it sits wrong / it is mirrored" report is then answerable from the numbers that
+        // produced it. readable·palmOut ≈ +1 is the correct plate; ≈ -1 is the mirrored one.
+        Vector3 palmOut = wrist.TransformDirection(Vector3.forward); // wrist +Z = out of the palm
         VRLog.Info("WorldUI", $"WristHud built on {hand.Side} wrist (palm plate, style " +
                               $"{(HandStyle)HandsConfig.ActiveStyleIndex}): offset " +
                               $"{OffsetX * 1000f:0}/{OffsetY * 1000f:0}/{OffsetZ * 1000f:0} mm " +
                               $"in the wrist frame (+X across, +Y to the fingers, +Z out of the " +
-                              $"palm), trim {PitchDeg:0.#}/{YawDeg:0.#}/{RollDeg:0.#}°.");
+                              $"palm), trim {PitchDeg:0.#}/{YawDeg:0.#}/{RollDeg:0.#}°, " +
+                              $"readable·palmOut {Vector3.Dot(ReadableFace, palmOut):0.00} " +
+                              $"(+1 = readable from the palm side, -1 = mirrored).");
     }
 
     // ---- data --------------------------------------------------------------------------
