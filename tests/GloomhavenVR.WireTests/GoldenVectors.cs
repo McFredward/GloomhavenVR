@@ -3817,13 +3817,16 @@ internal static class GoldenVectors
         t.Equal(0, strict.AssembledLength, "nothing was ever published from any of them");
 
         // THE ID SPACE IS THE ONLY BOUND LEFT, and it is a BUILD-TIME one: 247 usable ids at their
-        // own widths is 969 bytes, which is what sizes the sender's buffer and the receiver's
+        // own widths is 921 bytes, which is what sizes the sender's buffer and the receiver's
         // accumulator. Pinned here so that widening a range is a deliberate act with a failing test
         // attached, not something a dial discovers at runtime on somebody's Quest.
         t.Equal(247, NetProtocol.BoardTuneMaxFields,
-                "247 usable field ids: 63 vec + 64 length + 64 factor + 32 angle + 24 count");
-        t.Equal(969, NetProtocol.BoardTuneMaxFieldBytes,
-                "= 969 bytes at their widths — 3.8x what the old 255-byte record could hold");
+                "247 usable field ids: 47 vec + 16 colour + 64 length + 64 factor + 32 angle + "
+                + "24 count — the COLOUR range was carved out of the vec range's unused tail, so "
+                + "the id COUNT is exactly what it was before it existed");
+        t.Equal(921, NetProtocol.BoardTuneMaxFieldBytes,
+                "= 921 bytes at their widths — it was 969, and it went DOWN when thirteen dials "
+                + "were added: sixteen ids moved from 7 bytes each to 4");
         t.True(NetProtocol.BoardTuneMaxFields < 255,
                "and under 255, which is the PROOF that the assembled payload's one-byte field count " +
                "can never overflow: each id may appear at most once");
@@ -4039,7 +4042,7 @@ internal static class GoldenVectors
         // ARITHMETIC rather than about bytes, so it is checked rather than asserted in a comment.
         // This is the sampler's complete field run at its worst case — every dial moved — in the
         // id-width census Sample() produces: 15 vec3 + 35 length + 41 factor + 9 angle + 5 count.
-        var census = new byte[370];
+        var census = new byte[411];
         int cAt = 0;
         void Field(byte id, int width)
         {
@@ -4047,26 +4050,218 @@ internal static class GoldenVectors
             cAt += 1 + width;
         }
         for (byte id = 1; id <= 15; id++) Field(id, 6);        // vec3   (ids 1..15)
-        for (byte id = 64; id <= 98; id++) Field(id, 2);       // length (ids 64..98, 81..98 are new)
-        for (byte id = 128; id <= 168; id++) Field(id, 2);     // factor
+        for (byte id = 48; id <= 53; id++) Field(id, 3);       // colour (ids 48..53, all new)
+        for (byte id = 64; id <= 100; id++) Field(id, 2);      // length (ids 64..100, 99..100 new)
+        for (byte id = 128; id <= 169; id++) Field(id, 2);     // factor (170 is new; 156 unsampled)
         for (byte id = 192; id <= 200; id++) Field(id, 2);     // angle
-        for (byte id = 224; id <= 228; id++) Field(id, 1);     // count  (228 is the cap shape)
-        t.Equal(370, cAt,
-                "the sampler's worst case is 370 field bytes over 105 dials — it was 314 over 86 " +
-                "before the keycap geometry family, 284 over 76 before the item-cue ten, and under " +
-                "the OLD scheme none of it could have grown at all: the whole payload had to fit 255");
+        for (byte id = 224; id <= 232; id++) Field(id, 1);     // count  (228..232 are the shapes/bools)
+        t.Equal(411, cAt,
+                "the sampler's worst case is 411 field bytes over 118 dials — it was 370 over 105 " +
+                "before the colours and shapes, 314 over 86 before the keycap geometry family, 284 " +
+                "over 76 before the item-cue ten, and under the OLD scheme none of it could have " +
+                "grown at all: the whole payload had to fit 255");
         t.Equal(2, BoardTunePages.PageCount(census, cAt),
                 "and it STILL splits into two pages, so the convergence guarantee written down in " +
                 "BoardTunePages — complete state by T + pageCount x 200 ms — is unchanged at <=400 ms");
         int cp0 = BoardTunePages.WritePage(census, cAt, 0, 1, cuePage);
         t.Equal(253, cp0,
-                "page 0 fills to 7 header + 246 field bytes — the same 246 as in both earlier " +
+                "page 0 fills to 7 header + 246 field bytes — the same 246 as in all three earlier " +
                 "censuses, because a 3-byte field cannot fit the 2 bytes left of the 248-byte " +
-                "budget; the eighteen new lengths only change WHICH fields spill onto page 1");
+                "budget; the new fields only change WHICH ones spill onto page 1");
         int cp1 = BoardTunePages.WritePage(census, cAt, 1, 1, cuePage);
-        t.Equal(131, cp1,
-                "…and page 1 now holds 124 of its own 248 field bytes (was 68): ~41 more 3-byte " +
+        t.Equal(172, cp1,
+                "…and page 1 now holds 165 of its own 248 field bytes (was 124): ~27 more 3-byte " +
                 "dials before the bound would go to <=600 ms");
+
+        // AND THE SIX COLOURS COST 24 BYTES, WHICH IS THE WHOLE ARGUMENT FOR THE NEW WIDTH — pinned
+        // as arithmetic rather than left in a comment, because the alternative it beat (three FACTOR
+        // fields per colour) is the one somebody refactoring "for consistency" would reach for.
+        t.Equal(24, 6 * (1 + NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneLabelColor)),
+                "six colours as 3-byte COLOUR fields: 24 bytes and 6 of the 247 field ids");
+        t.Equal(54, 18 * (1 + NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneObjectivesScale)),
+                "…the same six as eighteen FACTOR channels would have been 54 bytes AND 18 ids — "
+                + "and the ID SPACE is the only bound this record still has, so that is the axis "
+                + "the choice was made on, not the bytes");
+
+        // -- 7w. BOARD TUNING: the COLOUR range, and the shapes that finally got a receiver ------
+        // The user overruled an audit note that had called the 21 [ButtonColors] entries "a look
+        // decision, not a wire gap": "Bitte implementier auch die Farben und Formen der Knöpfe, dass
+        // sie über die Leitung gehen - so dass das remote Board 1:1 das anzeigt was der Spieler
+        // sieht" (2026-08-09). Carrying eighteen colour channels needed a container, and the one
+        // chosen is a NEW WIDTH — 3 bytes, one uint8 per channel — carved out of the vec range's
+        // unused tail. A new width is the kind of change that is unrecoverable if it ships wrong
+        // (an id, once out, can never be renumbered), so the range boundaries are asserted here
+        // rather than trusted to a comment.
+        t.Case("7w. extras, board-tuning: the COLOUR width and the cap shapes");
+
+        t.Equal(47, NetProtocol.TuneVecIdMax,
+                "the vec range gave up its top sixteen ids — it used 15 of 63 in the record's whole "
+                + "life, and a 7-byte field is the most expensive thing this record can carry");
+        t.Equal(48, NetProtocol.TuneColorIdMin, "…which the COLOUR range takes over at 48");
+        t.Equal(63, NetProtocol.TuneColorIdMax, "…through 63, one short of the LENGTH range");
+        t.Equal(6, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneVecIdMax),
+                "id 47 is still a 6-byte vec3");
+        t.Equal(3, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneColorIdMin),
+                "and id 48 is a 3-byte colour — the boundary is exactly where the constants say");
+        t.Equal(3, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneColorIdMax),
+                "…as is 63");
+        t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneLengthIdMin),
+                "…and 64 is a LENGTH again, so no id changed width that was already shipped");
+        t.Equal(48, NetProtocol.TuneLabelColor, "the label fill takes the first colour id");
+        t.Equal(53, NetProtocol.TuneRestCapTint, "and the rest tint the sixth, leaving 54..63 free");
+
+        // THE QUANTIZATION IS THE ARGUMENT FOR THE WIDTH, so it is checked as one. 8 bits per
+        // channel is not an approximation of the shipped label colour: it IS the swatch the default
+        // was authored as, and the round trip reproduces #FBF3E0 byte for byte.
+        t.Equal(251, NetProtocol.EncodeTuneColorChannel(0.984f), "0.984 -> 0xFB");
+        t.Equal(243, NetProtocol.EncodeTuneColorChannel(0.953f), "0.953 -> 0xF3");
+        t.Equal(224, NetProtocol.EncodeTuneColorChannel(0.878f), "0.878 -> 0xE0 — #FBF3E0, the "
+                + "authored parchment, is what the wire carries and not an approximation of it");
+        t.Equal(128, NetProtocol.EncodeTuneColorChannel(0.5f),
+                "the shipped 0.5 cap tint rounds to 128 (Mathf.RoundToInt is banker's: 127.5 -> 128)");
+        t.Equal(0, NetProtocol.EncodeTuneColorChannel(-1f), "an out-of-range channel SATURATES…");
+        t.Equal(255, NetProtocol.EncodeTuneColorChannel(2f), "…at both ends, never wraps to a "
+                + "different hue on somebody else's board");
+        t.Equal(0, NetProtocol.EncodeTuneColorChannel(float.NaN), "and NaN encodes as 0, never garbage");
+        t.Equal(1f, NetProtocol.DecodeTuneColorChannel(255), "255 decodes to exactly 1.0…");
+        t.Equal(0.2f, NetProtocol.DecodeTuneColorChannel(51), "…and 51 to exactly 0.2");
+
+        // AND THE PROPERTY THE WHOLE RECORD RESTS ON, for the new width as for every old one:
+        // "differs from the shipped default" is decided on the CODE, so a config file's text
+        // round-trip cannot make an untuned player emit a colour field forever.
+        var untunedLabel = new Color(0.984f, 0.953f, 0.878f, 1f);
+        var roundTripped = new Color(0.9840001f, 0.95299995f, 0.8780002f, 1f);
+        var colBuf = new byte[64];
+        int colAt = 0;
+        t.True(!NetProtocol.WriteTuneColorField(colBuf, ref colAt, NetProtocol.TuneLabelColor,
+                                                roundTripped, untunedLabel),
+               "a colour that survived a text round-trip in its last float bits writes NO field — "
+               + "the same picture is the same bytes, and an untuned player stays silent");
+        t.Equal(0, colAt, "…and consumes nothing");
+        t.True(!NetProtocol.WriteTuneColorField(colBuf, ref colAt, NetProtocol.TuneBoardCapTint,
+                                                new Color(0.5f, 0.5f, 0.5f, 1f),
+                                                new Color(0.5f, 0.5f, 0.5f, 1f)),
+               "and the SHIPPED 0.5 cap tint writes nothing — worth its own line because that value "
+               + "is where the sampler's silence was nearly lost: ButtonTuning's pre-Bind fallback "
+               + "for the four tints used to be WHITE while the shipped entry is 0.5, so an untuned "
+               + "player would have broadcast a colour field during scene load");
+        t.Equal(0, colAt, "…still nothing consumed");
+        t.True(!NetProtocol.WriteTuneColorField(colBuf, ref colAt, NetProtocol.TuneLabelColor,
+                                                new Color(0.984f, 0.953f, 0.878f, 0.25f),
+                                                untunedLabel),
+               "…and a DIFFERENT ALPHA is not a difference: the range carries no alpha, so comparing "
+               + "one would emit a field whose bytes could not express what changed");
+        t.True(NetProtocol.WriteTuneColorField(colBuf, ref colAt, NetProtocol.TuneLabelColor,
+                                               new Color(1f, 0.2f, 0.2f, 1f), untunedLabel),
+               "a colour the owner actually moved DOES write");
+        t.Equal(4, colAt, "one colour is 4 bytes on the wire: id + R + G + B, no alpha");
+
+        // A PLAYER WHO RE-COLOURED AND RE-SHAPED THEIR BOARD, end to end. Six fields across four
+        // widths, ascending: two colours, one length that could not have ridden a build ago, one
+        // bool and the two shapes whose mirrors had no branch to draw them with.
+        //   id  48 colour  label fill      (1, 0.2, 0.2)  -> FF 33 33
+        //   id  50 colour  BoardCapTint    (1, 1, 1)      -> FF FF FF  (the 0.5 halving turned off)
+        //   id  99 length  RestCapWidth    0.080 m        -> 800 -> 20 03
+        //   id 229 count   LabelOutline    off            -> 00
+        //   id 231 count   RestCapShape    Square (1)     -> 01
+        //   id 232 count   GenericCapShape Round  (0)     -> 00
+        byte[] skinFields =
+        {
+            NetProtocol.TuneLabelColor,      0xFF, 0x33, 0x33,
+            NetProtocol.TuneBoardCapTint,    0xFF, 0xFF, 0xFF,
+            NetProtocol.TuneRestCapWidth,    0x20, 0x03,
+            NetProtocol.TuneLabelOutlineOn,  0x00,
+            NetProtocol.TuneRestCapShape,    0x01,
+            NetProtocol.TuneGenericCapShape, 0x00,
+        };
+        t.Equal(17, skinFields.Length,
+                "six dials, 17 field bytes: two 4-byte colours + one 3-byte length + three 2-byte counts");
+        ushort skinSig = BoardTunePages.Signature(skinFields, 0, skinFields.Length);
+        var skinPage = new byte[255];
+        int skinLen = BoardTunePages.WritePage(skinFields, skinFields.Length, 0, skinSig, skinPage);
+        t.Equal(24, skinLen, "one page: 7 header + 17 field bytes");
+
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTuning = true, BoardTuningBytes = skinPage, BoardTuningLength = skinLen,
+        }, ext);
+        t.Wire(Hex.Bytes($@"
+            31 52 56 47 03 01 80 00
+            80 00
+            01
+            1C 18            // id 28, len 24
+            00 01            //   page 0 of 1
+            {skinSig & 0xFF:X2} {skinSig >> 8:X2}   //   generation
+            00 FF 06         //   complete for ids 0..255, 6 fields
+            30 FF 33 33      //   id  48 colour: label fill (1.00, 0.20, 0.20)
+            32 FF FF FF      //   id  50 colour: Confirm/Undo face tint = identity white
+            63 20 03         //   id  99 length: square rest cap 80 mm wide
+            E5 00            //   id 229 count : label keyline OFF
+            E7 01            //   id 231 count : rest caps SQUARE
+            E8 00            //   id 232 count : Confirm/Undo ROUND
+            "), ext, m, "the colours ride BEFORE the lengths because their id range does — ascending "
+                        + "id order is the record's layout contract and the reason a page can claim "
+                        + "a RANGE it is complete for");
+        t.Equal(37, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 24) = 37 bytes");
+
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState skinT), "and it parses");
+        var skinAsm = new BoardTunePageAssembler();
+        t.True(skinAsm.Accept(skinT.BoardTuningBytes, 0, skinT.BoardTuningLength), "and assembles");
+        byte[] skinTune = skinAsm.Assembled;
+        int skinTuneLen = skinAsm.AssembledLength;
+        t.Equal(18, skinTuneLen, "assembled: 1 count byte + 17 field bytes");
+        t.Equal(6, skinTune[0], "all six dials present");
+
+        Color fill = NetProtocol.BoardTuneColor(skinTune, 0, skinTuneLen,
+                                                NetProtocol.TuneLabelColor, Color.black);
+        t.Equal(1f, fill.r, "the label fill's red decodes exactly");
+        t.Equal(0.2f, fill.g, "…its green…");
+        t.Equal(0.2f, fill.b, "…and its blue");
+        t.Equal(1f, NetProtocol.BoardTuneColor(skinTune, 0, skinTuneLen,
+                                               NetProtocol.TuneBoardCapTint, Color.black).r,
+                "and the cap tint arrives at identity white — the mirrored Confirm cap must then be "
+                + "drawn at the FULL palette colour, which is the one case the old renderer got "
+                + "right by accident while getting the shipped 0.5 wrong for everybody");
+
+        // ALPHA COMES FROM THE FALLBACK, NEVER THE WIRE — the range carries no alpha byte, and a
+        // decoder that invented one would make every mirrored label transparent the day somebody
+        // passed a non-opaque fallback.
+        t.Equal(0.25f, NetProtocol.BoardTuneColor(skinTune, 0, skinTuneLen,
+                                                  NetProtocol.TuneLabelColor,
+                                                  new Color(0f, 0f, 0f, 0.25f)).a,
+                "a present colour field keeps the CALLER's alpha");
+        Color absentOutline = NetProtocol.BoardTuneColor(skinTune, 0, skinTuneLen,
+                                                        NetProtocol.TuneLabelOutlineColor,
+                                                        new Color(0.5f, 0.5f, 0.5f, 1f));
+        t.Equal(0.5f, absentOutline.r,
+                "and an ABSENT colour is the receiver's own shipped value, unchanged in every "
+                + "channel — which is what lets a player who moved ONE colour cost five fields "
+                + "nothing");
+
+        t.Equal(0, NetProtocol.BoardTuneCount(skinTune, 0, skinTuneLen,
+                                              NetProtocol.TuneLabelOutlineOn, 1),
+                "the keyline switch arrives as 0 = off (a bool in the one-byte count width)");
+        t.Equal(1, NetProtocol.BoardTuneCount(skinTune, 0, skinTuneLen,
+                                              NetProtocol.TuneRestCapShape, 0),
+                "the rest caps are SQUARE — a shape that no mirror could draw one build ago, which "
+                + "is exactly why the dial was a stated PENDING debt and not a sampler line");
+        t.Equal(0, NetProtocol.BoardTuneCount(skinTune, 0, skinTuneLen,
+                                              NetProtocol.TuneGenericCapShape, 1),
+                "and the Confirm/Undo column ROUND");
+        t.Equal(0.08f, NetProtocol.BoardTuneLength(skinTune, 0, skinTuneLen,
+                                                   NetProtocol.TuneRestCapWidth, 0f),
+                "[RestButtons] Width rides now that a square rest cap exists to consume it");
+        t.Equal(0.105f, NetProtocol.BoardTuneLength(skinTune, 0, skinTuneLen,
+                                                    NetProtocol.TuneRestCapHeight, 0.105f),
+                "…and its Height falls back to the receiver's shipped side, never to zero");
+
+        // A COLOUR ID THIS BUILD KNOWS BUT THE SENDER DID NOT USE, next to one it never will: the
+        // walk has to step over a 3-byte field by THREE, and getting that wrong would mis-parse
+        // every field after the first colour rather than merely lose one.
+        t.Equal(1, NetProtocol.BoardTuneCount(skinTune, 0, skinTuneLen,
+                                              NetProtocol.TuneRestCapShape, 0),
+                "the LAST-but-one field still resolves after two colour fields were stepped over — "
+                + "the proof that the new width is walked at 3 and not at 6 or 2");
 
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet

@@ -38,6 +38,19 @@ namespace GloomhavenVR.Net;
 /// everything that made the local widgets buttons: no collider, no press travel, no
 /// <c>PokeableBehaviour</c>, no registration anywhere.
 ///
+/// AND SINCE THE COLOURS-AND-SHAPES PASS (2026-08-09 — "Bitte implementier auch die Farben und
+/// Formen der Knöpfe, dass sie über die Leitung gehen - so dass das remote Board 1:1 das anzeigt was
+/// der Spieler sieht"), the caps are also PAINTED and SHAPED like the owner's. Two separate things
+/// had to land for that, and the order matters: FIRST this renderer had to read the [ButtonColors]
+/// vocabulary AT ALL — it read none of it, so a mirrored cap was drawn at the raw state palette
+/// while every local cap is drawn at palette × a 0.5 face TINT, i.e. at TWICE its owner's brightness
+/// for two players who had never touched a slider, and its label was left at TMP's default white
+/// where the owner's is warm parchment — and only THEN could the owner's own values ride record 28
+/// on top (ids 48..53 / 170 / 229..230). The same order applied to the SHAPES: the mirrored rest
+/// pair had no Square branch and the Confirm/Undo column no Round one, so their dials were a stated
+/// PENDING debt rather than an un-sampled field, and the branches (<see cref="RestCap"/> /
+/// <see cref="GenericCap"/>) had to exist before ids 231/232 could honestly claim to cover them.
+///
 /// SEATING. When the REAL tray asset is up (<see cref="RemoteTrayVisual"/>), the caps sit on the
 /// prefab's own anchors (<c>ConfirmButton/UndoButton/ShortRestToken/LongRestToken</c>) plus the
 /// OWNER's own per-board offsets, resolved through <see cref="RemoteBoardTuning"/>: the value they
@@ -224,6 +237,85 @@ internal sealed class RemoteBoardFurniture
     private readonly float _transientCapD = Defaults.RoundButtons_Depth;
     private readonly float _transientCapW = Defaults.RoundButtons_Width;
     private readonly float _transientCapH = Defaults.RoundButtons_Height;
+    private readonly float _restCapW = Defaults.RestButtons_Width;
+    private readonly float _restCapH = Defaults.RestButtons_Height;
+
+    // ---- CAP SHAPES: which of the two meshes each family is built from (record 28, ids 228/231/232)
+    // Two of these three were HARDWIRED, not frozen — the mirror had no Square branch for the rest
+    // pair and no Round branch for the Confirm/Undo column at all, which is why their wire fields
+    // were a stated PENDING debt rather than a missing sampler line (a shape byte no renderer can
+    // act on is worse than no shape byte: it reports "covered" while the peer sees the wrong cap).
+    // Both branches exist below now, so both dials ride.
+    //
+    // The [0] on the initialisers is a COMPILE-TIME SEED ONLY and is never what a board is drawn
+    // with: the constructor overwrites both from RemoteBoardTuning, which resolved them against the
+    // PEER's synced style. It is written as index 0 rather than as a bare literal so that a future
+    // per-board shape default cannot be introduced without this line pointing at the same table the
+    // resolver reads. (All three styles ship the same member today — Round rests, Square generics.)
+    private readonly Cards.ButtonShape _restShape = Defaults.RestButtonShape_ByBoard[0];
+    private readonly Cards.ButtonShape _genericShape = Defaults.GenericButtonShape_ByBoard[0];
+
+    // ---- THE [ButtonColors] FAMILY: wire-overridable fallbacks (record 28, ids 48..53 / 170 / 229..230)
+    //
+    // THE DEFECT THESE CLOSE IS NOT "the owner's tuning does not arrive". It is that this renderer
+    // read NONE of the twenty-one [ButtonColors] entries — not even at their shipped values — while
+    // every LOCAL cap is painted through them. The shipped cap-face tint is 0.5 grey and
+    // PlayTray.BoardButton.StateColor multiplies the state palette by it, so a mirrored keycap was
+    // drawn at TWICE the brightness of the very cap it is a copy of, for two players who had never
+    // opened the debug menu. An earlier audit called this family "a look decision, not a wire gap"
+    // on the ground that the mirror never read it; the user overruled that ("so dass das remote
+    // Board 1:1 das anzeigt was der Spieler sieht", 2026-08-09), and reading the family is the half
+    // that had to land FIRST — two untuned players must be identical BY CONSTRUCTION, not because
+    // nobody has touched a slider yet.
+    //
+    // Held as individual FLOAT channels rather than as Color values on purpose: that is the form
+    // scripts/check-remote-defaults.py can pin against the shipped entry, and pinning them is the
+    // whole point — a default that moved without its copy would put two untuned players in front of
+    // two differently-coloured boards, which is exactly the bug being fixed here, one build later.
+    private readonly float _labelR = Defaults.LabelR;
+    private readonly float _labelG = Defaults.LabelG;
+    private readonly float _labelB = Defaults.LabelB;
+    private readonly float _labelOutlineR = Defaults.LabelOutlineR;
+    private readonly float _labelOutlineG = Defaults.LabelOutlineG;
+    private readonly float _labelOutlineB = Defaults.LabelOutlineB;
+    private readonly float _labelOutlineWidth = Defaults.LabelOutlineWidth;
+    private readonly bool _labelOutlineOn = Defaults.LabelOutline;
+    private readonly bool _labelUnderlayOn = Defaults.LabelUnderlay;
+    private readonly float _boardCapTintR = Defaults.BoardCapTintR;
+    private readonly float _boardCapTintG = Defaults.BoardCapTintG;
+    private readonly float _boardCapTintB = Defaults.BoardCapTintB;
+    private readonly float _dashCapTintR = Defaults.DashCapTintR;
+    private readonly float _dashCapTintG = Defaults.DashCapTintG;
+    private readonly float _dashCapTintB = Defaults.DashCapTintB;
+    private readonly float _clusterCapTintR = Defaults.ClusterCapTintR;
+    private readonly float _clusterCapTintG = Defaults.ClusterCapTintG;
+    private readonly float _clusterCapTintB = Defaults.ClusterCapTintB;
+    private readonly float _restCapTintR = Defaults.RestCapTintR;
+    private readonly float _restCapTintG = Defaults.RestCapTintG;
+    private readonly float _restCapTintB = Defaults.RestCapTintB;
+
+    /// <summary>The owner's [ButtonColors] cap-FACE tint for the Confirm / Undo / item-USE column —
+    /// the multiplier <c>PlayTray.BoardButton.StateColor</c> applies to the shared state palette.</summary>
+    private Color BoardCapTint => new(_boardCapTintR, _boardCapTintG, _boardCapTintB, 1f);
+
+    /// <summary>…for the follow/pin plate (<c>CapCategory.Dashboard</c>).</summary>
+    private Color DashCapTint => new(_dashCapTintR, _dashCapTintG, _dashCapTintB, 1f);
+
+    /// <summary>…for the turn-flow SKIP cap — the one that mirrors a <c>ButtonCluster</c>
+    /// PhysicalButton, whose own <c>applied *= ButtonTuning.ClusterCapTint</c> this reproduces.</summary>
+    private Color ClusterCapTint => new(_clusterCapTintR, _clusterCapTintG, _clusterCapTintB, 1f);
+
+    /// <summary>…for the short/long rest pair.</summary>
+    private Color RestCapTint => new(_restCapTintR, _restCapTintG, _restCapTintB, 1f);
+
+    /// <summary>The owner's engraved-label FILL colour. The mirrored labels used to be left at
+    /// TMP's own default (pure white) because <c>InertCap.BuildLabel</c> never assigned one, while
+    /// the local <c>BoardButton</c> assigns <c>NativeButtonSkin.LabelColor</c> — so every remote cap
+    /// was lettered in white where its owner's was warm parchment #FBF3E0.</summary>
+    private Color LabelFill => new(_labelR, _labelG, _labelB, 1f);
+
+    /// <summary>The owner's engraved-label KEYLINE colour.</summary>
+    private Color LabelOutline => new(_labelOutlineR, _labelOutlineG, _labelOutlineB, 1f);
 
     // ---- PRESS TRAVEL, per cap category (same story as the sizes above) ------------------------
     // How far the OWNER's cap of each category sinks under a press (the [*] Travel entries) — the
@@ -733,11 +825,52 @@ internal sealed class RemoteBoardFurniture
         _dashCapTravel = Mathf.Max(0f, tuning.DashCapTravel);
         _restCapD = Mathf.Max(0.002f, tuning.RestCapDepth);
         _restCapTravel = Mathf.Max(0f, tuning.RestCapTravel);
+        _restCapW = Mathf.Max(0.002f, tuning.RestCapWidth);
+        _restCapH = Mathf.Max(0.002f, tuning.RestCapHeight);
+        _restShape = tuning.RestCapShape;
+        _genericShape = tuning.GenericCapShape;
         _transientCapR = Mathf.Max(0.002f, tuning.RoundCapSize);
         _transientCapD = Mathf.Max(0.002f, tuning.RoundCapDepth);
         _transientCapW = Mathf.Max(0.002f, tuning.RoundCapWidth);
         _transientCapH = Mathf.Max(0.002f, tuning.RoundCapHeight);
         _transientCapTravel = Mathf.Max(0f, tuning.RoundCapTravel);
+
+        // ---- …and the owner's CAP COLOURS, before the first material is minted ------------------
+        // Record 28 ids 48..53 / 170 / 229..230 (see the field block above for the defect these
+        // close). Clamped the way the OWNER's own ButtonTuning accessors clamp before they paint:
+        // a colour channel outside 0..1 renders as an HDR over-bright on a peer's board that the
+        // owner is not seeing, and the wire is never trusted to be in range. An absent field already
+        // resolved to the shipped value in RemoteBoardTuning, so these clamps only fire on a corrupt
+        // sender — which is exactly when a mirrored board must degrade to "the same as everyone
+        // else's" rather than to something nobody authored.
+        _labelR = Mathf.Clamp01(tuning.LabelColor.r);
+        _labelG = Mathf.Clamp01(tuning.LabelColor.g);
+        _labelB = Mathf.Clamp01(tuning.LabelColor.b);
+        _labelOutlineR = Mathf.Clamp01(tuning.LabelOutlineColor.r);
+        _labelOutlineG = Mathf.Clamp01(tuning.LabelOutlineColor.g);
+        _labelOutlineB = Mathf.Clamp01(tuning.LabelOutlineColor.b);
+        _labelOutlineWidth = Mathf.Clamp01(tuning.LabelOutlineWidth);
+        _labelOutlineOn = tuning.LabelOutlineOn;
+        _labelUnderlayOn = tuning.LabelUnderlayOn;
+        _boardCapTintR = Mathf.Clamp01(tuning.BoardCapTint.r);
+        _boardCapTintG = Mathf.Clamp01(tuning.BoardCapTint.g);
+        _boardCapTintB = Mathf.Clamp01(tuning.BoardCapTint.b);
+        _dashCapTintR = Mathf.Clamp01(tuning.DashCapTint.r);
+        _dashCapTintG = Mathf.Clamp01(tuning.DashCapTint.g);
+        _dashCapTintB = Mathf.Clamp01(tuning.DashCapTint.b);
+        _clusterCapTintR = Mathf.Clamp01(tuning.ClusterCapTint.r);
+        _clusterCapTintG = Mathf.Clamp01(tuning.ClusterCapTint.g);
+        _clusterCapTintB = Mathf.Clamp01(tuning.ClusterCapTint.b);
+        _restCapTintR = Mathf.Clamp01(tuning.RestCapTint.r);
+        _restCapTintG = Mathf.Clamp01(tuning.RestCapTint.g);
+        _restCapTintB = Mathf.Clamp01(tuning.RestCapTint.b);
+
+        // The label style the OWNER's caps wear, handed to every InertCap below. One struct rather
+        // than five parameters threaded through two builders, because the set has to travel intact:
+        // a cap lettered with this peer's fill and the VIEWER's keyline would be a subtler version
+        // of the very bug this closes.
+        var labels = new CapLabelStyle(LabelFill, LabelOutline, _labelOutlineWidth,
+                                       _labelOutlineOn, _labelUnderlayOn);
 
         // ---- right-hand control column: CONFIRM / [USE] / UNDO -------------------------------
         // Real tray: on the prefab's own ConfirmButton/UndoButton anchors + the authored per-style
@@ -760,12 +893,14 @@ internal sealed class RemoteBoardFurniture
         // sat permanently in the sage "go" accent and their UNDO in worn leather — a colour the
         // owner's undo cap never wears at all, since every SetState on it is (enabled, !accent).
         // The accent is passed alongside so the state pass can switch back to it.
-        _confirm = InertCap.Square(confirmParent, "Confirm", confirmPos,
-            new Vector2(_boardCapW, _boardCapH), _boardCapD, CapIdleColor,
-            travel: _boardCapTravel, accent: ConfirmColor);
-        _undo = InertCap.Square(undoParent, "Undo", undoPos,
-            new Vector2(_boardCapW, _boardCapH), _boardCapD, CapIdleColor,
-            travel: _boardCapTravel, accent: UndoColor);
+        //
+        // …AND IN THE OWNER'S SHAPE (record 28 id 232). This column was built Square unconditionally
+        // — the shipped [Cards] GenericButtonShape_{board} is Square, so it looked right until
+        // somebody turned the dial, and then only they could see it. The local builder's round
+        // branch takes [BoardButtons] WIDTH as its diameter and the same depth/travel
+        // (PlayTray.BuildButtons), so that is term for term what the round branch here does.
+        _confirm = GenericCap(confirmParent, "Confirm", confirmPos, CapIdleColor, ConfirmColor, labels);
+        _undo = GenericCap(undoParent, "Undo", undoPos, CapIdleColor, UndoColor, labels);
 
         // The item "USE" confirm is a DYNAMIC member of that same generic cluster (PlayTray
         // requirement 9a): while a usable item card is clipped into the use recess it joins as
@@ -778,9 +913,7 @@ internal sealed class RemoteBoardFurniture
         // (enabled: true, accent: true) — "always pressable while shown (no game gate)" — so its
         // look is a BUILD fact, not a state fact, and it costs no wire bit (see
         // NetProtocol.BoardUiCapConfirmAccentBit's "what is not here" note).
-        _use = InertCap.Square(confirmParent, "ItemUse", useMidLocal,
-            new Vector2(_boardCapW, _boardCapH), _boardCapD, ConfirmColor,
-            travel: _boardCapTravel, accent: ConfirmColor);
+        _use = GenericCap(confirmParent, "ItemUse", useMidLocal, ConfirmColor, ConfirmColor, labels);
         // Starts hidden and in step with the _shownArmed seed below: the local cluster only holds
         // this member while an item decision is pending, and Refresh() early-outs while nothing
         // changed — so a board that never sees an item fan must not be left showing a USE cap.
@@ -801,21 +934,24 @@ internal sealed class RemoteBoardFurniture
         // built IDLE and switch to their authored accent when the owner's do.
         if (tray?.ShortRestAnchor != null && tray.LongRestAnchor != null)
         {
+            // …AND IN THE OWNER'S SHAPE (record 28 id 231). "The mirrored rest cap is hardwired
+            // round (no Square branch)" was a stated PENDING debt with two dials parked behind it
+            // ([RestButtons] Width/Height). The branch is here now and both dials ride: a ROUND
+            // disc keeps the per-board DIAMETER while a SQUARE cap takes the [RestButtons] W/H,
+            // which is exactly the split RestControls.EnsureBuilt makes on the owner's own board.
             Vector3 restOff = tuning.RestButtonOffset;
             float restSpacing = tuning.RestButtonSpacing;
             float restD = tuning.RestButtonDiameter;
-            _shortRest = InertCap.Round(tray.ShortRestAnchor, "ShortRest",
-                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, _restCapD, CapIdleColor,
-                travel: _restCapTravel, accent: ShortRestColor);
-            _longRest = InertCap.Round(tray.LongRestAnchor, "LongRest",
-                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, _restCapD, CapIdleColor,
-                travel: _restCapTravel, accent: LongRestColor);
+            _shortRest = RestCap(tray.ShortRestAnchor, "ShortRest",
+                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, ShortRestColor, labels);
+            _longRest = RestCap(tray.LongRestAnchor, "LongRest",
+                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, LongRestColor, labels);
         }
 
         // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced
         // state every refresh (SetPinned) — label AND cap colour, exactly like their own cap.
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + tuning.PinOffset,
-            new Vector2(_pinCapW, _dashCapH), _dashCapD, PinIdleColor,
+            new Vector2(_pinCapW, _dashCapH), _dashCapD, PinIdleColor, DashCapTint, labels,
             travel: _dashCapTravel, accent: PinAccentColor);
 
         // ---- grab-handle bar -------------------------------------------------------------------
@@ -858,10 +994,11 @@ internal sealed class RemoteBoardFurniture
         _skip = tuning.RoundCapShape == Cards.ButtonShape.Round
             ? InertCap.Round(_root, "TurnFlowSkip", skipSeat,
                 _transientCapR * 2f * clusterScale, _transientCapD * clusterScale, SkipColor,
+                ClusterCapTint, labels,
                 travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true)
             : InertCap.Square(_root, "TurnFlowSkip", skipSeat,
                 new Vector2(_transientCapW, _transientCapH) * clusterScale,
-                _transientCapD * clusterScale, SkipColor,
+                _transientCapD * clusterScale, SkipColor, ClusterCapTint, labels,
                 travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
@@ -1000,6 +1137,45 @@ internal sealed class RemoteBoardFurniture
         ApplyLabels();
         StripColliders(_root.gameObject, "RemoteBoardFurniture");
     }
+
+    // ---------------------------------------------------------- per-family shape dispatch --
+    //
+    // TWO SMALL HELPERS RATHER THAN FOUR INLINE TERNARIES, because the trap they exist to avoid is
+    // the two branches drifting apart: a shape dial whose Square branch takes a size the Round
+    // branch does not is a peer seeing a cap that its owner never can, and the whole point of
+    // wiring a shape is that BOTH members are drawable. Each helper states the local builder it
+    // reproduces so the pair can be checked against one place.
+
+    /// <summary>
+    /// One cap of the generic Confirm / Undo / item-USE column, in the OWNER's [Cards]
+    /// GenericButtonShape_{board}. Reproduces <c>PlayTray.BuildButtons</c> term for term: the ROUND
+    /// branch takes [BoardButtons] WIDTH as its diameter (that dial sizes both shapes since [Cards]
+    /// ConfirmUndoSize_{board} was retired), and both branches take the same depth and travel.
+    /// </summary>
+    private InertCap GenericCap(Transform parent, string name, Vector3 localPos,
+                                Color rest, Color accent, in CapLabelStyle labels) =>
+        _genericShape == Cards.ButtonShape.Round
+            ? InertCap.Round(parent, name, localPos, _boardCapW, _boardCapD, rest,
+                             BoardCapTint, labels, travel: _boardCapTravel, accent: accent)
+            : InertCap.Square(parent, name, localPos, new Vector2(_boardCapW, _boardCapH),
+                              _boardCapD, rest, BoardCapTint, labels,
+                              travel: _boardCapTravel, accent: accent);
+
+    /// <summary>
+    /// One of the short/long rest keycaps, in the OWNER's [Cards] RestButtonShape_{board}.
+    /// Reproduces <c>RestControls.EnsureBuilt</c>'s split: a ROUND disc keeps the per-board
+    /// DIAMETER (<paramref name="diameter"/>, itself the owner's [Cards] RestButtonDiameter_{board}
+    /// off the wire) while a SQUARE cap takes the [RestButtons] Width/Height — ids 99..100, which
+    /// were parked behind this very branch until it existed.
+    /// </summary>
+    private InertCap RestCap(Transform parent, string name, Vector3 localPos, float diameter,
+                             Color accent, in CapLabelStyle labels) =>
+        _restShape == Cards.ButtonShape.Round
+            ? InertCap.Round(parent, name, localPos, diameter, _restCapD, CapIdleColor,
+                             RestCapTint, labels, travel: _restCapTravel, accent: accent)
+            : InertCap.Square(parent, name, localPos, new Vector2(_restCapW, _restCapH),
+                              _restCapD, CapIdleColor, RestCapTint, labels,
+                              travel: _restCapTravel, accent: accent);
 
     // ---------------------------------------------------------------- refresh --
 
@@ -2665,6 +2841,39 @@ internal sealed class RemoteBoardFurniture
     /// at the top of this file already make); the three float lerps are linted against drift by
     /// <c>scripts/check-mirrors.sh</c>.
     /// </summary>
+    /// <summary>
+    /// The OWNER's engraved-label look, carried as one value from the board's tuning down to each
+    /// mirrored cap: fill colour, keyline colour and width, and the two switches
+    /// ([ButtonColors] LabelR/G/B, LabelOutlineR/G/B, LabelOutlineWidth, LabelOutline,
+    /// LabelUnderlay — record 28 ids 48 / 49 / 170 / 229 / 230).
+    ///
+    /// <para>It is a struct passed by <c>in</c> rather than five parameters because the set has to
+    /// travel INTACT. The bug it replaces is instructive: <c>BuildLabel</c> used to call the no-arg
+    /// <c>NativeButtonSkin.StyleEngravedLabel</c>, which reads the LOCAL player's config — so a peer's
+    /// cap wore the VIEWER's keyline — and it never assigned <c>label.color</c> at all, so the fill
+    /// stayed at TMP's default white while the local cap's is warm parchment. Two different failures,
+    /// one for each half of the label's look, and mixing this peer's fill with that viewer's keyline
+    /// would have been a third.</para>
+    /// </summary>
+    private readonly struct CapLabelStyle
+    {
+        public readonly Color Fill;
+        public readonly Color OutlineColor;
+        public readonly float OutlineWidth;
+        public readonly bool OutlineOn;
+        public readonly bool UnderlayOn;
+
+        public CapLabelStyle(Color fill, Color outlineColor, float outlineWidth,
+                             bool outlineOn, bool underlayOn)
+        {
+            Fill = fill;
+            OutlineColor = outlineColor;
+            OutlineWidth = outlineWidth;
+            OutlineOn = outlineOn;
+            UnderlayOn = underlayOn;
+        }
+    }
+
     private sealed class InertCap
     {
         /// <summary>Mirror of PlayTray.BoardButton.CapRestZ — the cap's seat toward the viewer.</summary>
@@ -2722,8 +2931,23 @@ internal sealed class RemoteBoardFurniture
         private Material? _topMat, _bevelMat, _wallMat;
 
         /// <summary>Change gate for <see cref="SetTint"/> — a material write per 4 Hz refresh is
-        /// exactly the churn the cadence exists to avoid.</summary>
+        /// exactly the churn the cadence exists to avoid. Holds the APPLIED colour, i.e. after
+        /// <see cref="_capTint"/>, so the gate compares what was actually written.</summary>
         private Color _tint = new(-1f, -1f, -1f, -1f);
+
+        /// <summary>
+        /// The OWNER's [ButtonColors] cap-FACE tint for this cap's category — the multiplier
+        /// <c>PlayTray.BoardButton.StateColor</c> applies to the shared state palette (and
+        /// <c>ButtonCluster.PhysicalButton</c> applies to its accent). White = identity.
+        ///
+        /// <para>ITS ABSENCE WAS A TWO-TIMES BRIGHTNESS ERROR ON EVERY MIRRORED KEYCAP. The shipped
+        /// tint is 0.5 grey, not white, so a local cap rests at HALF the palette colour and this
+        /// class was writing the palette colour raw — for two players who had never tuned anything.
+        /// It is applied in <see cref="SetTint"/> rather than folded into the colours the builders
+        /// are handed, so that a state change arriving later goes through the same multiply and the
+        /// four state looks cannot drift apart from each other.</para>
+        /// </summary>
+        private Color _capTint = Color.white;
 
         /// <summary>World position of the cap centre (build-time layout math — the USE cap centres
         /// between Confirm and Undo across two different parent anchors).</summary>
@@ -2738,10 +2962,11 @@ internal sealed class RemoteBoardFurniture
         /// <summary>The square beveled keycap (Confirm/Undo/Use/Pin): dark base plate + the
         /// 3-submesh chamfered cap mesh (state top / bright bevel / dark warm walls).</summary>
         public static InertCap Square(Transform parent, string name, Vector3 localPos, Vector2 size,
-            float depth, Color color, float travel = 0f, Color? accent = null,
-            bool clusterStyle = false)
+            float depth, Color color, Color capTint, in CapLabelStyle labels,
+            float travel = 0f, Color? accent = null, bool clusterStyle = false)
         {
             GameObject go = NewRoot(parent, name, localPos);
+            Color face = color * capTint;   // the owner's cap-face tint — see InertCap._capTint
 
             // Base plate: the recessed well the cap sits in (BoardButton's non-round branch).
             var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -2763,9 +2988,9 @@ internal sealed class RemoteBoardFurniture
             Material? top = null, bevel = null, wall = null;
             if (shader != null)
             {
-                top = Cards.PlayTray.NewKeycapMaterial(shader, color);            // [0] top plateau
-                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(color)); // [1] bright bevel
-                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(color));   // [2] dark warm wall
+                top = Cards.PlayTray.NewKeycapMaterial(shader, face);            // [0] top plateau
+                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face)); // [1] bright bevel
+                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face));   // [2] dark warm wall
                 mr.sharedMaterials = new[] { top, bevel, wall };
             }
 
@@ -2773,13 +2998,14 @@ internal sealed class RemoteBoardFurniture
             // the cap on a press ("it used to hang off the static root while only the cap sank,
             // reading as detached"). Same parenting here, so the mirrored dip moves the same parts.
             TextMeshPro label = BuildLabel(capMesh.transform, size,
-                new Vector3(0f, 0f, -capThick - 0.001f));
+                new Vector3(0f, 0f, -capThick - 0.001f), in labels);
             var cap = new InertCap(go, label)
             {
                 _topMat = top,
                 _bevelMat = bevel,
                 _wallMat = wall,
-                _tint = color,
+                _capTint = capTint,
+                _tint = face,
                 _capMesh = capMesh.transform,
                 _accentColor = accent ?? color,
                 _clusterStyle = clusterStyle,
@@ -2792,10 +3018,11 @@ internal sealed class RemoteBoardFurniture
         /// <summary>The round disc cap (rest discs, turn-flow Skip): recessed well ring + smooth
         /// generated disc, in the same carved-grain keycap material family.</summary>
         public static InertCap Round(Transform parent, string name, Vector3 localPos, float diameter,
-            float thickness, Color color, float travel = 0f, Color? accent = null,
-            bool clusterStyle = false)
+            float thickness, Color color, Color capTint, in CapLabelStyle labels,
+            float travel = 0f, Color? accent = null, bool clusterStyle = false)
         {
             GameObject go = NewRoot(parent, name, localPos);
+            Color face = color * capTint;   // the owner's cap-face tint — see InertCap._capTint
 
             var basePlate = new GameObject("Base");
             basePlate.transform.SetParent(go.transform, worldPositionStays: false);
@@ -2817,18 +3044,19 @@ internal sealed class RemoteBoardFurniture
             if (shader != null)
             {
                 baseMr.sharedMaterial = new Material(shader) { color = new Color(0.15f, 0.12f, 0.08f) };
-                disc = Cards.PlayTray.NewKeycapMaterial(shader, color);
+                disc = Cards.PlayTray.NewKeycapMaterial(shader, face);
                 capMr.sharedMaterial = disc;
             }
 
             TextMeshPro label = BuildLabel(capDisc.transform, new Vector2(diameter, diameter),
-                new Vector3(0f, 0f, -capThick * 0.5f - 0.001f));
+                new Vector3(0f, 0f, -capThick * 0.5f - 0.001f), in labels);
             var cap = new InertCap(go, label)
             {
                 // A disc has ONE cap material (no bevel/wall submeshes) — exactly like the local
                 // round BoardButton, whose SetCapColor drives its top colour alone.
                 _topMat = disc,
-                _tint = color,
+                _capTint = capTint,
+                _tint = face,
                 _capMesh = capDisc.transform,
                 _accentColor = accent ?? color,
                 _clusterStyle = clusterStyle,
@@ -2846,16 +3074,37 @@ internal sealed class RemoteBoardFurniture
             return go;
         }
 
-        /// <summary>The engraved parchment label the local caps wear
-        /// (<c>NativeButtonSkin.StyleEngravedLabel</c> + TmpFit inside the cap face).</summary>
-        private static TextMeshPro BuildLabel(Transform parent, Vector2 size, Vector3 localPos)
+        /// <summary>
+        /// The engraved parchment label the local caps wear (<c>NativeButtonSkin.StyleEngravedLabel</c>
+        /// + TmpFit inside the cap face) — IN THE OWNER'S [ButtonColors] LOOK, not this client's.
+        ///
+        /// <para>TWO DRIFTS LIVED IN THE THREE LINES THIS REPLACES, and neither could be seen from
+        /// inside a headset. (1) It never assigned <c>tmp.color</c>, so every mirrored keycap letter
+        /// was TMP's default pure WHITE while the local <c>BoardButton.Create</c> assigns
+        /// <c>NativeButtonSkin.LabelColor</c> — the warm parchment #FBF3E0. (2) It called the no-arg
+        /// <c>StyleEngravedLabel</c>, which reads the LOCAL config, so the keyline and drop-shadow on
+        /// a PEER's board followed the VIEWER's [ButtonColors] dials: turn your own keyline red and
+        /// every team-mate's board grew red keylines on your screen alone. The overload exists for
+        /// exactly this call site.</para>
+        ///
+        /// <para>Colour BEFORE style, and both before the fit: <c>StyleEngravedLabel</c> writes the
+        /// per-label font-material instance, which only exists once a font is assigned, and TmpFit's
+        /// auto-size is what the label is finally measured at.</para>
+        /// </summary>
+        private static TextMeshPro BuildLabel(Transform parent, Vector2 size, Vector3 localPos,
+                                              in CapLabelStyle labels)
         {
             var labelGo = new GameObject("Label");
             labelGo.transform.SetParent(parent, worldPositionStays: false);
             labelGo.transform.localPosition = localPos;
             var tmp = labelGo.AddComponent<TextMeshPro>();
             tmp.alignment = TextAlignmentOptions.Center;
-            WorldUI.NativeButtonSkin.StyleEngravedLabel(tmp);
+            // The local cap falls back to white when no HUD font has been harvested yet, because
+            // the parchment fill is only legible on the skinned face — same ladder here, so the two
+            // boards agree in the un-skinned case as well as the skinned one.
+            tmp.color = WorldUI.NativeButtonSkin.HasFont ? labels.Fill : Color.white;
+            WorldUI.NativeButtonSkin.StyleEngravedLabel(tmp, labels.OutlineColor, labels.OutlineWidth,
+                                                        labels.OutlineOn, labels.UnderlayOn);
             TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
             return tmp;
         }
@@ -3031,12 +3280,20 @@ internal sealed class RemoteBoardFurniture
         /// <c>BoardButton.SetCapColor</c>, driving the same three submesh materials with the same
         /// two derived tints, so an accented cap on a peer's board is the same colour as the
         /// accented cap on its owner's. Change-gated; a no-op on a cap whose shader never resolved.
+        ///
+        /// <para><paramref name="color"/> is the UNTINTED palette entry, exactly as the local
+        /// <c>StateColor()</c> selects it; the owner's per-category [ButtonColors] face tint is
+        /// applied HERE, in the one place, which is what puts every one of the four state looks and
+        /// every external re-tint (the FOLLOW/PIN toggle) through the same multiply. The change gate
+        /// compares the APPLIED colour so it is gating what was actually written to the material.</para>
         /// </summary>
         public void SetTint(Color color)
         {
-            if (color == _tint)
+            Color applied = color * _capTint;
+            if (applied == _tint)
                 return;
-            _tint = color;
+            _tint = applied;
+            color = applied;
             // A state change that lands DURING a mirrored appear/dissolve re-aims the ramp instead of
             // painting the settled colour over it — otherwise a peer's cap flashes finished inside
             // its own arrival. Mirror of PlayTray.BoardButton.UpdateColor's re-aim, and the reason

@@ -229,7 +229,26 @@ internal static class NativeButtonSkin
     /// instance this writes to). Deliberately NOT part of ApplyFont itself: captions,
     /// HUD lines and the quest block share that path and must stay un-outlined.
     /// </summary>
-    internal static void StyleEngravedLabel(TMP_Text label)
+    internal static void StyleEngravedLabel(TMP_Text label) =>
+        StyleEngravedLabel(label, EngraveOutlineColor, EngraveOutlineWidth,
+                           ButtonTuning.LabelOutlineEnabled, ButtonTuning.LabelUnderlayEnabled);
+
+    /// <summary>
+    /// The same engraved styling, but with the [ButtonColors] values supplied EXPLICITLY instead of
+    /// read from this client's own config.
+    ///
+    /// <para>WHY THE OVERLOAD EXISTS, AND IT IS NOT A GENERALISATION FOR ITS OWN SAKE. Every caller
+    /// on the local board wants the local player's dials and calls the no-arg form. The MIRROR of a
+    /// peer's board (<c>Net.RemoteBoardFurniture.InertCap</c>) wants THAT PEER's dials, which now
+    /// arrive on extension record 28 — and until this overload existed it had no way to ask for
+    /// them, so it called the no-arg form and every remote keycap was lettered in the VIEWER's
+    /// colours. That is the 1:1 ruling violated in the one direction nobody looks for: not "the
+    /// owner's tuning is missing" but "the viewer's tuning has leaked onto somebody else's board".
+    /// A player who set their own keyline to red saw red keylines on all three of their team-mates'
+    /// boards, and each of those team-mates saw their own.</para>
+    /// </summary>
+    internal static void StyleEngravedLabel(TMP_Text label, Color outlineColor, float outlineWidth,
+                                            bool outlineOn, bool underlayOn)
     {
         if (label == null || label.font == null)
             return; // no font yet — the caller re-applies fonts late, restyle then
@@ -245,12 +264,11 @@ internal static class NativeButtonSkin
         // gated on the LabelOutline toggle (OFF → width 0 + keyword off = a flat label). Applied on
         // the keycap rebuild that a ButtonColors edit triggers (ButtonTuning.Version), so toggling
         // it live takes effect on the next re-skin.
-        bool outlineOn = ButtonTuning.LabelOutlineEnabled;
         if (mat.HasProperty("_OutlineColor"))
-            mat.SetColor("_OutlineColor", EngraveOutlineColor);
+            mat.SetColor("_OutlineColor", outlineColor);
         if (mat.HasProperty("_OutlineWidth"))
         {
-            mat.SetFloat("_OutlineWidth", outlineOn ? EngraveOutlineWidth : 0f);
+            mat.SetFloat("_OutlineWidth", outlineOn ? outlineWidth : 0f);
             if (outlineOn)
                 mat.EnableKeyword("OUTLINE_ON"); // mobile TMP variants gate outline on this; no-op elsewhere
             else
@@ -262,7 +280,7 @@ internal static class NativeButtonSkin
         // User debug option: gated on the LabelUnderlay toggle (OFF → keyword off = no shadow).
         if (mat.HasProperty("_UnderlayColor"))
         {
-            if (ButtonTuning.LabelUnderlayEnabled)
+            if (underlayOn)
             {
                 mat.SetColor("_UnderlayColor", new Color(0.05f, 0.03f, 0.02f, 0.70f));
                 if (mat.HasProperty("_UnderlaySoftness"))
@@ -285,9 +303,9 @@ internal static class NativeButtonSkin
             VRLog.Info("WorldUI", "NativeButtonSkin keycap-label CONTRAST (user #3): fill " +
                                   $"RGB({LabelColor.r:F2},{LabelColor.g:F2},{LabelColor.b:F2}) " +
                                   "bright warm parchment (#FBF3E0), " +
-                                  $"outline RGBA({EngraveOutlineColor.r:F2},{EngraveOutlineColor.g:F2}," +
-                                  $"{EngraveOutlineColor.b:F2},{EngraveOutlineColor.a:F2}) dark umber " +
-                                  $"width {EngraveOutlineWidth:F2}, + dark underlay shadow — readable on both " +
+                                  $"outline RGBA({outlineColor.r:F2},{outlineColor.g:F2}," +
+                                  $"{outlineColor.b:F2},{outlineColor.a:F2}) dark umber " +
+                                  $"width {outlineWidth:F2}, + dark underlay shadow — readable on both " +
                                   "light (brass/parchment) and dark (wood/pewter) caps.");
         }
     }

@@ -77,9 +77,16 @@ internal static class ButtonTuning
     internal const float DefaultLabelR = Defaults.LabelR;
     internal const float DefaultLabelG = Defaults.LabelG;
     internal const float DefaultLabelB = Defaults.LabelB;
-    internal const float DefaultLabelOutlineR = 0.09f;
-    internal const float DefaultLabelOutlineG = 0.06f;
-    internal const float DefaultLabelOutlineB = 0.03f;
+    // …and the outline triple NAMES THE SHIPPED ENTRY rather than restating a literal. It used to
+    // read 0.09/0.06/0.03 — the authored dark umber — while Defaults.LabelOutlineR/G/B had been
+    // REBASED to 0.5 (scripts/rebase-defaults.py, which bakes a tuned player's cfg into the shipped
+    // set). Nothing broke, because these three are only the PRE-BIND fallback and every consumer
+    // calls Bind() first; but the file then held two different answers to "what colour is a keycap
+    // keyline by default", and a reader could not tell which one shipped. Exactly the drift
+    // scripts/check-remote-defaults.py exists to catch on the Net/ side, one file earlier.
+    internal const float DefaultLabelOutlineR = Defaults.LabelOutlineR;
+    internal const float DefaultLabelOutlineG = Defaults.LabelOutlineG;
+    internal const float DefaultLabelOutlineB = Defaults.LabelOutlineB;
     internal const float DefaultLabelOutlineWidth = Defaults.LabelOutlineWidth; // fraction of the SDF spread
 
     /// <summary>Keycap category whose [ButtonColors] cap-face TINT applies (see <see cref="CapTint"/>).
@@ -559,17 +566,40 @@ internal static class ButtonTuning
     /// <summary>Whether the dark drop-shadow underlay is drawn under keycap labels (default on).</summary>
     internal static bool LabelUnderlayEnabled => LabelUnderlay == null || LabelUnderlay.Value;
 
-    /// <summary>Confirm/Undo keycap FACE tint (multiplier, default white = unchanged).</summary>
-    internal static Color BoardCapTint => Tint3(BoardCapTintR, BoardCapTintG, BoardCapTintB);
+    // THE PRE-BIND FALLBACK OF ALL FOUR IS THE SHIPPED VALUE, NOT WHITE. It used to be white (an
+    // identity multiply), on the reasonable-sounding note "default white = unchanged" — but the
+    // shipped [ButtonColors] *CapTint entries were REBASED to 0.5 (scripts/rebase-defaults.py), so
+    // the accessor answered 0.5 after Bind and 1.0 before it: two different pictures for the same
+    // untuned player, differing by a factor of two in brightness.
+    //
+    // Locally that was hidden — every cap builder calls Bind() first — but it stopped being
+    // harmless the moment these accessors became WIRE INPUT (extension record 28 ids 50..53).
+    // BoardTuningSampler emits a field whenever the live value differs from the shipped one, and a
+    // packet can go out during scene load: a completely untuned player would have started
+    // broadcasting "my cap tint is white" for as long as Bind had not run, which is exactly the
+    // "an untuned player emits the bytes the previous build emitted" guarantee the whole record is
+    // built on. The fallback and the bind default now name the same entries, so pre-Bind and
+    // post-Bind are the same colour and the sampler stays silent.
 
-    /// <summary>Gear + Fixiert (follow/pin) plate FACE tint (multiplier, default white).</summary>
-    internal static Color DashCapTint => Tint3(DashCapTintR, DashCapTintG, DashCapTintB);
+    /// <summary>Confirm/Undo keycap FACE tint (multiplier over the state palette; shipped 0.5).</summary>
+    internal static Color BoardCapTint =>
+        Tint3(BoardCapTintR, BoardCapTintG, BoardCapTintB,
+              Defaults.BoardCapTintR, Defaults.BoardCapTintG, Defaults.BoardCapTintB);
 
-    /// <summary>Round-phase cluster (Ready/Undo/Skip) cap FACE tint (multiplier, default white).</summary>
-    internal static Color ClusterCapTint => Tint3(ClusterCapTintR, ClusterCapTintG, ClusterCapTintB);
+    /// <summary>Gear + Fixiert (follow/pin) plate FACE tint.</summary>
+    internal static Color DashCapTint =>
+        Tint3(DashCapTintR, DashCapTintG, DashCapTintB,
+              Defaults.DashCapTintR, Defaults.DashCapTintG, Defaults.DashCapTintB);
 
-    /// <summary>Short/long REST keycap FACE tint (multiplier, default white).</summary>
-    internal static Color RestCapTint => Tint3(RestCapTintR, RestCapTintG, RestCapTintB);
+    /// <summary>Round-phase cluster (Ready/Undo/Skip) cap FACE tint.</summary>
+    internal static Color ClusterCapTint =>
+        Tint3(ClusterCapTintR, ClusterCapTintG, ClusterCapTintB,
+              Defaults.ClusterCapTintR, Defaults.ClusterCapTintG, Defaults.ClusterCapTintB);
+
+    /// <summary>Short/long REST keycap FACE tint.</summary>
+    internal static Color RestCapTint =>
+        Tint3(RestCapTintR, RestCapTintG, RestCapTintB,
+              Defaults.RestCapTintR, Defaults.RestCapTintG, Defaults.RestCapTintB);
 
     /// <summary>Cap-face TINT for a category (default white = identity multiply until edited).</summary>
     internal static Color CapTint(CapCategory category) => category switch
@@ -580,8 +610,13 @@ internal static class ButtonTuning
         _ => RestCapTint,
     };
 
-    private static Color Tint3(ConfigEntry<float>? r, ConfigEntry<float>? g, ConfigEntry<float>? b) => new(
-        Clamped(r, 1f, 0f, 1f), Clamped(g, 1f, 0f, 1f), Clamped(b, 1f, 0f, 1f), 1f);
+    /// <summary>Three [ButtonColors] channels as one opaque tint, each falling back to its own
+    /// SHIPPED default before <c>Bind</c> — see the block above for why the fallback may not be a
+    /// blanket white. ALPHA IS ALWAYS 1: no [ButtonColors] entry has an A channel, which is what
+    /// lets the wire carry these as 3 bytes (NetProtocol.TuneColorIdMin).</summary>
+    private static Color Tint3(ConfigEntry<float>? r, ConfigEntry<float>? g, ConfigEntry<float>? b,
+                               float defR, float defG, float defB) => new(
+        Clamped(r, defR, 0f, 1f), Clamped(g, defG, 0f, 1f), Clamped(b, defB, 0f, 1f), 1f);
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
