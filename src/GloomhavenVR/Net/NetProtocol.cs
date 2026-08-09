@@ -416,7 +416,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 100;
+    public const ushort ModBuild = 101;
+    // Build 101: three reports that all came back to ONE resolver, plus the fog tile and the
+    // tooltip plate.
+    //   * 'der X-Offset beim Arm-HUD hat keinen Einfluss' was not an orphaned dial - it was an
+    //     UNSTEPPABLE one. ConfigSteps.TryUnit matched the unit word as a SUFFIX, so any key ending
+    //     in a bare axis letter never matched and fell back to 'a fiftieth of the shipped default'.
+    //     GloveOffsetX ships -0.003 and stepped 0.05 mm; its sibling OffsetY ships -0.053 and
+    //     stepped 1 mm. Third report in this family, so the resolver was fixed rather than one more
+    //     set of keys: 73 of 351 dials changed step, sibling disagreement within a vector 28 -> 4.
+    //     [RoundButtons] OffsetX - the dial reported two rounds ago - went 1 mm -> 10 mm.
+    //   * The arm HUD moved to the palm. HandRig.Wrist is NOT in the Root frame and four rounds of
+    //     that file assumed it was: the anchor carries +90 about X, so wrist +Z is out of the PALM.
+    //     That is why every per-style trim was a ~-90 pitch - undoing the missing 90 by hand.
+    //   * The fog hex takes ONE decision per hex instead of one per renderer (the kit puts three on
+    //     each, with AABBs 10-20 cm apart, so two surfaces of one hex straddled a ladder breakpoint
+    //     and swapped paint order - that flickers with a still head), and it no longer parks in MR,
+    //     where the opaque backings sat at order 0 against a board band at 143..291: an opaque
+    //     surface painted BEFORE what it should hide hides nothing.
+    //   * The tooltip's MR plate outlived its tooltip by the fade plus the placement latch - 0.4 +
+    //     0.5 s - and collapsed into a full-width, near-zero-height bar when the game reset the
+    //     rect. That is the reported streak. It now fades with the box.
+    //   * The avatar mask is a dropdown: MaskId is an int bounded by a RANGE, and a range is not a
+    //     value LIST, so the row classifier drew a three-position slider labelled 0/1/2.
+    // No wire change; the bump is the handshake key. Wire assertions 1121 -> 1389.
     // Build 100: the multiplayer performance collapse, and it was TWO defects that had been
     // invisible to the instruments rather than one expensive feature.
     //   * THE ESCALATION was an unbounded ring leak on the mirrored initiative track: the hover

@@ -202,8 +202,16 @@ internal static class ConfigStepVectors
                    + "— it will step off its own default's magnitude, which is the defect this "
                    + "guard exists for");
         }
-        t.True(axisKeys >= 15,
-               $"the sweep found only {axisKeys} axis-suffixed keys; it used to find 17, so either "
+        // The floor was 15 against 17 found when this guard was written. It dropped to 10 in the
+        // very same build: the arm-HUD round renamed its six `{style}OffsetX/Y/Z` keys to end in
+        // the unit word (`PalmSideOffset` and friends) and retired the six dead `[WorldUI]
+        // WristHud*` twins — i.e. seven axis-suffixed keys legitimately stopped existing. That is
+        // the guard doing its job, not a false alarm: it noticed the annotation set move on the
+        // first run after the merge, which is exactly the failure it was built to catch, and the
+        // only correct response was to look at WHY the count fell and confirm each loss. Re-based
+        // to 8 against the 10 that remain, so a silent loss of the sweep still fails loudly.
+        t.True(axisKeys >= 8,
+               $"the sweep found only {axisKeys} axis-suffixed keys; it used to find 10, so either "
                + "the Defaults annotations moved or this guard has stopped reading them");
 
         // (b) TWO DIALS OF ONE VECTOR MUST STEP ALIKE. That invariant is what the user notices when
