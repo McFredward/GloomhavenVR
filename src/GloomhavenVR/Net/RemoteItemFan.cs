@@ -74,9 +74,7 @@ internal sealed class RemoteItemFan
     private const int MaxCards = 12;
     private const float CardW = 0.075f;                  // item cards read near-square…
     private const float CardH = CardW * 1.15f;           // …so this is NOT the 88/63.5 ability ratio
-    private const float Radius = 0.1792f * 1.7f;         // CardsConfig.FanEffectiveRadius × RadiusFactor
     private const float MaxArcDegrees = 110f;            // ItemsPile.MaxArcDegrees
-    private const float MaxStepDegrees = 10f;            // ItemsPile.MaxStepDegrees
     private const float ZStagger = 0.004f;               // ItemsPile.ZStagger (draw order)
     private const float HandPalmOffset = 0.16f;          // ItemsPile.HandPalmOffset
     private const float BoardFloatHeight = 0.26f;        // ItemsPile.BoardFloatHeight
@@ -142,6 +140,22 @@ internal sealed class RemoteItemFan
     private float _settleOvershoot = Defaults.ItemFanSettleOvershoot;
     private float _closeSeconds = Defaults.ItemFanCloseDuration;
     private float _closeStagger = Defaults.ItemFanCloseStagger;
+
+    // ---- and the owner's own item-fan GEOMETRY (record 28, ids 79 / 158 / 198), wire-borne only
+    // since the record was paged. These were `const Radius = 0.1792f * 1.7f` and
+    // `const MaxStepDegrees = 10f`, and the radius was not merely un-synced but WRONG: the local
+    // ItemsPile builds its arc from `[Cards] FanRadius × FanRadiusFactor_Items` = 0.16 × 1.7 =
+    // 0.272 m, while this literal had been re-typed from FanEffectiveRadius (0.1792), giving
+    // 0.30464 — a 12 % wider fan on every peer's screen than on the owner's, for every player,
+    // tuned or not. That is exactly the class of drift scripts/check-remote-defaults.py exists to
+    // catch and could not, because a bare literal has no pair to check. Reading it off the wire
+    // fixes the untuned case and the tuned case in the same stroke.
+    private float _radius = Defaults.FanRadius * Defaults.FanRadiusFactor_Items;
+    private float _maxStepDegrees = Defaults.FanStepDegrees_Items;
+
+    /// <summary>[Cards] CardLerpSpeed — the exponential the chips fly to their slots on, the
+    /// owner's rather than ours (id 157).</summary>
+    private float _lerpSpeed = Defaults.CardLerpSpeed;
 
     /// <summary>The <see cref="RemoteAvatar.BoardTuningRevision"/> the eight dials above were last
     /// refreshed at (−1 = never). Latched, not value-compared — the resolve already happens once
@@ -449,7 +463,7 @@ internal sealed class RemoteItemFan
     /// dealing them out of the <see cref="SeedEmerge"/> seed on the owner's own fly-out curve.</summary>
     private void Layout(int n, float dt)
     {
-        float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
+        float step = n > 1 ? Mathf.Min(_maxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
         float mid = (n - 1) * 0.5f;
 
@@ -492,7 +506,7 @@ internal sealed class RemoteItemFan
                 continue;
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
-            var pos = new Vector3(Mathf.Sin(rad) * Radius, (Mathf.Cos(rad) - 1f) * Radius, -ZStagger * i);
+            var pos = new Vector3(Mathf.Sin(rad) * _radius, (Mathf.Cos(rad) - 1f) * _radius, -ZStagger * i);
             Quaternion rot = Quaternion.Euler(0f, 0f, -angle);
             // The POP, exactly as the owner's own chip applies it (ItemsPile.ItemChip: PopLift
             // toward the viewer along the chip's local −Z, ×PopScale enlargement, eased at
@@ -529,7 +543,7 @@ internal sealed class RemoteItemFan
                 // wherever it was lying and eases to its arc slot on the same exponential the
                 // owner's card flies home on. Only the CLOCK is local; the motion is theirs.
                 _returnGlide -= dt;
-                float k = 1f - Mathf.Exp(-Defaults.CardLerpSpeed * Mathf.Max(dt, 0f));
+                float k = 1f - Mathf.Exp(-_lerpSpeed * Mathf.Max(dt, 0f));
                 t.localPosition = Vector3.Lerp(t.localPosition, pos, k);
                 t.localRotation = Quaternion.Slerp(t.localRotation, rot, k);
                 t.localScale = Vector3.Lerp(t.localScale, Vector3.one * scale, k);
@@ -703,7 +717,7 @@ internal sealed class RemoteItemFan
             t.localScale = Vector3.one * _clipFitScale;
             return;
         }
-        float k = 1f - Mathf.Exp(-Defaults.CardLerpSpeed * Mathf.Max(dt, 0f));
+        float k = 1f - Mathf.Exp(-_lerpSpeed * Mathf.Max(dt, 0f));
         t.localPosition = Vector3.Lerp(t.localPosition, Vector3.zero, k);
         t.localRotation = Quaternion.Slerp(t.localRotation, Quaternion.identity, k);
         t.localScale = Vector3.Lerp(t.localScale, Vector3.one * _clipFitScale, k);
@@ -955,6 +969,12 @@ internal sealed class RemoteItemFan
         _settleOvershoot = Mathf.Clamp(t.ItemFanSettleOvershoot, 0f, 3f);
         _closeSeconds = Mathf.Max(0.01f, t.ItemFanCloseDuration);
         _closeStagger = Mathf.Max(0f, t.ItemFanCloseStagger);
+        // The fan's SHAPE, wire-borne only since record 28 was paged (see the field declarations —
+        // the radius was also plain wrong here, by 12 %, for every player). Guarded above zero
+        // because a wire value is never trusted: a zero radius collapses the arc onto a point.
+        _radius = Mathf.Max(0.02f, t.FanRadius * t.FanRadiusFactorItems);
+        _maxStepDegrees = Mathf.Max(0.5f, t.FanStepDegreesItems);
+        _lerpSpeed = Mathf.Max(0.5f, t.CardLerpSpeed);
     }
 
     /// <summary>

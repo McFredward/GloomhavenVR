@@ -72,9 +72,7 @@ internal sealed class RemoteBrowserFan
     private const int MaxCards = 16;                    // PileBrowser's own list capacity
     private const float CardW = RemoteHandFan.DefaultCardWidth;   // ability cards, 63.5 × 88
     private const float CardH = RemoteHandFan.DefaultCardHeight;
-    private const float Radius = 0.16f * 1.7f;          // CardsConfig.FanRadius default × PileBrowser.RadiusFactor
     private const float MaxArcDegrees = 110f;           // PileBrowser.MaxArcDegrees
-    private const float MaxStepDegrees = 10f;           // PileBrowser.MaxStepDegrees
     private const float ArchFactor = 0.55f;             // PileBrowser.Relayout's (cos-1)·radius·0.55
     private const float TiltFactor = 0.85f;             // PileBrowser.Relayout's -angle·0.85
     private const float CardScale = 1.3f;               // PileBrowser.CardScale (browse cards are enlarged)
@@ -86,9 +84,34 @@ internal sealed class RemoteBrowserFan
     /// <summary>Root follow sharpness, same as every other remote card visual.</summary>
     private const float Smoothing = 14f;
 
-    /// <summary>EMERGE sharpness — <c>[Cards] CardLerpSpeed</c>'s default (14), the exponential the
-    /// local browse cards actually fly out of the stack on.</summary>
-    private const float EmergeSharpness = 14f;
+    // ---- THE OWNER'S OWN BROWSE-FAN SHAPE (extension record 28, ids 79 / 158..160 / 198..200).
+    //
+    // These three were `const Radius = 0.16f * 1.7f`, `const MaxStepDegrees = 10f` and
+    // `const EmergeSharpness = 14f` — BARE LITERALS re-typed from the shipped defaults, which is the
+    // exact failure mode scripts/check-remote-defaults.py was written to catch and which nothing had
+    // caught here because the pairs were never listed. They were literals rather than wire fields
+    // for one reason: record 28 stood at exactly 255 payload bytes, the extension tail's one-byte
+    // length ceiling, and there was nowhere to put them. Paging removed that ceiling (see
+    // NetProtocol.BoardTunePages), so an owner who widens or flattens their pile browse fan is now
+    // seen doing it — which is what the 1:1 ruling requires ("Ändert ein Spieler also die Positionen
+    // für sich selber, so sollen alle anderen diese Position bei seinem board auch sehen").
+    //
+    // Refreshed by SyncTuning() on the owner's tuning revision and read as plain floats in between:
+    // the layout loop touches them per slab per frame and RemoteBoardTuning is a wide struct. The
+    // INITIALISER is the shipped default, which is what an untuned peer is still drawn with.
+    private float _radius = Defaults.FanRadius * Defaults.FanRadiusFactor_Discard;
+    private float _maxStepDegrees = Defaults.FanStepDegrees_Discard;
+
+    /// <summary>EMERGE sharpness — <c>[Cards] CardLerpSpeed</c>, the exponential the local browse
+    /// cards actually fly out of the stack on. Wire-overridable (id 157) for the same reason as the
+    /// two above: the owner's cards arrive at the owner's rate on every screen, not at ours.</summary>
+    private float _emergeSharpness = Defaults.CardLerpSpeed;
+
+    /// <summary>The <see cref="RemoteAvatar.BoardTuningRevision"/> the three dials above were last
+    /// refreshed at, plus the pile KIND they were resolved for — the radius factor and the angular
+    /// step are per-pile, so switching pile re-resolves them exactly like a dial move does.</summary>
+    private int _tuningRevision = -1;
+    private int _tuningKind = -1;
 
     /// <summary>How long the emerge keeps easing before the slots are simply asserted. The
     /// exponential above is ~99.9 % settled well inside this; it exists only so a settled fan stops
@@ -141,6 +164,46 @@ internal sealed class RemoteBrowserFan
     {
         _owner = owner;
         _fronts = new RemotePileFronts(owner, "pile browse fan");
+    }
+
+    /// <summary>
+    /// Pull the owner's OWN browse-fan shape off <see cref="RemoteAvatar.BoardTuning"/> (extension
+    /// record 28, ids 79 / 158..160 / 198..200 — see the field declarations for why they were bare
+    /// literals until the record was paged).
+    ///
+    /// <para>Re-resolves on the owner's tuning revision OR on a pile switch: the radius factor and
+    /// the angular step are PER PILE, so browsing "Verbrannt" after "Abgelegt" is as much a change
+    /// of these numbers as a dial move is. Everything falls back to the shipped default for the dial
+    /// the owner has not moved, which is the same value this client compiled in — so an untuned peer
+    /// is drawn exactly as the previous build drew them.</para>
+    ///
+    /// <para>Guarded against a wire value of zero: a zero radius would collapse the arc onto a point
+    /// and a zero step would stack every card on one, neither of which a config range can produce —
+    /// but a wire value is never trusted.</para>
+    /// </summary>
+    private void SyncTuning()
+    {
+        if (_tuningRevision == _owner.BoardTuningRevision && _tuningKind == _shownKind)
+            return;
+        _tuningRevision = _owner.BoardTuningRevision;
+        _tuningKind = _shownKind;
+        RemoteBoardTuning t = _owner.BoardTuning;
+
+        float factor = _shownKind switch
+        {
+            NetProtocol.PileBrowseKindBurnt => t.FanRadiusFactorBurnt,
+            NetProtocol.PileBrowseKindItems => t.FanRadiusFactorItems,
+            _ => t.FanRadiusFactorDiscard,
+        };
+        float step = _shownKind switch
+        {
+            NetProtocol.PileBrowseKindBurnt => t.FanStepDegreesBurnt,
+            NetProtocol.PileBrowseKindItems => t.FanStepDegreesItems,
+            _ => t.FanStepDegreesDiscard,
+        };
+        _radius = Mathf.Max(0.02f, t.FanRadius * factor);
+        _maxStepDegrees = Mathf.Max(0.5f, step);
+        _emergeSharpness = Mathf.Max(0.5f, t.CardLerpSpeed);
     }
 
     /// <summary>Map the wire's pile-kind byte onto the model source the front layer reads.</summary>
@@ -307,7 +370,8 @@ internal sealed class RemoteBrowserFan
     /// exponential the local browse cards use. Mirrors <c>PileBrowser.Relayout</c>'s arc math.</summary>
     private void Layout(int n, float dt)
     {
-        float step = n > 1 ? Mathf.Min(MaxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
+        SyncTuning();
+        float step = n > 1 ? Mathf.Min(_maxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
         bool easing = _emergeElapsed >= 0f;
@@ -315,7 +379,7 @@ internal sealed class RemoteBrowserFan
         if (easing)
         {
             _emergeElapsed += dt;
-            k = 1f - Mathf.Exp(-EmergeSharpness * dt);
+            k = 1f - Mathf.Exp(-_emergeSharpness * dt);
             if (_emergeElapsed >= EmergeSettleSeconds)
                 _emergeElapsed = -1f; // settled: assert the slots exactly from here on (see below)
         }
@@ -334,8 +398,8 @@ internal sealed class RemoteBrowserFan
         {
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
-            var pos = new Vector3(Mathf.Sin(rad) * Radius,
-                                  (Mathf.Cos(rad) - 1f) * Radius * ArchFactor,
+            var pos = new Vector3(Mathf.Sin(rad) * _radius,
+                                  (Mathf.Cos(rad) - 1f) * _radius * ArchFactor,
                                   -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * TiltFactor);
             // The LIFT, on top of the finished arc pose exactly as VRCard applies it: toward the

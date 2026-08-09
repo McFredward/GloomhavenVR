@@ -1971,6 +1971,14 @@ internal static class NetProtocol
     // reserved. A shipped record id can never be renumbered, so this one is 28 by assignment,
     // not by "the next free number" (that habit already produced one id collision — see the note
     // above record 22).
+    //
+    // RECORD-ID RESERVATION, 2026-08-09 (the paging round). The un-ceiling of this record took NO
+    // NEW RECORD ID: 29 and up are still entirely free. That is deliberate and worth stating,
+    // because the obvious cheap fix — "spill into record 29" — was considered and REJECTED: a
+    // continuation record only doubles the ceiling, it is the same wall a bit further away, and it
+    // spends a scarce id every time the wall is reached again. Paging keeps one id and has no wall
+    // at all. Ids in use today: 1..17 and 22..28. FREE: 29..255 (18..21 stay reserved for the
+    // parallel round that claimed them).
 
     /// <summary>
     /// Extension record id: THE OWNER'S OWN TUNING OF THEIR CONTROL BOARD, HAND FAN AND BOARD MESH
@@ -2009,10 +2017,23 @@ internal static class NetProtocol
     /// the extras block (byte A bits 5..6), so only the CURRENT style's values are transmitted.
     /// Switching board style re-samples the record.</para>
     ///
-    /// <para>LAYOUT — <c>[n][n × field]</c>, fields in ASCENDING ID ORDER (deterministic bytes; a
-    /// reader may early-out). A field is <c>[id][value]</c> and THE ID'S RANGE FIXES THE VALUE
-    /// WIDTH, which is what keeps the record self-describing without spending a length byte per
-    /// field:
+    /// <para>PAGED, SINCE 2026-08-09 — READ <see cref="BoardTunePages"/> BEFORE ANYTHING ELSE HERE.
+    /// The record's payload is ONE PAGE of the sender's tuning, not the whole of it:
+    /// <c>[pageIndex][pageCount][sig u16 LE][idLo][idHi][n][n × field]</c>, a COMPLETE STATEMENT
+    /// about the field-id range [idLo, idHi]. The sender cycles one page per extras packet and the
+    /// receiver publishes only when it holds every page of one generation. That removed the
+    /// record's CAPACITY CEILING — the tail writes a record's length in one byte, the payload had
+    /// reached exactly 255, and the eleventh dial of the next feature simply could not ride. The
+    /// 1:1 ruling ("Ändert ein Spieler also die Positionen für sich selber, so sollen alle anderen
+    /// diese Position bei seinem board auch sehen", 2026-08-09) does not admit a capacity ceiling,
+    /// so the ceiling had to go rather than be moved further away. The paging took NO new record
+    /// id — everything below still rides id 28.</para>
+    ///
+    /// <para>LAYOUT OF A PAGE'S FIELD RUN — <c>[n][n × field]</c> in the ASSEMBLED payload, and the
+    /// same <c>n × field</c> run behind a page header on the wire; fields in ASCENDING ID ORDER
+    /// (deterministic bytes; a reader may early-out). A field is <c>[id][value]</c> and THE ID'S
+    /// RANGE FIXES THE VALUE WIDTH, which is what keeps the record self-describing without spending
+    /// a length byte per field:
     /// <list type="bullet">
     /// <item><see cref="TuneVecIdMin"/>..<see cref="TuneVecIdMax"/> — 6 bytes, a Vector3 as
     ///   3 × i16 LE in TENTH-MILLIMETRES (<see cref="EncodeTuneLength"/>).</item>
@@ -2049,30 +2070,72 @@ internal static class NetProtocol
     public const byte ExtIdBoardTuning = 28;
 
     /// <summary>
-    /// Field cap of <see cref="ExtIdBoardTuning"/> — the number of dials the record can name (see
-    /// the id table below; 66 are defined today, the last eight being the HAND fan's character-SWAP
-    /// exchange, which joins the item fan's open/close set under the same rule: the standing 1:1
-    /// ruling names ANIMATIONS outright). It bounds the record at
-    /// 1 + 15×7 + 15×3 + 26×3 + 6×3 + 4×2 = 255 payload bytes, and is re-clamped on read against
-    /// the record's own length.
+    /// Structural field cap of <see cref="ExtIdBoardTuning"/>: THE SIZE OF THE FIELD-ID SPACE — 247
+    /// usable ids (63 vec + 64 length + 64 factor + 32 angle + 24 count; 248..255 stay reserved).
+    /// Each id may appear at most once in an assembled tuning, so this is simultaneously the largest
+    /// number of dials the record can ever carry and the proof that the assembled payload's
+    /// single-byte field count can never overflow (247 &lt; 255).
     ///
-    /// <para>THAT 255 IS THE CEILING ITSELF, NOT A COMFORTABLE NUMBER — read this before adding a
-    /// field. The extension tail writes each record's length as ONE BYTE, and
-    /// <c>PresenceSerializer.Write</c>'s board-tuning branch refuses a payload over 255 outright:
-    /// the record would then be dropped SILENTLY, and only for the player who had moved every dial,
-    /// which is the least likely person to be testing and the hardest case to reproduce. The swap
-    /// set landed at exactly 255 only because its last two dials were deliberately moved into the
-    /// COUNT range for a byte each (see <see cref="TuneFanSwapSpin"/>). The NEXT field to be added
-    /// here therefore cannot simply be appended: either free bytes by re-siting existing dials into
-    /// narrower containers, or split the tuning into a second record id. <see cref="BoardTuningSampler"/>
-    /// states the same thing at the one place that computes the worst case, and logs loudly if the
-    /// two ever disagree.</para>
+    /// <para>THIS IS NO LONGER A BYTE BUDGET, AND THAT IS THE POINT. Until 2026-08-09 this constant
+    /// read 66 and existed to keep the record's worst case at exactly 255 — the extension tail's
+    /// one-byte per-record length ceiling — because <c>PresenceSerializer.Write</c> refuses a bigger
+    /// payload silently, and only for the player who had moved every dial: the least likely person
+    /// to be testing and the hardest case to reproduce. The swap dials had already been squeezed
+    /// into a narrower container purely to fit (see <see cref="TuneFanSwapSpin"/>), and the next ten
+    /// dials could not ride the record at all. Under the 1:1 ruling that is not a tight budget, it
+    /// is a broken guarantee, so the record was PAGED instead (see <see cref="BoardTunePages"/>):
+    /// per-packet size stays bounded by the tail, total capacity is bounded only by the id space
+    /// above — which is a BUILD-TIME resource, since a new dial needs a new <c>Tune*</c> constant.
+    /// Running out is therefore something a human reads at a compiler, never a drop a player never
+    /// sees; <c>scripts/check-wire-coverage.py</c> fails the guard while any range approaches
+    /// full.</para>
     /// </summary>
-    public const int BoardTuneMaxFields = 66;
+    public const int BoardTuneMaxFields = 247;
 
-    /// <summary>Minimum payload of <see cref="ExtIdBoardTuning"/> (the field-count byte alone). A
-    /// reader requires at least this much before it looks at the record.</summary>
-    public const int BoardTuneMinRecordBytes = 1;
+    /// <summary>
+    /// Worst-case byte length of a COMPLETE field run — every usable id present at its own width:
+    /// 63×7 + 64×3 + 64×3 + 32×3 + 24×2 = 969. Sizes the sender's sample buffer and bounds the
+    /// receiver's accumulator, so neither is ever sized from a number the wire supplied.
+    /// </summary>
+    public const int BoardTuneMaxFieldBytes = 63 * 7 + 64 * 3 + 64 * 3 + 32 * 3 + 24 * 2;
+
+    /// <summary>Header of one record-28 PAGE, in bytes:
+    /// <c>[pageIndex][pageCount][sig lo][sig hi][idLo][idHi][fieldCount]</c>.</summary>
+    public const int BoardTunePageHeaderBytes = 7;
+
+    /// <summary>Offsets inside a page header (see <see cref="BoardTunePageHeaderBytes"/>).</summary>
+    public const int BoardTunePageIndexAt = 0;
+    public const int BoardTunePageCountAt = 1;
+    public const int BoardTunePageSigAt = 2;
+    public const int BoardTunePageIdLoAt = 4;
+    public const int BoardTunePageIdHiAt = 5;
+    public const int BoardTunePageFieldCountAt = 6;
+
+    /// <summary>Field bytes one page may carry: the tail's one-byte length ceiling (255) less the
+    /// page header. THIS is where 255 still bites — and it is now a PER-PAGE bound with another page
+    /// behind it, not a cap on how much a player may tune.</summary>
+    public const int BoardTunePageMaxFieldBytes = 255 - BoardTunePageHeaderBytes;
+
+    /// <summary>
+    /// Pages a generation may claim. DERIVED, not guessed: a greedy split at field boundaries wastes
+    /// at most 6 bytes per page (a 7-byte vec3 that will not fit a 6-byte remainder), so every page
+    /// but the last carries ≥242 field bytes and <see cref="BoardTuneMaxFieldBytes"/> = 969 needs at
+    /// most ⌈969 / 242⌉ = 5. Eight leaves headroom for a future widening of the id space while still
+    /// bounding the receiver's accumulator at 8 slices — the point being that the bound comes from
+    /// the id space rather than from the wire, so a corrupt sender cannot size an allocation here.
+    /// </summary>
+    public const int BoardTuneMaxPages = 8;
+
+    /// <summary>Minimum payload of <see cref="ExtIdBoardTuning"/>: one page header. A page with a
+    /// ZERO field count is legal and meaningful — it says "nothing is tuned in my id range" — so the
+    /// reader's floor is the header, never the presence of a field.</summary>
+    public const int BoardTuneMinRecordBytes = BoardTunePageHeaderBytes;
+
+    /// <summary>Minimum length of an ASSEMBLED tuning payload (the field-count byte alone) — what
+    /// <see cref="FindBoardTuneField"/> and <see cref="RemoteBoardTuning"/> read. Deliberately NOT
+    /// the same number as <see cref="BoardTuneMinRecordBytes"/>: one is a wire page, the other is
+    /// the receiver's assembled result, and conflating them is how a paging bug hides.</summary>
+    public const int BoardTuneAssembledMinBytes = 1;
 
     // ---- field id RANGES (the range is the value width — see the record doc) ------------------
 
@@ -2174,6 +2237,25 @@ internal static class NetProtocol
     /// <summary>[Cards] FanSwapArc — the swap's mid-flight depth amplitude (leaver back, arriver forward).</summary>
     public const byte TuneFanSwapArc = 78;
 
+    // ---- THE FIRST DIALS THE OLD 255-BYTE CEILING HAD LOCKED OUT (2026-08-09, the paging round).
+    // Ids 79 and 154..160 / 198..200 are the pile/browse-fan geometry and the HAND fan's reveal
+    // animation. They are ordinary dials with ordinary consumers on the remote side; the ONLY reason
+    // they were not on the wire is that the record was full — the remote fans held their values as
+    // BARE LITERALS (`Radius = 0.16f * 1.7f`, `MaxStepDegrees = 10f`), which is precisely the failure
+    // scripts/check-remote-defaults.py exists to catch and which the 1:1 ruling forbids outright.
+
+    /// <summary>[Cards] FanRadius — the base arc radius the BOARD PILE fans (items / discard /
+    /// burnt) multiply by their own per-pile factor. Not the hand fan's, which has had its own
+    /// effective radius since <see cref="TuneFanEffectiveRadius"/>.</summary>
+    public const byte TuneFanRadius = 79;
+
+    /// <summary>[Cards] ItemBerthRingThickness — RESERVED for the item-use BERTH round developed in
+    /// parallel with this one (the outline thickness of the card-shaped recess, in metres). Declared
+    /// here so the merge is a sampler line and a struct member, never an id negotiation: an id, once
+    /// shipped, can never be renumbered, and two workers picking "the next free number" is exactly
+    /// how this file already collected one collision (see the note above record 22).</summary>
+    public const byte TuneItemBerthRingThickness = 80;
+
     // FACTOR (2 B, thousandths): dimensionless multipliers.
 
     /// <summary>[Cards] ObjectivesScale_{board}.</summary>
@@ -2246,6 +2328,52 @@ internal static class NetProtocol
     /// <summary>[Cards] FanSwapSettleOvershoot — the swap's shared back-ease strength.</summary>
     public const byte TuneFanSwapSettleOvershoot = 153;
 
+    // The HAND FAN's REVEAL animation and the BOARD PILE fans' geometry — the dials the 255-byte
+    // ceiling had locked out (see the block at id 79). The reveal set is on the wire for the same
+    // reason the item fan's and the swap's are: the 1:1 ruling names ANIMATIONS outright, and
+    // RemoteHandFan drew every peer's reveal at this client's own compiled constants. Seconds in the
+    // FACTOR range is the established convention here — an id range fixes the value WIDTH, never the
+    // unit (see the item-fan block above).
+
+    /// <summary>[Cards] FanOpenDuration — seconds one hand-fan card takes to appear on reveal.</summary>
+    public const byte TuneFanOpenDuration = 154;
+    /// <summary>[Cards] FanOpenStagger — the reveal ripple's per-card delay outward from the middle.</summary>
+    public const byte TuneFanOpenStagger = 155;
+    /// <summary>[Cards] FanCloseDuration — seconds the hand fan takes to collapse.</summary>
+    public const byte TuneFanCloseDuration = 156;
+    /// <summary>[Cards] CardLerpSpeed — the exponential rate every card flies to its slot at, board
+    /// pile fans included. A peer's cards arrived at this client's rate, not the owner's.</summary>
+    public const byte TuneCardLerpSpeed = 157;
+    /// <summary>[Cards] FanRadiusFactor_Items — the items pile fan's radius multiplier over
+    /// <see cref="TuneFanRadius"/>.</summary>
+    public const byte TuneFanRadiusFactorItems = 158;
+    /// <summary>[Cards] FanRadiusFactor_Discard.</summary>
+    public const byte TuneFanRadiusFactorDiscard = 159;
+    /// <summary>[Cards] FanRadiusFactor_Burnt.</summary>
+    public const byte TuneFanRadiusFactorBurnt = 160;
+
+    // RESERVED for the item-cue / item-berth round developed in parallel (see the note at id 80).
+    // Ten dials, all [Cards] floats; declared here so the merge cannot become an id negotiation.
+
+    /// <summary>[Cards] ItemCueBeatSeconds — RESERVED: the usable-item cue's heartbeat period.</summary>
+    public const byte TuneItemCueBeatSeconds = 161;
+    /// <summary>[Cards] ItemCueRingReach — RESERVED: how far a cue ring travels off the pile.</summary>
+    public const byte TuneItemCueRingReach = 162;
+    /// <summary>[Cards] ItemCueRingAlpha — RESERVED: peak opacity of those rings.</summary>
+    public const byte TuneItemCueRingAlpha = 163;
+    /// <summary>[Cards] ItemCueEmberRate — RESERVED: embers per second off the closed items pile.</summary>
+    public const byte TuneItemCueEmberRate = 164;
+    /// <summary>[Cards] ItemCueEmberSize — RESERVED: ember size multiplier.</summary>
+    public const byte TuneItemCueEmberSize = 165;
+    /// <summary>[Cards] ItemBerthGlow — RESERVED: brightness of the additive field in the recess.</summary>
+    public const byte TuneItemBerthGlow = 166;
+    /// <summary>[Cards] ItemBerthPingSeconds — RESERVED: period of the inward "put it here" ping.</summary>
+    public const byte TuneItemBerthPingSeconds = 167;
+    /// <summary>[Cards] ItemBerthPingReach — RESERVED: where outside the card rect that ping starts.</summary>
+    public const byte TuneItemBerthPingReach = 168;
+    /// <summary>[Cards] ItemBerthRevealSeconds — RESERVED: grow-in / collapse-out time of the recess.</summary>
+    public const byte TuneItemBerthRevealSeconds = 169;
+
     // ANGLE (2 B, hundredth-degrees).
 
     /// <summary>[Cards] AssetPitchDegrees_{board} — the board MESH's pitch inside the board root.</summary>
@@ -2260,6 +2388,14 @@ internal static class NetProtocol
     public const byte TuneFanPerCardStep = 196;
     /// <summary>[Cards] ItemFanOpenSpinDegrees — the roll an emerging item chip unwinds from.</summary>
     public const byte TuneItemFanOpenSpin = 197;
+
+    /// <summary>[Cards] FanStepDegrees_Items — the angular step between two neighbouring cards of the
+    /// ITEMS pile fan. One of the dials the 255-byte ceiling had locked out (see id 79).</summary>
+    public const byte TuneFanStepDegreesItems = 198;
+    /// <summary>[Cards] FanStepDegrees_Discard.</summary>
+    public const byte TuneFanStepDegreesDiscard = 199;
+    /// <summary>[Cards] FanStepDegrees_Burnt.</summary>
+    public const byte TuneFanStepDegreesBurnt = 200;
 
     // COUNT (1 B).
 
@@ -2352,7 +2488,9 @@ internal static class NetProtocol
     /// </summary>
     public static int FindBoardTuneField(byte[]? payload, int offset, int len, byte id)
     {
-        if (payload == null || len < BoardTuneMinRecordBytes
+        // NOTE THE BOUND: an ASSEMBLED payload, not a wire page (see BoardTuneAssembledMinBytes).
+        // Callers hand this the receiver's assembled `[n][fields]` buffer, never a record-28 page.
+        if (payload == null || len < BoardTuneAssembledMinBytes
             || offset < 0 || offset + len > payload.Length)
             return -1;
         int n = payload[offset];

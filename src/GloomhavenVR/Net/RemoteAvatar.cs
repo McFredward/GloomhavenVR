@@ -317,19 +317,28 @@ internal sealed class RemoteAvatar
     public int BoardTuningRevision { get; private set; }
 
     /// <summary>
-    /// OUR OWN COPY of the payload the current <see cref="BoardTuning"/> was resolved from, and the
-    /// change detector for it.
+    /// THIS PEER'S record-28 PAGE ACCUMULATOR — the receiving half of the paging that removed the
+    /// board-tuning record's capacity ceiling (see <see cref="BoardTunePages"/>).
     ///
-    /// <para>COMPARED BY CONTENT, NOT BY REFERENCE, and that distinction is load-bearing:
+    /// <para>It holds the pages of the generation currently arriving and publishes an assembled
+    /// <c>[n][fields]</c> payload only when it holds ALL of them, which is what guarantees that this
+    /// client never draws a peer's board from half a tuning. Its own byte compare is also the change
+    /// detector, and that compare is load-bearing for a second reason:
     /// <c>PresenceSerializer.DecodeBoardTuning</c> keeps ONE cache entry for the whole process, so
-    /// with two differently-tuned peers at the table their payloads evict each other and every
-    /// packet hands back a fresh array. A reference compare would then read as "the tuning changed"
-    /// on every packet and tear down and rebuild both control boards five times a second. A byte
-    /// compare of ≤211 bytes per packet is nothing, and it is right.</para>
+    /// with two differently-tuned peers at the table their pages evict each other and every packet
+    /// hands back a fresh array. A reference compare would read as "the tuning changed" on every
+    /// packet and tear down and rebuild both control boards five times a second.</para>
     /// </summary>
-    private byte[] _tuningPayload = System.Array.Empty<byte>();
-    private int _tuningLength;
+    private readonly BoardTunePageAssembler _tuningPages = new BoardTunePageAssembler();
+
+    /// <summary>The board style the published assembly was last RESOLVED for. A style change
+    /// re-resolves the same bytes against different shipped defaults, so it is a change even when
+    /// not one page moved.</summary>
     private int _tuningStyle = -1;
+
+    /// <summary>One-shot guard for the page-refusal error line — it would otherwise repeat at the
+    /// packet rate for as long as the offending peer is at the table.</summary>
+    private bool _loggedTuningRefusal;
 
     /// <summary>True while the owner's "Keine Handkarten" placard is on their screen (record 14,
     /// byte 1 bit 4). A LEVEL: the mirror runs its own fade from its own rising edge and follows
@@ -750,22 +759,6 @@ internal sealed class RemoteAvatar
 
     /// <summary>Accept a freshly-decoded EXTRAS packet (board pose + hand count + dominant hand).
     /// Poses are already in world frame (converted by the driver).</summary>
-    /// <summary>True when a peer's board-tuning payload really differs from the one
-    /// <see cref="BoardTuning"/> was resolved from (or their board style changed). Content compare —
-    /// see <see cref="_tuningPayload"/> for why a reference compare would rebuild both boards at
-    /// 5 Hz whenever two differently-tuned players are at the table.</summary>
-    private bool TuningChanged(byte[]? payload, int len)
-    {
-        if (len != _tuningLength || (int)BoardStyle != _tuningStyle)
-            return true;
-        for (int i = 0; i < len; i++)
-        {
-            if (payload![i] != _tuningPayload[i])
-                return true;
-        }
-        return false;
-    }
-
     public void SetExtras(in PresenceState p)
     {
         HasBoard = p.HasBoard;
@@ -836,28 +829,53 @@ internal sealed class RemoteAvatar
         }
 
         // BOARD TUNING (extension record 28): the owner's OWN dial positions for their board,
-        // board mesh and hand fan. Re-resolved only when the payload really changed (reference
-        // compare against the serializer's decode cache) or when their style did — the resolve
-        // walks ~49 fields and every consumer then reads plain floats. Absent ⇒ null payload ⇒
-        // every dial falls back to the shipped default for their style, which is precisely what
-        // this client rendered before the record existed and what a pre-record peer still means.
-        byte[]? tunePayload = p.HasBoardTuning ? p.BoardTuningBytes : null;
-        int tuneLen = p.HasBoardTuning && tunePayload != null ? p.BoardTuningLength : 0;
-        if (tuneLen > 0 && tunePayload != null && tuneLen > tunePayload.Length)
-            tuneLen = tunePayload.Length;
-        if (TuningChanged(tunePayload, tuneLen))
+        // board mesh and hand fan, arriving ONE PAGE PER PACKET (see BoardTunePages). The
+        // accumulator holds the pages of the generation currently in flight and publishes only when
+        // it holds ALL of them, so this client is never drawn from half a tuning and never flickers
+        // a peer's board back to the shipped defaults while its owner drags a slider — until the
+        // new generation is whole, the previous whole one stays in force.
+        //
+        // ABSENT RECORD ⇒ RESET, and that is not a shortcut: the sender writes a page on EVERY
+        // extras packet while anything at all is tuned, so "no record" means exactly "every dial is
+        // back at the shipped default". Falling back to this client's own compiled constants is
+        // then precisely what it rendered before the record existed.
+        bool tuningChanged;
+        if (p.HasBoardTuning && p.BoardTuningBytes != null)
         {
-            _tuningPayload = tuneLen > 0 ? new byte[tuneLen] : System.Array.Empty<byte>();
-            for (int b = 0; b < tuneLen; b++)
-                _tuningPayload[b] = tunePayload![b];
-            _tuningLength = tuneLen;
+            tuningChanged = _tuningPages.Accept(p.BoardTuningBytes, 0, p.BoardTuningLength);
+        }
+        else
+        {
+            tuningChanged = _tuningPages.AssembledLength > 0;
+            if (tuningChanged)
+                _tuningPages.Reset();
+        }
+        // A STYLE CHANGE IS A CHANGE TOO: the same bytes resolve against a different board's shipped
+        // defaults, so every dial they have NOT moved lands somewhere else.
+        if (tuningChanged || (int)BoardStyle != _tuningStyle)
+        {
             _tuningStyle = (int)BoardStyle;
-            BoardTuning = new RemoteBoardTuning(BoardStyle, _tuningPayload, tuneLen);
+            BoardTuning = new RemoteBoardTuning(BoardStyle, _tuningPages.Assembled,
+                                                _tuningPages.AssembledLength);
             BoardTuningRevision++;
             VRLog.Info("Net", $"Board tuning RECEIVED from player {PlayerId}: {BoardTuning} " +
-                              "(extension record 28) — every dial they have MOVED is applied to " +
-                              "their remote board, mesh pose and hand fan; every dial they have " +
-                              "not is this client's shipped default, which is the same value.");
+                              $"(extension record 28, {_tuningPages}) — every dial they have MOVED " +
+                              "is applied to their remote board, mesh pose and hand fan; every dial " +
+                              "they have not is this client's shipped default, which is the same " +
+                              "value.");
+        }
+        if (_tuningPages.Refused && !_loggedTuningRefusal)
+        {
+            // LOUD, ONCE. The paging bounds are all derived from the field-id space, so a
+            // well-formed peer on our own ModBuild cannot trip one; if this ever fires, a dial is
+            // NOT reaching this board and the ruling is being broken — which is exactly the thing
+            // that must never happen quietly.
+            _loggedTuningRefusal = true;
+            VRLog.Error("Net", $"Board tuning REFUSED from player {PlayerId}: a record-28 page was " +
+                               "structurally invalid (page index/count, field run, or an id whose " +
+                               "width this build does not know). That peer's board is drawn from the " +
+                               "last COMPLETE tuning, or from the shipped defaults if there has never " +
+                               "been one — never from a half-parsed one. See NetProtocol.ExtIdBoardTuning.");
         }
 
         // EMPTY-FAN PLACARD (record 14, byte 1 bit 4): the owner's "Keine Handkarten" ghost plate

@@ -93,8 +93,13 @@ PAIRS = [
     ("Net/RemoteHandFan.cs", "_splitFalloff", "Cards", "FanSplitFalloff"),
     ("Net/RemoteHandFan.cs", "_splitScale", "Cards", "FanHoverSplitScale"),
     ("Net/RemoteHandFan.cs", "_popForward", "Cards", "FanSelectedPopForward"),
-    ("Net/RemoteHandFan.cs", "OpenSeconds", "Cards", "FanOpenDuration"),
-    ("Net/RemoteHandFan.cs", "OpenStagger", "Cards", "FanOpenStagger"),
+    # The hand fan's REVEAL. These were `const OpenSeconds/OpenStagger` — frozen, so a peer's fan
+    # opened at THIS client's timing no matter what its owner had tuned. They became
+    # wire-overridable fields (record 28, ids 154..155) the moment the record was PAGED and had room
+    # again (Net/BoardTunePages.cs); the initialiser is still what an untuned peer is drawn with, so
+    # this pair carries exactly the guarantee it always did, one keyword different.
+    ("Net/RemoteHandFan.cs", "_openSeconds", "Cards", "FanOpenDuration"),
+    ("Net/RemoteHandFan.cs", "_openStagger", "Cards", "FanOpenStagger"),
     # The HAND fan's character-SWAP exchange (2026-08-09 — "mach auch hier eine neue coolere
     # Tauschanimation rein die den Fächer austauscht"). Wire-overridable fields (record 28, ids
     # 77..78 / 150..153 / 226..227) whose INITIALISER is what an untuned peer's exchange is drawn
@@ -125,13 +130,13 @@ PAIRS = [
     ("Net/RemoteItemFan.cs", "_closeSeconds", "Cards", "ItemFanCloseDuration"),
     ("Net/RemoteItemFan.cs", "_closeStagger", "Cards", "ItemFanCloseStagger"),
     # The ITEM-USE BERTH's art (2026-08-09 — the mirrored half of "Ueberarbeite das Aussehen des
-    # Item-Overlays"). These are FROZEN constants, not wire-overridable fallbacks, and that is not an
-    # oversight: extension record 28 (BOARD TUNING) is at its exact 255-byte per-record ceiling, so
-    # the ten new [Cards] ItemBerth*/ItemCue* dials cannot ride it the way the ItemFan* family above
-    # does. A peer therefore draws this berth at the SHIPPED defaults whatever the owner has tuned —
-    # which makes this list MORE load-bearing here than anywhere else on it, because the shipped
-    # default is the ONLY value the mirror will ever use. Move one without moving the other and two
-    # untuned players see two different berths.
+    # Item-Overlays"). These landed as FROZEN constants because extension record 28 was at its exact
+    # 255-byte per-record ceiling and could not carry them; the PAGING round in the same build
+    # removed that ceiling (ids 80 / 161..169 stand reserved for exactly these ten), so they are due
+    # to become wire-overridable fallbacks like the ItemFan* family above. Until they do, the
+    # shipped default is the ONLY value a mirrored berth will ever use — which makes this list more
+    # load-bearing here than anywhere else on it: move one without moving the other and two untuned
+    # players see two different berths.
     ("Net/RemoteBoardFurniture.cs", "ItemBerthRingThickness", "Cards", "ItemBerthRingThickness"),
     ("Net/RemoteBoardFurniture.cs", "ItemBerthGlow", "Cards", "ItemBerthGlow"),
     ("Net/RemoteBoardFurniture.cs", "ItemBerthPingSeconds", "Cards", "ItemBerthPingSeconds"),
@@ -145,6 +150,21 @@ PAIRS = [
     ("Net/RemoteControlBoard.cs", "ItemCueRingAlpha", "Cards", "ItemCueRingAlpha"),
     ("Net/RemoteControlBoard.cs", "ItemCueEmberRate", "Cards", "ItemCueEmberRate"),
     ("Net/RemoteControlBoard.cs", "ItemCueEmberSize", "Cards", "ItemCueEmberSize"),
+    # The PILE FANS' shape (2026-08-09, the paging round). These four were BARE LITERALS — the exact
+    # thing the header calls "a stale literal" — and nothing caught them because a literal with no
+    # pair on this list has nothing to be checked against. Worse than stale: RemoteItemFan's radius
+    # had been re-typed from FanEffectiveRadius (0.1792) while the local ItemsPile builds its arc
+    # from FanRadius (0.16), so every peer's item fan was 12 % wider than its owner's, for every
+    # player, tuned or not. They are wire-overridable fallbacks now (record 28, ids 79 / 157..160 /
+    # 198..200) and they are on this list so the literal cannot come back.
+    #   RemoteItemFan._radius / RemoteBrowserFan._radius are deliberately NOT listed: they are
+    #   PRODUCTS (Defaults.FanRadius × Defaults.FanRadiusFactor_*), and this checker verifies a
+    #   constant IS one named Defaults entry. Their two factors are pinned individually instead,
+    #   which is the same coverage without teaching the checker arithmetic.
+    ("Net/RemoteItemFan.cs", "_maxStepDegrees", "Cards", "FanStepDegrees_Items"),
+    ("Net/RemoteItemFan.cs", "_lerpSpeed", "Cards", "CardLerpSpeed"),
+    ("Net/RemoteBrowserFan.cs", "_maxStepDegrees", "Cards", "FanStepDegrees_Discard"),
+    ("Net/RemoteBrowserFan.cs", "_emergeSharpness", "Cards", "CardLerpSpeed"),
 ]
 
 DEFAULTS_DIR = SRC / "Defaults"
@@ -168,7 +188,14 @@ DEFAULTS = defaults_table()
 
 
 def bind_reference(section, key):
-    """The Defaults entry a Bind("Section", "Key", ...) names as its default, or None."""
+    """The Defaults entry a Bind("Section", "Key", ...) names as its default, or None.
+
+    A FAMILY of keys bound in a loop — `Bind("Cards", $"FanStepDegrees_{pileNames[p]}",
+    stepSeeds[p], …)` — cannot be matched by key text, because the key does not exist as a literal
+    anywhere. For those the check falls back to the weaker but still real question: does the local
+    side still NAME this Defaults entry at all? A seed array that stopped listing it is exactly the
+    drift this file exists to catch, and it is what a rename or a re-typed literal would produce.
+    """
     for path in SRC.rglob("*.cs"):
         if path.parent.name == "Defaults":
             continue
@@ -179,6 +206,19 @@ def bind_reference(section, key):
             continue
         raw = m.group(1).strip()
         return raw[len("Defaults."):] if raw.startswith("Defaults.") else raw
+
+    # Interpolated / looped bind: `$"Prefix_{something}"` with the entry in a seed array.
+    stem = key.rsplit("_", 1)[0]
+    for path in SRC.rglob("*.cs"):
+        if path.parent.name == "Defaults":
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if not re.search(r'Bind\(\s*"' + re.escape(section) + r'"\s*,\s*\$"' + re.escape(stem)
+                         + r'_\{', text):
+            continue
+        entry = DEFAULTS.get((section, key))
+        if entry and re.search(r"\bDefaults\." + re.escape(entry[0]) + r"\b", text):
+            return entry[0]
     return None
 
 

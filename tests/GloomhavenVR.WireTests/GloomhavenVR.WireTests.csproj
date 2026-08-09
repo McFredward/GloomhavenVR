@@ -52,6 +52,12 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetPacket.cs" Link="wire\NetPacket.cs" />
+    <!-- Record 28's PAGING (2026-08-09). It belongs on this list for the same reason the
+         serializers do: it is a wire format with a sender and a receiver that never meet, and its
+         convergence property ("a peer that joins at T holds the complete tuning by T + pageCount
+         packets") is not observable from either end alone. Written free of Unity, config and the
+         game model precisely so it could be linked in here and driven byte by byte. -->
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\BoardTunePages.cs" Link="wire\BoardTunePages.cs" />
   </ItemGroup>
 
   <!-- Not a wire file, same reasoning: the preloader's relaunch command is built at the one moment

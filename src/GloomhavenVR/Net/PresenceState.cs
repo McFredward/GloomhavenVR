@@ -704,13 +704,14 @@ internal struct PresenceState
     /// </summary>
     public bool HasBoardTuning;
 
-    /// <summary>The record's complete payload — <c>[field count][field…]</c>, already quantized and
-    /// in ascending id order. It is carried PRE-ENCODED rather than as ~49 named fields for the
-    /// same reason the text records carry pre-encoded bytes: the values change on a config edit,
-    /// not per packet, so the sender builds this once on a change edge and the 5 Hz write path is a
-    /// pure copy. On the receive side it is the raw record bytes, read with
-    /// <see cref="NetProtocol.BoardTuneVector"/> and friends against each caller's own shipped
-    /// default.</summary>
+    /// <summary>ONE PAGE of the record — <c>[pageIndex][pageCount][sig][idLo][idHi][n][field…]</c>,
+    /// already quantized and in ascending id order (see <see cref="BoardTunePages"/>). It is carried
+    /// PRE-ENCODED rather than as ~76 named fields for the same reason the text records carry
+    /// pre-encoded bytes: the values change on a config edit, not per packet, so the sender builds
+    /// the field list once on a change edge and the 5 Hz write path is a pure copy. On the receive
+    /// side it is the raw page bytes, handed to the per-peer <see cref="BoardTunePageAssembler"/>;
+    /// the ASSEMBLED result is what <see cref="NetProtocol.BoardTuneVector"/> and friends read
+    /// against each caller's own shipped default.</summary>
     public byte[]? BoardTuningBytes;
 
     /// <summary>Valid length of <see cref="BoardTuningBytes"/> (the buffer may be longer — the
@@ -807,15 +808,19 @@ internal struct PresenceState
 ///                        by the stable ActorGuid hash; players, ENEMIES and objects alike; ≤4 ids
 ///                        because an extra-turn actor can leave a second frame standing; written
 ///                        only while a frame really stands, see NetProtocol.ExtIdTrackSelection)
-///                        28 BOARD TUNING ([n][n × [id][value]] — the SPARSE set of the sender's
-///                        own dials that differ from the shipped default for their synced board
-///                        style: dock offsets/scales, furniture seats, the board MESH pose and the
-///                        hand-fan geometry. The id's RANGE fixes the value width (vec3 6 B /
-///                        length 2 B / factor 2 B / angle 2 B / count 1 B), fields ascend by id,
-///                        and the record is omitted ENTIRELY when nothing is tuned — the common
+///                        28 BOARD TUNING ([pageIndex][pageCount][sig u16][idLo][idHi][n][n ×
+///                        [id][value]] — ONE PAGE of the SPARSE set of the sender's own dials that
+///                        differ from the shipped default for their synced board style: dock
+///                        offsets/scales, furniture seats, the board MESH pose and the hand-fan
+///                        geometry. The id's RANGE fixes the value width (vec3 6 B / length 2 B /
+///                        factor 2 B / angle 2 B / count 1 B), fields ascend by id, and a page is a
+///                        COMPLETE statement about ids [idLo,idHi]; the sender cycles one page per
+///                        packet and the receiver publishes only a whole generation, which is what
+///                        removed the record's 255-byte capacity ceiling without spending a record
+///                        id. The record is omitted ENTIRELY when nothing is tuned — the common
 ///                        case, byte-identical to the previous build. Ids 25..27 belong to records
 ///                        developed in parallel; 18..21 stay reserved.
-///                        See NetProtocol.ExtIdBoardTuning),
+///                        See NetProtocol.ExtIdBoardTuning and BoardTunePages),
 ///                        24 DECISION STATE ([flags][n][n × option byte] — which prompt is docked
 ///                        (flags bits 0..2), which prompt-TEXT variant it shows (bits 3..5, a
 ///                        NUMBER the receiver localizes itself; the composed text never rides the
@@ -897,11 +902,16 @@ internal static class PresenceSerializer
     /// <para>1267 → 1289 on the HAND-FAN character-SWAP exchange (2026-08-09): board tuning grew by
     /// that animation's eight dials, on the wire for the reason the item fan's are — the standing
     /// 1:1 ruling names ANIMATIONS. Six of them ride a 3-byte container and two a 2-byte one, so the
-    /// record went 235 → 257. Stated here in its own commit per the rule below; the margin at
-    /// <see cref="MaxSize"/> = 1600 is 311 bytes, still more than the largest single record. NOTE
-    /// that record 28's own payload is now at 255, which is the extension tail's ONE-BYTE per-record
-    /// length ceiling — the writer below refuses more, silently. The next dial added to it has to
-    /// free bytes or move to its own record; see <c>NetProtocol.BoardTuneMaxFields</c>.</para>
+    /// record went 235 → 257.</para>
+    ///
+    /// <para>AND THEN STOPPED GROWING — 1289 IS NOW A FIXED POINT (the paging round, 2026-08-09).
+    /// Record 28 carries ONE PAGE per packet and a page is at most 255 payload bytes by definition
+    /// (<c>NetProtocol.BoardTunePageMaxFieldBytes</c> + its 7-byte header), so its contribution here
+    /// is 2 + 255 = 257 FOREVER, no matter how many dials the board grows. That is the second reason
+    /// paging was chosen over "let the whole tuning ride one packet as several records": the latter
+    /// would have made this sum grow with every feature, and this buffer sits behind a transport
+    /// whose real MTU the mod does not control. The margin at <see cref="MaxSize"/> = 1600 is 311
+    /// bytes and it can no longer be eaten by a board-tuning dial.</para>
     ///
     /// <para>859 → 1240 across the 1:1 mirroring round, each record adding its own worst case in
     /// its own commit per the rule below: USE BARS (25) +43, TRACK ORDER (27) +28, BOARD TUNING
@@ -1610,6 +1620,13 @@ internal static class PresenceSerializer
                     int payload = state.BoardTuningLength;
                     if (payload > state.BoardTuningBytes.Length)
                         payload = state.BoardTuningBytes.Length;
+                    // THE <= 255 CLAMP IS NOW UNREACHABLE BY CONSTRUCTION, and it stays exactly
+                    // because of that. A page is header (7) + at most
+                    // NetProtocol.BoardTunePageMaxFieldBytes (248) = 255 by definition, so a
+                    // well-formed sender cannot reach it; leaving the guard in means a paging bug
+                    // that produced an over-long page would drop that PAGE (⇒ the receiver never
+                    // completes the generation ⇒ it keeps the last complete one) instead of writing
+                    // a length byte that wrapped and tearing every record behind it in the tail.
                     if (payload >= NetProtocol.BoardTuneMinRecordBytes && payload <= 255
                         && i + 2 + payload <= buffer.Length)
                     {
@@ -2290,25 +2307,27 @@ internal static class PresenceSerializer
                     else if (id == NetProtocol.ExtIdBoardTuning
                              && len >= NetProtocol.BoardTuneMinRecordBytes)
                     {
-                        // BOARD TUNING: [n][n × [id][value]]. The payload is kept RAW and each
-                        // consumer reads the field it needs against its own shipped default
+                        // BOARD TUNING: ONE PAGE — [pageIndex][pageCount][sig][idLo][idHi][n][n ×
+                        // [id][value]] (see NetProtocol.ExtIdBoardTuning and BoardTunePages). The
+                        // page is kept RAW and handed to the per-peer BoardTunePageAssembler, which
+                        // is where every structural rule lives; each consumer then reads the field
+                        // it needs out of the ASSEMBLED payload against its own shipped default
                         // (NetProtocol.BoardTuneVector and friends), which is what makes "field
-                        // absent" mean "the value you already have" rather than needing ~49
-                        // decoded members here. Validation is therefore structural and happens on
-                        // read-out: the walk is bounded by the record's own length, an unknown-width
-                        // reserved id stops it, and a payload whose field count is nonsense simply
-                        // yields fewer fields — every caller then keeps its default. A record with
-                        // a zero field count is dropped (identical to "record absent", which is
-                        // what an untuned sender emits anyway).
-                        if (buffer[i] > 0)
+                        // absent" mean "the value you already have" rather than needing ~76 decoded
+                        // members here.
+                        //
+                        // A ZERO FIELD COUNT IS NO LONGER A DROP, and that reversal is load-bearing:
+                        // before paging it meant "an empty record", indistinguishable from an
+                        // untuned sender. A PAGE with no fields means "nothing is tuned in MY id
+                        // range" — a complete, necessary statement, without which a generation could
+                        // never converge for a player who tuned only offsets. The empty-tuning case
+                        // is still expressed the way it always was: by omitting the record entirely.
+                        byte[]? tune = DecodeBoardTuning(buffer, i, len);
+                        if (tune != null)
                         {
-                            byte[]? tune = DecodeBoardTuning(buffer, i, len);
-                            if (tune != null)
-                            {
-                                state.HasBoardTuning = true;
-                                state.BoardTuningBytes = tune;
-                                state.BoardTuningLength = len;
-                            }
+                            state.HasBoardTuning = true;
+                            state.BoardTuningBytes = tune;
+                            state.BoardTuningLength = len;
                         }
                     }
                     else if (id == NetProtocol.ExtIdPileCounts
