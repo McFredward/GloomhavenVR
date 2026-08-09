@@ -884,10 +884,40 @@ internal sealed class RemoteInitiativeTrack
         catch { return false; }
     }
 
+    /// <summary>Change-gate for the local-ring suppression coverage line (one-shot per session).</summary>
+    private bool _loggedLocalRingCoverage;
+
     /// <summary>
     /// Drive the focus/turn rings on the MIRRORED entries. Runs every frame (the blink is a
     /// continuous alpha), after <see cref="ApplyHoverOverrides"/> so a ring is never applied to a
     /// node the hover pass is still re-seating this frame. No-op on the fallback path.
+    ///
+    /// <para><b>AND IT DELETES THE OBSERVER'S OWN RINGS FIRST</b> — the fourth member of the "the
+    /// mirror copied MY state onto THEIR board" family, after the hover popup/name (2026-08-04), the
+    /// hover GROW (2026-08-07) and vanilla's selection frame (2026-08-08).</para>
+    ///
+    /// <para>User, verbatim (2026-08-09): "Der Rand der anzeigt welchen Character ich gerade
+    /// ausgewählt habe, ist auch beim remote-board zu sehen bei MEINEN Characteren - das remote
+    /// board sollte nur das Einzige was der Mitspieler sieht, nicht was ich sehe."</para>
+    ///
+    /// <para>WHY IT LEAKED. <c>Board.FocusDriver</c> builds its two ring families — the steady
+    /// blue-white "the character I am looking at" ring and the green/red/gold at-turn ring — as
+    /// plain <c>Image</c>s parented under the LOCAL entry's portrait (FocusDriver.cs:438,
+    /// <c>UiRing.Build(PortraitRect(entry), …)</c>). This mirror is an <c>Instantiate</c> of that
+    /// whole track, and <c>RemoteWidgetMirror.Pair.Apply</c> copies every non-root node's
+    /// <c>activeSelf</c> AND its Graphic colour verbatim — so the rings were cloned and then driven,
+    /// in my colour, on my characters, on every peer's board. That is the identical mechanism the
+    /// amber selection-phase cue was fixed for one build earlier (see <see cref="ApplySelectionGlow"/>
+    /// and <c>InitiativeSelectionGlow.LiveRingRectOf</c>); the focus rings were simply not in that
+    /// pass's scope. The clones are resolved BY REFERENCE through
+    /// <c>FocusDriver.LiveFocusRingRectOf</c> / <c>LiveTurnRingRectOf</c>, never by searching the
+    /// clone for a GameObject name, so a rename cannot silently re-open the leak.</para>
+    ///
+    /// <para>The suppression is unconditional and runs BEFORE the peer's rings are applied: what a
+    /// peer's board shows about focus is <see cref="_peerFocusActorId"/> /
+    /// <see cref="_peerAttentionActorId"/> (record 22) and nothing else. It costs one active-flag
+    /// compare per entry per frame — the flags are already false after the first frame, so the
+    /// steady-state cost is the compare alone.</para>
     /// </summary>
     private void ApplyFocusRings()
     {
@@ -896,6 +926,36 @@ internal sealed class RemoteInitiativeTrack
         EnsureHoverCache();
         if (_hoverNodes.Count == 0)
             return;
+
+        int suppressed = 0;
+        for (int i = 0; i < _hoverNodes.Count; i++)
+        {
+            HoverNode n = _hoverNodes[i];
+            if (n.LocalFocusRing != null)
+            {
+                suppressed++;
+                if (n.LocalFocusRing.activeSelf)
+                    n.LocalFocusRing.SetActive(false);
+            }
+            if (n.LocalTurnRing != null)
+            {
+                suppressed++;
+                if (n.LocalTurnRing.activeSelf)
+                    n.LocalTurnRing.SetActive(false);
+            }
+        }
+        if (!_loggedLocalRingCoverage && suppressed > 0)
+        {
+            _loggedLocalRingCoverage = true;
+            VRLog.Info("Net", $"Remote initiative track focus rings: {suppressed} cloned LOCAL ring(s) " +
+                              "forced OFF on this mirror. They are Board.FocusDriver's own focus / " +
+                              "at-turn outlines, which live under the LOCAL portraits and therefore " +
+                              "rode RemoteWidgetMirror's Instantiate + Pair.Apply onto a peer's board " +
+                              "(user: 'Der Rand der anzeigt welchen Character ich gerade ausgewählt " +
+                              "habe, ist auch beim remote-board zu sehen bei MEINEN Characteren'). " +
+                              "What this board draws about focus now comes from extension record 22 " +
+                              "alone. Resolved by reference from the driver, never by name.");
+        }
 
         // THE ATTENTION ENTRY IS THE PEER'S, not this client's turn read — a peer answering a
         // take-damage prompt during an ENEMY's action has no actor at turn on ANY machine, so the
@@ -1023,6 +1083,22 @@ internal sealed class RemoteInitiativeTrack
         /// it does not control) — in which case there is nothing to suppress.</summary>
         public GameObject? LocalGlow;
 
+        /// <summary>Clone of the LOCAL <c>Board.FocusDriver</c> focus ring — the steady blue-white
+        /// "this is the character I am looking at" outline. Forced OFF every frame by
+        /// <see cref="ApplyFocusRings"/>; see that method for the report it answers.</summary>
+        public GameObject? LocalFocusRing;
+
+        /// <summary>Clone of the LOCAL <c>Board.FocusDriver</c> at-turn ring (blinking green/red, or
+        /// steady gold). The SECOND family on the same portrait — suppressing only the focus ring
+        /// would leave half the same leak open.</summary>
+        public GameObject? LocalTurnRing;
+
+        /// <summary>The CLONE portrait this entry's mod-owned rings hang under — the key
+        /// <see cref="_cloneRings"/> caches them by, so a content-cadence cache rebuild REUSES them
+        /// instead of building a fresh pair on top of the old one. Null when the portrait is not
+        /// resolvable yet.</summary>
+        public RectTransform? Portrait;
+
         /// <summary>Mod-owned amber ring on the CLONE of this entry's portrait, lit for the BOARD
         /// OWNER's still-choosing characters. Built at the local cue's own outset so it is the same
         /// size as the original. Not a mirrored node — the same argument as
@@ -1052,6 +1128,117 @@ internal sealed class RemoteInitiativeTrack
     /// <summary>Drop the cache so the next apply re-resolves (content tick / clone rebuild).</summary>
     private void InvalidateHoverCache() => _hoverCacheStamp = -1;
 
+    /// <summary>The two MOD-OWNED rings this mirror hangs on one clone portrait.</summary>
+    private readonly struct CloneRings
+    {
+        internal readonly Board.UiRing Focus;
+        internal readonly Board.UiRing Pending;
+
+        internal CloneRings(Board.UiRing focus, Board.UiRing pending)
+        {
+            Focus = focus;
+            Pending = pending;
+        }
+
+        /// <summary>False once Unity has destroyed either GameObject (the portrait was pooled away
+        /// under us) — the pair is then rebuilt rather than handed out.</summary>
+        internal bool Alive => Focus.Alive && Pending.Alive;
+    }
+
+    /// <summary>
+    /// Rings already built on a given CLONE portrait, so a cache rebuild REUSES them.
+    ///
+    /// <para><b>THE BUG THIS EXISTS FOR</b> — user 2026-08-09, verbatim: "ich sehe zusätzlich einen
+    /// blauen Rahmen um alle Bilder der Charactere vom Mitspieler, nicht nur bei dem Character der
+    /// der Mitspieler gerade ausgewählt hat."</para>
+    ///
+    /// <para>The hover cache is keyed on <c>RemoteWidgetMirror.RebuildStamp</c>, but
+    /// <see cref="Refresh"/> ALSO invalidates it every content tick
+    /// (<see cref="InvalidateHoverCache"/>), because an entry can swap its ACTOR without a
+    /// structural rebuild. That second key is right for the ACTOR facts and catastrophically wrong
+    /// for the rings: <c>UiRing.Build</c> creates a NEW GameObject under the clone portrait, the
+    /// mirror's own <c>StructureMatches</c> only ever walks the SOURCE (RemoteWidgetMirror.cs:670)
+    /// so a ring added to the CLONE never triggers a rebuild, and the previous pair was only
+    /// dropped from a List — never destroyed and never switched off. So at the 4 Hz content cadence
+    /// every entry grew two more rings per second, and any ring that happened to be LIT when the
+    /// cache turned over was orphaned IN THE LIT STATE with nothing left that could ever clear it:
+    /// <see cref="ApplyFocusRings"/> and <see cref="ApplySelectionGlow"/> only ever walk the CURRENT
+    /// node list. Every portrait the peer had ever focused therefore kept a steady blue-white ring
+    /// forever — which is exactly "a blue frame around ALL of them, not only the selected one" —
+    /// on top of an unbounded GameObject/renderer leak on a board that is meant to be cheap.</para>
+    ///
+    /// <para>Keyed by the clone portrait rather than by the actor id on purpose: the ring's LIFETIME
+    /// is the clone's, not the actor's. An entry that swaps actor keeps its portrait and simply
+    /// re-targets the ring it already has, which is also why this costs no rebuild at all in the
+    /// common case.</para>
+    /// </summary>
+    private readonly Dictionary<RectTransform, CloneRings> _cloneRings = new(MaxChips);
+
+    /// <summary>The mirror rebuild <see cref="_cloneRings"/> was built against (-1 = never). A
+    /// different value means the clone — and with it every ring — is gone.</summary>
+    private int _cloneRingsStamp = -1;
+
+    /// <summary>Scratch for <see cref="SweepCloneRings"/>; a field so the sweep allocates nothing.</summary>
+    private readonly List<RectTransform> _cloneRingSweep = new(MaxChips);
+
+    /// <summary>
+    /// Hand <paramref name="node"/> the mod-owned rings for <paramref name="portraitClone"/>,
+    /// building them only the FIRST time this clone portrait is seen. Reuse is the whole point —
+    /// see <see cref="_cloneRings"/>.
+    /// </summary>
+    private void ResolveCloneRings(RectTransform? portraitClone, ref HoverNode node)
+    {
+        if (portraitClone == null)
+            return; // portrait not resolvable yet — the next cache rebuild retries
+        if (_cloneRings.TryGetValue(portraitClone, out CloneRings cached) && cached.Alive)
+        {
+            node.FocusRing = cached.Focus;
+            node.PendingRing = cached.Pending;
+            return;
+        }
+        Board.UiRing? focus = Board.UiRing.Build(portraitClone, "GloomhavenVR.RemoteFocusRing");
+        // The OWNER's selection-phase ring, at the LOCAL cue's own 8 px outset so it is the same
+        // size as the original and nests inside the focus ring above.
+        Board.UiRing? pending = Board.UiRing.Build(
+            portraitClone, "GloomhavenVR.RemoteSelectionGlow",
+            WorldUI.Surfaces.InitiativeSelectionGlow.RingOutsetPixels);
+        node.FocusRing = focus;
+        node.PendingRing = pending;
+        if (focus != null && pending != null)
+            _cloneRings[portraitClone] = new CloneRings(focus, pending);
+    }
+
+    /// <summary>
+    /// Destroy the rings of any clone portrait that has dropped out of the live node set.
+    ///
+    /// <para>Belt and braces rather than a live path: an entry can only leave the track by changing
+    /// the SOURCE structure, which rebuilds the clone and empties the table wholesale. But a ring
+    /// left standing on a portrait nobody drives again is precisely the failure mode
+    /// <see cref="_cloneRings"/> was introduced to end, so the invariant is enforced instead of
+    /// argued. Runs on a cache rebuild only (≤ a handful of entries, at the 4 Hz content cadence)
+    /// and allocates nothing.</para>
+    /// </summary>
+    private void SweepCloneRings()
+    {
+        if (_cloneRings.Count == 0)
+            return;
+        _cloneRingSweep.Clear();
+        foreach (KeyValuePair<RectTransform, CloneRings> kv in _cloneRings)
+        {
+            bool used = false;
+            for (int i = 0; i < _hoverNodes.Count && !used; i++)
+                used = ReferenceEquals(_hoverNodes[i].Portrait, kv.Key);
+            if (used)
+                continue;
+            kv.Value.Focus.Destroy();
+            kv.Value.Pending.Destroy();
+            _cloneRingSweep.Add(kv.Key);
+        }
+        for (int i = 0; i < _cloneRingSweep.Count; i++)
+            _cloneRings.Remove(_cloneRingSweep[i]);
+        _cloneRingSweep.Clear();
+    }
+
     /// <summary>
     /// Resolve the hover-derived clone nodes for every live track entry. Publicized game fields
     /// (<c>nameText</c>, <c>monsterBaseUI</c>, <c>_startWidth</c>, <c>_config</c>) — no
@@ -1063,6 +1250,14 @@ internal sealed class RemoteInitiativeTrack
         if (_hoverCacheStamp == _mirror.RebuildStamp)
             return;
         _hoverCacheStamp = _mirror.RebuildStamp;
+        if (_cloneRingsStamp != _mirror.RebuildStamp)
+        {
+            // The CLONE was rebuilt (or torn down). Every ring in the table was a CHILD of it and
+            // died with it, so dropping the table IS the teardown — there is nothing left to
+            // destroy, and keeping it would hand out dangling handles.
+            _cloneRings.Clear();
+            _cloneRingsStamp = _mirror.RebuildStamp;
+        }
         _hoverNodes.Clear();
         try
         {
@@ -1111,12 +1306,20 @@ internal sealed class RemoteInitiativeTrack
                 RectTransform? portraitClone = portrait != null
                     ? _mirror.CloneOf(portrait) as RectTransform
                     : null;
-                node.FocusRing = Board.UiRing.Build(portraitClone, "GloomhavenVR.RemoteFocusRing");
-                // The OWNER's selection-phase ring, at the LOCAL cue's own 8 px outset so it is the
-                // same size as the original and nests inside the focus ring above.
-                node.PendingRing = Board.UiRing.Build(
-                    portraitClone, "GloomhavenVR.RemoteSelectionGlow",
-                    WorldUI.Surfaces.InitiativeSelectionGlow.RingOutsetPixels);
+                node.Portrait = portraitClone;
+                // The two mod-owned rings, REUSED across cache rebuilds — see ResolveCloneRings.
+                ResolveCloneRings(portraitClone, ref node);
+
+                // The LOCAL focus / at-turn rings, resolved BY REFERENCE from the driver that owns
+                // them (Board.FocusDriver) exactly the way the amber cue above is, so they can be
+                // forced off on the mirror. See ApplyFocusRings for the user report.
+                RectTransform? localFocus = Board.FocusDriver.LiveFocusRingRectOf(beh);
+                Transform? localFocusClone =
+                    localFocus != null ? _mirror.CloneOf(localFocus) : null;
+                node.LocalFocusRing = localFocusClone != null ? localFocusClone.gameObject : null;
+                RectTransform? localTurn = Board.FocusDriver.LiveTurnRingRectOf(beh);
+                Transform? localTurnClone = localTurn != null ? _mirror.CloneOf(localTurn) : null;
+                node.LocalTurnRing = localTurnClone != null ? localTurnClone.gameObject : null;
 
                 // Hover GROW: the exact rect ExtendedButton tweens (see the override note above).
                 ExtendedButton? btn = beh.avatarButton;
@@ -1166,6 +1369,8 @@ internal sealed class RemoteInitiativeTrack
                 }
                 _hoverNodes.Add(node);
             }
+
+            SweepCloneRings();
 
             if (!_loggedGrowCoverage && _hoverNodes.Count > 0)
             {
