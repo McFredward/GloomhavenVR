@@ -105,6 +105,15 @@ internal sealed class PileViewer
     /// <see cref="ItemsPile.HandOwnedChip"/> for WHY.</summary>
     internal ItemsPile.ItemChip? HandOwnedItemChip(VRHand? hand) => _itemsBrowse.HandOwnedChip(hand);
 
+    /// <summary>Every chip in the OPEN item fan (read-only view, never mutated) — forwarded so the
+    /// laser stand-down can ask its contact question of the WHOLE arc and not only of the chip this
+    /// hand happened to elect (user report 2026-08-09, "das soll für alle Fächer gelten"; the
+    /// reasoning and the non-election argument live on <c>CardsDriver.ContactedCard</c>). The card
+    /// lying in the board's use recess is deliberately NOT a member of this list — it reaches the
+    /// stand-down through <see cref="HandOwnedItemChip"/> instead, which is the only thing that
+    /// knows about it while the fan is closed.</summary>
+    internal System.Collections.Generic.IReadOnlyList<ItemsPile.ItemChip> ItemChips => _itemsBrowse.Chips;
+
     /// <summary>True while an item card LIES IN the board's use recess with the item fan CLOSED
     /// (<see cref="ItemsPile.HasPlacedCardWhileClosed"/>). The interaction drivers gate on the fan
     /// being open; that card is reachable without one, so they need this second question.</summary>
