@@ -416,7 +416,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 94;
+    public const ushort ModBuild = 95;
+    // Build 95: the last item BUTTONS are gone — an active bonus whose BaseCard is a CItem and
+    // which needs no further option is now PLACED (card into the recess, USE presses the game's own
+    // row through ToggleActiveBonus) instead of pressed, and taking the card back out is the
+    // un-click. Build 94 had kept these on the grounds that UseItemService refuses passive items;
+    // the user rejected that and was right — it is a statement about ONE seam, and the bonus is
+    // built off the item card. What stays in the decision area: the three option-bearing kinds
+    // (initiative ±N, forgo-for-companion, choose-ability), an element consume, a mandatory bonus,
+    // and every bonus with no card at all. No wire change — ToggleActiveBonus sends the game's own
+    // ClickActiveBonusSlot when online and ProxyUseActiveBonus replays it.
     // Build 94: hardware round, 13 reports, no wire format change at all (the first such round in
     // a while — every fix landed in rendering, input policy or local state). The four that were
     // mis-diagnosed before and are now proven from the log: the mip-bake budget counted SLOTS, so
