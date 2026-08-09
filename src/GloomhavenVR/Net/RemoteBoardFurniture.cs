@@ -464,12 +464,12 @@ internal sealed class RemoteBoardFurniture
         _ => Defaults.ItemUseSlotOffset_Oak,
     };
 
-    /// <summary>Per-style ButtonCluster mount SCALE (<c>Defaults.ClusterScale_*</c>). Note the
-    /// POSITION half of that pair (<c>ClusterOffset_*</c>) is deliberately NOT applied here: the
-    /// local cluster's rigid dock (<c>ButtonCluster.AttachDocked</c>) reads the mount's ROTATION
-    /// and SCALE only and seats the buttons at the fixed column constants — the mount's position
-    /// never moves the rendered cluster, so mirroring it would move the copy where the original
-    /// never goes (the previous revision's misplacement, task 3(b)).</summary>
+    /// <summary>Per-style ButtonCluster mount SCALE (<c>Defaults.ClusterScale_*</c>). Its POSITION
+    /// half (<c>ClusterOffset_*</c>) used to carry a note here saying it was deliberately NOT
+    /// applied, because the local rigid dock read the mount's rotation and scale only and the
+    /// position moved nothing. That stopped being true in ModBuild 97 — it was the user's "die
+    /// Offsets verändern nichts" bug, not a design — so the dial now rides record 28
+    /// (<c>NetProtocol.TuneClusterOffset</c>) and the skip cap's seat below adds it.</summary>
     private static float ClusterScaleFor(Cards.ControlBoard s) => s switch
     {
         Cards.ControlBoard.Steel => Defaults.ClusterScale_Steel,
@@ -493,13 +493,14 @@ internal sealed class RemoteBoardFurniture
     // per-board DESIGN half of the old argument is unchanged and still applies: a Steel peer's
     // confirm column belongs at the Steel spot (x +0.462 off the anchor!), not the Oak one.
     //
-    // ONE DIAL IS STILL DELIBERATELY NOT APPLIED, and it is not a tuning question: the ButtonCluster
-    // mount's POSITION (ClusterOffset_*). The local cluster's rigid dock
-    // (<c>ButtonCluster.AttachDocked</c>) reads the mount's ROTATION and SCALE only and seats the
-    // buttons at fixed column constants — the mount's position never moves the RENDERED cluster, so
-    // mirroring it would move the copy where the original never goes (the previous revision's
-    // misplacement, task 3(b)). Its SCALE is applied, and now follows the owner's tuning like the
-    // rest.
+    // ONE DIAL USED TO BE DELIBERATELY NOT APPLIED — the ButtonCluster mount's POSITION
+    // (ClusterOffset_*) — on the ground that the local rigid dock reads the mount's ROTATION and
+    // SCALE only, so mirroring the position "would move the copy where the original never goes".
+    // The observation was correct and the conclusion was the wrong half: the original never went
+    // there because the LOCAL renderer had dropped the term when the lag fix reparented the cluster
+    // off the mount, which is precisely the user's ModBuild-97 report ("Die Offsets bei den
+    // Überspringen-Tasten haben keinen Einfluss"). ButtonCluster.AttachDocked applies it again, so
+    // the dial is on the wire (id 16) and the skip cap's seat below adds it, like its SCALE twin.
 
     /// <summary>
     /// THE SLOT-OVERLAY SEAT — defect (d) of this round ("die Kartenoverlays haben einen Versatz
@@ -987,8 +988,18 @@ internal sealed class RemoteBoardFurniture
         // ruling names, on the exact control the user's ModBuild-96 report is about. The fallback
         // inside RemoteBoardTuning is that same `Defaults` value for every absent field, so an
         // UNTUNED peer's cap is drawn precisely where and how it was drawn before.
+        //
+        // …AND THE PER-BOARD SEAT JOINS THEM (user, hardware ModBuild 97: "Die Offsets bei den
+        // Überspringen-Tasten haben keinen Einfluss"). `tuning.ClusterOffset` is the missing third
+        // term, and the note that used to stand two screens up — "the mount's position never moves
+        // the RENDERED cluster, so mirroring it would move the copy where the original never goes"
+        // — was an accurate description of a LOCAL bug, not of a design. ButtonCluster.AttachDocked
+        // now adds the mount's translation to its own pose solve, so the sentence is false in both
+        // directions and the mirror follows the original again. It adds RAW, in the same
+        // tray-root-local meters as the column anchor, exactly as it does locally.
         float clusterScale = ClusterDockScale * tuning.ClusterScale;
         Vector3 skipSeat = ClusterMount
+                           + tuning.ClusterOffset
                            + new Vector3(tuning.RoundOffsetX, tuning.RoundOffsetY, 0f)
                            + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + tuning.RoundOffsetZ));
         _skip = tuning.RoundCapShape == Cards.ButtonShape.Round

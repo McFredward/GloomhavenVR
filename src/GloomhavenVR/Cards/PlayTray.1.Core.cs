@@ -230,10 +230,38 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// RIGIDLY parented under <see cref="Root"/> (it is MOD-owned geometry, so the
     /// mount-seam reversibility rule for game-owned canvases does not apply; the
     /// cluster detects its own destruction on a tray teardown and rebuilds) — this
-    /// mount now only supplies the docked rotation/scale frame at attach time.
+    /// mount supplies the docked rotation/scale frame at attach time, and (via
+    /// <see cref="ButtonClusterOffset"/>) the per-board seat the player tuned.
     /// Null until built.
     /// </summary>
     internal Transform? ButtonClusterMount => _clusterMount;
+
+    /// <summary>
+    /// The per-board <c>[Cards] ClusterOffset_{board}</c> ("Tastengruppe: Position") the mount is
+    /// currently carrying, in tray-ROOT-local meters — the same frame and the same unit as the
+    /// cluster's own column anchor and as the <c>[RoundButtons]</c> group offset that adds beside
+    /// it, so ±0.01 on either stepper is the same centimetre on the board.
+    ///
+    /// <para>USER REPORT 2026-08-09: "Die Offsets bei den Überspringen-Tasten haben keinen
+    /// Einfluss. Alles andere scheint zu funktionieren, aber die Offsets verändern nichts." The
+    /// fresh hardware log is unambiguous about WHICH offset: it carries ~25 lines of
+    /// "[Cards] Debug live-apply [Oak]: cluster offset (-0.01, 0.00, 0.00)" — the user walking all
+    /// three axes of this dial out and back to zero — while the neighbouring ClusterScale (1.00 →
+    /// 1.15 → 1.00) and the [RoundButtons] Height/Depth steppers in the same debug-menu block moved
+    /// the cap every time. The dial did nothing because the rigid-dock lag fix reparented the
+    /// cluster from THIS MOUNT to the tray root and kept only the mount's rotation and scale: the
+    /// translation the player was tuning was written to a transform that had stopped having
+    /// children. This property is the seam that puts it back into the pose solve.</para>
+    ///
+    /// <para>IT IS A DELTA OFF THE MOUNT, NOT A CONFIG READ, and that is what keeps it from being
+    /// applied twice. <c>ButtonCluster</c> is still forbidden to read
+    /// <c>CardsConfig.ClusterOffset</c> — the warning its <c>ClusterProudOffset</c> comment has
+    /// carried since the dock was written — because <see cref="SetClusterLayout"/> already turns
+    /// that config into meters here. Asking the mount what it ended up at keeps exactly one
+    /// conversion in the mod, so the live-apply path and the build path can never disagree.</para>
+    /// </summary>
+    internal Vector3 ButtonClusterOffset =>
+        _clusterMount != null ? _clusterMount.localPosition - ClusterMountBase : Vector3.zero;
 
     /// <summary>
     /// SHARED DECISION DOCK (test #22): the reserved zone where the REAL interactive

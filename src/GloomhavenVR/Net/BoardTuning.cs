@@ -157,6 +157,10 @@ internal static class BoardTuningSampler
                  CardsConfig.SlotOverlayOffset(style), CardsConfig.BoardDefaults.SlotOverlayOffset[b]);
         n += Vec(payload, ref i, NetProtocol.TuneAssetOffset,
                  CardsConfig.AssetOffset(style), CardsConfig.BoardDefaults.AssetOffset[b]);
+        // The turn-flow cluster's per-board seat — the SKIP cap's spot on the board. See
+        // NetProtocol.TuneClusterOffset for why this arrived a round after its ClusterScale twin.
+        n += Vec(payload, ref i, NetProtocol.TuneClusterOffset,
+                 CardsConfig.ClusterOffset(style), Defaults.ClusterOffset_ByBoard[b]);
 
         // ---- COLOUR fields (ids 48..53) — the [ButtonColors] family --------------------------
         // SIX FIELDS, EIGHTEEN CHANNELS, TWENTY-FOUR BYTES. Sampled from the same ButtonTuning
@@ -641,6 +645,11 @@ internal readonly struct RemoteBoardTuning
     public Vector3 DecisionOffset { get; }
     public Vector3 SlotOverlayOffset { get; }
 
+    /// <summary>[Cards] ClusterOffset_{board} — where the owner's docked turn-flow SKIP cap
+    /// stands. Its ClusterScale twin has ridden the wire since record 28 shipped; the position
+    /// could not, because until ModBuild 97 neither end applied it (NetProtocol.TuneClusterOffset).</summary>
+    public Vector3 ClusterOffset { get; }
+
     /// <summary>The BOARD MESH's own pose offset inside the board root
     /// (<c>PlayTray.SetAssetPose</c>). The bronze board ships a non-zero default, so a peer on
     /// bronze exercises this even untuned.</summary>
@@ -910,6 +919,8 @@ internal readonly struct RemoteBoardTuning
                               CardsConfig.BoardDefaults.SlotOverlayOffset[b]);
         AssetOffset = V(payload, len, NetProtocol.TuneAssetOffset,
                         CardsConfig.BoardDefaults.AssetOffset[b]);
+        ClusterOffset = V(payload, len, NetProtocol.TuneClusterOffset,
+                          Defaults.ClusterOffset_ByBoard[b]);
 
         PileSpacing = L(payload, len, NetProtocol.TunePileSpacing, Defaults.PileSpacing_ByBoard[b]);
         RestButtonDiameter = L(payload, len, NetProtocol.TuneRestButtonDiameter,
@@ -1141,7 +1152,8 @@ internal readonly struct RemoteBoardTuning
         Tuned
             ? $"style={Style}, {FieldCount} tuned dial(s): objectives={ObjectivesOffset:F3}" +
               $"(×{ObjectivesScale:F2}), piles={PileOffset:F3}(step {PileSpacing:F3}, ×{PileScale:F2}), " +
-              $"initiative={InitiativeOffset:F3}, mesh={AssetOffset:F3}" +
+              $"initiative={InitiativeOffset:F3}, cluster={ClusterOffset:F3}(×{ClusterScale:F2}), " +
+              $"mesh={AssetOffset:F3}" +
               $"(pitch {AssetPitchDegrees:F1}°, yaw {AssetYawDegrees:F1}°, roll {AssetRollDegrees:F1}°), " +
               $"fan r={FanEffectiveRadius:F3} sweep={FanArcSweepDegrees:F1}° step={FanPerCardStepDegrees:F1}°"
             : $"style={Style}, no tuning record — every dial at the shipped default";

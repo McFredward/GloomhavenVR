@@ -2290,6 +2290,24 @@ internal static class NetProtocol
     /// root (<c>PlayTray.SetAssetPose</c>). Note the bronze board ships a non-zero default, so this
     /// is a live field, not a hypothetical one.</summary>
     public const byte TuneAssetOffset = 15;
+    /// <summary>
+    /// [Cards] ClusterOffset_{board} — the turn-flow button cluster's per-board seat, i.e. where
+    /// the docked SKIP cap ("Bewegung überspringen") stands on the board.
+    ///
+    /// <para>THIS ID IS A DEBT BEING PAID, NOT A NEW DIAL. It stood in
+    /// <c>scripts/check-wire-coverage.py</c> as a NO-OP exemption reading "ButtonCluster.
+    /// AttachDocked reads the mount's ROTATION and SCALE only — the position never moves the
+    /// rendered cluster, locally or remotely", which was TRUE and was itself the bug the user
+    /// reported (ModBuild 97: "Die Offsets bei den Überspringen-Tasten haben keinen Einfluss").
+    /// The rigid-dock lag fix had reparented the cluster off the mount and dropped the mount's
+    /// translation. Now that <c>ButtonCluster.AttachDocked</c> consumes it again, the exemption is
+    /// gone and the dial rides record 28 like its ClusterScale twin (id 133) — the alternative
+    /// being a wire field whose receiver draws nothing, which is the trap
+    /// <c>FanCloseDuration</c> was un-wired to avoid.</para>
+    ///
+    /// <para>Covers [Cards] ClusterOffset_{board} for every style.</para>
+    /// </summary>
+    public const byte TuneClusterOffset = 16;
 
     // COLOUR (3 B, uint8 R / G / B): THE [ButtonColors] FAMILY — what a player's keycaps are
     // lettered and tinted in.

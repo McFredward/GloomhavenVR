@@ -4038,25 +4038,69 @@ internal static class GoldenVectors
                                               NetProtocol.TuneRoundCapShape + 1, 0),
                 "and an id this generation does not carry reads as the fallback, not as a neighbour");
 
+        // THE SKIP CAP'S OTHER SEAT — [Cards] ClusterOffset_{board}, id 16 (ModBuild 97).
+        //
+        // The cap is placed by TWO offsets that add in the same tray-root-local frame: the shared
+        // [RoundButtons] group offset asserted above (ids 81..83) and this PER-BOARD one. Only the
+        // first was ever wired, because the second moved nothing on either end — the rigid-dock lag
+        // fix had reparented the local cluster off ButtonClusterMount and dropped the mount's
+        // translation, so the dial the user was turning wrote to a transform with no children
+        // ("Die Offsets bei den Überspringen-Tasten haben keinen Einfluss"). It rode
+        // check-wire-coverage.py as a NO-OP exemption, which is how a bug survives as documentation.
+        // With ButtonCluster.AttachDocked and RemoteBoardFurniture both consuming it, it is an
+        // ordinary vec3 field — and it takes the FIRST FREE VEC ID, which is the part that can
+        // never be taken back.
+        t.Equal(16, NetProtocol.TuneClusterOffset,
+                "the cluster seat takes id 16, one past the board mesh's own offset at 15");
+        t.Equal(6, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneClusterOffset),
+                "and it is a VEC3 (6 B, three signed tenth-mm i16s) — one field for a Vector3 dial, "
+                + "unlike the [RoundButtons] triple, which is three separate config entries");
+        t.True(NetProtocol.TuneClusterOffset <= NetProtocol.TuneVecIdMax,
+                "…inside the vec range, whose tail was trimmed to 47 and must not be overrun");
+
+        //   id 16 vec3 cluster offset (-0.012, 0.030, -0.004) -> -120, 300, -40
+        byte[] seatFields =
+        {
+            NetProtocol.TuneClusterOffset, 0x88, 0xFF, 0x2C, 0x01, 0xD8, 0xFF,
+        };
+        ushort seatSig = BoardTunePages.Signature(seatFields, 0, seatFields.Length);
+        var seatPage = new byte[255];
+        int seatLen = BoardTunePages.WritePage(seatFields, seatFields.Length, 0, seatSig, seatPage);
+        var seatAsm = new BoardTunePageAssembler();
+        t.True(seatAsm.Accept(seatPage, 0, seatLen), "the moved cluster seat converges on one page");
+        Vector3 seat = NetProtocol.BoardTuneVector(seatAsm.Assembled, 0, seatAsm.AssembledLength,
+                                                   NetProtocol.TuneClusterOffset, Vector3.zero);
+        t.Equal(-0.012f, seat.x, "the peer sees the owner's cluster nudged LEFT — signed, like every "
+                                + "other seat: the user's own probe in the ModBuild-97 log was -0.01");
+        t.Equal(0.03f, seat.y, "up-board on y");
+        t.Equal(-0.004f, seat.z, "and toward the board face on z — the raw frame the local mount uses");
+        t.True(NetProtocol.BoardTuneVector(seatAsm.Assembled, 0, seatAsm.AssembledLength,
+                                           NetProtocol.TuneClusterOffset, Vector3.zero)
+               != NetProtocol.BoardTuneVector(capTune, 0, capTuneLen,
+                                              NetProtocol.TuneClusterOffset, Vector3.zero),
+               "and a record that does NOT carry it leaves the receiver on its own shipped seat — "
+               + "all three boards ship (0,0,0), so an untuned peer is drawn exactly as before");
+
         // THE CONVERGENCE BOUND IS UNCHANGED BY THESE NINETEEN, and that is a claim about page
         // ARITHMETIC rather than about bytes, so it is checked rather than asserted in a comment.
         // This is the sampler's complete field run at its worst case — every dial moved — in the
         // id-width census Sample() produces: 15 vec3 + 35 length + 41 factor + 9 angle + 5 count.
-        var census = new byte[411];
+        var census = new byte[418];
         int cAt = 0;
         void Field(byte id, int width)
         {
             census[cAt] = id;
             cAt += 1 + width;
         }
-        for (byte id = 1; id <= 15; id++) Field(id, 6);        // vec3   (ids 1..15)
+        for (byte id = 1; id <= 16; id++) Field(id, 6);        // vec3   (ids 1..16, 16 = cluster seat)
         for (byte id = 48; id <= 53; id++) Field(id, 3);       // colour (ids 48..53, all new)
         for (byte id = 64; id <= 100; id++) Field(id, 2);      // length (ids 64..100, 99..100 new)
         for (byte id = 128; id <= 169; id++) Field(id, 2);     // factor (170 is new; 156 unsampled)
         for (byte id = 192; id <= 200; id++) Field(id, 2);     // angle
         for (byte id = 224; id <= 232; id++) Field(id, 1);     // count  (228..232 are the shapes/bools)
-        t.Equal(411, cAt,
-                "the sampler's worst case is 411 field bytes over 118 dials — it was 370 over 105 " +
+        t.Equal(418, cAt,
+                "the sampler's worst case is 418 field bytes over 119 dials — 411 over 118 before " +
+                "the cluster seat rejoined it, and it was 370 over 105 " +
                 "before the colours and shapes, 314 over 86 before the keycap geometry family, 284 " +
                 "over 76 before the item-cue ten, and under the OLD scheme none of it could have " +
                 "grown at all: the whole payload had to fit 255");
@@ -4064,13 +4108,14 @@ internal static class GoldenVectors
                 "and it STILL splits into two pages, so the convergence guarantee written down in " +
                 "BoardTunePages — complete state by T + pageCount x 200 ms — is unchanged at <=400 ms");
         int cp0 = BoardTunePages.WritePage(census, cAt, 0, 1, cuePage);
-        t.Equal(253, cp0,
-                "page 0 fills to 7 header + 246 field bytes — the same 246 as in all three earlier " +
-                "censuses, because a 3-byte field cannot fit the 2 bytes left of the 248-byte " +
-                "budget; the new fields only change WHICH ones spill onto page 1");
+        t.Equal(254, cp0,
+                "page 0 fills to 7 header + 247 field bytes (was 246 through three earlier " +
+                "censuses): the sixteenth vec3 shifts the run by 7, and 247 is where the next " +
+                "field stops fitting the 248-byte budget — the packing rule is unchanged, only " +
+                "WHICH dials spill onto page 1");
         int cp1 = BoardTunePages.WritePage(census, cAt, 1, 1, cuePage);
-        t.Equal(172, cp1,
-                "…and page 1 now holds 165 of its own 248 field bytes (was 124): ~27 more 3-byte " +
+        t.Equal(178, cp1,
+                "…and page 1 now holds 171 of its own 248 field bytes (was 165): ~25 more 3-byte " +
                 "dials before the bound would go to <=600 ms");
 
         // AND THE SIX COLOURS COST 24 BYTES, WHICH IS THE WHOLE ARGUMENT FOR THE NEW WIDTH — pinned
