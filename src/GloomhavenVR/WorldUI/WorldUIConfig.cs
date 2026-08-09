@@ -38,6 +38,32 @@ internal static class WorldUIConfig
 
     /// <summary>Actor bars keep a fixed board-space size (no distance growth) — test #14 item 4.</summary>
     internal static ConfigEntry<bool> BarFixedSize = null!;
+
+    /// <summary>
+    /// User ("Größe der Healthbars sollen einstellbar sein"): the actor HP/effect bars' SIZE, as a
+    /// factor of the size they have always shipped at.
+    ///
+    /// <para>THE UNIT IS REAL MILLIMETRES AT THE EYE, not world units. A bar is a readability
+    /// overlay, and the only statement about "how big is it" that survives a pinch-zoom is its size
+    /// at the eye: the diorama scale is a scale on the RIG, so a world-unit size means a different
+    /// apparent size at every zoom while the same real-millimetre size looks identical at all of
+    /// them. 1.0 = the shipped size, which is <see cref="CanvasScaleMm"/> × 0.35 mm per uGUI pixel
+    /// at the eye (see <see cref="ActorBars"/>); 2.0 is a bar twice as tall and twice as wide in
+    /// front of your face at any table zoom.</para>
+    /// </summary>
+    internal static ConfigEntry<float> BarSizeScale = null!;
+
+    /// <summary>
+    /// Lower end of the zoom clamp (user: "ein minimum und maximum der Größe, damit sie sich trotz
+    /// zoomen nie über die Grenzen hinaus skalieren können"). The bars FOLLOW the table zoom — they
+    /// grow with the miniature when the table is pinched larger and shrink with it when it is
+    /// pinched away — and this is the floor of that following, as a factor of
+    /// <see cref="BarSizeScale"/>. See <see cref="ActorBars"/> for the arithmetic and the guarantee.
+    /// </summary>
+    internal static ConfigEntry<float> BarZoomMinScale = null!;
+
+    /// <summary>Upper end of the zoom clamp; see <see cref="BarZoomMinScale"/>.</summary>
+    internal static ConfigEntry<float> BarZoomMaxScale = null!;
     internal static ConfigEntry<bool> WristHud = null!;
     internal static ConfigEntry<bool> FlatScreen = null!;
     internal static ConfigEntry<bool> Tooltips = null!;
@@ -364,10 +390,41 @@ internal static class WorldUIConfig
         ActorBars = _file.Bind("WorldUI", "ActorBars", Defaults.ActorBars,
             "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
         BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", Defaults.BarFixedSize,
-            "Actor HP/effect bars keep a FIXED board-space size — they scale only with the " +
-            "diorama, like the miniatures themselves (test #14: the old distance compensation " +
-            "grew bars up to 2.5x when stepping away, which read as the bars 'growing'). " +
-            "Off = legacy behavior: bars gently grow with head distance to stay readable.");
+            "Actor HP/effect bars ignore the HEAD DISTANCE — a bar the same size whether you " +
+            "lean in or step back (test #14: the old distance compensation grew bars up to 2.5x " +
+            "when stepping away, which read as the bars 'growing'). Off = legacy behavior: bars " +
+            "gently grow with head distance to stay readable, bounded by the same " +
+            "BarZoomMinScale/BarZoomMaxScale clamp as the table zoom. This dial says nothing " +
+            "about the TABLE zoom — that is BarSizeScale and its clamp.");
+        BarSizeScale = _file.Bind("WorldUI", "BarSizeScale", Defaults.BarSizeScale,
+            new ConfigDescription(
+                "SIZE of the actor HP/effect bars above the miniatures, as a factor of the size " +
+                "they have always shipped at. The unit behind the factor is REAL MILLIMETRES AT " +
+                "THE EYE: 1.0 = CanvasScaleMm x 0.35 mm per uGUI pixel in front of your face, so " +
+                "2.0 is a bar twice as tall and twice as wide however the table is zoomed. That " +
+                "is the only size statement that survives a pinch-zoom, because the mod's zoom is " +
+                "a scale on the RIG - a size expressed in world units would mean a different " +
+                "apparent size at every zoom level. Default 1.0 = exactly the size before this " +
+                "dial existed (at the shipped table zoom), so nothing changes until you tune it. " +
+                "Live: the next frame is drawn at the new size. Range 0.25-3.",
+                new AcceptableValueRange<float>(0.25f, 3f)));
+        BarZoomMinScale = _file.Bind("WorldUI", "BarZoomMinScale", Defaults.BarZoomMinScale,
+            new ConfigDescription(
+                "MINIMUM size of the actor bars, as a factor of BarSizeScale. The bars follow the " +
+                "TABLE ZOOM - pinch the table larger and a bar grows with the miniature it belongs " +
+                "to, pinch it away and the bar shrinks with it - and this is the floor of that " +
+                "following: however far you zoom out, a bar is never smaller than " +
+                "BarSizeScale x this. 0.7 = at most 30 % smaller than the size you set. Set it " +
+                "equal to BarZoomMaxScale to switch the following off entirely and get one fixed " +
+                "real size at every zoom. Range 0.1-1.",
+                new AcceptableValueRange<float>(0.1f, 1f)));
+        BarZoomMaxScale = _file.Bind("WorldUI", "BarZoomMaxScale", Defaults.BarZoomMaxScale,
+            new ConfigDescription(
+                "MAXIMUM size of the actor bars, as a factor of BarSizeScale - the ceiling of the " +
+                "table-zoom following described at BarZoomMinScale. However far you zoom in, a bar " +
+                "is never larger than BarSizeScale x this, so a zoomed-in table can never let the " +
+                "bars swallow the board. 1.5 = at most 50 % larger than the size you set. Range 1-3.",
+                new AcceptableValueRange<float>(1f, 3f)));
         WristHud = _file.Bind("WorldUI", "WristHud", Defaults.WristHud,
             "Compact character status (HP/XP/conditions/gold) on the non-dominant wrist, look-at activated.");
         FlatScreen = _file.Bind("WorldUI", "FlatScreen", Defaults.FlatScreen,

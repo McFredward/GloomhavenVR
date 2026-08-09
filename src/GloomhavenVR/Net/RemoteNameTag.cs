@@ -100,6 +100,13 @@ internal sealed class RemoteNameTag
     private readonly string _fallbackName; // cached: NameFor is polled per frame, no per-frame $"" garbage
 
     private Material? _avatarMat;          // our clone (BoardVisual.Unlit creates one) — freed on rebuild/teardown
+    private Transform? _avatarQuad;        // the Steam picture, or null while this peer has none
+
+    /// <summary>THE TURN CUE (user request 2026-08-09 #4): the blinking frame around the Steam
+    /// picture of the player the game is waiting on. Deliberately the SAME class the peer's board
+    /// tag uses (<see cref="RemoteFocusOutline"/>) — one cue, two carriers, from the peer's synced
+    /// record 22 and the shared <c>FocusCue</c> clock; see <see cref="AvatarTurnRing"/>.</summary>
+    private readonly AvatarTurnRing _turnRing;
     private Sprite? _shownAvatar;
     private string? _shownName;
     private bool _built;
@@ -132,6 +139,7 @@ internal sealed class RemoteNameTag
     public RemoteNameTag(RemoteAvatar owner)
     {
         _owner = owner;
+        _turnRing = new AvatarTurnRing(owner.PlayerId, "head");
         _fallbackName = $"Player {owner.PlayerId}"; // same fallback OwnerTag ships
         _root = new GameObject($"NameTag[{owner.PlayerId}]");
         // Parent = the avatar ROOT (scale 1, identity), NOT the head holder: the holder carries
@@ -157,6 +165,8 @@ internal sealed class RemoteNameTag
                     && _owner.HeadHolder != null && _owner.HeadHolder.gameObject.activeSelf;
         if (!want)
         {
+            // The ring is a CHILD of this root, so switching the row off switches the cue off with
+            // it — there is no second hide to keep in step.
             if (_root.activeSelf)
                 _root.SetActive(false);
             return;
@@ -231,6 +241,11 @@ internal sealed class RemoteNameTag
             Vector3 away = _billboard.position - head.transform.position;
             if (away.sqrMagnitude > 1e-6f)
                 _billboard.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
+            // THE TURN CUE, before the ladder seat below and not after it: a ring that was just
+            // built must be in the renderer cache the seat writes, or it would spend up to a
+            // second at order 0 while the row it belongs to rides the ladder at ~96.
+            if (_turnRing.Tick(_avatarQuad, new Vector2(AvatarSize, AvatarSize), visible: true))
+                _tagRenderersRefreshAt = 0;
             // PANEL COMPOSITING (user report 2026-08-04): rank the tag's renderers on the
             // converted-panel distance ladder so a menu window BEHIND the tag can no longer
             // alpha-blend over the Steam avatar — and a window in FRONT fully occludes it.
@@ -311,6 +326,9 @@ internal sealed class RemoteNameTag
         if (_avatarMat != null)
             Object.Destroy(_avatarMat);
         _avatarMat = null;
+        // The picture (and the turn ring built beside it) died with the children above; a name-only
+        // row leaves this null, which is the ring's own "nothing to frame" state.
+        _avatarQuad = null;
 
         Texture? t = avatar != null ? avatar.texture : null;
         bool hasAvatar = t != null;
@@ -356,6 +374,7 @@ internal sealed class RemoteNameTag
             MeshRenderer quad = BoardVisual.Quad(_billboard, "Avatar",
                 new Vector2(AvatarSize, AvatarSize), _avatarMat);
             quad.transform.localPosition = new Vector3(left + AvatarSize * 0.5f, 0f, 0f);
+            _avatarQuad = quad.transform; // the turn ring frames THIS quad (rebuilt with it)
         }
         else if (!_loggedNameOnly)
         {
@@ -408,6 +427,7 @@ internal sealed class RemoteNameTag
 
     public void Destroy()
     {
+        _turnRing.Destroy();
         if (_avatarMat != null)
             Object.Destroy(_avatarMat); // asset — not freed with the GameObject tree
         _avatarMat = null;

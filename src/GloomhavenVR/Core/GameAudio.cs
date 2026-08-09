@@ -9,7 +9,9 @@ namespace GloomhavenVR.Core;
 /// (hardware log build 07621c087: "sound on close but never on open" — zero sound lines, close
 /// audible, open silent), lifted out of <c>Cards/CardsDriver.2.Update.cs</c> so the SECOND
 /// caller (the initiative-track refusal sound, user report 2026-08-09) cannot re-learn it the
-/// expensive way. The trap, verbatim from that fix:
+/// expensive way (that caller is now
+/// <c>WorldUI.Surfaces.InitiativePortraitClickSound</c>, which plays both the refusal and the
+/// character-change item through this one shape). The trap, verbatim from that fix:
 ///
 /// <para>The mod NEVER touches the <c>AudioListener</c> — it rides the GAME's 2D camera, not the
 /// VR head or hands. So <c>AudioController.Play(item, someTransform, …)</c>, the POSITIONAL

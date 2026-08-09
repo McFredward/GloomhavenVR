@@ -2123,6 +2123,187 @@ internal static class GoldenVectors
                "a truncated decision-state record still parses the packet");
         t.True(!cutDsS.HasDecisionState, "and the incomplete record is simply not delivered");
 
+        // -- 7o2b. DECISION WIDGETS (extension record 29) -------------------------------------
+        // Record 12 says what the owner's options READ and record 24 what STATE they are in; this
+        // one says WHICH GAME WIDGET each option IS, so a peer can clone the real button out of its
+        // own copy of TakeDamagePanel (the game raises that Singleton on every client) instead of
+        // drawing a mod-built lookalike from our text. Plus the two numbers that widget paints on
+        // itself and a peer's stale copy cannot know: the live damage amount and whether it is
+        // lethal / shielded.
+        //
+        // A ROLE IS A WIDGET NAME, NEVER A CARD. The whole payload is three small enumerations and
+        // a damage number — there is nothing in it that could name what would burn.
+        t.Case("7o2b. extras, decision-widgets record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionLines = true, DecisionLinesText = "Ja",
+            HasDecisionWidgets = true,
+            DecisionWidgetFlags = (byte)(NetProtocol.DecisionWidgetLethalBit
+                                         | NetProtocol.DecisionWidgetDamageValidBit),
+            DecisionDamageAmount = 4,
+            DecisionRoleCount = 3,
+            DecisionRoles = new byte[]
+            {
+                NetProtocol.DecisionRoleBurnAvailable,   // 1
+                NetProtocol.DecisionRoleTakeDamage,      // 3
+                NetProtocol.DecisionRoleBurnDiscarded,   // 2
+            },
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            02               // tail: 2 records
+            0C 02 4A 61      // id 12 decision lines: 'Ja'
+            1D 06            // id 29 (decision widgets), len 6
+            09               // flags: lethal (0x01) | damage-valid (0x08)
+            04               // damage amount 4
+            03               // 3 roles
+            01 03 02         // burn-available, take-damage, burn-discarded
+            "), ext, m, "the decision-widgets record is [id 29][len][flags][damage][n][n roles], "
+                        + "written LAST, behind every existing record, in id order");
+        t.Equal(23, m, "header 7 + count 1 + block 2 + tail 1 + (2+2) + (2+6) = 23 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState dw), "and it parses");
+        t.True(dw.HasDecisionWidgets, "the widget record is delivered");
+        t.Equal(4, dw.DecisionDamageAmount, "the damage number the owner's button displays");
+        t.True((dw.DecisionWidgetFlags & NetProtocol.DecisionWidgetLethalBit) != 0,
+               "the FATAL-damage icon flag survives (the receiver swaps its own icon, not a bitmap)");
+        t.True((dw.DecisionWidgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0,
+               "…and the damage-valid flag, without which the receiver leaves its own number alone");
+        t.True((dw.DecisionWidgetFlags & NetProtocol.DecisionWidgetShieldedBit) == 0,
+               "the shield flag was not set and is not invented");
+        t.Equal(3, dw.DecisionRoleCount, "all three roles are delivered");
+        t.Equal(NetProtocol.DecisionRoleBurnAvailable, dw.DecisionRoles![0],
+                "option 0 is the burn-one-available-card toggle");
+        t.Equal(NetProtocol.DecisionRoleTakeDamage, dw.DecisionRoles[1],
+                "option 1 is the take-damage button — index-aligned with records 12 and 24");
+        t.Equal(NetProtocol.DecisionRoleBurnDiscarded, dw.DecisionRoles[2],
+                "option 2 is the burn-two-discarded toggle");
+
+        // NOTHING TO NAME ⇒ NO RECORD, NO TAIL, NO BLOCK: an idle packet stays byte-identical to
+        // the previous build's — the same contract every "only when non-default" record honours.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionWidgets = true, HandCardCount = 5,
+            DecisionWidgetFlags = 0, DecisionRoleCount = 0,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "an empty decision-widgets record writes no record at all");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noDw), "and it parses");
+        t.True(!noDw.HasDecisionWidgets,
+               "with HasDecisionWidgets false (peers keep the mod-drawn plates)");
+
+        // MASKED ON WRITE AND ON READ, and ROLES CLAMPED: a sender that sets bits this build does
+        // not define must not light a meaning here, and a role code this build cannot resolve must
+        // degrade to 'unknown' (the mod-drawn plate) rather than to the WRONG widget.
+        byte[] wildDw = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1D 05            // id 29, len 5
+            F9               // flags: undefined bits 4..7 set, on top of lethal|damage-valid
+            07               // damage 7
+            02               // 2 roles
+            03 7F            // take-damage, then a role code from a later build
+            ");
+        t.True(PresenceSerializer.TryRead(wildDw, wildDw.Length, out PresenceState wdw),
+               "a record with undefined bits and an unknown role still parses");
+        t.Equal((byte)(NetProtocol.DecisionWidgetLethalBit | NetProtocol.DecisionWidgetDamageValidBit),
+                wdw.DecisionWidgetFlags, "every undefined flag bit is masked away");
+        t.Equal(NetProtocol.DecisionRoleTakeDamage, wdw.DecisionRoles![0], "the known role survives");
+        t.Equal(NetProtocol.DecisionRoleUnknown, wdw.DecisionRoles[1],
+                "and the unknown one becomes 'unknown' — a peer draws its plate, never a guessed widget");
+
+        // A LYING COUNT can neither overrun the record nor bleed into the next one: n is re-clamped
+        // against the record's OWN length, and the record behind it still reads.
+        byte[] lyingDw = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 02
+            1D 05 08 04 FF 01 03       // id 29, len 5: claims 255 roles, carries 2
+            03 07 01 00 30 2E 31 2E 30 // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(lyingDw, lyingDw.Length, out PresenceState liarDw),
+               "a decision-widgets record claiming more roles than it carries still parses");
+        t.Equal(2, liarDw.DecisionRoleCount, "the count is clamped to what the record really holds");
+        t.True(liarDw.HasModVersion, "and the record behind it is read past it, undamaged");
+
+        // OVER-CAP: a sender offering more roles than the cap is clamped on read, so a peer can
+        // never be made to allocate or resolve past the record's own bound.
+        byte[] overCapDw = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1D 0F 08 04 0C 01 01 01 01 01 01 01 01 01 01 01 01
+            ");
+        t.True(PresenceSerializer.TryRead(overCapDw, overCapDw.Length, out PresenceState dwCapped),
+               "an over-cap decision-widgets record parses");
+        t.Equal(NetProtocol.DecisionStateMaxOptions, dwCapped.DecisionRoleCount,
+                "with the role count clamped to DecisionStateMaxOptions (records 24 and 29 share it)");
+
+        // OLD-STYLE PACKET (records 12 + 24, no record 29 — a ModBuild-104 sender): the wordings and
+        // the states still arrive, and the receiver derives "no roles", which makes it fall back to
+        // the mod-drawn plates — exactly the look every build before this one drew.
+        byte[] oldStyleDw = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 02
+            0C 07 4A 61 0A 4E 65 69 6E   // id 12: 'Ja\nNein'
+            18 04 09 02 01 01            // id 24: kind 1 | variant 1, 2 options, both offered
+            ");
+        t.True(PresenceSerializer.TryRead(oldStyleDw, oldStyleDw.Length, out PresenceState preDw),
+               "a pre-record-29 packet parses");
+        t.True(preDw.HasDecisionLines && preDw.HasDecisionState,
+               "its decision lines and states are delivered");
+        t.True(!preDw.HasDecisionWidgets, "no widget record is invented");
+        t.True(preDw.DecisionRoles == null,
+               "and no roles — the receiver keeps the mod-drawn plates rather than cloning a widget "
+               + "the sender never named");
+
+        // TRUNCATED record (claims 6 payload bytes, delivers 2): tail abandoned, nothing thrown.
+        byte[] cutDw = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1D 06 09 04");
+        t.True(PresenceSerializer.TryRead(cutDw, cutDw.Length, out PresenceState cutDwS),
+               "a truncated decision-widgets record still parses the packet");
+        t.True(!cutDwS.HasDecisionWidgets, "and the incomplete record is simply not delivered");
+
+        // ALL THREE DECISION RECORDS TOGETHER, in the byte order the writer emits them — the shape a
+        // peer really receives while somebody is answering a damage prompt. The three are written on
+        // ONE gate and sampled in ONE walk, so option i means the same widget in all three.
+        var threeRoles = new byte[]
+        {
+            NetProtocol.DecisionRoleBurnAvailable,
+            NetProtocol.DecisionRoleTakeDamage,
+            NetProtocol.DecisionRoleBurnDiscarded,
+        };
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasDecisionLines = true, DecisionLinesText = "Ja",
+            HasDecisionState = true,
+            DecisionPromptKind = NetProtocol.DecisionKindTakeDamage,
+            DecisionTextVariant = NetProtocol.DecisionTextDealDamage,
+            DecisionOptionCount = 3,
+            DecisionOptionFlags = new byte[]
+            {
+                NetProtocol.DecisionOptionOfferedBit,
+                NetProtocol.DecisionOptionOfferedBit,
+                NetProtocol.DecisionOptionDimmedBit,
+            },
+            HasDecisionWidgets = true,
+            DecisionWidgetFlags = NetProtocol.DecisionWidgetDamageValidBit,
+            DecisionDamageAmount = 4,
+            DecisionRoleCount = 3,
+            DecisionRoles = threeRoles,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 03
+            0C 02 4A 61            // id 12: 'Ja'
+            18 05 09 03 01 01 02   // id 24: kind|variant, 3 options
+            1D 06 08 04 03 01 03 02 // id 29: damage-valid, 4, 3 roles
+            "), ext, m, "records 12, 24 and 29 ride together, in the writer's own emission order");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState all3), "and the trio parses");
+        t.Equal(all3.DecisionOptionCount, all3.DecisionRoleCount,
+                "the states and the roles describe the same number of options — index alignment is "
+                + "structural, one sampler walk fills both");
+
         // -- 7o3. USE BARS (extension record 25) ---------------------------------------------
         // The SECOND drawer below the decision row: which of the four use-slot bars the owner has
         // docked AND visible, how many slots each shows, whether an element/option sub-picker

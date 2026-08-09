@@ -277,6 +277,16 @@ internal static partial class CanvasConversion
     /// observable.</para>
     /// </summary>
     internal static int OrderAboveDistance(float eyeDistance, int lift)
+        => FartherPanelOrder(eyeDistance) + lift;
+
+    /// <summary>
+    /// The ladder order of the NEAREST panel that is still behind <paramref name="eyeDistance"/>
+    /// (tie = behind, see <see cref="OrderAboveDistance"/>), or one step below the whole ladder
+    /// when there is none. Split out so the cluster-aware variant
+    /// (<see cref="OrderAboveDistanceAndClusters"/>) can reason about the GAP above that slot —
+    /// where every non-panel plate lives — instead of only about "slot + lift".
+    /// </summary>
+    private static int FartherPanelOrder(float eyeDistance)
     {
         int order = PanelOrderBase - PanelOrderStep;
         for (int i = 0; i < OrderedPanels.Count; i++)
@@ -287,7 +297,7 @@ internal static partial class CanvasConversion
             if (p.OrderDistance >= eyeDistance - OrderSwapMarginMeters && p.DrawSortingOrder > order)
                 order = p.DrawSortingOrder;
         }
-        return order + lift;
+        return order;
     }
 
     /// <summary>

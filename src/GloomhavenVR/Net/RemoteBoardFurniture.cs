@@ -111,7 +111,10 @@ namespace GloomhavenVR.Net;
 /// interactability, the Confirm wording, the drawer's contents being
 /// "knowable-but-not-worth-a-field" — is GONE, one member at a time and finally as a rule: the
 /// FOLLOW/PIN toggle left it through the board-UI record's byte 1 bit 2, the cap wordings through
-/// record 13, the decision buttons through record 12, and their OFFERED / GREYED / CHOSEN states
+/// record 13, the decision buttons through records 12 and 29 (since ModBuild 105 the take-damage
+/// row is a CLONE OF THE GAME'S OWN WIDGETS, not a reproduction — see RemoteDecisionWidgets; the
+/// plates below stand in for the prompts whose widgets a peer does not own), and their
+/// OFFERED / GREYED / CHOSEN states
 /// plus the prompt line through record 23 and this round's ruling ("alle Interaktionen,
 /// Animationen und Anzeigen des Controllboards … so wie der Spieler sie sieht" — see the class
 /// definition in <see cref="RemoteBoardContent"/>). What is left of DELIBERATELY-NOT here is the
@@ -636,6 +639,29 @@ internal sealed class RemoteBoardFurniture
     /// <see cref="SetDecisionLines"/> upgrades as soon as a live button has been harvested.</summary>
     private bool _decisionRowNative;
 
+    /// <summary>
+    /// THE REAL THING (ModBuild 105): a live clone of THIS client's own <c>TakeDamagePanel</c>
+    /// widget row, driven from wire records 12/24/29 — the game's own button art, burn icons,
+    /// damage icon and wordings, in the VIEWER's own language. It is the PRIMARY renderer of a
+    /// peer's take-damage decision; <see cref="_decisionRow"/>'s mod-drawn plates are what stands in
+    /// when it cannot be built (another prompt kind, a sender predating record 29, a prefab this
+    /// build cannot resolve). See <see cref="RemoteDecisionWidgets"/> for the whole argument.
+    /// </summary>
+    private readonly RemoteDecisionWidgets? _decisionWidgets;
+
+    /// <summary>True while a decision row of EITHER kind stands at the seat — the mirrored game
+    /// widgets or the mod-drawn plates. What the use-bar drawer stacks below.</summary>
+    private bool DecisionRowUp =>
+        (_decisionWidgets != null && _decisionWidgets.Showing) || _shownDecisionLines != null;
+
+    /// <summary>Board-local height of whatever row is standing: the mirrored widgets' MEASURED fit
+    /// when they are up, the authored plate height otherwise. The use-bar stack hangs its own
+    /// clearance below this, exactly as the owner's stack hangs below their measured row.</summary>
+    private float DecisionRowHeight =>
+        _decisionWidgets != null && _decisionWidgets.Showing
+            ? _decisionWidgets.RowHeight
+            : DecisionButtonH * _decisionTuning.DecisionScale;
+
     /// <summary>One mirrored option plate's repaintable parts — the pieces
     /// <see cref="ApplyDecisionOptionStates"/> writes when the owner's option states move (a toggle
     /// flips, the game re-asserts a gate) WITHOUT rebuilding the row. Face is the 9-sliced game
@@ -1081,6 +1107,10 @@ internal sealed class RemoteBoardFurniture
         // line's height + the gap for as long as the owner's prompt shows one.
         _decision = BuildDecisionDrawer(new Vector3(
             DecisionMount.x + decisionOff.x, _decisionCeilingY, DecisionMount.z + decisionOff.z));
+        // …and the REAL widget mirror that hangs at the same seat and normally replaces the plates
+        // above (ModBuild 105). Built empty and hidden; it claims the seat on the first refresh
+        // where the owner's prompt is a take-damage one and record 29 named its widgets.
+        _decisionWidgets = new RemoteDecisionWidgets(_decision, decisionScale);
         // ---- the SECOND drawer: the mirrored use-slot bars (wire record 25) -------------------
         // The owner's UseBarsSurface stacks its bars BELOW the decision row: while a row is docked
         // the stack top hangs DecisionClearance under the row's measured bottom edge, otherwise it
@@ -1293,9 +1323,24 @@ internal sealed class RemoteBoardFurniture
         //          RemoteDecisionPrompt).
         //      All three vanish together the moment the owner's row does — including when they
         //      focus another character and their own board goes blank at this seat.
-        SetDecisionLines(owner.DecisionLines);
-        ApplyDecisionOptionStates(owner.DecisionOptionStates);
-        SetDecisionPrompt(actor, owner);
+        //
+        //      SINCE ModBuild 105 THE FIRST PASS IS A FALLBACK, NOT THE MAIN PATH (user report
+        //      2026-08-09: "Die Entscheidungsbuttons sollen auch 1:1 aussehen … Es sah so aus als
+        //      wären die Buttons und der Text eigens nachgebaut und hier nicht die Spielelemente
+        //      genutzt"). For the take-damage prompt this board now clones THIS CLIENT'S OWN
+        //      TakeDamagePanel widgets and drives them from wire record 29 — real button art, real
+        //      damage/fatal icons, real damage number, every wording in the VIEWER's own language
+        //      (see RemoteDecisionWidgets). The mod-drawn plates below are what stands in when that
+        //      cannot be done: a prompt whose widgets do not exist on a peer (the short-rest Yes/No,
+        //      a DialogPopup), or a sender predating record 29.
+        bool realWidgets = _decisionWidgets != null && _decisionWidgets.Refresh(owner);
+        SetDecisionLines(realWidgets ? null : owner.DecisionLines);
+        ApplyDecisionOptionStates(realWidgets ? null : owner.DecisionOptionStates);
+        // The idle drawer is SetDecisionLines' own "a prompt is docked but I have no labels" look;
+        // with the real widgets up it would sit behind them, so it is forced down here.
+        if (realWidgets && _drawerIdle != null && _drawerIdle.gameObject.activeSelf)
+            _drawerIdle.gameObject.SetActive(false);
+        SetDecisionPrompt(actor, owner, realWidgets);
 
         // ---- SYNCED USE-BAR DRAWER (wire record 25 — the SECOND drawer, the same 2026-08-08
         //      ruling). Two passes, the same structure/state split the decision row uses:
@@ -1433,7 +1478,13 @@ internal sealed class RemoteBoardFurniture
                     $"skip={(owner.SkipCapLabel != null ? "'" + owner.SkipCapLabel + "'" : "neutral")}, " +
                     $"undo={(owner.UndoCapLabel != null ? "'" + owner.UndoCapLabel + "'" : "neutral")}, " +
                     $"use={(owner.ItemUseCapLabel != null ? "'" + owner.ItemUseCapLabel + "'" : "neutral")}], " +
-                    $"decision={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}" +
+                    // WHICH RENDERER IS DRAWING THE DECISION — the one fact a "1:1 sieht falsch aus"
+                    // report needs from a hardware log without a screenshot. 'GAME WIDGETS' means
+                    // this board shows a clone of THIS client's own TakeDamagePanel (records
+                    // 12/24/29, the ModBuild 105 path); 'plates' means the mod-drawn fallback, and
+                    // it says WHY.
+                    $"decision={(_decisionWidgets != null && _decisionWidgets.Showing ? "GAME WIDGETS (cloned, records 12/24/29)" : "plates: " + (_decisionWidgets != null ? _decisionWidgets.Reason : "-"))}" +
+                    $", plates={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}" +
                     $"[{DescribeStates(_shownOptionStates, _decisionPlates.Count)}]" +
                     // Single quotes around the line, like the cap labels above: a nested \" inside
                     // an interpolation hole trips the patch-inventory source scanner.
@@ -1995,10 +2046,12 @@ internal sealed class RemoteBoardFurniture
     /// cannot travel; see <see cref="RemoteDecisionPrompt"/>. Change-gated on the composed string
     /// (a per-tick TMP write re-triggers auto-size layout).
     /// </summary>
-    private void SetDecisionPrompt(CPlayerActor? actor, RemoteAvatar owner)
+    private void SetDecisionPrompt(CPlayerActor? actor, RemoteAvatar owner, bool realWidgets)
     {
-        // No visible row on the owner's board ⇒ no line, whatever the last state record said.
-        string? text = _shownDecisionLines == null
+        // No visible row on the owner's board ⇒ no line, whatever the last state record said. The
+        // test is "a row of EITHER kind stands here": since ModBuild 105 the take-damage prompt is
+        // normally drawn by the mirrored GAME widgets, which leaves _shownDecisionLines null.
+        string? text = !realWidgets && _shownDecisionLines == null
             ? null
             : RemoteDecisionPrompt.Compose(owner.DecisionPromptKind, owner.DecisionTextVariant, actor);
         if (text == _shownPromptText)
@@ -2116,6 +2169,17 @@ internal sealed class RemoteBoardFurniture
     /// labels, and it only happens when the owner's dock content really changed. The idle
     /// captioned drawer shows exactly while the decision bit is set WITHOUT labels, so a legacy
     /// sender keeps its familiar look.
+    ///
+    /// DEMOTED TO A FALLBACK IN ModBuild 105 (user report 2026-08-09, verbatim: "Die
+    /// Entscheidungsbuttons sollen auch 1:1 aussehen, aktuell scheint das kaputt zu sein … Es sah so
+    /// aus als wären die Buttons und der Text eigens nachgebaut und hier nicht die Spielelemente
+    /// genutzt"). Everything below is still the closest a REPRODUCTION can get, and a reproduction
+    /// was the wrong answer: the take-damage prompt is now mirrored as a clone of THIS client's own
+    /// <c>TakeDamagePanel</c> widgets driven by wire record 29 (see
+    /// <see cref="RemoteDecisionWidgets"/>) — real button art, real damage/fatal icons, the real
+    /// damage number, and every wording in the VIEWER's own language. This builder runs only when
+    /// that cannot be done: another prompt kind (a short-rest Yes/No, a DialogPopup, whose widgets
+    /// do not exist on a peer in the state their owner sees), or a sender predating record 29.
     ///
     /// 1:1 WITH WHAT THE DECIDING PLAYER SEES (user 2026-08-07, verbatim: "Die
     /// Entscheidungsbuttons sollen 1:1 genau so aussehen (Position und Größe und Erscheinungsbild)
@@ -2490,7 +2554,11 @@ internal sealed class RemoteBoardFurniture
     {
         if (owner.UseBarsMask == 0)
             return 0;
-        int key = owner.UseBarsMask | (_shownDecisionLines != null ? 1 << 8 : 0);
+        // A ROW IS UP either way — the mod-drawn plates OR the mirrored GAME widgets — and the
+        // widget row's MEASURED height is part of the key, so a re-fit re-seats the bars under
+        // it instead of leaving them under the height the plates used to have.
+        int key = owner.UseBarsMask | (DecisionRowUp ? 1 << 8 : 0)
+                  | (Mathf.RoundToInt(DecisionRowHeight * 10000f) << 9);
         for (int b = 0; b < NetProtocol.UseBarsCount; b++)
         {
             int n = owner.UseBarSlotCounts != null && b < owner.UseBarSlotCounts.Length
@@ -2571,9 +2639,9 @@ internal sealed class RemoteBoardFurniture
         // owner shows one) — never below a seat assumed here, which is how the mirror used to drift
         // from the owner the moment a prompt added an element. With no row the bars ARE the top of
         // the display and start at the ceiling itself, i.e. 0 in this frame.
-        float top = _shownDecisionLines != null
+        float top = DecisionRowUp
             ? _decision.localPosition.y - _useBars.localPosition.y
-              - DecisionButtonH * scale - UseBarDecisionClearance * scale
+              - DecisionRowHeight - UseBarDecisionClearance * scale
             : 0f;
 
         int rows = 0;
@@ -3357,6 +3425,15 @@ internal sealed class RemoteBoardFurniture
                           "A remote player's control board is a pure display: nothing on it may be " +
                           "pokeable, laser-targetable or grabbable.");
     }
+
+    /// <summary>
+    /// Release what this furniture owns beyond the board root's own subtree — today exactly one
+    /// thing: the mirrored decision row's clone, which is registered with <c>MrBacking</c> and so
+    /// must be released explicitly rather than left to Unity's destruction order (the same
+    /// ownership contract <c>RemoteControlBoard</c> already honours for the track and objectives
+    /// mirrors). Everything else here is a child of the board root and dies with it.
+    /// </summary>
+    public void Destroy() => _decisionWidgets?.Destroy();
 }
 
 /// <summary>

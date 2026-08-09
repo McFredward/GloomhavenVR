@@ -5,6 +5,9 @@ using HarmonyLib;
 using ScenarioRuleLibrary;
 using Script.GUI.SMNavigation;
 using Script.GUI.SMNavigation.States.PopupStates;
+// The portrait click's audible acknowledgement. Aliased because every branch of the guard below
+// reports its outcome to it and the fully qualified name would bury the branch it annotates.
+using ClickSound = GloomhavenVR.WorldUI.Surfaces.InitiativePortraitClickSound;
 
 namespace GloomhavenVR.Board.Patches;
 
@@ -55,11 +58,17 @@ namespace GloomhavenVR.Board.Patches;
 [HarmonyPatch(typeof(InitiativeTrackPlayerAvatar), nameof(InitiativeTrackPlayerAvatar.OnClick))]
 internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
 {
-    private static bool Prefix(InitiativeTrackActorBehaviour actorUI)
+    /// <param name="__state">true ⇒ the original ran, so the POSTFIX owes the outcome report;
+    /// false ⇒ a branch here already reported it (see <see cref="Report"/>).</param>
+    private static bool Prefix(InitiativeTrackActorBehaviour actorUI, out bool __state)
     {
+        __state = false;
         CActor? clicked = actorUI != null ? actorUI.Actor : null;
         if (clicked == null)
+        {
+            __state = true;
             return true; // vanilla
+        }
 
         // FREE CHARACTER FOCUS (feature): outside the secret card-selection window a portrait
         // click is a VIEW request — "show me that character's hand, piles and played cards".
@@ -86,7 +95,12 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
         // It is also why NO gate below can block the switch any more: the switch has already
         // happened by the time we get there.
         if (CharacterFocus.TryFocus(clicked))
+        {
+            Report(clicked, ClickSound.Outcome.Succeeded,
+                "CharacterFocus.TryFocus took the focus — this client now PRESENTS that character " +
+                "(read-only when it is not one of ours). A view change is a successful click");
             return false;
+        }
 
         // ---- focus did NOT take: card-selection phase, or not a focus target at all ----------
         // In the card-selection phase vanilla's own switch IS the legitimate mechanism (a player
@@ -99,6 +113,9 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
         if (CardsGameApi.IsForeignControlledSelect(clicked))
         {
             CardsGameApi.RejectForeignSelect(clicked);
+            Report(clicked, ClickSound.Outcome.AlreadyAnswered,
+                "MP ownership guard — RejectForeignSelect already played the game's invalid-click " +
+                "SFX itself, so the click has been answered once");
             return false;
         }
 
@@ -108,11 +125,76 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
         // the one case that can still reach it: an EXHAUSTED hero's stale portrait during the
         // action phase, whose select would re-point the docked cards at a dead actor.
         if (!CardsGameApi.IsActionPhaseNonCurrentPlayerSelect(clicked))
-            return true; // vanilla — run the original select
+        {
+            __state = true;
+            return true; // vanilla — run the original select; the postfix reports what it did
+        }
 
         CardsGameApi.RejectActionPhaseSelect(clicked);
+        Report(clicked, ClickSound.Outcome.AlreadyAnswered,
+            "action-phase select guard — RejectActionPhaseSelect already played the game's " +
+            "invalid-click SFX itself, so the click has been answered once");
         return false; // reject like an enemy click — keep the current actor selected
     }
+
+    /// <summary>
+    /// What VANILLA did with the click, for the clicks this guard let through — the other half of
+    /// the outcome report (see <see cref="Report"/>).
+    ///
+    /// <para>The original is NOT unconditionally a success: <c>InitiativeTrackPlayerAvatar.OnClick</c>
+    /// only forwards to <c>base.OnClick</c> when its private <c>isSelectableByClick</c> is set
+    /// (InitiativeTrackPlayerAvatar.cs:30-44), and <c>InitiativeTrack.Select</c> then returns
+    /// immediately — logging "Skip select … in phase …" — unless <c>IsSelectable</c> holds for the
+    /// current phase (InitiativeTrack.cs:114/334). So the honest test is the RESULT: is the track's
+    /// selected actor now the clicked character? That is the game's own definition of the character
+    /// having changed (it is what drives <c>avatar.Select</c> → <c>CardsHandManager.SwitchHand</c>),
+    /// it is read through the same accessor the mod's own drive uses
+    /// (<c>CardsGameApi.SelectActor</c>, InitiativeTrack.cs:527), and it costs one call.</para>
+    ///
+    /// <para>Never throws: a torn-down track must leave the click alone, not take the pointer with
+    /// it. An unreported outcome degrades to the sound's own pre-focus fallback.</para>
+    /// </summary>
+    private static void Postfix(InitiativeTrackActorBehaviour actorUI, bool __state)
+    {
+        if (!__state)
+            return; // a branch in the prefix already reported this click
+        try
+        {
+            CActor? clicked = actorUI != null ? actorUI.Actor : null;
+            if (clicked == null)
+                return;
+            InitiativeTrack track = InitiativeTrack.Instance;
+            InitiativeTrackActorBehaviour? selected = track != null ? track.SelectedActor() : null;
+            bool landed = selected != null && ReferenceEquals(selected.Actor, clicked);
+            Report(clicked,
+                landed ? ClickSound.Outcome.Succeeded : ClickSound.Outcome.Refused,
+                landed
+                    ? "vanilla's own select LANDED — InitiativeTrack.SelectedActor is now this " +
+                      "character (the card-selection phase's legitimate character switch)"
+                    : "vanilla ran and its select did NOT land — InitiativeTrack.IsSelectable is " +
+                      "false in this phase (or the avatar's isSelectableByClick is clear), so " +
+                      "nothing changed");
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Board", $"Portrait click outcome report threw — the click is unaffected: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Tell the click's audible acknowledgement WHAT THIS CLICK ACTUALLY DID.
+    ///
+    /// <para>USER REPORT 2026-08-09: "Das 'Abgelehnt-Geräusch' kommt wenn ich auf ein Character den
+    /// ich selber nicht besitze — obwohl es ja gar nicht (mehr) abgelehnt wird, dort sollte dieses
+    /// Geräusch nicht kommen sondern das wenn man ganz normal einen character ändert." The sound
+    /// used to be keyed on OWNERSHIP, which stopped predicting refusal the moment free character
+    /// focus made a foreign portrait click succeed. It is keyed on the outcome now, and THIS is the
+    /// only place that knows it — so every branch above reports, and the report is a pure
+    /// bookkeeping write that cannot throw and cannot change what the click did
+    /// (<c>WorldUI.Surfaces.InitiativePortraitClickSound.NoticeOutcome</c>).</para>
+    /// </summary>
+    private static void Report(CActor clicked, ClickSound.Outcome outcome, string branch)
+        => ClickSound.NoticeOutcome(clicked, outcome, branch);
 }
 
 // ---------------------------------------------------------------------------

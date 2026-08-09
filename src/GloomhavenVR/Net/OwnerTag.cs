@@ -55,6 +55,13 @@ internal sealed class OwnerTag
     /// <summary>The avatar quad's authored size in tag-local metres (square), for the ring around it.</summary>
     internal static Vector2 AvatarQuadSize => new(AvatarSize, AvatarSize);
 
+    /// <summary>This tag's root. Exposed for ONE consumer: the board's draw-order sweep
+    /// (<c>BoardVisual.AdoptBoardOrder</c>) must EXCLUDE this subtree. The tag hangs off the board
+    /// root for its pose, but it is a free-floating billboard, not a surface in the board's plane —
+    /// it ranks against the panel ladder every frame through <see cref="BoardVisual.OrderWithPanels"/>,
+    /// and letting the cluster adopt it too would be two writers on one field.</summary>
+    internal Transform? Root => _root != null ? _root.transform : null;
+
     /// <summary>Build the tag under <paramref name="boardRoot"/> at the given board-LOCAL corner
     /// (so it inherits the board's world pose + scale for positioning). Facing is re-solved each
     /// <see cref="Tick"/> in world space, independent of the board's rotation.</summary>

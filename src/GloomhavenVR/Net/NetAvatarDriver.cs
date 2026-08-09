@@ -256,6 +256,18 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// pattern, so the 5 Hz path allocates nothing while a prompt is docked.</summary>
     private readonly byte[] _decisionOptionSample = new byte[NetProtocol.DecisionStateMaxOptions];
 
+    /// <summary>Last decision WIDGET IDENTITY put on the wire (extension record 29), packed as
+    /// <c>flags | damage &lt;&lt; 8 | count &lt;&lt; 16 | role codes &lt;&lt; 24…</c> for the change
+    /// test alone; −1 = no record was written. It moves on exactly the edges record 24 moves on
+    /// (a shield toggle changes the damage number the owner reads on the button), so it shares
+    /// their pre-emption of the 5 Hz gate.</summary>
+    private long _lastSentDecisionWidgets = -1;
+
+    /// <summary>Sample buffer for the per-option ROLE codes (extension record 29) — the
+    /// <see cref="_decisionOptionSample"/> pattern, index-aligned with it by construction (one
+    /// sampler walk in DecisionDockSurface fills both).</summary>
+    private readonly byte[] _decisionRoleSample = new byte[NetProtocol.DecisionStateMaxOptions];
+
     /// <summary>Sample buffers for the USE-BAR drawer (extension record 25) — persistent arrays
     /// handed to the serializer with a live mask, the <see cref="_wallFadeSample"/> pattern, so the
     /// 5 Hz path allocates nothing while bars are docked. Flags/counts are per BAR INDEX; the
@@ -487,6 +499,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         Board.CharacterFocus.Reset();             // …including every peer's synced focus
         _lastSentDecisionLines = null; // next session re-states the docked decision row afresh
         _lastSentDecisionState = -1;   // …including its option states + prompt-text variant
+        _lastSentDecisionWidgets = -1; // …and the widget roles + damage numbers (record 29)
         _lastSentUseBarMask = -1;      // …and the use-bar drawer below it (record 25)
         _lastSentConfirmLabel = null;  // and the live cap labels
         _lastSentSkipLabel = null;
@@ -1171,6 +1184,32 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
         bool decisionStateChanged = decisionStateNow != _lastSentDecisionState;
 
+        // DECISION WIDGETS (extension record 29, user report 2026-08-09 "Die Entscheidungsbuttons
+        // sollen auch 1:1 aussehen … hier sollen auch die Spielicons/Text etc. genutzt werden"):
+        // WHICH game widget each option IS, plus the take-damage option's damage number and its
+        // lethal / shielded / mandatory picture. Rides record 12's own gate, so the roles can never
+        // describe a row the wordings do not. Sampled before the rate gate for the same reason the
+        // states are: a shield toggle changes the number the owner reads on the button.
+        byte decisionWidgetFlags = 0;
+        byte decisionDamage = 0;
+        int decisionRoles = 0;
+        if (!string.IsNullOrEmpty(decisionNow))
+        {
+            decisionWidgetFlags = WorldUI.Surfaces.DecisionDockSurface.WireWidgetFlags;
+            decisionDamage = WorldUI.Surfaces.DecisionDockSurface.WireDamageAmount;
+            decisionRoles = WorldUI.Surfaces.DecisionDockSurface.CopyWireOptionRoles(
+                _decisionRoleSample);
+        }
+        long decisionWidgetNow = -1;
+        if (!string.IsNullOrEmpty(decisionNow))
+        {
+            decisionWidgetNow = decisionWidgetFlags | ((long)decisionDamage << 8)
+                                | ((long)decisionRoles << 16);
+            for (int o = 0; o < decisionRoles; o++)
+                decisionWidgetNow |= (long)_decisionRoleSample[o] << (24 + o * 3);
+        }
+        bool decisionWidgetChanged = decisionWidgetNow != _lastSentDecisionWidgets;
+
         // USE BARS (extension record 25, the same 2026-08-08 ruling): the SECOND drawer below the
         // decision row — which of the four use bars are docked AND VISIBLE on the owner's board,
         // how many slots each shows, whether it has an element/option sub-picker open, and per slot
@@ -1252,7 +1291,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
-            && !decisionChanged && !decisionStateChanged && !useBarsChanged
+            && !decisionChanged && !decisionStateChanged && !decisionWidgetChanged
+            && !useBarsChanged
             && !capLabelsChanged && !focusChanged && !trackSelChanged && !trackOrderChanged
             && !emptyFanHintChanged && !tuningChanged && !itemClipChanged)
             return;
@@ -1526,6 +1566,46 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                                   "12's lines). The prompt TEXT itself is NOT on the wire: peers " +
                                   "compose the same line from their own localization, so the " +
                                   "mandatory-use variant's active-bonus CARD NAMES never travel.");
+            }
+        }
+        // DECISION WIDGETS (extension record 29): written on exactly the gate records 12 and 24
+        // ride, so a peer can never hold roles for a row whose wordings or states it does not have.
+        // This is the record that turns a peer's mirrored decision from a mod-drawn description
+        // into the GAME's own widgets — see NetProtocol.ExtIdDecisionWidgets.
+        if (decisionWidgetNow >= 0)
+        {
+            extras.HasDecisionWidgets = true;
+            extras.DecisionWidgetFlags = decisionWidgetFlags;
+            extras.DecisionDamageAmount = decisionDamage;
+            extras.DecisionRoleCount = decisionRoles;
+            extras.DecisionRoles = _decisionRoleSample;
+        }
+        if (decisionWidgetChanged)
+        {
+            _lastSentDecisionWidgets = decisionWidgetNow;
+            if (decisionWidgetNow < 0)
+            {
+                VRLog.Info("Net", "Decision widgets SENT: no visible decision row — record 29 omitted " +
+                                  "(peers drop the mirrored game widgets with the plates).");
+            }
+            else
+            {
+                var roles = new System.Text.StringBuilder(48);
+                for (int o = 0; o < decisionRoles; o++)
+                {
+                    if (o > 0)
+                        roles.Append(", ");
+                    roles.Append('#').Append(o).Append('=').Append(_decisionRoleSample[o]);
+                }
+                VRLog.Info("Net", $"Decision widgets SENT: {decisionRoles} role(s) [{roles}], damage " +
+                                  $"{((decisionWidgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0 ? decisionDamage.ToString() : "n/a")}" +
+                                  $", flags 0x{decisionWidgetFlags:X2} — extension record 29 " +
+                                  "([flags][damage][n][n × role], index-aligned with records 12 and " +
+                                  "24). A ROLE NAMES A GAME WIDGET, never a card: every client owns " +
+                                  "the same TakeDamagePanel prefab (the game raises it on all of " +
+                                  "them and calls ShowOtherPlayer on the non-deciding ones), so a " +
+                                  "peer clones the REAL button — its art, its icons, its wording in " +
+                                  "THEIR OWN language — instead of drawing a lookalike from our text.");
             }
         }
         // USE BARS (extension record 25): written on every packet while at least one bar is docked

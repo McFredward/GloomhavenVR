@@ -94,13 +94,39 @@ internal static partial class CanvasConversion
     // holds at every angle; the measured distance still ranks the whole board cluster against
     // everything else (floated menus, bars, other boards), so a window between the eye and the
     // board still beats both, and the furniture still beats panels genuinely behind the board.
+    //
+    // ROUND 3 (2026-08-09, the REMOTE boards join the ladder — user reports 3 + 5, see
+    // Net/BoardVisual.cs). Two things were added here and nothing was taken away:
+    //   * a group entry may now be a CANVAS as well as a Renderer. A peer's mirrored board draws
+    //     most of its content through mod-owned world-space canvases (the widget mirrors, the
+    //     synced tooltip, the card faces), and a cluster that could only carry Renderers could
+    //     never move those with the rest of the board.
+    //   * the band's TOP slot is reserved for free-floating plates that rank against a cluster
+    //     rather than belonging to one (<see cref="OrderAboveDistanceAndClusters"/>): a cluster
+    //     entry now occupies 0..<see cref="FurnitureClusterTopOffset"/> instead of the whole band.
+    //     The local board's own registrations are unaffected — its creation-time orders are 0..3
+    //     (plate 0, keycap faces 1, dust 2, engraved labels 3), which is exactly the new range.
     private const int FurnitureBandWidth = 5;
 
-    /// <summary>One registered renderer of a furniture group: the renderer plus its
-    /// creation-time sortingOrder, kept as the in-band offset (0..<see cref="FurnitureBandWidth"/>-1).</summary>
+    /// <summary>
+    /// Highest in-band offset a CLUSTER entry may take. The remaining slot
+    /// (<see cref="FurnitureBandWidth"/>-1) belongs to free-floating plates that resolve AGAINST
+    /// clusters instead of riding one — the identity tags over a peer's head and on a peer's board
+    /// corner (<c>Net.BoardVisual.OrderWithPanels</c>). Without a slot of its own such a plate
+    /// could only be given a cluster's own tier, i.e. an arbitrary answer to "is this billboard in
+    /// front of that board", which is the defect
+    /// <see cref="OrderAboveDistanceAndClusters"/> exists to remove.
+    /// </summary>
+    internal const int FurnitureClusterTopOffset = FurnitureBandWidth - 2;
+
+    /// <summary>One registered renderer OR canvas of a furniture group, plus its in-band offset
+    /// (0..<see cref="FurnitureClusterTopOffset"/>) — the creation-time sortingOrder for the local
+    /// board's furniture, the board-local depth tier for a peer's mirrored board. Exactly one of
+    /// the two references is set.</summary>
     private struct FurnitureEntry
     {
         public Renderer? Renderer;
+        public Canvas? Canvas;
         public int Offset;
     }
 
@@ -112,17 +138,35 @@ internal static partial class CanvasConversion
         public readonly IFurnitureOrderAnchor Anchor;
         public readonly List<FurnitureEntry> Entries = new(48);
 
+        /// <summary>Instance ids of everything already registered — the idempotence test. A LIST
+        /// scan was enough while the only caller adopted a subtree once at build time; a peer's
+        /// board re-adopts its whole (constantly rebuilt) content on a slow cadence, so the test
+        /// has to be O(1) per candidate rather than O(entries).</summary>
+        public readonly HashSet<int> Ids = new(64);
+
         /// <summary>Ladder rank currently applied (-1 = never seated; the first measure applies
         /// immediately, like a newcomer panel's distance-correct insert).</summary>
         public int AppliedRank = -1;
 
         public int PendingRank = -1;
         public int PendingStreak;
+
+        /// <summary>Eye distance measured by the last <see cref="TickFurnitureOrder"/> — the
+        /// number <see cref="OrderAboveDistanceAndClusters"/> compares a free plate against, so
+        /// both sides of that comparison come from the same measure in the same frame.</summary>
+        public float Distance = float.PositiveInfinity;
     }
 
     private static readonly List<FurnitureGroup> FurnitureGroups = new(2);
 
     private static float s_nextFurnitureLogAt;
+
+    /// <summary>Frames between two dead-entry sweeps (see <see cref="PruneFurniture"/>). ~3 Hz at
+    /// 90 Hz: dead entries cost nothing but a Unity-null test, and the pass exists only so a board
+    /// that rebuilds its content all day cannot grow its entry list without bound.</summary>
+    private const int FurniturePruneIntervalFrames = 30;
+
+    private static int s_nextFurniturePruneFrame;
 
     /// <summary>
     /// Register a mod-owned transparent <paramref name="renderer"/> into
@@ -134,37 +178,68 @@ internal static partial class CanvasConversion
     /// </summary>
     internal static void RegisterFurniture(IFurnitureOrderAnchor anchor, Renderer renderer)
     {
+        if (renderer != null)
+            RegisterFurniture(anchor, renderer, renderer.sortingOrder);
+    }
+
+    /// <summary>
+    /// Register <paramref name="renderer"/> into <paramref name="anchor"/>'s group at an EXPLICIT
+    /// in-band <paramref name="offset"/> (clamped to 0..<see cref="FurnitureClusterTopOffset"/>) —
+    /// for a cluster whose internal ladder is not expressed by the renderers' creation-time orders
+    /// but derived, per entry, from something the cluster knows: a peer's mirrored board derives it
+    /// from the entry's board-local proud depth (<c>Net.BoardVisual.TierForDepth</c>), which is a
+    /// FIXED number per element and therefore just as flicker-free as a creation-time constant.
+    /// </summary>
+    internal static void RegisterFurniture(IFurnitureOrderAnchor anchor, Renderer renderer, int offset)
+    {
         if (anchor == null || renderer == null)
             return;
-        FurnitureGroup? group = null;
+        AddFurniture(GroupFor(anchor), renderer, canvas: null,
+                     renderer.GetInstanceID(), offset);
+    }
+
+    /// <summary>
+    /// Register a mod-owned world-space <paramref name="canvas"/> into <paramref name="anchor"/>'s
+    /// group (see the Renderer overload above). Unity resolves a world-space canvas against plain
+    /// renderers by the very same sortingLayer → sortingOrder chain, so a cluster that mixes the
+    /// two is one ladder, not two.
+    /// </summary>
+    internal static void RegisterFurniture(IFurnitureOrderAnchor anchor, Canvas canvas, int offset)
+    {
+        if (anchor == null || canvas == null)
+            return;
+        AddFurniture(GroupFor(anchor), renderer: null, canvas,
+                     canvas.GetInstanceID(), offset);
+    }
+
+    private static FurnitureGroup GroupFor(IFurnitureOrderAnchor anchor)
+    {
         for (int i = 0; i < FurnitureGroups.Count; i++)
         {
             if (ReferenceEquals(FurnitureGroups[i].Anchor, anchor))
-            {
-                group = FurnitureGroups[i];
-                break;
-            }
+                return FurnitureGroups[i];
         }
-        if (group == null)
-        {
-            group = new FurnitureGroup(anchor);
-            FurnitureGroups.Add(group);
-        }
-        for (int i = 0; i < group.Entries.Count; i++)
-        {
-            if (ReferenceEquals(group.Entries[i].Renderer, renderer))
-                return;
-        }
-        int offset = Mathf.Clamp(renderer.sortingOrder, 0, FurnitureBandWidth - 1);
-        group.Entries.Add(new FurnitureEntry { Renderer = renderer, Offset = offset });
+        var group = new FurnitureGroup(anchor);
+        FurnitureGroups.Add(group);
+        return group;
+    }
+
+    private static void AddFurniture(FurnitureGroup group, Renderer? renderer, Canvas? canvas,
+                                     int id, int offset)
+    {
+        if (!group.Ids.Add(id))
+            return; // already in this group
+        offset = Mathf.Clamp(offset, 0, FurnitureClusterTopOffset);
+        group.Entries.Add(new FurnitureEntry { Renderer = renderer, Canvas = canvas, Offset = offset });
         // Seat it immediately at the group's current band (no one-frame gap at order 0..3,
         // which is exactly the defect band). A never-ranked group seats on its first tick.
-        if (group.AppliedRank >= 0)
-        {
-            int want = FurnitureBandBase(group.AppliedRank) + offset;
-            if (renderer.sortingOrder != want)
-                renderer.sortingOrder = want;
-        }
+        if (group.AppliedRank < 0)
+            return;
+        int want = FurnitureBandBase(group.AppliedRank) + offset;
+        if (renderer != null && renderer.sortingOrder != want)
+            renderer.sortingOrder = want;
+        else if (canvas != null && canvas.sortingOrder != want)
+            canvas.sortingOrder = want;
     }
 
     /// <summary>Lowest order of the band for a group at <paramref name="rank"/> (the count of
@@ -180,6 +255,7 @@ internal static partial class CanvasConversion
     /// </summary>
     private static void TickFurnitureOrder(Vector3 eye)
     {
+        PruneFurniture();
         for (int g = FurnitureGroups.Count - 1; g >= 0; g--)
         {
             FurnitureGroup group = FurnitureGroups[g];
@@ -190,6 +266,7 @@ internal static partial class CanvasConversion
             }
 
             float dist = group.Anchor.FurnitureEyeDistance(eye);
+            group.Distance = dist;
             // A panel counts as "behind the board" only when it is farther by MORE than the
             // swap margin - a tie keeps the panel in front. A panel DOCKED ON THIS BOARD
             // (OrderCluster == this anchor) never counts, whatever it measures: its rect and
@@ -246,23 +323,123 @@ internal static partial class CanvasConversion
         }
     }
 
-    /// <summary>Write the group's band onto every registered renderer (change-gated); prune
-    /// entries whose renderer was destroyed (keycap rebuilds, transient FX).</summary>
+    /// <summary>Write the group's band onto every registered renderer / canvas (change-gated);
+    /// prune entries whose object was destroyed (keycap rebuilds, transient FX, a peer's card
+    /// faces).</summary>
     private static void ApplyFurnitureOrder(FurnitureGroup group)
     {
         int bandBase = FurnitureBandBase(group.AppliedRank);
         for (int i = group.Entries.Count - 1; i >= 0; i--)
         {
             FurnitureEntry entry = group.Entries[i];
-            if (entry.Renderer == null)
+            int want = bandBase + entry.Offset;
+            if (entry.Renderer != null)
             {
-                group.Entries.RemoveAt(i);
+                if (entry.Renderer.sortingOrder != want)
+                    entry.Renderer.sortingOrder = want;
                 continue;
             }
-            int want = bandBase + entry.Offset;
-            if (entry.Renderer.sortingOrder != want)
-                entry.Renderer.sortingOrder = want;
+            if (entry.Canvas != null)
+            {
+                if (entry.Canvas.sortingOrder != want)
+                    entry.Canvas.sortingOrder = want;
+                continue;
+            }
+            DropFurnitureEntry(group, i);
         }
+    }
+
+    /// <summary>
+    /// Drop entries whose object Unity has destroyed, on a slow cadence
+    /// (<see cref="FurniturePruneIntervalFrames"/>). <see cref="ApplyFurnitureOrder"/> already
+    /// prunes, but it only runs when a group's RANK changes — and a peer's mirrored board rebuilds
+    /// its cards, chips and clones continuously at a steady rank, so without this pass its entry
+    /// list (and its id set) would grow for the whole session.
+    /// </summary>
+    private static void PruneFurniture()
+    {
+        if (Time.frameCount < s_nextFurniturePruneFrame)
+            return;
+        s_nextFurniturePruneFrame = Time.frameCount + FurniturePruneIntervalFrames;
+        for (int g = 0; g < FurnitureGroups.Count; g++)
+        {
+            FurnitureGroup group = FurnitureGroups[g];
+            for (int i = group.Entries.Count - 1; i >= 0; i--)
+            {
+                FurnitureEntry entry = group.Entries[i];
+                if (entry.Renderer == null && entry.Canvas == null)
+                    DropFurnitureEntry(group, i);
+            }
+        }
+    }
+
+    /// <summary>Remove entry <paramref name="index"/> AND its id, so the object's replacement (a
+    /// fresh instance id) can register again.</summary>
+    private static void DropFurnitureEntry(FurnitureGroup group, int index)
+    {
+        FurnitureEntry entry = group.Entries[index];
+        // GetInstanceID() is still valid on a DESTROYED managed wrapper (only its == null test
+        // flips), which is what makes the id set prunable at all: '??' is the C# null test, so it
+        // hands back the dead wrapper rather than skipping it.
+        Object? obj = (Object?)entry.Renderer ?? entry.Canvas;
+        if (!ReferenceEquals(obj, null))
+            group.Ids.Remove(obj.GetInstanceID());
+        group.Entries.RemoveAt(index);
+    }
+
+    /// <summary>
+    /// The draw order a FREE-FLOATING plate at <paramref name="eyeDistance"/> must use to
+    /// composite correctly with BOTH the panel ladder and the furniture CLUSTERS on it — the
+    /// cluster-aware sibling of <see cref="OrderAboveDistance"/>, and the answer to "is this
+    /// billboard in front of that board or behind it".
+    ///
+    /// <para>ROOT CAUSE it exists for (user report 2026-08-09 #3): the identity tags over a peer's
+    /// head and on a peer's board corner already ranked against PANELS through
+    /// <see cref="OrderAboveDistance"/>, but a peer's mirrored board is not a panel — it is a
+    /// cluster. With the remote board's content pinned at sortingOrder 0..8 the tag won that
+    /// comparison unconditionally (its ladder order is ≥ <see cref="PanelOrderBase"/>−
+    /// <see cref="PanelOrderStep"/>+lift ≈ 96), which is exactly the reported "the Steam picture
+    /// draws over the initiative order". Ranking the board cluster onto the ladder fixes the
+    /// direction the report names and makes the OTHER direction (a tag genuinely in front of a
+    /// board) decidable — but only if the tag can be placed above or below a whole band rather
+    /// than inside one, which is what <see cref="FurnitureClusterTopOffset"/> reserves the band's
+    /// top slot for.</para>
+    ///
+    /// <para>THE RULE, in the ladder's own terms: start from the shipped panel answer, then for
+    /// every live cluster — a cluster measurably BEHIND me raises my floor to its band's top slot
+    /// (I must cover all of it), a cluster measurably IN FRONT of me lowers my ceiling to just
+    /// under its band (it must cover all of me). "Measurably" is the ladder's own
+    /// <see cref="OrderSwapMarginMeters"/>, so a tie counts as behind — the same tie rule
+    /// <see cref="OrderAboveDistance"/> states, and for the same reason (these callers sit PROUD
+    /// of what they annotate). The ceiling can never climb into the next panel's slot. When one
+    /// cluster is behind me and another in front at the SAME rank the ceiling wins: with a single
+    /// order per plate that geometry has no true answer, and staying under the NEARER cluster is
+    /// the conservative half (a plate hidden by something in front of it is what depth would have
+    /// done anyway).</para>
+    /// </summary>
+    internal static int OrderAboveDistanceAndClusters(float eyeDistance, int lift)
+    {
+        int slot = FartherPanelOrder(eyeDistance);
+        int order = slot + lift;
+        int ceiling = slot + PanelOrderStep - 1; // never the next panel's slot
+        for (int i = 0; i < FurnitureGroups.Count; i++)
+        {
+            FurnitureGroup group = FurnitureGroups[i];
+            if (group.AppliedRank < 0 || !group.Anchor.FurnitureOrderAlive)
+                continue;
+            int bandBase = FurnitureBandBase(group.AppliedRank);
+            if (group.Distance >= eyeDistance - OrderSwapMarginMeters)
+            {
+                int bandTop = bandBase + FurnitureBandWidth - 1;
+                if (bandTop > order)
+                    order = bandTop;
+            }
+            else if (bandBase - 1 < ceiling)
+            {
+                ceiling = bandBase - 1;
+            }
+        }
+        return order < ceiling ? order : ceiling;
     }
 
     /// <summary>Attribution line for the next hardware log (rank changes are rare and

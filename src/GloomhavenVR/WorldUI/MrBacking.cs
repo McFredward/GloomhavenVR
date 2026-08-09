@@ -903,8 +903,11 @@ internal static class MrBacking
     /// growing special cases.
     ///
     /// ORDER: the surface reports the sortingOrder its own content renders at and the plate is
-    /// stamped with exactly that, every tick (a mirror's canvas order is a fixed board sub-ladder
-    /// slot today, but re-stamping costs one int compare and survives a future re-rank). Inside
+    /// stamped with exactly that, every tick — and since 2026-08-09 that is a LIVE value: a
+    /// mirror's canvas rides its board's draw-order cluster up and down the panel ladder
+    /// (<c>Net.BoardVisual.AdoptBoardOrder</c>), so the per-tick re-stamp this loop always did is
+    /// what carries the plate with it. (The sweep skips plates by name for the same reason: this
+    /// is their one writer.) Inside
     /// that shared slot the plate's earlier renderQueue keeps it UNDER its own content while the
     /// slot itself keeps it OVER everything the board draws further back — the identical contract
     /// the panel plates document.

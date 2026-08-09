@@ -76,13 +76,11 @@ internal sealed class RemotePickBanner
         _label = RemoteBoardContent.Label(_root, "Label", Vector3.zero, TextBox, MaxFont,
             new Color(0.24f, 0.17f, 0.10f), TextAlignmentOptions.Center, wrap: true);
 
-        // FURNITURE tier of the remote board's fixed sub-ladder (a deliberate, greppable no-op:
-        // 0 is the default): the peer's placard must sit UNDER their initiative mirror/chips at
-        // every viewing angle, exactly like the owner's own Statustafel sits under their docked
-        // track — see BoardVisual's sub-ladder header for the angle-dependent blend this pins.
-        plate.sortingOrder = BoardVisual.OrderFurniture;
-        _label.sortingOrder = BoardVisual.OrderFurniture;
-
+        // DRAW ORDER is NOT set here any more: the placard is seated by the owning board's cluster
+        // sweep at the tier its own board-local depth earns (BoardVisual.AdoptBoardOrder). It still
+        // lands UNDER the peer's initiative mirror at every viewing angle — the placard hovers at
+        // PickBannerBase z = −0.02 and the track is docked at −0.048/−0.070 — but now because that
+        // IS the geometry, not because a constant asserted it.
         _root.gameObject.SetActive(false);
     }
 

@@ -971,6 +971,12 @@ internal sealed class UseBarsSurface
     // ever re-activate a slot the bar still maps to that same bonus — never one the game itself has
     // since pooled. Exactly the ledger shape EnforceItemsSplit uses, for exactly its reason.
     private readonly List<KeyValuePair<CActiveBonus, UIUseActiveBonus>> _bonusHidden = new(4);
+
+    /// <summary>Bonuses whose "why was this row kept" line has already been printed — one per
+    /// offered bonus, not one per tick (see <see cref="EnforceActiveBonusSplit"/>). A HashSet on
+    /// the bonus instance: the game pools the SLOT widgets but hands out a fresh bonus object per
+    /// offer, so an entry here can never suppress the line for a genuinely new offer.</summary>
+    private readonly HashSet<CActiveBonus> _placeableRefused = new();
     private readonly List<KeyValuePair<CActiveBonus, UIUseActiveBonus>> _bonusScratch = new(8);
 
     /// <summary>
@@ -1028,7 +1034,40 @@ internal sealed class UseBarsSurface
             if (slot == null || !slot.gameObject.activeSelf)
                 continue;
             if (!CardsGameApi.BonusIsPlaceable(bonus))
+            {
+                // WHY THIS ROW SURVIVED (user, ModBuild 103: the peer saw the Brille among the
+                // symbols, and the mod's own log could not say why). The split is silent by design
+                // when it hides a row, so a row that is NOT hidden left no trace at all — the two
+                // hardware logs of the reporting session contain zero "bonus-bar SPLIT" lines, and
+                // that is equally consistent with "the predicate said no" and with "the pass never
+                // ran". Neither could be told from the other, which is why this is here.
+                //
+                // BonusIsPlaceable is a conjunction of four conditions and FAILS OPEN — any null
+                // anywhere keeps the button. That is the right default (an unanswerable demand is
+                // worse than a spare button) and it is also exactly how a MULTIPLAYER divergence
+                // would present: a field the host has resolved and a client has not yet, on the
+                // same bonus, in the same build. So the line names WHICH condition said no rather
+                // than that one did, and both sides' logs can then be compared directly.
+                //
+                // Deduped on the bonus instance, so it costs one line per offered bonus.
+                if (_placeableRefused.Add(bonus))
+                {
+                    bool baseIsItem = bonus.BaseCard is CItem;
+                    bool needsOption = CardsGameApi.BonusNeedsFurtherOption(bonus);
+                    bool hasData = bonus.Ability != null && bonus.Ability.ActiveBonusData != null;
+                    VRLog.Info("WorldUI", "USE BARS: bonus-bar split KEPT the decision-area row for " +
+                        $"'{CardsGameApi.BonusCardName(bonus)}' ({bonus.GetType().Name}) — " +
+                        $"BaseCard is CItem: {baseIsItem} (false ⇒ aura/ability/summon, nothing to place); " +
+                        $"needs a further option: {needsOption} (true ⇒ picker/consume, keeps its row); " +
+                        $"Ability.ActiveBonusData present: {hasData}" +
+                        (hasData ? $"; ToggleIsOptional: {bonus.Ability!.ActiveBonusData!.ToggleIsOptional} " +
+                                   "(false ⇒ MANDATORY, kept deliberately — fail open)" : " (NULL ⇒ the " +
+                                   "predicate fails open and the row is kept; on a CLIENT this is the " +
+                                   "shape a host/client divergence takes, so compare this line against " +
+                                   "the other machine's for the same bonus)") + ".");
+                }
                 continue; // options / mandatory / no card to place — it keeps its row
+            }
             slot.gameObject.SetActive(false);
             bool known = false;
             for (int j = 0; j < _bonusHidden.Count; j++)

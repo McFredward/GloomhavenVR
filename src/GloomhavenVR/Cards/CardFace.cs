@@ -135,9 +135,13 @@ internal sealed class CardFace
         LogFaceTextureDiag(owner);
 
         // T3 mip bake: swap the face's mipless-atlas sprites for mip-baked equivalents
-        // (guarded inside; art loads async so Maintain re-scans on a slow cadence too).
+        // (guarded inside; art loads async so the arrival watch below catches the rest).
         CardFaceMipBake.Rescan(owner.fullAbilityCard);
         _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+        // ...and arm the per-frame ARRIVAL WATCH that makes the swap land BEFORE the art's
+        // first rendered frame (see MaintainArtArrival — this is the fix for "man sieht für
+        // ca. 1 Sekunde die Variante mit Aliasing" on a character switch).
+        _artWatch.Capture(owner.fullAbilityCard);
 
         // WHITE DECISION-PHASE FACES: from here on this face is re-activated by Maintain
         // whenever the game's pick-mode UpdateView deactivates it, and every such cycle
@@ -150,11 +154,39 @@ internal sealed class CardFace
         return true;
     }
 
-    /// <summary>T3: cadence for re-running the sprite swap while adopted — card art loads
-    /// ASYNC and the game reassigns sprites on state changes, both of which put the
-    /// original mipless sprites back on the Images. 1 s keeps the cost negligible.</summary>
+    /// <summary>T3: BACKSTOP cadence for re-running the sprite swap while adopted. It used to
+    /// be the ONLY re-scan, and that is exactly what the player saw: "man sieht wenn man neue
+    /// Karten auflegt (zB beim Wechsel des Characters) immer für ca. 1 Sekunde die Variante mit
+    /// Aliasing" — see <see cref="CardArtWatch"/> for the measured chain and the fix.
+    /// It stays because it is the one pass that also re-captures the watch array when the game
+    /// grows the face hierarchy; it is a no-op whenever the arrival watch already swapped.</summary>
     private const float MipRescanInterval = 1f;
     private float _nextMipRescan;
+
+    // ----------------------------------------------------- card-art arrival watch --
+
+    /// <summary>
+    /// The per-frame art-arrival watch that makes the mip-baked sprite the card's FIRST rendered
+    /// pixels rather than its second — see <see cref="CardArtWatch"/> for the measured chain that
+    /// produced the reported "ca. 1 Sekunde die Variante mit Aliasing". Re-captured on adoption
+    /// and on the <see cref="MipRescanInterval"/> backstop, dropped whenever the face stops being
+    /// ours.
+    /// </summary>
+    private readonly CardArtWatch _artWatch = new();
+
+    /// <summary>
+    /// ZERO-ALIASED-FRAME SWAP, run from <c>VRCard.LateUpdate</c> once per frame per adopted card.
+    /// LateUpdate on purpose: the loader's continuations run inside the Update phase and uGUI
+    /// builds the canvas after LateUpdate, so a swap issued here is always in place before the
+    /// art's first rendered frame. See <see cref="CardArtWatch"/> for the whole rationale.
+    /// </summary>
+    internal void MaintainArtArrival()
+    {
+        if (_face == null || _owner == null || _owner.fullAbilityCard == null)
+            return;
+        if (_artWatch.Poll("card face") > 0)
+            _nextMipRescan = Time.unscaledTime + MipRescanInterval; // it just did the backstop's job
+    }
 
     /// <summary>Next unscaled time <see cref="CardArtGuard.Tick"/> runs for this face (replay of a
     /// suppressed ShowCard + heal of an action half left on a null sprite).</summary>
@@ -466,6 +498,7 @@ internal sealed class CardFace
             // Widget died under us (scene teardown) — drop references.
             _face = null;
             _owner = null;
+            _artWatch.Clear();
             return;
         }
 
@@ -518,12 +551,16 @@ internal sealed class CardFace
         }
         if (!_face.gameObject.activeSelf)
             _face.gameObject.SetActive(true);
-        // T3 mip bake: periodic re-scan (async art arrivals / game sprite reassignments
-        // put mipless originals back — swap them for the baked copies again).
+        // T3 mip bake BACKSTOP: the per-frame arrival watch (MaintainArtArrival) is what makes
+        // the swap land before the art's first rendered frame. This slow pass exists for the one
+        // thing the watch cannot see — Images that did not exist when the watch array was
+        // captured (the game activates enhancement slots / XP orbs after adoption). Re-capture,
+        // then sweep. A no-op in the steady state: every sprite is already a baked copy.
         if (Time.unscaledTime >= _nextMipRescan)
         {
             _nextMipRescan = Time.unscaledTime + MipRescanInterval;
             CardFaceMipBake.Rescan(_owner!.fullAbilityCard);
+            _artWatch.Capture(_owner!.fullAbilityCard);
         }
         // WHITE DECISION-PHASE FACES: replay any ShowCard the guard had to skip while the
         // card art was mid-load, and heal an action half the game left on a null sprite
@@ -579,6 +616,7 @@ internal sealed class CardFace
     internal void Yield()
     {
         _reclaimedFromDialog = false;
+        _artWatch.Clear();
         if (_owner != null)
         {
             CardArtGuard.NoteReleased(_owner.fullAbilityCard);
@@ -598,6 +636,7 @@ internal sealed class CardFace
         _host = null;
         _owner = null;
         _reclaimedFromDialog = false;
+        _artWatch.Clear();
 
         if (face == null)
             return;

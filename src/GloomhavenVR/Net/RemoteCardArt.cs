@@ -80,6 +80,16 @@ internal sealed class RemoteCardArt
     private int _shownSourceId = int.MinValue; // GetInstanceID of the source fullAbilityCard shown
     private float _nextMipRescan;   // unscaled time of the next cadenced mip-bake rescan
 
+    /// <summary>
+    /// The peer half of the local cards' zero-aliased-frame fix (see <see cref="Cards.CardArtWatch"/>).
+    /// The clone runs the game's OWN widget, so its header art arrives through the same async
+    /// addressable loader with the same two-continuation delay — and until this existed, a remote
+    /// card showed the mipless original for up to <see cref="MipRescanInterval"/> exactly like a
+    /// local one did. The 1:1 rule cuts both ways: a peer's card must not look worse on our screen
+    /// than our own does.
+    /// </summary>
+    private readonly Cards.CardArtWatch _artWatch = new();
+
     public RemoteCardArt(Transform slab, float cardWidth, float cardHeight)
     {
         _slab = slab;
@@ -224,6 +234,12 @@ internal sealed class RemoteCardArt
     {
         if (_clone == null || _host == null || !_host.activeSelf)
             return;
+        // ARRIVAL FIRST (zero-alloc, one reference compare per Image): the clone's header art
+        // lands in a loader continuation, and this catches it in that very frame instead of
+        // whenever the cadence below next happens to fire. The cadenced pass stays as the
+        // backstop for Images the clone's widget created after the watch was captured.
+        if (_artWatch.Poll("remote card") > 0)
+            _nextMipRescan = Time.unscaledTime + MipRescanInterval;
         if (Time.unscaledTime < _nextMipRescan)
             return;
         RescanMips();
@@ -235,7 +251,10 @@ internal sealed class RemoteCardArt
     private void RescanMips()
     {
         if (_canvas != null)
+        {
             CardFaceMipBake.Rescan(_canvas);
+            _artWatch.Capture(_canvas); // (re)arm the per-frame arrival watch on the current clone
+        }
         _nextMipRescan = Time.unscaledTime + MipRescanInterval;
     }
 
@@ -409,6 +428,7 @@ internal sealed class RemoteCardArt
             Object.Destroy(_clone);
             _clone = null;
         }
+        _artWatch.Clear(); // the watched Images belong to the clone that just died
         _shownSourceId = int.MinValue;
     }
 }

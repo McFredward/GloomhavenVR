@@ -379,6 +379,22 @@ internal sealed class RemoteAvatar
     /// chosen — the three facts that make a mirrored row read like the owner's.</summary>
     public byte[]? DecisionOptionStates { get; private set; }
 
+    /// <summary>Per-option ROLE codes of the owner's docked row (extension record 29), index-aligned
+    /// with <see cref="DecisionOptionStates"/> and with <see cref="DecisionLines"/>'s lines; null
+    /// while no widget record rides. Each names a GAME WIDGET this client owns its own copy of, so
+    /// the mirrored row can be the real button rather than a mod-drawn lookalike — see
+    /// <see cref="NetProtocol.ExtIdDecisionWidgets"/> and <see cref="RemoteDecisionWidgets"/>.</summary>
+    public byte[]? DecisionRoles { get; private set; }
+
+    /// <summary>What the owner's take-damage option is painting on itself (record 29 flags:
+    /// lethal / shielded / mandatory-highlight / damage-valid). 0 while no widget record rides.</summary>
+    public byte DecisionWidgetFlags { get; private set; }
+
+    /// <summary>The damage number the owner's take-damage option displays (record 29), meaningful
+    /// only with <see cref="NetProtocol.DecisionWidgetDamageValidBit"/> set in
+    /// <see cref="DecisionWidgetFlags"/>.</summary>
+    public byte DecisionDamageAmount { get; private set; }
+
     /// <summary>Which USE BARS are docked AND visible on the owner's board (extension record 25),
     /// as <see cref="NetProtocol.UseBarActiveBonusBit"/> … <see cref="NetProtocol.UseBarItemsBit"/>
     /// in the owner's own stack order. 0 while no bar rides — including for a sender predating the
@@ -1007,6 +1023,33 @@ internal sealed class RemoteAvatar
                   $"[{DescribeOptionStates(optionStates)}] — their remote board greys, dims and " +
                   "lights the mirrored plates exactly as the owner's own dock does, and composes " +
                   "the prompt line locally (the text itself never rides this wire).");
+        }
+
+        // DECISION WIDGETS (extension record 29): WHICH game widget each option is, plus the
+        // take-damage option's damage number and its lethal/shielded/mandatory picture. Rides
+        // record 12's own gate, so it appears and disappears with the labels it describes; absence
+        // keeps the pre-record look (mod-drawn plates carrying record 12's wording).
+        byte[]? roles = p.HasDecisionWidgets && p.DecisionRoleCount > 0 ? p.DecisionRoles : null;
+        byte widgetFlags = p.HasDecisionWidgets ? p.DecisionWidgetFlags : (byte)0;
+        byte damage = p.HasDecisionWidgets ? p.DecisionDamageAmount : (byte)0;
+        if (widgetFlags != DecisionWidgetFlags || damage != DecisionDamageAmount
+            || !SameOptionStates(roles, DecisionRoles))
+        {
+            DecisionRoles = roles;
+            DecisionWidgetFlags = widgetFlags;
+            DecisionDamageAmount = damage;
+            VRLog.Info("Net", !p.HasDecisionWidgets
+                ? $"Decision widgets RECEIVED from player {PlayerId}: none — their mirrored decision " +
+                  "falls back to the mod-drawn plates (record 29 absent: no visible decision, or a " +
+                  "sender predating the record)."
+                : $"Decision widgets RECEIVED from player {PlayerId}: {(roles?.Length ?? 0)} role(s) " +
+                  $"[{DescribeOptionStates(roles)}], damage " +
+                  $"{((widgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0 ? damage.ToString() : "n/a")}" +
+                  $", flags 0x{widgetFlags:X2} — this client resolves each role against ITS OWN copy " +
+                  "of the game's prompt and clones the REAL widget (its art, its icons, its wording " +
+                  "in THIS player's language). Nothing about a card came over: a role is a widget " +
+                  "name, and the damage number is the same preview every client already draws on " +
+                  "the attacked actor's health bar.");
         }
 
         // USE BARS (extension record 25): the owner's SECOND drawer — which bars are up, each bar's

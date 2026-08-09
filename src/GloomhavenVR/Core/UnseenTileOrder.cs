@@ -143,10 +143,13 @@ namespace GloomhavenVR.Core;
 /// violation plus <see cref="SettleFrames"/> stable frames.</para>
 ///
 /// <para>MULTIPLAYER: local rendering only — no wire field, no packet, no shared state. A PEER's
-/// mirrored board is drawn by <c>Net/Remote*</c> at BoardVisual's fixed sub-ladder (orders 0/4/8),
-/// which is BELOW every value this driver can assign, so a peer board behind an undiscovered tile
-/// is revealed by the same lift as everything else the ladder knows about — but it cannot TRIGGER
-/// a lift, because those renderers are not ladder-ranked and this driver cannot see them.</para>
+/// mirrored board is a distance-ranked CLUSTER since 2026-08-09
+/// (<c>Net.BoardVisual.AdoptBoardOrder</c>): its content sits in the same interstitial band as the
+/// LOCAL board's furniture, i.e. around this driver's own lift rather than far below it. A peer's
+/// board therefore now stands in exactly the relation to an undiscovered tile that your own
+/// board's placard and keycap labels already stand in — one rule for both boards, which is the
+/// point. It still cannot TRIGGER a lift: clusters are not in the snapshotted panel ladder this
+/// driver reads, so a tile is never raised BECAUSE a board is behind it.</para>
 /// </summary>
 internal static class UnseenTileOrder
 {

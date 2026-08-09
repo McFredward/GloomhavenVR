@@ -160,11 +160,13 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         _hostGo.transform.SetParent(_root, worldPositionStays: false);
         var canvas = _hostGo.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
-        // TOOLTIP tier of the remote board's fixed sub-ladder: proud of the board, annotating its
-        // content, so it must beat both the furniture and the docked widgets it overlaps (the
-        // initiative mirror spans the whole top edge; a TALL hint can still grow over it) at every
-        // viewing angle -- see BoardVisual's sub-ladder header.
-        canvas.sortingOrder = BoardVisual.OrderTooltip;
+        // DRAW ORDER is NOT set here any more. It used to be a fixed "tooltip beats everything on
+        // this board" tier, and that is precisely user report #5 of 2026-08-09: this hint sits
+        // 2 cm proud of the board face while the initiative mirror it overlaps is docked 4.8-7.0 cm
+        // proud, so the fixed tier painted the FARTHER plate over the nearer one at every angle.
+        // The board's own cluster sweep now seats this canvas by its measured board-local depth
+        // (BoardVisual.AdoptBoardOrder / TierForDepth), which answers the same question with the
+        // geometry instead of a constant — and ranks the whole board against the panel ladder.
         // 9-SLICE SCALE: uGUI resolves a sliced sprite's border into RECT pixels through the
         // canvas's referencePixelsPerUnit. Ours must therefore be the OWNER's tooltip canvas's, or
         // the frame art would render with corners of a different thickness at the same box size.
@@ -348,7 +350,11 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
             ? _frame.anchoredPosition + _framePx * 0.5f
             : Vector2.zero;
 
-    int WorldUI.MrBacking.IBackedSurface.BackingOrder => BoardVisual.OrderTooltip;
+    /// <summary>The plate shares this mirror's LIVE cluster slot (the board's sweep writes it);
+    /// MrBacking's earlier renderQueue is what keeps the plate under the frame art inside that
+    /// shared slot. Reading the canvas rather than a constant is what makes the plate follow the
+    /// board up and down the distance ladder instead of staying behind at the old fixed tier.</summary>
+    int WorldUI.MrBacking.IBackedSurface.BackingOrder => _canvas != null ? _canvas.sortingOrder : 0;
 
     // ------------------------------------------------------------- the game skin --
 

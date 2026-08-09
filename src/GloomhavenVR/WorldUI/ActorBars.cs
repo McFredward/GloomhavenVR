@@ -17,9 +17,10 @@ namespace GloomhavenVR.WorldUI;
 /// (UI-ARCH §3.3). In VR that plane is head-locked garbage. This class adopts every
 /// <c>WorldspacePanelUIController</c> (per-actor panel holding HealthBar/EffectsBar/
 /// ShieldBar/AttackModBar/InfoBar), moves it onto its own world-space host canvas
-/// above the miniature and billboards it to the HMD. Size is FIXED in board space
-/// by default ([WorldUI] BarFixedSize, test #14 item 4); the legacy distance-growth
-/// clamp is opt-in.
+/// above the miniature and billboards it to the HMD. Size is measured in REAL MILLIMETRES AT
+/// THE EYE and tuned by [WorldUI] BarSizeScale, following the table zoom between the
+/// [WorldUI] BarZoomMinScale / BarZoomMaxScale bounds (see <see cref="ResolveZoomFollow"/>);
+/// the legacy distance-growth is opt-in ([WorldUI] BarFixedSize, test #14 item 4).
 /// The DATA flow (UpdateHealth/UpdateEffects/ShowDamage/...) is untouched — the game
 /// keeps feeding the very same components.
 ///
@@ -85,6 +86,23 @@ internal static class ActorBars
     /// coplanar with.</para>
     /// </summary>
     private const int BarHostSortingOrder = 0;
+
+    /// <summary>
+    /// The bar's SHIPPED size, in uGUI pixels per <see cref="WorldUIConfig.CanvasScaleMm"/>: one bar
+    /// pixel is <c>CanvasScaleMm × 0.35</c> millimetres AT THE EYE — 0.35 mm at the shipped 1 mm/px
+    /// canvas scale. It is the base every size dial below multiplies, and it is expressed in real
+    /// millimetres rather than world units on purpose (see <see cref="ResolveZoomFollow"/>).
+    /// </summary>
+    private const float BarPixelSize = 0.35f;
+
+    /// <summary>
+    /// The table zoom at which <c>[WorldUI] BarSizeScale = 1</c> means "exactly the size the bars
+    /// shipped at": the mod's own default pinch multiplier. Anchoring the follow here — rather than
+    /// at the unzoomed base scale — is what makes the shipped defaults a NO-OP for a player sitting
+    /// at the shipped zoom, so this feature changes the look only for someone who has zoomed away
+    /// from it or who touches the dials.
+    /// </summary>
+    private const float ReferenceScaleMultiplier = Defaults.SavedScaleMultiplier;
 
     private sealed class Adopted
     {
@@ -336,6 +354,28 @@ internal static class ActorBars
         bool barFixedSize = WorldUIConfig.BarFixedSize.Value;
         float now = Time.unscaledTime;
 
+        // ---- SIZE (user: "Größe der Healthbars sollen einstellbar sein - sowie ein minimum und
+        // maximum der Größe, damit sie sich trotz zoomen nie über die Grenzen hinaus skalieren
+        // können"). Three more frame-constant reads, hoisted for the same reason as the three above.
+        float barSizeScale = Mathf.Max(0.01f, WorldUIConfig.BarSizeScale.Value);
+        float rawLo = WorldUIConfig.BarZoomMinScale.Value;
+        float rawHi = WorldUIConfig.BarZoomMaxScale.Value;
+        // A hand-edited cfg can put the floor above the ceiling. Sorting them is the only reading
+        // that keeps BOTH numbers meaningful; Mathf.Clamp with min > max would silently return the
+        // min for every input and turn the pair into one value.
+        float sizeLo = Mathf.Min(rawLo, rawHi);
+        float sizeHi = Mathf.Max(rawLo, rawHi);
+        float zoomFollow = ResolveZoomFollow(worldScale);
+        // The default path's factor is frame-constant, so it is resolved once here rather than per
+        // bar; the legacy distance path re-clamps per bar because its growth term is per bar.
+        float fixedSizeFactor = barSizeScale * Mathf.Clamp(zoomFollow, sizeLo, sizeHi);
+
+        // One sampled bar's uGUI pixel height turns the factor into the MILLIMETRE number a
+        // "still too big / too small" report can be answered with. Sampled only on a frame that
+        // will actually log (rare), so the extra RectTransform read is not a per-frame cost.
+        bool wantSizeLog = WantSizeLog(now, fixedSizeFactor, worldScale);
+        float sampleRectPx = 0f;
+
         s_barPoseWrites = 0;
         s_barScaleWrites = 0;
         s_barDepthScans = 0;
@@ -347,6 +387,9 @@ internal static class ActorBars
             ConvertedPanel panel = adopted.Panel;
             if (controller == null || panel.HostGo == null)
                 continue;
+
+            if (wantSizeLog && sampleRectPx <= 0f && panel.Target != null)
+                sampleRectPx = panel.Target.rect.height;
 
             // Item 6: hide this bar while its own mini is held in the hand (redundant with the
             // docked held-figure info panel, and it clutters the hand). Cheap fast-path — when
@@ -441,17 +484,19 @@ internal static class ActorBars
                 continue;
             Quaternion rot = Quaternion.LookRotation(fromHead.normalized, Vector3.up);
 
-            // Bar size (test #14 item 4): FIXED board-space size by default
-            // ([WorldUI] BarFixedSize) — the bar scales only with the diorama, like
-            // the miniature it belongs to. The old distance compensation (growing
-            // up to 2.5x with head distance) made bars visibly GROW when the player
-            // stepped away and is now the opt-in legacy path.
-            float grow = 1f;
+            // Bar size — real millimetres at the eye, tuned by [WorldUI] BarSizeScale and following
+            // the table zoom inside the Min/Max bounds (ResolveZoomFollow). The default path's
+            // factor is the hoisted frame constant; only the opt-in legacy path (BarFixedSize off,
+            // test #14 item 4: bars grow up to 2.5x with head distance) is per bar — and its growth
+            // goes THROUGH THE SAME CLAMP, so the min/max guarantee holds on that path too rather
+            // than being quietly bypassed by the one setting that scales bars for another reason.
+            float sizeFactor = fixedSizeFactor;
             if (!barFixedSize)
             {
                 // Legacy: distance in HMD-relative REAL meters (world ÷ diorama scale).
                 float realDistance = fromHead.magnitude / worldScale;
-                grow = Mathf.Clamp(realDistance / 0.6f, 1f, 2.5f);
+                float grow = Mathf.Clamp(realDistance / 0.6f, 1f, 2.5f);
+                sizeFactor = barSizeScale * Mathf.Clamp(zoomFollow * grow, sizeLo, sizeHi);
             }
 
             // CHANGE GATE (S2 defect 1). Both writes used to be unconditional, so every bar dirtied
@@ -463,11 +508,22 @@ internal static class ActorBars
             // class last wrote, so a write is skipped only when the transform already holds exactly
             // the bits the write would deposit. There is no epsilon, therefore no residual error to
             // accumulate. With the default [WorldUI] BarFixedSize the scale term is
-            // metersPerPixel × worldScale × 0.35 — three frame-constant factors — so the scale gate
-            // holds every frame the diorama is not being zoomed, while the pose gate only holds
-            // while the head is genuinely still (rot is derived from the head position, and VR head
-            // tracking moves it by sub-millimetres every frame). The counters below report which.
-            Vector3 scale = Vector3.one * (metersPerPixel * worldScale * 0.35f * grow);
+            // metersPerPixel × worldScale × BarPixelSize × fixedSizeFactor — four frame-constant
+            // factors — so the scale gate holds every frame the diorama is not being zoomed.
+            //
+            // DURING a zoom it depends on which side of the clamp the follow is on, and the two
+            // cases are worth naming because they are the feature: while the follow is INSIDE its
+            // bounds the factor is ×(reference·base ÷ worldScale) and the worldScale in the term
+            // cancels exactly — the bar holds one WORLD size, which is what "it grows with the
+            // miniature" means, and the gate keeps holding through the whole pinch. Once the clamp
+            // bites, the factor freezes and the term is ∝ worldScale again — the bar holds one REAL
+            // size and the gate writes every frame of the pinch, which is correct: that is a bar
+            // whose size at the eye is genuinely being kept still while the world moves.
+            //
+            // The pose gate, by contrast, only holds while the head is genuinely still (rot is
+            // derived from the head position, and VR head tracking moves it by sub-millimetres
+            // every frame). The counters below report which.
+            Vector3 scale = Vector3.one * (metersPerPixel * worldScale * BarPixelSize * sizeFactor);
             Transform t = panel.HostGo.transform;
             if (!adopted.HasPose || !Same(pos, adopted.LastPos) || !Same(rot, adopted.LastRot))
             {
@@ -485,10 +541,121 @@ internal static class ActorBars
             adopted.HasPose = true;
         }
 
+        if (wantSizeLog)
+            LogSize(now, fixedSizeFactor, barSizeScale, zoomFollow, sizeLo, sizeHi,
+                    worldScale, metersPerPixel, sampleRectPx, barFixedSize);
+
         PerfMonitor.Count("Bars.Bars", Adoptions.Count);
         PerfMonitor.Count("Bars.PoseWrites", s_barPoseWrites);
         PerfMonitor.Count("Bars.ScaleWrites", s_barScaleWrites);
         PerfMonitor.Count("Bars.DepthScans", s_barDepthScans);
+    }
+
+    // ==============================================================================================
+    //  SIZE — real millimetres at the eye, and what the table zoom is allowed to do to them
+    // ==============================================================================================
+
+    /// <summary>
+    /// How far the TABLE ZOOM is allowed to carry the bars away from the size the player set — the
+    /// raw follow factor, before <c>[WorldUI] BarZoomMinScale</c>/<c>BarZoomMaxScale</c> clamp it.
+    ///
+    /// <para>WHICH SIZE IS "THE SIZE". The mod's zoom is a scale on the RIG, not on the board
+    /// (<c>VRRigDriver</c>: <c>rigRoot.localScale = baseScale × ClampedSavedMultiplier</c>), so a
+    /// world-unit size and a real-metre size are two different quantities that drift apart every
+    /// time the player pinches: <c>worldUnits = realMetres × WorldScale</c>. The bar is a
+    /// READABILITY OVERLAY, so the size that matters is the one at the EYE, in real millimetres —
+    /// it is the number the player judges ("too big"), the number this class logs, and the only one
+    /// a minimum and a maximum can be stated in without the bound itself moving when the player
+    /// zooms. Every dial and every bound here is therefore a factor of a REAL-MILLIMETRE base
+    /// (<see cref="BarPixelSize"/>), and the existing <c>× worldScale</c> in the scale term is
+    /// exactly the real-metres→world-units conversion, not a size decision.</para>
+    ///
+    /// <para>WHAT ZOOMING DOES. A bar belongs to a miniature, so it follows the table: pinch the
+    /// table larger and the bar grows with the mini, pinch it away and it shrinks with it. That is
+    /// what "sie skalieren beim Zoomen" describes, and it is the thing the bounds exist to bound.
+    /// The follow is the ratio of the reference zoom to the live one, which is where a bar's world
+    /// size would be constant: <c>follow = ReferenceMultiplier × BaseWorldScale / WorldScale</c>,
+    /// and since <c>WorldScale = BaseWorldScale × liveMultiplier</c> the base cancels — the follow
+    /// is purely <c>reference ÷ live pinch multiplier</c>, i.e. it does not care which scenario's
+    /// tile size set the base scale.</para>
+    ///
+    /// <para>THE GUARANTEE the bounds then give, in the same unit as the size: at ANY zoom the bar
+    /// is between <c>BarSizeScale × Min</c> and <c>BarSizeScale × Max</c> of its shipped
+    /// millimetres. With the shipped 0.7/1.5 that is 0.25 mm/px at the far end of zooming out and
+    /// 0.53 mm/px at the near end, never more, never less — and setting Min = Max pins the bar to
+    /// one real size at every zoom, which is the behaviour that shipped before this dial existed.
+    /// </para>
+    ///
+    /// <para>Returns 1 (no follow) while no rig has published a base scale — the menu rig, the dev
+    /// harness, the frames before <c>BuildRig</c>. A zoom factor derived from a scale nobody has
+    /// established yet would be a size change nobody asked for.</para>
+    /// </summary>
+    private static float ResolveZoomFollow(float worldScale)
+    {
+        float baseScale = Rig.VRRigDriver.BaseWorldScale;
+        if (baseScale <= 0f || worldScale <= 0f)
+            return 1f;
+        return ReferenceScaleMultiplier * baseScale / worldScale;
+    }
+
+    // ---- size log (one line, on change, throttled) ----------------------------------------------
+    // "Noch zu groß" has to be answerable from numbers rather than from a second look, so the line
+    // carries the RESOLVED SIZE IN REAL MILLIMETRES and the world scale it was resolved at, plus
+    // every term in between (dial, raw follow, the bounds, and which one bit).
+    private static float s_loggedSizeFactor = float.NaN;
+    private static float s_loggedWorldScale = float.NaN;
+    private static float s_nextSizeLog;
+
+    /// <summary>Minimum seconds between two size lines — a pinch-zoom changes the factor on every
+    /// frame it runs, and the interesting number is the one it settles at.</summary>
+    private const float SizeLogIntervalSeconds = 2f;
+
+    /// <summary>
+    /// Is there a NEW size worth a line? Never on an unchanged frame (the common case, which must
+    /// cost one float compare), and never twice inside <see cref="SizeLogIntervalSeconds"/>.
+    /// </summary>
+    private static bool WantSizeLog(float now, float sizeFactor, float worldScale)
+    {
+        if (float.IsNaN(s_loggedSizeFactor))
+            return true;
+        if (now < s_nextSizeLog)
+            return false;
+        // Relative, not absolute: the same 1 % that is invisible on a 0.3 factor is invisible on a
+        // 3.0 one, and an absolute epsilon would either spam the small end or go silent at the big.
+        return Mathf.Abs(sizeFactor - s_loggedSizeFactor) > 0.01f * Mathf.Max(0.01f, s_loggedSizeFactor)
+               || Mathf.Abs(worldScale - s_loggedWorldScale) > 0.02f * Mathf.Max(0.01f, s_loggedWorldScale);
+    }
+
+    private static void LogSize(float now, float sizeFactor, float dial, float follow,
+                                float lo, float hi, float worldScale, float metersPerPixel,
+                                float sampleRectPx, bool barFixedSize)
+    {
+        s_loggedSizeFactor = sizeFactor;
+        s_loggedWorldScale = worldScale;
+        s_nextSizeLog = now + SizeLogIntervalSeconds;
+
+        float mmPerPixel = metersPerPixel * 1000f * BarPixelSize * sizeFactor;
+        float shippedMmPerPixel = metersPerPixel * 1000f * BarPixelSize;
+        float baseScale = Rig.VRRigDriver.BaseWorldScale;
+        float liveMultiplier = baseScale > 0f ? worldScale / baseScale : 0f;
+        string bound = follow < lo ? " (held at the MINIMUM)"
+                     : follow > hi ? " (held at the MAXIMUM)"
+                     : string.Empty;
+        string sample = sampleRectPx > 0f
+            ? $"a {sampleRectPx:F0} px bar is {sampleRectPx * mmPerPixel:F1} mm tall at the eye"
+            : "no bar rect measured this frame";
+
+        VRLog.Info("WorldUI",
+            $"bar size: {mmPerPixel:F3} mm per uGUI px at the eye (shipped {shippedMmPerPixel:F3}) — " +
+            $"{sample}. Size dial {dial:F2}x, zoom follow {follow:F2} clamped into " +
+            $"[{lo:F2}, {hi:F2}]{bound} ⇒ resolved {sizeFactor:F2}x. World scale {worldScale:F2} " +
+            $"(base {baseScale:F2}, table zoom {liveMultiplier:F2}x, reference " +
+            $"{ReferenceScaleMultiplier:F2}x), {Adoptions.Count} bars." +
+            (barFixedSize
+                ? string.Empty
+                : " [WorldUI] BarFixedSize is OFF, so each bar additionally grows up to 2.5x with " +
+                  "its own head distance THROUGH THE SAME CLAMP — the numbers above are the " +
+                  "distance-1 case, and the bounds hold for every bar."));
     }
 
     /// <summary>
@@ -836,6 +1003,11 @@ internal static class ActorBars
         }
         Adoptions.Clear();
         Owned.Clear();
+        // Let the next scenario state its bar size once more: the base world scale is derived per
+        // scenario from the tile size, so the same dials can resolve to different millimetres.
+        s_loggedSizeFactor = float.NaN;
+        s_loggedWorldScale = float.NaN;
+        s_nextSizeLog = 0f;
     }
 }
 

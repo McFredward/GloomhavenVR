@@ -55,6 +55,17 @@ internal static class ConfigSteps
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size
         ["Cards/InspectScale"] = 0.05d,          // 5 % of the close-up size
 
+        // ---- Tafeln ▸ Lebensbalken ---------------------------------------------------------
+        // All three are factors of one size, so all three move by the same 5 % — a size dial whose
+        // two bounds stepped differently from it would read as three unrelated controls. The unit
+        // rule already answers 0.05 for every one of them ("Scale"); it is written down because
+        // these are curated everyday rows, where the step is a decision rather than a derivation,
+        // and because a bound that steps differently from the value it bounds is exactly the class
+        // of defect this file exists for.
+        ["WorldUI/BarSizeScale"] = 0.05d,
+        ["WorldUI/BarZoomMinScale"] = 0.05d,
+        ["WorldUI/BarZoomMaxScale"] = 0.05d,
+
         // ---- Avatar ▸ Aussehen ------------------------------------------------------------
         ["Hands/GloveScale"] = 0.05d,
         ["Hands/PlateScale"] = 0.05d,

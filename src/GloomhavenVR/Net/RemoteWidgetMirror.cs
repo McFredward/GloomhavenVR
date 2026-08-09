@@ -145,7 +145,13 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// peer's objectives at 60 % of the size their owner reads them at.</summary>
     private readonly float _densityScale;
 
+    /// <summary>See the constructor's <c>driveFromSource</c> parameter: false turns the per-refresh
+    /// source copy off entirely, for a source that is static and whose visible state is driven by
+    /// the caller instead.</summary>
+    private readonly bool _driveFromSource;
+
     private GameObject? _host;              // world-space canvas host (child of _mount)
+    private Canvas? _canvas;                // the host's canvas — its LIVE cluster slot backs the MR plate
     private RectTransform? _pivot;          // recentring frame (child of _host); see EnsureHost
     private GameObject? _clone;             // the cloned subtree (child of _pivot)
     private RectTransform? _cloneRect;
@@ -183,6 +189,10 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// own dock rect, "graphics union" = this class's fallback). Surfaced in the per-peer board
     /// content line so a "the panel sits too high" report is answerable from the log alone.</summary>
     public string MeasurePath => _measurePath;
+
+    /// <summary>Size of the last applied fit in MOUNT-LOCAL METRES (zero until the first successful
+    /// fit). What a caller stacking content below this panel measures from — see <see cref="Fit"/>.</summary>
+    public Vector2 FittedSize { get; private set; }
 
     /// <summary>Bumps every time the clone is rebuilt from scratch (structure change / new
     /// source). The cache-invalidation key for anything holding <see cref="CloneOf"/> results —
@@ -231,9 +241,20 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// </summary>
     /// <param name="densityScale">Mirror of <c>TrayMountedPanelSurface.DensityScale</c> — 1 for
     /// every dock except the objectives, which renders at 0.6 (bigger glyphs on more tray metres).</param>
+    /// <param name="driveFromSource">Whether the clone is PUPPETED from the live source every
+    /// refresh (the default, and what the initiative track and objectives need — their source
+    /// animates). FALSE for a source that is a STATIC, HIDDEN panel whose visible state comes from
+    /// somewhere else entirely: the mirrored decision row's source is this client's own
+    /// <c>TakeDamagePanel</c>, which the game populated for a DIFFERENT player's decision and then
+    /// hid, so every number on it is stale and every fact a viewer must see arrives on the wire
+    /// (see <see cref="RemoteDecisionWidgets"/>). Copying that source would do nothing but fight the
+    /// caller's own wire-driven overrides, several times a second, dirtying this board's canvas each
+    /// time. <c>Instantiate</c> has already carried the authored layout across, which is the only
+    /// thing the copy would have contributed.</param>
     public RemoteWidgetMirror(string name, Transform mount, float mountWidth, float mountMaxHeight,
-        Vector2 grow, bool fitWidth = true, float densityScale = 1f)
+        Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true)
     {
+        _driveFromSource = driveFromSource;
         _name = name;
         _mount = mount;
         _mountWidth = mountWidth;
@@ -277,8 +298,10 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     Vector2 WorldUI.MrBacking.IBackedSurface.BackingCenter => Vector2.zero;
 
     /// <summary>The plate shares the mirror canvas's own ladder slot; MrBacking's earlier
-    /// renderQueue is what keeps it under this content and above everything farther back.</summary>
-    int WorldUI.MrBacking.IBackedSurface.BackingOrder => BoardVisual.OrderDockedWidget;
+    /// renderQueue is what keeps it under this content and above everything farther back. Read
+    /// LIVE off the canvas since 2026-08-09: the slot is now the board cluster's, and it moves
+    /// with the board on the distance ladder.</summary>
+    int WorldUI.MrBacking.IBackedSurface.BackingOrder => _canvas != null ? _canvas.sortingOrder : 0;
 
     /// <summary>
     /// Content-cadence entry point: (re)build the clone when <paramref name="source"/> changed
@@ -304,7 +327,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                     return false;
             }
 
-            Sync();
+            if (_driveFromSource)
+                Sync();
             Fit();
             AuditCloneGrowth();
             State = Fidelity.MirroredWidget;
@@ -327,7 +351,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// </summary>
     public void TickLive()
     {
-        if (_clone == null || _pairs.Length == 0)
+        if (_clone == null || _pairs.Length == 0 || !_driveFromSource)
             return;
         try { Sync(); }
         catch (System.Exception e) { Clear($"live sync failed ({e.Message})"); }
@@ -530,10 +554,12 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 
         var canvas = _host.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
-        // A DOCKED WIDGET of the remote board's fixed sub-ladder: strictly above the board's
-        // transparent furniture (pick banner at OrderFurniture), whatever the viewing angle -
-        // see BoardVisual's sub-ladder header for the angle-dependent blend this pins down.
-        canvas.sortingOrder = BoardVisual.OrderDockedWidget;
+        _canvas = canvas;
+        // DRAW ORDER is NOT set here any more: this host is seated by the owning board's cluster
+        // sweep, at the tier its own board-local depth earns (BoardVisual.AdoptBoardOrder /
+        // TierForDepth). That still puts a dock strictly above the board's face furniture - a dock
+        // IS proud of the face - but it derives the relation from the owner's authored mount
+        // instead of asserting it, which is what the 2026-08-09 reports needed (see BoardVisual).
         Camera? head = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
         if (head != null)
             canvas.worldCamera = head;
@@ -883,6 +909,12 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         // present is exactly the rect the plate must cover (see the class doc's MIXED REALITY
         // block). Host-local px — the host scale above carries them into board metres.
         _backingSizePx = sizePx;
+
+        // The applied fit in MOUNT-LOCAL METRES. Published because a caller that stacks something
+        // UNDER this panel has to know how tall it actually came out — the mirrored decision row's
+        // use-bar drawer is the shipped case, and it used to hang below an ASSUMED plate height,
+        // which is exactly the kind of drift the 1:1 rule is about.
+        FittedSize = new Vector2(w * metersPerPx, h * metersPerPx);
 
         LogFit(w, h, fit, metersPerPx);
     }

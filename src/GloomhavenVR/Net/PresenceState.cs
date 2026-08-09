@@ -508,6 +508,38 @@ internal struct PresenceState
     public byte[]? DecisionOptionFlags;
 
     /// <summary>
+    /// True when this packet carries WHICH GAME WIDGET each docked option IS (extension record
+    /// <see cref="NetProtocol.ExtIdDecisionWidgets"/>) plus the take-damage option's own runtime
+    /// numbers. Written on exactly the gate <see cref="HasDecisionLines"/> rides, so the wordings,
+    /// the states and the widget identities can never disagree. Absence renders as the pre-record
+    /// look: the mod-drawn plates with record 12's wording.
+    /// </summary>
+    public bool HasDecisionWidgets;
+
+    /// <summary>Widget flags (<see cref="NetProtocol.DecisionWidgetLethalBit"/> …
+    /// <see cref="NetProtocol.DecisionWidgetDamageValidBit"/>) — what the take-damage option is
+    /// painting on itself. Masked to <see cref="NetProtocol.DecisionWidgetDefinedMask"/> on both
+    /// ends.</summary>
+    public byte DecisionWidgetFlags;
+
+    /// <summary>The number the owner's take-damage option displays (meaningful only with
+    /// <see cref="NetProtocol.DecisionWidgetDamageValidBit"/> set in
+    /// <see cref="DecisionWidgetFlags"/>).</summary>
+    public byte DecisionDamageAmount;
+
+    /// <summary>Number of valid entries in <see cref="DecisionRoles"/> (≤
+    /// <see cref="NetProtocol.DecisionStateMaxOptions"/> after clamping on both ends),
+    /// index-aligned with <see cref="DecisionOptionFlags"/> and with
+    /// <see cref="DecisionLinesText"/>'s lines.</summary>
+    public int DecisionRoleCount;
+
+    /// <summary>Per-option role codes (<see cref="NetProtocol.DecisionRoleUnknown"/> …
+    /// <see cref="NetProtocol.DecisionRoleNo"/>). May be longer than
+    /// <see cref="DecisionRoleCount"/> — the sender passes its persistent sample buffer; only the
+    /// first count entries go on the wire.</summary>
+    public byte[]? DecisionRoles;
+
+    /// <summary>
     /// True when this packet carries the sender's docked USE-SLOT BAR drawer (extension record
     /// <see cref="NetProtocol.ExtIdUseBars"/>) — the second drawer below their decision row.
     /// Written only while at least one bar is docked AND VISIBLE on their board (a bar
@@ -845,6 +877,12 @@ internal struct PresenceState
 ///                        track, by the stable ActorGuid hash, plus which of them they control;
 ///                        written only while online AND in the card-selection phase, the exact
 ///                        window vanilla's CompareTo sorts by IsUnderMyControl in, ≤6 ids, see
+///                        29 DECISION WIDGETS ([flags][damage][n][n × role byte] — WHICH game widget
+///                        each docked option IS, so a peer mirrors the REAL button (its art, its
+///                        icons, its wording in the VIEWER's own language) instead of a mod-drawn
+///                        lookalike, plus the take-damage option's damage number and its lethal /
+///                        shielded / mandatory picture. Roles are index-aligned with records 12 and
+///                        24; written on record 12's own gate, see NetProtocol.ExtIdDecisionWidgets)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -1036,6 +1074,10 @@ internal static class PresenceSerializer
                           // state (no kind, no text variant, no options) it writes no record, so it
                           // must not open the tail either.
                           || (state.HasDecisionState && DecisionStatePayload(in state) > 0)
+                          // The decision WIDGET record rides the same gate; with nothing to name
+                          // (no flags, no roles) it writes no record, so it must not open the tail
+                          // either.
+                          || (state.HasDecisionWidgets && DecisionWidgetsPayload(in state) > 0)
                           // No bar up (or every bar render-hidden for another character's focus)
                           // writes no record, so it must not open the tail either — the same
                           // idle-packet rule the wall-fade set and the decision state follow.
@@ -1645,10 +1687,57 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
+                if (state.HasDecisionWidgets)
+                {
+                    // DECISION WIDGETS (29): [flags][damage][n][n × role byte] — WHICH game widget
+                    // each docked option IS, so a peer can mirror the REAL button instead of a
+                    // mod-drawn lookalike, plus the two numbers the take-damage option paints on
+                    // itself. Roles are index-aligned with records 12 and 24 (one sampler walk
+                    // fills all three) and clamped to the record's own cap before a byte goes out;
+                    // flags are masked to their DEFINED bits and each role through
+                    // ClampDecisionRole, so an undefined code can never be pre-claimed by garbage.
+                    // Written on record 12's gate only, so an idle packet stays byte-identical to
+                    // the previous build's; appended in id order, LAST, behind record 28.
+                    int payload = DecisionWidgetsPayload(in state);
+                    if (payload > 0 && i + 2 + payload <= buffer.Length)
+                    {
+                        int n = payload - 3;
+                        buffer[i++] = NetProtocol.ExtIdDecisionWidgets;
+                        buffer[i++] = (byte)payload;
+                        buffer[i++] = (byte)(state.DecisionWidgetFlags
+                                             & NetProtocol.DecisionWidgetDefinedMask);
+                        buffer[i++] = state.DecisionDamageAmount;
+                        buffer[i++] = (byte)n;
+                        for (int o = 0; o < n; o++)
+                            buffer[i++] = NetProtocol.ClampDecisionRole(state.DecisionRoles![o]);
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
         return i;
+    }
+
+    /// <summary>
+    /// Payload size record <see cref="NetProtocol.ExtIdDecisionWidgets"/> would occupy for
+    /// <paramref name="state"/> — <c>3 + role count</c>, with the count clamped to the record cap
+    /// AND to the caller's buffer length (the sender passes a persistent buffer that may be longer
+    /// than the live count). Returns 0 when there is nothing to name at all — no defined flag bit
+    /// and no role — so an empty record can never open the extension tail and an idle packet stays
+    /// byte-identical to the previous build's.
+    /// </summary>
+    private static int DecisionWidgetsPayload(in PresenceState state)
+    {
+        int n = state.DecisionRoleCount;
+        if (n > NetProtocol.DecisionStateMaxOptions)
+            n = NetProtocol.DecisionStateMaxOptions;
+        if (state.DecisionRoles == null || n < 0)
+            n = 0;
+        else if (n > state.DecisionRoles.Length)
+            n = state.DecisionRoles.Length;
+        byte flags = (byte)(state.DecisionWidgetFlags & NetProtocol.DecisionWidgetDefinedMask);
+        return flags == 0 && n == 0 ? 0 : 3 + n;
     }
 
     /// <summary>
@@ -2584,6 +2673,38 @@ internal static class PresenceSerializer
                                 opts[o] = (byte)(buffer[i + 2 + o]
                                                  & NetProtocol.DecisionOptionDefinedMask);
                             state.DecisionOptionFlags = opts;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdDecisionWidgets
+                             && len >= NetProtocol.DecisionWidgetMinRecordBytes)
+                    {
+                        // DECISION WIDGETS: [flags][damage][n][n × role byte]. Same bounds
+                        // discipline as record 24 — the claimed role count is re-clamped against the
+                        // record's OWN length AND the cap, so a hostile n can neither overrun the
+                        // record nor bleed into the next one; the flags byte is masked to its
+                        // DEFINED bits and every role clamped to what THIS build can resolve, so an
+                        // unknown code degrades to "mod-drawn plate" rather than resolving to the
+                        // wrong widget. What survives is three small enumerations and a damage
+                        // number — no text, no id, nothing that could name a card.
+                        byte dwFlags = (byte)(buffer[i] & NetProtocol.DecisionWidgetDefinedMask);
+                        byte damage = buffer[i + 1];
+                        int n = buffer[i + 2];
+                        if (n > NetProtocol.DecisionStateMaxOptions)
+                            n = NetProtocol.DecisionStateMaxOptions;
+                        if (n > len - 3)
+                            n = len - 3;
+                        if (n < 0)
+                            n = 0;
+                        state.HasDecisionWidgets = true;
+                        state.DecisionWidgetFlags = dwFlags;
+                        state.DecisionDamageAmount = damage;
+                        state.DecisionRoleCount = n;
+                        if (n > 0)
+                        {
+                            byte[] roles = new byte[n];
+                            for (int o = 0; o < n; o++)
+                                roles[o] = NetProtocol.ClampDecisionRole(buffer[i + 3 + o]);
+                            state.DecisionRoles = roles;
                         }
                     }
                     else if (id == NetProtocol.ExtIdUseBars

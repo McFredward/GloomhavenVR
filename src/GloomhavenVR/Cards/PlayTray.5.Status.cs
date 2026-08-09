@@ -125,6 +125,40 @@ internal sealed partial class PlayTray
         // the deadlock argument.
         bool foreignView = ConfirmCapsForeignView(hand);
 
+        // ---- A PLACED ITEM OWNS THE GENERIC CLUSTER (user, ModBuild 103) ----------------------
+        //
+        // Verbatim: "Wenn ein Gegenstand abgelegt wurde sollen bei den allgemeinen Buttons erstmal
+        // NUR noch der 'Benutzen' Button zu sehen sein und die anderen Buttons die zuvor da waren
+        // verschwinden - wird der Gegenstand wieder aus dem Overlay entfernt soll der
+        // Benutzen-Button wieder verschwinden und die Buttons die eventuell zuvor da waren sollen
+        // wieder angezeigt werden."
+        //
+        // SUPPRESSION, NOT SAVE-AND-RESTORE, and the distinction is the whole design. The literal
+        // reading — snapshot the visible set on placement, put that same set back on removal — is
+        // wrong in the one case that actually happens: the game may add or withdraw a decision
+        // WHILE the card lies in the recess (a damage prompt arrives, an undo window closes), and
+        // restoring the snapshot would then either resurrect a button whose action no longer
+        // exists or swallow one that appeared meanwhile. Here the branches below are simply not
+        // reached while a card is placed, so on removal each cap is decided FRESH by its own live
+        // owner on the very next tick. "The buttons that were there before" therefore means "the
+        // buttons that belong there now", which is the only reading that cannot go stale.
+        //
+        // The USE cap itself is untouched: it is a separate member of the same cluster, driven by
+        // SetItemUseConfirm (PlayTray.4.Slots.cs) off the same placement, so "only USE remains" is
+        // what these two hides leave behind. Both go through BoardButton.SetVisible, i.e. the
+        // authored crumble on the way out and the assemble-out-of-dust on the way back — the
+        // standing no-pop rule, and the defect an earlier round of this same area was reported for
+        // ("die Knöpfe verschwinden ohne die Animation").
+        //
+        // The Ready/Undo/Skip cluster at the table edge is the OTHER half of "die allgemeinen
+        // Buttons" and stands down on the same predicate — see WorldUI.ButtonCluster.Tick.
+        if (_itemUseActive)
+        {
+            _confirm?.SetVisible(false);
+            _undo?.SetVisible(false);
+            return;
+        }
+
         // Test #23 item 4: the REAL ReadyButton / UndoButton dock at these same
         // positions when the native-controls surface is active. While a native
         // widget holds, its mod-drawn twin hides (they overlap) and its state mirror

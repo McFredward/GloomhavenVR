@@ -622,15 +622,17 @@ internal sealed class RemoteBoardCard
         _halfGlowMats[1] = CaptureGlow(_halfGlowTop);
     }
 
-    /// <summary>Docked-widget sorting (strictly above the face canvas at every angle) + the
-    /// material ref the pulse writes.</summary>
+    /// <summary>
+    /// The material ref the pulse writes. DRAW ORDER is no longer forced here: the glow is 4 mm
+    /// PROUD of the face art it belongs to (glowZ above), and the owning board's cluster seats both
+    /// from their board-local depth (BoardVisual.AdoptBoardOrder) — a tie inside one tier, which
+    /// Unity breaks by distance, i.e. in the glow's favour at every angle. The old constant said
+    /// the same thing with a number that also outranked half the board.
+    /// </summary>
     private static Material? CaptureGlow(GameObject glow)
     {
         var mr = glow.GetComponent<MeshRenderer>();
-        if (mr == null)
-            return null;
-        mr.sortingOrder = BoardVisual.OrderDockedWidget;
-        return mr.sharedMaterial; // CreateGlowQuad makes a fresh material per quad — ours to drive
+        return mr != null ? mr.sharedMaterial : null; // CreateGlowQuad mints one material per quad
     }
 
     /// <summary>Tear the hosted face down and forget which path drew it (the back/empty states must

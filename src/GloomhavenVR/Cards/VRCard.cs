@@ -1905,6 +1905,22 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             UpdateBody();
     }
 
+    /// <summary>
+    /// CARD-ART ARRIVAL (user: "ich will die Karte ohne Aliasing direkt sehen ohne dass es erst
+    /// nachgeladen werden muss"). LateUpdate on purpose, and it is the whole point of the fix:
+    /// the game's addressable loader assigns the new sprite from a sync-context continuation
+    /// somewhere inside the Update phase, and uGUI rebuilds/draws the canvas AFTER LateUpdate —
+    /// so a swap issued here is guaranteed to be in place before that art's first rendered
+    /// frame, no matter where in Update the continuation happened to run. Doing it from
+    /// <see cref="Update"/> instead would race the loader and lose roughly half the time.
+    /// Allocation-free unless a sprite actually changed (see <c>CardFace.MaintainArtArrival</c>).
+    /// </summary>
+    private void LateUpdate()
+    {
+        using (Core.PerfMonitor.Scope("Cards.VRCardArt"))
+            _face.MaintainArtArrival();
+    }
+
     private void UpdateBody()
     {
         UpdateCanvasCamera();

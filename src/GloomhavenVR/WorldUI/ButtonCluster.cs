@@ -302,7 +302,21 @@ internal sealed class ButtonCluster
         // crumble-to-dust played on the way out (and the matched materialize-from-dust on the way
         // back). Nothing here reaches for SetActive, which is precisely the class of pop ModBuild 96
         // fixed for the item-flow caps.
-        _skip!.MirrorSkip(SkipCapForeignView() ? null : choreographer!.m_SkipButton, locked);
+        // …AND A PLACED ITEM CARD OWNS THE CLUSTER (user, ModBuild 103): "Wenn ein Gegenstand
+        // abgelegt wurde sollen bei den allgemeinen Buttons erstmal NUR noch der 'Benutzen' Button
+        // zu sehen sein und die anderen Buttons die zuvor da waren verschwinden." The SKIP cap is
+        // this cluster's only remaining member, so standing it down is the whole of that rule
+        // here; the board's own Confirm/Undo pads answer the same predicate in
+        // Cards.PlayTray.TickStatus, and the USE cap that replaces them all is a member of THAT
+        // cluster (SetItemUseConfirm).
+        //
+        // Same lever again — a NULL button, i.e. the authored crumble on the way out and the
+        // matched assemble on the way back — so removing the card brings the cap back through the
+        // animation rather than popping it. And because the stand-down runs BEFORE BoardSkipShown
+        // is published two lines down, a peer's mirrored board hides its copy in the same tick:
+        // the 1:1 rule holds by construction rather than by a second gate.
+        bool itemPlaced = Cards.PlayTray.Current?.ItemUseCapShown == true;
+        _skip!.MirrorSkip(itemPlaced || SkipCapForeignView() ? null : choreographer!.m_SkipButton, locked);
 
         // Publish the docked Skip's live visibility for the multiplayer board-UI record — the
         // one cluster member a peer's copy of this board draws.

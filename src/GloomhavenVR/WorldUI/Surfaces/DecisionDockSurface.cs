@@ -165,8 +165,13 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// pressure — 0.8× the shared tray density renders them 1.25× bigger (the
     /// element-board rationale); the dock fit clamp still bounds the row to its
     /// mount budget.
+    ///
+    /// <para>INTERNAL, not private, since ModBuild 105: a peer's mirrored copy of this row
+    /// (<c>Net.RemoteDecisionWidgets</c>) fits the SAME widgets into the SAME mount budget and has
+    /// to do it at the same density, or the 1:1 row renders 1.25x too small on every other client —
+    /// which is exactly the class of drift the 1:1 rule exists to stop. Read, never written.</para>
     /// </summary>
-    private const float DensityScale = 0.8f;
+    internal const float DensityScale = 0.8f;
 
     /// <summary>No-tray fallback float distance (HMD-anchored, the ModalFallback pattern).</summary>
     private const float FloatDistanceMeters = 1.1f;
@@ -328,6 +333,57 @@ internal sealed class DecisionDockSurface : WorldSurface
             n = _wireOptionStates.Length;
         for (int i = 0; i < n; i++)
             into[i] = _wireOptionStates[i];
+        return n;
+    }
+
+    /// <summary>
+    /// MULTIPLAYER READ SEAM (wire record <c>NetProtocol.ExtIdDecisionWidgets</c>): what the docked
+    /// TAKE-DAMAGE option is painting on ITSELF — <c>DecisionWidgetLethalBit</c> (the game swapped
+    /// its normal damage icon for the fatal one), <c>DecisionWidgetShieldedBit</c> (the amount is in
+    /// the shield colour), <c>DecisionWidgetMandatoryBit</c> (the mandatory-use highlight is lit)
+    /// and <c>DecisionWidgetDamageValidBit</c> (<see cref="WireDamageAmount"/> means something).
+    /// Zero for every other prompt, and while nothing is docked.
+    /// </summary>
+    internal static byte WireWidgetFlags { get; private set; }
+
+    /// <summary>The number the docked take-damage option displays — the game's own
+    /// <c>TakeDamagePanel.damageAmount</c> text, which changes live as the owner toggles shield
+    /// items and bonuses. Meaningful only with <c>DecisionWidgetDamageValidBit</c> in
+    /// <see cref="WireWidgetFlags"/>.</summary>
+    internal static byte WireDamageAmount { get; private set; }
+
+    /// <summary>
+    /// Per-option ROLE codes for wire record 29 (<c>NetProtocol.DecisionRole*</c>), index-aligned
+    /// with <see cref="WireButtonLines"/> and <see cref="_wireOptionStates"/> — the SAME walk fills
+    /// all three, which is what lets a receiver resolve "option 2" against its OWN copy of the game
+    /// widget without a second description of the row. Read through
+    /// <see cref="CopyWireOptionRoles"/>.
+    /// </summary>
+    private static readonly byte[] _wireOptionRoles =
+        new byte[Net.NetProtocol.DecisionStateMaxOptions];
+
+    /// <summary>The roles last PUBLISHED (the change gate's other half — a role set can move while
+    /// the wordings and the states hold, e.g. the game activating a widget that was hidden).</summary>
+    private static readonly byte[] _publishedOptionRoles =
+        new byte[Net.NetProtocol.DecisionStateMaxOptions];
+
+    /// <summary>
+    /// Copy the published per-option roles into <paramref name="into"/> and return how many were
+    /// written (never more than the shorter of the two buffers). A role NAMES the game widget the
+    /// option is — never what it would do to a card — so a peer can clone the real button out of
+    /// their own copy of the prompt instead of drawing a lookalike.
+    /// </summary>
+    internal static int CopyWireOptionRoles(byte[] into)
+    {
+        if (into == null)
+            return 0;
+        int n = _wireOptionCount;
+        if (n > into.Length)
+            n = into.Length;
+        if (n > _wireOptionRoles.Length)
+            n = _wireOptionRoles.Length;
+        for (int i = 0; i < n; i++)
+            into[i] = _wireOptionRoles[i];
         return n;
     }
 
@@ -657,10 +713,11 @@ internal sealed class DecisionDockSurface : WorldSurface
             RestoreFocusHide("the row undocked");
             if (WireButtonLines != null)
             {
-                // Records 12 and 23 stop riding the moment the row undocks (PublishWireDecision
-                // logs the withdrawal; the release line below states the undock itself).
+                // Records 12, 24 and 29 stop riding the moment the row undocks
+                // (PublishWireDecision logs the withdrawal; the release line below states the
+                // undock itself).
                 _nextWireLinesAt = 0f;
-                PublishWireDecision(null, NetProtocol.DecisionKindNone, 0);
+                PublishWireDecision(null, NetProtocol.DecisionKindNone, 0, 0, 0);
             }
             RowBottomUpMeters = null; // no docked row → the bar stack falls back to the zone top
             RowTopUpMeters = null;    // …and any prompt text falls back to the computed seat
@@ -1072,7 +1129,7 @@ internal sealed class DecisionDockSurface : WorldSurface
         if (_rowHiddenForFocus)
         {
             _nextWireLinesAt = 0f;
-            PublishWireDecision(null, NetProtocol.DecisionKindNone, 0);
+            PublishWireDecision(null, NetProtocol.DecisionKindNone, 0, 0, 0);
             return;
         }
         if (Time.unscaledTime < _nextWireLinesAt)
@@ -1080,6 +1137,8 @@ internal sealed class DecisionDockSurface : WorldSurface
         _nextWireLinesAt = Time.unscaledTime + 0.25f;
         string? lines = null;
         int options = 0;
+        byte widgetFlags = 0;
+        byte damage = 0;
         try
         {
             RectTransform? root = Panel?.Target;
@@ -1103,10 +1162,20 @@ internal sealed class DecisionDockSurface : WorldSurface
                     // into two plates on the peer, so it is flattened to a space here.
                     WireLinesScratch.Append(text.Replace('\n', ' ').Replace('\r', ' ').Trim());
                     if (options < _wireOptionStates.Length)
+                    {
+                        // ONE WALK FILLS ALL THREE RECORDS — the wording (12), the state (24) and
+                        // now the widget ROLE (29). Index alignment is therefore structural: there
+                        // is no second walk that could disagree about what "option 2" is, which is
+                        // exactly the property a receiver needs to resolve the role against its own
+                        // copy of the game widget.
+                        _wireOptionRoles[options] = SampleOptionRole(sel);
                         _wireOptionStates[options++] = SampleOptionState(sel, root);
+                    }
                 }
                 if (WireLinesScratch.Length > 0)
                     lines = WireLinesScratch.ToString();
+                if (lines != null)
+                    widgetFlags = SampleWidgetNumbers(out damage);
             }
         }
         catch (System.Exception e)
@@ -1115,9 +1184,107 @@ internal sealed class DecisionDockSurface : WorldSurface
                                   "peers keep the plain drawer this cadence.");
             lines = null;
             options = 0;
+            widgetFlags = 0;
+            damage = 0;
         }
         PublishWireDecision(lines, lines == null ? NetProtocol.DecisionKindNone : PromptKindCode(),
-            lines == null ? 0 : options);
+            lines == null ? 0 : options, lines == null ? (byte)0 : widgetFlags,
+            lines == null ? (byte)0 : damage);
+    }
+
+    /// <summary>
+    /// WHICH GAME WIDGET one docked option IS, as wire record 29's role code — resolved by
+    /// REFERENCE against the prompt's own serialized fields, never by name and never by index.
+    ///
+    /// <para>That is the whole point of the record: a receiver owns the same prompt prefab, so a
+    /// role lets it resolve the option to ITS OWN copy of that widget and mirror the real button —
+    /// the game's art, the game's icons, the wording in the VIEWER's language. An option this build
+    /// does not code (the short-rest <c>YesNoDialog</c>, whose dialog belongs to a HAND, and a
+    /// <c>DialogPopup</c>'s pooled option buttons, created and labelled per prompt — see
+    /// <c>NetProtocol.DecisionRoleMax</c> for why neither is resolvable on a peer) publishes
+    /// <c>DecisionRoleUnknown</c>, and the receiver falls back to the mod-drawn plate with record
+    /// 12's wording — the pre-record look, which is the safe direction.</para>
+    /// </summary>
+    private static byte SampleOptionRole(Selectable sel)
+    {
+        try
+        {
+            TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
+                ? Singleton<TakeDamagePanel>.Instance
+                : null;
+            if (p != null)
+            {
+                if (p.burnAvailableCardsToggle != null
+                    && ReferenceEquals(sel.transform, p.burnAvailableCardsToggle.transform))
+                    return NetProtocol.DecisionRoleBurnAvailable;
+                if (p.burnDiscardedCardsToggle != null
+                    && ReferenceEquals(sel.transform, p.burnDiscardedCardsToggle.transform))
+                    return NetProtocol.DecisionRoleBurnDiscarded;
+                if (p.takeDamageButton != null
+                    && ReferenceEquals(sel.transform, p.takeDamageButton.transform))
+                    return NetProtocol.DecisionRoleTakeDamage;
+            }
+        }
+        catch (System.Exception)
+        {
+            // Unattributable is a legal answer and the safe one — never a guessed role.
+        }
+        return NetProtocol.DecisionRoleUnknown;
+    }
+
+    /// <summary>
+    /// The take-damage option's own RUNTIME PICTURE for wire record 29: the damage number it
+    /// displays and the three booleans that decide how it displays it. Read off the game's OWN
+    /// widgets, so it is by construction what the owner is looking at.
+    ///
+    /// <para>WHY IT HAS TO TRAVEL AT ALL, when the peer's <c>TakeDamagePanel</c> exists too:
+    /// <c>ShowOtherPlayer</c> stores the numbers but never re-paints the widget row (it ends in
+    /// <c>myWindow.Hide(instant: true)</c>, TakeDamagePanel.cs:1102-1134), and the amount moves LIVE
+    /// on the deciding client as they toggle shield items and damage-preventing bonuses. So the
+    /// peer's own copy of the button carries a stale number and the wrong icon; these four bits are
+    /// what make the mirrored widget say what the owner's says.</para>
+    ///
+    /// <para>A DISPLAYED HP NUMBER IS NOT AN IDENTITY: every client already renders the same
+    /// preview on the attacked actor's world-space health bar
+    /// (<c>WorldspacePanelUIController.PreviewSimpleDamage</c>, called from <c>ShowOtherPlayer</c>
+    /// itself). Nothing here reads a card, an ability or an item.</para>
+    /// </summary>
+    private static byte SampleWidgetNumbers(out byte damage)
+    {
+        damage = 0;
+        byte flags = 0;
+        try
+        {
+            TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
+                ? Singleton<TakeDamagePanel>.Instance
+                : null;
+            if (p == null)
+                return 0;
+            if (p.fatalDamageObject != null && p.fatalDamageObject.activeInHierarchy)
+                flags |= NetProtocol.DecisionWidgetLethalBit;
+            if (p.mandatoryTakeDamageHighlight != null
+                && p.mandatoryTakeDamageHighlight.activeInHierarchy)
+                flags |= NetProtocol.DecisionWidgetMandatoryBit;
+            if (p.damageAmount != null)
+            {
+                if (p.damageAmount.color == p.shieldAppliedColor)
+                    flags |= NetProtocol.DecisionWidgetShieldedBit;
+                // The game writes this text itself (RefreshDamageInformation), so parsing it back
+                // is reading the very glyphs the owner sees. An unparsable or out-of-range value
+                // publishes NO number at all rather than a wrong one.
+                if (int.TryParse(p.damageAmount.text, out int value) && value >= 0 && value <= 255)
+                {
+                    damage = (byte)value;
+                    flags |= NetProtocol.DecisionWidgetDamageValidBit;
+                }
+            }
+        }
+        catch (System.Exception)
+        {
+            damage = 0;
+            return 0;
+        }
+        return flags;
     }
 
     /// <summary>
@@ -1165,19 +1332,23 @@ internal sealed class DecisionDockSurface : WorldSurface
         _ => NetProtocol.DecisionKindNone,
     };
 
-    /// <summary>Publish (change-gated) what the two decision records carry, and log the change once.
-    /// The three values move together — the labels, their states and the prompt kind describe one
-    /// row — so they share one gate and one line.</summary>
-    private static void PublishWireDecision(string? lines, byte kind, int options)
+    /// <summary>Publish (change-gated) what the THREE decision records carry, and log the change
+    /// once. The values move together — the labels (12), their states (24) and their widget roles +
+    /// numbers (29) describe ONE row — so they share one gate and one line.</summary>
+    private static void PublishWireDecision(string? lines, byte kind, int options,
+        byte widgetFlags, byte damage)
     {
-        bool same = lines == WireButtonLines && kind == WirePromptKind && options == _wireOptionCount;
+        bool same = lines == WireButtonLines && kind == WirePromptKind && options == _wireOptionCount
+                    && widgetFlags == WireWidgetFlags && damage == WireDamageAmount;
         if (same && lines != null)
         {
-            // Same row, same count: the STATES may still have moved (a toggle flipped, the game
-            // re-asserted a gate) — that is a real change peers must see, so compare them too.
+            // Same row, same count: the STATES and the ROLES may still have moved (a toggle
+            // flipped, the game re-asserted a gate, a widget the owner could not see became
+            // active) — a real change peers must see, so compare them too.
             for (int i = 0; i < options; i++)
             {
-                if (_wireOptionStates[i] != _publishedOptionStates[i])
+                if (_wireOptionStates[i] != _publishedOptionStates[i]
+                    || _wireOptionRoles[i] != _publishedOptionRoles[i])
                 {
                     same = false;
                     break;
@@ -1188,16 +1359,21 @@ internal sealed class DecisionDockSurface : WorldSurface
             return;
         WireButtonLines = lines;
         WirePromptKind = kind;
+        WireWidgetFlags = widgetFlags;
+        WireDamageAmount = damage;
         _wireOptionCount = options;
         for (int i = 0; i < options; i++)
+        {
             _publishedOptionStates[i] = _wireOptionStates[i];
+            _publishedOptionRoles[i] = _wireOptionRoles[i];
+        }
         if (lines == null)
         {
-            VRLog.Info("WorldUI", "DECISION DOCK: wire decision cleared (no visible row) — records 12 " +
-                                  "and 23 stop riding, so every peer's mirrored decision empties too.");
+            VRLog.Info("WorldUI", "DECISION DOCK: wire decision cleared (no visible row) — records 12, " +
+                                  "24 and 29 stop riding, so every peer's mirrored decision empties too.");
             return;
         }
-        var states = new System.Text.StringBuilder(48);
+        var states = new System.Text.StringBuilder(64);
         for (int i = 0; i < options; i++)
         {
             if (i > 0)
@@ -1209,13 +1385,31 @@ internal sealed class DecisionDockSurface : WorldSurface
                 states.Append("+dim");
             if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
                 states.Append("+CHOSEN");
+            states.Append("/role ").Append(RoleName(_wireOptionRoles[i]));
         }
         VRLog.Info("WorldUI", $"DECISION DOCK: wire decision published — {lines.Split('\n').Length} " +
                               $"label(s) \"{lines.Replace('\n', '|')}\", prompt kind {kind}, states " +
                               $"[{states}] (record 12: pressable-widget labels only, never a dialog's " +
-                              "description text; record 23: the states + the prompt kind — peers " +
-                              "mirror these as inert plates at their copy's decision seat).");
+                              "description text; record 24: the states + the prompt kind; record 29: " +
+                              $"the widget ROLES above plus damage " +
+                              $"{((widgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0 ? damage.ToString() : "n/a")}" +
+                              $"{((widgetFlags & NetProtocol.DecisionWidgetLethalBit) != 0 ? " LETHAL" : string.Empty)}" +
+                              $"{((widgetFlags & NetProtocol.DecisionWidgetShieldedBit) != 0 ? " shielded" : string.Empty)}" +
+                              $"{((widgetFlags & NetProtocol.DecisionWidgetMandatoryBit) != 0 ? " mandatory-hl" : string.Empty)}" +
+                              "). A peer with a role for an option clones ITS OWN copy of that game " +
+                              "widget — real art, real icons, its own language; an option with role " +
+                              "'unknown' still falls back to the mod-drawn plate + the record-12 wording.");
     }
+
+    /// <summary>Human-readable role for the published diagnostic (a hardware log has to say WHICH
+    /// widget a peer was told to clone, or a "the buttons look wrong" report is unanswerable).</summary>
+    private static string RoleName(byte role) => role switch
+    {
+        NetProtocol.DecisionRoleBurnAvailable => "burn-available",
+        NetProtocol.DecisionRoleBurnDiscarded => "burn-discarded",
+        NetProtocol.DecisionRoleTakeDamage => "take-damage",
+        _ => "unknown",
+    };
 
     /// <summary>The option states last PUBLISHED — the change gate's memory, so a toggle flip is
     /// detected without re-sampling twice per tick.</summary>
@@ -2197,8 +2391,10 @@ internal sealed class DecisionDockSurface : WorldSurface
         _lastLoggedGapPx = float.NaN;
         RowBottomUpMeters = null;
         RowTopUpMeters = null;
-        WireButtonLines = null;    // records 12 and 23 must not survive a module re-init
+        WireButtonLines = null;    // records 12, 24 and 29 must not survive a module re-init
         WirePromptKind = NetProtocol.DecisionKindNone;
+        WireWidgetFlags = 0;
+        WireDamageAmount = 0;
         _wireOptionCount = 0;
         _nextWireLinesAt = 0f;
         _takeDamageDumped = false; // re-emit the one-time ground-truth dump after a module re-init

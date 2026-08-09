@@ -46,10 +46,11 @@ namespace GloomhavenVR.Board;
 /// the status placard and the keycap labels and is ordered against every panel by measured eye
 /// distance. The material's renderQueue is no longer written at all — it stays at the shader's own
 /// <c>Transparent</c> (3000), the same queue as the rest of that band, so nothing inside the band
-/// is decided by an artificial queue bump. On a PEER's board there is no such group (a remote board
-/// has a fixed intra-board sub-ladder, <c>BoardVisual.OrderFurniture</c> = 0); the stroke sits at
-/// exactly that value, with its peers, and inherits that board's known limitation instead of
-/// inventing a third rule. Stated honestly: the local stroke now draws OVER the game's own order-0
+/// is decided by an artificial queue bump. A PEER's board has the same kind of group since
+/// 2026-08-09 (<c>Net.BoardVisual.AdoptBoardOrder</c> — the remote board ranks against the panel
+/// ladder as one cluster and orders its own plane by board-local depth), so the stroke is adopted
+/// there too and needs no seat of its own on either board. Stated honestly: the local stroke draws
+/// OVER the game's own order-0
 /// transparent surfaces, which is the trade the whole furniture band already makes.</para>
 ///
 /// <para><b>THE CONTOUR IS TRACED, NOT CIRCUMSCRIBED — AND THAT IS WHAT MOVED IT ONTO THE EDGE.</b>
@@ -534,10 +535,10 @@ internal sealed class BoardFrame
         mr.receiveShadows = false;
         mr.lightProbeUsage = LightProbeUsage.Off;
         mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
-        // sortingOrder is NOT set here: it is the caller's ladder seat (BoardVisual.OrderFurniture
-        // = 0 on a peer's board, the control board's distance-ranked furniture band locally). The
-        // material's renderQueue is NOT written either — Sprites/Default's own Transparent (3000)
-        // is exactly the queue the rest of that band uses.
+        // sortingOrder is NOT set here: it is the caller's ladder seat — the control board's
+        // distance-ranked furniture band locally, the peer board's own cluster remotely (both
+        // adopt this renderer). The material's renderQueue is NOT written either —
+        // Sprites/Default's own Transparent (3000) is exactly the queue the rest of that band uses.
         Material rim = BoardVisual.Unlit(Color.white);
         mr.sharedMaterial = rim;
         go.SetActive(false);

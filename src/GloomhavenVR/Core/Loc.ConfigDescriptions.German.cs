@@ -1631,11 +1631,36 @@ internal static partial class Loc
                 "Echte LP-/Effekt-Balken im 3D-Raum über den Miniaturen (ersetzt die auf den Bildschirm "
                 + "projizierten Balken).",
             ["WorldUI/BarFixedSize"] =
-                "LP-/Effekt-Balken der Figuren behalten eine FESTE Größe im Brett-Maßstab — sie skalieren nur "
-                + "mit dem Diorama, genau wie die Miniaturen selbst (Test #14: die alte Abstandskompensation "
-                + "ließ die Balken beim Zurücktreten auf bis zu 2.5x anwachsen, was als \"Wachsen\" der Balken "
-                + "wahrgenommen wurde). Aus = altes Verhalten: die Balken wachsen sanft mit dem Kopfabstand, um "
-                + "lesbar zu bleiben.",
+                "LP-/Effekt-Balken der Figuren ignorieren den KOPFABSTAND — ein Balken ist gleich groß, ob du "
+                + "dich vorbeugst oder zurücktrittst (Test #14: die alte Abstandskompensation ließ die Balken "
+                + "beim Zurücktreten auf bis zu 2.5x anwachsen, was als \"Wachsen\" der Balken wahrgenommen "
+                + "wurde). Aus = altes Verhalten: die Balken wachsen sanft mit dem Kopfabstand, um lesbar zu "
+                + "bleiben — begrenzt durch dieselbe Mindest-/Maximalgröße wie der Tischzoom. Über den ZOOM "
+                + "sagt dieser Schalter nichts; dafür sind BarSizeScale und seine Grenzen da.",
+            ["WorldUI/BarSizeScale"] =
+                "GRÖSSE der LP-/Effekt-Balken über den Miniaturen, als Faktor der Größe, die sie seit jeher "
+                + "haben. Die Einheit hinter dem Faktor sind ECHTE MILLIMETER AM AUGE: 1.0 = CanvasScaleMm x "
+                + "0.35 mm pro uGUI-Pixel vor deinem Gesicht, 2.0 ist also ein doppelt so hoher und doppelt so "
+                + "breiter Balken — bei jedem Tischzoom. Das ist die einzige Größenangabe, die einen "
+                + "Pinch-Zoom überlebt, denn der Zoom des Mods ist eine Skalierung des RIGS: eine Größe in "
+                + "Welteinheiten sähe auf jeder Zoomstufe anders groß aus. Standard 1.0 = genau die Größe von "
+                + "vor diesem Regler (beim ausgelieferten Tischzoom), es ändert sich also nichts, bis du ihn "
+                + "verstellst. Live: schon das nächste Bild wird in der neuen Größe gezeichnet. Bereich "
+                + "0.25-3.",
+            ["WorldUI/BarZoomMinScale"] =
+                "MINDESTGRÖSSE der Figurenbalken, als Faktor von BarSizeScale. Die Balken folgen dem "
+                + "TISCHZOOM — ziehst du den Tisch größer, wächst ein Balken mit seiner Miniatur mit, schiebst "
+                + "du ihn weg, schrumpft er mit ihr — und dies ist der Boden dieses Mitwachsens: wie weit du "
+                + "auch herauszoomst, ein Balken wird nie kleiner als BarSizeScale x dieser Wert. 0.7 = "
+                + "höchstens 30 % kleiner als die von dir eingestellte Größe. Setzt du ihn gleich "
+                + "BarZoomMaxScale, ist das Mitwachsen ganz aus und der Balken hat auf jeder Zoomstufe genau "
+                + "eine echte Größe. Bereich 0.1-1.",
+            ["WorldUI/BarZoomMaxScale"] =
+                "MAXIMALGRÖSSE der Figurenbalken, als Faktor von BarSizeScale — die Decke des bei "
+                + "BarZoomMinScale beschriebenen Mitwachsens mit dem Tischzoom. Wie weit du auch hineinzoomst, "
+                + "ein Balken wird nie größer als BarSizeScale x dieser Wert; ein herangezoomter Tisch kann die "
+                + "Balken also nie das Brett verschlucken lassen. 1.5 = höchstens 50 % größer als die von dir "
+                + "eingestellte Größe. Bereich 1-3.",
             ["WorldUI/WristHud"] =
                 "Kompakter Charakterstatus (LP/EP/Zustände/Gold) am nicht-dominanten Handgelenk, per Hinsehen "
                 + "aktiviert.",

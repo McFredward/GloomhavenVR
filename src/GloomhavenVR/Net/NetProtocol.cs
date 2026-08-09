@@ -416,7 +416,45 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 104;
+    public const ushort ModBuild = 105;
+    // Build 105: a multiplayer round, and its centre of gravity is that a peer's board was being
+    // DESCRIBED to the other client instead of being SHOWN to it.
+    //   * THE DECISION ROW. What crossed was a label string — the hardware log has it verbatim,
+    //     "1 verfügbare Karte verbrennen|Schaden erhalten|2 abgeworfene Karten verbrennen" — from
+    //     which the receiver rebuilt three flat plates. The owner's own widget dump in the same
+    //     session lists what he actually sees: a damage icon, a fatal-damage icon, the damage
+    //     AMOUNT ("4"), the toggle art and a mandatory highlight. None of that can live in a
+    //     string. The reframing came from the game: TakeDamagePanel is a per-client Singleton and
+    //     the game calls ShowOtherPlayer on every non-deciding client, so every peer ALREADY owns
+    //     the whole widget tree, laid out and localised into its OWN language. So nothing about the
+    //     look needs to travel — only what the game does not repaint there. New record 29 carries
+    //     ROLES (which of three decisions each button is), four state bits and the damage number;
+    //     the receiver resolves its own widgets and paints them. Each client therefore reads in its
+    //     own language, which is more correct than shipping the sender's rendered text.
+    //     Deliberately NO roles for pooled Yes/No or dialog buttons: those do not exist on a peer
+    //     in the state their owner sees, so a role would resolve to the wrong object — they keep
+    //     the plates. That is the FanCloseDuration trap avoided by construction.
+    //   * THE ORDER BAND. Everything on a mirrored board sat on a STATIC sub-ladder (0/4/8) while
+    //     the panel ladder starts at 100 — so a peer's board could never rank against anything,
+    //     and its own internal order was equally fixed: the synced tooltip is authored 2.8-5.0 cm
+    //     BEHIND the initiative mirror on Oak and Steel and in front of it on Bronze, and one
+    //     constant cannot answer both. The board now joins the furniture-cluster machinery with a
+    //     depth tier per element, so the Steam picture, the remote tooltips and the initiative
+    //     track resolve against each other AND against the panels, in both directions.
+    //   * THE CARD ALIASING was not the bake being slow — it was the SWAP being late. The mod
+    //     rescanned for mipped art on a 1 s timer (MipRescanInterval), which is the reported
+    //     second, to the constant. The swap now happens in the frame the loader assigns the sprite,
+    //     which is a frame where the loader still holds the Image DISABLED — so the bake runs where
+    //     the player cannot see it without anyone having to predict which cards are coming.
+    //   * THE REFUSAL SOUND was keyed on OWNERSHIP while free character focus had made looking at
+    //     another player's character a SUCCESS. The peer's log has the three lines in a row: click
+    //     allowed, read-only view opened, refusal sound played. It is keyed on the click's OUTCOME
+    //     now — and a second, unreported defect fell out with it: on a genuine refusal the mod was
+    //     stacking its sound ON TOP of the game's own.
+    //   * A placed item card now owns the generic cluster (only USE remains) by SUPPRESSION rather
+    //     than save-and-restore: the game may add or withdraw a decision while the card lies in the
+    //     recess, and restoring a snapshot would resurrect a dead button or swallow a new one.
+    // Wire: Version stays 3, record 29 is additive TLV, no card identity. Assertions 1395 -> 1441.
     // Build 104: the zoomed-out performance round, and the whole of it is invisible by ruling —
     // the user declined every strategy that trades look for speed, so nothing here may change a
     // position, a paint order, a fade or a timing.
@@ -1785,7 +1823,9 @@ internal static class NetProtocol
     //
     // Id 26 was the one hole between 25 and 27 and is TAKEN since 2026-08-09: ITEM-USE CLIP
     // (declared beside record 25, because the two item-flow records belong together). The claim was
-    // stated in that change's report per the rule above. Ids 18..21 remain free, and so does 29+.
+    // stated in that change's report per the rule above. Id 29 was claimed on the same day by the
+    // DECISION WIDGET IDENTITY record (declared beside records 12/24, because the three decision
+    // records belong together). Ids 18..21 remain free, and so does 30+.
     //
     // THE SAME RULE APPLIES TO BITS, NOT ONLY TO RECORD IDS, and a bit was claimed on 2026-08-09:
     // BOARD-UI RECORD BYTE 2, BIT 7 (BoardUiCapItemPileUsableBit — "at least one equipped item is
@@ -2180,6 +2220,145 @@ internal static class NetProtocol
     public static byte DecodeDecisionTextVariant(byte flags) =>
         (byte)((flags & DecisionTextVariantMask) >> DecisionTextVariantShift);
 
+    // ---- record 29: DECISION WIDGET IDENTITY -------------------------------------------------
+    // RECORD-ID CLAIM, 2026-08-09 (the "die Entscheidungsbuttons sollen auch 1:1 aussehen" round):
+    // this change takes id 29 — the first of the free range the record-28 note left open. Ids in
+    // use are now 1..17 and 22..29; 18..21 stay reserved for the parallel round that claimed them,
+    // 30+ are free. No existing record was widened: record 24 has a fixed shape and squeezing a
+    // role field into its option byte would have spent its last reserved bits on something that is
+    // not a state.
+
+    /// <summary>
+    /// Extension record id: WHICH GAME WIDGET each option of the sender's docked decision row IS —
+    /// one small ROLE code per option — plus the runtime numbers the take-damage option paints on
+    /// itself (the damage amount, and whether that damage is lethal / shielded).
+    ///
+    /// <para>WHY IT EXISTS (user report 2026-08-09, verbatim: "Die Entscheidungsbuttons sollen auch
+    /// 1:1 aussehen … Es sah so aus als wären die Buttons und der Text eigens nachgebaut und hier
+    /// nicht die Spielelemente genutzt. Das soll nicht sein — hier sollen auch die Spielicons/Text
+    /// etc. genutzt werden"). Records 12 (wordings) and 24 (states) let a peer draw a faithful
+    /// DESCRIPTION of the owner's row — and a description is exactly what the mirror then built:
+    /// mod-drawn quads carrying the sender's already-rendered label strings. The owner's own dock
+    /// draws no description; it docks the GAME's real widgets, with their icons, their damage
+    /// number and their art. So the peer's copy has to be those same widgets, and the one thing a
+    /// receiver cannot derive is WHICH of them the owner is showing. That is all this record is.</para>
+    ///
+    /// <para>WHY A ROLE CODE RATHER THAN PIXELS OR WORDS. Every client owns the same game assets
+    /// and the same localization tables and — for the take-damage prompt — the same LIVE widget
+    /// tree: the game raises <c>TakeDamagePanel</c> as a <c>Singleton</c> on EVERY client and calls
+    /// <c>ShowOtherPlayer</c> on the non-deciding ones, which populates it from the same replicated
+    /// damage message and then hides the window (TakeDamagePanel.cs:1102-1134). A peer therefore
+    /// already HAS the button art, the burn icons, the damage icon, the HUD font and the wording —
+    /// in THEIR OWN LANGUAGE, which is more correct than the sender's rendered string could ever
+    /// be. A number that NAMES the widget lets them mirror the real thing; a picture or a string
+    /// could only ever approximate it.</para>
+    ///
+    /// <para>LAYOUT — <c>[flags][damage][n][n × role byte]</c>, at least
+    /// <see cref="DecisionWidgetMinRecordBytes"/> bytes:
+    /// <list type="bullet">
+    /// <item><c>flags</c> — <see cref="DecisionWidgetLethalBit"/> (the game is showing its FATAL
+    ///   damage icon instead of the normal one), <see cref="DecisionWidgetShieldedBit"/> (the
+    ///   amount is painted in the shield colour because items/bonuses reduced it),
+    ///   <see cref="DecisionWidgetMandatoryBit"/> (the mandatory-use highlight is lit),
+    ///   <see cref="DecisionWidgetDamageValidBit"/> (the <c>damage</c> byte means something).
+    ///   Masked to <see cref="DecisionWidgetDefinedMask"/> on write AND on read.</item>
+    /// <item><c>damage</c> — the number the take-damage option displays, 0..255, meaningful only
+    ///   with <see cref="DecisionWidgetDamageValidBit"/>. A DISPLAYED HP NUMBER, which every
+    ///   client's health bars and damage previews already show; not an identity of any kind.</item>
+    /// <item><c>n</c> — role count, clamped to <see cref="DecisionStateMaxOptions"/> on both ends
+    ///   and INDEX-ALIGNED with record 12's lines and record 24's option bytes (ONE sampler walk
+    ///   fills all three, so option <c>i</c> names the same widget in every one of them).</item>
+    /// <item>role byte — one of the <c>DecisionRole*</c> codes, clamped with
+    ///   <see cref="ClampDecisionRole"/>. <see cref="DecisionRoleUnknown"/> means "this build's
+    ///   sampler could not attribute the widget" (a short-rest Yes/No, a <c>DialogPopup</c>'s
+    ///   pooled options — see <see cref="DecisionRoleMax"/> for why those are deliberately not
+    ///   coded), which a receiver renders with the mod-drawn plate and record 12's wording —
+    ///   exactly what every build before this one drew.</item>
+    /// </list></para>
+    ///
+    /// <para>NO CARD IDENTITY, BY CONSTRUCTION: the payload is four small enumerations and a damage
+    /// number. Not one byte of it is authored content, a term, a sprite or a name — a role says
+    /// "this is the burn-one-available-card toggle", never which card would burn.</para>
+    ///
+    /// <para>Written ONLY while a decision row is really docked AND VISIBLE on the owner's board —
+    /// exactly the gate records 12 and 24 ride, so the three can never disagree — which also means
+    /// an idle packet stays byte-identical to the previous build's. Absence renders as the
+    /// pre-record look: the mod-drawn plates. ADDITIVE TLV, appended in id order behind record 28;
+    /// an older reader steps over it by its length.</para>
+    /// </summary>
+    public const byte ExtIdDecisionWidgets = 29;
+
+    /// <summary>Smallest payload <see cref="ExtIdDecisionWidgets"/> can have: the flags byte, the
+    /// damage byte and the role count. A shorter record is not trusted (never trust the wire).</summary>
+    public const int DecisionWidgetMinRecordBytes = 3;
+
+    /// <summary>Widget flags bit 0: the take-damage option is showing the game's FATAL damage icon
+    /// (<c>TakeDamagePanel.fatalDamageObject</c>) rather than the normal one — the picture that
+    /// tells the owner this damage kills.</summary>
+    public const byte DecisionWidgetLethalBit = 1 << 0;
+
+    /// <summary>Widget flags bit 1: the damage amount is painted in the game's
+    /// <c>shieldAppliedColor</c> — the owner has toggled shield items / bonuses and the number they
+    /// are reading is the REDUCED one.</summary>
+    public const byte DecisionWidgetShieldedBit = 1 << 1;
+
+    /// <summary>Widget flags bit 2: the game's mandatory-use highlight
+    /// (<c>TakeDamagePanel.mandatoryTakeDamageHighlight</c>) is lit on the take-damage option.</summary>
+    public const byte DecisionWidgetMandatoryBit = 1 << 2;
+
+    /// <summary>Widget flags bit 3: the <c>damage</c> byte carries a real number. Clear = the
+    /// sender could not read one (no take-damage option in the row, an unparsable label), and the
+    /// receiver then leaves its own widget's number alone rather than painting a guessed 0.</summary>
+    public const byte DecisionWidgetDamageValidBit = 1 << 3;
+
+    /// <summary>Every bit <see cref="ExtIdDecisionWidgets"/>'s flags byte defines today; masked on
+    /// write AND on read, so a future sender's extra bits can never light a meaning here.</summary>
+    public const byte DecisionWidgetDefinedMask =
+        DecisionWidgetLethalBit | DecisionWidgetShieldedBit
+        | DecisionWidgetMandatoryBit | DecisionWidgetDamageValidBit;
+
+    /// <summary>Role: the sampler could not attribute this option to a known game widget (a
+    /// <c>DialogPopup</c>'s pooled option button, a prompt a later build adds). The receiver falls
+    /// back to the mod-drawn plate with record 12's wording — the pre-record look.</summary>
+    public const byte DecisionRoleUnknown = 0;
+
+    /// <summary>Role: <c>TakeDamagePanel.burnAvailableCardsToggle</c> ("burn one available card").</summary>
+    public const byte DecisionRoleBurnAvailable = 1;
+
+    /// <summary>Role: <c>TakeDamagePanel.burnDiscardedCardsToggle</c> ("burn two discarded cards").</summary>
+    public const byte DecisionRoleBurnDiscarded = 2;
+
+    /// <summary>Role: <c>TakeDamagePanel.takeDamageButton</c> ("take the damage" — the option that
+    /// carries the damage icon and the amount).</summary>
+    public const byte DecisionRoleTakeDamage = 3;
+
+    /// <summary>
+    /// Highest role code this build defines — and deliberately NO HIGHER. Ids 4+ are free for the
+    /// short-rest <c>YesNoDialog</c> and the <c>DialogPopup</c> when a receiver can actually
+    /// resolve them; they are NOT reserved here, because a role a receiver does not consume is a
+    /// wire field with no consumer, which is the failure this project has already shipped once
+    /// (see the <c>[Cards] FanCloseDuration</c> note in <c>scripts/check-wire-coverage.py</c>).
+    ///
+    /// <para>WHY THOSE TWO PROMPTS ARE NOT COVERED THIS ROUND, stated rather than silently skipped:
+    /// the take-damage panel is a per-client <c>Singleton</c> the game populates on EVERY machine
+    /// (<c>ShowOtherPlayer</c>), so a receiver owns the very widgets it is asked to mirror. The
+    /// short-rest <c>YesNoDialog</c> belongs to a HAND (<c>ShortRest.yesNoDialog</c>) and the
+    /// <c>DialogPopup</c>'s option buttons are POOLED and labelled at runtime — neither exists on a
+    /// peer in the state the owner is looking at, so a role for them could only be resolved to a
+    /// different object or to nothing. Those prompts therefore keep the mod-drawn plates and
+    /// record 12's wording, which is what every build so far drew for all three.</para>
+    ///
+    /// Writer and reader both clamp with this, so an unknown code from a later build degrades to
+    /// <see cref="DecisionRoleUnknown"/> — the mod-drawn plate — rather than resolving to the wrong
+    /// widget.
+    /// </summary>
+    public const byte DecisionRoleMax = DecisionRoleTakeDamage;
+
+    /// <summary>Clamp a role code to what this build can resolve; anything above the highest
+    /// defined code becomes <see cref="DecisionRoleUnknown"/>. Applied on write AND on read.</summary>
+    public static byte ClampDecisionRole(byte role) =>
+        role <= DecisionRoleMax ? role : DecisionRoleUnknown;
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------
@@ -2189,11 +2368,11 @@ internal static class NetProtocol
     // above record 22).
     //
     // RECORD-ID RESERVATION, 2026-08-09 (the paging round). The un-ceiling of this record took NO
-    // NEW RECORD ID: 29 and up are still entirely free. That is deliberate and worth stating,
+    // NEW RECORD ID (29 has since been claimed by the decision-widget record). That is deliberate,
     // because the obvious cheap fix — "spill into record 29" — was considered and REJECTED: a
     // continuation record only doubles the ceiling, it is the same wall a bit further away, and it
     // spends a scarce id every time the wall is reached again. Paging keeps one id and has no wall
-    // at all. Ids in use today: 1..17 and 22..28. FREE: 29..255 (18..21 stay reserved for the
+    // at all. Ids in use today: 1..17 and 22..29. FREE: 30..255 (18..21 stay reserved for the
     // parallel round that claimed them).
 
     /// <summary>

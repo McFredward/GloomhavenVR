@@ -98,6 +98,23 @@ internal static class ConfigStepVectors
         Unit(t, "BoardPitchMax_Oak", 1d, ConfigSteps.UnitScope.Component);
         Unit(t, "ScaleMin", 0.05d, ConfigSteps.UnitScope.Value);
 
+        // ---- THE HEALTH BARS' SIZE AND ITS TWO BOUNDS MOVE ALIKE --------------------------------
+        // One size and the min/max the table zoom may carry it between. The bounds are worth
+        // nothing if they cannot be tuned at the resolution of the value they bound, and the
+        // Min/Max qualifier sits BEHIND the unit word in two of the three keys — the shape that
+        // shipped the asset rotation at 0.01°. Asserted through the resolver, not by reading the
+        // written-down table, so a future change to either answer has to face this.
+        t.Case("configsteps/bar-size-family");
+        Unit(t, "BarSizeScale", 0.05d, ConfigSteps.UnitScope.Value);
+        Unit(t, "BarZoomMinScale", 0.05d, ConfigSteps.UnitScope.Value);
+        Unit(t, "BarZoomMaxScale", 0.05d, ConfigSteps.UnitScope.Value);
+        t.True(ConfigSteps.TryExplicit("WorldUI", "BarSizeScale", out double barStep)
+               && ConfigSteps.TryExplicit("WorldUI", "BarZoomMinScale", out double barLoStep)
+               && ConfigSteps.TryExplicit("WorldUI", "BarZoomMaxScale", out double barHiStep)
+               && barStep == barLoStep && barStep == barHiStep,
+               "the health-bar size and both of its bounds must carry the SAME written-down step — "
+               + "a bound that steps more coarsely than the value it bounds cannot be set to it");
+
         // ---- an angle that is NOT one axis of an orientation ------------------------------------
         // "Degrees" says the number is an angle; it does not say it is a coordinate. A sweep and a
         // threshold are single quantities and their own magnitude is a perfectly good guide, so

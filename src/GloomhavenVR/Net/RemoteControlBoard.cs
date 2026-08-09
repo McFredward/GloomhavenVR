@@ -112,7 +112,7 @@ namespace GloomhavenVR.Net;
 /// carries its own tag: see <see cref="RemoteBoardContent"/> and <see cref="RemoteBoardFurniture"/>.
 /// That split is the whole design — the wire pays only for where the board IS, never for what it
 /// says. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
-internal sealed class RemoteControlBoard
+internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 {
     // Frame geometry in the same "card real-metre" units as the local board (PlayTray BoardW/H),
     // so scaling by the owner's BoardScale reproduces their board's world size.
@@ -337,6 +337,12 @@ internal sealed class RemoteControlBoard
     /// and the TMP repaints run on the <see cref="RemoteBoardContent.RefreshSeconds"/> cadence so a
     /// four-peer table stays free.</summary>
     private float _nextRefreshAt;
+
+    /// <summary>Next unscaled time this board re-adopts its transparent subtree into its
+    /// draw-order cluster (<see cref="BoardVisual.AdoptBoardOrder"/>). The content cadence: the
+    /// refresh above is what CREATES most of what needs adopting, so sweeping right after it — in
+    /// the same tick — is the shortest window a new element can spend at its creation order.</summary>
+    private float _nextOrderSweepAt;
 
     /// <summary>Change-gate for the "what is this peer's board rendering" diagnostic (see
     /// <see cref="LogContent"/>) — one Info line per actual change, never per tick.</summary>
@@ -602,6 +608,12 @@ internal sealed class RemoteControlBoard
                 RefreshContent(actor, showFronts);
             else
                 RefreshGlobalContent();
+            // This pass is what CREATES new surfaces on the board (a card face, a pile front, a
+            // readout label). Re-arm the draw-order sweep so it runs at the END of THIS tick
+            // rather than up to a cadence later: two independent timers of the same period can be
+            // a whole period out of phase, and that phase would be exactly how long a new surface
+            // spends at its creation order instead of its board's cluster slot.
+            _nextOrderSweepAt = 0f;
         }
 
         // THE MIRRORED WIDGETS RUN PER FRAME, not on the content cadence. They are clones of live
@@ -651,6 +663,76 @@ internal sealed class RemoteControlBoard
             _track?.TickLive();
             _objectives?.TickLive();
         }
+
+        // DRAW ORDER: adopt whatever this board has grown since the last sweep into its cluster,
+        // so the whole board keeps ranking against the converted-panel ladder as ONE unit and its
+        // own plane keeps ranking by its own depth (BoardVisual's header — user reports #3/#5 of
+        // 2026-08-09). Deliberately AFTER the content refresh and the mirror drive above: those
+        // are what create the cards, chips and clones this adopts, so a new element is seated in
+        // the same tick it appears. The write itself happens in the WorldUI ladder pass
+        // (CanvasConversion.TickFurnitureOrder), which is the only place any order is assigned.
+        if (Time.unscaledTime >= _nextOrderSweepAt && _root != null)
+        {
+            // The CONTENT cadence (live-tunable like every other cadence on this board), for the
+            // reason stated at _nextOrderSweepAt.
+            _nextOrderSweepAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
+            BoardVisual.BoardOrderSweep sweep =
+                BoardVisual.AdoptBoardOrder(this, _root.transform, _tag?.Root);
+            // One line per REAL change of what this board carries (the split is the gate), never
+            // per sweep. Read together with the ladder's own FURNITURE ORDER line, it states the
+            // absolute draw order of every surface on this peer's board.
+            if (sweep.Signature != _loggedOrderSweep)
+            {
+                _loggedOrderSweep = sweep.Signature;
+                VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] draw-order cluster: {sweep}. " +
+                                  "The whole board ranks against the converted-panel ladder as one " +
+                                  "unit; inside it the tier is the element's own board-local depth, " +
+                                  "so a proud dock (the initiative mirror) always covers a shallower " +
+                                  "one (the synced tooltip) and never the other way round.");
+            }
+        }
+    }
+
+    /// <summary>Change gate for the draw-order sweep line (see <see cref="Tick"/>).</summary>
+    private int _loggedOrderSweep = -1;
+
+    // ------------------------------------------------------- IFurnitureOrderAnchor (draw order) --
+
+    string WorldUI.IFurnitureOrderAnchor.FurnitureOrderName => $"remote control board [{_owner.PlayerId}]";
+
+    /// <summary>Alive while the board root exists — NOT gated on visibility, exactly like the local
+    /// board's group: a board hidden by the reveal gate keeps its registrations and comes back with
+    /// correct orders instead of paying a re-adopt at the worst possible moment.</summary>
+    bool WorldUI.IFurnitureOrderAnchor.FurnitureOrderAlive => _root != null;
+
+    /// <summary>Extra rect margin (board-local metres) around the frame when measuring this
+    /// cluster's eye distance: a remote board's docks hang well off its face (the initiative
+    /// mirror grows ~0.2 m past the top edge, the piles and the active column off the right), and
+    /// the measure has to cover the furnished apron or a menu tucked behind an overhanging piece
+    /// could out-measure the board. The local board's own value, so a peer's board and yours are
+    /// ranked by the same rule.</summary>
+    private const float OrderApronMeters = 0.18f;
+
+    /// <summary>
+    /// The cluster's eye distance: nearest point of the board's furnished face rect, measured in
+    /// BOARD-LOCAL units and transformed back out — so the peer's synced board scale is carried by
+    /// the transform rather than by an arithmetic correction here. The same clamp-into-rect measure
+    /// <c>CanvasConversion.PanelEyeDistance</c> uses for panels and <c>PlayTray</c> for the local
+    /// board, which is what makes the three directly comparable numbers.
+    /// </summary>
+    float WorldUI.IFurnitureOrderAnchor.FurnitureEyeDistance(Vector3 eye)
+    {
+        if (_root == null)
+            return float.PositiveInfinity;
+        Transform rt = _root.transform;
+        Vector3 local = rt.InverseTransformPoint(eye);
+        float halfW = BoardW * 0.5f + OrderApronMeters;
+        float halfH = BoardH * 0.5f + OrderApronMeters;
+        var onFace = new Vector3(
+            Mathf.Clamp(local.x, -halfW, halfW),
+            Mathf.Clamp(local.y, -halfH, halfH),
+            0f);
+        return Vector3.Distance(eye, rt.TransformPoint(onFace));
     }
 
     /// <summary>The actorless subset of <see cref="RefreshContent"/> (join-time, before the host
@@ -1306,6 +1388,10 @@ internal sealed class RemoteControlBoard
         // on Unity's destruction order (see RemoteWidgetMirror / RemoteAbilityCardSource).
         _track?.Destroy();
         _objectives?.Destroy();
+        // …and the third one: the furniture's mirrored DECISION ROW (ModBuild 105). It is a clone of
+        // this client's own TakeDamagePanel widgets, registered with MrBacking, so it must be
+        // released explicitly rather than left to the board root's destruction.
+        _furniture?.Destroy();
         _poseInit = false; // a rebuilt board (style switch / bundle upgrade) snaps again
         _easedScale = 1f;
         _loggedTargetScale = -1f;
@@ -1608,13 +1694,12 @@ internal sealed class RemoteControlBoard
             {
                 GameObject ring = WorldUI.SoftCueArt.RingQuad($"Ring{i}", root.transform,
                     Vector3.zero, seed, seed * RingBandFraction, gold);
-                // The remote board resolves overlapping transparents by a FIXED intra-board ladder
-                // (BoardVisual) instead of the local board's furniture order group, so the cue is
-                // seated on that ladder explicitly: at the furniture tier, under the docked widgets.
+                // DRAW ORDER: none written here. This board's cluster sweep seats the ring at the
+                // tier its own board-local depth earns (BoardVisual.AdoptBoardOrder) — it hugs the
+                // board face at z = −0.0018, i.e. the furniture tier this used to assert.
                 var mr = ring.GetComponent<MeshRenderer>();
                 if (mr == null)
                     continue; // no renderer, nothing to ping — degrade, never crash
-                mr.sortingOrder = BoardVisual.OrderFurniture;
                 var ping = ring.AddComponent<WorldUI.SoftCuePing>();
                 ping.Phase = i * 0.5f; // the two rings split the period between them
                 ping.Init(mr, gold,
@@ -1735,10 +1820,10 @@ internal sealed class RemoteControlBoard
             renderer.alignment = ParticleSystemRenderSpace.View;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
-            // The local emitter draws at sortingOrder 2 relative to its board's furniture group; this
-            // board's ladder is absolute, so the same relationship is expressed against it — over the
-            // stack's own decor, still under the docked widgets (OrderDockedWidget == 4).
-            renderer.sortingOrder = BoardVisual.OrderFurniture + 2;
+            // DRAW ORDER: none written here either (see the ping rings above). The motes rise out
+            // of the pile stack and are seated with it by this board's cluster sweep; their own
+            // toward-the-viewer velocity keeps them in front of the stack's decor on the distance
+            // tie-break, which is what the local emitter's +2 expresses on the owner's board.
 
             VRLayers.Apply(go); // mod-owned FX on the mod layer (no children — recursion-safe)
             return ps;

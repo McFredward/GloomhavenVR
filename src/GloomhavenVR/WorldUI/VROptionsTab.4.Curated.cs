@@ -218,6 +218,16 @@ internal static partial class VROptionsTab
                     {
                         new("WorldUI", "CombatLog", "show_combat_log"),
                         new("WorldUI", "ActorBars", "vr_o_actorbars"),
+                        // User request: the health bars' SIZE, plus the two ends of the clamp that
+                        // keeps the table zoom from carrying that size away ("sowie ein minimum und
+                        // maximum der Größe, damit sie sich trotz zoomen nie über die Grenzen
+                        // hinaus skalieren können"). They sit directly under the switch that turns
+                        // the bars on, because that is where a player looking for "the bars are too
+                        // big" goes first — a size dial only reachable under Erweitert is a size
+                        // dial nobody finds.
+                        new("WorldUI", "BarSizeScale", "vr_o_barsize"),
+                        new("WorldUI", "BarZoomMinScale", "vr_o_barsizemin"),
+                        new("WorldUI", "BarZoomMaxScale", "vr_o_barsizemax"),
                         new("WorldUI", "ActionElementHints", "element_hints"),
                         new("WorldUI", "ButtonCluster", "vr_o_buttoncluster"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),

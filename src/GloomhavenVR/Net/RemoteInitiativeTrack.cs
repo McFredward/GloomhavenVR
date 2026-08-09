@@ -1734,14 +1734,11 @@ internal sealed class RemoteInitiativeTrack
                 new Vector2(MaxChipW * 0.92f, 0.018f), 0.030f,
                 new Color(0.86f, 0.83f, 0.75f), TextAlignmentOptions.Center);
 
-            // The fallback chips ARE the docked initiative widget while the mirror is down, so
-            // they take the same sub-ladder tier the mirror canvas uses: strictly above the
-            // board's furniture (the peer's pick banner overlaps this strip) at every angle -
-            // see BoardVisual's sub-ladder header. Text stays in front of its plate via the
-            // 1 mm z offset (equal orders fall back to distance), unchanged from before.
-            _plate.sortingOrder = BoardVisual.OrderDockedWidget;
-            _initiative.sortingOrder = BoardVisual.OrderDockedWidget;
-            _name.sortingOrder = BoardVisual.OrderDockedWidget;
+            // DRAW ORDER is NOT set here any more: the chips ARE the docked initiative widget
+            // while the mirror is down, and they sit at the same board-local depth it does, so the
+            // owning board's cluster sweep seats them at the same tier by measuring exactly that
+            // (BoardVisual.AdoptBoardOrder). Text stays in front of its plate via the 1 mm z
+            // offset (equal orders fall back to distance), unchanged from before.
 
             _root.gameObject.SetActive(false);
         }

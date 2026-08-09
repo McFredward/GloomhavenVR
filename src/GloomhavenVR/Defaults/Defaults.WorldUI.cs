@@ -136,6 +136,9 @@ internal static partial class Defaults
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
     internal const bool ActorBars = true;                    // => [WorldUI] ActorBars
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize
+    internal const float BarSizeScale = 1.0f;                // => [WorldUI] BarSizeScale
+    internal const float BarZoomMinScale = 0.7f;             // => [WorldUI] BarZoomMinScale
+    internal const float BarZoomMaxScale = 1.5f;             // => [WorldUI] BarZoomMaxScale
     internal const bool WristHud = true;                     // => [WorldUI] WristHud
     internal const bool FlatScreen = true;                   // => [WorldUI] FlatScreen
     internal const bool Tooltips = true;                     // => [WorldUI] Tooltips

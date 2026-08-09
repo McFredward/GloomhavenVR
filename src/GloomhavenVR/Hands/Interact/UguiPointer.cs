@@ -621,9 +621,16 @@ internal sealed class UguiPointer
             if (!Core.PerfConfig.Quiet)
                 Core.VRLog.Info("Interact", $"uGUI click: '{_pressedClickHandler.name}' ({_sourceTag}).");
 
-            // REFUSAL ACKNOWLEDGEMENT (user report 2026-08-09: "das Ablehnen-Geräusch … immer
+            // CLICK ACKNOWLEDGEMENT (user report 2026-08-09: "das Ablehnen-Geräusch … immer
             // dann … wenn man in der Initiativreihenfolge ein Bild von einem nicht-spielbaren
-            // Character anklickt"). It sits HERE, not in RayUguiDriver or PokeInteractor, because
+            // Character anklickt", re-keyed on the click's OUTCOME after the follow-up report "das
+            // 'Abgelehnt-Geräusch' kommt wenn ich auf ein Character den ich selber nicht besitze —
+            // obwohl es ja gar nicht (mehr) abgelehnt wird": a refused click gets the game's
+            // refusal item, a successful one — including the read-only view of a character this
+            // client does not control — gets the game's character-change item. The outcome is read
+            // from the ledger the click seam itself wrote DURING the dispatch above, which is why
+            // this call must stay on the line after it, in the same frame. It sits HERE, not in
+            // RayUguiDriver or PokeInteractor, because
             // this is the one line both VR click paths pass through — the laser and the fingertip
             // poke — and the player will try both. A poke that PokeInteractor.PressAllowed
             // withheld never pressed and therefore never reaches this line, so a touch the grip
@@ -631,7 +638,7 @@ internal sealed class UguiPointer
             // dispatch above so vanilla has already had its full turn at the event; the method
             // returns in two reference tests for every click that is not an initiative portrait,
             // and it cannot influence what the click did.
-            WorldUI.Surfaces.InitiativeRefusalSound.NoticeClick(_pressedClickHandler);
+            WorldUI.Surfaces.InitiativePortraitClickSound.NoticeClick(_pressedClickHandler);
         }
 
         // End any active drag (StandaloneInputModule fires endDrag after up+click) and

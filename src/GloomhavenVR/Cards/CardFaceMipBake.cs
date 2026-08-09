@@ -218,10 +218,28 @@ internal static class CardFaceMipBake
     }
 
     /// <summary>
+    /// Resolved budget usage, for the callers that log WHEN a bake happened (the card
+    /// faces log it on every art arrival that actually baked something). Kept as one
+    /// string so every module words the ceiling identically — the 2026-08 regression was
+    /// diagnosed purely from these numbers in the hardware log.
+    /// </summary>
+    internal static string BudgetSummary =>
+        $"~{s_bakedVramBytes / (1024f * 1024f):F0} MB of {MaxBakedVramBytes / (1024f * 1024f):F0} MB VRAM " +
+        $"({s_bakeCount} texture(s) + {s_spriteBakeCount} sprite region(s))" +
+        (s_vramBudgetLogged ? " — CEILING REACHED, later art keeps the mipless original" : string.Empty);
+
+    /// <summary>VRAM currently held by every baked copy — see <see cref="MaxBakedVramBytes"/>.</summary>
+    internal static long BakedVramBytes => s_bakedVramBytes;
+
+    /// <summary>
     /// Swap every mipless-atlas sprite under <paramref name="faceRoot"/> (the adopted
     /// FullAbilityCard) for its mip-baked equivalent. Idempotent and cheap once warm:
     /// already-swapped Images and known sprites resolve via dictionary hits. Guarded —
     /// a bake surprise must never break card adoption.
+    /// <para>This is the BULK pass (walks the whole face). The per-frame, allocation-free
+    /// equivalent that keeps an already-adopted face fresh the instant the game assigns new art
+    /// lives in <see cref="CardFace.MaintainArtArrival"/> and goes through
+    /// <see cref="ReplacementFor"/> directly.</para>
     /// </summary>
     internal static void Rescan(Component? faceRoot)
     {

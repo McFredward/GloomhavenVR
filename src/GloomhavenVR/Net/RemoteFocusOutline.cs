@@ -39,7 +39,9 @@ namespace GloomhavenVR.Net;
 ///
 /// <para>The Steam-avatar ring stays a <see cref="WorldFrame"/>: it frames a ~5.5 cm PICTURE (a
 /// stretched unit quad), not a modelled object, so there is no silhouette to trace — a rectangle is
-/// the true outline of a rectangular photo.</para>
+/// the true outline of a rectangular photo. Since 2026-08-09 it is not built here either: the same
+/// picture also floats over that peer's head mask and had to grow the same ring (user request #4),
+/// so the ring is ONE class both carriers drive — <see cref="AvatarTurnRing"/>.</para>
 ///
 /// <para>Purely cosmetic; owned and torn down by the board that builds it. Never touches game
 /// state, never reads a card.</para>
@@ -59,13 +61,6 @@ internal sealed class RemoteFocusOutline
     /// negative pulls it toward the viewer and off the slab face).</summary>
     private const float BoardZ = -0.004f;
 
-    /// <summary>Bar thickness of the avatar ring (metres). Thinner than the board's: it frames a
-    /// ~5.5 cm picture, and a 12 mm bar would swallow it.</summary>
-    private const float AvatarThickness = 0.005f;
-
-    /// <summary>Outward margin of the avatar ring past the avatar quad (metres).</summary>
-    private const float AvatarMargin = 0.006f;
-
     private readonly int _playerId;
 
     /// <summary>The frame around the peer's board asset, or null when that peer is still on the
@@ -75,8 +70,9 @@ internal sealed class RemoteFocusOutline
     /// <summary>The legacy rectangle: the FALLBACK renderer only (see the class doc).</summary>
     private readonly WorldFrame? _rectFrame;
 
-    private WorldFrame? _avatarRing;
-    private Transform? _avatarHost;
+    /// <summary>The ring around the board tag's Steam picture — the shared cue (see the class
+    /// doc); built lazily by <see cref="AvatarTurnRing"/> the first tick a picture exists.</summary>
+    private readonly AvatarTurnRing _avatarRing;
 
     /// <summary>
     /// Build the board frame under <paramref name="boardRoot"/>. Frames the real board asset's
@@ -88,18 +84,15 @@ internal sealed class RemoteFocusOutline
     internal RemoteFocusOutline(int playerId, Transform boardRoot, Vector2 boardSize)
     {
         _playerId = playerId;
+        _avatarRing = new AvatarTurnRing(playerId, "board");
         _boardFrame = BoardFrame.Build(boardRoot, $"remote control board [{playerId}]");
-        // Seat the stroke on the REMOTE board's own intra-board sub-ladder, explicitly rather than
-        // by leaving Unity's default: it is board FURNITURE (a transparent, depth-less surface in
-        // the board's own plane), so it belongs at BoardVisual.OrderFurniture, under this board's
-        // docked widgets and its tooltip, exactly like the pick-banner plate. A peer's board has no
-        // distance-ranked furniture GROUP the way the local one does (BoardVisual's header: the
-        // remote sub-ladder is a fixed 0/4/8 that stays below the converted-panel ladder), so the
-        // stroke inherits that board's known limitation instead of inventing a third rule for
-        // itself. The local board's stroke IS ladder-ranked - see FocusDriver.TickBoardFrame.
-        MeshRenderer? frameRenderer = _boardFrame?.Renderer;
-        if (frameRenderer != null)
-            frameRenderer.sortingOrder = BoardVisual.OrderFurniture;
+        // DRAW ORDER is NOT set here any more. The stroke is board FURNITURE (a transparent,
+        // depth-less surface in the board's own plane at BoardZ = −0.004), and since 2026-08-09 a
+        // peer's board HAS a distance-ranked draw-order cluster of its own — the limitation this
+        // seat used to inherit is gone. The board's sweep seats the stroke at the tier that depth
+        // earns, which is the same "under this board's docked widgets" it asserted before, now
+        // ranked against the converted-panel ladder as well. The local board's stroke is
+        // ladder-ranked the same way — see FocusDriver.TickBoardFrame.
         if (_boardFrame == null)
         {
             _rectFrame = WorldFrame.Build(
@@ -120,41 +113,15 @@ internal sealed class RemoteFocusOutline
         Color? tint = visible ? FocusCue.Tint(CharacterFocus.MarkForPeer(_playerId)) : null;
         _boardFrame?.Apply(tint);
         _rectFrame?.Apply(tint);
-
-        if (avatarQuad == null)
-        {
-            _avatarRing?.Apply(null);
-            return;
-        }
-        if (_avatarRing == null || !ReferenceEquals(_avatarHost, avatarQuad))
-        {
-            // The tag rebuilds its children whenever the avatar sprite or the username changes,
-            // so the ring is rebuilt against the live quad rather than resurrected.
-            _avatarRing?.Destroy();
-            // The ring is a SIBLING of the quad, not a child: the quad carries a non-uniform
-            // localScale (it is a unit Unity quad stretched to the avatar size), which a child
-            // would inherit and be squashed by.
-            Transform? parent = avatarQuad.parent;
-            _avatarRing = WorldFrame.Build(
-                parent != null ? parent : avatarQuad,
-                $"GloomhavenVR.RemoteFocusAvatarRing[{_playerId}]",
-                new Vector2(avatarSize.x + AvatarMargin * 2f, avatarSize.y + AvatarMargin * 2f),
-                AvatarThickness, BoardZ);
-            _avatarRing.Apply(null);
-            _avatarHost = avatarQuad;
-        }
-        // Follow the quad's own seat inside the tag row (the avatar sits left of the name).
-        Vector3 seat = avatarQuad.localPosition;
-        _avatarRing.SetLocalSeat(new Vector3(seat.x, seat.y, seat.z + BoardZ));
-        _avatarRing.Apply(tint);
+        // The picture's ring reads the SAME mark from the SAME palette one call deeper; passing
+        // `visible` rather than the resolved tint keeps that single decision point intact.
+        _avatarRing.Tick(avatarQuad, avatarSize, visible);
     }
 
     internal void Destroy()
     {
         _boardFrame?.Destroy();
         _rectFrame?.Destroy();
-        _avatarRing?.Destroy();
-        _avatarRing = null;
-        _avatarHost = null;
+        _avatarRing.Destroy();
     }
 }
