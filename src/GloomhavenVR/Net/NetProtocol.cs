@@ -416,7 +416,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 95;
+    public const ushort ModBuild = 96;
+    // Build 96: the item area gets its animations back and the 1:1 tuning guarantee gets teeth.
+    // LOCAL: the item-flow caps were DESTROYED and RECREATED on every clip-in (33 board builds in
+    // one session, 29 of them within three lines of a clip-in) — construction is the one transition
+    // an authored crumble/assemble can never cover; the caps now live and animate. A cap assembles
+    // out of warm dust instead of ramping its colour up from a 0.15 floor, whose product with the
+    // user's 0.5 tint was black on a black board — the invariant that replaces the floor is a
+    // per-channel max with the rest colour, so NO tint can render a cap darker than its own rest.
+    // The placed item card stays in the recess until the item's action has actually resolved (four
+    // live reads, no ledger — chief among them that UseItemService does not resolve anything, it
+    // ENQUEUES). The usable-pile cue runs on a heartbeat with a REST in it and throws rings, because
+    // peripheral vision is a transient detector and passthrough contains nothing that changes SIZE.
+    // The item berth's dark plate is gone: it hangs BELOW the board's slab, so in MR its backdrop is
+    // the player's room and a dark plate is a hole, not a rectangle.
+    // WIRE: record 28 is RANGE-PAGED — pages are complete statements about an id range, tiling the
+    // space, so absence still means "at default", a lost page self-repairs, and there is no ceiling
+    // left to hit. Convergence: complete state by T + pageCount x 200 ms (≤400 ms today). The audit
+    // behind it found 11 dials that never rode at all and one bug that hit EVERY player: the
+    // mirrored item fan's radius was re-typed from the wrong default, 12 % too wide. New guard
+    // scripts/check-wire-coverage.py fails the build when a board-affecting dial has neither wire
+    // coverage nor an annotated opt-out — it caught the ten new item-cue dials on its first run.
+    // Also new on the wire: the usable-pile cue (board-UI record 4 byte 2 bit 7 — the LAST free bit
+    // in that record) and the re-arted mirrored berth.
     // Build 95: the last item BUTTONS are gone — an active bonus whose BaseCard is a CItem and
     // which needs no further option is now PLACED (card into the recess, USE presses the game's own
     // row through ToggleActiveBonus) instead of pressed, and taking the card back out is the
