@@ -50,6 +50,14 @@ internal sealed class ActivePileViewer
 
     internal bool Contains(VRCard card) => _cards.Contains(card);
 
+    /// <summary>The cards the column is currently showing (read-only view, never mutated). Read by
+    /// the laser stand-down's contact scan (<c>CardsDriver.ContactedCard</c>): the column is the one
+    /// card pool with NO hand sweep of its own, so its only candidate used to be
+    /// <c>Grabber.Highlighted</c> — the single nearest grabbable — and a hand buried in a column
+    /// card while the grabber preferred something else stood no beam down (user report 2026-08-09,
+    /// "das soll für alle Fächer gelten").</summary>
+    internal IReadOnlyList<VRCard> Cards => _cards;
+
     // ------------------------------------------------------------------ lifecycle --
 
     /// <summary>

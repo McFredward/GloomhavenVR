@@ -200,14 +200,23 @@ internal sealed class RayInteractor : IPickProvider
     public void StandDownForCardContact(string zone, Object? card, in CardContact contact)
     {
         _cardContactUntil = Time.unscaledTime + CardContactGraceSeconds;
-        _cardContactZone = zone;
         // Frozen together on the logging edge (see TickCardContactLog): the name, the zone and the
         // geometry must describe ONE frame — the frame the stand-down actually began — or the line
         // would report a card from one moment and a distance from another. Reading card.name
         // allocates, which is the other reason this is edge-gated.
+        //
+        // THE ZONE IS PART OF THAT FREEZE (2026-08-09). It used to be written on EVERY call while
+        // the card and the geometry were written only on the edge, so a hand that swept from one
+        // pool into another inside a single contact episode — item fan into the board's use recess,
+        // browse arc into a slot — printed the LAST pool it touched next to the FIRST card it
+        // touched, and the RESTORED line contradicted its own STAND-DOWN line. Now that the zone
+        // vocabulary distinguishes the discard arc from the burnt arc from the item fan
+        // (CardsDriver's Zone* literals), that mismatch would land exactly on the field the next
+        // hardware log is meant to be grepped by.
         if (!_loggedCardContact)
         {
             _cardContactCard = card != null ? card.name : "a card";
+            _cardContactZone = zone;
             _cardContactGeometry = contact;
         }
     }

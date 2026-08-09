@@ -675,64 +675,258 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
-    /// The ONE grabbable card/chip <paramref name="hand"/> is physically TOUCHING right now, or
-    /// null. Each of the five pools contributes its own single-winner election as the CANDIDATE
-    /// (see <see cref="UpdateLaserContactStandDown"/> for why the elections and not a second one of
-    /// our own), and every candidate then has to pass the same geometric overlap test —
+    /// The ONE card/chip <paramref name="hand"/> is physically TOUCHING right now, or null. Each
+    /// pool contributes its own single-winner election as the FIRST candidate (see
+    /// <see cref="UpdateLaserContactStandDown"/> for why the elections and not a second one of our
+    /// own), and every candidate then has to pass the same geometric overlap test —
     /// <see cref="TryHandContact(VRHand, VRCard, out ContactGeometry)"/> — before it counts.
     ///
     /// <para>A candidate that fails the touch test does NOT end the search: the pools are different
     /// card sets and a hand elected in one can be buried in another (the ability fan hangs off the
-    /// gate palm while the browse arc and the item fan float over the board). Falling through costs
-    /// at most four more rect tests on a frame that is about to conclude "no contact" anyway.</para>
+    /// gate palm while the browse arc and the item fan float over the board).</para>
+    ///
+    /// <para>EVERY FAN, NOT ONLY THE ELECTABLE ONES (user report 2026-08-09: "Im den fliegenden
+    /// Item-Fächer wenn man die Karten physisch berührt soll hier exakt mit der selben Logik wie
+    /// beim Hand-Fächer auch der Laser deaktiviert werden … Das soll für alle Fächer gelten, auch
+    /// abgeworfen und verbrannt."). Reading ONLY the elections quietly made the guarantee conditional
+    /// on a card being ELECTABLE, and the two things are not the same question:</para>
+    /// <list type="bullet">
+    /// <item>every VRCard election runs through <c>FanSweep.Score</c>, whose eligibility predicate is
+    ///   <c>IFanSweepTarget.SweepEligible =&gt; !IsHeld &amp;&amp; CanGrab</c>. A DISCARD/BURNT browse arc
+    ///   opened on a character this client may not drive is stamped <c>Grabbable = false</c> by the
+    ///   rebuild's read-only funnel (<c>Board.CharacterFocus.HandInspectable</c> is
+    ///   <c>IsLocalHand</c>, so in multiplayer that is every OTHER player's pile), and
+    ///   <see cref="VRCard.CanGrab"/> is additionally false for EVERY card while a dialog is up
+    ///   (<c>VRMode.ModalUI</c>). Such a card elects nothing and <see cref="PileBrowser.HandOwnedCard"/>
+    ///   refuses it a second time on the same flag — so the arc could never stand a beam down,
+    ///   however deep the hand was buried in it. The ITEM fan has no such gate
+    ///   (<c>ItemChip.SweepEligible</c> is holder/recess only), which is precisely why the
+    ///   ModBuild 96 hardware log carries 26 item-fan stand-downs and zero browse ones;</item>
+    /// <item>the browse arc elects ONE winner across BOTH hands (<c>PileBrowser._handWinnerHand</c>),
+    ///   where the item fan elects per hand (<c>ItemsPile.WinnerFor</c>) — so with two hands in the
+    ///   arc the loser's beam stayed live;</item>
+    /// <item>the active column has no sweep at all and leans on <c>Grabber.Highlighted</c>, which is
+    ///   the ONE nearest grabbable per hand: a hand inside a column card while the grabber prefers
+    ///   something else offered no candidate either.</item>
+    /// </list>
+    /// <para>So each pool now falls through to a direct CONTACT SCAN of its own card list. That is
+    /// NOT a second election and does not weaken the round-2 ruling: an election scores, ranks,
+    /// carries hysteresis and decides which card LIFTS and owns the trigger — this scan does none of
+    /// those, it only asks the very same ±<see cref="ContactSlabHalfDepthMeters"/> question of every
+    /// card in the pool instead of one, and answers a boolean. It can therefore only ever fire where
+    /// a hand point is genuinely inside a card face, which is the exact condition the stand-down is
+    /// defined by. It is bounded (a pile arc is a dozen cards, the item fan a handful), free of
+    /// allocations and square roots, and each scan is gated by the same hand test its election
+    /// already used — in particular the ability fan is scanned for the DOMINANT hand only, because
+    /// the fan hangs off the gate hand's own palm and scanning it for that hand would stand its beam
+    /// down for as long as the fan is open.</para>
     ///
     /// <paramref name="zone"/> is a literal naming the pool and <paramref name="geo"/> carries the
     /// measurement, both for the stand-down log line. Allocation-free.
     /// </summary>
     private Object? ContactedCard(VRHand hand, out string zone, out ContactGeometry geo)
     {
+        // The ability fan is the DOMINANT hand's alone (the gate hand's palm holds it up from
+        // underneath — see UpdatePalmGate / VRCard.InteractionBlockedHand), so both the election
+        // read and the fan scan below share this one gate.
+        bool dominant = !ReferenceEquals(hand, _gateHand) && ReferenceEquals(hand, VRHands.Primary);
+        VRCard? hit;
+
         // 1. the dominant hand's election: the open ability fan PLUS the board's slot/pick-field
         //    recesses (the arbitration scores both pools into one winner, so ask the fan which
         //    of the two it is purely to name the zone).
-        if (!ReferenceEquals(hand, _gateHand) && ReferenceEquals(hand, VRHands.Primary)
-            && TryHandContact(hand, _handContactWinner, out geo))
+        if (dominant && TryHandContact(hand, _handContactWinner, out geo))
         {
-            zone = _fan.Contains(_handContactWinner!) ? "hand fan" : "board slot / pick field";
+            zone = _fan.Contains(_handContactWinner!) ? ZoneHandFan : ZoneBoardRecess;
             return _handContactWinner;
         }
         // 2. the gate hand's parallel election over the same recesses (fan cards refuse that
         //    hand outright — the fan hangs off its own palm).
         if (ReferenceEquals(hand, _gateHand) && TryHandContact(hand, _gateContactWinner, out geo))
         {
-            zone = "board slot / pick field";
+            zone = ZoneBoardRecess;
             return _gateContactWinner;
         }
-        // 3./4. the two board-anchored fans — both hands sweep these.
+        // 3. the discard/burnt browse arc — both hands, election first, then the arc itself.
         VRCard? browse = _browser.HandOwnedCard(hand);
         if (TryHandContact(hand, browse, out geo))
         {
-            zone = "pile browse arc";
+            zone = BrowseZone();
             return browse;
         }
+        if (_browser.IsOpen && TryContactInPool(hand, _browser.Cards, browse, out hit, out geo))
+        {
+            zone = BrowseZone();
+            return hit;
+        }
+        // 4. the item fan — election first (it alone knows the card lying in the board's USE
+        //    RECESS, which is not an arc member at all), then the arc itself.
         ItemsPile.ItemChip? chip = _piles.HandOwnedItemChip(hand);
         if (TryHandContact(hand, chip, out geo))
         {
-            zone = "item fan";
+            zone = ItemZone(chip!);
             return chip;
+        }
+        if (_piles.ItemsBrowseOpen
+            && TryContactInChips(hand, _piles.ItemChips, chip, out ItemsPile.ItemChip? chipHit, out geo))
+        {
+            zone = ItemZone(chipHit!);
+            return chipHit;
         }
         // 5. the active column is the one card pool with NO hand-sweep election of its own, so
         //    its contact signal is the hand's proximity grab candidate — which is exactly "the
         //    card this hand's trigger would take", sticky by the grabber's own switch margin.
-        if (hand.Grabber.Highlighted is VRCard prox && prox != null && !prox.IsHeld
-            && prox.CanGrab && _active.Contains(prox)
+        VRCard? prox = hand.Grabber.Highlighted as VRCard;
+        if (prox != null && !prox.IsHeld && prox.CanGrab && _active.Contains(prox)
             && TryHandContact(hand, prox, out geo))
         {
-            zone = "active column";
+            zone = ZoneActive;
             return prox;
+        }
+        // No `skip` here on purpose: `prox` above is only TESTED when it clears the grabber's own
+        // conditions (not held, CanGrab, a member of the column), so skipping it unconditionally
+        // would re-open the very hole this scan closes for a rooted column card. IsShown IS
+        // required, though — SetVisible(false) disables the column root WITHOUT clearing the card
+        // list, and those cards keep their last world pose beside the board, where they would be
+        // an invisible obstacle. The proximity branch above never needed the gate because a
+        // disabled collider cannot be highlighted; a geometric scan has no such protection.
+        if (_active.IsShown && TryContactInPool(hand, _active.Cards, null, out hit, out geo))
+        {
+            zone = ZoneActive;
+            return hit;
+        }
+        // 6. the board's own recesses, election-blind and for BOTH hands (the two elections above
+        //    are reach-scored and CanGrab-gated; a card docked in a slot the phase has rooted is
+        //    still just as solid in front of the beam). Four cards at most, so no skip bookkeeping:
+        //    re-testing the one this hand's election already covered costs a single rect test.
+        if (_tray.IsVisible)
+        {
+            for (int slot = 0; slot < 2; slot++)
+            {
+                VRCard? occupant = _tray.Occupant(slot);
+                if (TryHandContact(hand, occupant, out geo))
+                {
+                    zone = ZoneBoardRecess;
+                    return occupant;
+                }
+            }
+            if (TryContactInPool(hand, _fieldCards, null, out hit, out geo))
+            {
+                zone = ZoneBoardRecess;
+                return hit;
+            }
+        }
+        // 7. the ability fan, election-blind — DOMINANT HAND ONLY (see `dominant` above).
+        if (dominant && _fan.IsOpen
+            && TryContactInPool(hand, _fan.Cards, _handContactWinner, out hit, out geo))
+        {
+            zone = ZoneHandFan;
+            return hit;
         }
         zone = "";
         geo = default;
         return null;
+    }
+
+    // ---- stand-down ZONE vocabulary -------------------------------------------------------
+    //
+    // One literal per POOL THE NEXT HARDWARE LOG MUST BE ABLE TO TELL APART, because the log line
+    // is the only instrument this feature has. The single "pile browse arc" literal these replace
+    // could not say WHICH pile was touched, and that ambiguity is exactly what left the
+    // discard/burnt question open after ModBuild 96 (the session opened only the ITEMS stack, so
+    // "0 browse stand-downs" meant "never exercised" and read like "broken"). Literals, never
+    // formatted per frame — RayInteractor.StandDownForCardContact is a per-frame call.
+
+    private const string ZoneHandFan = "hand fan";
+    private const string ZoneBoardRecess = "board slot / pick field";
+    private const string ZoneActive = "active column";
+    private const string ZoneItemFan = "item fan";
+    private const string ZoneItemRecess = "item use recess";
+    private const string ZoneDiscardArc = "discard browse arc";
+    private const string ZoneBurntArc = "burnt browse arc";
+    private const string ZoneBrowseArc = "pile browse arc";
+
+    /// <summary>Which browse arc is up — <see cref="PileBrowser"/> hosts the discard AND the burnt
+    /// fan through one instance, so its <see cref="PileBrowser.Kind"/> is the only thing that can
+    /// tell them apart. Falls back to the old generic literal if no kind is latched (the one frame
+    /// of a close race), which is vague but never a lie.</summary>
+    private string BrowseZone()
+    {
+        PileKind? kind = _browser.Kind;
+        if (kind == PileKind.Discard)
+            return ZoneDiscardArc;
+        if (kind == PileKind.Burnt)
+            return ZoneBurntArc;
+        return ZoneBrowseArc;
+    }
+
+    /// <summary>An item chip touched in the floating ARC and one touched lying in the board's USE
+    /// RECESS are two different reaches for the player and two different geometries for us (the
+    /// recess card is clipped into board furniture, is not an arc member, and reaches the stand-down
+    /// only through <c>ItemsPile.HandOwnedChip</c>'s grabber branch), so the log names them
+    /// apart.</summary>
+    private static string ItemZone(ItemsPile.ItemChip chip) =>
+        chip.PendingUse ? ZoneItemRecess : ZoneItemFan;
+
+    // ---- the pool CONTACT SCAN (see ContactedCard for why this is not a second election) ----
+
+    /// <summary>
+    /// First card in <paramref name="pool"/> that <paramref name="hand"/> is physically inside, or
+    /// false. <paramref name="skip"/> is the pool's elected candidate, already tested by the caller —
+    /// passing it in keeps the common case at exactly the cost it had before this scan existed.
+    /// Order within the pool is the pool's own (arc order); when a hand is inside two overlapping
+    /// cards at once EITHER answer is correct, because the question is "does the beam leave through
+    /// a card", not "which card would you take". Unity's lifetime-aware <c>==</c> covers a destroyed
+    /// member. No allocations, no square roots.
+    ///
+    /// <para>ONLY WHAT IS ACTUALLY ON SCREEN. A pool can legitimately still LIST a card whose
+    /// GameObject is disabled (a closed fan root, a card mid-recycle), and a disabled card keeps its
+    /// last world pose — so without this test the scan would find an INVISIBLE obstacle and take the
+    /// beam away for nothing. The election branches never needed the test because a disabled
+    /// collider can neither be swept nor highlighted; a geometric scan has no such protection.</para>
+    /// </summary>
+    private static bool TryContactInPool(VRHand hand, IReadOnlyList<VRCard>? pool, VRCard? skip,
+        out VRCard? hit, out ContactGeometry geo)
+    {
+        hit = null;
+        geo = default;
+        if (pool == null)
+            return false;
+        for (int i = 0; i < pool.Count; i++)
+        {
+            VRCard card = pool[i];
+            if (card == null || ReferenceEquals(card, skip) || !card.gameObject.activeInHierarchy)
+                continue;
+            if (TryHandContact(hand, card, out geo))
+            {
+                hit = card;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Item-chip twin of <see cref="TryContactInPool"/> — a chip is not a
+    /// <see cref="VRCard"/>, so it needs its own loop over the same test.</summary>
+    private static bool TryContactInChips(VRHand hand, IReadOnlyList<ItemsPile.ItemChip>? pool,
+        ItemsPile.ItemChip? skip, out ItemsPile.ItemChip? hit, out ContactGeometry geo)
+    {
+        hit = null;
+        geo = default;
+        if (pool == null)
+            return false;
+        for (int i = 0; i < pool.Count; i++)
+        {
+            ItemsPile.ItemChip chip = pool[i];
+            if (chip == null || ReferenceEquals(chip, skip) || !chip.gameObject.activeInHierarchy)
+                continue;
+            if (TryHandContact(hand, chip, out geo))
+            {
+                hit = chip;
+                return true;
+            }
+        }
+        return false;
     }
 
     // ------------------------------------------- the CONTACT test (touch, not proximity) --
