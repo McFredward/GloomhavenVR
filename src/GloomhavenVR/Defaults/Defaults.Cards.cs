@@ -90,14 +90,71 @@ internal static partial class Defaults
     //
     // The five axes below are the ones that survive it, each for a stated reason — see the Loc
     // descriptions and Cards/ItemsPile.cs's emerge/collapse region for the derivation.
-    internal const float ItemFanOpenDuration = 0.34f;                                                 // => [Cards] ItemFanOpenDuration
-    internal const float ItemFanOpenStagger = 0.055f;                                                 // => [Cards] ItemFanOpenStagger
-    internal const float ItemFanOpenArc = 0.06f;                                                      // => [Cards] ItemFanOpenArc
+    // ─── SECOND PRESENCE PASS (user report 2026-08-09): "Die Animation auf der Item-Pile ist immer
+    // noch zu dezent - insbesondere im mixed reality modus kaum erkennbar - es soll aber eine
+    // ÄHNLICHE Animation bleiben aber die Sichtbarkeit erhöhen."
+    //
+    // THE AMPLITUDES WERE NOT THE BINDING CONSTRAINT, and the hardware log of 2026-08-09 says so
+    // with numbers rather than with an opinion. Every laser/sweep diagnostic line carries the
+    // hovered chip's LIVE real-world face width, which is a direct probe of this animation's scale
+    // term. One open, ModBuild 93, board world scale 36.5×:
+    //
+    //     0.6 cm  (the seed, on the stack)  →  4.7 cm  →  5.5 cm  →  4.7 cm  (settled)
+    //
+    // That 5.5 between two 4.7s IS ItemFanSettleOvershoot landing: the flight runs to completion,
+    // the back-ease overshoot plays, the seed scale is honoured, nothing is being clipped or cut
+    // short. Two other opens probe the same shape (0.5 → 4.2 cm, and 0.8 → 6.3 → 6.9 cm at a
+    // different board scale). And nothing overrides these values: the config snapshot in
+    // .planning/debug/default/ contains no ItemFan* key at all (it predates the feature), so what
+    // the user judged "kaum erkennbar" was these shipped numbers, playing in full.
+    //
+    // WHAT IS BINDING IS TIME SPENT AT A LEGIBLE SIZE — a different axis from amplitude, and the
+    // reason turning the amplitudes up again would have failed a third time. Read the same probe as
+    // a size-over-time curve: the flight BEGINS at 0.5-0.8 real-world centimetres. At a normal
+    // ~50 cm reading distance that is well under one degree of visual angle, and the log's own
+    // warnings show what is being rendered at that size — "MIP BAKE skip: sprite 'Eagle-Eye_Goggles'
+    // stays MIPLESS - per-sprite bake budget exhausted (48)", fired for EVERY item face in the very
+    // frames the fan opens. A mipless sprite minified ~40× is not a small card, it is aliasing; in
+    // stereo the two eyes alias differently, so it reads as shimmer rather than as an object. So
+    // roughly the first half of a 0.34 s flight was spent below the resolution at which the eye can
+    // tell there is a CARD there — and mixed reality removes what was left of the margin, because
+    // Virtual Desktop's passthrough layer is a lower-resolution, motion-blurred video feed composited
+    // against a bright, high-contrast room. The animation was not too small. It was over before it
+    // became visible.
+    //
+    // THE SAME ANIMATION, GIVEN TIME TO BE SEEN — every axis keeps its role, none is replaced:
+    //   • DURATION up 0.34 → 0.48 s (close 0.30 → 0.42). The single change the evidence demands.
+    //   • SEED up 0.12 → 0.30. This deliberately walks back the previous pass's 0.35 → 0.12, which
+    //     reasoned "a card that grows eightfold is coming toward you". True — but only for a viewer
+    //     who can SEE it during the growth, and at 0.12 the first third of the flight is the
+    //     sub-degree shimmer above. 0.30 still more than TRIPLES the card over the flight, which is
+    //     a strong depth cue, and it is a legible card from the first frame it moves.
+    //   • STAGGER up 0.055 → 0.075 (close 0.032 → 0.045): the moving front is the cue that survives
+    //     a busy background, so it gets proportionally more of the longer window, and the centre-out
+    //     ripple stays exactly the ripple it was.
+    //   • ARC up 0.06 → 0.09 m: the bow toward the viewer is the one cue passthrough structurally
+    //     cannot mask (stereo disparity), and it is the term that should grow WITH the flight time
+    //     rather than against it.
+    //   • SPIN and OVERSHOOT UNCHANGED at 52° / 1.4 — the log proves both are already arriving.
+    // A 7-item fan therefore deals in 0.48 + 3 × 0.075 = 0.70 s, up from 0.51 s: still a deliberate
+    // gesture answering a deliberate poke on the items stack, and still recognisably the animation
+    // he said he liked.
+    //
+    // CONSIDERED AND REJECTED — an MrBacking plate behind the flying chips. Plates exist for THIN
+    // content floating over the room (glyphs, converted panels); an item chip is already opaque
+    // geometry with its own AlphaTest backing slab at queue 2450 with ZWrite ON, which per
+    // MrBacking's own sorting contract discards a plate over the whole card silhouette per pixel.
+    // A plate would therefore have added nothing behind the card and a visible dark rectangle
+    // around it — and a rectangle that flies with the card is a different animation, which is
+    // exactly what he asked us not to do.
+    internal const float ItemFanOpenDuration = 0.48f;                                                 // => [Cards] ItemFanOpenDuration
+    internal const float ItemFanOpenStagger = 0.075f;                                                 // => [Cards] ItemFanOpenStagger
+    internal const float ItemFanOpenArc = 0.09f;                                                      // => [Cards] ItemFanOpenArc
     internal const float ItemFanOpenSpinDegrees = 52f;                                                // => [Cards] ItemFanOpenSpinDegrees
-    internal const float ItemFanSeedScale = 0.12f;                                                    // => [Cards] ItemFanSeedScale
+    internal const float ItemFanSeedScale = 0.3f;                                                     // => [Cards] ItemFanSeedScale
     internal const float ItemFanSettleOvershoot = 1.4f;                                               // => [Cards] ItemFanSettleOvershoot
-    internal const float ItemFanCloseDuration = 0.3f;                                                 // => [Cards] ItemFanCloseDuration
-    internal const float ItemFanCloseStagger = 0.032f;                                                // => [Cards] ItemFanCloseStagger
+    internal const float ItemFanCloseDuration = 0.42f;                                                // => [Cards] ItemFanCloseDuration
+    internal const float ItemFanCloseStagger = 0.045f;                                                // => [Cards] ItemFanCloseStagger
 
     internal const float BoardMinWidthMeters = 0.18f;                                                 // => [Cards] BoardMinWidthMeters
     internal const float BoardMaxWidthMeters = 1.4f;                                                  // => [Cards] BoardMaxWidthMeters
