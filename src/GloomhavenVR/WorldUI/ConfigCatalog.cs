@@ -606,9 +606,10 @@ internal static class ConfigCatalog
     /// <item><description>A step WRITTEN DOWN for this entry (<see cref="ConfigSteps"/>) — every
     /// curated everyday row, where the right step is a judgement about the setting.</description></item>
     /// <item><description>The unit named in the key — degrees step in degrees, metres in
-    /// centimetres — but never finer than the value's own scale. This is what replaced "a hundredth
-    /// of the default's magnitude", which had no answer at all for the twenty-eight entries whose
-    /// default is 0 and gave the WORLD TILT a step of 0.01°.</description></item>
+    /// centimetres — bounded by the value's own scale ONLY where that scale means something (a lone
+    /// scalar; never a coordinate, see <see cref="ConfigSteps.UnitScope"/>). This is what replaced
+    /// "a hundredth of the default's magnitude", which had no answer at all for the twenty-eight
+    /// entries whose default is 0 and gave the WORLD TILT a step of 0.01°.</description></item>
     /// <item><description>A fiftieth of the declared range, or of the DEFAULT's magnitude when
     /// there is no range (the default, not the current value, so the step never drifts as you
     /// tune) — the last resort, and the only one that can serve a depth-buffer epsilon of
@@ -633,20 +634,35 @@ internal static class ConfigCatalog
             ? (item.Max - item.Min) / 50d
             : Magnitude(item.Entry.DefaultValue) / 50d;
 
-        if (ConfigSteps.TryUnit(item.Key, out step))
+        if (ConfigSteps.TryUnit(item.Key, out step, out ConfigSteps.UnitScope scope))
         {
-                // THE UNIT GIVES THE RESOLUTION AND NOTHING ELSE, so the value's own magnitude
-                // bounds it from both sides — the rule failed in both directions when it did not.
-                // Too fine: [Perf] SummaryIntervalSeconds sits at 30 s and stepped in twentieths of
-                // a second, six hundred presses to double it. Too coarse: [Cards] FanFollowDeadzone
-                // is 0.004 and "Deadzone" would have stepped it by 0.05, twelve times the whole
-                // value, so one press could only overshoot.
-                //
+            // THE UNIT GIVES THE RESOLUTION AND NOTHING ELSE, so the value's own magnitude bounds
+            // it from both sides — the rule failed in both directions when it did not. Too fine:
+            // [Perf] SummaryIntervalSeconds sits at 30 s and stepped in twentieths of a second, six
+            // hundred presses to double it. Too coarse: [Cards] FanFollowDeadzone is 0.004 and
+            // "Deadzone" would have stepped it by 0.05, twelve times the whole value, so one press
+            // could only overshoot.
+            //
+            // …BUT ONLY WHERE THE MAGNITUDE MEANS ANYTHING. Both of those are lone scalars, where
+            // "how big it is" really is the best guide to "how finely it wants to move". A
+            // COORDINATE is not: [WristHud] GloveOffsetX ships -0.003 and GloveOffsetY -0.053, the
+            // same offset of the same HUD, and the only reason they differ by an order of magnitude
+            // is that X sits near its origin. Bounding by that made X step 0.05 mm and Y 1 mm —
+            // reported, correctly, as "der X-Offset hat keinen Einfluss". Two dials of one vector
+            // must move together, so a Component takes the unit's answer untouched and a Variant
+            // (one board of a per-board family) lets its own magnitude only COARSEN it, never
+            // sharpen it. See ConfigSteps.UnitScope.
+            //
+            // A Component is still capped at a quarter of a DECLARED range further down, which is
+            // the one thing that keeps a wide unit step honest on a narrow dial. A declared range is
+            // a real statement of the dial's scale; a single shipped default is not.
+            double magnitude = Magnitude(item.Entry.DefaultValue);
+            if (scope == ConfigSteps.UnitScope.Variant)
+                step = Math.Max(step, own);
+            else if (scope == ConfigSteps.UnitScope.Value && magnitude > 0d)
                 // The bounds apply only when there IS a magnitude. A default of 0 is precisely the
                 // case the unit rule exists for — it is what the world tilt has — and zero must not
                 // bound anything.
-            double magnitude = Magnitude(item.Entry.DefaultValue);
-            if (magnitude > 0d)
                 step = Math.Min(Math.Max(step, own), magnitude / 4d);
         }
         else

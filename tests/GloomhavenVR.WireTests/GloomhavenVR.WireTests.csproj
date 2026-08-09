@@ -67,11 +67,22 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR.Preload\RelaunchCommand.cs" Link="preload\RelaunchCommand.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file either, and here for the same reason as RelaunchCommand: it decides
+       something that is only ever observed by FEEL, one ◀ / ▶ press at a time, from inside a
+       headset. A step a hundred times too small does not fail, does not log and does not look
+       wrong — it produces a dial the player reports as having no effect. Three rounds of exactly
+       that reached the user (see ConfigStepVectors.cs). ConfigSteps.cs is free of Unity, BepInEx
+       and the game model precisely so it could be linked in here and driven key by key. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\ConfigSteps.cs" Link="worldui\ConfigSteps.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
     <Compile Include="GoldenVectors.cs" />
     <Compile Include="RelaunchVectors.cs" />
+    <Compile Include="ConfigStepVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

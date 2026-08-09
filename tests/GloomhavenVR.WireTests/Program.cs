@@ -17,6 +17,7 @@ internal static class Program
             Shims.VerifyAgainstSource(repoRoot);
             GoldenVectors.Run(t);
             RelaunchVectors.Run(t);
+            ConfigStepVectors.Run(t, repoRoot);
         }
         catch (Exception e)
         {
