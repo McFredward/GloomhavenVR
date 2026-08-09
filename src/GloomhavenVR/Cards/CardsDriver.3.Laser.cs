@@ -961,6 +961,36 @@ internal sealed partial class CardsDriver
     private const float ContactRectMargin = 1.10f;
 
     /// <summary>
+    /// ABSOLUTE floor on that lateral slack, in real metres (× the hand's world scale at the call
+    /// site, like every other distance here).
+    ///
+    /// <para>WHY A FLOOR AND NOT A BIGGER FRACTION (user report 2026-08-09, the item fan's
+    /// stand-down "still" not working, plus the measurement that settled it): a proportional margin
+    /// silently makes a SMALL card harder to touch than a big one. An ability card is ~7 cm wide, so
+    /// 10 % buys it 3,5 mm of rim; an item chip's near-square face is ~4,4 cm, so the same 10 % buys
+    /// it 2,2 mm. The hardware log shows exactly what that costs: of 26 accepted item-fan contacts,
+    /// NINE were captured with an in-face margin ≤ 1,5 mm (0,1 / 0,6 / 0,6 / 1,0 / 1,0 / 1,0 / 1,1 /
+    /// 1,2 / 1,5) — the hand was grazing the rim, so contact broke and re-made repeatedly and the
+    /// beam flickered back on between short episodes instead of staying down. The count was never
+    /// the problem; the HOLD was.</para>
+    ///
+    /// <para>The quantity this margin represents — controller tracking noise, and rig anchor points
+    /// a few millimetres inside a hand that has no real skin — is ABSOLUTE. It does not shrink
+    /// because the card did. 10 mm is the mod's own fingertip contact radius
+    /// (<c>PokeInteractor.FingertipRadius</c> = 8 mm, the width at which this codebase already says
+    /// "the finger is on it") rounded up slightly for the grow the chip does under the hand. Whichever
+    /// of the two is LARGER wins, so an ability card keeps the behaviour it has always had (3,5 mm
+    /// proportional vs this floor — the floor wins there too, and deliberately: the same physical
+    /// slack is right for both, which is precisely what "exakt mit der selben Logik wie beim
+    /// Hand-Fächer" asks for).</para>
+    ///
+    /// <para>It still cannot reach the neighbouring card: WHICH card is under test was already
+    /// decided by the election or by the pool scan's own nearest-first walk, and this only asks
+    /// WHETHER that one is being touched.</para>
+    /// </summary>
+    private const float ContactRectMarginFloorMeters = 0.010f;
+
+    /// <summary>
     /// What the contact test MEASURED, so the stand-down log line can prove its own threshold
     /// instead of asserting a card name (user report 2026-08-08 round 2). Distances are world
     /// units here and converted to real millimetres exactly once, in <see cref="ToLog"/>.
@@ -1059,8 +1089,11 @@ internal sealed partial class CardsDriver
     {
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
         float limit = ContactSlabHalfDepthMeters * scale;
+        // The lateral slack is the LARGER of the proportional margin and the absolute floor — see
+        // ContactRectMarginFloorMeters for why a small card must not be harder to touch than a big one.
+        float lateral = ContactRectMarginFloorMeters * scale;
         if (TryProbeRect(hand.Rig.IndexTip.position, center, normal, right, up, halfW, halfH, limit,
-                out float depth, out float margin))
+                lateral, out float depth, out float margin))
         {
             geo = new ContactGeometry
             {
@@ -1069,7 +1102,7 @@ internal sealed partial class CardsDriver
             return true;
         }
         if (TryProbeRect(hand.Rig.PalmCenter.position, center, normal, right, up, halfW, halfH, limit,
-                out depth, out margin))
+                lateral, out depth, out margin))
         {
             geo = new ContactGeometry
             {
@@ -1081,16 +1114,23 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>One point against one rect: project onto the card's plane, require the projection
-    /// inside the face (plus <see cref="ContactRectMargin"/>) and the signed plane distance inside
+    /// inside the face (plus the larger of <see cref="ContactRectMargin"/> and
+    /// <see cref="ContactRectMarginFloorMeters"/>) and the signed plane distance inside
     /// <paramref name="depthLimit"/>. <paramref name="depth"/> and <paramref name="margin"/> are the
     /// two numbers the log prints.</summary>
     private static bool TryProbeRect(Vector3 point, Vector3 center, Vector3 normal, Vector3 right,
-        Vector3 up, float halfW, float halfH, float depthLimit, out float depth, out float margin)
+        Vector3 up, float halfW, float halfH, float depthLimit, float lateralFloor,
+        out float depth, out float margin)
     {
         Vector3 rel = point - center;
         depth = Vector3.Dot(rel, normal);
-        margin = Mathf.Min(halfW * ContactRectMargin - Mathf.Abs(Vector3.Dot(rel, right)),
-                           halfH * ContactRectMargin - Mathf.Abs(Vector3.Dot(rel, up)));
+        // Per axis: the accepted half-extent is the face plus WHICHEVER slack is larger — the
+        // proportional one (right on a big card, and scale-correct by construction) or the absolute
+        // floor (right on a small one, because tracking noise does not shrink with the card).
+        float acceptW = Mathf.Max(halfW * ContactRectMargin, halfW + lateralFloor);
+        float acceptH = Mathf.Max(halfH * ContactRectMargin, halfH + lateralFloor);
+        margin = Mathf.Min(acceptW - Mathf.Abs(Vector3.Dot(rel, right)),
+                           acceptH - Mathf.Abs(Vector3.Dot(rel, up)));
         return margin >= 0f && depth >= -depthLimit && depth <= depthLimit;
     }
 
