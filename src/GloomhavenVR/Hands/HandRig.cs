@@ -54,7 +54,27 @@ internal sealed class HandRig
     /// <summary>Hand-space origin at the wrist (child of the tracked device pose, static visual offset).</summary>
     public Transform Root = null!;
 
-    /// <summary>Wrist joint (== Root for the procedural hand).</summary>
+    /// <summary>
+    /// Wrist joint (== Root for the procedural hand).
+    ///
+    /// <para>ITS AXES ARE NOT <see cref="Root"/>'S — read this before parenting anything to it.
+    /// In every shipped prefab (VRHand, VRHandPlate, VRHandArcane, L and R alike) <c>Anchor_Wrist</c>
+    /// carries a +90° X rotation relative to the prefab root, so relative to the Root frame
+    /// documented above:
+    /// <code>
+    ///   wrist +X -> root +X   across the hand      (identical on both hands, like Root's +X)
+    ///   wrist +Y -> root +Z   ALONG THE FINGERS
+    ///   wrist +Z -> root -Y   OUT OF THE PALM
+    /// </code>
+    /// The prefabs state it in their own data twice over: <c>Anchor_Palm</c> sits at wrist-local
+    /// (0.008, 0.049, 0.003) — the palm centre, 4.9 cm up +Y — and <c>Anchor_Grab</c> a further
+    /// centimetre out along +Z, which is where a held object rests ON the palm.</para>
+    ///
+    /// <para>WHY THIS IS WRITTEN DOWN (2026-08-09): <c>WorldUI.WristHud</c> parented its plate here
+    /// and reasoned in Root's frame for four consecutive rounds. Nothing failed loudly — the pose
+    /// dials simply absorbed the missing 90°, which is why every shipped trim was a ~-90° pitch and
+    /// why the comment block above the rotation kept contradicting the hardware.</para>
+    /// </summary>
     public Transform Wrist = null!;
 
     /// <summary>Center of the palm; up = palm normal (out of the palm).</summary>

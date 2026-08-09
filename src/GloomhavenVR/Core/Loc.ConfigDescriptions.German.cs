@@ -1697,18 +1697,10 @@ internal static partial class Loc
                 + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "
                 + "Desktop in jedem Zustand ein sauberes Einzelaugen-Spiegelbild zeigt. Aus = altes Verhalten "
                 + "(2D-Menü-Composite in Menüs, sonst unkontrollierter XR-Standardspiegel).",
-            ["WorldUI/WristHudPitch"] =
-                "Neigung des Handgelenk-Übersichts-HUD (Pitch, Grad) zusätzlich zur flach auf der Hand "
-                + "liegenden Grundausrichtung.",
-            ["WorldUI/WristHudYaw"] = "Drehung des Handgelenk-Übersichts-HUD (Gieren, Grad).",
-            ["WorldUI/WristHudRoll"] = "Rollen des Handgelenk-Übersichts-HUD (Grad).",
-            ["WorldUI/WristHudOffsetX"] =
-                "Versatz des Handgelenk-Übersichts-HUD entlang der Handgelenk-X-Achse, echte Meter.",
-            ["WorldUI/WristHudOffsetY"] =
-                "Versatz des Handgelenk-Übersichts-HUD aus dem Handrücken heraus (Handgelenk +Y), echte "
-                + "Meter.",
-            ["WorldUI/WristHudOffsetZ"] =
-                "Versatz des Handgelenk-Übersichts-HUD in Richtung der Finger (Handgelenk +Z), echte Meter.",
+            // [WorldUI] WristHud{Pitch..OffsetZ} had translations here until 2026-08-09. They are
+            // retired ("LEGACY — no effect", WorldUIConfig.Bind) and a retired entry never reaches
+            // the UI, so a translation for one is a promise the menu cannot keep. The live pose
+            // rows are [WristHud] *Palm*, further down this table.
             ["WorldUI/ShowIntro"] =
                 "Zeigt das Intro des Spiels (Logos/Video, Szenen vor dem Menü) auch in VR auf dem schwebenden "
                 + "Bildschirm. Aus = altes Verhalten: das Intro läuft nur auf dem Desktop und im HMD steht eine "
@@ -2069,36 +2061,31 @@ internal static partial class Loc
                 + "absoluter Wert (ersetzt das alte gemeinsame HandForwardOffset + Trimmung; beim ersten Start "
                 + "daraus übernommen). Live änderbar.",
             // ---- [WristHud] ----
-            ["WristHud/*Pitch"] =
-                "Neigung (Pitch, Grad) des Handgelenk-Übersichts-HUD zusätzlich zur flach auf der Hand "
-                + "liegenden Grundlage. PRO STIL absoluter Wert, während dieser Handstil getragen wird (ersetzt "
-                + "den gemeinsamen Eintrag [WorldUI] WristHud*, aus dem er beim ersten Start übernommen wurde). "
-                + "Live änderbar — WristHud wendet die Pose bei jedem Tick neu an.",
-            ["WristHud/*Yaw"] =
-                "Drehung (Gieren, Grad) des Handgelenk-Übersichts-HUD. PRO STIL absoluter Wert, während "
-                + "dieser Handstil getragen wird (ersetzt den gemeinsamen Eintrag [WorldUI] WristHud*, aus dem "
-                + "er beim ersten Start übernommen wurde). Live änderbar — WristHud wendet die Pose bei jedem "
-                + "Tick neu an.",
-            ["WristHud/*Roll"] =
-                "Rollen (Grad) des Handgelenk-Übersichts-HUD. PRO STIL absoluter Wert, während dieser "
-                + "Handstil getragen wird (ersetzt den gemeinsamen Eintrag [WorldUI] WristHud*, aus dem er beim "
-                + "ersten Start übernommen wurde). Live änderbar — WristHud wendet die Pose bei jedem Tick neu "
-                + "an.",
-            ["WristHud/*OffsetX"] =
-                "Versatz des Handgelenk-Übersichts-HUD entlang der Handgelenk-Achse X, echte Meter. PRO STIL "
-                + "absoluter Wert, während dieser Handstil getragen wird (ersetzt den gemeinsamen Eintrag "
-                + "[WorldUI] WristHud*, aus dem er beim ersten Start übernommen wurde). Live änderbar — "
+            ["WristHud/*PalmPitch"] =
+                "Neigung (Pitch, Grad) der Arm-Anzeige zusätzlich zur Grundausrichtung — 0 ist die "
+                + "ausgelieferte Lage: flach auf der Handfläche, lesbar wenn du die Handfläche zu dir "
+                + "drehst. PRO STIL absoluter Wert, während dieser Handstil getragen wird. Live änderbar — "
                 + "WristHud wendet die Pose bei jedem Tick neu an.",
-            ["WristHud/*OffsetY"] =
-                "Versatz des Handgelenk-Übersichts-HUD aus dem Handrücken heraus (Handgelenk +Y), echte "
-                + "Meter. PRO STIL absoluter Wert, während dieser Handstil getragen wird (ersetzt den "
-                + "gemeinsamen Eintrag [WorldUI] WristHud*, aus dem er beim ersten Start übernommen wurde). "
+            ["WristHud/*PalmYaw"] =
+                "Drehung (Gieren, Grad) der Arm-Anzeige zusätzlich zur Grundausrichtung; 0 ist die "
+                + "ausgelieferte Lage. PRO STIL absoluter Wert, während dieser Handstil getragen wird. "
                 + "Live änderbar — WristHud wendet die Pose bei jedem Tick neu an.",
-            ["WristHud/*OffsetZ"] =
-                "Versatz des Handgelenk-Übersichts-HUD zu den Fingern hin (Handgelenk +Z), echte Meter. PRO "
-                + "STIL absoluter Wert, während dieser Handstil getragen wird (ersetzt den gemeinsamen Eintrag "
-                + "[WorldUI] WristHud*, aus dem er beim ersten Start übernommen wurde). Live änderbar — "
+            ["WristHud/*PalmRoll"] =
+                "Rollen (Grad) der Arm-Anzeige zusätzlich zur Grundausrichtung; 0 ist die ausgelieferte "
+                + "Lage. PRO STIL absoluter Wert, während dieser Handstil getragen wird. Live änderbar — "
                 + "WristHud wendet die Pose bei jedem Tick neu an.",
+            ["WristHud/*PalmSideOffset"] =
+                "Versatz der Arm-Anzeige QUER über die Hand (echte Meter). PRO STIL absoluter Wert, "
+                + "während dieser Handstil getragen wird. Live änderbar — WristHud wendet die Pose bei "
+                + "jedem Tick neu an.",
+            ["WristHud/*PalmFingerOffset"] =
+                "Versatz der Arm-Anzeige IN RICHTUNG DER FINGER (echte Meter; negativ schiebt sie zurück "
+                + "auf den Unterarm). PRO STIL absoluter Wert, während dieser Handstil getragen wird. "
+                + "Live änderbar — WristHud wendet die Pose bei jedem Tick neu an.",
+            ["WristHud/*PalmLiftOffset"] =
+                "Abstand der Arm-Anzeige VON DER HANDFLÄCHE WEG (echte Meter) — wie weit die Tafel vor "
+                + "der Hand schwebt. PRO STIL absoluter Wert, während dieser Handstil getragen wird. "
+                + "Live änderbar — WristHud wendet die Pose bei jedem Tick neu an.",
             // ---- [RoundButtons] ----
             ["RoundButtons/OffsetX"] =
                 "Seitlicher Versatz (Meter im WURZEL-Frame des Boards, +X = zur rechten Board-Kante / zu den "

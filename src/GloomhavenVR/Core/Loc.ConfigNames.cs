@@ -137,20 +137,24 @@ internal static partial class Loc
             ["Hands/*GripYawDegrees"] = Pair("Hand seat: yaw (°)", "Handsitz: Gieren (°)"),
             ["Hands/*SpreadOffset"] = Pair("Hand spacing (m)", "Handabstand (m)"),
 
-            // ---- [WristHud] — the wrist overview HUD (base + per-style seat) ----------------
+            // ---- [WristHud] — the wrist HUD's per-style palm pose ---------------------------
+            // The six [WorldUI] WristHud{Pitch..OffsetZ} twins that used to be named here are
+            // gone: they were retired in 2026-08-09 ("LEGACY — no effect" at their bind site),
+            // and a retired entry never reaches the UI. Naming them was in fact the thing that
+            // made the duplication invisible — the dead row and the live row rendered under the
+            // SAME caption, so which of the two a player reached for was luck.
+            //
+            // The three offsets are named for the DIRECTION they move the plate, not for their
+            // axis letter — in the KEY as well as here. "X/Y/Z" is the same programmer's name the
+            // whole table exists to stop showing, and here it was actively misleading: these are
+            // the wrist ANCHOR's axes, which is not a frame anyone would assume from a letter.
             ["WorldUI/WristHud"] = Pair("Wrist status display", "Handgelenk-Anzeige"),
-            ["WorldUI/WristHudPitch"] = Pair("Wrist HUD: pitch (°)", "Arm-HUD: Neigung (°)"),
-            ["WorldUI/WristHudYaw"] = Pair("Wrist HUD: yaw (°)", "Arm-HUD: Gieren (°)"),
-            ["WorldUI/WristHudRoll"] = Pair("Wrist HUD: roll (°)", "Arm-HUD: Rollen (°)"),
-            ["WorldUI/WristHudOffsetX"] = Pair("Wrist HUD: X (m)", "Arm-HUD: X (m)"),
-            ["WorldUI/WristHudOffsetY"] = Pair("Wrist HUD: Y (m)", "Arm-HUD: Y (m)"),
-            ["WorldUI/WristHudOffsetZ"] = Pair("Wrist HUD: Z (m)", "Arm-HUD: Z (m)"),
-            ["WristHud/*Pitch"] = Pair("Wrist HUD: pitch (°)", "Arm-HUD: Neigung (°)"),
-            ["WristHud/*Yaw"] = Pair("Wrist HUD: yaw (°)", "Arm-HUD: Gieren (°)"),
-            ["WristHud/*Roll"] = Pair("Wrist HUD: roll (°)", "Arm-HUD: Rollen (°)"),
-            ["WristHud/*OffsetX"] = Pair("Wrist HUD: X (m)", "Arm-HUD: X (m)"),
-            ["WristHud/*OffsetY"] = Pair("Wrist HUD: Y (m)", "Arm-HUD: Y (m)"),
-            ["WristHud/*OffsetZ"] = Pair("Wrist HUD: Z (m)", "Arm-HUD: Z (m)"),
+            ["WristHud/*PalmPitch"] = Pair("Wrist HUD: pitch (°)", "Arm-HUD: Neigung (°)"),
+            ["WristHud/*PalmYaw"] = Pair("Wrist HUD: yaw (°)", "Arm-HUD: Gieren (°)"),
+            ["WristHud/*PalmRoll"] = Pair("Wrist HUD: roll (°)", "Arm-HUD: Rollen (°)"),
+            ["WristHud/*PalmSideOffset"] = Pair("Wrist HUD: across (m)", "Arm-HUD: quer (m)"),
+            ["WristHud/*PalmFingerOffset"] = Pair("Wrist HUD: to fingers (m)", "Arm-HUD: zu den Fingern (m)"),
+            ["WristHud/*PalmLiftOffset"] = Pair("Wrist HUD: off palm (m)", "Arm-HUD: Abstand Hand (m)"),
 
             // ---- [Board] / [HexHighlight] / [SelectionReady] — board & targeting ------------
             ["Board/ForceFarMode"] = Pair("Far-ray picking only", "Nur Fernstrahl-Auswahl"),
