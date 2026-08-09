@@ -136,15 +136,27 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // peer's screen with the gesture instead of up to 200 ms after a 1.5 s animation started.
     private bool _lastSentEmptyFanHint;
 
-    // BOARD TUNING (extension record 28): the last payload we broadcast — its LENGTH plus a
-    // content hash — so a dial move is an edge and the change-gated log fires once per real
-    // change. -1 = never sampled, which also forces the first packet of a session to re-state it.
-    private int _lastSentTuningKey = -1;
-
-    /// <summary>Persistent scratch the tuning payload is sampled into (see
-    /// <see cref="BoardTuningSampler.Sample"/>). One allocation for the process; the serializer
-    /// then copies from it, so the 5 Hz write path allocates nothing.</summary>
+    /// <summary>Persistent scratch the COMPLETE tuning field list is sampled into (see
+    /// <see cref="BoardTuningSampler.Sample"/>). One allocation for the process, sized from the
+    /// field-id space rather than from any packet budget.</summary>
     private readonly byte[] _tuningBuffer = new byte[BoardTuningSampler.MaxPayloadBytes];
+
+    /// <summary>
+    /// BOARD TUNING (extension record 28): the pager that splits that field list into pages and
+    /// hands out ONE per extras packet, cycling forever (see <see cref="BoardTunePageSender"/>).
+    ///
+    /// <para>It also IS the change detector — <c>Update</c> byte-compares against the list it holds
+    /// and returns true only on a real change — which is why the old <c>_lastSentTuningKey</c> hash
+    /// is gone: keeping a separate key would have let the log and the cycle-restart disagree about
+    /// when the tuning changed, and the cycle restart is what makes the convergence bound measurable
+    /// from the drag rather than from wherever the cursor happened to be.</para>
+    /// </summary>
+    private readonly BoardTunePageSender _tuningPager = new BoardTunePageSender();
+
+    /// <summary>Persistent scratch ONE record-28 page is built into. 255 bytes is the extension
+    /// tail's per-record ceiling and therefore a page's maximum by definition — the one place that
+    /// number still legitimately appears on this path.</summary>
+    private readonly byte[] _tuningPageBuffer = new byte[255];
 
     // HALF HOVER (extension record 14): the last broadcast (slot | top<<8, -1 = none), so the
     // hover moving between halves pre-empts the 5 Hz gate (capped at the rig interval — a laser
@@ -464,7 +476,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentHalfHover = int.MinValue;    // …the half hover…
         _lastSentHalfSelect = int.MinValue;   // …the clicked halves…
         _lastSentEmptyFanHint = false;        // …the empty-fan placard (record 14 bit 4)…
-        _lastSentTuningKey = -1;              // …and our own board tuning (record 28)…
+        _tuningPager.Reset();                 // …and our own board tuning (record 28)…
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
         _lastSentWallFadeCount = -1;             // …and the synced wall-fade set
         _lastSentFocusActor = int.MinValue;       // …and the character focus (record 22)
@@ -1205,8 +1217,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             ? Cards.ControlBoards.Clamp((int)Cards.CardsConfig.Board.Value)
             : Cards.ControlBoard.Oak;
         int tuningLength = BoardTuningSampler.Sample(tuningBoard, _tuningBuffer);
-        int tuningKey = TuningKey(_tuningBuffer, tuningLength);
-        bool tuningChanged = tuningKey != _lastSentTuningKey;
+        bool tuningChanged = _tuningPager.Update(_tuningBuffer, tuningLength);
 
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
@@ -1724,28 +1735,50 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 : "Empty-fan placard SENT: down — bit clear (peers end their mirrored plate).");
         }
 
-        // BOARD TUNING (extension record 28): only the dials we have MOVED. A zero-length sample
+        // BOARD TUNING (extension record 28): only the dials we have MOVED, and only ONE PAGE of
+        // them per packet — the pager cycles through the pages forever so that a peer who joins
+        // mid-cycle, or who loses a packet, converges on the next pass with no handshake at all
+        // (see BoardTunePages for the convergence guarantee this implements). A zero-length sample
         // means every dial is at its shipped default, and then no record is written at all — the
-        // receiver's own compiled constants are already the right answer, byte-identically to
-        // every build before this record.
-        if (tuningLength >= NetProtocol.BoardTuneMinRecordBytes)
+        // receiver's own compiled constants are already the right answer, byte-identically to every
+        // build before this record.
+        int tuningPage = _tuningPager.NextPage(_tuningPageBuffer);
+        if (tuningPage >= NetProtocol.BoardTuneMinRecordBytes)
         {
             extras.HasBoardTuning = true;
-            extras.BoardTuningBytes = _tuningBuffer;
-            extras.BoardTuningLength = tuningLength;
+            extras.BoardTuningBytes = _tuningPageBuffer;
+            extras.BoardTuningLength = tuningPage;
         }
         if (tuningChanged)
         {
-            _lastSentTuningKey = tuningKey;
-            VRLog.Info("Net", tuningLength >= NetProtocol.BoardTuneMinRecordBytes
-                ? $"Board tuning SENT: {_tuningBuffer[0]} dial(s) differ from the shipped " +
-                  $"'{tuningBoard}' defaults — extension record 28, " +
-                  $"{tuningLength} payload byte(s) ([id][value] pairs in ascending id order, " +
-                  "quantized to 0.1 mm / 0.001 / 0.01°). Peers now seat every dock, cap, overlay, " +
-                  "mesh pose and fan card at OUR numbers instead of the authored ones."
-                : $"Board tuning SENT: every dial is at the shipped '{tuningBoard}' " +
-                  "default — record OMITTED entirely, so this packet is byte-identical to what " +
-                  "previous builds emitted and peers use their own identical constants.");
+            if (_tuningPager.Overflowed)
+            {
+                // THE ONE FAILURE THIS DESIGN REFUSES TO HAVE QUIETLY. Paging removed the capacity
+                // ceiling, so the only way here is a malformed field list (an id outside the
+                // declared ranges). Say so at ERROR: a dial that cannot ride is a broken 1:1
+                // guarantee, and the whole point of the rework is that it can never be silent.
+                VRLog.Error("Net", "Board tuning CANNOT BE SENT: the sampled field list is malformed " +
+                                   $"({_tuningBuffer.Length}-byte scratch, {tuningLength} bytes sampled) — " +
+                                   "an id outside NetProtocol's declared Tune* ranges, or one repeated. " +
+                                   "NOTHING is sent rather than something torn, so peers draw this board at " +
+                                   "the shipped defaults. See NetProtocol.BoardTuneMaxFields.");
+            }
+            else
+            {
+                VRLog.Info("Net", _tuningPager.PageCount > 0
+                    ? $"Board tuning SENT: {_tuningPager.FieldCount} dial(s) differ from the shipped " +
+                      $"'{tuningBoard}' defaults — extension record 28, {_tuningPager.FieldBytes} field " +
+                      $"byte(s) across {_tuningPager.PageCount} page(s) " +
+                      $"(generation {_tuningPager.Signature:X4}; [id][value] pairs in ascending id order, " +
+                      "quantized to 0.1 mm / 0.001 / 0.01°). One page rides each extras packet and the " +
+                      "cycle restarted at page 0 on this change, so every peer holds the complete new " +
+                      $"picture within {_tuningPager.PageCount} packet(s) — at most " +
+                      $"{_tuningPager.PageCount * 1000f / NetProtocol.ExtrasSendRateHz:0} ms — and until " +
+                      "then keeps the last complete one rather than flickering to the defaults."
+                    : $"Board tuning SENT: every dial is at the shipped '{tuningBoard}' " +
+                      "default — record OMITTED entirely, so this packet is byte-identical to what " +
+                      "previous builds emitted and peers use their own identical constants.");
+            }
         }
 
         if (halfHoverChanged)
@@ -2080,30 +2113,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _transport.Send(_sendBuffer, len);
     }
 
-    /// <summary>
-    /// Change key for the board-tuning payload (extension record 28): its LENGTH folded together
-    /// with an FNV-1a-32 hash of its bytes. A hash rather than a byte compare against a kept copy
-    /// because the payload is already the compressed form — the values are quantized, so two
-    /// samples that hash equal ARE the same picture — and because keeping a second buffer only to
-    /// diff it would double the state for a value that changes once a session at most. −1 is
-    /// reserved for "never sampled", so an empty payload keys as 0 and can never collide with it.
-    /// </summary>
-    private static int TuningKey(byte[] payload, int length)
-    {
-        if (length <= 0)
-            return 0;
-        unchecked
-        {
-            uint h = 2166136261u;
-            for (int i = 0; i < length && i < payload.Length; i++)
-            {
-                h ^= payload[i];
-                h *= 16777619u;
-            }
-            int key = (int)(h & 0x7FFFFFFF);
-            return key == 0 ? 1 : key;   // 0 is "empty payload"; never let a hash impersonate it
-        }
-    }
+    // The board-tuning CHANGE KEY that used to live here (an FNV-1a hash of the payload) is RETIRED
+    // by the paging pass: the detector now lives inside BoardTunePageSender.Update, which
+    // byte-compares the sampled field list against the one it holds. Two detectors would have been
+    // two opinions about when the tuning changed, and the pager's is the load-bearing one — it is
+    // what restarts the page cycle, and therefore what makes the convergence bound measurable from
+    // the drag rather than from wherever the cursor happened to be.
 
     // ---- receive ------------------------------------------------------------------------
 

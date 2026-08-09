@@ -3243,39 +3243,67 @@ internal static class GoldenVectors
                "pre-record-28 sender (the whole reason this record is affordable)");
         t.Equal(8, m, "and the packet is the bare 8-byte extras packet");
 
-        // ONE MOVED DOCK: [n=1][id 1 objectives][x y z as i16 tenth-mm].
-        // (0.012, -0.034, 0.005) m -> 120, -340, 50 tenth-mm -> 78 00 / AC FE / 32 00.
-        byte[] oneDial = { 1, NetProtocol.TuneObjectivesOffset, 0x78, 0x00, 0xAC, 0xFE, 0x32, 0x00 };
+        // ONE MOVED DOCK, AS A PAGE. Since 2026-08-09 the record's payload is one PAGE of the
+        // sender's tuning: [pageIndex][pageCount][sig lo][sig hi][idLo][idHi][n][n × field]. With
+        // one dial there is exactly one page, so it claims the WHOLE id space (idLo 0, idHi 255) and
+        // is a complete snapshot on its own.
+        //   (0.012, -0.034, 0.005) m -> 120, -340, 50 tenth-mm -> 78 00 / AC FE / 32 00.
+        byte[] oneField = { NetProtocol.TuneObjectivesOffset, 0x78, 0x00, 0xAC, 0xFE, 0x32, 0x00 };
+        ushort oneSig = BoardTunePages.Signature(oneField, 0, oneField.Length);
+        var onePage = new byte[255];
+        int onePageLen = BoardTunePages.WritePage(oneField, oneField.Length, 0, oneSig, onePage);
+        t.Equal(14, onePageLen, "one dial is a 14-byte page: 7 header + 1 id + 6 value");
+        t.Equal(1, onePage[NetProtocol.BoardTunePageCountAt], "and it is the only page");
+        t.Equal(0, onePage[NetProtocol.BoardTunePageIdLoAt], "page 0 always claims from id 0…");
+        t.Equal(255, onePage[NetProtocol.BoardTunePageIdHiAt], "…and the LAST page always to 255");
+        t.Equal(1, onePage[NetProtocol.BoardTunePageFieldCountAt], "carrying one field");
+
         m = PresenceSerializer.Write(new PresenceState
         {
-            HasBoardTuning = true, BoardTuningBytes = oneDial, BoardTuningLength = oneDial.Length,
+            HasBoardTuning = true, BoardTuningBytes = onePage, BoardTuningLength = onePageLen,
         }, ext);
-        t.Wire(Hex.Bytes(@"
+        t.Wire(Hex.Bytes($@"
             31 52 56 47      // magic
             03 01            // version, type
             80               // flags: FlagPileBrowse ('a BLOCK follows') only
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0
             01               // tail: 1 record
-            1C 08            // id 28 (0x1C), len 8
-            01               //   field count
+            1C 0E            // id 28 (0x1C), len 14
+            00 01            //   page 0 of 1
+            {oneSig & 0xFF:X2} {oneSig >> 8:X2}   //   generation signature (FNV-1a of the field run)
+            00 FF            //   this page is a COMPLETE statement about ids 0..255
+            01               //   1 field
             01 78 00 AC FE 32 00   //   id 1 (objectives offset): 120, -340, 50 tenth-mm
-            "), ext, m, "one moved dock costs 10 bytes: TLV header 2 + count 1 + id 1 + value 6");
-        t.Equal(21, m, "header 7 + count 1 + block 2 + tail 1 + 10 = 21 bytes");
+            "), ext, m, "one moved dock rides one page: TLV header 2 + page header 7 + id 1 + value 6");
+        t.Equal(27, m, "header 7 + count 1 + block 2 + tail 1 + 16 = 27 bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState tune), "and it parses");
-        t.True(tune.HasBoardTuning, "the tuning record is delivered");
-        t.Equal(8, tune.BoardTuningLength, "with its payload length intact");
+        t.True(tune.HasBoardTuning, "the tuning page is delivered");
+        t.Equal(onePageLen, tune.BoardTuningLength, "with its payload length intact");
+
+        // THE PAGE IS NOT WHAT A CONSUMER READS — the ASSEMBLER's output is. One page of one is a
+        // complete generation, so a single Accept publishes.
+        var solo = new BoardTunePageAssembler();
+        t.True(solo.Accept(tune.BoardTuningBytes, 0, tune.BoardTuningLength),
+               "a single-page generation converges on its first packet");
+        t.Equal(1, solo.PagesSeen, "one page held…");
+        t.Equal(1, solo.PageCount, "…of one");
+        t.Equal(8, solo.AssembledLength, "assembled as [n][id][6-byte value] = 8 bytes");
+        t.Equal(1, solo.Assembled[0], "with the field count re-stated at the front");
         Vector3 objOff = NetProtocol.BoardTuneVector(
-            tune.BoardTuningBytes, 0, tune.BoardTuningLength,
+            solo.Assembled, 0, solo.AssembledLength,
             NetProtocol.TuneObjectivesOffset, new Vector3(9f, 9f, 9f));
         t.Equal(0.012f, objOff.x, "x decodes at 0.1 mm resolution");
         t.Equal(-0.034f, objOff.y, "y decodes signed");
         t.Equal(0.005f, objOff.z, "z decodes");
+        t.True(!solo.Accept(tune.BoardTuningBytes, 0, tune.BoardTuningLength),
+               "and re-cycling the same page publishes NOTHING — a stable sender must not make its " +
+               "peers tear down and rebuild a control board five times a second");
 
         // A FIELD THAT IS NOT IN THE RECORD reads as the caller's own shipped default — which is
         // what makes a SPARSE record correct: absence means "the value you already have".
         Vector3 absent = NetProtocol.BoardTuneVector(
-            tune.BoardTuningBytes, 0, tune.BoardTuningLength,
+            solo.Assembled, 0, solo.AssembledLength,
             NetProtocol.TunePileOffset, new Vector3(1f, 2f, 3f));
         t.True(absent == new Vector3(1f, 2f, 3f),
                "an absent field yields the receiver's own default, never zero");
@@ -3286,49 +3314,61 @@ internal static class GoldenVectors
         //   id 128 factor objectives scale 1.250        -> 1250
         //   id 192 angle  asset pitch 57.00 deg         -> 5700
         //   id 224 count  fan max hand for curve 8      -> 8
-        byte[] mixedTune =
+        byte[] mixedFields =
         {
-            5,
             NetProtocol.TuneAssetOffset,       0x00, 0x00, 0xB4, 0xFB, 0x20, 0x03,
             NetProtocol.TuneCardWidth,         0xBC, 0x02,
             NetProtocol.TuneObjectivesScale,   0xE2, 0x04,
             NetProtocol.TuneAssetPitch,        0x44, 0x16,
             NetProtocol.TuneFanMaxHandForCurve, 0x08,
         };
+        ushort mixSig = BoardTunePages.Signature(mixedFields, 0, mixedFields.Length);
+        var mixPage = new byte[255];
+        int mixLen = BoardTunePages.WritePage(mixedFields, mixedFields.Length, 0, mixSig, mixPage);
         m = PresenceSerializer.Write(new PresenceState
         {
-            HasBoardTuning = true, BoardTuningBytes = mixedTune, BoardTuningLength = mixedTune.Length,
+            HasBoardTuning = true, BoardTuningBytes = mixPage, BoardTuningLength = mixLen,
         }, ext);
-        t.Wire(Hex.Bytes(@"
+        t.Wire(Hex.Bytes($@"
             31 52 56 47 03 01 80 00
             80 00
             01
-            1C 13            // id 28, len 19
-            05               //   5 fields
+            1C 19            // id 28, len 25
+            00 01            //   page 0 of 1
+            {mixSig & 0xFF:X2} {mixSig >> 8:X2}   //   generation
+            00 FF 05         //   complete for ids 0..255, 5 fields
             0F 00 00 B4 FB 20 03   //   id 15 vec3  : asset offset (0, -0.11, 0.08)
             46 BC 02               //   id 70 length: card width 70.0 mm
             80 E2 04               //   id 128 factor: objectives scale 1.250
             C0 44 16               //   id 192 angle : asset pitch 57.00 deg
             E0 08                  //   id 224 count : fan max hand for curve = 8
-            "), ext, m, "all four value widths ride one record, ids ascending");
+            "), ext, m, "all four value widths ride one page, ids ascending");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState mixTune), "and it parses");
-        Vector3 asset = NetProtocol.BoardTuneVector(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+        var mixAsm = new BoardTunePageAssembler();
+        t.True(mixAsm.Accept(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength),
+               "and assembles");
+        byte[] mixedTune = mixAsm.Assembled;
+        int mixedTuneLen = mixAsm.AssembledLength;
+        t.Equal(mixedFields.Length + 1, mixedTuneLen,
+                "the assembled payload is the field run behind ONE count byte — the exact shape " +
+                "RemoteBoardTuning has always read, which is why no consumer of a dial changed");
+        Vector3 asset = NetProtocol.BoardTuneVector(mixedTune, 0, mixedTuneLen,
                                                     NetProtocol.TuneAssetOffset, Vector3.zero);
         t.Equal(-0.11f, asset.y, "the bronze board's shipped mesh offset survives the round trip");
         t.Equal(0.08f, asset.z, "on both moved axes");
-        t.Equal(0.07f, NetProtocol.BoardTuneLength(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+        t.Equal(0.07f, NetProtocol.BoardTuneLength(mixedTune, 0, mixedTuneLen,
                                                    NetProtocol.TuneCardWidth, 0f),
                 "a LENGTH field decodes in tenth-millimetres");
-        t.Equal(1.25f, NetProtocol.BoardTuneFactor(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+        t.Equal(1.25f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTuneLen,
                                                    NetProtocol.TuneObjectivesScale, 0f),
                 "a FACTOR field decodes in thousandths");
-        t.Equal(57f, NetProtocol.BoardTuneAngle(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+        t.Equal(57f, NetProtocol.BoardTuneAngle(mixedTune, 0, mixedTuneLen,
                                                 NetProtocol.TuneAssetPitch, 0f),
                 "an ANGLE field decodes in hundredth-degrees");
-        t.Equal(8, NetProtocol.BoardTuneCount(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+        t.Equal(8, NetProtocol.BoardTuneCount(mixedTune, 0, mixedTuneLen,
                                               NetProtocol.TuneFanMaxHandForCurve, 0),
                 "a COUNT field is one plain byte");
-        t.Equal(2f, NetProtocol.BoardTuneFactor(mixTune.BoardTuningBytes, 0, mixTune.BoardTuningLength,
+        t.Equal(2f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTuneLen,
                                                 NetProtocol.TuneFanCurvePower, 2f),
                 "and every field NOT in the record still reads as the receiver's own default");
 
@@ -3336,10 +3376,10 @@ internal static class GoldenVectors
         // Here a 6-byte vec3 sits before a 2-byte factor whose VALUE BYTES (0x80 0xE2) would look
         // like an id-128 field if the walk ever mis-stepped — the reason the widths are fixed by
         // id RANGE and not guessed.
-        t.Equal(1.25f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTune.Length,
+        t.Equal(1.25f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTuneLen,
                                                    NetProtocol.TuneObjectivesScale, 0f),
                 "the walk steps over a 6-byte vec3 to reach the factor behind it");
-        t.Equal(-1f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTune.Length,
+        t.Equal(-1f, NetProtocol.BoardTuneFactor(mixedTune, 0, mixedTuneLen,
                                                  NetProtocol.TuneElementsScale, -1f),
                 "and a factor id that is NOT present is not matched by another field's value byte");
 
@@ -3359,12 +3399,21 @@ internal static class GoldenVectors
                                                 NetProtocol.TuneObjectivesScale, 9f),
                 "and everything behind it degrades to the default rather than being mis-parsed");
 
-        // TRUNCATION: the record claims 8 payload bytes and delivers 4. The tail is abandoned
+        // TRUNCATION: the record claims 14 payload bytes and delivers 4. The tail is abandoned
         // mid-record, the packet still parses, and nothing is delivered from the torn record.
-        byte[] cutTune = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1C 08 01 01 78 00");
+        byte[] cutTune = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1C 0E 00 01 78 00");
         t.True(PresenceSerializer.TryRead(cutTune, cutTune.Length, out PresenceState cutT),
                "a truncated tuning record still parses the packet");
         t.True(!cutT.HasBoardTuning, "and the incomplete record is simply not delivered");
+
+        // A RECORD SHORTER THAN ONE PAGE HEADER is not a page at all and is refused by LENGTH,
+        // before a byte of it is interpreted — the floor moved from 1 to 7 when the record was
+        // paged, and it is the reason BoardTuneMinRecordBytes and BoardTuneAssembledMinBytes are
+        // deliberately two different constants (a wire page vs. an assembled result).
+        byte[] stubPage = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1C 06 00 01 11 22 00 FF");
+        t.True(PresenceSerializer.TryRead(stubPage, stubPage.Length, out PresenceState stubT),
+               "a 6-byte record-28 payload parses as a packet");
+        t.True(!stubT.HasBoardTuning, "…but is not delivered: one byte short of a page header");
 
         // A FIELD truncated INSIDE an otherwise well-formed record: the walk stops at the short
         // field, the fields before it stand. (The record's own TLV length bounds every read.)
@@ -3376,42 +3425,46 @@ internal static class GoldenVectors
                                            NetProtocol.TunePileOffset, Vector3.one) == Vector3.one,
                "and the truncated field yields the default, never a torn vector");
 
-        // A ZERO-FIELD record is dropped: identical to 'record absent', which is what an untuned
-        // sender emits anyway — the two must never be distinguishable on the receiver.
-        byte[] emptyRec = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1C 01 00");
+        // A ZERO-FIELD PAGE IS LEGAL AND MUST BE DELIVERED — the exact reversal the paging brought,
+        // and the one place where reading the old test would now be actively misleading. Before
+        // paging, "zero fields" meant an empty RECORD, indistinguishable from an untuned sender, and
+        // it was dropped. A zero-field PAGE says something else entirely: "nothing is tuned in MY id
+        // range". Without it a generation could never converge for a player who tuned only offsets,
+        // because the page covering the factors would have nothing to say and would vanish. The
+        // untuned case is still expressed the way it always was: by omitting the record.
+        byte[] emptyRec = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 1C 07 01 02 34 12 40 FF 00");
         t.True(PresenceSerializer.TryRead(emptyRec, emptyRec.Length, out PresenceState emptyT),
-               "a zero-field tuning record parses");
-        t.True(!emptyT.HasBoardTuning, "and is dropped — indistinguishable from 'record absent'");
+               "a zero-FIELD page parses");
+        t.True(emptyT.HasBoardTuning,
+               "…and is DELIVERED: 'nothing is tuned in ids 64..255' is a statement, not a silence");
+        t.Equal(7, emptyT.BoardTuningLength, "a bare page header, no fields behind it");
 
-        // THE ONE-BYTE TLV CEILING, PINNED (2026-08-09, when the hand fan's character-SWAP dials
-        // took record 28's worst case to exactly 255). The extension tail writes a record's length
-        // in a SINGLE byte, and the board-tuning writer refuses anything larger — SILENTLY, and
-        // only for a sender who has moved every dial, i.e. the least likely person to notice. That
-        // makes the boundary worth owning in bytes rather than in a comment: 255 must still go out
-        // and 256 must still be refused, so the next dial added to the record cannot cross it by
-        // accident. BoardTuningSampler.MaxPayloadBytes is the number that has to stay under this;
-        // it is not linked into this assembly (it reads CardsConfig), which is why the test pins
-        // the SERIALIZER's behaviour rather than the constant.
+        // THE ONE-BYTE TLV CEILING, STILL PINNED — but it is now a PAGE's ceiling, not a player's.
+        // The extension tail writes a record's length in a SINGLE byte and the writer refuses more,
+        // so 255 must still go out and 256 must still be refused. What CHANGED on 2026-08-09 is what
+        // that boundary means: before paging it was the total capacity of a player's tuning, the
+        // record stood at exactly 255, and the next dial was silently undeliverable — for the player
+        // who had moved every dial, i.e. the least likely person to be testing. Now it bounds one
+        // page and another page follows, so this test guards the FRAMING and no longer guards a
+        // capacity anybody can reach. The convergence tests below are what guard the capacity.
         var maxTune = new byte[255];
-        maxTune[0] = 1;                                  // one field…
-        maxTune[1] = NetProtocol.TuneCardWidth;          // …and 252 bytes of padding behind it
-        maxTune[2] = 0xBC;
-        maxTune[3] = 0x02;
+        maxTune[NetProtocol.BoardTunePageIndexAt] = 0;
+        maxTune[NetProtocol.BoardTunePageCountAt] = 1;
+        maxTune[NetProtocol.BoardTunePageIdHiAt] = 255;
+        maxTune[NetProtocol.BoardTunePageFieldCountAt] = 1;
+        maxTune[NetProtocol.BoardTunePageHeaderBytes] = NetProtocol.TuneCardWidth;
+        maxTune[NetProtocol.BoardTunePageHeaderBytes + 1] = 0xBC;
+        maxTune[NetProtocol.BoardTunePageHeaderBytes + 2] = 0x02;
         m = PresenceSerializer.Write(new PresenceState
         {
             HasBoardTuning = true, BoardTuningBytes = maxTune, BoardTuningLength = maxTune.Length,
         }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState maxT),
-               "a 255-byte tuning payload — the record's own worst case — is written and parses");
+               "a 255-byte page — a page's own worst case — is written and parses");
         t.Equal(255, maxT.BoardTuningLength, "at its full length");
-        t.Equal(0.07f, NetProtocol.BoardTuneLength(maxT.BoardTuningBytes, 0, maxT.BoardTuningLength,
-                                                   NetProtocol.TuneCardWidth, 0f),
-                "and its first field still decodes");
         var overTune = new byte[256];
-        overTune[0] = 1;
-        overTune[1] = NetProtocol.TuneCardWidth;
-        overTune[2] = 0xBC;
-        overTune[3] = 0x02;
+        overTune[NetProtocol.BoardTunePageCountAt] = 1;
+        overTune[NetProtocol.BoardTunePageIdHiAt] = 255;
         m = PresenceSerializer.Write(new PresenceState
         {
             HandCardCount = 4,
@@ -3419,8 +3472,10 @@ internal static class GoldenVectors
         }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState overT), "a 256-byte payload parses…");
         t.True(!overT.HasBoardTuning,
-               "…as a packet WITHOUT the record: one byte over the TLV ceiling drops the whole " +
-               "record, which is exactly why MaxPayloadBytes may never exceed 255");
+               "…as a packet WITHOUT the record: one byte over the TLV ceiling drops that PAGE. " +
+               "Unreachable by construction now (header 7 + BoardTunePageMaxFieldBytes 248 = 255), " +
+               "and the guard stays precisely because of that — a paging bug must cost one page, " +
+               "not a length byte that wrapped and tore every record behind it in the tail");
 
         // The two swap dials that ride the one-byte COUNT width to stay under that ceiling: whole
         // degrees and whole percent, decoded in their own units by RemoteBoardTuning.
@@ -3453,33 +3508,248 @@ internal static class GoldenVectors
         m = PresenceSerializer.Write(new PresenceState
         {
             HasHalfHover = true, HalfHoverActive = true, HalfHoverSlot = 0, HalfHoverTop = true,
-            HasBoardTuning = true, BoardTuningBytes = oneDial, BoardTuningLength = oneDial.Length,
+            HasBoardTuning = true, BoardTuningBytes = onePage, BoardTuningLength = onePageLen,
         }, ext);
-        t.Wire(Hex.Bytes(@"
+        t.Wire(Hex.Bytes($@"
             31 52 56 47 03 01 80 00
             80 00
             02
             0E 02 04 00      // id 14 first
-            1C 08 01 01 78 00 AC FE 32 00  // id 28 behind it
+            1C 0E 00 01 {oneSig & 0xFF:X2} {oneSig >> 8:X2} 00 FF 01 01 78 00 AC FE 32 00  // id 28 behind it
             "), ext, m, "record 28 rides the tail LAST, in id order behind record 14");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState ordered), "and the combo parses");
         t.True(ordered.HasHalfHover && ordered.HasBoardTuning,
                "with both records delivered");
 
-        // An UNKNOWN record ahead of it (a future sender's field) is stepped over by length.
-        byte[] futureTune = Hex.Bytes(@"
+        // An UNKNOWN record ahead of it (a future sender's field) is stepped over by length. THIS is
+        // the compatibility property the paging deliberately did NOT break: a reader that does not
+        // know id 28 still skips it correctly. What paging DID break is a reader that knows the OLD
+        // id-28 LAYOUT — it would read the page header as a field count and an id. That is
+        // acceptable for one reason, recorded here as well as at the format: the ModBuild handshake
+        // is BLOCKING (VersionGuard), so peers on different builds never exchange an interpreted
+        // packet and an old reader can never meet a new page.
+        byte[] futureTune = Hex.Bytes($@"
             31 52 56 47 03 01 80 00
             80 00
             02
             63 03 DE AD BE   // id 99, len 3 -- unknown to this build
-            1C 08 01 01 78 00 AC FE 32 00
+            1C 0E 00 01 {oneSig & 0xFF:X2} {oneSig >> 8:X2} 00 FF 01 01 78 00 AC FE 32 00
             ");
         t.True(PresenceSerializer.TryRead(futureTune, futureTune.Length, out PresenceState futT),
                "a packet with an unknown record ahead of the tuning record parses");
         t.True(futT.HasBoardTuning, "and the tuning behind it is read");
-        t.Equal(0.012f, NetProtocol.BoardTuneVector(futT.BoardTuningBytes, 0, futT.BoardTuningLength,
+        var futAsm = new BoardTunePageAssembler();
+        t.True(futAsm.Accept(futT.BoardTuningBytes, 0, futT.BoardTuningLength), "and assembles");
+        t.Equal(0.012f, NetProtocol.BoardTuneVector(futAsm.Assembled, 0, futAsm.AssembledLength,
                                                     NetProtocol.TuneObjectivesOffset, Vector3.zero).x,
                 "with its field intact");
+
+        // -- 7u. BOARD TUNING: THE PAGING ITSELF ------------------------------------------------
+        // The ruling this whole mechanism serves, verbatim (user, 2026-08-09):
+        //   "Ändert ein Spieler also die Positionen für sich selber, so sollen alle anderen diese
+        //    Position bei seinem board auch sehen."
+        // A guarantee cannot have a capacity ceiling. Record 28 had one — 255 payload bytes, the
+        // extension tail's one-byte length — and it stood at EXACTLY 255, so the next feature's
+        // dials could not ride at all and the failure was invisible from inside a headset. These
+        // vectors pin the replacement: page framing, tiling, convergence, generations, and the
+        // boundary the old scheme used to drop at.
+        t.Case("7u. extras, board tuning is PAGED (no capacity ceiling)");
+
+        // A FIELD LIST BIGGER THAN THE OLD CEILING. 40 vec3 fields = 280 bytes — 25 past the 255 the
+        // old scheme could express at all, and a size at which the old sampler refused the WHOLE
+        // record and every peer drew the shipped defaults. It must now split and converge.
+        var bigFields = new byte[40 * 7];
+        for (int f = 0; f < 40; f++)
+        {
+            bigFields[f * 7] = (byte)(f + 1);              // ids 1..40, ascending (the layout contract)
+            bigFields[f * 7 + 1] = (byte)(f + 1);          // x = (f+1) tenth-mm, distinct per field
+            bigFields[f * 7 + 3] = 0x10;                   // y = 4096 tenth-mm
+            bigFields[f * 7 + 5] = 0x20;                   // z = 8192 tenth-mm
+        }
+        t.Equal(280, bigFields.Length, "40 vec3 dials are 280 field bytes — past the OLD 255 ceiling");
+        ushort bigSig = BoardTunePages.Signature(bigFields, 0, bigFields.Length);
+        int bigPages = BoardTunePages.PageCount(bigFields, bigFields.Length);
+        t.Equal(2, bigPages, "and they split into two pages, neither of which the tail can refuse");
+
+        var page = new byte[255];
+        var asm = new BoardTunePageAssembler();
+
+        int p0 = BoardTunePages.WritePage(bigFields, bigFields.Length, 0, bigSig, page);
+        t.Equal(252, p0,
+                "page 0 fills to 7 header + 35 × 7 = 252 — three bytes short of the tail's 255 " +
+                "ceiling, because the split is greedy at FIELD boundaries and a 36th 7-byte vec3 " +
+                "would not fit the 248-byte budget. Never truncated mid-field, which is what lets " +
+                "the receiver validate a page whole");
+        t.Equal(0, page[NetProtocol.BoardTunePageIdLoAt], "page 0 claims from id 0");
+        t.Equal(35, page[NetProtocol.BoardTunePageIdHiAt],
+                "…to the id of its LAST field, so page 1 can claim from 36 with no gap");
+        t.Equal(35, page[NetProtocol.BoardTunePageFieldCountAt], "carrying 35 of the 40 fields");
+        t.True(!asm.Accept(page, 0, p0),
+               "one page of two publishes NOTHING — a half tuning is never drawn");
+        t.Equal(0, asm.AssembledLength, "and there is nothing to draw from yet: shipped defaults");
+        t.Equal(1, asm.PagesSeen, "though the page IS held");
+
+        int p1 = BoardTunePages.WritePage(bigFields, bigFields.Length, 1, bigSig, page);
+        t.Equal(42, p1, "page 1 is 7 header + 5 × 7 = 42 bytes");
+        t.Equal(36, page[NetProtocol.BoardTunePageIdLoAt], "claiming from one past page 0's last id");
+        t.Equal(255, page[NetProtocol.BoardTunePageIdHiAt],
+                "…to 255, so the two ranges TILE the whole id space and the pair is a snapshot");
+        t.True(asm.Accept(page, 0, p1), "and the second page COMPLETES the generation");
+        t.Equal(2, asm.PagesSeen, "both pages held");
+        t.Equal(281, asm.AssembledLength, "assembled: 1 count byte + all 280 field bytes");
+        t.Equal(40, asm.Assembled[0], "all 40 dials, none dropped — which the old scheme could not do");
+
+        // EVERY field survives the round trip, first and last included. The last one is the point:
+        // it lived on page 1, i.e. past the byte where the old record stopped existing.
+        t.Equal(0.0001f, NetProtocol.BoardTuneVector(asm.Assembled, 0, asm.AssembledLength,
+                                                     1, Vector3.zero).x,
+                "the first dial (page 0) decodes");
+        t.Equal(0.0040f, NetProtocol.BoardTuneVector(asm.Assembled, 0, asm.AssembledLength,
+                                                     40, Vector3.zero).x,
+                "and so does the FORTIETH — the dial the 255-byte ceiling used to make undeliverable");
+
+        // CONVERGENCE FROM A COLD JOIN, IN ANY ORDER. A peer joining mid-cycle meets page 1 first;
+        // the sender keeps cycling, so page 0 follows and the generation completes. This is the
+        // whole convergence guarantee: at most pageCount packets, whenever you arrive.
+        var late = new BoardTunePageAssembler();
+        int q1 = BoardTunePages.WritePage(bigFields, bigFields.Length, 1, bigSig, page);
+        t.True(!late.Accept(page, 0, q1), "a peer joining mid-cycle meets page 1 and draws nothing yet");
+        int q0 = BoardTunePages.WritePage(bigFields, bigFields.Length, 0, bigSig, page);
+        t.True(late.Accept(page, 0, q0),
+               "and converges on the very next pass of the cycle — no handshake, no request");
+        t.Equal(281, late.AssembledLength, "to the identical complete payload");
+        t.Equal(40, late.Assembled[0], "with every dial present regardless of arrival order");
+
+        // A LOST PAGE IS REPAIRED BY THE CYCLE, not by a retransmit protocol: the sender re-sends
+        // every page forever, so a drop costs one lap and nothing else.
+        var lossy = new BoardTunePageAssembler();
+        int r1 = BoardTunePages.WritePage(bigFields, bigFields.Length, 1, bigSig, page);
+        t.True(!lossy.Accept(page, 0, r1), "page 1 arrives");
+        t.True(!lossy.Accept(page, 0, r1), "page 1 arrives AGAIN (page 0 was dropped in flight)");
+        t.Equal(1, lossy.PagesSeen, "a repeat is not progress — the page count is honest");
+        int r0 = BoardTunePages.WritePage(bigFields, bigFields.Length, 0, bigSig, page);
+        t.True(lossy.Accept(page, 0, r0), "and the next lap delivers page 0 and completes it");
+
+        // A NEW GENERATION MID-CYCLE: the owner drags a dial while their pages are in flight. The
+        // two generations must never be blended, and the peer's board must not flicker back to the
+        // shipped defaults while the new one arrives — so the PREVIOUS complete assembly stands
+        // until the new one is whole.
+        var changed = new byte[bigFields.Length];
+        System.Array.Copy(bigFields, changed, bigFields.Length);
+        changed[1] = 99;                                    // one dial moved, on page 0
+        ushort newSig = BoardTunePages.Signature(changed, 0, changed.Length);
+        t.True(newSig != bigSig, "a moved dial is a new generation (the digest differs)");
+
+        int n0 = BoardTunePages.WritePage(changed, changed.Length, 0, newSig, page);
+        t.True(!asm.Accept(page, 0, n0),
+               "page 0 of the NEW generation publishes nothing — half of it is still the old one");
+        t.Equal(281, asm.AssembledLength, "and the OLD complete assembly still stands…");
+        t.Equal(0.0001f, NetProtocol.BoardTuneVector(asm.Assembled, 0, asm.AssembledLength,
+                                                     1, Vector3.zero).x,
+                "…so the peer's board keeps the last coherent picture instead of flickering to defaults");
+        int n1 = BoardTunePages.WritePage(changed, changed.Length, 1, newSig, page);
+        t.True(asm.Accept(page, 0, n1), "the second page completes the new generation…");
+        t.Equal(0.0099f, NetProtocol.BoardTuneVector(asm.Assembled, 0, asm.AssembledLength,
+                                                     1, Vector3.zero).x,
+                "…and the moved dial lands, in one step, never half-applied");
+        t.Equal(newSig, asm.Generation, "the assembler now tracks the new generation");
+
+        // A DIAL RETURNING TO ITS DEFAULT is expressed by ABSENCE, the record's oldest rule, and
+        // paging must not have broken it: the page re-states its whole range every time, so a field
+        // that stops being sampled simply stops appearing and the reader falls back.
+        var fewer = new byte[bigFields.Length - 7];
+        System.Array.Copy(bigFields, 0, fewer, 0, fewer.Length);   // drop the 40th dial
+        ushort fewerSig = BoardTunePages.Signature(fewer, 0, fewer.Length);
+        int fp = BoardTunePages.PageCount(fewer, fewer.Length);
+        for (int k = 0; k < fp; k++)
+        {
+            int len = BoardTunePages.WritePage(fewer, fewer.Length, k, fewerSig, page);
+            asm.Accept(page, 0, len);
+        }
+        t.Equal(39, asm.Assembled[0], "the un-tuned dial is gone from the assembly…");
+        t.Equal(7.5f, NetProtocol.BoardTuneVector(asm.Assembled, 0, asm.AssembledLength,
+                                                  40, new Vector3(7.5f, 0f, 0f)).x,
+                "…and reads as the receiver's own shipped default again, never as a stale value");
+
+        // THE SENDER'S CYCLE. Update() is the change detector as well as the splitter, and a change
+        // restarts at page 0 — which is what makes the convergence bound measurable from the DRAG
+        // rather than from wherever the cursor happened to be.
+        var sender = new BoardTunePageSender();
+        t.True(sender.Update(bigFields, bigFields.Length), "a first sample is a change");
+        t.True(!sender.Update(bigFields, bigFields.Length),
+               "re-sampling an unchanged config is NOT — otherwise every packet would log and " +
+               "restart the cycle, and the board would rebuild at 5 Hz on both peers");
+        t.Equal(2, sender.PageCount, "it splits into the same two pages");
+        t.Equal(40, sender.FieldCount, "over 40 dials");
+        t.True(!sender.Overflowed, "with nothing refused");
+
+        int s0 = sender.NextPage(page);
+        t.Equal(0, page[NetProtocol.BoardTunePageIndexAt], "the cycle starts at page 0");
+        int s1 = sender.NextPage(page);
+        t.Equal(1, page[NetProtocol.BoardTunePageIndexAt], "then page 1");
+        int s2 = sender.NextPage(page);
+        t.Equal(0, page[NetProtocol.BoardTunePageIndexAt],
+                "then WRAPS to 0 — forever, which is what repairs a lost page and converges a " +
+                "peer who joined at any moment");
+        t.Equal(s0, s2, "and the wrapped page is byte-identical in length to the first");
+        t.True(s1 < s0, "page 1 is the short one (5 fields against 35)");
+
+        sender.NextPage(page);                                   // mid-cycle: cursor is at page 1
+        t.True(sender.Update(changed, changed.Length), "a moved dial is a change…");
+        sender.NextPage(page);
+        t.Equal(0, page[NetProtocol.BoardTunePageIndexAt],
+                "…and RESTARTS the cycle at page 0, so the bound is measured from the drag");
+
+        // AN UNTUNED PLAYER SENDS NOTHING AT ALL. This is the record's whole economic argument and
+        // paging must not have cost it: no fields ⇒ no pages ⇒ no record ⇒ the extension tail does
+        // not even open, and the packet is byte-identical to a pre-record sender's (pinned above).
+        var quiet = new BoardTunePageSender();
+        t.True(!quiet.Update(System.Array.Empty<byte>(), 0), "an untuned sample is not a change…");
+        t.Equal(0, quiet.PageCount, "…there are no pages…");
+        t.Equal(0, quiet.NextPage(page), "…and no page is written");
+
+        // STRUCTURAL REFUSAL, LOUDLY. Every bound the assembler enforces is derived from the field-id
+        // space, so a same-build peer cannot trip one; the point is that if one is ever tripped, the
+        // board is drawn from the last COMPLETE tuning and the receiver KNOWS, rather than being
+        // drawn from a half-parsed one and not knowing.
+        var strict = new BoardTunePageAssembler();
+        byte[] badIndex = { 3, 2, 0x11, 0x22, 0x00, 0xFF, 0x00 };      // page 3 of 2
+        t.True(!strict.Accept(badIndex, 0, badIndex.Length), "a page index past the page count…");
+        t.True(strict.Refused, "…is refused, and says so");
+        byte[] tooManyPages = { 0, 200, 0x11, 0x22, 0x00, 0xFF, 0x00 };
+        t.True(!strict.Accept(tooManyPages, 0, tooManyPages.Length),
+               "a generation claiming 200 pages is refused — the receiver's accumulator is bounded " +
+               "by the ID SPACE, never sized from a number the wire supplied");
+        byte[] unknownWidth = { 0, 1, 0x11, 0x22, 0x00, 0xFF, 1, 0xFF, 0x00, 0x00 };
+        t.True(!strict.Accept(unknownWidth, 0, unknownWidth.Length),
+               "a field whose RESERVED id has no declared width is refused whole, never guessed at");
+        byte[] tornField = { 0, 1, 0x11, 0x22, 0x00, 0xFF, 1, NetProtocol.TunePileOffset, 0x01 };
+        t.True(!strict.Accept(tornField, 0, tornField.Length),
+               "and so is a field cut short of the width its id declares");
+        byte[] miscount = { 0, 1, 0x11, 0x22, 0x00, 0xFF, 9, NetProtocol.TuneCardWidth, 0xBC, 0x02 };
+        t.True(!strict.Accept(miscount, 0, miscount.Length),
+               "a page whose declared field count disagrees with its own bytes is refused — the two " +
+               "must never be allowed to differ, because the assembled count byte is built from one " +
+               "and read by the other");
+        t.Equal(0, strict.AssembledLength, "nothing was ever published from any of them");
+
+        // THE ID SPACE IS THE ONLY BOUND LEFT, and it is a BUILD-TIME one: 247 usable ids at their
+        // own widths is 969 bytes, which is what sizes the sender's buffer and the receiver's
+        // accumulator. Pinned here so that widening a range is a deliberate act with a failing test
+        // attached, not something a dial discovers at runtime on somebody's Quest.
+        t.Equal(247, NetProtocol.BoardTuneMaxFields,
+                "247 usable field ids: 63 vec + 64 length + 64 factor + 32 angle + 24 count");
+        t.Equal(969, NetProtocol.BoardTuneMaxFieldBytes,
+                "= 969 bytes at their widths — 3.8x what the old 255-byte record could hold");
+        t.True(NetProtocol.BoardTuneMaxFields < 255,
+               "and under 255, which is the PROOF that the assembled payload's one-byte field count " +
+               "can never overflow: each id may appear at most once");
+        t.Equal(248, NetProtocol.BoardTunePageMaxFieldBytes,
+                "a page carries 248 field bytes (255 tail ceiling - 7 header)");
+        t.True(NetProtocol.BoardTuneMaxFieldBytes
+               <= NetProtocol.BoardTuneMaxPages * (NetProtocol.BoardTunePageMaxFieldBytes - 6),
+               "and BoardTuneMaxPages is DERIVED from those two, with the 6-byte worst-case split " +
+               "waste folded in — so the whole id space always fits inside the page cap");
 
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet

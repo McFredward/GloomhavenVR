@@ -223,8 +223,16 @@ internal sealed class RemoteHandFan
     // to its own slot), but the remote ghost simply appeared fully spread the instant the count
     // arrived — a pop, not a raise. Seconds since this fan became visible; -1 = settled.
     private float _openElapsed = -1f;
-    private const float OpenSeconds = Defaults.FanOpenDuration;    // CardsConfig.FanOpenDuration
-    private const float OpenStagger = Defaults.FanOpenStagger;    // CardsConfig.FanOpenStagger (ripples outward)
+
+    // WIRE-OVERRIDABLE SINCE 2026-08-09 (extension record 28, ids 154..155), and they were `const`
+    // before that for one reason only: the record was FULL at exactly 255 bytes and there was
+    // nowhere to put them. Paging removed that ceiling (see NetProtocol.BoardTunePages), so the
+    // reveal now runs on the OWNER's timing on every screen — which is what the 1:1 ruling has
+    // always demanded of it, since the ruling names ANIMATIONS outright and the item fan's and the
+    // swap's dials were wired for exactly that. The INITIALISER stays the shipped default, so an
+    // untuned peer's fan opens exactly as it did before (scripts/check-remote-defaults.py pins it).
+    private float _openSeconds = Defaults.FanOpenDuration;    // CardsConfig.FanOpenDuration
+    private float _openStagger = Defaults.FanOpenStagger;     // CardsConfig.FanOpenStagger (ripples outward)
 
     // ---- the owner's CHARACTER-SWAP EXCHANGE dials (extension record 28, ids 77..78 / 150..153 /
     // 226..227). Wire-overridable fields whose INITIALISER is what an untuned peer's exchange is
@@ -243,7 +251,7 @@ internal sealed class RemoteHandFan
     /// CardFan.OpenProgress verbatim, so a peer's fan opens on the owner's timing curve.</summary>
     private float OpenProgress(int i, int mid)
     {
-        float p = Mathf.Clamp01((_openElapsed - Mathf.Abs(i - mid) * OpenStagger) / OpenSeconds);
+        float p = Mathf.Clamp01((_openElapsed - Mathf.Abs(i - mid) * _openStagger) / _openSeconds);
         float inv = 1f - p;
         return 1f - inv * inv * inv;
     }
@@ -899,7 +907,7 @@ internal sealed class RemoteHandFan
         if (opening)
         {
             _openElapsed += Mathf.Max(dt, 0f);
-            if (_openElapsed >= OpenSeconds + Mathf.Max(mid, n - 1 - mid) * OpenStagger)
+            if (_openElapsed >= _openSeconds + Mathf.Max(mid, n - 1 - mid) * _openStagger)
                 _openElapsed = -1f;
         }
 
@@ -1323,6 +1331,11 @@ internal sealed class RemoteHandFan
         _swapSpinDegrees = t.FanSwapSpinDegrees;
         _swapSeedScale = t.FanSwapSeedScale;
         _swapSettleOvershoot = t.FanSwapSettleOvershoot;
+        // The REVEAL's own timing (ids 154..155), wire-borne only since the record was paged — see
+        // the field declarations. Guarded above zero because a zero duration would divide by it in
+        // OpenProgress; a config range cannot reach 0, but a wire value is never trusted.
+        _openSeconds = t.FanOpenDuration > 0.001f ? t.FanOpenDuration : Defaults.FanOpenDuration;
+        _openStagger = t.FanOpenStagger >= 0f ? t.FanOpenStagger : 0f;
 
         if (sizeChanged)
             _builtCount = -1;

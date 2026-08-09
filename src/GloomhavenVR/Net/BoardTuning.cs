@@ -26,8 +26,17 @@ namespace GloomhavenVR.Net;
 /// when its live value differs from the compiled default for the sender's style, and when NO field
 /// differs the record is not written at all — the extension tail does not even open for it. An
 /// untuned player therefore emits the exact bytes the previous build emitted. One moved dock costs
-/// 10 bytes at 5 Hz; every dial at once costs 235, and even that leaves the packet 336 bytes inside
-/// <see cref="PresenceSerializer.MaxSize"/>.
+/// 16 bytes at 5 Hz (2 TLV + 7 page header + 1 id + 6 value).
+///
+/// ─── AND WHY IT NO LONGER HAS A CEILING ────────────────────────────────────────────────────────
+/// It used to. The extension tail writes each record's length in ONE BYTE, this record's worst case
+/// had reached EXACTLY 255, and <see cref="Sample"/>'s only honest response to the next dial was to
+/// refuse the whole record. Two dials had already been squeezed into a narrower container purely to
+/// fit. Under the 1:1 ruling ("Ändert ein Spieler also die Positionen für sich selber, so sollen
+/// alle anderen diese Position bei seinem board auch sehen", 2026-08-09) a capacity ceiling is not
+/// a budget, it is a broken guarantee — so the record is PAGED (<see cref="BoardTunePages"/>). This
+/// method now builds the COMPLETE field list, of any length the id space allows, and the pager
+/// splits it; the largest a PACKET can carry stayed exactly where it was, at one 255-byte page.
 ///
 /// COMPARING QUANTIZED CODES, NOT FLOATS, is what makes "differs from the default" stable: a config
 /// round-trip through a text file can perturb a float in its last bits without moving a pixel, and
@@ -35,10 +44,10 @@ namespace GloomhavenVR.Net;
 /// code are the same picture, so they compare equal here.
 ///
 /// ─── SAMPLING CADENCE ──────────────────────────────────────────────────────────────────────────
-/// <see cref="Sample"/> rebuilds the payload into a persistent buffer; the caller runs it on a
-/// change edge (board style change / config edit / debug-menu drag) rather than per packet, and the
-/// serializer's write path is then a bounded copy. Rebuilding is cheap enough that the caller may
-/// also run it on a slow poll — it allocates nothing and touches ~50 config entries.
+/// <see cref="Sample"/> rebuilds the field list into a persistent buffer on every send;
+/// <see cref="BoardTunePageSender.Update"/> byte-compares it against the list it holds, so an
+/// unchanged config costs one memcmp and the serializer's write path is a bounded copy of one page.
+/// Rebuilding is cheap enough to run per send — it allocates nothing and touches ~76 config entries.
 /// </summary>
 /// <remarks>CLASSIFICATION: WIRE (extension record 28) — LOCAL CONFIG that is neither GLOBAL (each
 /// player has their own) nor derivable from anything already synced. See INVARIANTS-Net-Rig.md
@@ -46,35 +55,48 @@ namespace GloomhavenVR.Net;
 internal static class BoardTuningSampler
 {
     /// <summary>
-    /// Buffer size a caller must hand <see cref="Sample"/>: the record's own worst case (every
-    /// field present), which is what <see cref="PresenceSerializer.MaxSize"/> budgets for.
-    /// 1 count byte + 15 vec3 × 7 + 15 length × 3 + 26 factor × 3 + 6 angle × 3 + 4 count × 2.
+    /// Buffer size a caller must hand <see cref="Sample"/>: the FIELD-ID SPACE's own worst case,
+    /// <see cref="NetProtocol.BoardTuneMaxFieldBytes"/> = 969 — every one of the 247 usable ids
+    /// present at its own width.
     ///
-    /// <para>THIS IS EXACTLY 255, WHICH IS THE HARD TLV CEILING — see
-    /// <see cref="NetProtocol.BoardTuneMaxFields"/> for the full statement. The extension tail
-    /// writes a record's length in one byte and the serializer drops a payload over 255 without a
-    /// word, so the next dial added here must free bytes first (or move to its own record). The
-    /// one-shot check in <see cref="Sample"/> turns a future overrun into a log line instead of an
-    /// invisible desync.</para>
+    /// <para>IT USED TO READ 255, AND THAT WAS THE BUG THIS PASS EXISTS TO KILL. 255 is the
+    /// extension tail's ONE-BYTE per-record length ceiling, the record had grown to exactly it, and
+    /// the sampler's only honest response to the next dial was to refuse the WHOLE record — which
+    /// meant a player who had tuned enough was drawn at the shipped defaults on every other screen,
+    /// with nothing on their own screen to tell them. Under the 1:1 ruling ("Ändert ein Spieler also
+    /// die Positionen für sich selber, so sollen alle anderen diese Position bei seinem board auch
+    /// sehen", 2026-08-09) a capacity ceiling is a broken guarantee, not a budget, so the record is
+    /// now PAGED (<see cref="BoardTunePages"/>) and this buffer holds the COMPLETE field list, which
+    /// the pager then splits. There is no length here that a dial can cross.</para>
+    ///
+    /// <para>The remaining bound is the ID SPACE, and it is a BUILD-TIME one: a new dial needs a new
+    /// <c>NetProtocol.Tune*</c> constant, so exhausting it is a thing a human reads at a compiler.
+    /// The one-shot check at the end of <see cref="Sample"/> is what makes even that impossible to
+    /// meet silently.</para>
     /// </summary>
-    internal const int MaxPayloadBytes = 1 + 15 * 7 + 15 * 3 + 26 * 3 + 6 * 3 + 4 * 2;
+    internal const int MaxPayloadBytes = NetProtocol.BoardTuneMaxFieldBytes;
 
-    /// <summary>The extension tail's per-record length ceiling (one byte). Not a style limit: a
-    /// payload above it is refused by the writer, silently.</summary>
-    private const int TlvCeiling = 255;
-
-    /// <summary>One-shot log guard for the ceiling check at the end of <see cref="Sample"/> — the
-    /// sampler runs on every config edit, and a crossed ceiling would otherwise repeat forever.</summary>
+    /// <summary>One-shot log guard for the overrun check at the end of <see cref="Sample"/> — the
+    /// sampler runs on every send, and a crossed bound would otherwise repeat forever.</summary>
     private static bool s_ceilingLogged;
 
     /// <summary>
-    /// Build the record-28 payload for <paramref name="style"/> into <paramref name="payload"/>
-    /// (at least <see cref="MaxPayloadBytes"/> long) and return its length — or 0 when every dial
-    /// sits at its shipped default, which is the signal to write no record at all.
+    /// Build the COMPLETE sparse field list for <paramref name="style"/> into
+    /// <paramref name="payload"/> (at least <see cref="MaxPayloadBytes"/> long) and return its byte
+    /// length — or 0 when every dial sits at its shipped default, which is the signal to write no
+    /// record at all.
+    ///
+    /// <para>NO COUNT BYTE HERE ANY MORE: this produces the raw <c>[id][value]…</c> run.
+    /// <see cref="BoardTunePageSender"/> splits it into pages (each of which states its own field
+    /// count in its header) and <see cref="BoardTunePageAssembler"/> re-assembles it on the far side
+    /// into the <c>[n][fields]</c> shape <see cref="RemoteBoardTuning"/> reads. The split is the
+    /// pager's business precisely so that adding a dial here is a one-line change with no arithmetic
+    /// attached to it.</para>
     ///
     /// <para>Fields are appended in ASCENDING ID ORDER, which is the record's layout contract: it
     /// makes the bytes deterministic for a given tuning (so the change-gated log and the wire tests
-    /// have something stable to compare) and lets a reader stop early.</para>
+    /// have something stable to compare), lets a reader stop early, and — since paging cuts the run
+    /// into contiguous id ranges — is what lets a page state a RANGE it is complete for.</para>
     ///
     /// <para>Every config entry is null-guarded: this can run before <c>CardsConfig.Bind</c> has
     /// completed (a packet may go out during scene load), and the failure direction there is "no
@@ -85,7 +107,7 @@ internal static class BoardTuningSampler
         if (payload == null || payload.Length < MaxPayloadBytes)
             return 0;
 
-        int i = 1;                     // byte 0 is the field count, back-filled below
+        int i = 0;
         int n = 0;
         int b = (int)ControlBoards.Clamp((int)style);
 
@@ -155,6 +177,12 @@ internal static class BoardTuningSampler
                  CardsConfig.FanSwapTravel, Defaults.FanSwapTravel);
         n += Len(payload, ref i, NetProtocol.TuneFanSwapArc,
                  CardsConfig.FanSwapArc, Defaults.FanSwapArc);
+        // The BOARD PILE fans' base radius (id 79) — the first dial that could NOT have been added
+        // before paging: the record stood at exactly 255 and this would have been byte 258. Its
+        // remote consumers held it as a bare literal (`Radius = 0.16f * 1.7f` in RemoteBrowserFan /
+        // RemoteItemFan), so an owner who widened their pile fans was the only person who saw it.
+        n += Len(payload, ref i, NetProtocol.TuneFanRadius,
+                 CardsConfig.FanRadius, Defaults.FanRadius);
 
         // ---- FACTOR fields (ids 128..142) — dimensionless multipliers ------------------------
         n += Fac(payload, ref i, NetProtocol.TuneObjectivesScale,
@@ -214,8 +242,29 @@ internal static class BoardTuningSampler
                  CardsConfig.FanSwapSeedScale, Defaults.FanSwapSeedScale);
         n += Fac(payload, ref i, NetProtocol.TuneFanSwapSettleOvershoot,
                  CardsConfig.FanSwapSettleOvershoot, Defaults.FanSwapSettleOvershoot);
+        // The HAND FAN's REVEAL and the pile fans' shape — the rest of the set the old ceiling had
+        // locked out. RemoteHandFan held the reveal as `const OpenSeconds/OpenStagger`, so every
+        // peer's hand appeared at THIS client's timing; the 1:1 ruling names animations outright.
+        n += Fac(payload, ref i, NetProtocol.TuneFanOpenDuration,
+                 CardsConfig.FanOpenDuration, Defaults.FanOpenDuration);
+        n += Fac(payload, ref i, NetProtocol.TuneFanOpenStagger,
+                 CardsConfig.FanOpenStagger, Defaults.FanOpenStagger);
+        // [Cards] FanCloseDuration is DELIBERATELY NOT SAMPLED, though id 156 is declared for it.
+        // RemoteHandFan has no collapse animation at all — it hides the fan outright — so sending
+        // the dial would put three bytes on the wire that no receiver reads, AND would let
+        // scripts/check-wire-coverage.py report it as covered while a peer still sees no difference.
+        // A field id costs nothing to reserve; a false "covered" costs the guard its meaning. The
+        // guard carries it as a PENDING debt instead, which is what it is.
+        n += Fac(payload, ref i, NetProtocol.TuneCardLerpSpeed,
+                 CardsConfig.CardLerpSpeed, Defaults.CardLerpSpeed);
+        n += Fac(payload, ref i, NetProtocol.TuneFanRadiusFactorItems,
+                 CardsConfig.FanRadiusFactor(PileKind.Items), Defaults.FanRadiusFactor_Items);
+        n += Fac(payload, ref i, NetProtocol.TuneFanRadiusFactorDiscard,
+                 CardsConfig.FanRadiusFactor(PileKind.Discard), Defaults.FanRadiusFactor_Discard);
+        n += Fac(payload, ref i, NetProtocol.TuneFanRadiusFactorBurnt,
+                 CardsConfig.FanRadiusFactor(PileKind.Burnt), Defaults.FanRadiusFactor_Burnt);
 
-        // ---- ANGLE fields (ids 192..197) ------------------------------------------------------
+        // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
                  CardsConfig.AssetPitch(style), CardsConfig.BoardDefaults.AssetPitchDegrees[b]);
         n += Ang(payload, ref i, NetProtocol.TuneAssetYaw,
@@ -228,6 +277,12 @@ internal static class BoardTuningSampler
                  CardsConfig.FanPerCardStepDegrees, Defaults.FanPerCardStepDegrees);
         n += Ang(payload, ref i, NetProtocol.TuneItemFanOpenSpin,
                  CardsConfig.ItemFanOpenSpinDegrees, Defaults.ItemFanOpenSpinDegrees);
+        n += Ang(payload, ref i, NetProtocol.TuneFanStepDegreesItems,
+                 CardsConfig.FanStepDegrees(PileKind.Items), Defaults.FanStepDegrees_Items);
+        n += Ang(payload, ref i, NetProtocol.TuneFanStepDegreesDiscard,
+                 CardsConfig.FanStepDegrees(PileKind.Discard), Defaults.FanStepDegrees_Discard);
+        n += Ang(payload, ref i, NetProtocol.TuneFanStepDegreesBurnt,
+                 CardsConfig.FanStepDegrees(PileKind.Burnt), Defaults.FanStepDegrees_Burnt);
 
         // ---- COUNT fields (ids 224..225) ------------------------------------------------------
         n += Cnt(payload, ref i, NetProtocol.TuneFanMaxHandForCurve,
@@ -245,31 +300,30 @@ internal static class BoardTuningSampler
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
 
-        // THE TLV CEILING, CHECKED ON THE BYTES WE ACTUALLY PRODUCED. A `MaxPayloadBytes >
-        // TlvCeiling` test would have been constant-folded away — both are compile-time consts, so
-        // it can never fire and the compiler says so. This one is reachable, and it catches the
-        // real failure: a dial appended WITHOUT growing MaxPayloadBytes. That case would otherwise
-        // walk off the end of NetAvatarDriver's buffer, which is sized from the same constant —
-        // except the appenders bounds-check and quietly stop instead, so the record would go out
-        // TRUNCATED and the receiver would read a torn field list. Refusing the record entirely is
-        // the safe direction (every dial falls back to the shipped default, i.e. the previous
-        // build's picture) and the line says which change caused it.
-        if (i > TlvCeiling)
+        // THE ONE BOUND LEFT, CHECKED ON THE BYTES WE ACTUALLY PRODUCED. Paging removed the 255-byte
+        // ceiling; what remains is the FIELD-ID SPACE (247 usable ids, 969 bytes at their widths),
+        // and reaching it needs a dial appended above with an id nobody could have declared. The
+        // check is here rather than as a `MaxPayloadBytes > …` assertion because that form would be
+        // constant-folded away — both sides are compile-time consts, so it could never fire — while
+        // THIS one is reachable and catches the real failure. Refusing the whole tuning is the safe
+        // direction (every dial falls back to the shipped default, i.e. the pre-record picture) and
+        // the line says exactly what caused it. NOTHING HERE MAY EVER DROP A DIAL QUIETLY: that is
+        // the property the 1:1 ruling actually demands, and it is why this stays even though the
+        // ceiling it once guarded is gone.
+        if (i > NetProtocol.BoardTuneMaxFieldBytes)
         {
             if (!s_ceilingLogged)
             {
                 s_ceilingLogged = true;
-                Core.VRLog.Error("Net", $"BOARD TUNING record 28 built {i} bytes, past the extension tail's " +
-                                        $"{TlvCeiling}-byte per-record ceiling (MaxPayloadBytes says " +
-                                        $"{MaxPayloadBytes}). PresenceSerializer refuses a payload that big " +
-                                        "WITHOUT A WORD, so this would have been an invisible desync for any " +
-                                        "player who had moved enough dials. The record is dropped instead — " +
-                                        "peers see this player at the shipped defaults. A dial was added " +
-                                        "without freeing bytes: see NetProtocol.BoardTuneMaxFields.");
+                Core.VRLog.Error("Net", $"BOARD TUNING built {i} field bytes, past the id space's own worst " +
+                                        $"case of {NetProtocol.BoardTuneMaxFieldBytes} — which is only " +
+                                        "reachable if a dial was appended with a field id outside the declared " +
+                                        "ranges, or the same id twice. The whole tuning is dropped rather than " +
+                                        "sent short: peers see this player at the shipped defaults, LOUDLY " +
+                                        "rather than invisibly. See NetProtocol.BoardTuneMaxFields.");
             }
             return 0;
         }
-        payload[0] = (byte)n;
         return i;
     }
 
@@ -393,6 +447,9 @@ internal readonly struct RemoteBoardTuning
     /// <summary>[Cards] FanSwapArc — the exchange's mid-flight depth amplitude.</summary>
     public float FanSwapArc { get; }
 
+    /// <summary>[Cards] FanRadius — the base arc radius the BOARD PILE fans multiply.</summary>
+    public float FanRadius { get; }
+
     // ---- FACTOR dials ------------------------------------------------------------------------
     public float ObjectivesScale { get; }
     public float ObjectivesWidth { get; }
@@ -428,6 +485,22 @@ internal readonly struct RemoteBoardTuning
     public float FanSwapSeedScale { get; }
     public float FanSwapSettleOvershoot { get; }
 
+    // The HAND FAN's REVEAL and the BOARD PILE fans' shape — the dials the record's 255-byte
+    // ceiling had locked out until it was paged away (see NetProtocol.TuneFanRadius).
+
+    /// <summary>[Cards] FanOpenDuration — seconds one hand-fan card takes to appear.</summary>
+    public float FanOpenDuration { get; }
+    /// <summary>[Cards] FanOpenStagger — the reveal ripple's per-card delay.</summary>
+    public float FanOpenStagger { get; }
+    /// <summary>[Cards] CardLerpSpeed — the exponential rate a card flies to its slot at.</summary>
+    public float CardLerpSpeed { get; }
+    /// <summary>[Cards] FanRadiusFactor_Items — the items pile fan's radius multiplier.</summary>
+    public float FanRadiusFactorItems { get; }
+    /// <summary>[Cards] FanRadiusFactor_Discard.</summary>
+    public float FanRadiusFactorDiscard { get; }
+    /// <summary>[Cards] FanRadiusFactor_Burnt.</summary>
+    public float FanRadiusFactorBurnt { get; }
+
     /// <summary>[Cards] FanSwapOverlap as a 0..1 fraction (the wire carries whole percent).</summary>
     public float FanSwapOverlap { get; }
 
@@ -442,18 +515,27 @@ internal readonly struct RemoteBoardTuning
     public float FanPerCardStepDegrees { get; }
     public float ItemFanOpenSpinDegrees { get; }
 
+    /// <summary>[Cards] FanStepDegrees_Items — the items pile fan's per-card angular step.</summary>
+    public float FanStepDegreesItems { get; }
+    /// <summary>[Cards] FanStepDegrees_Discard.</summary>
+    public float FanStepDegreesDiscard { get; }
+    /// <summary>[Cards] FanStepDegrees_Burnt.</summary>
+    public float FanStepDegreesBurnt { get; }
+
     // ---- COUNT dials -------------------------------------------------------------------------
     public int FanMaxHandForCurve { get; }
     public int FanCurveMinCards { get; }
 
     /// <summary>Resolve a peer's tuning. <paramref name="payload"/>/<paramref name="len"/> are the
-    /// raw record-28 bytes (null / 0 for a peer with nothing tuned, which is the common case and
-    /// yields the shipped layout exactly as before this record existed).</summary>
+    /// ASSEMBLED record-28 bytes — <c>[n][n × [id][value]]</c>, the output of that peer's
+    /// <see cref="BoardTunePageAssembler"/>, never a raw wire page — and are null / 0 for a peer with
+    /// nothing tuned or one whose first generation has not converged yet. Both of those yield the
+    /// shipped layout exactly as before this record existed.</summary>
     public RemoteBoardTuning(ControlBoard style, byte[]? payload, int len)
     {
         Style = style;
         int b = (int)ControlBoards.Clamp((int)style);
-        bool has = payload != null && len >= NetProtocol.BoardTuneMinRecordBytes;
+        bool has = payload != null && len >= NetProtocol.BoardTuneAssembledMinBytes;
         Tuned = has;
         FieldCount = has ? payload![0] : 0;
 
@@ -512,6 +594,7 @@ internal readonly struct RemoteBoardTuning
         ItemFanOpenArc = L(payload, len, NetProtocol.TuneItemFanOpenArc, Defaults.ItemFanOpenArc);
         FanSwapTravel = L(payload, len, NetProtocol.TuneFanSwapTravel, Defaults.FanSwapTravel);
         FanSwapArc = L(payload, len, NetProtocol.TuneFanSwapArc, Defaults.FanSwapArc);
+        FanRadius = L(payload, len, NetProtocol.TuneFanRadius, Defaults.FanRadius);
 
         ObjectivesScale = F(payload, len, NetProtocol.TuneObjectivesScale,
                             CardsConfig.BoardDefaults.ObjectivesScale[b]);
@@ -551,6 +634,15 @@ internal readonly struct RemoteBoardTuning
         FanSwapSeedScale = F(payload, len, NetProtocol.TuneFanSwapSeedScale, Defaults.FanSwapSeedScale);
         FanSwapSettleOvershoot = F(payload, len, NetProtocol.TuneFanSwapSettleOvershoot,
                                    Defaults.FanSwapSettleOvershoot);
+        FanOpenDuration = F(payload, len, NetProtocol.TuneFanOpenDuration, Defaults.FanOpenDuration);
+        FanOpenStagger = F(payload, len, NetProtocol.TuneFanOpenStagger, Defaults.FanOpenStagger);
+        CardLerpSpeed = F(payload, len, NetProtocol.TuneCardLerpSpeed, Defaults.CardLerpSpeed);
+        FanRadiusFactorItems = F(payload, len, NetProtocol.TuneFanRadiusFactorItems,
+                                 Defaults.FanRadiusFactor_Items);
+        FanRadiusFactorDiscard = F(payload, len, NetProtocol.TuneFanRadiusFactorDiscard,
+                                   Defaults.FanRadiusFactor_Discard);
+        FanRadiusFactorBurnt = F(payload, len, NetProtocol.TuneFanRadiusFactorBurnt,
+                                 Defaults.FanRadiusFactor_Burnt);
 
         AssetPitchDegrees = A(payload, len, NetProtocol.TuneAssetPitch,
                               CardsConfig.BoardDefaults.AssetPitchDegrees[b]);
@@ -561,6 +653,12 @@ internal readonly struct RemoteBoardTuning
                                   Defaults.FanPerCardStepDegrees);
         ItemFanOpenSpinDegrees = A(payload, len, NetProtocol.TuneItemFanOpenSpin,
                                    Defaults.ItemFanOpenSpinDegrees);
+        FanStepDegreesItems = A(payload, len, NetProtocol.TuneFanStepDegreesItems,
+                                Defaults.FanStepDegrees_Items);
+        FanStepDegreesDiscard = A(payload, len, NetProtocol.TuneFanStepDegreesDiscard,
+                                  Defaults.FanStepDegrees_Discard);
+        FanStepDegreesBurnt = A(payload, len, NetProtocol.TuneFanStepDegreesBurnt,
+                                Defaults.FanStepDegrees_Burnt);
 
         FanMaxHandForCurve = C(payload, len, NetProtocol.TuneFanMaxHandForCurve,
                                Defaults.FanMaxHandForCurve);

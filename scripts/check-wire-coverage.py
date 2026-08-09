@@ -1,0 +1,356 @@
+#!/usr/bin/env python3
+"""
+1:1 WIRE-COVERAGE LINT: every dial that changes how a player's CONTROL BOARD LOOKS must either ride
+extension record 28, or be listed below with a reason.
+
+WHY THIS EXISTS
+---------------
+The standing ruling (user, 2026-08-09, verbatim):
+
+    "Die 1:1 Regel besagt dass alle remote Spieler immer 1:1 das am Board (mit den expliziten
+     ausgemachten Ausnahmen) sieht. Ändert ein Spieler also die Positionen für sich selber, so
+     sollen alle anderen diese Position bei seinem board auch sehen."
+
+That is a GUARANTEE, and a guarantee that only a human remembers is not one. Its sibling
+`check-remote-defaults.py` already catches a frozen remote constant DRIFTING from the default it
+mirrors. Nothing caught the other half — a NEW board-affecting dial being added with no wire field
+at all. That half is the one that actually kept happening: the pile browse fan's radius and step,
+the hand fan's reveal timing and the item cue / item berth sets were all added as ordinary config
+entries, drawn on every peer's board, and never went near record 28. Nobody could see it, because
+from inside your own headset your board is always right.
+
+So this script asserts the OTHER direction. It reads:
+
+  * every annotated shipped default (`// => [Section] Key` in src/GloomhavenVR/Defaults/),
+  * every wire field id in NetProtocol.cs and the `[Section] Key` its doc comment names,
+  * which of those ids `BoardTuningSampler.Sample` actually writes,
+
+and fails when a dial in a BOARD SECTION is neither covered by a written wire field nor listed in
+EXEMPT with a reason.
+
+    Adding a pair here costs one line; forgetting costs a desync nobody can see from inside their
+    own headset.
+
+WHERE THE LINE IS DRAWN — the test EXEMPT entries have to pass
+--------------------------------------------------------------
+"Would a peer LOOKING AT THAT PLAYER'S BOARD see a difference?"
+
+  If yes, it goes on the wire. A dock offset, a scale, a keycap size, an animation's timing, an
+  arc's radius — all yes.
+
+  If no, it is legitimately local and gets an EXEMPT line saying WHICH of the four reasons applies:
+    COMFORT   — the player's own body/settings, invisible on their board (spawn recipe, grab
+                button, gaze smoothing, sounds they hear).
+    DERIVED   — the RESULT is already synced by another mechanism, so syncing the recipe would be
+                redundant or actively wrong (board pose/scale, fan anchors, slot card size).
+    NO-OP     — the dial has no rendered effect even locally (legacy keys kept for cfg
+                back-compat, one-shot migration markers).
+    PENDING   — genuinely board-affecting, genuinely not covered yet, with the reason it is parked
+                and what unblocks it. THESE ARE DEBTS, NOT DECISIONS. The count is printed on every
+                run so it cannot quietly grow.
+
+A PENDING line is the only kind that is allowed to be uncomfortable, and that is deliberate: the
+alternative to letting one exist is a script nobody can make pass, which is a script somebody
+deletes.
+"""
+import re
+import sys
+import pathlib
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SRC = ROOT / "src" / "GloomhavenVR"
+
+# Sections whose entries describe THE CONTROL BOARD AND ITS FURNITURE. Everything annotated into one
+# of these is board-affecting until an EXEMPT line says otherwise — the default answer is "on the
+# wire", which is the direction the ruling points.
+BOARD_SECTIONS = {
+    "Cards",            # the board itself, its docks, its fans, its cards
+    "BoardButtons",     # the Confirm/Undo keycaps standing on the board
+    "BoardDashboard",   # the gear / Fixiert caps on the board's dashboard strip
+    "RestButtons",      # the short/long rest discs
+    "RoundButtons",     # the round-phase cluster caps
+    "ButtonAnim",       # how every one of those caps crumbles and assembles
+    "ButtonColors",     # what they are tinted and lettered in
+}
+
+# Sections that LOOK board-ish but are pure legacy migration sources: bound only inside
+# ButtonTuning.MigrateLegacy as locals, read by nothing, kept so an old cfg still imports.
+LEGACY_SECTIONS = {"SquareCaps", "TransientButtons"}
+
+# ---------------------------------------------------------------------------------------------
+#  EXEMPT — (section, key) -> (KIND, reason).  Key may end in "_{board}" to cover the per-board
+#  family (_Oak/_Steel/_Bronze) in one line, exactly like the wire ids' own doc comments do.
+# ---------------------------------------------------------------------------------------------
+EXEMPT = {
+    # ---- DERIVED: the RESULT is already on the wire, so the recipe must not be -----------------
+    ("Cards", "BoardScale_{board}"): ("DERIVED", "the board's world SCALE rides the synced board transform"),
+    ("Cards", "BoardTilt_{board}"): ("DERIVED", "folded into the synced board ROTATION"),
+    ("Cards", "BoardYaw_{board}"): ("DERIVED", "folded into the synced board ROTATION"),
+    ("Cards", "BoardPosOffset_{board}"): ("DERIVED", "folded into the synced board POSITION"),
+    ("Cards", "AssetRotation_{board}"): ("DERIVED", "superseded by AssetPitch/Yaw/Roll, which ARE on the wire (ids 192..194)"),
+    ("Cards", "BoardPitchMin_{board}"): ("DERIVED", "a clamp on the grab pitch; only the clamped pose is rendered, and it is synced"),
+    ("Cards", "BoardPitchMax_{board}"): ("DERIVED", "as BoardPitchMin"),
+    ("Cards", "BoardMinWidthMeters"): ("DERIVED", "a clamp on the apparent width; the clamped scale is synced"),
+    ("Cards", "BoardMaxWidthMeters"): ("DERIVED", "as BoardMinWidthMeters"),
+    ("Cards", "TrayForward"): ("DERIVED", "seats the board; the resulting pose is synced"),
+    ("Cards", "TrayDown"): ("DERIVED", "seats the board; the resulting pose is synced"),
+    ("Cards", "TrayRight"): ("DERIVED", "seats the board; the resulting pose is synced"),
+    ("Cards", "TrayYaw"): ("DERIVED", "seats the board; the resulting pose is synced"),
+    ("Cards", "TrayPitch"): ("DERIVED", "seats the board; the resulting pose is synced"),
+    ("Cards", "TrayScale"): ("DERIVED", "seats the board; the resulting SCALE is synced"),
+    ("Cards", "TrayFollow"): ("DERIVED", "an anchor MODE; the pin cap's label rides record 13 and the pose rides the board transform"),
+    ("Cards", "BoardMoveMode"): ("DERIVED", "its own bind says it: local cosmetics only, peers see the resulting board pose"),
+    ("Cards", "SlotCardFill"): ("DERIVED", "the product it feeds (the slot card WIDTH) rides extension record 11"),
+    ("Cards", "BrowseFanOffset"): ("DERIVED", "the browse fan's board-local anchor rides extension record 5 while the fan is open"),
+    ("Cards", "Board"): ("DERIVED", "the board STYLE rides the extras block, byte A bits 5..6"),
+
+    # ---- COMFORT: the player's own body, input and ears — invisible on their board -------------
+    ("Cards", "SpawnLeftOfHead"): ("COMFORT", "where THEIR board first appears relative to THEIR head; the pose is synced"),
+    ("Cards", "SpawnSideMeters"): ("COMFORT", "as SpawnLeftOfHead"),
+    ("Cards", "SpawnForwardMeters"): ("COMFORT", "as SpawnLeftOfHead"),
+    ("Cards", "SpawnDownMeters"): ("COMFORT", "as SpawnLeftOfHead"),
+    ("Cards", "GrabButton"): ("COMFORT", "which controller button grabs a card; produces no pixel"),
+    ("Cards", "RevealMode"): ("COMFORT", "WHEN their fan opens; the open/closed STATE itself is synced"),
+    ("Cards", "RevealEnterDegrees"): ("COMFORT", "as RevealMode"),
+    ("Cards", "RevealExitDegrees"): ("COMFORT", "as RevealMode"),
+    ("Cards", "RevealIgnoreWhenGrabbing"): ("COMFORT", "as RevealMode"),
+    ("Cards", "FanFollowSmoothing"): ("COMFORT", "how lazily THEIR fan chases THEIR palm; the mirror follows the synced hand"),
+    ("Cards", "FanFollowDeadzone"): ("COMFORT", "as FanFollowSmoothing"),
+    ("Cards", "FanGazeBias"): ("COMFORT", "driven by THEIR head; the mirror re-derives from the synced head pose"),
+    ("Cards", "FanGazeSmoothing"): ("COMFORT", "as FanGazeBias"),
+    ("Cards", "FanCurveByFill"): ("COMFORT", "a local hand-fill heuristic feeding dials that ARE on the wire"),
+    ("Cards", "HeldForward"): ("COMFORT", "how a card sits in THEIR hand; the held card's POSE is synced"),
+    ("Cards", "HeldOffPalm"): ("COMFORT", "as HeldForward"),
+    ("Cards", "HeldPinchOffset"): ("COMFORT", "as HeldForward"),
+    ("Cards", "HeldFaceBias"): ("COMFORT", "as HeldForward"),
+    ("Cards", "InspectScale"): ("COMFORT", "how big a card reads when THEY lift it to inspect; the held slab is drawn at the synced card width"),
+    ("Cards", "FanRevealSound"): ("COMFORT", "a sound THEY hear; every client plays its own"),
+    ("Cards", "FanHideSound"): ("COMFORT", "as FanRevealSound"),
+    ("Cards", "CardGrabSound"): ("COMFORT", "as FanRevealSound"),
+    ("Cards", "CardPlaceSound"): ("COMFORT", "as FanRevealSound"),
+    ("Cards", "CardTakeBackSound"): ("COMFORT", "as FanRevealSound"),
+    ("Cards", "FaceMipBake"): ("COMFORT", "texture quality of THEIR rendering; no geometry, no layout"),
+    ("Cards", "DevFakeHand"): ("COMFORT", "a debug toggle; never on a shipped player's board"),
+
+    # ---- NO-OP: nothing renders from it, even locally ------------------------------------------
+    ("Cards", "FanArcDegrees"): ("NO-OP", "LEGACY — superseded by FanArcSweepDegrees, read by nothing"),
+    ("Cards", "HeldTiltDegrees"): ("NO-OP", "LEGACY — read by nothing"),
+    ("Cards", "TrayTilt"): ("NO-OP", "LEGACY — superseded by BoardTilt_{board}"),
+    ("Cards", "BoardPitchMinDegrees"): ("NO-OP", "LEGACY — superseded by BoardPitchMin_{board}"),
+    ("Cards", "BoardPitchMaxDegrees"): ("NO-OP", "LEGACY — superseded by BoardPitchMax_{board}"),
+    ("Cards", "RoundButtonDiameter"): ("NO-OP", "LEGACY — superseded by [RoundButtons] CapSize"),
+    ("Cards", "RoundButtonThickness"): ("NO-OP", "LEGACY — superseded by [RoundButtons] Depth"),
+    ("Cards", "RestButtonInsetX"): ("NO-OP", "LEGACY — superseded by RestButtonSpacing_{board}"),
+    ("Cards", "ConfirmUndoInsetX"): ("NO-OP", "LEGACY — superseded by GenericButtonSpacing_{board}"),
+    ("Cards", "BoardScaleDefault04Applied"): ("NO-OP", "a one-shot migration marker; must start false on a fresh install"),
+    ("Cards", "DecisionOffsetYRebased"): ("NO-OP", "a one-shot migration marker"),
+    ("Cards", "ClusterOffset_{board}"): ("NO-OP", "ButtonCluster.AttachDocked reads the mount's ROTATION and SCALE only — the "
+                                                  "position never moves the rendered cluster, locally or remotely "
+                                                  "(RemoteBoardFurniture's task-3(b) note)"),
+
+    # ---- PENDING: real gaps, parked with the reason and what unblocks them ---------------------
+    # These are DEBTS. The count is printed on every run so it cannot creep upward unnoticed.
+    ("Cards", "ItemCardOffset_{board}"): ("PENDING", "HALF covered — the open item fan's anchor rides record 5, but the same "
+                                                     "dial also nudges the HELD item card, which has no wire path (the held "
+                                                     "card syncs a pose, not an offset). Needs the held-card path, not a field"),
+    ("Cards", "ActiveGridSpacing_{board}"): ("PENDING", "a Vector2, and record 28 has no 2-component kind; would need two LENGTH "
+                                                        "fields plus a grid-spacing member on RemoteBoardLayout, which has none"),
+    ("Cards", "RestButtonShape_{board}"): ("PENDING", "an enum; RemoteBoardFurniture builds rest caps with the shape hardwired, "
+                                                      "so the wire field needs a renderer change in a file owned elsewhere"),
+    ("Cards", "GenericButtonShape_{board}"): ("PENDING", "as RestButtonShape_{board}"),
+    ("Cards", "SlotCardInset"): ("PENDING", "how deep a card seats in the recess; NOTHING in Net/ reads it, so a wire field "
+                                            "would have no consumer until the recess renderer grows one"),
+    ("Cards", "WantedSlotHint"): ("PENDING", "a bool, and record 28 has no bool kind; the wanted-slot glow is not mirrored at all yet"),
+    ("Cards", "PileViewer"): ("PENDING", "a feature master switch — treated as 'what THIS client renders' like [WorldUI] Master; "
+                                         "revisit if the ruling is read to cover feature presence"),
+    ("Cards", "ActivePile"): ("PENDING", "as PileViewer"),
+    ("Cards", "GameCardParticles"): ("PENDING", "a bool; card smoke is not mirrored at all yet"),
+    ("Cards", "CardDust"): ("PENDING", "a bool; the dust burst is not mirrored at all yet"),
+    ("Cards", "FanCloseDuration"): ("PENDING", "field id 156 is DECLARED for it, but RemoteHandFan has no collapse "
+                                               "animation at all — it hides the fan outright — so sampling it would put "
+                                               "bytes on the wire no receiver reads and would let this script call it "
+                                               "covered while a peer still sees no difference. Sample it the day the "
+                                               "mirror grows a collapse"),
+    ("BoardButtons", "Width"): ("PENDING", "mirrored as a FROZEN constant in RemoteBoardFurniture (pinned by "
+                                           "check-remote-defaults.py), so a re-tune desyncs; the renderer is owned by a "
+                                           "parallel round — wire it when that lands"),
+    ("BoardButtons", "Height"): ("PENDING", "as [BoardButtons] Width"),
+    ("BoardButtons", "Depth"): ("PENDING", "as [BoardButtons] Width"),
+    ("BoardButtons", "Travel"): ("PENDING", "as [BoardButtons] Width"),
+    ("BoardDashboard", "PinWidth"): ("PENDING", "as [BoardButtons] Width"),
+    ("BoardDashboard", "Height"): ("PENDING", "as [BoardButtons] Width"),
+    ("BoardDashboard", "Depth"): ("PENDING", "as [BoardButtons] Width"),
+    ("BoardDashboard", "Travel"): ("PENDING", "as [BoardButtons] Width"),
+    ("RestButtons", "Width"): ("PENDING", "as [BoardButtons] Width"),
+    ("RestButtons", "Height"): ("PENDING", "as [BoardButtons] Width"),
+    ("RestButtons", "Depth"): ("PENDING", "as [BoardButtons] Width"),
+    ("RestButtons", "Travel"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "CapSize"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "Width"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "Height"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "Depth"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "Travel"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "OffsetX"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "OffsetY"): ("PENDING", "as [BoardButtons] Width"),
+    ("RoundButtons", "OffsetZ"): ("PENDING", "as [BoardButtons] Width — and ignored by the remote cluster entirely today"),
+    ("RoundButtons", "Shape"): ("PENDING", "an enum, as RestButtonShape_{board}"),
+    ("ButtonAnim", "DisappearSeconds"): ("PENDING", "as [BoardButtons] Width"),
+    ("ButtonAnim", "AppearSeconds"): ("PENDING", "as [BoardButtons] Width"),
+    ("ButtonAnim", "Enable"): ("PENDING", "a bool; whether the caps animate at all is not mirrored"),
+    ("ButtonAnim", "AppearParticles"): ("PENDING", "a bool; the spark burst is not mirrored"),
+}
+
+# Every [ButtonColors] entry: the remote furniture draws an AUTHORED palette (CapIdleColor,
+# ShortRestColor, LongRestColor, PinAccentColor, NativeButtonSkin.StyleEngravedLabel) and never read
+# these even for the DEFAULT case, which makes closing this a design decision about what a mirrored
+# board looks like, not a wire gap. Recorded as one rule rather than 21 identical lines.
+BUTTON_COLORS_REASON = ("PENDING", "the remote board draws an AUTHORED keycap palette and never read these, "
+                                   "even at their defaults — closing this is a look decision, not a wire fix")
+
+DEFAULTS_DIR = SRC / "Defaults"
+NET_PROTOCOL = SRC / "Net" / "NetProtocol.cs"
+SAMPLER = SRC / "Net" / "BoardTuning.cs"
+
+ANNOTATION_RE = re.compile(r"//\s*=>\s*\[(?P<section>[^\]]+)\]\s+(?P<key>\S+)")
+TUNE_ID_RE = re.compile(r"public const byte (?P<name>Tune\w+)\s*=\s*(?P<id>\d+)\s*;")
+DOC_KEY_RE = re.compile(r"\[(?P<section>[A-Za-z]+)\]\s+(?P<key>[A-Za-z0-9_{}]+)")
+
+BOARD_SUFFIXES = ("_Oak", "_Steel", "_Bronze")
+
+
+def annotated_defaults():
+    """(section, key) for every shipped default carrying a `// => [Section] Key` comment."""
+    out = set()
+    for path in sorted(DEFAULTS_DIR.glob("Defaults.*.cs")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            m = ANNOTATION_RE.search(line)
+            if m:
+                out.add((m.group("section"), m.group("key")))
+    return out
+
+
+def wire_fields():
+    """Tune* id name -> (section, key) taken from the id's OWN doc comment.
+
+    The doc comment is the single source of truth for what a field id means; it is what a human
+    reads when adding one, so making the guard read the same line is what keeps the two honest.
+    """
+    text = NET_PROTOCOL.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    out = {}
+    for i, line in enumerate(lines):
+        m = TUNE_ID_RE.search(line)
+        if not m:
+            continue
+        # Walk back over the doc block above the declaration and take the first [Section] Key in it.
+        for j in range(i - 1, max(-1, i - 12), -1):
+            prev = lines[j]
+            if not prev.strip().startswith("///"):
+                if prev.strip().startswith("//") or not prev.strip():
+                    continue
+                break
+            d = DOC_KEY_RE.search(prev)
+            if d:
+                out[m.group("name")] = (d.group("section"), d.group("key"))
+                break
+    return out
+
+
+def sampled_ids():
+    """The Tune* ids BoardTuningSampler.Sample actually writes. A declared-but-unwritten id is a
+    reservation, not coverage — which is the distinction that makes reserving ids for a parallel
+    round safe."""
+    text = SAMPLER.read_text(encoding="utf-8")
+    start = text.find("internal static int Sample(")
+    if start < 0:
+        return set()
+    body = text[start:]
+    return set(re.findall(r"NetProtocol\.(Tune\w+)", body))
+
+
+def expand(section, key):
+    """A `Key_{board}` coverage/exempt entry stands for the whole per-board family."""
+    if key.endswith("_{board}"):
+        stem = key[: -len("_{board}")]
+        return {(section, stem + s) for s in BOARD_SUFFIXES}
+    return {(section, key)}
+
+
+def main():
+    defaults = annotated_defaults()
+    fields = wire_fields()
+    written = sampled_ids()
+
+    covered = set()
+    for name, (section, key) in fields.items():
+        if name in written:
+            covered |= expand(section, key)
+
+    exempt = {}
+    for (section, key), reason in EXEMPT.items():
+        for pair in expand(section, key):
+            exempt[pair] = reason
+
+    board = {(s, k) for (s, k) in defaults if s in BOARD_SECTIONS}
+
+    missing = []
+    pending = []
+    for pair in sorted(board):
+        if pair in covered:
+            continue
+        reason = exempt.get(pair)
+        if reason is None and pair[0] == "ButtonColors":
+            reason = BUTTON_COLORS_REASON
+        if reason is None:
+            missing.append(pair)
+        elif reason[0] == "PENDING":
+            pending.append((pair, reason[1]))
+
+    # A stale EXEMPT line is its own defect: it means the dial was wired (or deleted) and the
+    # exemption is now a lie somebody will read as policy. Report it — an exemption that no longer
+    # applies is exactly how a table like this rots.
+    stale = [p for p in exempt if p not in board or p in covered]
+
+    # And a declared wire id whose doc comment names a [Section] Key that no shipped default has:
+    # either the id's doc is wrong or the dial was renamed out from under it.
+    orphan = sorted(
+        f"{name} -> [{s}] {k}"
+        for name, (s, k) in fields.items()
+        if name in written and not (expand(s, k) & defaults))
+
+    bad = []
+    for section, key in missing:
+        bad.append(f"[{section}] {key}: board-affecting, but no record-28 field writes it and no "
+                   f"EXEMPT line explains why. Wire it (a Tune* id + one line in "
+                   f"BoardTuningSampler.Sample + one member on RemoteBoardTuning), or add an "
+                   f"EXEMPT entry saying which of COMFORT / DERIVED / NO-OP / PENDING it is.")
+    for pair in sorted(stale):
+        bad.append(f"[{pair[0]}] {pair[1]}: EXEMPT names a dial that is now covered by the wire or "
+                   f"no longer exists — drop the line rather than leave a stale exemption standing.")
+    for line in orphan:
+        bad.append(f"{line}: a WRITTEN record-28 field names a [Section] Key with no annotated "
+                   f"shipped default. Fix the id's doc comment, or the dial moved and the field "
+                   f"is now sampling something else.")
+
+    if bad:
+        print("error: the 1:1 board guarantee has holes:", file=sys.stderr)
+        for b in bad:
+            print("  " + b, file=sys.stderr)
+        print("\n  The ruling (2026-08-09): \"Ändert ein Spieler also die Positionen für sich "
+              "selber,\n  so sollen alle anderen diese Position bei seinem board auch sehen.\"",
+              file=sys.stderr)
+        return 1
+
+    print(f"wire coverage: {len(covered & board)} board dial(s) on extension record 28, "
+          f"{len(board) - len(covered & board)} exempt "
+          f"({len(pending)} of them PENDING debts), {len(board)} board dials in "
+          f"{len(BOARD_SECTIONS)} sections.")
+    if pending:
+        print("  PENDING (board-affecting, not yet on the wire — these are debts, not decisions):")
+        for (section, key), why in pending:
+            print(f"    [{section}] {key}: {why}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
