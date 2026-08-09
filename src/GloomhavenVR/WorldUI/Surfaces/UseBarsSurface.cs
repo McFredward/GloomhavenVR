@@ -241,6 +241,13 @@ internal sealed class UseBarsSurface
 
     internal void Tick()
     {
+        // FIRST, before the docks poll their populated state: an item-backed bonus row must never be
+        // seen at all, not even for the one frame a "dock, then suppress, then release" ordering
+        // would cost. ActiveBonusPopulated() filters the same rows on its own as well (belt and
+        // braces — the game re-Shows pooled slots at will), so the dock gate agrees with what is
+        // actually visible in the same tick.
+        EnforceActiveBonusSplit();
+
         for (int i = 0; i < _docks.Length; i++)
             _docks[i].Tick(); // convert / release, level-triggered on the polled slot state
 
@@ -269,6 +276,7 @@ internal sealed class UseBarsSurface
     {
         RestorePlainHidden(Singleton<UIUseItemsBar>.IsInitialized
             ? Singleton<UIUseItemsBar>.Instance : null); // req C: leave the 2D bar exactly as authored
+        RestoreBonusHidden();     // …and the same for the item-backed bonus rows (pure, reversible)
         for (int i = 0; i < _docks.Length; i++)
             _docks[i].Shutdown();
         ClearHint();
@@ -288,7 +296,17 @@ internal sealed class UseBarsSurface
         Singleton<UIActiveBonusBar>.IsInitialized
             ? Singleton<UIActiveBonusBar>.Instance.transform as RectTransform : null;
 
-    /// <summary>Any live active-bonus slot showing (pooled slots are SetActive(false) on remove).</summary>
+    /// <summary>
+    /// Any live active-bonus slot showing (pooled slots are SetActive(false) on remove) — MINUS the
+    /// rows that are answered by placing an item card (<see cref="EnforceActiveBonusSplit"/>).
+    ///
+    /// <para>The predicate is applied here as well as in the split, for the same reason
+    /// <see cref="ItemsPopulated"/> applies the sub-choice predicate rather than trusting the split
+    /// to have run: the game re-activates pooled slots from its own callbacks
+    /// (<c>CreateBonus</c>/<c>Show</c> on an element unreserve, a proxy replay), and a bar that
+    /// docked for one frame on a row nobody may click is a visible flash of exactly the button this
+    /// pass removes. With both in place the dock gate and the visible rows agree every tick.</para>
+    /// </summary>
     private static bool ActiveBonusPopulated()
     {
         UIActiveBonusBar? bar = Singleton<UIActiveBonusBar>.IsInitialized
@@ -297,7 +315,8 @@ internal sealed class UseBarsSurface
             return false;
         foreach (KeyValuePair<CActiveBonus, UIUseActiveBonus> kv in bar.activeBonusSlots)
         {
-            if (kv.Value != null && kv.Value.gameObject.activeSelf)
+            if (kv.Value != null && kv.Value.gameObject.activeSelf
+                && !CardsGameApi.BonusIsPlaceable(kv.Key))
                 return true;
         }
         return false;
@@ -373,8 +392,12 @@ internal sealed class UseBarsSurface
     /// PLAIN use/toggle items are activated exclusively by physically placing the item card
     /// into the board's item-use slot (the ItemsPile clip-in flow), so their symbols never
     /// count toward docking — and if ALL visible slots are plain, the bar does not dock at
-    /// all. Bonus/augment/ability bars are deliberately unaffected: their slots carry the
-    /// choice UIs (initiative ±, forgo, infusion picks) the split keeps in the bars.
+    /// all. The augment/ability bars are deliberately unaffected: their slots carry the
+    /// choice UIs (infusion picks, choose-ability) the split keeps in the bars. The BONUS bar
+    /// used to be unaffected too; since 2026-08-09 it has its own, narrower split
+    /// (<see cref="EnforceActiveBonusSplit"/>) which removes only the item-backed rows that
+    /// need no further option — the initiative ± / forgo / choose-ability / element-consume
+    /// rows it still keeps, for exactly the reason stated here.
     /// A slot this surface itself suppressed (see <see cref="EnforceItemsSplit"/>) is
     /// inactive and naturally does not count.
     /// </summary>
@@ -919,6 +942,122 @@ internal sealed class UseBarsSurface
         _plainHidden.Clear();
         _lastPlainHiddenCount = -1;
         VRLog.Info("WorldUI", "USE BARS: items-bar split released — hidden plain-use slots restored to the bar's own state.");
+    }
+
+    // ---- the ITEM-BACKED ACTIVE BONUS rows leave the decision area (user ruling 2026-08-09) ----
+
+    // The bonus rows this surface deactivated, held as (bonus, slot) pairs so the restore can only
+    // ever re-activate a slot the bar still maps to that same bonus — never one the game itself has
+    // since pooled. Exactly the ledger shape EnforceItemsSplit uses, for exactly its reason.
+    private readonly List<KeyValuePair<CActiveBonus, UIUseActiveBonus>> _bonusHidden = new(4);
+    private readonly List<KeyValuePair<CActiveBonus, UIUseActiveBonus>> _bonusScratch = new(8);
+
+    /// <summary>
+    /// "So wie ich das verstehe kannst du damit alle Gegenstandsknöpfe entfernen und wirklich nur
+    /// noch die Entscheidungen im Entscheidungsbereich belassen die als Konsequenz von
+    /// Gegenstandsnutzung oder passiven Effekten auftritt" (user, 2026-08-09).
+    ///
+    /// <para>Since ModBuild 94 no ITEM is used by pressing a symbol; since this build no
+    /// item-backed ACTIVE BONUS is either — the "Brille" class is answered by placing its card in
+    /// the board's recess and poking USE (<c>ItemsPile</c>'s ACTIVE-BONUS placement, whose seam and
+    /// full rationale live in <c>CardsGameApi</c>'s "ITEM-BACKED ACTIVE BONUSES" block). So the row
+    /// has no reason to be drawn as a decision-area button, and it is deactivated here — the same
+    /// mechanism <see cref="EnforceItemsSplit"/> and <c>ItemsPile.EnforceChoiceSlotSplit</c> use, and
+    /// deliberately not a second one.</para>
+    ///
+    /// <para>WHAT SURVIVES, and this is the boundary the user drew: everything that carries a
+    /// FURTHER OPTION (<c>CardsGameApi.BonusNeedsFurtherOption</c> — the initiative-boots ± picker,
+    /// forgo-which-ability, choose-ability, the element consume), everything MANDATORY (the game
+    /// refuses to continue without it, so an invisible row would be a deadlock — fail open), and
+    /// every bonus with NO card to place at all: auras, character abilities and summons, which the
+    /// game itself distinguishes in <c>ActiveBonus.GetIcon</c>'s fallbacks. Those keep their rows by
+    /// necessity, not by exception.</para>
+    ///
+    /// <para>UNCONDITIONAL, not gated on the bar being docked — the <c>ItemsPile.EnforceChoiceSlotSplit</c>
+    /// form rather than the <see cref="EnforceItemsSplit"/> one. The dock gate reads
+    /// <c>activeSelf</c> (<see cref="ActiveBonusPopulated"/>), so suppressing only while docked
+    /// would be circular: the bar would have to dock the row once to learn it should not.</para>
+    ///
+    /// <para>NO TAKE-DAMAGE / DEMAND STAND-DOWN, decided deliberately (the open question
+    /// <see cref="EnforceItemsSplit"/> left behind — there, hiding a plain OnAttacked slot can make
+    /// the shield placement fail silently, because that flow resolves slots through
+    /// <c>CardsGameApi.LiveItemsBarSlot</c>, which requires an ACTIVE object). Nothing in this flow
+    /// asks for an active bonus slot: the placement resolves through
+    /// <c>UIActiveBonusBar.GetSlotForActiveBonus</c>, a plain dictionary lookup, and so do the two
+    /// other mod readers of this bar (<c>TakeDamagePanelSafety.AutoUseMandatoryActiveBonuses</c>,
+    /// <c>DamageTooltipSurface.MandatoryActiveBonusPending</c>) and the game's own MP replay
+    /// (<c>ProxyUseActiveBonus</c>). A deactivated row therefore stays fully clickable BY CODE while
+    /// being invisible to the player, which is exactly what this split needs and what the items-bar
+    /// split could not have. The mandatory carve-out above additionally means the auto-use path
+    /// never even meets a hidden row.</para>
+    /// </summary>
+    private void EnforceActiveBonusSplit()
+    {
+        CardsGameApi.ActiveBonusSlotsSnapshot(_bonusScratch);
+        if (_bonusScratch.Count == 0)
+        {
+            RestoreBonusHidden();
+            return;
+        }
+
+        for (int i = 0; i < _bonusScratch.Count; i++)
+        {
+            CActiveBonus bonus = _bonusScratch[i].Key;
+            UIUseActiveBonus slot = _bonusScratch[i].Value;
+            if (slot == null || !slot.gameObject.activeSelf)
+                continue;
+            if (!CardsGameApi.BonusIsPlaceable(bonus))
+                continue; // options / mandatory / no card to place — it keeps its row
+            slot.gameObject.SetActive(false);
+            bool known = false;
+            for (int j = 0; j < _bonusHidden.Count; j++)
+                if (ReferenceEquals(_bonusHidden[j].Value, slot))
+                {
+                    known = true;
+                    break;
+                }
+            if (!known)
+            {
+                _bonusHidden.Add(_bonusScratch[i]);
+                VRLog.Info("WorldUI", "USE BARS: bonus-bar SPLIT — hid the decision-area row for the " +
+                                      $"item-backed active bonus '{CardsGameApi.BonusCardName(bonus)}' " +
+                                      $"({bonus.GetType().Name}). It is answered by PLACING that item's card " +
+                                      "in the board's recess and poking USE, which drives this very row's own " +
+                                      "click; the row stays reachable by code (GetSlotForActiveBonus is a " +
+                                      "dictionary lookup) and is only invisible.");
+            }
+        }
+        _bonusScratch.Clear();
+
+        // Prune rows the game has since withdrawn: once the bar stops mapping the bonus to this
+        // slot the entry can never be legitimately restored, and keeping it would risk re-activating
+        // a pooled widget if the bar ever handed the same object back for the same bonus.
+        for (int i = _bonusHidden.Count - 1; i >= 0; i--)
+        {
+            if (!ReferenceEquals(CardsGameApi.ActiveBonusSlot(_bonusHidden[i].Key), _bonusHidden[i].Value))
+                _bonusHidden.RemoveAt(i);
+        }
+    }
+
+    /// <summary>Re-activate every bonus row this surface hid, but only where the bar still maps the
+    /// same bonus to the same slot — otherwise the game has pooled it and re-activating would
+    /// corrupt its pooling (the <see cref="RestorePlainHidden"/> rule, verbatim).</summary>
+    private void RestoreBonusHidden()
+    {
+        if (_bonusHidden.Count == 0)
+            return;
+        for (int i = 0; i < _bonusHidden.Count; i++)
+        {
+            UIUseActiveBonus slot = _bonusHidden[i].Value;
+            if (slot == null)
+                continue;
+            UIUseActiveBonus? live = CardsGameApi.ActiveBonusSlot(_bonusHidden[i].Key);
+            if (ReferenceEquals(live, slot) && !slot.gameObject.activeSelf)
+                slot.gameObject.SetActive(true);
+        }
+        _bonusHidden.Clear();
+        VRLog.Info("WorldUI", "USE BARS: bonus-bar split released — hidden item-backed bonus rows restored to " +
+                              "the bar's own state.");
     }
 
     /// <summary>

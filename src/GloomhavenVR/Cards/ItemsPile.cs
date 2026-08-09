@@ -58,6 +58,18 @@ namespace GloomhavenVR.Cards;
 /// The split also covers the TAKE-DAMAGE decision: placing an OnAttacked shield/retaliate
 /// card toggles it through the panel's own slot seam (<see cref="TickTakeDamagePick"/>),
 /// the panel's confirm commits.</item>
+/// <item>…AND SO IS THE WORN ITEM THAT ASKS PER EVENT (user ruling 2026-08-09, the "Brille").
+/// A <c>Trigger: PassiveEffect</c> + <c>Usage: Unrestricted</c> item is never activated through
+/// <c>UseItemService</c> at all — the game builds it a <c>CActiveBonus</c> off its ITEM CARD and
+/// charges it when that bonus is used — so its only 2D affordance was a row on
+/// <c>UIActiveBonusBar</c>. That row is gone now (<c>UseBarsSurface.EnforceActiveBonusSplit</c>):
+/// the item HIGHLIGHTS in the pile while its bonus is offered, placing its card raises the USE
+/// cap, poking USE presses the game's own bonus row (the exact click the button made, MP-synced by
+/// the game itself), the card then LIES in the recess as that lit row, and taking it back out is
+/// the un-click — unless the game has locked the toggle, which the card refuses to leave. See
+/// <see cref="_pendingBonus"/> and <c>CardsGameApi</c>'s "ITEM-BACKED ACTIVE BONUSES" block. What
+/// stays in the decision area is only what carries a FURTHER OPTION (initiative ±, forgo,
+/// choose-ability, element consume) and every bonus with no card to place at all.</item>
 /// </list>
 /// State → look: CONSUMED → ashen + the hosted card's OWN consumed FX (the game's separate
 /// CardSmoke plume is deliberately NOT spawned here — see the note in ItemChip.Create);
@@ -237,6 +249,43 @@ internal sealed class ItemsPile
     // UseBarsSurface plain-slot split's restore rule).
     private readonly List<KeyValuePair<CItem, UIUseItemScenario>> _choiceHidden = new(4);
     private readonly List<KeyValuePair<CItem, UIUseItemScenario>> _slotScratch = new(8);
+
+    // ---- ACTIVE-BONUS placement (the "Brille", user ruling 2026-08-09) ------------------------
+    //
+    // "Wenn ich gerade einen Angriff initiiert habe, dann soll die Brille im Gegenstands-Pile
+    //  gehighlighted werden und ich kann sie hinlegen und 'usen' — das ist dann äquivalent zu dem
+    //  Knopf der gedrückt wird."
+    //
+    // THE THIRD KIND OF PLACEMENT this recess can carry, alongside the plain item use and the
+    // element-choice item. A worn item that asks, per triggering event, whether to spend itself is
+    // NOT charged through UseItemService at all (that seam refuses passive items outright); it is
+    // charged through a CActiveBonus built off its ITEM CARD, whose only 2D affordance is a row on
+    // UIActiveBonusBar. Those rows are gone from the decision area now
+    // (UseBarsSurface.EnforceActiveBonusSplit), so this flow is the ONLY way to answer them — which
+    // is exactly why every state below is serviced whether the fan is open or closed, and why the
+    // one thing that must never happen is a card lying in the recess with no way to resolve it.
+    //
+    // THE GESTURE, term for term with the button it replaces (all seams in CardsGameApi):
+    //   place  → the card clips in and the USE cap comes up. Nothing is toggled yet: this is the
+    //            established recess idiom ("hinlegen und usen"), and it means a mis-drop costs the
+    //            player nothing at all.
+    //   USE    → UIUseSlot.OnPointerDown() on the bonus's own row = THE BUTTON, MP-synced by the
+    //            game itself (ActiveBonus.ToggleActiveBonus(…, fromClick: true) → ClickActiveBonusSlot
+    //            GameAction → the peer's ProxyUseActiveBonus). The card STAYS LYING in the recess
+    //            afterwards, because the bonus is toggled but not yet spent — the lying card IS the
+    //            lit row, and it is what a peer sees through record 26.
+    //   take it back out → the un-click: OnPointerDown() again → Unselect → UntoggleActiveBonus
+    //            (fromClick: true), equally MP-synced. Refused, visibly, while the game has LOCKED
+    //            the toggle (CActiveBonus.ToggleLocked): the card springs back into the recess and
+    //            says so, rather than silently lying about a state the game will not give back.
+    //   the game resolves it → the offer disappears from the bar. Toggled ⇒ the item was spent, so
+    //            the card plays its burn/tap flourish and returns to the pile; never toggled ⇒ plain
+    //            cancel, the card flies home un-used.
+    private CActiveBonus? _pendingBonus;
+    private bool _pendingBonusToggled;
+    // Throttle for the "the game will not let go of this toggle" refusal line, so a player who keeps
+    // tugging at a locked card cannot flood the hardware log.
+    private float _bonusLockLogAt;
 
     // Requirement 8 (drop preview): a translucent GHOST duplicate shown at the use-slot pose while a held
     // usable item card comes NEAR the slot — a preview of where it will land if released. Parented under
@@ -461,6 +510,10 @@ internal sealed class ItemsPile
         {
             if (_pendingSubChoice)
                 AbandonChoice(_pendingUseChip?.Item); // never leave the game holding a half-answered pick
+            // …and never leave a TOGGLED active bonus standing with no card left to express it. The
+            // same rule as AbandonChoice above, for the third placement kind: the game's toggle is
+            // backed out through the game's own row click, so peers see the untoggle too.
+            ReleaseBonusToggle("the fan closed with no card left lying in the recess");
             _pendingSubChoice = false;
             _pendingChoiceSlot = null;
             _choiceClickArmed = false;
@@ -513,6 +566,9 @@ internal sealed class ItemsPile
         ClearChips();
         if (_pendingSubChoice)
             AbandonChoice(_pendingUseChip?.Item);
+        // A toggled active bonus is GAME state, not mod state: teardown must give it back through
+        // the game's own row click, or the scenario would keep an armed bonus nobody can see.
+        ReleaseBonusToggle("the item pile was torn down");
         _pendingSubChoice = false;
         _pendingChoiceSlot = null;
         _choiceClickArmed = false;
@@ -618,6 +674,17 @@ internal sealed class ItemsPile
             // in WaitingForItemRefresh).
             TickUseGhost(false, null);
         }
+        else if (_pendingBonus != null && _pendingUseChip != null)
+        {
+            // ACTIVE-BONUS placement OUTRANKS the take-damage branch below, deliberately. An
+            // item-backed bonus can be offered DURING a take-damage decision (an optional
+            // prevent-damage bonus off a worn item is exactly that), and the _tdActive branch is a
+            // hand-off to TickTakeDamagePick, which owns nothing about this flow. Without this the
+            // placed card would be serviced by nobody for as long as the damage panel is up: no
+            // cancel, no resolve, no untoggle — a card stranded on the board mid-decision.
+            TickPendingUse(hand);
+            TickUseGhost(false, null); // clipped in — the ghost preview is not needed
+        }
         else if (_tdActive)
         {
             // TAKE-DAMAGE shield place (req C): TickTakeDamagePick owns the slot visibility,
@@ -636,9 +703,18 @@ internal sealed class ItemsPile
             // Requirement 3 (LIVE gate, re-evaluated every tick): the USE clip-in slot shows ONLY
             // while (a) it is this hand's own action turn AND (b) a HELD item card's live SlotState
             // is usable. Poll the held chip's live SlotState here (never cache it at create time).
+            //
+            // …OR while the held card's item has a LIVE OFFERED ACTIVE BONUS (the Brille). That case
+            // is not turn-gated on purpose: the game itself decides when such a bonus may be
+            // answered (it only builds a row while it is answerable — an attack of the owner's, an
+            // incoming hit, an end-of-action window), and several of those windows are NOT the
+            // owner's action turn (a take-damage decision runs on the ENEMY's turn). Re-applying an
+            // action-turn gate on top would hide the recess for exactly the case this pass exists
+            // for. The bonus's own presence on UIActiveBonusBar is the gate.
             bool turn = CardsGameApi.IsActionTurn(hand);
             ItemChip? heldUsable = HeldActivatableChip();
-            bool showUseSlot = turn && heldUsable != null;
+            bool heldBonus = heldUsable != null && heldUsable.HasOfferedBonus;
+            bool showUseSlot = heldUsable != null && (turn || heldBonus);
             PlayTray.Current?.SetItemUseSlotVisible(showUseSlot);
             // Requirement 8: preview where the held card lands as it nears the slot.
             TickUseGhost(showUseSlot, heldUsable);
@@ -648,7 +724,8 @@ internal sealed class ItemsPile
                 Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
                 Vector3 pos = slot != null ? slot.position : Vector3.zero;
                 VRLog.Info("Cards", $"ITEM USE SLOT: {(showUseSlot ? "shown" : "hidden")} " +
-                                    $"(turn={turn} heldUsable={(heldUsable != null)}) at ({pos.x:F2},{pos.y:F2},{pos.z:F2}).");
+                                    $"(turn={turn} heldUsable={(heldUsable != null)} heldBonus={heldBonus}) " +
+                                    $"at ({pos.x:F2},{pos.y:F2},{pos.z:F2}).");
             }
         }
 
@@ -1630,13 +1707,25 @@ internal sealed class ItemsPile
     /// excluded only when the game has built no bar slot for them at all
     /// (<see cref="CanPlaceChoiceItem"/>) — without that slot there is no picker to raise, so
     /// promising the recess would be a dead end.
+    ///
+    /// <para>ACTIVE-BONUS ITEMS ARE ADMITTED TOO (2026-08-09, the Brille). Such an item is PASSIVE
+    /// and would fail <see cref="ItemChip.IsActivatable"/> for ever — that is precisely the fact the
+    /// last round mistook for "it must keep its button". It is offered here on the second seam
+    /// instead (<see cref="ItemChip.HasOfferedBonus"/>), and the element-choice gate is deliberately
+    /// NOT applied to it: the bonus flow never touches <c>UIUseItemsBar</c>, so the absence of an
+    /// items-bar slot — which is guaranteed for a passive item — says nothing about it. Its own
+    /// "no further option" filter already ran when the bonus was classified as placeable.</para>
     /// </summary>
     private ItemChip? HeldActivatableChip()
     {
         for (int i = 0; i < _chips.Count; i++)
         {
             ItemChip c = _chips[i];
-            if (c != null && c.Holder != null && c.IsActivatable && CanPlaceChoiceItem(c.Item))
+            if (c == null || c.Holder == null)
+                continue;
+            if (c.HasOfferedBonus)
+                return c;
+            if (c.IsActivatable && CanPlaceChoiceItem(c.Item))
                 return c;
         }
         return null;
@@ -1669,9 +1758,18 @@ internal sealed class ItemsPile
     /// WHY the highlight (not a dim) hangs off THIS predicate: the game logic stays untouched; the
     /// visual is a pure read of it. Flipping the cue from "grey out the unusable" to "light up the
     /// usable" is a change of which side of this bool draws a quad, nothing else.
+    ///
+    /// <para>SECOND ARM (2026-08-09, the user's first sentence about the Brille: "dann soll die
+    /// Brille im Gegenstands-Pile gehighlighted werden"): an item whose ACTIVE BONUS is being
+    /// offered right now lights up too. It is turn-INDEPENDENT on purpose — the offer itself is the
+    /// game's own statement that the question is live, and several of the windows in which it is
+    /// live are not the owner's action turn (a take-damage decision runs on the enemy's turn). It
+    /// also does not go through <see cref="ItemChip.IsActivatable"/>, which such an item can never
+    /// satisfy: it is passive, and passive is exactly why it has a bonus row instead of a bar slot.</para>
     /// </summary>
     internal bool CanUseNow(ItemChip chip) =>
-        chip != null && _hand != null && CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable;
+        chip != null && _hand != null
+        && ((CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable) || chip.HasOfferedBonus);
 
     /// <summary>
     /// The SINGLE live activatability predicate, shared by the chips (<see cref="ItemChip.IsActivatable"/>)
@@ -1723,26 +1821,34 @@ internal sealed class ItemsPile
     /// None of those five is a "use this item" button. They are the follow-up question, and the
     /// decision area is exactly where they belong — which is the line the user drew.</para>
     ///
-    /// <para>THE ONE GENUINE EXCEPTION, named as asked: an item with <c>Usage: Unrestricted</c>,
-    /// <c>Trigger: PassiveEffect</c> and <c>UsedWhenEquipped != true</c> does not go through
-    /// UseItemService at all. The game builds it a <c>CActiveBonus</c> off its item card
-    /// (CActiveBonus.cs:395-400) and charges the item only when that bonus is USED
-    /// (<c>CActiveBonus.ActiveBonusUsed</c>, :683-694 — that triple is the literal predicate there).
-    /// Its toggle therefore lives on <c>UIActiveBonusBar</c>, not on the items bar, and placing its
-    /// card can never activate it: UseItemService returns immediately for a passive item ("Passive
-    /// items can't be selected"). This is the "Brille"-shaped class — a worn item that keeps asking,
-    /// per attack or per event, whether to spend itself — and its button MUST stay in the decision
-    /// area, because there is no other way to answer it. It is also the same bar that carries the
-    /// initiative-boots ± picker, which is why that bar is left entirely alone.</para>
+    /// <para>THE SECOND SEAM — and the answer this comment gave in ModBuild 94 was WRONG about it.
+    /// An item with <c>Usage: Unrestricted</c>, <c>Trigger: PassiveEffect</c> and
+    /// <c>UsedWhenEquipped != true</c> does not go through UseItemService at all. The game builds it
+    /// a <c>CActiveBonus</c> off its item card (CActiveBonus.cs:395-400) and charges the item only
+    /// when that bonus is USED (<c>CActiveBonus.ActiveBonusUsed</c>, :683-694 — that triple is the
+    /// literal predicate there). Its toggle lives on <c>UIActiveBonusBar</c>, not on the items bar.
+    /// The old note concluded from "UseItemService refuses passive items" that its BUTTON had to
+    /// stay; the user rejected that and was right (2026-08-09: "Ich verstehe deine Begründung nicht
+    /// warum der Knopf bleiben muss"). UseItemService refusing is a statement about ONE seam, not
+    /// about what is possible: the bonus row's click is itself only
+    /// <c>UIUseSlot.OnPointerDown → ToggleActiveBonus(…, fromClick: true)</c>, the bonus is built
+    /// off the ITEM CARD, and both directions of the toggle are first-class in the game. So this
+    /// class is placed too — see <see cref="ItemChip.HasOfferedBonus"/> and the ACTIVE-BONUS
+    /// placement block near <see cref="_pendingBonus"/> — and it is the reason
+    /// <see cref="CanUseNow"/> and <see cref="UsableCount"/> have a second arm that this predicate
+    /// deliberately does NOT: this one stays the exact <c>UseItemService</c> gate and nothing else,
+    /// because that is what the plain and element-choice confirms call.</para>
     ///
-    /// <para>CONSEQUENCE for the use bars, and it is already the shipped behaviour rather than a
-    /// change: no item USE button survives in the decision area for anything placement covers.
+    /// <para>CONSEQUENCE for the use bars: NO item button survives in the decision area at all.
     /// PLAIN item slots are suppressed by <c>UseBarsSurface.EnforceItemsSplit</c>, CHOICE slots by
     /// <see cref="EnforceChoiceSlotSplit"/> (which keeps exactly the slot belonging to the card
-    /// currently LYING in the recess), and <c>UseBarsSurface.ItemsPopulated</c> then finds nothing
-    /// to dock for, so the items bar releases and the row stops existing. The mirror half of that —
-    /// a bar left masked into wire record 25 with zero visible slots, which drew an empty caption
-    /// plate on the peer's board — is fixed in <c>UseBarsSurface.SampleWire</c>.</para>
+    /// currently LYING in the recess), and item-backed option-less BONUS rows by
+    /// <c>UseBarsSurface.EnforceActiveBonusSplit</c>. What remains in the decision area is what the
+    /// user asked to remain: the further OPTIONS (initiative ±, forgo-which-ability,
+    /// choose-ability, the element consume) and every bonus that has no card to place at all
+    /// (auras, character abilities, summons). The mirror half — a bar left masked into wire record
+    /// 25 with zero visible slots, which drew an empty caption plate on the peer's board — is fixed
+    /// in <c>UseBarsSurface.SampleWire</c>.</para>
     /// </summary>
     private static bool IsItemActivatable(CItem? item) =>
         item != null && item.YMLData != null
@@ -1751,21 +1857,31 @@ internal sealed class ItemsPile
             || item.SlotState == CItem.EItemSlotState.Selected);
 
     /// <summary>
-    /// How many of the acting character's equipped items are usable RIGHT NOW (0 when it is not this
-    /// hand's action turn). Read straight from the live inventory rather than from the chips, because
-    /// the items STACK highlight must work while the fan is CLOSED and no chips exist at all. Cheap:
-    /// a turn check plus one pass over a handful of items, per frame, allocation-free.
+    /// How many of the acting character's equipped items are PLAYABLE RIGHT NOW — the count that
+    /// drives the items STACK highlight while the fan is CLOSED (there are no chips then, so it is
+    /// read straight from the live inventory). Two disjoint arms, matching <see cref="CanUseNow"/>
+    /// exactly so the stack and the fanned-out cards can never disagree:
+    /// <list type="bullet">
+    /// <item>the ordinary use — this hand's own action turn AND <see cref="IsItemActivatable"/>;</item>
+    /// <item>an item whose ACTIVE BONUS is on offer right now (the Brille), which is NOT turn-gated:
+    /// the game only builds the row while the question is answerable, and some of those windows are
+    /// not the owner's turn at all.</item>
+    /// </list>
+    /// Cheap: one pass over a handful of items, per frame, allocation-free (the bonus lookup walks
+    /// the bar's own small slot dictionary).
     /// </summary>
     internal int UsableCount(CardsHandUI? hand)
     {
-        if (hand == null || !CardsGameApi.IsActionTurn(hand))
+        if (hand == null)
             return 0;
+        bool turn = CardsGameApi.IsActionTurn(hand);
         List<CItem>? items = ItemsOf(hand);
         if (items == null)
             return 0;
         int n = 0;
         for (int i = 0; i < items.Count; i++)
-            if (IsItemActivatable(items[i]))
+            if ((turn && IsItemActivatable(items[i]))
+                || CardsGameApi.PlaceableBonusForItem(items[i]) != null)
                 n++;
         return n;
     }
@@ -1862,6 +1978,20 @@ internal sealed class ItemsPile
         if (_demandActive)
         {
             HandleDemandDrop(chip, dropWorldPos, slot, vrHand);
+            return;
+        }
+
+        // ACTIVE-BONUS place (the Brille, 2026-08-09) — tested BEFORE the take-damage branch and
+        // regardless of the action turn. An item-backed bonus is answered on UIActiveBonusBar, not
+        // on UIUseItemsBar, so the two flows address disjoint items (a bonus-backed item is
+        // PassiveEffect; an OnAttacked shield item is not), and the bonus can legitimately be
+        // offered while a take-damage decision is up — that is when a worn prevent-damage item asks
+        // its question. Routing it here means the _tdActive branch below never sees a card it has no
+        // items-bar slot for and would silently bounce.
+        CActiveBonus? offered = chip.Item != null ? CardsGameApi.PlaceableBonusForItem(chip.Item) : null;
+        if (offered != null)
+        {
+            HandleBonusDrop(chip, dropWorldPos, slot, vrHand, offered);
             return;
         }
 
@@ -1985,6 +2115,16 @@ internal sealed class ItemsPile
         if (chip == null)
             return;
 
+        // ACTIVE-BONUS placement runs its own service: its endings come from the BONUS BAR (the
+        // offer withdrawn, the toggle locked, the game untoggling under us), not from the
+        // action-turn/SlotState pair PlayContinued reads — that pair is false for a passive item
+        // by construction and would cancel the card the same frame it was placed.
+        if (_pendingBonus != null)
+        {
+            TickBonusDecision(chip);
+            return;
+        }
+
         // Cancel by grabbing it BACK OUT (#6 refinement): once held again, clear the pending state; the
         // chip's own OnRelease then returns it to the fan (or re-clips if dropped back on the slot).
         if (chip.Holder != null)
@@ -2089,7 +2229,13 @@ internal sealed class ItemsPile
         // that where you LET GO decides, and releasing back over the recess must still re-clip.
         // The pending decision is only backed out when the release lands somewhere else
         // (OnChipReleased → AfterRefusedDrop).
-        if (chip.Holder != null)
+        //
+        // …with ONE flow that must answer the grab immediately instead: a card whose ACTIVE BONUS is
+        // already toggled ON. Taking it out IS the un-click, and a locked toggle must refuse the
+        // removal visibly — both are decisions, not deferred ones, so TickBonusDecision owns this
+        // case (see the grab handling there). Everything else keeps the "where you let go decides"
+        // rule unchanged.
+        if (chip.Holder != null && (_pendingBonus == null || !ReferenceEquals(chip, _pendingUseChip)))
         {
             PlayTray.Current?.SetItemUseSlotVisible(true);
             return;
@@ -2101,6 +2247,13 @@ internal sealed class ItemsPile
         {
             _keptClip = null;
             _keptClipIndex = -1;
+            return;
+        }
+
+        // ACTIVE-BONUS placement: one service, fan open or closed (see TickBonusDecision).
+        if (_pendingBonus != null)
+        {
+            TickBonusDecision(chip);
             return;
         }
         if (_pendingSubChoice && chip.Item != null && WasUsed(chip.Item))
@@ -2575,6 +2728,10 @@ internal sealed class ItemsPile
         // by hand would drop that last part on the floor.
         if (_pendingSubChoice)
             AbandonChoice(chip?.Item);
+        // …and the same rule for the THIRD placement kind: an active bonus this flow toggled on must
+        // never outlive the card that stands for it. No-op when the caller already released the
+        // toggle itself (TickBonusDecision's un-click clears _pendingBonusToggled first).
+        ReleaseBonusToggle(why);
         _pendingSubChoice = false;
         _pendingChoiceSlot = null;
         _choiceClickArmed = false;
@@ -2660,7 +2817,18 @@ internal sealed class ItemsPile
         }
         else if (ReferenceEquals(chip, _pendingUseChip))
         {
-            // Releases the element choice too (AbandonChoice) and drops the Confirm button.
+            // A LOCKED active-bonus toggle refuses the laser route exactly as it refuses the
+            // physical one (see RefuseLockedBonusRemoval): the rules will not give the choice back,
+            // so the card stays where it is and says why. Same refusal, both gestures.
+            if (_pendingBonus != null && _pendingBonusToggled
+                && CardsGameApi.ActiveBonusToggleLocked(_pendingBonus))
+            {
+                RefuseLockedBonusRemoval(chip, _pendingBonus);
+                hand.SendHaptic(HapticPreset.HoverTick);
+                return;
+            }
+            // Releases the element choice too (AbandonChoice), gives back a toggled active bonus
+            // (ReleaseBonusToggle) and drops the Confirm button.
             CancelPendingUse("laser click on the placed card — put back on the pile");
             flow = "pending USE decision — cancelled, nothing was used";
         }
@@ -2702,6 +2870,322 @@ internal sealed class ItemsPile
         }
     }
 
+    // ======================= the ACTIVE-BONUS placement (the Brille, 2026-08-09) =================
+    //
+    // The whole rationale — why this is possible at all, and why the previous round's "the button
+    // must stay" was wrong — lives at the seam it drives: CardsGameApi's
+    // "ITEM-BACKED ACTIVE BONUSES" block. What follows is only the VR flow around it.
+
+    /// <summary>
+    /// Drop routing while the released card's item has a LIVE OFFERED, option-less active bonus.
+    /// Clips the card in and raises the ordinary USE cap — and toggles NOTHING yet. That is
+    /// deliberate and it is the user's own wording ("ich kann sie hinlegen und 'usen'"): the recess
+    /// idiom is place-then-confirm everywhere else on this board, a mis-drop must be free, and the
+    /// commit (which is a real, MP-synced game action) belongs on the deliberate second gesture.
+    /// A drop away from the recess is not a placement — the base glide-home already runs.
+    /// </summary>
+    private void HandleBonusDrop(ItemChip chip, Vector3 dropWorldPos, Transform slot, VRHand vrHand,
+                                 CActiveBonus bonus)
+    {
+        // A LOCKED toggle cannot be taken back, so its card cannot leave: whatever route got it into
+        // a hand (ItemChip.AllowsHand refuses the ordinary grab, but a forced release — the
+        // CancelAll in RefuseLockedBonusRemoval itself — routes through here), the answer is the same
+        // and it is idempotent: put it back in the recess. Written FIRST so no drop-position test can
+        // turn a refusal into a cancel.
+        if (ReferenceEquals(chip, _pendingUseChip) && _pendingBonusToggled
+            && CardsGameApi.ActiveBonusToggleLocked(bonus))
+        {
+            RefuseLockedBonusRemoval(chip, bonus);
+            return;
+        }
+
+        float scale = slot.lossyScale.x;
+        float radius = UseSlotRadius * (scale > 1e-4f ? scale : 1f);
+        if ((dropWorldPos - slot.position).sqrMagnitude > radius * radius)
+        {
+            AfterRefusedDrop(chip);
+            return;
+        }
+
+        // One pending decision at a time (a fresh drop replaces an older pending clip cleanly) —
+        // and the older one is backed out through ITS own seam first, exactly as the plain path does.
+        if (_pendingUseChip != null && !ReferenceEquals(_pendingUseChip, chip))
+            CancelPlacedCard(_pendingUseChip, "another item card was placed in the recess");
+
+        _pendingUseChip = chip;
+        _pendingBonus = bonus;
+        _pendingBonusToggled = false;
+        _pendingSubChoice = false;   // a placeable bonus has no element consume, by its own predicate
+        _pendingChoiceSlot = null;
+        _choiceClickArmed = false;
+        _choiceCapShown = false;
+        _choiceCapReady = false;
+        chip.PendingUse = true;
+        chip.CancelReleaseGlide(); // do NOT glide home — we clip into the slot instead
+        chip.ClipIntoSlot(slot);
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        PlayTray.Current?.SetItemUseConfirmVisible(true, ConfirmPendingBonus);
+
+        vrHand.SendHaptic(HapticPreset.HoverTick);
+        CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
+        VRLog.Info("Cards", $"ITEM BONUS clip-in: '{chip.name}' lies in the use recess for the offered active " +
+                            $"bonus '{CardsGameApi.BonusCardName(bonus)}' ({bonus.GetType().Name}). Nothing is " +
+                            "toggled yet — poke USE to press the game's own bonus row (that click is what the " +
+                            "flat game's button does, and the game syncs it to peers itself), or grab the card " +
+                            "back out to cancel for free.");
+    }
+
+    /// <summary>
+    /// USE cap for a placed ACTIVE-BONUS card: click the bonus's own row through the game's seam.
+    /// This IS the button — <c>UIUseSlot.OnPointerDown → Toggle → Select</c> →
+    /// <c>ActiveBonus.ToggleActiveBonus(…, fromClick: true)</c>, which is also what sends the
+    /// <c>ClickActiveBonusSlot</c> GameAction that peers replay in <c>ProxyUseActiveBonus</c>.
+    ///
+    /// <para>THE CARD STAYS LYING THERE afterwards, and the cap goes away. A toggled bonus is not a
+    /// spent item: the game charges it later, inside <c>CActiveBonus.ActiveBonusUsed</c>, when the
+    /// attack (or whatever triggered the offer) actually resolves. Until then the toggle is
+    /// reversible in the game's own model, so the card must stay reversible too — it is the lit row,
+    /// and taking it back out is the un-click. Removing the card on USE would have thrown that away
+    /// AND lied about the item being spent.</para>
+    ///
+    /// <para>A refused click is reported and changes nothing: the bar disarms its slots for the few
+    /// frames a toggle is being processed (<c>SetInteractionAvailableSlots(false)</c>), so "not
+    /// interactable" means "not yet", and the cap stays up for another poke.</para>
+    /// </summary>
+    private void ConfirmPendingBonus()
+    {
+        ItemChip? chip = _pendingUseChip;
+        CActiveBonus? bonus = _pendingBonus;
+        if (chip == null || bonus == null)
+            return;
+        if (_pendingBonusToggled)
+            return; // already pressed; the cap should be down already
+
+        UIUseActiveBonus? slot = CardsGameApi.ActiveBonusSlot(bonus);
+        if (slot == null)
+        {
+            CancelPlacedCard(chip, "the game withdrew the bonus offer before the USE confirm");
+            return;
+        }
+        if (!CardsGameApi.ClickActiveBonusSlot(slot))
+        {
+            VRLog.Info("Cards", $"ITEM BONUS USE refused for '{chip.name}': the game has the bonus bar " +
+                                "disarmed this instant (SetInteractionAvailableSlots(false) — it does that " +
+                                "while a toggle is being processed by the rules engine). The card stays in " +
+                                "the recess and the USE cap stays up; poke it again in a moment.");
+            return;
+        }
+        if (!CardsGameApi.ActiveBonusSlotSelected(slot))
+        {
+            VRLog.Warn("Cards", $"ITEM BONUS USE: the game's own row click did not leave '{chip.name}' " +
+                                "selected — the bonus is not toggled, so the card goes back to the pile " +
+                                "rather than lying there claiming a state the game does not have.");
+            CancelPlacedCard(chip, "the bonus row refused the click");
+            return;
+        }
+
+        _pendingBonusToggled = true;
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+        VRLog.Info("Cards", $"ITEM BONUS USED: '{chip.name}' toggled the active bonus " +
+                            $"'{CardsGameApi.BonusCardName(bonus)}' ON through the game's own row click " +
+                            $"(model ToggledBonus={bonus.ToggledBonus}). Online this shipped as the game's " +
+                            "own ClickActiveBonusSlot GameAction — no mod wire is involved in the rules " +
+                            "effect. The card STAYS in the recess: the bonus is armed, not yet spent, so " +
+                            "taking the card back out is still the un-click until the game locks or " +
+                            "resolves it.");
+    }
+
+    /// <summary>
+    /// Per-tick service of a placed ACTIVE-BONUS card, fan open or closed. Every ending comes from
+    /// the game's own bonus bar, never from a clock and never from the action-turn/SlotState pair
+    /// <see cref="PlayContinued"/> reads (a passive item fails that pair by construction):
+    /// <list type="bullet">
+    /// <item>GRABBED BACK OUT — the un-click. Not yet toggled ⇒ a free cancel. Toggled ⇒ untoggle
+    /// through the same row click (<c>Unselect → UntoggleActiveBonus(fromClick: true)</c>, which
+    /// syncs itself), unless the game has LOCKED the toggle, in which case the removal is REFUSED:
+    /// the hand's grab is cancelled, the card springs back into the recess and the log says why.
+    /// Silently letting the card leave would put the board and the rules in disagreement.</item>
+    /// <item>THE OFFER WITHDRAWN (<c>GetSlotForActiveBonus</c> → null, i.e. the bar's
+    /// <c>Remove</c>/<c>Clear</c> ran) — if the toggle stood, the game has resolved it and charged
+    /// the item, so the card plays its burn/tap flourish and returns to the pile; if it never
+    /// toggled, this is a plain cancel and the card flies home un-used.</item>
+    /// <item>THE GAME UNTOGGLED IT under us (<c>UndoSelection</c>, a lethality recalc, a peer's undo)
+    /// — the card goes home, because card and rules state may never disagree.</item>
+    /// <item>THE GAME TOGGLED IT for us (<c>TakeDamagePanelSafety</c>'s mandatory auto-click, a
+    /// proxy replay) — adopt it silently rather than fight it, and drop the now-meaningless cap.</item>
+    /// </list>
+    /// </summary>
+    private void TickBonusDecision(ItemChip chip)
+    {
+        CActiveBonus? bonus = _pendingBonus;
+        if (bonus == null)
+            return;
+        UIUseActiveBonus? slot = CardsGameApi.ActiveBonusSlot(bonus);
+
+        // ---- picked back up -------------------------------------------------------------------
+        if (chip.Holder != null)
+        {
+            if (!_pendingBonusToggled)
+            {
+                // Nothing was ever committed: this is the ordinary "where you let go decides" rule.
+                CancelPendingUse("the bonus card was grabbed back out before it was used");
+                return;
+            }
+            if (CardsGameApi.ActiveBonusToggleLocked(bonus))
+            {
+                RefuseLockedBonusRemoval(chip, bonus);
+                return;
+            }
+            if (slot != null && CardsGameApi.ActiveBonusSlotSelected(slot)
+                && !CardsGameApi.ClickActiveBonusSlot(slot))
+            {
+                // The bar is disarmed for a frame or two while the rules engine answers. Hold the
+                // card in the hand and try again next tick — never leave the toggle standing.
+                return;
+            }
+            _pendingBonusToggled = false;
+            VRLog.Info("Cards", $"ITEM BONUS untoggled: '{chip.name}' was taken back out of the recess, so the " +
+                                $"active bonus '{CardsGameApi.BonusCardName(bonus)}' was un-clicked through the " +
+                                "game's own row (UntoggleActiveBonus, fromClick: true — the game syncs the " +
+                                "untoggle to peers itself).");
+            CancelPendingUse("the bonus card was grabbed back out — the toggle was released");
+            return;
+        }
+
+        // ---- the offer is gone ------------------------------------------------------------------
+        if (slot == null)
+        {
+            CItem? item = chip.Item;
+            // Only a real state change earns the burn/tap flourish. For the Brille class it will NOT
+            // come, and that is not a bug: CActiveBonus.ActiveBonusUsed charges such an item through
+            // CActor.UsedItem, which (SRL CActor.cs:1982-2000) writes an EVENT-LOG message and the
+            // bonus's own tracker — it never touches CItem.SlotState. So the card simply travels
+            // home, animated, exactly as it does after any other resolved decision. The WasUsed test
+            // stays because an item-backed bonus on a Spent/Consumed item WOULD move the state, and
+            // that one deserves its flourish.
+            if (_pendingBonusToggled && item != null && WasUsed(item))
+            {
+                FinishUsedChip(chip, item, "the game resolved the toggled bonus and the item's state moved with it");
+                return;
+            }
+            CancelPlacedCard(chip, _pendingBonusToggled
+                ? "the game resolved the toggled bonus (the item is charged through the bonus's own " +
+                  "tracker, not through its slot state), so the card goes back to the pile"
+                : "the game withdrew the bonus offer without it being used");
+            return;
+        }
+
+        // ---- the game moved the toggle under us --------------------------------------------------
+        bool selected = CardsGameApi.ActiveBonusSlotSelected(slot);
+        if (_pendingBonusToggled && !selected)
+        {
+            CancelPlacedCard(chip, "the game untoggled the bonus (undo / recalculation) — card and rules " +
+                                   "state may never disagree");
+            return;
+        }
+        if (!_pendingBonusToggled && selected)
+        {
+            _pendingBonusToggled = true;
+            PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+            VRLog.Info("Cards", $"ITEM BONUS: the GAME toggled '{CardsGameApi.BonusCardName(bonus)}' on by " +
+                                "itself (a mandatory auto-use or a replayed peer action) while its card lay " +
+                                "in the recess — adopted, and the USE cap dropped; the card now stands for " +
+                                "that toggle.");
+        }
+
+        // ---- steady state -----------------------------------------------------------------------
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        Transform? useSlot = PlayTray.Current?.ItemUseSlotTransform;
+        if (useSlot == null)
+        {
+            CancelPlacedCard(chip, "the board's item-use recess was rebuilt away under it");
+            return;
+        }
+        if (chip.transform.parent != useSlot)
+            chip.ClipIntoSlot(useSlot); // re-seat visibly (the settle), never a teleport
+    }
+
+    /// <summary>
+    /// The game has LOCKED this toggle (<c>CActiveBonus.ToggleLocked</c>, set by
+    /// <c>UIActiveBonusBar.LockToggledActiveBonuses</c> once the surrounding step commits), so the
+    /// card may not leave the recess: the rules will not give the choice back, and a card that
+    /// travelled home would be a promise the game cannot keep. The removal FAILS VISIBLY —
+    /// the hand's grab is cancelled, so the card springs back into the recess in front of the
+    /// player — plus a haptic and a throttled log line naming the reason. It is never silent.
+    /// </summary>
+    /// <summary>Is <paramref name="chip"/> the card lying in the recess for an active bonus the game
+    /// has LOCKED — i.e. the one card in this pile that may not be picked up at all? Asked by
+    /// <see cref="ItemChip.AllowsHand"/> every hover, so it is a handful of reference compares plus
+    /// one bool read; nothing is allocated and no game call is made beyond
+    /// <c>CActiveBonus.ToggleLocked</c>.</summary>
+    internal bool PlacedCardIsLocked(ItemChip chip) =>
+        chip != null && _pendingBonus != null && _pendingBonusToggled
+        && ReferenceEquals(chip, _pendingUseChip)
+        && CardsGameApi.ActiveBonusToggleLocked(_pendingBonus);
+
+    private void RefuseLockedBonusRemoval(ItemChip chip, CActiveBonus bonus)
+    {
+        VRHand? hand = chip.Holder;
+        hand?.Grabber.CancelAll();
+        hand?.SendHaptic(HapticPreset.HoverTick);
+        Transform? useSlot = PlayTray.Current?.ItemUseSlotTransform;
+        if (useSlot != null && chip.Holder == null)
+        {
+            chip.CancelReleaseGlide();
+            chip.PendingUse = true;
+            chip.ClipIntoSlot(useSlot); // the visible spring-back (the settle animation, not a pop)
+        }
+        if (Time.unscaledTime < _bonusLockLogAt)
+            return;
+        _bonusLockLogAt = Time.unscaledTime + 2f;
+        VRLog.Info("Cards", $"ITEM BONUS: '{chip.name}' cannot be taken back out — the game has LOCKED the " +
+                            $"toggle of '{CardsGameApi.BonusCardName(bonus)}' (CActiveBonus.ToggleLocked; " +
+                            "ScenarioRuleClient.LockActiveBonus ran because the surrounding step committed). " +
+                            "The flat game refuses the same un-click there (UIUseActiveBonus.ClearSelection " +
+                            "does nothing while locked), so the card springs back into the recess instead of " +
+                            "pretending the choice is still open. It leaves on its own the moment the game " +
+                            "resolves the bonus.");
+    }
+
+    /// <summary>
+    /// Give the game back a toggle this pile is about to stop being able to express — the
+    /// active-bonus twin of <see cref="AbandonChoice"/>. Called from every teardown that drops the
+    /// pending decision WITHOUT routing through <see cref="CancelPendingUse"/>'s normal path, so a
+    /// toggled bonus can never survive the disappearance of the card that stands for it. A LOCKED
+    /// toggle is left alone: the game refuses to release it, and it is about to resolve anyway.
+    /// </summary>
+    private void ReleaseBonusToggle(string why)
+    {
+        CActiveBonus? bonus = _pendingBonus;
+        _pendingBonus = null;
+        bool wasToggled = _pendingBonusToggled;
+        _pendingBonusToggled = false;
+        if (bonus == null || !wasToggled)
+            return;
+        try
+        {
+            if (CardsGameApi.ActiveBonusToggleLocked(bonus))
+            {
+                VRLog.Info("Cards", $"ITEM BONUS: '{CardsGameApi.BonusCardName(bonus)}' stays toggled ({why}) — " +
+                                    "the game has LOCKED it, so there is nothing to give back.");
+                return;
+            }
+            UIUseActiveBonus? slot = CardsGameApi.ActiveBonusSlot(bonus);
+            if (slot != null && CardsGameApi.ActiveBonusSlotSelected(slot)
+                && CardsGameApi.ClickActiveBonusSlot(slot))
+            {
+                VRLog.Info("Cards", $"ITEM BONUS released: '{CardsGameApi.BonusCardName(bonus)}' untoggled " +
+                                    $"through the game's own row click ({why}) — peers get the untoggle from " +
+                                    "the game's own ClickActiveBonusSlot action.");
+            }
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Cards", $"ITEM BONUS: releasing the toggle threw ({e.Message}); the card still leaves " +
+                                "the recess.");
+        }
+    }
+
     /// <summary>
     /// Requirement 6 — CONFIRM: use the pending item through the game's own <c>UseItemService</c>
     /// (which owns ALL multiplayer sync + re-validates), then reflect the result with an animation ON
@@ -2710,6 +3194,16 @@ internal sealed class ItemsPile
     /// </summary>
     private void ConfirmPendingUse()
     {
+        // An ACTIVE-BONUS placement has its own confirm (ConfirmPendingBonus is what its cap is
+        // wired to — the bonus is toggled through the bonus bar, never through UseItemService, which
+        // refuses passive items outright). This guard exists only so a stale cap callback from a
+        // previous placement can never route a bonus card into the wrong seam.
+        if (_pendingBonus != null)
+        {
+            ConfirmPendingBonus();
+            return;
+        }
+
         ItemChip? chip = _pendingUseChip;
         bool subChoice = _pendingSubChoice;
         _pendingUseChip = null;
@@ -2807,6 +3301,13 @@ internal sealed class ItemsPile
         _choiceClickArmed = false;
         _choiceCapShown = false;
         _choiceCapReady = false;
+        // An ACTIVE-BONUS placement ends here too, and the toggle is deliberately NOT given back:
+        // reaching this method means the game USED the bonus (it charged the item through
+        // CActiveBonus.ActiveBonusUsed), so there is nothing to release — dropping the fields is the
+        // whole job. Cleared directly rather than via ReleaseBonusToggle, which would try to
+        // un-click a bonus the game has already spent.
+        _pendingBonus = null;
+        _pendingBonusToggled = false;
         chip.PendingUse = false;
         // The decision resolved, so this card is no longer the recess survivor (see _keptClip) —
         // it is about to detach and play its own flourish/collapse.
@@ -3195,8 +3696,20 @@ internal sealed class ItemsPile
                                 "Placing a shield is optional; the mod never opens the fan by itself.");
         }
 
+        // ACTIVE-BONUS placement owns the recess while it is live, and it can legitimately be live
+        // right here: a worn item's optional prevent-damage bonus is offered on UIActiveBonusBar
+        // during exactly this decision. Its own service runs from Tick/TickPlacedWhileClosed
+        // (TickBonusDecision) and writes the recess visibility itself, so this pump must not fight
+        // it — two writers of SetItemUseSlotVisible would flicker the overlay every frame.
+        if (_pendingBonus != null && _pendingUseChip != null)
+            return;
+
         // Use slot: visible while a candidate chip is HELD or one is clipped (the toggle).
-        ItemChip? held = HeldTakeDamageCandidate();
+        // A held card whose ACTIVE BONUS is on offer counts as a candidate too — its item has no
+        // OnAttacked items-bar slot (it is passive), so HeldTakeDamageCandidate can never see it,
+        // and without this the recess would simply not appear for the one card the player is
+        // holding out over it.
+        ItemChip? held = HeldTakeDamageCandidate() ?? HeldBonusChip();
         bool show = held != null || _tdChip != null;
         PlayTray.Current?.SetItemUseSlotVisible(show);
         TickUseGhost(show && _tdChip == null, held);
@@ -3250,6 +3763,20 @@ internal sealed class ItemsPile
             ItemChip c = _chips[i];
             if (c != null && c.Holder != null && c.Item != null
                 && CardsGameApi.LiveItemsBarSlot(c.Item) != null)
+                return c;
+        }
+        return null;
+    }
+
+    /// <summary>The single HELD chip whose item has a LIVE OFFERED, option-less ACTIVE BONUS — the
+    /// Brille in the player's hand. Its own placement predicate (CardsGameApi.PlaceableBonusForItem)
+    /// is the whole gate; the mod adds nothing to what the game already decided to offer.</summary>
+    private ItemChip? HeldBonusChip()
+    {
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c != null && c.Holder != null && c.HasOfferedBonus)
                 return c;
         }
         return null;
@@ -3365,6 +3892,16 @@ internal sealed class ItemsPile
         /// tick by the owner's use-slot gate + the clip-in-to-use path.
         /// </summary>
         internal bool IsActivatable => IsItemActivatable(Item);
+
+        /// <summary>
+        /// LIVE: is this item's ACTIVE BONUS being offered right now (the Brille asking, per
+        /// triggering event, whether to spend itself)? The SECOND way an item can be played, and
+        /// disjoint from <see cref="IsActivatable"/> by construction — such an item is
+        /// <c>Trigger: PassiveEffect</c>, which that predicate rejects, and its question is asked on
+        /// <c>UIActiveBonusBar</c> instead of on the items bar. Never cached: the offer appears and
+        /// disappears with the game's own bar population, several times per turn.
+        /// </summary>
+        internal bool HasOfferedBonus => CardsGameApi.PlaceableBonusForItem(Item) != null;
 
         // Pop/enlarge for readability (fingertip sweep OR laser hover — spatially exclusive, so
         // one effective pop). Mirrors VRCard's pop: a small grow + a nudge toward the viewer.
@@ -4921,10 +5458,21 @@ internal sealed class ItemsPile
         /// never be a statement about it — and refusing it is exactly what made a placed card
         /// un-pickable by hand (requirement 5b). The owner already skips it when it re-derives the
         /// suppression set; this is the belt, because a single stale flag here would silently cost
-        /// the player their card back.</para></summary>
+        /// the player their card back.</para>
+        ///
+        /// <para>THE ONE CARD THAT REFUSES EVERY HAND: a placed card whose ACTIVE BONUS the game has
+        /// LOCKED (<see cref="ItemsPile.PlacedCardIsLocked"/>). The rules will not take that toggle
+        /// back — <c>UIUseActiveBonus.ClearSelection</c> does nothing at all while
+        /// <c>IsToggleLocked</c> — so a card that could be lifted out would either lie about the
+        /// state or have to be snatched back out of a closed fist. Refusing here means it simply does
+        /// not budge: no highlight, no haptic, no grab. The deliberate LASER click still reaches
+        /// <see cref="ItemsPile.RefuseLockedBonusRemoval"/>, which is where the player is TOLD why.
+        /// It stops refusing on its own the moment the game resolves the bonus.</para></summary>
         public bool AllowsHand(VRHand hand) =>
-            PendingUse
-            || (!ReferenceEquals(hand, _suppressedForHand) && !ReferenceEquals(hand, _suppressedForHand2));
+            (_owner == null || !_owner.PlacedCardIsLocked(this))
+            && (PendingUse
+                || (!ReferenceEquals(hand, _suppressedForHand)
+                    && !ReferenceEquals(hand, _suppressedForHand2)));
 
         /// <summary>
         /// Shrink this chip's grab box to its VISIBLE strip in FAN-local metres (see

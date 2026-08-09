@@ -831,6 +831,240 @@ internal static class CardsGameApi
     internal static bool ItemsBarSlotSelected(UIUseItemScenario slot) =>
         slot != null && slot.IsSelected();
 
+    // ============ ITEM-BACKED ACTIVE BONUSES: the SECOND seam an item can be spent through ======
+    //
+    // USER RULING 2026-08-09, verbatim, and it overturns the ModBuild 94 answer this file's
+    // ItemsPile counterpart still carried ("the Brille's button MUST stay"):
+    //
+    //   "Zu der Brille: Ich verstehe deine Begründung nicht warum der Knopf bleiben muss. Was ich
+    //    will: Wenn ich gerade einen Angriff initiiert habe, dann soll die Brille im
+    //    Gegenstands-Pile gehighlighted werden und ich kann sie hinlegen und 'usen' — das ist dann
+    //    äquivalent zu dem Knopf der gedrückt wird … So wie ich das verstehe kannst du damit alle
+    //    Gegenstandsknöpfe entfernen und wirklich nur noch die Entscheidungen im
+    //    Entscheidungsbereich belassen die als Konsequenz von Gegenstandsnutzung oder passiven
+    //    Effekten auftritt."
+    //
+    // He is right, and the old reasoning confused ONE seam with the whole question.
+    // <c>UseItemService.UseItem</c> ("Passive items can't be selected", GH.Runtime :29-38) is the
+    // seam the ITEMS BAR uses. A worn item with <c>Usage: Unrestricted</c> +
+    // <c>Trigger: PassiveEffect</c> + <c>UsedWhenEquipped != true</c> is charged through a
+    // DIFFERENT one: the game builds it a <c>CActiveBonus</c> OFF ITS ITEM CARD
+    // (CActiveBonus.cs:395-400) and spends the item inside <c>CActiveBonus.ActiveBonusUsed</c>
+    // (:681-694 — that triple is the literal predicate there). The card↔bonus link therefore
+    // already exists in the game's own model (<c>ActiveBonus.GetIcon</c>:18 and
+    // <c>GetSelectAudioItem</c>:43 both read <c>bonus.BaseCard is CItem</c> and draw the ITEM's
+    // mini sprite), which is exactly what makes "place the card" expressible.
+    //
+    // AND THE BUTTON IS ONLY A CLICK ON A TOGGLE. <c>UIUseActiveBonus</c>'s click does one thing —
+    // <c>UIUseSlot.OnPointerDown → Toggle → Select/Unselect</c> → <c>IActiveBonus.ToggleActiveBonus
+    // (element, fromClick: true)</c> / <c>UntoggleActiveBonus(fromClick: true)</c>
+    // (UIUseActiveBonus.cs:96/:150) — and BOTH directions are first-class in the game: it keeps
+    // <c>UntoggleActiveBonus</c>, <c>IsToggleLocked</c>, <c>UIActiveBonusBar.UndoSelection</c> and
+    // <c>LockToggledActiveBonuses</c>. So the VR gesture maps one-to-one: poking USE on a placed
+    // card is the click, taking the card back out is the un-click, and neither is a
+    // reimplementation of any rule — every call below ends in the game's own widget method.
+    //
+    // MULTIPLAYER RIDES THE GAME'S OWN PATH, NOT A NEW RECORD. <c>ActiveBonus.ToggleActiveBonus</c>
+    // /<c>UntoggleActiveBonus</c> themselves send <c>GameActionType.ClickActiveBonusSlot</c> with an
+    // <c>ActiveBonusToken(bonus, selected)</c> whenever <c>FFSNetwork.IsOnline</c> and the actor is
+    // under our control, and the peer replays it in <c>UIActiveBonusBar.ProxyUseActiveBonus</c>
+    // (:601) by resolving <c>(BaseCard.ID, ActiveBonus.ID, Ability.Name)</c> and calling
+    // <c>Toggle()</c> on ITS slot. Because the mod drives the very widget method the 2D click
+    // drives, the rules effect replicates byte-identically — no mod wire is needed for it, and none
+    // is added. (What DOES need mod-side mirroring is the VR PRESENTATION: the card lying in the
+    // recess, which extension record 26 already carries, and the removed bar row, which record 25's
+    // sender-side empty-bar drop already handles. See ItemsPile.ClippedChipIndex and
+    // UseBarsSurface.SampleWire.)
+
+    /// <summary>
+    /// Does answering this active bonus require a FURTHER OPTION beyond "yes, use it"? These are the
+    /// bonuses whose row is not a button but a small picker, and they must keep their place in the
+    /// decision area — the user's own boundary ("nur noch die Entscheidungen … die als Konsequenz
+    /// von Gegenstandsnutzung oder passiven Effekten auftritt"). Read from the MODEL, and it is the
+    /// exact set <c>UIUseActiveBonus.SetActiveBonus</c> (:36-83) builds an <c>IOptionHolder</c> or a
+    /// consume picker for:
+    /// <list type="bullet">
+    /// <item><c>CAdjustInitiativeActiveBonus</c> WITH the
+    /// <c>CAdjustInitiativeActiveBonus_AdjustInitiative</c> bespoke behaviour — the initiative-boots
+    /// ± picker the user tunes (the −N and +N <c>InitiativeOption</c>s). The other adjust-initiative
+    /// behaviour (<c>_FocusInitiative</c>) gets NO option UI in that same branch, so it is not in
+    /// this set.</item>
+    /// <item><c>CForgoActionsForCompanionActiveBonus</c> — pick WHICH ability to forgo (top/bottom
+    /// <c>AbilityOption</c>s).</item>
+    /// <item><c>CChooseAbilityActiveBonus</c> — pick WHICH ability.</item>
+    /// <item>anything with element consumes (<c>ActiveBonusData.Consuming.Count &gt; 0</c>,
+    /// <c>CActiveBonusExtensions.HasConsumeElements</c>): <c>UIUseConsumeInfuseSlot.Select</c>
+    /// (:193-220) opens the element picker before it ever reaches <c>base.Select()</c>, and the
+    /// answer is what <c>ActiveBonusToken.SelectedElementID</c> / <c>SetAnyConsume</c> carry.</item>
+    /// </list>
+    /// Infusions are deliberately not tested: <c>SetActiveBonus</c> passes <c>infusions: null</c> to
+    /// <c>Init</c> (UIUseActiveBonus.cs:88), so a bonus slot structurally has none.
+    /// </summary>
+    internal static bool BonusNeedsFurtherOption(CActiveBonus? bonus)
+    {
+        if (bonus == null)
+            return true; // unknown ⇒ treat as "has options" ⇒ it keeps its button (fail open)
+        if (bonus is CForgoActionsForCompanionActiveBonus || bonus is CChooseAbilityActiveBonus)
+            return true;
+        if (bonus is CAdjustInitiativeActiveBonus
+            && bonus.BespokeBehaviour is CAdjustInitiativeActiveBonus_AdjustInitiative)
+            return true;
+        return bonus.Ability != null && bonus.Ability.ActiveBonusData != null
+               && bonus.Ability.ActiveBonusData.Consuming != null
+               && bonus.Ability.ActiveBonusData.Consuming.Count > 0;
+    }
+
+    /// <summary>
+    /// THE PREDICATE, in the user's own terms: an active bonus is PLACED (its card goes into the
+    /// board's item-use recess) instead of PRESSED (a row in the decision area) exactly when
+    /// <list type="number">
+    /// <item>its <c>BaseCard</c> IS an item card — <c>bonus.BaseCard is CItem</c>, the same test the
+    /// game's own <c>ActiveBonus.GetIcon</c> makes to decide it should draw the item's art. Auras,
+    /// character abilities and summons produce bonuses with NO card to place (that method's four
+    /// fallbacks are literally those cases), so they can never be placed and keep their rows by
+    /// necessity;</item>
+    /// <item>it needs no further option — <see cref="BonusNeedsFurtherOption"/>;</item>
+    /// <item>it is OPTIONAL (<c>ActiveBonusData.ToggleIsOptional</c>). A MANDATORY bonus is one the
+    /// game refuses to continue without (<c>UIActiveBonusBar.ShowReduceDamageActiveBonuses</c>
+    /// installs exactly <c>bonus =&gt; !ToggleIsOptional</c> as its <c>isMandatoryChecker</c>, and
+    /// <c>TakeDamagePanelSafety</c> auto-clicks those on the confirm). Keeping its row visible is
+    /// the fail-open direction this whole surface family uses: an unanswerable demand is worse than
+    /// a button the player did not need.</item>
+    /// </list>
+    /// </summary>
+    internal static bool BonusIsPlaceable(CActiveBonus? bonus) =>
+        bonus != null
+        && bonus.BaseCard is CItem
+        && !BonusNeedsFurtherOption(bonus)
+        && bonus.Ability != null && bonus.Ability.ActiveBonusData != null
+        && bonus.Ability.ActiveBonusData.ToggleIsOptional;
+
+    /// <summary>
+    /// The live, OFFERED, placeable active bonus of <paramref name="item"/> — i.e. "this equipped
+    /// item is asking, right now, whether to spend itself" — or null.
+    ///
+    /// <para>Offered means the game has a slot for it on <c>UIActiveBonusBar</c>
+    /// (<c>activeBonusSlots</c>, publicized): that dictionary IS the bar's population, written by
+    /// <c>CreateBonus</c> and cleared by <c>Remove</c>/<c>Clear</c>, and every filter that decides
+    /// whether a bonus may be offered at all (requirements, restriction, ability type, consumable
+    /// elements, resources, aura range …) has already run in <c>GetActiveBonuses</c> before an entry
+    /// exists. The mod adds not one condition of its own to that; it only asks the bar what it holds.</para>
+    ///
+    /// <para>MATCHED BY ID, never by reference. <c>bonus.BaseCard</c> is the CItem the bonus was
+    /// BUILT from, and the game itself re-finds the inventory copy by id when it charges the item
+    /// (<c>ActiveBonusUsed</c>: <c>Actor.Inventory.AllItems.Find(s =&gt; s.ID == BaseCard.ID)</c>), so
+    /// id is the identity the game trusts here and reference equality is not guaranteed to hold.</para>
+    ///
+    /// <para>Deliberately ignores <c>gameObject.activeSelf</c>: the mod itself deactivates these very
+    /// rows (<c>UseBarsSurface.EnforceActiveBonusSplit</c>) — that is the whole point of this pass —
+    /// so requiring an active slot would make the placement flow disappear together with the button
+    /// it replaces. This is the deliberate resolution of the stand-down question the items-bar split
+    /// raised: there is nothing to stand down FROM, because no seam in this flow asks for an active
+    /// slot (and neither does the game's own <c>GetSlotForActiveBonus</c>, which
+    /// <c>TakeDamagePanelSafety</c> and <c>ProxyUseActiveBonus</c> both use).</para>
+    /// </summary>
+    internal static CActiveBonus? PlaceableBonusForItem(CItem? item)
+    {
+        if (item == null)
+            return null;
+        UIActiveBonusBar? bar = Singleton<UIActiveBonusBar>.IsInitialized
+            ? Singleton<UIActiveBonusBar>.Instance : null;
+        if (bar == null)
+            return null;
+        foreach (KeyValuePair<CActiveBonus, UIUseActiveBonus> kv in bar.activeBonusSlots)
+        {
+            if (kv.Value == null || !BonusIsPlaceable(kv.Key))
+                continue;
+            if (kv.Key.BaseCard != null && kv.Key.BaseCard.ID == item.ID)
+                return kv.Key;
+        }
+        return null;
+    }
+
+    /// <summary>The bar's own slot widget for <paramref name="bonus"/> — <c>UIActiveBonusBar.
+    /// GetSlotForActiveBonus</c> (public), a plain dictionary lookup, so it answers for a row this
+    /// mod has render-suppressed exactly as it does for a visible one. Null once the game has
+    /// withdrawn the offer (<c>Remove</c>/<c>Clear</c>), which is how the placement flow learns the
+    /// decision is over.</summary>
+    internal static UIUseActiveBonus? ActiveBonusSlot(CActiveBonus? bonus)
+    {
+        if (bonus == null)
+            return null;
+        UIActiveBonusBar? bar = Singleton<UIActiveBonusBar>.IsInitialized
+            ? Singleton<UIActiveBonusBar>.Instance : null;
+        return bar != null ? bar.GetSlotForActiveBonus(bonus) : null;
+    }
+
+    /// <summary>Is this bonus row currently TOGGLED ON? Read off the WIDGET (<c>UIUseSlot.IsSelected()</c>)
+    /// rather than off <c>CActiveBonus.ToggledBonus</c>, because the widget flips synchronously inside
+    /// <c>Select()</c> while the model flag is written by the rules engine a message later — and the
+    /// widget is also the truth the game's own MP replay compares against
+    /// (<c>ProxyUseActiveBonus</c>: <c>if (token.Selected != slot.IsSelected()) slot.Toggle()</c>).</summary>
+    internal static bool ActiveBonusSlotSelected(UIUseActiveBonus? slot) =>
+        slot != null && slot.IsSelected();
+
+    /// <summary>
+    /// Has the game LOCKED this toggle (<c>CActiveBonus.ToggleLocked</c>, public; set by
+    /// <c>ScenarioRuleClient.LockActiveBonus</c> from <c>UIActiveBonusBar.LockToggledActiveBonuses</c>)?
+    /// While locked the game refuses every untoggle — <c>ActiveBonus.UntoggleActiveBonus</c> returns
+    /// immediately and <c>UIUseActiveBonus.ClearSelection</c> does nothing at all — so a placed card
+    /// may no longer be taken back out, and the placement flow has to SAY so rather than pretend.
+    /// </summary>
+    internal static bool ActiveBonusToggleLocked(CActiveBonus? bonus) =>
+        bonus != null && bonus.ToggleLocked;
+
+    /// <summary>
+    /// Click a bonus row through the game's OWN seam — <c>UIUseSlot.OnPointerDown()</c>, which is
+    /// literally what the 2D button and the gamepad UI_SUBMIT handler invoke
+    /// (<c>UIUseActiveBonus.Awake</c> registers <c>OnPointerDown</c> for <c>KeyAction.UI_SUBMIT</c>).
+    /// It TOGGLES: off→on runs <c>Select()</c> → <c>ToggleActiveBonus(…, fromClick: true)</c>, on→off
+    /// runs <c>Unselect()</c> → <c>ClearSelection(fromClick: true)</c> → <c>UntoggleActiveBonus(true)</c>
+    /// — and <c>fromClick: true</c> is precisely the flag that makes the game send its own
+    /// <c>ClickActiveBonusSlot</c> GameAction to peers. The mod therefore adds no sync of its own.
+    ///
+    /// <para>Refused (false) when the slot is not <c>interactable</c>: the game clears that flag for
+    /// the whole bar the instant a toggle starts processing (<c>SetInteractionAvailableSlots(false)</c>
+    /// at the top of both toggle methods) and re-arms it when the rules engine answers. Calling
+    /// <c>OnPointerDown</c> then would be a silent no-op, so the caller is told instead and can keep
+    /// the card where it is and let the player try again.</para>
+    /// </summary>
+    internal static bool ClickActiveBonusSlot(UIUseActiveBonus? slot)
+    {
+        if (slot == null || !slot.interactable)
+            return false;
+        slot.OnPointerDown();
+        return true;
+    }
+
+    /// <summary>
+    /// Snapshot of the bonus bar's live (bonus, slot) registry into a caller-owned scratch list —
+    /// the <see cref="ItemsBarSlotsSnapshot"/> pattern, for the same reason: the split loop
+    /// activates/deactivates slots while walking it. Clears <paramref name="into"/> first.
+    /// </summary>
+    internal static void ActiveBonusSlotsSnapshot(List<KeyValuePair<CActiveBonus, UIUseActiveBonus>> into)
+    {
+        into.Clear();
+        UIActiveBonusBar? bar = Singleton<UIActiveBonusBar>.IsInitialized
+            ? Singleton<UIActiveBonusBar>.Instance : null;
+        if (bar == null)
+            return;
+        foreach (KeyValuePair<CActiveBonus, UIUseActiveBonus> kv in bar.activeBonusSlots)
+            into.Add(kv);
+    }
+
+    /// <summary>Readable name of the item card a bonus hangs off (log lines only — never the wire).</summary>
+    internal static string BonusCardName(CActiveBonus? bonus)
+    {
+        if (bonus == null)
+            return "(none)";
+        if (bonus.BaseCard != null && !string.IsNullOrEmpty(bonus.BaseCard.Name))
+            return bonus.BaseCard.Name;
+        if (bonus.BaseCard != null)
+            return "card#" + bonus.BaseCard.ID; // CBaseCard.ID is an int (SRL CBaseCard.cs:85)
+        return bonus.Ability != null && !string.IsNullOrEmpty(bonus.Ability.Name)
+            ? bonus.Ability.Name : bonus.GetType().Name;
+    }
+
     // ---------------------------------------- the SUB-CHOICE half of the placement flow (items 2026-08-08) --
 
     /// <summary>
