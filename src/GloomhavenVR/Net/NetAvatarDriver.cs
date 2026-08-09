@@ -706,7 +706,24 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // has, and the two numbers must come from the same frame or a peer could clip a slab it has
         // not built yet. -1 = the recess is empty ⇒ no record at all (see the field's note for why
         // both edges pre-empt the rate gate).
-        int itemClip = itemsNow != null ? itemsNow.ClippedChipIndex : -1;
+        //
+        // READ OFF RecessOwner, NOT OFF Current (user report 2026-08-09, round 2: "eine Karte die im
+        // Overlay liegt verschwindet auf jedem anderen Board sobald der Besitzer den Fächer
+        // zuklappt"). Current is the OPEN arc and is null the instant the owner clicks their fan
+        // away — which is the state they spend most of the decision in, because clicking away IS the
+        // ordinary dismiss and the whole point of the recess is that the card stays put. So this line
+        // published "recess empty" while the owner sat looking at the card, ItemsPile's own
+        // closed-arc answer (ClippedChipIndex's !IsOpen branch, which returns the survivor's arc
+        // position) was never once asked for, and the receiver's detached-recess path could not even
+        // arm itself (RemoteItemFan.BeginCollapse needs this record to still name a slab at the close
+        // edge). RecessOwner is the pile that owns the recess whether or not its arc is up; it says
+        // nothing about a fan existing, which is exactly why the count above still reads Current.
+        //
+        // IT GOES DARK EXACTLY WHEN THE OWNER'S CARD DOES, because the property it asks is the same
+        // single scan the owner's own recess is driven from — a stale index would leave a slab lying
+        // in a recess that is empty on the owner's board, which is worse than none.
+        ItemsPile? recessNow = ItemsPile.RecessOwner;
+        int itemClip = recessNow != null ? recessNow.ClippedChipIndex : -1;
         // THE CARD OUTLIVES THE FAN (user report 2026-08-09; local half in ItemsPile._keptClip). The
         // clamp used to be unconditional, which quietly encoded "no fan => no card in the recess" —
         // and that is precisely the state the owner now spends most of the decision in: they lay the
@@ -1310,13 +1327,39 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         if (itemClipChanged)
         {
             _lastSentItemClip = itemClip;
+            // BOTH EDGES, WITH THE ARC STATE AND THE REASON ON THE LINE (grep: "Item-use clip SENT").
+            // The whole defect this round fixed was invisible in the log precisely because the two
+            // edges never said which ARC they happened under: "recess EMPTY" at the moment the fan
+            // closed reads exactly like a legitimate cancel, and there was nothing to tell the two
+            // apart afterwards. Every appearance now names the arc it appeared under, and every
+            // disappearance names WHY the pile stopped reporting one — so a single hardware log
+            // proves the peer-side lifetime (this line + RemoteItemFan's "Remote item recess") with
+            // no second round of guessing. Built only on the change edge, which is human-paced.
+            string arcNow = recessNow == null ? "no item pile at all"
+                          : recessNow.IsOpen ? $"arc UP ({itemsCount} chip(s))"
+                          : "arc DOWN";
+            string why = itemClip >= 0
+                ? (itemsCount > 0
+                    ? "the owner clipped it in with their fan up"
+                    : "the card is LYING in the recess with the fan folded away (ItemsPile._keptClip) " +
+                      "— the state that used to publish nothing at all, which is what made a peer's " +
+                      "copy leave their recess the instant the owner clicked their fan away")
+                : recessNow == null
+                    ? "the item pile is gone (board teardown / scene change)"
+                    : recessNow.IsOpen
+                        ? "the arc is up and no chip is clipped — taken back out, cancelled, or the USE finished"
+                        : recessNow.HasPlacedCardWhileClosed
+                            ? "the arc is down and the survivor is IN A HAND right now — our own recess is " +
+                              "empty this frame too, so a peer's must be (it comes back the moment the " +
+                              "card is released over the recess again)"
+                            : "the arc is down and nothing lies in the recess — the placement was cancelled, " +
+                              "confirmed, or play moved on";
             VRLog.Info("Net", itemClip < 0
-                ? "Item-use clip SENT: recess EMPTY — record 26 omitted (peers glide the card back " +
-                  "into their copy of the arc)."
-                : $"Item-use clip SENT: fan position {itemClip} of " +
-                  $"{(itemsCount > 0 ? itemsCount.ToString() : "a CLOSED fan (the card lies in the recess " +
-                     "on its own now)")} lies in our item-use " +
-                  "recess — extension record 26, ONE index byte and NO item identity. Peers " +
+                ? $"Item-use clip SENT: recess EMPTY [{arcNow}] — record 26 omitted; {why}. Peers " +
+                  "bring their slab home (into the arc while it is up, into their items stack while " +
+                  "it is not — RemoteItemFan.TickDetachedRecess)."
+                : $"Item-use clip SENT: fan position {itemClip} [{arcNow}] lies in our item-use recess " +
+                  $"— {why}. Extension record 26, ONE index byte and NO item identity. Peers " +
                   "re-parent that same slab onto their mirrored recess and replay the 0.28 s settle " +
                   "from this edge, so the card is seen ARRIVING rather than teleporting.");
         }

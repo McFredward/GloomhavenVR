@@ -418,8 +418,65 @@ internal sealed class ItemsPile
     /// items fan published NOTHING. The items fan is owned privately by <see cref="PileViewer"/>,
     /// so neither consumer had any way to reach it, and item cards were therefore invisible in the
     /// mirror AND on every peer. Publishing the open fan the same way closes both gaps at once.
+    ///
+    /// <para>IT MEANS "THE OPEN ARC" AND NOTHING ELSE, and every reader depends on that: the laser
+    /// occluder (<c>RayInteractor.ComputeFanOccluder</c>) asks it for chip geometry, the extras
+    /// sender asks it for the arc's CARD COUNT and for the arc's highlight position. A pile
+    /// published here with its arc down would answer all three about a fan that is not on screen.
+    /// The question "is a card lying in the board's item-use recess", which is deliberately NOT a
+    /// question about the arc, is asked of <see cref="RecessOwner"/> instead.</para>
     /// </summary>
     internal static ItemsPile? Current { get; private set; }
+
+    // ---- THE RECESS SEAM, WHICH IS NOT THE FAN SEAM (user report 2026-08-09, round 2) ----------
+    //
+    // "Eine Karte die im Overlay liegt verschwindet auf jedem anderen Board in dem Moment, in dem
+    //  der Besitzer den Fächer zuklappt."
+    //
+    // ROOT CAUSE, and it was entirely on the SENDER. Every local half of "the card outlives the fan"
+    // was already built — the survivor (_keptClip), its per-frame service (TickPlacedWhileClosed),
+    // the wire seam that answers across a close (ClippedChipIndex's !IsOpen branch), the receiver
+    // that keeps its slab out of the fold-in (Net.RemoteItemFan._clipDetached) — but
+    // NetAvatarDriver reached the pile through Current, and Current is null the moment the arc goes
+    // down. So the sender published "recess empty" for the whole time the owner sat looking at a
+    // card lying in it, ClippedChipIndex's closed-fan branch was never once asked, and the
+    // receiver's whole detached-recess path was structurally unreachable (RemoteItemFan.BeginCollapse
+    // requires record 26 to still name a slab at the close edge — it never did).
+    //
+    // THE SHORTCUT THAT WAS REJECTED: leaving Current published after Close(). It is one deleted
+    // line, and it would have made the wire correct — but Current is a load-bearing word. It is read
+    // by the laser occluder for chip GEOMETRY, and by the extras sender for the ARC's card count and
+    // the ARC's highlight index; today each of those three re-tests IsOpen (or goes through a
+    // property that does), so the shortcut would have been harmless TODAY and would have quietly
+    // armed the next reader that trusts the name. "The open fan" and "the pile that owns the recess"
+    // are two different facts, so they get two different seams.
+    //
+    // WHY IT IS PUBLISHED FOR THE PILE'S WHOLE LIFETIME rather than latched at the moments a card
+    // enters and leaves the recess: a latch would have to be driven from all three clip-in flows
+    // (the plain USE placement, the surrender demand pick, the take-damage shield place) and from
+    // every one of the ~eight ways a placement ends (confirm, cancel, take-back, play moved on, the
+    // recess rebuilt away, the character switched, the fan re-opened, teardown) — the shape that
+    // goes stale the first time a new ending is added. This publishes the OBJECT and leaves the
+    // STATE to the properties that already scan for it (ClippedChipIndex, HasPlacedCardWhileClosed),
+    // which are single-source and correct in both arc states by construction. A pile with nothing in
+    // its recess answers -1 from here exactly as a null pile did.
+    //
+    // ONE INSTANCE EXISTS: PileViewer owns exactly one (`_itemsBrowse = new()`) and CardsDriver owns
+    // exactly one PileViewer. The last-constructed pile wins, and Destroy only unpublishes when it is
+    // still the published one — the same identity guard Current uses, so a torn-down pile can never
+    // clear its successor.
+
+    /// <summary>
+    /// The item pile that OWNS the control board's item-USE recess — published for the pile's whole
+    /// lifetime, whether or not its arc is up. The counterpart of, and deliberately not the same
+    /// thing as, <see cref="Current"/>: ask THIS one about the card lying in the recess
+    /// (<see cref="ClippedChipIndex"/>, <see cref="HasPlacedCardWhileClosed"/>) and ask
+    /// <see cref="Current"/> about the fan. Non-null says nothing whatever about a fan being open,
+    /// so nothing may be drawn off it.
+    /// </summary>
+    internal static ItemsPile? RecessOwner { get; private set; }
+
+    internal ItemsPile() => RecessOwner = this;
 
     /// <summary>The chips the fan currently holds (read-only view — mirrored / counted, never mutated).</summary>
     internal IReadOnlyList<ItemChip> Chips => _chips;
@@ -676,6 +733,12 @@ internal sealed class ItemsPile
         _tdActive = false;
         if (ReferenceEquals(Current, this))
             Current = null;
+        // …and the recess seam, which outlives every close but not the pile itself (see RecessOwner).
+        // Guarded on identity for the same reason Current is: if a replacement pile has already been
+        // constructed (a scene rebuild racing this teardown) it is the published one, and this dying
+        // pile must not clear it out from under the sender.
+        if (ReferenceEquals(RecessOwner, this))
+            RecessOwner = null;
         IsOpen = false;
         _boardAnchored = false;
         _hand = null;
