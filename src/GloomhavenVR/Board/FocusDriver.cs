@@ -111,11 +111,59 @@ internal sealed class FocusDriver : MonoBehaviour
 
     private System.Action? _tickCached;
 
+    /// <summary>
+    /// The live driver, for the ONE cross-module question this class has to answer: WHICH
+    /// GameObjects are the local player's own focus rings.
+    ///
+    /// <para>WHY IT EXISTS (user report 2026-08-09, verbatim: "Der Rand der anzeigt welchen
+    /// Character ich gerade ausgewählt habe, ist auch beim remote-board zu sehen bei MEINEN
+    /// Characteren - das remote board sollte nur das Einzige was der Mitspieler sieht, nicht was ich
+    /// sehe"). The rings this driver builds are plain <c>Image</c>s parented under the LOCAL
+    /// initiative entry's portrait, and a peer's mirrored board is an <c>Instantiate</c> of that
+    /// whole track (<c>Net.RemoteWidgetMirror</c>) whose <c>Pair.Apply</c> copies every node's
+    /// <c>activeSelf</c> and colour verbatim. So the OBSERVER's blue-white focus ring and gold/red
+    /// at-turn ring stood on every peer's board — the same leak the amber selection-phase cue had
+    /// and closed through <c>InitiativeSelectionGlow.LiveRingRectOf</c>, which this pair of lookups
+    /// deliberately copies member for member.</para>
+    ///
+    /// <para>ONE driver exists at a time (<c>BoardModule</c> adds it to its own root), and a stale
+    /// static would only ever answer "no ring" — the callers treat null as "this client never lit
+    /// one here", which is the honest, suppressing answer.</para>
+    /// </summary>
+    private static FocusDriver? s_instance;
+
+    private void Awake() => s_instance = this;
+
+    /// <summary>The LIVE steady focus ring ("the character I am looking at") this driver has built
+    /// on <paramref name="entry"/>, or null when it never lit one there. Sole caller:
+    /// <c>Net.RemoteInitiativeTrack</c>, which forces the CLONE of it off — see
+    /// <see cref="s_instance"/>.</summary>
+    internal static RectTransform? LiveFocusRingRectOf(InitiativeTrackActorBehaviour? entry) =>
+        RingRectOf(s_instance?._focusRings, entry);
+
+    /// <summary>The LIVE at-turn ring (blinking green/red, or steady gold) this driver has built on
+    /// <paramref name="entry"/>, or null. Same caller, same reason as
+    /// <see cref="LiveFocusRingRectOf"/> — it is a SECOND family of GameObjects on the same
+    /// portrait, so suppressing only the first would leave half the leak open.</summary>
+    internal static RectTransform? LiveTurnRingRectOf(InitiativeTrackActorBehaviour? entry) =>
+        RingRectOf(s_instance?._turnRings, entry);
+
+    private static RectTransform? RingRectOf(
+        Dictionary<InitiativeTrackActorBehaviour, UiRing>? rings,
+        InitiativeTrackActorBehaviour? entry)
+    {
+        if (rings == null || entry == null)
+            return null;
+        return rings.TryGetValue(entry, out UiRing ring) ? ring.Rect : null;
+    }
+
     private void LateUpdate() =>
         TickGuard.Run("Board.CharacterFocus", _tickCached ??= Tick);
 
     private void OnDestroy()
     {
+        if (ReferenceEquals(s_instance, this))
+            s_instance = null;
         ClearAllRings();
         _boardFrame?.Destroy();
         _boardFrame = null;

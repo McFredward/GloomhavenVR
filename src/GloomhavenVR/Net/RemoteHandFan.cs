@@ -288,9 +288,21 @@ internal sealed class RemoteHandFan
     /// gather point's place on the arc (CardFan._swapOutCount).</summary>
     private int _swapOutCount;
 
-    /// <summary>The character this fan is currently drawn for (0 = not resolved yet). A change in it
-    /// while the fan is up IS the exchange edge.</summary>
+    /// <summary>The character this fan is currently drawn for (0 = not resolved yet) — the FACE
+    /// question, and the only one <see cref="RemoteBoardFocus.DisplayedActor"/> answers.</summary>
     private int _shownActorId;
+
+    /// <summary>
+    /// The id the MOTION edge is tracked on: the peer's RAW record-22 focus id
+    /// (<c>CharacterFocus.FocusIdForPeer</c>), falling back to <see cref="_shownActorId"/> for a
+    /// peer that sends no record at all. A change in it while the fan is up IS the exchange edge.
+    ///
+    /// <para>Deliberately a SECOND id rather than a reuse of <see cref="_shownActorId"/>: the two
+    /// answer different questions and come apart in exactly the window the exchange matters most
+    /// (the secret card-selection phase). See the edge in <c>Tick</c> for the full argument and the
+    /// user report it answers.</para>
+    /// </summary>
+    private int _swapMotionId;
 
     /// <summary>…and the actor object behind it, carried forward one frame so that when the edge
     /// fires the wave can be handed the character it is WEARING rather than the one replacing it.</summary>
@@ -567,7 +579,17 @@ internal sealed class RemoteHandFan
         }
 
         int count = Mathf.Clamp(_owner.HandCardCount, 0, MaxCards);
-        if (count == 0 && _leaving.Count == 0)
+        // NOTHING TO SHOW AND NOTHING IN FLIGHT — the only state that may hide outright.
+        //
+        // `_cards.Count == 0` joined this condition on 2026-08-09, and it is the second half of the
+        // missing-exchange report. The block below has always CLAIMED that "an empty incoming hand
+        // still gets its wipe", but it could not deliver it: the wave that makes `_leaving` non-empty
+        // is created by BeginSwap, which lives BELOW this line, so on the one frame that matters
+        // `_leaving` is still empty and this bail fired first — Hide() → EndSwap(), the whole fan
+        // gone in a blink while the owner watched a full gather. Switching to a character with an
+        // empty hand (every card burnt, a long rest) is a real switch target and the owner's own fan
+        // animates it (CardsDriver's edge fires on `_fan.Count > 0 || incoming > 0`).
+        if (count == 0 && _leaving.Count == 0 && _cards.Count == 0)
         {
             Hide();
             return;
@@ -576,20 +598,6 @@ internal sealed class RemoteHandFan
         EnsureRoot(holder);
         if (_root == null)
             return;
-
-        // AN EMPTY INCOMING HAND STILL GETS ITS WIPE. count == 0 is a real switch target (every card
-        // burnt, or a long rest) and the owner's own fan plays the full gather for it —
-        // CardsDriver's swap edge fires on `_fan.Count > 0 || the incoming hand has widgets`. Hiding
-        // here on the frame the wave sets off would have destroyed it outright (Hide -> EndSwap), so
-        // the owner would see a wipe and every peer a blink. Once the wave has drained the count is
-        // still 0, the branch above takes over, and the now-empty fan hides silently.
-        if (count == 0)
-        {
-            TickSwap(dt);
-            PoseFan(holder, dt);
-            UpdateFaces(0, null);
-            return;
-        }
 
         // WHICH CHARACTER'S HAND IS THIS? Resolved ONCE per tick and handed to both consumers — the
         // exchange edge below and the front-art gate at the bottom — because those two disagreeing
@@ -625,7 +633,47 @@ internal sealed class RemoteHandFan
         // THE EXCHANGE EDGE, mirroring CardsDriver.Rebuild's: a DIFFERENT character is being shown,
         // both ids are known, and there is a fan on screen to exchange. A fan that is not up yet
         // plays its fan-out reveal instead, which is the right animation for a hand being raised.
-        if (shownId != 0 && _shownActorId != 0 && shownId != _shownActorId
+        //
+        // ─── WHY THE EDGE IS THE RAW RECORD-22 ID AND NOT THE DISPLAYED ACTOR ────────────────────
+        // User, verbatim (2026-08-09): "Die Animation des Fächers, wenn der Character von dem
+        // Mitspieler geändert wird, ist nicht sichtbar."
+        //
+        // Everything downstream of this edge was already built and correct — BeginSwap invalidates
+        // _builtCount so two hands of the SAME SIZE still exchange, TickSwap replays the whole wipe
+        // on THIS client's own clock from the FanSwap* dials that already ride the tuning record,
+        // and the leaving slabs stay gated on their own character. The animation never ran because
+        // the TRIGGER could not see the switch:
+        //
+        //   * the OWNER's edge is Board.CharacterFocus.PresentedActorId
+        //     (Cards/CardsDriver.4.Rebuild.cs:260) — the character whose hand their board presents,
+        //     which is exactly what record 22 carries (CharacterFocus.LookingAt ⇒ Sample);
+        //   * this receiver's edge was RemoteBoardFocus.DisplayedActor, which is NOT that id. Its
+        //     RULE 1 deliberately IGNORES the focus record for the whole of
+        //     RevealGate.IsSecretSelectionPhase and answers NetPlayerActors.ActorFor instead — and
+        //     ActorFor returns the FIRST controllable of that player (NetPlayerActors.cs:137-144),
+        //     the same object no matter which of their characters they are editing.
+        //
+        // The card-selection window is precisely when a two-character player swaps hands, so on the
+        // owner's screen the exchange played and on every mirror the id never moved: no edge, no
+        // animation. Hardware log confirms the shape — .planning/debug/remote/LogOutput.log:965 and
+        // :1022 report the board character changing "their OWNED character: the game is in the
+        // secret card-selection phase", and no "Remote hand fan EXCHANGE" line exists in either log.
+        //
+        // So the MOTION edge now reads the record itself (CharacterFocus.FocusIdForPeer — the raw
+        // id as received, no secret-phase filter) while the FACES keep reading DisplayedActor,
+        // untouched. That split is the whole point: RULE 1 exists to stop a mirror ASKING ABOUT a
+        // character's cards during the secret window, and this asks about none. The edge is an
+        // integer INEQUALITY on an id this client already holds and already draws with (the
+        // mirrored initiative ring moves on the very same value), the arriving slabs are BACKS
+        // because RevealGate.ShowRoundCardFronts is false in that window, and the leaving wave is
+        // re-gated every frame on the OUTGOING character. Nothing that was secret becomes visible;
+        // a movement that was invisible becomes visible.
+        //
+        // Falls back to the displayed actor's id when a peer sends no record 22 at all (an older
+        // build, a scenario-less client), which is byte-for-byte the previous behaviour.
+        int focusId = Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId);
+        int motionId = focusId != 0 ? focusId : shownId;
+        if (motionId != 0 && _swapMotionId != 0 && motionId != _swapMotionId
             && _root.activeSelf && _cards.Count > 0)
         {
             // The wave keeps the OUTGOING character's faces, so it is handed that character — the
@@ -633,12 +681,39 @@ internal sealed class RemoteHandFan
             BeginSwap(_shownActor);
             VRLog.Info("Net", $"Remote hand fan EXCHANGE [player {_owner.PlayerId}]: {_swapOutCount} slab(s) " +
                               $"gather off the arc while {count} deal in — the owner switched which character " +
-                              "they are looking at (extension record 22's actor id, already on the wire). The " +
-                              "MOTION is mirrored; no card identity is transmitted for it, and the leaving " +
-                              "slabs are re-gated every frame on their OWN character's RevealGate verdict.");
+                              "they are looking at (extension record 22's actor id, already on the wire; the " +
+                              "RAW id, so the exchange still plays inside the secret card-selection window " +
+                              "where RemoteBoardFocus deliberately pins the DISPLAYED character to the " +
+                              "owner's owned one). The MOTION is mirrored; no card identity is transmitted " +
+                              "for it, the arriving slabs are BACKS whenever the viewer's own RevealGate " +
+                              "says so, and the leaving slabs are re-gated every frame on their OWN " +
+                              "character's verdict.");
         }
+        _swapMotionId = motionId;
         _shownActorId = shownId;
         _shownActor = shownActor;
+
+        // AN EMPTY INCOMING HAND, now genuinely reachable: the edge above has run, so a switch INTO
+        // an empty hand has already armed its wave and the gather plays out here on this client's own
+        // clock. Once it has drained, the bail at the top of Tick sees count 0, no wave and no slabs,
+        // and the fan hides silently.
+        //
+        // The Rebuild(0) is what the old `count == 0` early-return got for free from the Hide() it
+        // has now replaced: when NO exchange was armed (the hand simply ran out — the last card was
+        // played, no character switch), nothing downstream would ever clear the slabs still on
+        // screen, because every teardown path below is gated on `count != _builtCount` and this
+        // branch returns before it. Emptying the fan here and hiding on the NEXT tick is visually
+        // identical to hiding now — the slabs are destroyed either way, in the same frame.
+        if (count == 0)
+        {
+            TickSwap(dt);
+            if (_cards.Count > 0)
+                Rebuild(0);
+            PoseFan(holder, dt);
+            UpdateFaces(0, null);
+            return;
+        }
+
         TickSwap(dt);
 
         // Rebuild the card slabs only when the count actually changes (cheap; the sizes/poses of
@@ -1238,6 +1313,7 @@ internal sealed class RemoteHandFan
             EndSwap();
             _shownActorId = 0;
             _shownActor = null;
+            _swapMotionId = 0;
             _builtCount = -1;
             _frontsShown = false;
             ClearPops();
@@ -1407,6 +1483,7 @@ internal sealed class RemoteHandFan
         EndSwap();
         _shownActorId = 0;
         _shownActor = null;
+        _swapMotionId = 0;
         // Presentation state resets exactly like CardFan.Open does: the apex starts centred (a fan
         // that popped open already leaning would read as a glitch) and the next appearance logs its
         // geometry once so a hardware log has a line per fan, not one per session.
@@ -1419,6 +1496,7 @@ internal sealed class RemoteHandFan
         EndSwap(); // any outgoing wave dies with the fan — no orphaned slabs, no leaked clones
         _shownActorId = 0;
         _shownActor = null;
+        _swapMotionId = 0;
         for (int i = _faces.Count - 1; i >= 0; i--)
             _faces[i].Destroy();
         _faces.Clear();

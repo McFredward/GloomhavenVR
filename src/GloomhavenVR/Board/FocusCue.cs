@@ -356,6 +356,23 @@ internal sealed class UiRing
     internal bool Alive => _image != null && _image.transform.parent != null;
 
     /// <summary>
+    /// This ring's own rect, or null once Unity has destroyed it.
+    ///
+    /// <para>WHY IT IS EXPOSED. A ring built on the LOCAL initiative track is a plain
+    /// <c>Image</c> parented under the entry's portrait, and a peer's mirrored board clones that
+    /// whole track (<c>Net.RemoteWidgetMirror</c>) — so <c>Instantiate</c> copies the ring and
+    /// <c>Pair.Apply</c> drives its active flag and colour, putting the OBSERVER's ring on every
+    /// peer's board. That is the exact leak <c>InitiativeSelectionGlow.LiveRingRectOf</c> already
+    /// exists to close for the amber selection-phase cue; this accessor is the same seam for the
+    /// blue-white FOCUS ring and the at-turn ring (user 2026-08-09: "Der Rand der anzeigt welchen
+    /// Character ich gerade ausgewählt habe, ist auch beim remote-board zu sehen bei MEINEN
+    /// Characteren"). The mirror resolves the SOURCE node through this and asks
+    /// <c>RemoteWidgetMirror.CloneOf</c> for the copy — BY REFERENCE, never by searching the clone
+    /// for a GameObject name.</para>
+    /// </summary>
+    internal RectTransform? Rect => _image != null ? _image.transform as RectTransform : null;
+
+    /// <summary>
     /// Build a ring as a child of <paramref name="rect"/> (typically the entry's avatar
     /// <c>RawImage</c>). Returns null when the rect is not laid out yet — callers retry next tick.
     /// </summary>
