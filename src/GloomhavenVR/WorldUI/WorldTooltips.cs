@@ -167,6 +167,15 @@ internal sealed class WorldTooltips
     /// <summary>The floated window that owns the CURRENT hint, or null when the CONTROL BOARD does.</summary>
     private ConvertedPanel? _hostWindow;
 
+    /// <summary>
+    /// The rect the game anchored the CURRENT hint to (<c>UITooltip.m_AnchorToTarget</c>) — i.e.
+    /// THE THING BEING DESCRIBED. Latched next to <see cref="_hostWindow"/> and for the same
+    /// reason: the game clears its own anchor at the end of the fade, inside the placement grace
+    /// window, and the menu placement needs to keep putting the box beside that row for the last
+    /// few frames instead of watching it jump to a fallback spot as it fades out.
+    /// </summary>
+    private RectTransform? _hoveredRect;
+
     /// <summary>The host decision last LOGGED (reference-compared, so the change-gated diagnostic
     /// allocates its line only when the answer actually changes — never per frame).</summary>
     private ConvertedPanel? _hostLoggedWindow;
@@ -221,6 +230,164 @@ internal sealed class WorldTooltips
     /// <summary>Reused world-corner buffer for measuring the tooltip's rendered size.</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
+    /// <summary>Second world-corner buffer — the menu placement measures the WINDOW rect and the
+    /// HOVERED rect in the same expression, so one shared buffer would clobber itself.</summary>
+    private static readonly Vector3[] CornerScratchB = new Vector3[4];
+
+    // ---- mixed reality: an opaque plate behind the game's own tooltip frame ------------------
+    /// <summary>The MR backing registrant (see <see cref="TooltipBacking"/>); one per presentation.</summary>
+    private readonly TooltipBacking _mrBacking;
+
+    /// <summary>True while <see cref="_mrBacking"/> is registered with <see cref="MrBacking"/>.</summary>
+    private bool _mrRegistered;
+
+    /// <summary>Raised on every tick that ends with the box genuinely placed and shown — the
+    /// plate's visibility gate, polled by <c>MrBacking.TickSurfaces</c>.</summary>
+    private bool _backingShown;
+
+    /// <summary>Change-gated: the transparency evidence line was already written for this session.</summary>
+    private bool _mrEvidenceLogged;
+
+    public WorldTooltips() => _mrBacking = new TooltipBacking(this);
+
+    /// <summary>
+    /// MIXED REALITY — AN OPAQUE PLATE BEHIND THE GAME'S OWN TOOLTIP FRAME (user report
+    /// 2026-08-09, verbatim: "Der Hintergrund der Tooltipps erscheint grün im mixed-reality Modus.
+    /// Dies kann auch damit zusammenhängen das es leicht transparent ist - falls das stimmt sorge
+    /// im mixed reality Modus dafür das der Hintergrund der Tooltipps nicht transparent ist (und
+    /// auch nicht grün) - der original-Spiel-Rahmen soll aber weiterhin genutzt werden.")
+    ///
+    /// <para>WHY GREEN IS THE SAME BUG AS TRANSLUCENT. MR here is a CHROMA KEY: the mod renders the
+    /// key colour as real green pixels and the compositor swaps them for passthrough. A
+    /// semi-transparent panel drawn OVER those pixels blends toward them — <c>dst = key·(1−a) +
+    /// art·a</c> — so a translucent dark frame reads as a green tint, and any pixel whose blend
+    /// lands back inside the compositor's similarity threshold punches a real passthrough hole in
+    /// the middle of the text. The user's own diagnosis, and it is confirmable from the game's
+    /// source rather than inferred:</para>
+    /// <list type="bullet">
+    /// <item><description>The frame is ONE <c>Image</c> on the tooltip root
+    /// (<c>UITooltip.Awake</c>: <c>m_image = GetComponent&lt;Image&gt;()</c>, decompiled
+    /// UITooltip.cs:375) drawing a 9-SLICED SPRITE — so its per-pixel alpha comes from the atlas
+    /// texture, which no code path can force to 1.</description></item>
+    /// <item><description>The whole widget hangs under a <c>CanvasGroup</c> the game TWEENS
+    /// (<c>EvaluateAndTransitionToState</c> → <c>StartAlphaTween(1f, m_TransitionDuration)</c>,
+    /// UITooltip.cs:556/581) — so frame AND text are provably translucent for the entire fade,
+    /// and THIS class widened that fade from the authored 0.15 s to
+    /// <see cref="FadeGraceSeconds"/> = 0.4 s for the hover-jitter grace (user #7b). Roughly
+    /// 0.8 s of every hover is a guaranteed green-tinted frame even if the sprite were
+    /// opaque at rest.</description></item>
+    /// </list>
+    ///
+    /// <para>WHY A PLATE AND NOT AN ALPHA FORCE. <c>MrBacking.Opacify</c> was the other candidate
+    /// and it is wrong here on three counts, each fatal on its own: (1) it writes
+    /// <c>Graphic.color.a</c>, which cannot reach a SPRITE's own texture alpha; (2) it could not
+    /// defeat the CanvasGroup tween above, which multiplies everything below it; (3) that method's
+    /// contract is "only mod-owned objects are ever registered", and this widget is the game's
+    /// shared singleton whose alpha the game reads back to drive its own visual-state machine and
+    /// line cleanup (<c>OnTweenFinished</c> → <c>InternalOnHide</c>) — forcing it would strand the
+    /// singleton, which is exactly why <see cref="EnsureFadeGrace"/> already refuses to touch it.
+    /// A plate BEHIND the frame answers all of it without writing one byte of game state: the
+    /// blend source stops being the key colour and becomes MrBacking's dark, deliberately
+    /// key-colour-safe neutral, so the composite is opaque and can never read green — while the
+    /// game's original frame art, border and 9-slice draw on top of it EXACTLY as before, which is
+    /// the "der original-Spiel-Rahmen soll aber weiterhin genutzt werden" half of the request.</para>
+    ///
+    /// <para>MR-ONLY BY CONSTRUCTION: <c>MrBacking.Tick</c> is a single bool check while
+    /// <c>MixedReality.BackingsWanted</c> is false, so with MR off no plate is ever built and the
+    /// non-MR look is bit-identical. The anchor is the tooltip's OWN rect (the same GameObject the
+    /// background <c>Image</c> sits on, so plate and frame are the same rectangle by construction,
+    /// not by a measurement that could drift), which means the plate rides every placement this
+    /// class computes for free — board area, floated window, or the game's own re-arrangement
+    /// mid-hover.</para>
+    ///
+    /// <para>SHOWN, NOT MERELY ALIVE: the plate is opaque and cannot fade, so it is gated on the
+    /// tick actually ending in a placed, visible box — never on the parked canvas, and never on a
+    /// pose that failed to resolve. A short pop at the start of the fade is the accepted cost; a
+    /// dark rectangle parked at <see cref="ParkPosition"/> or sitting at last hover's spot is not.
+    /// The plate is deliberately built for the box WHETHER OR NOT the game enabled its background
+    /// image (<c>UITooltipTarget.hideBackground</c> → <c>m_image.enabled</c>): a bare caption over
+    /// live passthrough is precisely the unreadable case MrBacking exists for, and it is the one
+    /// tooltip shape that has NO frame art of its own to survive on.</para>
+    /// </summary>
+    private sealed class TooltipBacking : MrBacking.IBackedSurface
+    {
+        private readonly WorldTooltips _owner;
+
+        internal TooltipBacking(WorldTooltips owner) => _owner = owner;
+
+        /// <summary>The world-space presentation is up. On <see cref="Restore"/> this goes false
+        /// AND the owner calls <c>MrBacking.Release</c> — the flag alone would only be noticed on
+        /// the next MR-on tick, and the plate must not outlive the presentation even with MR off
+        /// (it hangs under a GAME rect; see MrBacking.Release).</summary>
+        public bool BackingAlive => _owner._converted;
+
+        public Transform? BackingAnchor => _owner.BackingFrame;
+
+        public bool BackingVisible => _owner._backingShown;
+
+        /// <summary>Anchor-local units are the tooltip canvas's uGUI pixels here — exactly the
+        /// contract the panel plates use with a host rect.</summary>
+        public Vector2 BackingSize
+        {
+            get
+            {
+                RectTransform? frame = _owner.BackingFrame;
+                return frame != null ? frame.rect.size : Vector2.zero;
+            }
+        }
+
+        /// <summary><c>Rect.center</c> already carries the frame's pivot (the game re-pivots the
+        /// box to whichever corner it anchors from, <c>UITooltip.SetPivot</c>), so this tracks a
+        /// pivot flip without a special case.</summary>
+        public Vector2 BackingCenter
+        {
+            get
+            {
+                RectTransform? frame = _owner.BackingFrame;
+                return frame != null ? frame.rect.center : Vector2.zero;
+            }
+        }
+
+        /// <summary>Read LIVE off the canvas: this class re-slots the tooltip on the converted-panel
+        /// distance ladder every frame (menu lift, or <c>OrderAboveDistance</c> when board-owned),
+        /// and a plate that kept a stale slot would be painted over by a farther panel — the exact
+        /// bleed-through MrBacking's ladder contract exists to prevent.</summary>
+        public int BackingOrder => _owner._canvas != null ? _owner._canvas.sortingOrder : 0;
+    }
+
+    /// <summary>The tooltip box's own rect — the plate anchor, and the same GameObject the game's
+    /// background <c>Image</c> lives on.</summary>
+    private RectTransform? BackingFrame =>
+        _tooltip != null ? _tooltip.transform as RectTransform : null;
+
+    /// <summary>
+    /// One line, once per presentation, stating the MEASURED transparency of the game's own
+    /// tooltip frame — the evidence for the report above, so the next hardware log answers "was it
+    /// really translucent" with a number instead of a deduction. Written on the first tick the
+    /// plate is actually wanted (MR on + a shown box), because that is the first tick on which the
+    /// widget is guaranteed to be built and skinned.
+    /// </summary>
+    private void LogMrEvidence()
+    {
+        if (_mrEvidenceLogged || _tooltip == null || !MrBacking.WantOpaque)
+            return;
+        _mrEvidenceLogged = true;
+        Image? img = _tooltip.GetComponent<Image>();
+        Color key = MixedReality.KeyColor.Value;
+        VRLog.Info("WorldUI",
+            "MR tooltip backing ON — the game's own frame is measured as: background image " +
+            $"{(img == null ? "<none>" : img.enabled ? "enabled" : "DISABLED (hideBackground)")}, " +
+            $"colour alpha {(img != null ? img.color.a.ToString("0.###") : "n/a")}, sprite " +
+            $"'{(img != null && img.sprite != null ? img.sprite.name : "<none>")}' " +
+            $"({(img != null ? img.type.ToString() : "?")} — a sprite's per-pixel alpha comes from " +
+            "the atlas, which no colour write can reach), CanvasGroup alpha " +
+            $"{_tooltip.alpha:0.###} mid-tween of a {FadeGraceSeconds:0.##}s fade this class " +
+            $"widened for the hover grace. Key colour RGB {key.r:0.##},{key.g:0.##},{key.b:0.##} — " +
+            "anything translucent over it blends toward the key, which is the reported green. An " +
+            "opaque, key-safe MrBacking plate is now seated behind the frame; the game's frame art " +
+            "itself is untouched and still draws on top of it.");
+    }
+
     private struct FlattenEntry
     {
         public Transform Transform;
@@ -241,7 +408,10 @@ internal sealed class WorldTooltips
     /// board, at the board's own angle, plus the user's per-board
     /// <c>[Cards] HoverHintOffset_&lt;board&gt;</c>.</description></item>
     /// <item><description>The hover belongs to a floated WINDOW or MENU — what a scenario does: the
-    /// canvas is world-space and laid ONTO that panel (<see cref="TryResolveMenuPose"/>). Earlier
+    /// canvas is world-space and laid ONTO that panel, with the visible BOX pinned beside the
+    /// hovered row and clamped inside the window (<see cref="ResolveMenuFrameCenter"/>; the pixel/
+    /// metre confusions in the game's anchored placement that made this necessary are dissected in
+    /// <see cref="TryResolveMenuPose"/>). Earlier
     /// attempts parked it above the board instead, so the hint left the menu and hung in the room
     /// facing the player; another sent it to screen space, and in a scenario the screen is not being
     /// shown at all, so it vanished outright.</description></item>
@@ -266,30 +436,65 @@ internal sealed class WorldTooltips
     }
 
     /// <summary>
-    /// The pose and scale that lay the tooltip flat ON the floated menu panel.
+    /// The window's plane, scale and draw slot for a hint laid ON a floated menu panel. The
+    /// POSITION is not this method's answer any more — see <see cref="ResolveMenuCanvasPose"/>.
     ///
-    /// <para>Both canvases hold the SAME screen rect: the tooltip canvas is the game's
-    /// Screen-Space-Camera canvas (screen-sized), and the floated menu is that window's full screen
-    /// rect converted to world space. Giving the tooltip canvas the panel's exact transform makes
-    /// the two coincide, so the game's own placement — which positions the box beside the hovered
-    /// row in screen coordinates — lands it beside that row on the panel, lying flat on it. Nothing
-    /// here re-implements the game's arrangement; it just puts the two canvases in the same plane so
-    /// the arrangement still means what it meant.</para>
+    /// <para>WHAT THIS METHOD USED TO CLAIM, AND WHY IT WAS WRONG (user report 2026-08-09, verbatim:
+    /// "Im Pausenmenu wenn ich über die Tabs hovere sollten die Tooltipps alle in der Nähe
+    /// erscheinen, manchmal erschienen sie ziemlich weit weg (aber auf der selben Ausrichtung wie
+    /// das Menu ausgerichtet ist) aber in x-Koordinate zu weit seitlich links außerhalb des
+    /// Fensters."). The old contract was "both canvases hold the SAME screen rect, so give the
+    /// tooltip canvas the panel's exact transform and the game's own SCREEN-SPACE placement lands
+    /// the box beside the hovered row". Every clause of that is false once a window is converted,
+    /// and the decompiled source says so outright:</para>
     ///
-    /// <para>A hair toward the viewer so the box renders in front of the menu rather than z-fighting
-    /// with it.</para>
+    /// <list type="bullet">
+    /// <item><description>THE GAME DOES NOT PLACE IN SCREEN SPACE WHEN ANCHORED. <c>UITooltipTarget</c>
+    /// always anchors (<c>UITooltip.AnchorToRect(base.transform, corner)</c>,
+    /// UITooltipTarget.cs:139) and the anchored branch writes a WORLD position straight out of the
+    /// target's world corners: <c>m_AnchorToTarget.GetWorldCorners(array); base.transform.position =
+    /// vector2 + array[targetCorner];</c> (UITooltip.cs:433-440). For a converted window that rect
+    /// lives in world metres — so <c>vector2</c>, the authored <c>anchoredOffset</c> in PIXELS, is
+    /// added to it as METRES. An offset of a few px authored for a 1080p screen becomes a few
+    /// METRES of sideways displacement, in the panel's own basis, which is precisely "same
+    /// orientation as the menu, x far too far left, outside the window".</description></item>
+    /// <item><description>IT IS COMPUTED ONCE, AGAINST WHEREVER THIS CANVAS HAPPENED TO BE. The
+    /// write above runs inside <c>Internal_Show</c> (UITooltip.cs:516), i.e. in the pointer-enter
+    /// Update — one frame BEFORE this LateUpdate step moves the canvas. Setting a child's world
+    /// position fixes its LOCAL offset, so every metre the canvas travels afterwards drags the box
+    /// with it. Whatever pose the canvas held on the show frame — parked at
+    /// <see cref="ParkPosition"/>, sitting in the board area, or already on this very window —
+    /// became the error, which is the whole of the user's "manchmal": a re-hover inside the
+    /// placement grace finds the canvas already on the window and lands correctly, a first hover
+    /// after the canvas was parked does not.</description></item>
+    /// <item><description>TWO MORE PIXEL/METRE CONFUSIONS RIDE ALONG. <c>UpdatePivot</c> compares a
+    /// WORLD coordinate against <c>Screen.width / 2</c> (UITooltip.cs:471-474), so in world space
+    /// the auto-corner always resolves to the same corner and can never flip a box back inside a
+    /// window; and <c>screenBound</c> adds
+    /// <c>RectTransform.DeltaWorldPositionToFitTheScreen(worldCamera, margin)</c>, whose
+    /// <c>camera.ScreenToWorldPoint(Vector2)</c> carries z = 0 and therefore returns the CAMERA
+    /// POSITION — snapping the box's corner onto the head's world x/y, a metre-scale jump applied
+    /// twice (immediately and again from <c>DelayedRefreshScreenBound</c> a frame later).</description></item>
+    /// </list>
+    ///
+    /// <para>So the window case now does what the BOARD case has always done and pins the FRAME, not
+    /// the canvas pivot (see <see cref="TryResolveTooltipPose"/> and
+    /// <see cref="FrameCenterOffsetWorld"/>): we decide where the visible box belongs and
+    /// back-compute the canvas position from the frame's live offset inside it, every tick.
+    /// Whatever the game's arithmetic did to the box — pixel offsets read as metres, a stale canvas
+    /// pose, a screen-bound snap toward the head, a re-arrangement mid-hover — is absorbed the same
+    /// frame, because the correction measures the RESULT instead of trusting the input.</para>
     ///
     /// <para>The panel is the one that OWNS the hover (<see cref="ModalFallback.FindOwningWindow"/>),
     /// never merely the topmost float — see that method for the regression this distinction fixes.</para>
     /// </summary>
-    private static bool TryResolveMenuPose(ConvertedPanel? panel, out Vector3 position,
+    private static bool TryResolveMenuPose(ConvertedPanel? panel, out RectTransform? host,
                                            out Quaternion rotation,
                                            out Vector3 scale, out int sortingOrder)
     {
-        RectTransform? host = panel != null && panel.IsAlive ? panel.HostRect : null;
+        host = panel != null && panel.IsAlive ? panel.HostRect : null;
         if (panel == null || host == null)
         {
-            position = Vector3.zero;
             rotation = Quaternion.identity;
             scale = Vector3.one;
             sortingOrder = 0;
@@ -298,10 +503,6 @@ internal sealed class WorldTooltips
 
         rotation = host.rotation;
         scale = host.lossyScale;
-        // TOWARD the viewer: the floated panel's +Z points AWAY from the head (PanelPlacement
-        // convention — uGUI fronts render along −forward), so subtracting forward moves the
-        // tooltip onto the viewer's side of the panel plane.
-        position = host.position - host.forward * MenuPanelProudZ;
         // GEOMETRY IS NOT ENOUGH (hover-hint bug, second half): both canvases are drawn by the
         // SAME head camera in the transparent queue, where Unity sorts by sortingLayer →
         // sortingOrder → distance, and the game's shared tooltip canvas keeps its authored (much
@@ -316,6 +517,106 @@ internal sealed class WorldTooltips
         sortingOrder = panel.HostCanvas != null ? panel.HostCanvas.sortingOrder + MenuPanelSortingLift : 0;
         return true;
     }
+
+    /// <summary>
+    /// The canvas pose that puts the visible tooltip BOX beside the hovered row and INSIDE the
+    /// floated window — the window-side twin of <see cref="TryResolveTooltipPose"/>, and the fix
+    /// for the "tooltips land far off to the left of the pause menu" report (the mechanism is
+    /// dissected in <see cref="TryResolveMenuPose"/>).
+    ///
+    /// <para>Measure the frame, decide where the frame should be, subtract the frame's own offset
+    /// inside the canvas — that is the whole trick, and it is idempotent by construction: moving
+    /// the canvas does not change the frame's LOCAL offset, so the same input produces the same
+    /// answer on the next tick instead of drifting.</para>
+    /// </summary>
+    private Vector3 ResolveMenuCanvasPose(RectTransform host, Quaternion rotation)
+    {
+        GetTooltipHalfExtents(out float ttHalfW, out float ttHalfH);
+        Vector3 frameCenter = ResolveMenuFrameCenter(host, rotation, ttHalfW, ttHalfH);
+        return frameCenter - FrameCenterOffsetWorld(rotation);
+    }
+
+    /// <summary>
+    /// WHERE THE BOX BELONGS ON A FLOATED WINDOW: beside the rect it describes, top edges aligned,
+    /// and clamped so it can never leave the window. Two rules, in this order, because the user
+    /// asked for both — "die Tooltipps alle in der Nähe erscheinen" (near the thing) and not
+    /// "außerhalb des Fensters" (never outside the window), and only the clamp can guarantee the
+    /// second one for a box the game may have re-sized to any width.
+    ///
+    /// <list type="bullet">
+    /// <item><description>NEAR: the box sits one gap to the RIGHT of the hovered rect with their
+    /// TOP edges aligned, so it reads as belonging to that row and never covers the row itself.
+    /// It flips to the LEFT side when the right side would hang out of the window — the flip the
+    /// game's own auto-corner can no longer perform here, because
+    /// <c>UITooltip.UpdatePivot</c> compares a world metre against <c>Screen.width / 2</c>.
+    /// The gap is expressed in the WINDOW'S OWN PIXELS times its live scale, so it reads the same
+    /// whether the window was fitted large or small and after a grab-resize.</description></item>
+    /// <item><description>INSIDE: the wanted centre is projected onto the window's in-plane basis
+    /// and clamped to half the window minus half the box, per axis. Rebuilding the result from the
+    /// window centre plus those two in-plane offsets also drops any out-of-plane component the
+    /// hovered rect may carry, so the box is always exactly in the window's plane before the proud
+    /// offset lifts it toward the viewer. A box LARGER than the window clamps to the window centre
+    /// (the max() floors) rather than flipping sign — overflowing symmetrically is the readable
+    /// failure.</description></item>
+    /// </list>
+    ///
+    /// <para>Without a hovered rect (a cursor-follow tooltip that still resolved to this window)
+    /// the box takes the window's own inside TOP-LEFT corner — the same "starts top-left, grows
+    /// into open air" contract the board tooltip area uses, so an anchorless hint has ONE stable
+    /// reading spot instead of wherever the game's mouse math last left it.</para>
+    /// </summary>
+    private Vector3 ResolveMenuFrameCenter(RectTransform host, Quaternion rotation,
+                                           float ttHalfW, float ttHalfH)
+    {
+        Vector3 right = rotation * Vector3.right;
+        Vector3 up = rotation * Vector3.up;
+        // TOWARD the viewer: the floated panel's +Z points AWAY from the head (PanelPlacement
+        // convention — uGUI fronts render along −forward), so subtracting forward moves the
+        // tooltip onto the viewer's side of the panel plane.
+        Vector3 forward = rotation * Vector3.forward;
+
+        // The window rect in world metres (0 = bottom-left, 1 = top-left, 2 = top-right,
+        // 3 = bottom-right — Unity's GetWorldCorners order).
+        host.GetWorldCorners(CornerScratch);
+        Vector3 winCenter = (CornerScratch[0] + CornerScratch[2]) * 0.5f;
+        float winHalfW = Vector3.Distance(CornerScratch[0], CornerScratch[3]) * 0.5f;
+        float winHalfH = Vector3.Distance(CornerScratch[0], CornerScratch[1]) * 0.5f;
+
+        // Window pixels → world metres (the host's own scale is the panel's px→m factor).
+        float gap = MenuHintGapPixels * Mathf.Max(Mathf.Abs(host.lossyScale.x), 1e-6f);
+
+        Vector3 wanted;
+        RectTransform? row = _hoveredRect;
+        if (row != null)
+        {
+            row.GetWorldCorners(CornerScratchB);
+            Vector3 rowCenter = (CornerScratchB[0] + CornerScratchB[2]) * 0.5f;
+            // Projected onto the WINDOW's basis, not measured as raw distances: a row inside a
+            // rotated/scrolled sub-rect must still be sized along the axes we place along.
+            float rowHalfW = Mathf.Abs(Vector3.Dot(CornerScratchB[3] - CornerScratchB[0], right)) * 0.5f;
+            float rowHalfH = Mathf.Abs(Vector3.Dot(CornerScratchB[1] - CornerScratchB[0], up)) * 0.5f;
+
+            wanted = rowCenter + right * (rowHalfW + gap + ttHalfW) + up * (rowHalfH - ttHalfH);
+            if (Vector3.Dot(wanted - winCenter, right) + ttHalfW > winHalfW)
+                wanted = rowCenter - right * (rowHalfW + gap + ttHalfW) + up * (rowHalfH - ttHalfH);
+        }
+        else
+        {
+            wanted = winCenter - right * (winHalfW - ttHalfW) + up * (winHalfH - ttHalfH);
+        }
+
+        Vector3 off = wanted - winCenter;
+        float limX = Mathf.Max(0f, winHalfW - ttHalfW);
+        float limY = Mathf.Max(0f, winHalfH - ttHalfH);
+        float offX = Mathf.Clamp(Vector3.Dot(off, right), -limX, limX);
+        float offY = Mathf.Clamp(Vector3.Dot(off, up), -limY, limY);
+        return winCenter + right * offX + up * offY - forward * MenuPanelProudZ;
+    }
+
+    /// <summary>Gap between the hovered row and the hint box, in the WINDOW's own uGUI pixels
+    /// (scaled by the window's live px→m factor at the read site) — near enough to read as one
+    /// unit, far enough that the box's frame does not touch the row's.</summary>
+    private const float MenuHintGapPixels = 12f;
 
     /// <summary>Sorting steps the tooltip rides above the floated menu host it is laid on. Must
     /// stay under <c>CanvasConversion.PanelOrderStep</c> (16) — see the note at the read site.</summary>
@@ -377,13 +678,17 @@ internal sealed class WorldTooltips
         if (!contentShown)
         {
             if (!withinGrace)
+            {
                 _hostWindow = null; // hint gone for good — next hover decides afresh
+                _hoveredRect = null;
+            }
             return;
         }
 
         Transform? hovered = _tooltip != null ? _tooltip.m_AnchorToTarget : null;
         ConvertedPanel? owner = ModalFallback.FindOwningWindow(hovered);
         _hostWindow = owner;
+        _hoveredRect = hovered as RectTransform;
 
         // Change-gated (reference compare, so the steady state allocates nothing): one line per
         // genuine change of host, naming the hovered object — that is the whole evidence chain a
@@ -677,6 +982,16 @@ internal sealed class WorldTooltips
         if (_tooltip == null)
             _tooltip = _canvas.GetComponentInChildren<UITooltip>(includeInactive: true);
 
+        // MIXED REALITY (user report 2026-08-09, the green tooltip background): register the box
+        // for an opaque plate behind the game's own frame — see TooltipBacking for the whole
+        // mechanism and why a plate, not an alpha force. Registration is MR-AGNOSTIC and costs one
+        // list entry: no plate exists, and nothing is polled, until MR is actually on.
+        if (!_mrRegistered && _tooltip != null)
+        {
+            _mrRegistered = true;
+            MrBacking.Surface(_mrBacking);
+        }
+
         // FIXED PLACEMENT (user #7a): while a tooltip is shown — OR within the placement
         // grace window just after it stopped (user #7b) — park the canvas at the anchor its
         // OWNER dictates. Otherwise leave it out of view — never at the fingertip.
@@ -686,6 +1001,11 @@ internal sealed class WorldTooltips
         bool withinGrace = _tooltip != null && Time.unscaledTime - _lastShownTime <= HoverGraceSeconds;
         bool visible = contentShown || withinGrace;
 
+        // MR plate gate (see TooltipBacking): cleared here, raised only once this tick has
+        // actually placed a visible box. An opaque plate has no fade to hide behind, so it must
+        // never be shown for a parked canvas or a pose that failed to resolve.
+        _backingShown = false;
+
         // WHO OWNS THIS HINT decides where it goes — resolved BEFORE the pose/scale, because the
         // answer picks between two different pixels-to-metres factors (see ResolveHostOwner).
         ResolveHostOwner(contentShown, withinGrace);
@@ -693,7 +1013,8 @@ internal sealed class WorldTooltips
         // ON THE MENU PANEL the scale is the PANEL's, not the board's: the two canvases only
         // coincide — and the game's own placement only lands where it means to — if they share a
         // pixels-to-metres factor. Off the menu, the board-derived scale above stands.
-        bool onMenuPanel = TryResolveMenuPose(_hostWindow, out Vector3 menuPos, out Quaternion menuRot,
+        bool onMenuPanel = TryResolveMenuPose(_hostWindow, out RectTransform? menuHost,
+                                              out Quaternion menuRot,
                                               out Vector3 menuScale, out int menuSorting);
         if (onMenuPanel)
         {
@@ -747,10 +1068,19 @@ internal sealed class WorldTooltips
         // the board anchor answers, which is what a card lying in a slot and a docked decision
         // button need even while some unrelated window floats.
         bool placed = onMenuPanel;
-        Vector3 pos = menuPos;
+        Vector3 pos = Vector3.zero;
         Quaternion rot = menuRot;
-        if (!placed)
+        if (placed)
+        {
+            // FRAME-PINNED, exactly like the board area (see ResolveMenuCanvasPose): resolved AFTER
+            // the world scale was re-asserted above, because it measures the frame's live world
+            // corners and those carry that scale.
+            pos = ResolveMenuCanvasPose(menuHost!, menuRot);
+        }
+        else
+        {
             placed = TryResolveTooltipPose(out pos, out rot);
+        }
 
         // MULTIPLAYER (extras record 9): publish the text of a SHOWN, BOARD-owned tooltip for
         // NetAvatarDriver — gated on content that is already public to peers (the card-identity
@@ -790,6 +1120,10 @@ internal sealed class WorldTooltips
 
         _canvas.transform.SetPositionAndRotation(pos, rot);
 
+        // The box is placed and shown — the MR plate may render this frame (see TooltipBacking).
+        _backingShown = true;
+        LogMrEvidence();
+
         // Diagnostic (user #7a): one line when the hint parks at the resolved board anchor
         // (deduped; re-logs if the anchor drifts > ~2 cm, e.g. the board was grabbed/moved).
         if (!_parkedLogged || (pos - _parkedLogPos).sqrMagnitude > 0.0004f)
@@ -800,12 +1134,18 @@ internal sealed class WorldTooltips
             {
                 // Names the OWNING window (_hostWindow), not the topmost float — naming
                 // MenuPanel here used to print a window the hint was never laid on.
+                GetTooltipHalfExtents(out float mHalfW, out float mHalfH);
                 VRLog.Info("WorldUI",
                     $"Tooltip laid FLAT ON its OWNING floated window "
                     + $"'{(_hostWindow?.HostGo != null ? _hostWindow!.HostGo.name : "?")}' "
-                    + $"at {pos:F3} (panel scale {menuScale.x:F5} m/px, sortingOrder {menuSorting} — "
-                    + "in front of the host). The two canvases share the window's screen rect, so "
-                    + "the game's own placement puts the box beside the hovered row, on the panel.");
+                    + $"— canvas anchor {pos:F3} (panel scale {menuScale.x:F5} m/px, sortingOrder "
+                    + $"{menuSorting} — in front of the host), box half {mHalfW:F3}×{mHalfH:F3} m "
+                    + $"beside '{(_hoveredRect != null ? _hoveredRect.name : "<no anchor rect>")}'. "
+                    + "FRAME-PINNED: the canvas anchor is back-computed from the box's live offset "
+                    + "inside it, so the game's anchored placement — which writes a WORLD position "
+                    + "out of the hovered rect's corners plus a PIXEL offset, once, against "
+                    + "whatever pose this canvas held on the show frame — can no longer push the "
+                    + "box metres out of the window (user report 2026-08-09).");
                 return;
             }
 
@@ -1144,6 +1484,17 @@ internal sealed class WorldTooltips
             return;
         _converted = false;
         CanvasConversion.RemoveMaskRequest();
+
+        // MIXED REALITY: destroy the plate NOW rather than letting it be deactivated. It is the
+        // one MrBacking plate parented under a GAME rect (the tooltip widget's own), and this
+        // method's whole contract is that the vanilla 2D menu tooltip is handed back exactly as
+        // found — an inactive mod quad left hanging under it would be the single piece of that
+        // teardown that never happened. MrBacking.Release is idempotent and works with MR off,
+        // which the normal deactivate-on-MR-off path cannot do (its sweep does not tick then).
+        MrBacking.Release(_mrBacking);
+        _mrRegistered = false;
+        _backingShown = false;
+        _mrEvidenceLogged = false;
 
         // Mip-baked graphics back to the game's originals BEFORE the canvas returns to
         // screen space (mutate-and-restore contract; the 2D menu tooltip keeps its
