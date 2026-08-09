@@ -653,6 +653,33 @@ internal sealed class ButtonCluster
         private bool _everShown;     // suppress the dust burst for the initial state settling
         private float _dissolveLeft; // shrink-out countdown, seconds
         private float _appearLeft;   // materialize-from-dust fade-in countdown, seconds
+
+        // ---- SURFACE-FADE WATCHDOG (2026-08-09 "the buttons were invisible, only the text") -----
+        //
+        // The cluster twin of the PlayTray.BoardButton defect — see the long root-cause header on
+        // BoardButton's _showDeadline field for the full mechanism. Short version: the appear fade
+        // below multiplies the cap's colour by SmoothStep(0.15, 1, k), so while it runs the cap body
+        // is at 15% of its colour (black on a dark board) while the TMP label — a different renderer
+        // on its own material, untouched by the fade — keeps drawing at full brightness. The ONLY
+        // exit from that state is the countdown reaching zero inside Animate().
+        //
+        // AND HERE THAT IS STRICTLY WORSE THAN ON THE BOARD BUTTONS, because Animate() is not a
+        // MonoBehaviour Update: it is called from ButtonCluster.Tick, which RETURNS EARLY on every
+        // tick where the cluster is not wanted or not placed (see Tick). A cap that is mid-fade when
+        // the cluster stops being placed for a moment is simply left at 15% with nothing scheduled to
+        // ever restore it — no clock stall required. The countdowns therefore run on the UNSCALED
+        // clock like the rest of the mod AND carry a wall-clock deadline that force-completes them
+        // (through the same completion path, so the exact colour is re-seated) on the next tick.
+        private float _appearDeadline = float.PositiveInfinity;
+        private float _dissolveDeadline = float.PositiveInfinity;
+        private float _fadeStartedAt;
+
+        /// <summary>Wall-clock grace before the watchdog force-completes a fade — mirror of
+        /// <c>PlayTray.BoardButton.FadeWatchdogSlack</c>; a normal frame spike never trips it.</summary>
+        private const float FadeWatchdogSlack = 0.35f;
+
+        /// <summary>Throttle for the watchdog line (a relayout can force several caps at once).</summary>
+        private static float _nextFadeHealLogAt;
         private Vector3 _slotScale = Vector3.one; // authoritative scale from SetSlot
 
         /// <summary>Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>.</summary>
@@ -954,6 +981,28 @@ internal sealed class ButtonCluster
             }
         }
 
+        /// <summary>
+        /// Watchdog line for the 2026-08-09 "the buttons were invisible, only their text was still
+        /// there" report: a cap animation that outlived its authored duration plus
+        /// <see cref="FadeWatchdogSlack"/> was force-completed. Names the cap, the animation and the
+        /// WALL-CLOCK seconds it actually spent faded, so the window shows up in the next hardware
+        /// log instead of depending on the player catching it. Throttled.
+        /// </summary>
+        private void LogFadeForced(string anim, float authored)
+        {
+            float held = Time.unscaledTime - _fadeStartedAt;
+            if (Time.unscaledTime < _nextFadeHealLogAt)
+                return;
+            _nextFadeHealLogAt = Time.unscaledTime + 0.5f;
+            VRLog.Warn("WorldUI", $"KEYCAP FADE HEALED: '{(_rootGo != null ? _rootGo.name : "cluster cap")}' " +
+                $"was still mid-'{anim}' after {held:F2} s of WALL-CLOCK time (authored {authored:F2} s " +
+                $"+ {FadeWatchdogSlack:F2} s slack; Time.timeScale {Time.timeScale:F2}) — force-completed " +
+                "and the exact cap colour re-seated. While that fade runs the cap body renders at as " +
+                "little as 15% of its colour while its label keeps drawing at full brightness, which is " +
+                "exactly the 'button gone, text still floating' look; Animate() is skipped on any tick " +
+                "the cluster is not placed, so this is the path that can strand one.");
+        }
+
         /// <summary>Register with the tray's board-laser registry (docked mode).</summary>
         public void RegisterLaserTarget(PlayTray tray) => tray.RegisterLaserTarget(_collider, this);
 
@@ -1048,6 +1097,11 @@ internal sealed class ButtonCluster
                     // shown before (suppresses the build-then-settle storm) and while the animation is
                     // enabled ([ButtonAnim] Enable). Input is live immediately.
                     _appearLeft = _everShown && ButtonTuning.ButtonAnimEnabled ? ButtonTuning.AppearSeconds : 0f;
+                    // Watchdog armed on the UNSCALED wall clock (see the field header).
+                    _fadeStartedAt = Time.unscaledTime;
+                    _appearDeadline = _appearLeft > 0f
+                        ? _fadeStartedAt + _appearLeft + FadeWatchdogSlack : float.PositiveInfinity;
+                    _dissolveDeadline = float.PositiveInfinity;
                     _collider.enabled = _interactable; // re-sync after the hide forced it off
                     if (_appearLeft > 0f)
                     {
@@ -1069,6 +1123,9 @@ internal sealed class ButtonCluster
                     if (_everShown && _rootGo.activeInHierarchy && ButtonTuning.ButtonAnimEnabled)
                     {
                         _dissolveLeft = ButtonTuning.DissolveSeconds;
+                        _fadeStartedAt = Time.unscaledTime;
+                        _dissolveDeadline = _fadeStartedAt + _dissolveLeft + FadeWatchdogSlack;
+                        _appearDeadline = float.PositiveInfinity;
                         ButtonTuning.LogAnim(_rootGo.name, "disappear (dust dissolve)");
                         ButtonDissolveFx.Play(_cap.position, _rootGo.transform.up,
                             BaseRadius * 2f * Mathf.Abs(_rootGo.transform.lossyScale.x),
@@ -1148,11 +1205,18 @@ internal sealed class ButtonCluster
             // Dissolve shrink-out: logically hidden already — finish visuals, deactivate.
             if (_dissolveLeft > 0f)
             {
-                _dissolveLeft -= Time.deltaTime;
+                // UNSCALED clock + wall-clock deadline (see the _appearDeadline field header).
+                _dissolveLeft -= Time.unscaledDeltaTime;
+                if (_dissolveLeft > 0f && Time.unscaledTime >= _dissolveDeadline)
+                {
+                    LogFadeForced("dust dissolve", ButtonTuning.DissolveSeconds);
+                    _dissolveLeft = 0f;
+                }
                 float k = Mathf.Max(0f, _dissolveLeft / ButtonTuning.DissolveSeconds);
                 _rootGo.transform.localScale = _slotScale * k;
                 if (_dissolveLeft <= 0f)
                 {
+                    _dissolveDeadline = float.PositiveInfinity;
                     _rootGo.transform.localScale = _slotScale; // restore for the next show
                     _rootGo.SetActive(false);
                 }
@@ -1168,7 +1232,16 @@ internal sealed class ButtonCluster
             // under the converging dust cloud. On completion it snaps back to the exact colour.
             if (_appearLeft > 0f)
             {
-                _appearLeft -= Time.deltaTime;
+                // UNSCALED clock + wall-clock deadline. Reaching zero here is the ONLY thing that
+                // restores the cap's real colour, and this method is skipped entirely on any tick
+                // where the cluster is not placed — so without the deadline a cap could sit at 15%
+                // brightness (invisible) under a fully readable label indefinitely.
+                _appearLeft -= Time.unscaledDeltaTime;
+                if (_appearLeft > 0f && Time.unscaledTime >= _appearDeadline)
+                {
+                    LogFadeForced("materialize-from-dust", ButtonTuning.AppearSeconds);
+                    _appearLeft = 0f;
+                }
                 float k = 1f - Mathf.Max(0f, _appearLeft / ButtonTuning.AppearSeconds);
                 _rootGo.transform.localScale = _slotScale; // materialize in place — no grow/scale pop
                 if (_capRenderer != null)
@@ -1179,6 +1252,7 @@ internal sealed class ButtonCluster
                 }
                 if (_appearLeft <= 0f)
                 {
+                    _appearDeadline = float.PositiveInfinity;
                     _rootGo.transform.localScale = _slotScale;
                     if (_capRenderer != null)
                         _capRenderer.sharedMaterial.color = _appliedColor; // exact colour restored
