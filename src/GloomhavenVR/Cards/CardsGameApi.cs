@@ -1146,6 +1146,143 @@ internal static class CardsGameApi
         return true;
     }
 
+    // ============================ IS THIS ITEM'S ACTION STILL RESOLVING? =========================
+    //
+    // USER REPORT (2026-08-09, verbatim): "Wird ein Gegenstand verbraucht/genutzt geht er sofort mit
+    // der Animation in den Pile zurück, BEVOR die Gegenstandsaktion vollständig abgeschlossen ist.
+    // Beispiel: Wenn ich einen Heiltrank aktiviere muss ich zuerst noch drücken 'Ziele bestätigen'
+    // erst dann ist die Heilung abgeschlossen. Während dessen soll der Gegenstand noch im Overlay
+    // liegen bleiben."
+    //
+    // The card used to leave the recess the instant the USE seam was CALLED. Calling the seam is not
+    // the end of the action: for a great many items it is the BEGINNING of one — a heal potion opens
+    // a targeting step whose "confirm targets" the player has still to press. The predicate below is
+    // what the placed card's stay is derived from, and it is read from the game's own flow objects
+    // every frame. It is never latched, never timed and never inferred from the presence of a UI
+    // element, so every way an action can end — resolved, undone, abandoned, the turn taken away —
+    // makes it false by construction rather than by a special case.
+    //
+    // WHAT THE GAME ACTUALLY DOES WHEN AN ITEM IS USED (read from the decompiled sources):
+    //   UseItemService.UseItem (GH.Runtime/UseItemService.cs:18-55) validates, ships the
+    //   GameAction when online, and then ENQUEUES ScenarioRuleClient.ToggleItem — it does not
+    //   resolve anything itself. The queue is drained on the SRL worker thread
+    //   (ScenarioRuleClient.Work :827-853), which runs CInventory.ToggleItem (:366-545). There the
+    //   item splits into the shapes that matter here:
+    //     • ItemType.Ability (the potions): ToggleItemAbility (:555-568) → SelectItem(item) — which
+    //       writes SlotState = Selected (:655-664) — followed by PhaseManager.StartItemAbilities
+    //       (:307-315), which PUSHES a CPhaseAction for the item's own abilities and records the
+    //       item in GameState.CurrentAction/CurrentActionInitiator = ItemCard. Targeting, the
+    //       ready-button "confirm targets" and the animation all happen inside that pushed phase.
+    //       It ends at CPhaseAction's HandleUsedItem (CPhaseAction.cs:1290 / CInventory.cs:891-949,
+    //       which writes Spent/Consumed/Equipped) and PhaseManager.EndItemAbilities (:316-329),
+    //       which pops the phase and puts CurrentActionInitiator back to None.
+    //     • ItemType.Override with Trigger SingleTarget: SelectItem, then
+    //       CAbility.ToggleSingleTargetItem (CAbility.cs:2513-2528) parks the item in the current
+    //       ability's m_ActiveSingleTargetItems with SingleTarget == null. The game itself calls
+    //       that state "still waiting" — CAbility.IsWaitingForSingleTargetItem (:2689-2692), the
+    //       very term Choreographer uses to KEEP THE READY BUTTON DISABLED (Choreographer.cs:4910,
+    //       :12337). Same ending: HandleUsedItems when the ability performs.
+    //     • the instant shapes (a shield, an unrestricted trinket): ToggleItem resolves inside the
+    //       one message and HandleUsedItem has already written Spent/Consumed by the time the queue
+    //       drains. Nothing below is ever true for them, so their card leaves as it always did.
+    //
+    // ============================================================================================
+
+    /// <summary>
+    /// Is the action started by USING <paramref name="item"/> still resolving — i.e. does the game
+    /// still owe the player (or itself) a step before the item's use is finished? Four terms, all
+    /// live reads of the game's own flow objects, all falling to false on every ending:
+    ///
+    /// <list type="number">
+    /// <item><b>The rules engine has not answered yet</b> —
+    /// <c>ScenarioRuleClient.IsProcessingOrMessagesQueued</c> (:383-392). Our confirm ENQUEUED the
+    /// toggle on the SRL worker; until that message has been taken and processed, none of the three
+    /// terms below can have been written yet, and reading them would be reading the state from
+    /// BEFORE the use. This is the hand-off term, and it is the game's own "the rules are still
+    /// chewing, you may not press anything" signal: <c>ReadyButton.cs:501</c>,
+    /// <c>UndoButton.cs:294</c> and <c>SkipButton.cs:162</c> all gate their interactability on
+    /// exactly this. It cannot stick — a dedicated worker thread drains the queue.</item>
+    ///
+    /// <item><b>The item is SELECTED</b> — <c>SlotState == Selected</c>. The game has taken the item
+    /// into a live selection and has not yet charged it. <c>CInventory.SelectItem</c> writes it at
+    /// the start of every non-instant item flow and <c>HandleUsedItem</c> replaces it with
+    /// Spent/Consumed/Equipped at the end; <c>DeselectItem</c> returns it to Useable when the flow is
+    /// backed out. So this single field spans the entire resolution of an Ability item AND of an
+    /// Override item, and it is written by the rules thread, not by any UI.</item>
+    ///
+    /// <item><b>The pushed item-card action is THIS item's</b> —
+    /// <c>GameState.CurrentActionInitiator == ItemCard</c> and
+    /// <c>GameState.CurrentAction.BaseCard</c> IS this item. The crispest statement in the whole
+    /// codebase that a particular item's action owns the game right now: set together in
+    /// <c>PhaseManager.StartItemAbilities</c>, cleared in <c>EndItemAbilities</c>. It is carried in
+    /// addition to term 2 because the two do not end at the same instant — HandleUsedItem charges
+    /// the item a moment BEFORE the phase is popped, and the card should follow the ACTION, not the
+    /// bookkeeping.</item>
+    ///
+    /// <item><b>The current ability is still waiting for this item's single target</b> —
+    /// <c>CAbility.IsSingleTargetItemActive(item)</c> with <c>item.SingleTarget == null</c>, i.e.
+    /// exactly the per-item form of the game's own <c>IsWaitingForSingleTargetItem</c>. Belt and
+    /// braces for the SingleTarget shape, whose target pick can outlive the charge.</item>
+    /// </list>
+    ///
+    /// <para>WHY THE FAILURE DIRECTION IS "LINGER", DELIBERATELY. Every term answers false when it
+    /// cannot be evaluated (no phase, no ability, torn-down statics), so the predicate degrades to
+    /// "finished" — which is today's behaviour — and never to "resolving for ever". The one place
+    /// the caller deliberately errs the other way is term 1: while the rules thread is busy the card
+    /// stays put, so a use whose consequences have not landed yet can never see its card leave
+    /// early. A card that lies in the recess a frame too long is invisible; a card that vanishes
+    /// mid-decision is the reported bug.</para>
+    ///
+    /// <para>WHAT IS DELIBERATELY NOT HERE: a clock, a "was the ready button re-enabled" read, and
+    /// any test for the presence of a decision widget. The first is forbidden outright (the card
+    /// must survive a long think), and the last two describe the SYMPTOM of a live decision, not the
+    /// decision — they would answer "finished" for every follow-up the game resolves without a
+    /// button (an animation, an auto-applied single target, a chained sub-ability).</para>
+    ///
+    /// <para>NOT USED FOR THE ACTIVE-BONUS (Brille) SHAPE, and that is not an omission. ModBuild 95
+    /// established that such an item never changes <c>SlotState</c> at all and never goes through
+    /// <c>UseItemService</c>: its card's stay is already derived, frame by frame, from the LIVE
+    /// bonus (offered / selected / toggle-locked / used) in <c>ItemsPile.TickBonusDecision</c>. That
+    /// is the same shape of answer as this one, read from the seam that shape actually uses.</para>
+    /// </summary>
+    internal static bool ItemActionResolving(CItem? item)
+    {
+        if (item == null)
+            return false;
+        try
+        {
+            // 1 — the toggle we just enqueued has not been processed yet.
+            if (ScenarioRuleClient.IsProcessingOrMessagesQueued)
+                return true;
+
+            // 2 — the game holds the item selected and has not charged it.
+            if (item.SlotState == CItem.EItemSlotState.Selected)
+                return true;
+
+            // 3 — the pushed item-card action phase belongs to THIS item.
+            if (GameState.CurrentActionInitiator == GameState.EActionInitiator.ItemCard
+                && GameState.CurrentAction != null
+                && ReferenceEquals(GameState.CurrentAction.BaseCard, item))
+                return true;
+
+            // 4 — the ability in play still owes this item a target.
+            if (PhaseManager.CurrentPhase is CPhaseAction phase
+                && phase.CurrentPhaseAbility?.m_Ability is CAbility ability
+                && ability.IsSingleTargetItemActive(item)
+                && item.SingleTarget == null)
+                return true;
+        }
+        catch (System.Exception e)
+        {
+            // A half-torn scenario (statics reset between frames) must not strand a card on the
+            // board: answering "finished" sends it home, which is the safe direction.
+            VRLog.Warn("Cards", $"ITEM resolve probe threw ({e.Message}) — treating the item's action " +
+                                "as finished so the card is never left lying on the recess.");
+            return false;
+        }
+        return false;
+    }
+
     /// <summary>
     /// Requirement C (take-damage place context): is the game's items bar currently presenting
     /// the OnAttacked shield/retaliate candidates of an open, LOCALLY-decided take-damage

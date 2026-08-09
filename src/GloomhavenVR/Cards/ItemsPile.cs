@@ -196,6 +196,29 @@ internal sealed class ItemsPile
     // chip is never yanked), the chip is driven to the slot pose each tick, and a Confirm button shows.
     private ItemChip? _pendingUseChip;
 
+    // ---- THE PLACED CARD OUTLIVES THE **USE**, TOO (user report 2026-08-09) -------------------
+    //
+    // "Wird ein Gegenstand verbraucht/genutzt geht er sofort mit der Animation in den Pile zurück,
+    // BEVOR die Gegenstandsaktion vollständig abgeschlossen ist. Beispiel: Wenn ich einen Heiltrank
+    // aktiviere muss ich zuerst noch drücken 'Ziele bestätigen' erst dann ist die Heilung
+    // abgeschlossen. Während dessen soll der Gegenstand noch im Overlay liegen bleiben. Er soll in
+    // diesem Zustand zwar ganz normal in die Hand genommen werden können aber beim Loslassen geht er
+    // wieder zurück an das Overlay."
+    //
+    // ROOT CAUSE: ConfirmPendingUse called the use seam and then, in the very next statement, ran
+    // FinishUsedChip — i.e. it treated "the seam was CALLED" as "the action is DONE". For a great
+    // many items that call is the START of an action: UseItemService only enqueues
+    // ScenarioRuleClient.ToggleItem, and for an Ability item that pushes a whole CPhaseAction whose
+    // targeting and "confirm targets" the player still has to answer.
+    //
+    // THE STATE. While this is set, _pendingUseChip is STILL the placed card (so nothing about the
+    // recess, the fan-close survivor, the grab paths or wire record 26 has to learn a new shape) but
+    // the DECISION is over: the USE cap is down and no cancel path applies any more. The card lies
+    // in the recess until CardsGameApi.ItemActionResolving says the game is finished with it — a
+    // predicate recomputed from the game's own flow objects every frame, with no ledger, no latch
+    // and no timer, so every ending converges on its own (see TickUseResolving).
+    private bool _useResolving;
+
     // ---- THE PLACED CARD OUTLIVES THE FAN (user report 2026-08-09) ----------------------------
     //
     // "Wenn ich eine Gegenstandskarte in den Overlay gelegt habe und dann in die Welt klicke um den
@@ -520,6 +543,7 @@ internal sealed class ItemsPile
             _choiceCapShown = false;
             _choiceCapReady = false;
             _pendingUseChip = null; // #6: drop any pending decision on close
+            _useResolving = false;  // …including a placement whose USE was already confirmed
             PlayTray.Current?.SetItemUseConfirmVisible(false, null);
             PlayTray.Current?.SetItemUseSlotVisible(false); // never leave the use slot up once the fan is gone
             _useSlotShownLogged = false;
@@ -578,6 +602,7 @@ internal sealed class ItemsPile
         // visibility policy — teardown must leave the bar exactly as the game left it).
         RestoreChoiceHidden();
         _pendingUseChip = null; // #6
+        _useResolving = false;
         _demandChip = null;     // surrender pick
         _demandActive = false;
         _demandLoseReward = false;
@@ -1970,6 +1995,28 @@ internal sealed class ItemsPile
             return;
         }
 
+        // ─── THE ACTION IS STILL RESOLVING: A RELEASE IS A RETURN, NEVER A CANCEL ────────────────
+        //
+        // User requirement 2026-08-09, third sentence: "Er soll in diesem Zustand zwar ganz normal in
+        // die Hand genommen werden können aber beim Loslassen geht er wieder zurück an das Overlay."
+        //
+        // Tested FIRST, before every other drop route, and deliberately without the proximity test
+        // that decides the ordinary placement. While the item's action is resolving the recess is
+        // simply WHERE THIS CARD LIVES — it is not a candidate for a placement decision any more,
+        // because the decision has already been made and pressed. So "where you let go decides", the
+        // rule that governs an un-confirmed placement, does not apply here: there is nothing left to
+        // cancel and nowhere else for the card to be. It flies back to the recess from wherever the
+        // hand let go, on the same animated settle a first placement uses.
+        //
+        // It cannot collide with the three other placement flows below: a resolving card is by
+        // construction the _pendingUseChip and can be neither _demandChip nor _tdChip, and its item
+        // is mid-use, so no active bonus is being offered off it either.
+        if (_useResolving && ReferenceEquals(chip, _pendingUseChip))
+        {
+            ReturnResolvingCardToRecess(chip, slot, vrHand);
+            return;
+        }
+
         // ITEM SURRENDER pick (event consume/refresh mali): while the game's ItemCardPicker is
         // open, a drop into the slot SELECTS the item through the picker's own slot seam —
         // never UseItemService (nothing is consumed until the demand confirm commits). The
@@ -2104,6 +2151,149 @@ internal sealed class ItemsPile
         CancelPlacedCard(chip, "taken out of the recess and released away from it — the CANCEL");
     }
 
+    // ================= the card STAYS while the item's action resolves (2026-08-09) =============
+
+    /// <summary>
+    /// The USE has been pressed and accepted — hand the card over to the RESOLVING state instead of
+    /// sending it home. Shared by every "the item has now been used" entry: the USE cap's confirm,
+    /// the element pick that auto-uses its own card, and the state-change edge that notices the game
+    /// charged the item under us.
+    ///
+    /// <para>WHAT CHANGES AND WHAT DOES NOT. The DECISION ends here — the USE/CHOOSE cap comes down
+    /// and the element-choice bookkeeping is dropped, because there is nothing left to confirm or to
+    /// back out. The PLACEMENT does not: <see cref="_pendingUseChip"/> stays this chip and
+    /// <c>PendingUse</c> stays set, so the card keeps its identity as "the card lying in the recess"
+    /// for the fan-close survivor (<see cref="_keptClip"/>), for the grab/laser routing, for
+    /// <see cref="RefreshFanLayout"/> (which skips it) and for wire record 26 — a peer's copy stays
+    /// in their mirrored recess for exactly the same window, off the index it already receives.</para>
+    ///
+    /// <para>The predicate is asked IMMEDIATELY, in this same call: an item that resolves inside its
+    /// own SRL message (a shield, an unrestricted trinket) is already finished by the time a slower
+    /// path would look, and it must keep the same instant burn/tap flourish it has always had.</para>
+    /// </summary>
+    private void BeginUseResolving(ItemChip chip, CItem item, string why)
+    {
+        _pendingUseChip = chip;
+        _useResolving = true;
+        _pendingSubChoice = false;
+        _pendingChoiceSlot = null;
+        _choiceClickArmed = false;
+        _choiceCapShown = false;
+        _choiceCapReady = false;
+        chip.PendingUse = true;
+        PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+        VRLog.Info("Cards", $"ITEM USED '{chip.name}' ({why}) — the card STAYS LYING in the recess while the " +
+                            "game resolves what the use started (target confirmation, a follow-up prompt, an " +
+                            "element choice). It can still be taken into either hand; releasing it puts it " +
+                            "back in the recess. It travels home the moment the action is finished.");
+        TickUseResolving(chip); // may finish this very frame — see the note above
+    }
+
+    /// <summary>
+    /// Per-tick service of a card whose USE has been confirmed and whose ACTION the game is still
+    /// resolving. One question per frame — <see cref="CardsGameApi.ItemActionResolving"/>, which
+    /// states its own terms and its own evidence — and no state of our own is consulted, so this
+    /// converges on every ending by construction: the action completes, the player undoes it, the
+    /// scenario tears the phase down, the turn is taken away. There is no ledger to go stale, no
+    /// latch to get stuck and no timer to expire early.
+    ///
+    /// <para>A HAND THAT HOLDS THE CARD OWNS IT, and this method may not move it — the same rule
+    /// <see cref="TickPlacedWhileClosed"/> already applies to a placed card. So a finish that comes
+    /// due while the player is holding the card is DEFERRED to the release (which re-clips it into
+    /// the recess, <see cref="ReturnResolvingCardToRecess"/>, and the next tick then sends it home
+    /// with its flourish). That is not a stall: a card in a hand is not a card stranded on the
+    /// board, and the release is one trigger-up away.</para>
+    /// </summary>
+    private void TickUseResolving(ItemChip chip)
+    {
+        CItem? item = chip.Item;
+        if (item == null)
+        {
+            // Nothing left to ask about — send it home the ordinary animated way.
+            _useResolving = false;
+            _pendingUseChip = null;
+            ReturnPlacedChipHome(chip, "the used card lost its item under us");
+            return;
+        }
+
+        if (chip.Holder != null)
+        {
+            PlayTray.Current?.SetItemUseSlotVisible(true); // it is coming back here — keep the target lit
+            return;
+        }
+
+        if (!CardsGameApi.ItemActionResolving(item))
+        {
+            FinishUsedChip(chip, item, "the item's action finished resolving");
+            return;
+        }
+
+        // Still resolving: hold the recess up and keep the card seated in it. Same re-seat rule as
+        // the pending placement — the hierarchy holds the card for free once it has landed, so this
+        // only ever fires if a board rebuild swapped the slot transform under it.
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        Transform? slot = PlayTray.Current?.ItemUseSlotTransform;
+        if (slot == null)
+        {
+            // The recess went away with a board rebuild: there is nothing left to lie on, so the card
+            // goes home NOW rather than hanging in space. It was genuinely used, so it goes home the
+            // used way — with its burn/tap flourish, not as a cancel.
+            FinishUsedChip(chip, item, "the board's item-use recess was rebuilt away mid-resolution");
+            return;
+        }
+        if (chip.transform.parent != slot)
+            chip.ClipIntoSlot(slot); // re-seat visibly (the settle), never a teleport
+    }
+
+    /// <summary>Throttle for the "the beam cannot take a used card off the recess" line.</summary>
+    private float _resolveRefuseLogAt;
+
+    /// <summary>
+    /// The far laser asked for a card whose USE is already confirmed to be put back on the pile.
+    /// There is no such move: the card is lying there because the game is still resolving, and it
+    /// leaves on its own. Say so, and spring it visibly back into the recess if a hand had it — the
+    /// same shape of answer <see cref="RefuseLockedBonusRemoval"/> gives, for the same reason (a
+    /// refusal the player can see beats a gesture that does nothing).
+    /// </summary>
+    private void RefuseResolvingRemoval(ItemChip chip)
+    {
+        Transform? useSlot = PlayTray.Current?.ItemUseSlotTransform;
+        if (useSlot != null && chip.Holder == null)
+        {
+            chip.CancelReleaseGlide();
+            chip.PendingUse = true;
+            chip.ClipIntoSlot(useSlot); // the visible spring-back (the settle animation, not a pop)
+        }
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        if (Time.unscaledTime < _resolveRefuseLogAt)
+            return;
+        _resolveRefuseLogAt = Time.unscaledTime + 2f;
+        VRLog.Info("Cards", $"ITEM recess: '{chip.name}' cannot be put back on the pile — it has already been " +
+                            "USED and the game is still resolving the action it started (target confirmation, " +
+                            "a follow-up prompt). It stays lying in the recess until that finishes, then it " +
+                            "flies home on its own. Reach for it if you want to hold it; letting go puts it back.");
+    }
+
+    /// <summary>
+    /// The card was taken into a hand while its action resolved and has now been let go: put it BACK
+    /// into the recess, animated, wherever the release happened. The user's rule for this state is
+    /// that the recess is where the card belongs, so a release is a return and never a cancel — see
+    /// the block in <see cref="OnChipReleased"/> that routes here.
+    /// </summary>
+    private void ReturnResolvingCardToRecess(ItemChip chip, Transform slot, VRHand vrHand)
+    {
+        chip.CancelReleaseGlide(); // no glide to the arc may fight the clip
+        chip.PendingUse = true;
+        chip.ClipIntoSlot(slot);   // the same settle the first placement plays
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        vrHand.SendHaptic(HapticPreset.HoverTick);
+        CardsDriver.PlayCardSound(CardsConfig.CardPlaceSound.Value, chip.transform);
+        VRLog.Info("Cards", $"ITEM recess: '{chip.name}' returns to the recess ({vrHand.Side}) — its use is " +
+                            "already confirmed and the game is still resolving the action, so letting go " +
+                            "anywhere puts the card back where it belongs. It leaves on its own the moment " +
+                            "the action is finished.");
+    }
+
     /// <summary>
     /// Requirement 6 — per-tick pending-decision service: resolve a CANCEL (the card was grabbed back
     /// out of the slot), an invalidation (turn ended / item no longer usable), or else keep the card
@@ -2114,6 +2304,15 @@ internal sealed class ItemsPile
         ItemChip? chip = _pendingUseChip;
         if (chip == null)
             return;
+
+        // THE USE IS ALREADY CONFIRMED and the game is resolving the action it started: no cancel
+        // path below applies any more (not the grab-back, not "play moved on", not the element
+        // choice), so this branch comes first and owns the card until it is finished.
+        if (_useResolving)
+        {
+            TickUseResolving(chip);
+            return;
+        }
 
         // ACTIVE-BONUS placement runs its own service: its endings come from the BONUS BAR (the
         // offer withdrawn, the toggle locked, the game untoggling under us), not from the
@@ -2139,7 +2338,7 @@ internal sealed class ItemsPile
         // slink back to the fan without its burn/tap flourish.
         if (_pendingSubChoice && chip.Item != null && WasUsed(chip.Item))
         {
-            FinishUsedChip(chip, chip.Item, "auto-used when the element pick completed");
+            BeginUseResolving(chip, chip.Item, "auto-used when the element pick completed");
             return;
         }
 
@@ -2250,6 +2449,15 @@ internal sealed class ItemsPile
             return;
         }
 
+        // THE USE IS ALREADY CONFIRMED and the game is resolving the action (see TickUseResolving):
+        // one service, fan open or closed, and it outranks every cancel below for the same reason it
+        // does in TickPendingUse — there is nothing left to cancel.
+        if (_useResolving)
+        {
+            TickUseResolving(chip);
+            return;
+        }
+
         // ACTIVE-BONUS placement: one service, fan open or closed (see TickBonusDecision).
         if (_pendingBonus != null)
         {
@@ -2258,7 +2466,7 @@ internal sealed class ItemsPile
         }
         if (_pendingSubChoice && chip.Item != null && WasUsed(chip.Item))
         {
-            FinishUsedChip(chip, chip.Item, "auto-used when the element pick completed");
+            BeginUseResolving(chip, chip.Item, "auto-used when the element pick completed");
             return;
         }
 
@@ -2431,7 +2639,10 @@ internal sealed class ItemsPile
         // the SlotState round trip (online it lands a frame or more later).
         if (CardsGameApi.ItemsBarSlotSelected(slot))
         {
-            FinishUsedChip(chip, item, "auto-used when the element pick completed");
+            // …and it is a USE like any other, so it hands over to the RESOLVING state rather than
+            // ending the card's life here: a consume-"Any" potion still owes whatever its own
+            // ability asks for next (see BeginUseResolving).
+            BeginUseResolving(chip, item, "auto-used when the element pick completed");
             return;
         }
 
@@ -2721,6 +2932,12 @@ internal sealed class ItemsPile
     {
         ItemChip? chip = _pendingUseChip;
         _pendingUseChip = null;
+        // …and with it the RESOLVING state, if the placement had got that far. Reaching a cancel with
+        // a confirmed use means a BACKSTOP fired (the board switched character, the pile is being
+        // torn down): the card must not be left lying on furniture that is going away, and the game
+        // side of the use is the game's own business — it was committed through the game's seam and
+        // will resolve, or not, without a card on a recess to represent it.
+        _useResolving = false;
         // Back the GAME out of the element choice first (while _pendingChoiceSlot is still valid):
         // an open picker is closed by re-toggling the slot, and a completed pick is released by the
         // bar's own OnItemBackClick — which clears the slot's element holders, clears the pending
@@ -2817,6 +3034,19 @@ internal sealed class ItemsPile
         }
         else if (ReferenceEquals(chip, _pendingUseChip))
         {
+            // THE USE IS ALREADY CONFIRMED: there is no placement left to put back. The beam gesture
+            // means "cancel this placement and return the card to the pile", and that sentence has no
+            // meaning once the item has been used — the card is lying in the recess because the GAME
+            // is still resolving the action, and it leaves when the action does. Refused the same way
+            // a locked bonus toggle is refused, and with the same visible spring-back, so the gesture
+            // is answered rather than silently swallowed. Taking the card INTO a hand is still free
+            // (that is the physical route, and letting go returns it here).
+            if (_useResolving)
+            {
+                RefuseResolvingRemoval(chip);
+                hand.SendHaptic(HapticPreset.HoverTick);
+                return;
+            }
             // A LOCKED active-bonus toggle refuses the laser route exactly as it refuses the
             // physical one (see RefuseLockedBonusRemoval): the rules will not give the choice back,
             // so the card stays where it is and says why. Same refusal, both gestures.
@@ -3188,9 +3418,17 @@ internal sealed class ItemsPile
 
     /// <summary>
     /// Requirement 6 — CONFIRM: use the pending item through the game's own <c>UseItemService</c>
-    /// (which owns ALL multiplayer sync + re-validates), then reflect the result with an animation ON
-    /// the clipped card (burn plume for Consumed, a "tap" roll for Spent) before it collapses back into
-    /// the deck. Invoked by the Confirm button's poke/laser callback. Inventory is never mutated here.
+    /// (which owns ALL multiplayer sync + re-validates), and then hand the card over to the RESOLVING
+    /// state (<see cref="BeginUseResolving"/>) — it stays lying in the recess until the ACTION the
+    /// use started is finished, and only then plays its burn/tap flourish and collapses back into the
+    /// deck. Invoked by the Confirm button's poke/laser callback. Inventory is never mutated here.
+    ///
+    /// <para>THE LINE THAT MOVED (user report 2026-08-09 — the heal potion that left the recess while
+    /// "Ziele bestätigen" was still up): this method used to call <see cref="FinishUsedChip"/> in the
+    /// statement after the seam. Calling the seam is not the end of the action — for an Ability item
+    /// it is the start of one — so the finish now hangs off the game's own resolution instead
+    /// (<see cref="CardsGameApi.ItemActionResolving"/>). Every REFUSAL below still ends the placement
+    /// on the spot: nothing was used, so there is nothing to wait for.</para>
     /// </summary>
     private void ConfirmPendingUse()
     {
@@ -3206,6 +3444,10 @@ internal sealed class ItemsPile
 
         ItemChip? chip = _pendingUseChip;
         bool subChoice = _pendingSubChoice;
+        // The DECISION is over either way, so the cap and the choice bookkeeping go now. Whether the
+        // CARD goes is decided at the bottom: a refused confirm clears _pendingUseChip on its own way
+        // out, an accepted one has BeginUseResolving put it straight back (it never stopped being the
+        // card lying in the recess, which is what _pendingUseChip means to every other reader).
         _pendingUseChip = null;
         _pendingSubChoice = false;
         _pendingChoiceSlot = null;
@@ -3278,7 +3520,7 @@ internal sealed class ItemsPile
             return;
         }
 
-        FinishUsedChip(chip, item, "CONFIRM");
+        BeginUseResolving(chip, item, "CONFIRM");
     }
 
     /// <summary>
@@ -3295,7 +3537,25 @@ internal sealed class ItemsPile
     /// </summary>
     private void FinishUsedChip(ItemChip chip, CItem item, string why)
     {
+        // A HAND MAY NOT HAVE ITS CARD TAKEN AWAY. Every ordinary route here already declines while
+        // the chip is held (TickUseResolving defers to the release, TickBonusDecision answers the
+        // grab itself), so this is the belt for the backstops: releasing the grab first means the
+        // detach below can never rip the card out of a closed fist — the defect UnclipFromSlot's
+        // root-cause note documents at length — and it is the same order RetireChipToPile uses.
+        //
+        // RE-ENTRANT, and deliberately released BEFORE the fields are cleared: the cancel runs the
+        // whole drop routing (OnRelease → OnChipReleased), which with the resolving state still set
+        // simply puts the card back in the recess — the one answer that cannot conflict with what
+        // this method is about to do. The collapse flag is the honest "it already went home by
+        // another road" test, exactly as in RetireChipToPile.
+        if (chip.Holder != null)
+        {
+            chip.Holder.Grabber.CancelAll();
+            if (chip.IsCollapsing)
+                return;
+        }
         _pendingUseChip = null;
+        _useResolving = false;
         _pendingSubChoice = false;
         _pendingChoiceSlot = null;
         _choiceClickArmed = false;
