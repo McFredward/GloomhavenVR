@@ -409,13 +409,19 @@ internal static partial class CanvasConversion
         TickFurnitureOrder(eye);
 
         // (6) FOREIGN transparent surfaces the mod cannot re-author rank against the same
-        // numbers, and for the same reason (user 2026-08-09: with MR off, the see-through
-        // undiscovered tiles hide the decision symbols, the initiative track and some board
-        // text). The game's fog-of-war hex kit is translucent AND writes depth at sortingOrder
-        // 0, so it is painted before every panel and erases whatever lies behind it; ranking it
-        // by measured distance paints it LAST instead, where its depth write can no longer erase
-        // anything. Runs HERE, after (4) and (5), because it reads the orders those two just
-        // assigned - see Core.UnseenTileOrder and part 9b.
+        // numbers, and for the same reason (user 2026-08-09: with MR off the see-through
+        // undiscovered tiles hide the decision symbols, the initiative track and some board text;
+        // with MR on the same tiles, now opaque, fail to hide the board's quest text). Everything
+        // in the game's fog-of-war stack ships at sortingOrder 0, so it is painted before every
+        // panel and before the board's furniture band whatever the geometry says; ranking it by
+        // measured distance paints it in the right place instead, which reads as see-through while
+        // the surface is translucent and as occluding while it is opaque - one rule, both states.
+        //
+        // Two steps, in this order and HERE, after (4) and (5), because both read the orders those
+        // two just assigned: the ladder is snapshotted ONCE into the small sorted table part 9b
+        // documents, and every foreign surface then resolves against that table with no Unity call
+        // at all - see Core.UnseenTileOrder and part 9b.
+        BuildSeenThroughLadder(eye);
         Core.UnseenTileOrder.Tick(eye);
 
         LogPanelOrder();

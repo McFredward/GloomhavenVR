@@ -5,9 +5,10 @@ namespace GloomhavenVR.WorldUI;
 // CanvasConversion part 9b (where a FOREIGN transparent surface belongs on the distance ladder).
 // A NEW part file rather than new members in part 8/9 for the reason part 8's own header gives:
 // the refactor guard tracks the partial class's member and static-initializer order, and the
-// filename sort ('.9.' < '.9b.') appends this part AFTER part 9, so nothing existing moves. This
-// part deliberately declares NO fields — only a const and one method — so it cannot perturb the
-// static-initializer order at all.
+// filename sort ('.9.' < '.9b.') appends this part AFTER part 9, so nothing existing moves. The
+// two static fields this part declares carry NO initializer on purpose (the array is allocated
+// lazily in BuildSeenThroughLadder) — a field initializer would emit a static constructor entry
+// and perturb exactly the initializer order the guard tracks.
 
 internal static partial class CanvasConversion
 {
@@ -49,7 +50,7 @@ internal static partial class CanvasConversion
     // DRAW ORDER — and once the order is depth-correct the depth write is harmless: a surface
     // that is painted LAST cannot erase anything, because everything behind it is already there.
     //
-    // WHAT THIS METHOD ANSWERS. Given a foreign transparent surface at <paramref name="eyeDistance"/>,
+    // WHAT THIS PART ANSWERS. Given a foreign transparent surface at a measured eye distance,
     // where must it sit so that painter's order holds in BOTH directions - over everything the
     // ladder puts behind it, under everything the ladder puts in front of it?
     //   behindTop  = the highest order among ladder panels (and furniture bands) measurably
@@ -79,31 +80,83 @@ internal static partial class CanvasConversion
     // such a surface at its authored order, which keeps the untouched scene bit-identical to the
     // shipped build.
     //
-    // <para>Reads the CURRENT frame's ladder when called from inside <see cref="TickPanelOrder"/>
-    // after the orders are assigned (that is where <see cref="Core.UnseenTileOrder"/> calls it),
-    // and the previous frame's for anyone calling from their own LateTick.</para>
+    // ---- ROUND 2 (2026-08-09): ONE SNAPSHOT PER FRAME, NOT ONE WALK PER SURFACE ---------------
+    //
+    // The first cut of this part answered every query by walking OrderedPanels and calling
+    // IFurnitureOrderAnchor.FurnitureEyeDistance per furniture group, per CALLER. With the fog-of-
+    // war kit's 333 live renderers in the shipped hardware scene that is ~5000 ladder iterations
+    // (each one a Unity-object liveness test) plus 333-666 anchor distance computations, every
+    // frame, inside a step that measured p50 0.17 ms before any of this existed. The perf pass
+    // flagged it and could not price it; this round removes the question instead of measuring it.
+    //
+    // The answer is a property of the FUNCTION, not of the caller: behindTop/frontFloor are step
+    // functions of the query distance with at most one breakpoint per ladder entry (13-16 panels
+    // plus one furniture group in the hardware log). So the ladder is snapshotted ONCE per frame
+    // into a small array sorted far -> near, with the prefix-maximum of the "top" order and the
+    // suffix-minimum of the "base" order folded in; a query is then two binary searches over
+    // ~17 floats and TWO array reads, with no Unity call and no allocation at all. Same numbers,
+    // same tie rules, ~300x fewer iterations.
+    //
+    // THE PREFIX-MAX IS NOT AN OPTIMISATION DETAIL — it is what keeps the answer monotone while
+    // the ladder is mid-swap. The ladder's own hysteresis deliberately lets two panels sit in the
+    // sequence "wrong way round" for up to OrderSwapStableFrames, so the raw order values are NOT
+    // monotone in distance during a swap. Taking the running maximum of everything farther (and
+    // the running minimum of everything nearer) restores "beat everything behind me / stay under
+    // everything in front of me" as a statement about SETS, which is what the contract above
+    // actually says, rather than about the one entry that happens to be adjacent.
 
     /// <summary>Sentinel from <see cref="OrderSeenThrough"/>: the ladder has nothing behind this
     /// surface, so the caller must leave the surface's authored order alone.</summary>
     internal const int NoSurfaceBehind = int.MinValue;
 
     /// <summary>
-    /// The sortingOrder a FOREIGN transparent surface (one the mod does not own and cannot
-    /// re-author — today: the game's undiscovered-room hex kit) must take so that it composites
-    /// correctly with the panel ladder and the board furniture band: above everything measurably
-    /// farther, below everything measurably nearer. See the header for the full argument.
+    /// One rung of the per-frame ladder snapshot: a converted panel's slot, or a furniture group's
+    /// band. After <see cref="BuildSeenThroughLadder"/> the array is sorted FAR -> NEAR and the two
+    /// order fields no longer hold that rung's own value but the running aggregate that a query
+    /// needs: <see cref="BehindTop"/> is the maximum "top" order over rungs 0..i (everything at
+    /// least this far away), <see cref="FrontBase"/> the minimum "base" order over rungs i..n-1
+    /// (everything at most this far away).
     /// </summary>
-    /// <param name="eye">Eye position (the same one <see cref="TickPanelOrder"/> measured with).</param>
-    /// <param name="eyeDistance">Distance from <paramref name="eye"/> to the nearest point of the
-    /// surface — the same measure <see cref="PanelEyeDistance"/> answers for a panel.</param>
-    /// <param name="lift">Head-room above the farthest-behind slot for that slot's own order
-    /// followers. Must stay under <see cref="PanelOrderStep"/> (same contract as every follower).</param>
-    /// <returns><see cref="NoSurfaceBehind"/> when nothing on the ladder is behind the surface.</returns>
-    internal static int OrderSeenThrough(Vector3 eye, float eyeDistance, int lift)
+    private struct LadderStep
     {
-        int behindTop = NoSurfaceBehind;
-        int frontFloor = int.MaxValue;
+        public float Distance;
+        public int BehindTop;
+        public int FrontBase;
+    }
 
+    /// <summary>The snapshot. Deliberately WITHOUT a field initializer (see the file header):
+    /// allocated on first use and grown in place, so a steady scene allocates nothing.</summary>
+    private static LadderStep[]? s_seenThroughLadder;
+
+    private static int s_seenThroughCount;
+
+    /// <summary>True when the ladder carries nothing at all this frame — no live converted panel
+    /// and no seated furniture group. A foreign surface then has nothing of ours to composite
+    /// against in EITHER direction, and its caller must hand the authored order back rather than
+    /// hold a lift that no longer stands for anything.</summary>
+    internal static bool SeenThroughLadderEmpty => s_seenThroughCount == 0;
+
+    /// <summary>
+    /// Snapshot the ladder for this frame. Called from <see cref="TickPanelOrder"/> AFTER the
+    /// panel orders and the furniture bands are assigned, so the snapshot is the CURRENT frame's
+    /// ladder rather than the previous one's, and BEFORE any consumer of
+    /// <see cref="SeenThroughBounds"/> runs.
+    ///
+    /// <para>Cost: one pass over the (13-16) live panels, one <c>FurnitureEyeDistance</c> per
+    /// furniture group (one board in the shipped scene), an insertion sort over that array — it
+    /// is nearly sorted every frame, because the panel list is ALREADY maintained far-to-near and
+    /// only the furniture rung has to find its place — and two linear folds. That is the entire
+    /// per-frame Unity-touching cost of the whole see-through manoeuvre, no matter how many
+    /// foreign surfaces query it afterwards.</para>
+    /// </summary>
+    internal static void BuildSeenThroughLadder(Vector3 eye)
+    {
+        int need = OrderedPanels.Count + FurnitureGroups.Count;
+        if (s_seenThroughLadder == null || s_seenThroughLadder.Length < need)
+            s_seenThroughLadder = new LadderStep[Mathf.Max(32, need * 2)];
+        LadderStep[] rungs = s_seenThroughLadder;
+
+        int n = 0;
         for (int i = 0; i < OrderedPanels.Count; i++)
         {
             ConvertedPanel p = OrderedPanels[i];
@@ -112,21 +165,15 @@ internal static partial class CanvasConversion
             // Hidden panels stay ranked, exactly as the ladder itself keeps ranking them: both
             // hides are transient, and a panel must be composited correctly the INSTANT it comes
             // back rather than six settle frames later.
-            if (p.OrderDistance > eyeDistance + OrderSwapMarginMeters)
-            {
-                if (p.DrawSortingOrder > behindTop)
-                    behindTop = p.DrawSortingOrder;
-            }
-            else if (p.OrderDistance < eyeDistance - OrderSwapMarginMeters)
-            {
-                if (p.DrawSortingOrder < frontFloor)
-                    frontFloor = p.DrawSortingOrder;
-            }
+            rungs[n].Distance = p.OrderDistance;
+            rungs[n].BehindTop = p.DrawSortingOrder;
+            rungs[n].FrontBase = p.DrawSortingOrder;
+            n++;
         }
 
         // The board's non-canvas transparent furniture is ranked as a BAND, not a slot (part 9),
         // so "behind" means clear its TOP and "in front" means stay under its BASE. Whenever the
-        // board carries any docked panel the panel loop above already dominates this — the docked
+        // board carries any docked panel the panel rungs above already dominate this — the docked
         // panels sit at or above the band's own rank — but a board whose panels are all gone (no
         // scenario UI up, everything closed) still has a placard and engraved labels to reveal,
         // and that case exists only here.
@@ -135,30 +182,125 @@ internal static partial class CanvasConversion
             FurnitureGroup group = FurnitureGroups[g];
             if (!group.Anchor.FurnitureOrderAlive || group.AppliedRank < 0)
                 continue;
-            float d = group.Anchor.FurnitureEyeDistance(eye);
             int bandBase = FurnitureBandBase(group.AppliedRank);
-            if (d > eyeDistance + OrderSwapMarginMeters)
-            {
-                int bandTop = bandBase + FurnitureBandWidth - 1;
-                if (bandTop > behindTop)
-                    behindTop = bandTop;
-            }
-            else if (d < eyeDistance - OrderSwapMarginMeters)
-            {
-                if (bandBase < frontFloor)
-                    frontFloor = bandBase;
-            }
+            rungs[n].Distance = group.Anchor.FurnitureEyeDistance(eye);
+            rungs[n].BehindTop = bandBase + FurnitureBandWidth - 1;
+            rungs[n].FrontBase = bandBase;
+            n++;
         }
 
+        // Insertion sort, far -> near. Chosen over Array.Sort deliberately: n is ~17, the array is
+        // already nearly sorted (the panel rungs arrive in ladder order), and Array.Sort on a
+        // struct array would need a comparer and therefore an allocation on the per-frame path.
+        for (int i = 1; i < n; i++)
+        {
+            LadderStep step = rungs[i];
+            int j = i - 1;
+            while (j >= 0 && rungs[j].Distance < step.Distance)
+            {
+                rungs[j + 1] = rungs[j];
+                j--;
+            }
+            rungs[j + 1] = step;
+        }
+
+        for (int i = 1; i < n; i++)
+        {
+            if (rungs[i - 1].BehindTop > rungs[i].BehindTop)
+                rungs[i].BehindTop = rungs[i - 1].BehindTop;
+        }
+        for (int i = n - 2; i >= 0; i--)
+        {
+            if (rungs[i + 1].FrontBase < rungs[i].FrontBase)
+                rungs[i].FrontBase = rungs[i + 1].FrontBase;
+        }
+
+        s_seenThroughCount = n;
+    }
+
+    /// <summary>
+    /// The two constraints a foreign transparent surface at <paramref name="eyeDistance"/> is
+    /// under, read off this frame's snapshot: it must be painted at or above
+    /// <paramref name="behindTop"/> (the highest order among everything measurably farther) and at
+    /// or below <paramref name="frontFloor"/> (the lowest order among everything measurably
+    /// nearer). <see cref="NoSurfaceBehind"/> / <see cref="int.MaxValue"/> mean "no such side".
+    ///
+    /// <para>Callers that only want a number use <see cref="OrderSeenThrough"/>. Callers that keep
+    /// a STICKY decision want the constraints themselves, because the cheapest and least twitchy
+    /// question a driver can ask is not "what would I choose now" but "is what I already chose
+    /// still correct" — an order that still satisfies both bounds needs no write, and a ladder
+    /// reshuffle entirely on one side of the surface therefore costs nothing and pops nothing.</para>
+    /// </summary>
+    internal static void SeenThroughBounds(float eyeDistance, out int behindTop, out int frontFloor)
+    {
+        behindTop = NoSurfaceBehind;
+        frontFloor = int.MaxValue;
+
+        LadderStep[]? rungs = s_seenThroughLadder;
+        int n = s_seenThroughCount;
+        if (rungs == null || n == 0)
+            return;
+
+        // Everything measurably FARTHER is the prefix [0..behindCount-1] of the far->near array.
+        int behindCount = FirstRungNearerThan(rungs, n, eyeDistance + OrderSwapMarginMeters, strict: false);
+        if (behindCount > 0)
+            behindTop = rungs[behindCount - 1].BehindTop;
+
+        // Everything measurably NEARER is the suffix [frontFrom..n-1].
+        int frontFrom = FirstRungNearerThan(rungs, n, eyeDistance - OrderSwapMarginMeters, strict: true);
+        if (frontFrom < n)
+            frontFloor = rungs[frontFrom].FrontBase;
+    }
+
+    /// <summary>
+    /// The sortingOrder a FOREIGN transparent surface (one the mod does not own and cannot
+    /// re-author — today: the game's undiscovered-room hex kit) must take so that it composites
+    /// correctly with the panel ladder and the board furniture band: above everything measurably
+    /// farther, below everything measurably nearer. See the header for the full argument.
+    /// </summary>
+    /// <param name="eyeDistance">Distance from the eye to the nearest point of the surface — the
+    /// same measure <see cref="PanelEyeDistance"/> answers for a panel.</param>
+    /// <param name="lift">Head-room above the farthest-behind slot for that slot's own order
+    /// followers. Must stay under <see cref="PanelOrderStep"/> (same contract as every follower).</param>
+    /// <returns><see cref="NoSurfaceBehind"/> when nothing on the ladder is behind the surface.</returns>
+    internal static int OrderSeenThrough(float eyeDistance, int lift)
+    {
+        SeenThroughBounds(eyeDistance, out int behindTop, out int frontFloor);
+        return ResolveSeenThrough(behindTop, frontFloor, lift);
+    }
+
+    /// <summary>The order that satisfies a pair of <see cref="SeenThroughBounds"/> constraints:
+    /// <c>min(behindTop + lift, frontFloor)</c>, never below <paramref name="behindTop"/> — a
+    /// nearer slot sitting BELOW a farther one (which the ladder's hysteresis permits mid-swap)
+    /// ties with what is behind, and Unity's own distance tie-break does the rest.</summary>
+    internal static int ResolveSeenThrough(int behindTop, int frontFloor, int lift)
+    {
         if (behindTop == NoSurfaceBehind)
             return NoSurfaceBehind;
-
         int want = behindTop + lift;
         if (want > frontFloor)
             want = frontFloor;
         if (want < behindTop)
-            want = behindTop; // a nearer slot BELOW a farther one: tie with what is behind, and
-                              // let Unity's own distance tie-break do the rest
+            want = behindTop;
         return want;
+    }
+
+    /// <summary>First index of the far-to-near snapshot whose rung is nearer than
+    /// <paramref name="value"/> (<paramref name="strict"/>) or not farther than it. The array is
+    /// sorted descending, so the predicate is monotone and a binary search is exact.</summary>
+    private static int FirstRungNearerThan(LadderStep[] rungs, int n, float value, bool strict)
+    {
+        int lo = 0;
+        int hi = n;
+        while (lo < hi)
+        {
+            int mid = (lo + hi) >> 1;
+            bool hit = strict ? rungs[mid].Distance < value : rungs[mid].Distance <= value;
+            if (hit)
+                hi = mid;
+            else
+                lo = mid + 1;
+        }
+        return lo;
     }
 }
