@@ -664,6 +664,22 @@ internal static partial class Loc
         ["avatar"] = Pair("Avatar", "Avatar"),
         ["head_mask"] = Pair("Head Mask", "Kopfmaske"),
         ["mask"] = Pair("Mask", "Maske"),
+        // MASK NAMES, ONE PER SHIPPED ID (user request 2026-08-09: "Ich will die Maske beim Avatar
+        // im Optionsmenü auch mit nem Dropdown auswählen können statt einem Schieberegler wie
+        // aktuell."). The key is "mask_name_" + the [Net] MaskId value, so HeadMaskLibrary.MaskNames
+        // can build the whole dropdown from MaskCount without a hand-typed list going stale — a
+        // fourth mask needs "mask_name_3" here and nothing else, and until someone adds it the
+        // dropdown falls back to "Mask 4" / "Maske 4" rather than losing the entry.
+        //
+        // The three names describe what the assets actually LOOK like, read off their albedo
+        // textures (unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_<n>_albedo.png): all three are
+        // dark-shelled carved masks whose only distinguishing feature at avatar distance is the
+        // colour glowing through the seams. Mask_0 is charcoal iron with amber-gold veins, Mask_1 is
+        // pale silver-bone with violet-blue veins, Mask_2 is dark bronze with teal veins. Anyone who
+        // swaps an asset must revisit its name here — nothing in the pipeline derives it.
+        ["mask_name_0"] = Pair("Amber", "Bernstein"),
+        ["mask_name_1"] = Pair("Violet", "Violett"),
+        ["mask_name_2"] = Pair("Teal", "Türkis"),
         ["mask_size"] = Pair("Mask size", "Maskengröße"),
         ["mirror"] = Pair("Mirror", "Spiegel"),
         ["remote_boards"] = Pair("Player boards", "Mitspieler-Boards"),

@@ -456,7 +456,14 @@ internal sealed class PingNameTag : MonoBehaviour
         _label.color = _baseColor;
         _label.fontStyle = FontStyles.Bold;
         TmpFit.Fit(_label, FallbackWidth, FallbackHeight, wrap: false);
-        WorldUI.MrBacking.Label(_label); // free-floating over the room in MR (plate dies with the tag)
+        // Free-floating over the room in MR (plate dies with the tag). fades: TRUE because this tag
+        // EXPIRES BY FADING its own colour alpha (see Tick's FadeTail) rather than by being switched
+        // off — and an MR plate is opaque by construction, so without the opt-in it stood at full
+        // opacity behind an already-invisible name for the whole 0.35 s tail and then vanished in
+        // one frame. Same residue class as the tooltip streak (user report 2026-08-09); see
+        // MrBacking's "THE PLATE MUST DIE WITH ITS CONTENT" for why the fade is opt-in and not read
+        // off every label's alpha automatically.
+        WorldUI.MrBacking.Label(_label, fades: true);
         // (The clone route needs no MR plate — the game tooltip brings its own backdrop.)
     }
 

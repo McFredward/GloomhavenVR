@@ -62,6 +62,48 @@ internal static class HeadMaskLibrary
         return null;
     }
 
+    /// <summary>Localization key for a mask's display name: this prefix + the mask's own ID.</summary>
+    private const string MaskNameKey = "mask_name_";
+
+    /// <summary>
+    /// The offered masks' display names, in ID ORDER — the option list for the settings panel's
+    /// mask dropdown (user request 2026-08-09: "Ich will die Maske beim Avatar im Optionsmenü auch
+    /// mit nem Dropdown auswählen können statt einem Schieberegler wie aktuell", which until now
+    /// was a 0/1/2 slider because <c>[Net] MaskId</c> is an int with an AcceptableValueRange and
+    /// the row kit reads the control off the stored type).
+    ///
+    /// <para>INDEX IS THE ID. Entry <c>i</c> of this array IS the value <c>[Net] MaskId</c> takes
+    /// for that mask, so the dropdown needs no mapping table and cannot drift out of step with the
+    /// wire (<see cref="AvatarState.MaskId"/> carries the same number).</para>
+    ///
+    /// <para>THE SET COMES FROM THIS CLASS, NOT FROM THE UI. The length is <see cref="MaskCount"/> —
+    /// the same constant that bounds <see cref="GetMaskPrefab"/>, the config's AcceptableValueRange
+    /// and the wire clamp — so a fourth mask is one edit HERE plus its name string, and the dropdown
+    /// grows on its own. Only the human-readable NAMES live in the loc table, and a mask with no
+    /// entry there degrades to "Mask 4" instead of vanishing from the list: an id the player can
+    /// still select beats a tidy list that silently drops a shipped asset. Deliberately NOT filtered
+    /// by <see cref="GetMaskPrefab"/> — that would force-load every prefab just to draw a menu, and
+    /// with the bundle absent it would offer an EMPTY dropdown for a setting that still works
+    /// (the placeholder head stands in, and the id still rides the wire to peers who do have it).</para>
+    ///
+    /// <para>Freshly built per call, like <c>MixedReality.KeyColorNames</c> and for the same reason:
+    /// it is read once when a settings row is built, and caching it would freeze the strings in
+    /// whatever language was current at the time.</para>
+    /// </summary>
+    public static string[] MaskNames()
+    {
+        var names = new string[MaskCount];
+        for (int i = 0; i < MaskCount; i++)
+        {
+            string key = MaskNameKey + i;
+            string text = Core.Loc.Mod(key);
+            // Loc.Mod hands the id back when the table has no entry — that IS the "unnamed mask"
+            // signal, and it must never reach the dropdown as the literal string "mask_name_3".
+            names[i] = text == key ? Core.Loc.Mod("mask") + " " + (i + 1) : text;
+        }
+        return names;
+    }
+
     /// <summary>Drop the cache so a freshly-shipped bundle is re-probed (module shutdown / hot reload).</summary>
     public static void Reset()
     {
