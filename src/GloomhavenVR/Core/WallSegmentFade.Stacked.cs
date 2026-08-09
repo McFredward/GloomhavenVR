@@ -463,6 +463,8 @@ internal static partial class WallSegmentFade
                 Bounds b = r.bounds;
                 if (IsArchProtected(b, r.name))
                     continue; // the doorway's arch stays solid (user ruling 2026-08-07)
+                if (IsWaterProtected(b))
+                    continue; // fountain/pond stays solid (user ruling 2026-08-09, brunnen.png)
                 Segment? best = null;
                 float bestGap = float.PositiveInfinity;
                 Segment? corner = null, cornerB = null;
@@ -809,6 +811,18 @@ internal static partial class WallSegmentFade
                             + "solid, user ruling 2026-08-07)");
                         continue;
                     }
+                    // WATER FEATURE (user ruling 2026-08-09, brunnen.png): a fountain's basin
+                    // is a plain low mesh standing next to masonry — exactly the shape this
+                    // pass adopts as a "shell piece". It never fades: its water plane has no
+                    // fade channel at all, so hiding the stone leaves the water in mid-air.
+                    if (IsWaterProtected(b))
+                    {
+                        _stackDead.Add(c);
+                        NoteStackReject(c, 0f,
+                            "WATER FEATURE (fountain/pond — permanently solid, user ruling "
+                            + "2026-08-09: 'er ist tief genug, dass er die Sicht nicht blockiert')");
+                        continue;
+                    }
 
                     Segment? best = null;
                     float bestGap = float.PositiveInfinity;
@@ -910,6 +924,8 @@ internal static partial class WallSegmentFade
                 Bounds b = c.bounds;
                 if (IsArchProtected(b, c.name))
                     continue; // arch stays solid (already rejected+logged by the adoption pass)
+                if (IsWaterProtected(b))
+                    continue; // fountain/pond stays solid (user ruling 2026-08-09, brunnen.png)
                 Segment? a = null, second = null;
                 float aGap = float.PositiveInfinity, secondGap = float.PositiveInfinity;
                 foreach (Segment seg in _segments.Values)
