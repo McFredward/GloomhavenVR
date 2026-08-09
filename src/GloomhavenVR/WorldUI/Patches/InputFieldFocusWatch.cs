@@ -100,21 +100,59 @@ internal static class InputFieldFocusWatch
 
         _registered = true; // set first: a throw must not retry-spam every frame
 
+        // THE TWO SEAMS ARE REGISTERED INDEPENDENTLY, AND ONLY THE FIRST ONE DECIDES.
+        //
+        // WHY (2026-08-09 regression). They used to share one try block and one Installed flag, so
+        // the DEACTIVATE seam failing to resolve — which is exactly what happened on this game's
+        // TMP, see InputFieldDeactivateWatch — took the ACTIVATE seam's benefit down with it and
+        // silently restored the FindObjectsOfType sweep for the whole session (measured at
+        // 90-99 ms/s in the hardware log, the mod's single most expensive step).
+        //
+        // That coupling was never necessary. Forget() is a pure OPTIMISATION: VRKeyboard re-tests
+        // isFocused && IsInteractable() on the remembered field before it attaches, so a field that
+        // was deactivated without us hearing about it is rejected on the very next tick anyway. The
+        // ACTIVATE postfix alone is therefore sufficient to retire the sweep, and it is the one that
+        // Installed now reports. A missing deactivate seam costs one stale reference and nothing
+        // else — it must never cost 9 % of the frame budget again.
         try
         {
             harmony.PatchAll(typeof(InputFieldActivateWatch));
-            harmony.PatchAll(typeof(InputFieldDeactivateWatch));
             Installed = true;
-            VRLog.Info("WorldUI",
-                $"{Name}: registered — TMP_InputField activation is now pushed to the VR keyboard. " +
-                "This replaces the 0.2 s FindObjectsOfType<TMP_InputField> fallback sweep, which the " +
-                "hardware log measured at 86 ms/s (worst 19.3 ms in a single frame) inside a loaded " +
-                "scenario — the mod's most expensive step by a wide margin.");
         }
         catch (Exception e)
         {
-            Degrade($"registration threw: {e.Message}");
+            Degrade($"ActivateInputField registration threw: {e.Message}");
+            return;
         }
+
+        bool forgetLive;
+        try
+        {
+            harmony.PatchAll(typeof(InputFieldDeactivateWatch));
+            forgetLive = true;
+        }
+        catch (Exception e)
+        {
+            // NOT a Degrade: the sweep stays retired (see above). One line so the log still says
+            // the deactivate seam is missing, because a stale reference is a real, if harmless,
+            // difference in behaviour.
+            forgetLive = false;
+            VRLog.Warn(Name,
+                $"the DeactivateInputField seam did not register ({e.Message}). This is not the "
+                + "expensive half: the activation push is live, so the FindObjectsOfType sweep stays "
+                + "retired. The only effect is that a field which loses focus without being "
+                + "deactivated through TMP stays remembered until the next activation — and "
+                + "VRKeyboard re-checks isFocused/IsInteractable before attaching, so it is rejected "
+                + "there.");
+        }
+
+        VRLog.Info("WorldUI",
+            $"{Name}: registered — TMP_InputField activation is now pushed to the VR keyboard" +
+            (forgetLive ? " (and deactivation clears it)" : " (deactivation seam absent — see above)") +
+            ". This replaces the 0.2 s FindObjectsOfType<TMP_InputField> fallback sweep, which the " +
+            "hardware log measured at 90-99 ms/s (worst 23 ms in a single frame) inside a loaded " +
+            "scenario — the mod's most expensive step by a wide margin, on BOTH machines of the " +
+            "multiplayer session, with or without a peer.");
     }
 
     /// <summary>Log the first failure and thereafter stay silent.</summary>
@@ -148,9 +186,30 @@ internal static class InputFieldActivateWatch
 /// instance, so one field losing focus never clears another's.
 ///
 /// <para>Resolved through <c>TargetMethod</c> rather than the attribute's type-array form because
-/// TMP ships this name OVERLOADED (a later version added a <c>clearSelection</c> parameter). Naming
-/// the empty signature explicitly picks the no-argument entry point on every TMP version and, if
-/// some build has only the overload, degrades loudly instead of patching the wrong method.</para>
+/// TMP ships this name OVERLOADED ACROSS VERSIONS: TMP 1.x/2.0 declare <c>DeactivateInputField()</c>,
+/// TMP 3.0.x declare <c>DeactivateInputField(bool clearSelection = false)</c> and NOTHING ELSE — the
+/// no-argument call sites in the game bind to it through the default value, so the method with an
+/// empty parameter list does not exist in the assembly at all.</para>
+///
+/// <para>THE 2026-08-09 REGRESSION THIS FIXES. Asking only for the empty signature is what actually
+/// shipped, and on this game's TMP it resolved to null:</para>
+/// <code>
+/// [Warning] [InputFieldFocusWatch] disabled — method not found: TMP_InputField.DeactivateInputField().
+///           The VR keyboard falls back to its FindObjectsOfType sweep …
+/// [Perf] STEPS 30.0s … VRKeyboard 99.5ms/s …
+/// </code>
+/// <para>So the whole point of this class — killing the mod's most expensive step — was silently
+/// undone at runtime, and the hardware log measured the sweep back at 90–99 ms of EVERY SECOND on
+/// both machines (≈9 % of all frame time at 90 Hz, arriving as a ~20 ms stall five times a second).
+/// It is not a multiplayer cost, but it is what turned an MP session — which adds a further
+/// ~90 ms/s of mirrored-board work per peer — from heavy into unplayable.</para>
+///
+/// <para>THE FIX IS TO ASK FOR BOTH SHAPES, most specific first: the no-argument entry point when a
+/// TMP version has one, otherwise the <c>(bool)</c> overload, which is the SAME single exit from
+/// focus — <c>DeactivateInputField()</c> in TMP 3.0.x IS <c>DeactivateInputField(false)</c>. The
+/// postfix takes only <c>__instance</c>, so it binds to either signature unchanged; Harmony passes
+/// no argument it does not ask for. If NEITHER exists, this seam is simply skipped with one warning
+/// and the sweep still stays retired — see <c>EnsureRegistered</c> for why this half is optional.</para>
 /// </summary>
 [HarmonyPatch]
 internal static class InputFieldDeactivateWatch
@@ -159,16 +218,20 @@ internal static class InputFieldDeactivateWatch
     {
         try
         {
+            // Most specific first. Both shapes are the one and only exit from TMP focus, so
+            // whichever this TMP declares is the right postfix seam.
             MethodInfo? off = AccessTools.Method(
-                typeof(TMP_InputField), "DeactivateInputField", Type.EmptyTypes);
-            if (off == null)
-                InputFieldFocusWatch.Degrade("method not found: TMP_InputField.DeactivateInputField()");
+                                  typeof(TMP_InputField), "DeactivateInputField", Type.EmptyTypes)
+                              ?? AccessTools.Method(
+                                  typeof(TMP_InputField), "DeactivateInputField", new[] { typeof(bool) });
             return off;
         }
-        catch (Exception e)
+        catch
         {
-            InputFieldFocusWatch.Degrade(
-                $"TMP_InputField.DeactivateInputField resolution threw: {e.Message}");
+            // Deliberately silent and deliberately NOT a Degrade: this seam is the optional half
+            // (see InputFieldFocusWatch.EnsureRegistered). Returning null makes Harmony throw, and
+            // the caller logs the one warning — clearing Installed from in here is precisely the
+            // coupling that cost 9 % of the frame budget for a whole session.
             return null;
         }
     }
