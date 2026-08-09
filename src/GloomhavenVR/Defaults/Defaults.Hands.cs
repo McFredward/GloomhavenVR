@@ -67,10 +67,10 @@ internal static partial class Defaults
     // The plate hangs on the palm side; the base rotation is a half turn about the finger axis so
     // its READABLE face (a uGUI canvas reads from -Z) points out of the palm — see
     // WristHud.PalmFlat and the measured frame in WristHud.Build. The values below are the
-    // hardware-tuned pose from the 2026-08-09 test, re-based mechanically from the dropped cfg;
-    // they survived the palm flip unchanged because the trims compose in the WRIST frame BEFORE
-    // the half turn (WristHud.ApplyPose), which turns the face over without moving the plate.
-    // The OFFSETS are in that same wrist frame: Side = across the hand, Finger = toward the
+    // hardware-tuned pose from the 2026-08-09 test, re-based mechanically from the dropped cfg.
+    // They were captured on a build that ALREADY had the palm flip, so the trims are stated in the
+    // post-flip plate frame (WristHud.ApplyPose composes base × trim) — do not re-express them.
+    // The OFFSETS are in the wrist frame: Side = across the hand, Finger = toward the
     // fingertips, Lift = out of the palm. The gauntlet wears it close (5 cm down the arm, 2 cm
     // clear); plate and arcane push it 13 cm down the forearm and 7.5 cm out, where those bulkier
     // meshes leave room. Predecessors (GlovePitch/GloveOffsetX/...

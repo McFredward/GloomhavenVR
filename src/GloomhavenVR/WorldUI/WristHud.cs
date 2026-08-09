@@ -194,9 +194,9 @@ internal sealed class WristHud
 
     /// <summary>
     /// THE PALM BASE — a half turn about the wrist's own +Y (the finger axis). See Build's
-    /// rotation block for the measured derivation; the live pitch/yaw/roll compose in the WRIST
-    /// frame BEFORE it (see <see cref="ApplyPose"/>), so a trim of 0/0/0 IS the shipped orientation
-    /// and a trim tuned against the previous base still means what it meant.
+    /// rotation block for the measured derivation; the live pitch/yaw/roll compose in the plate's
+    /// own frame on top of it (see <see cref="ApplyPose"/>), so a trim of 0/0/0 IS this orientation
+    /// and the per-style trims beside it are stated relative to it.
     ///
     /// <para>Half a turn and not the identity because a uGUI canvas is READ FROM ITS -Z SIDE: a
     /// canvas with identity rotation is the one Unity's default camera — parked at negative z,
@@ -221,29 +221,23 @@ internal sealed class WristHud
     /// Build and every Tick, so the "Wrist" steppers move the watch face immediately.
     /// </summary>
     /// <remarks>
-    /// TRIM FIRST, THEN THE HALF TURN — the order is load-bearing, not style.
+    /// BASE FIRST, THEN THE TRIM — the trims rotate in the PLATE's own frame, which is the order
+    /// this class has always composed in and the order the shipped pose was tuned against.
     ///
-    /// <para>Composed the other way round (base × trim, as the un-mirrored round shipped it) the
-    /// trims would rotate in the PLATE's own frame, on top of a base that has just turned 180°.
-    /// Every angle a player had already dialled in would then mean its own opposite: a pitch that
-    /// tipped the plate toward the forearm now tips it toward the fingers, i.e. it moves by TWICE
-    /// the trim. The user's tuned 32° would have swung the face by 64°.</para>
-    ///
-    /// <para>Trim × base instead applies the trims in the WRIST frame and turns the plate over
-    /// afterwards. Algebraically it is R_old·Ry(180), which keeps the plate's PLANE and its text-up
-    /// exactly where they were and flips only which face points at the reader — precisely "mach es
-    /// richtig rum", with nothing else moving. That is why the palm flip needs no key rename and no
-    /// migration marker, unlike the turn-around before it: every saved value survives it meaning
-    /// the same thing. It also reads better on the dials — pitch tips about the across-hand axis,
-    /// yaw spins about the finger axis, roll rolls about the palm normal, none of them dependent on
-    /// what the other two are set to.</para>
+    /// <para>DO NOT "FIX" THIS TO trim × base. It was swapped once, on the reasoning that a pose
+    /// tuned before the palm flip would otherwise mean its own opposite — true of a pose tuned
+    /// against the PRE-flip base, and the shipped one is not: it was measured on hardware AFTER the
+    /// flip, so it is stated in this frame and the swap displaced every angle of it. The lesson is
+    /// the cheaper of the two: check WHEN a tuned value was captured before rewriting the frame it
+    /// is expressed in — the cfg snapshot's own timestamp settles it, and so does a rebase-defaults
+    /// check that was clean before the drop.</para>
     /// </remarks>
     private void ApplyPose()
     {
         if (_root == null)
             return;
         _root.transform.localPosition = new Vector3(OffsetX, OffsetY, OffsetZ);
-        _root.transform.localRotation = Quaternion.Euler(PitchDeg, YawDeg, RollDeg) * PalmFlat;
+        _root.transform.localRotation = PalmFlat * Quaternion.Euler(PitchDeg, YawDeg, RollDeg);
     }
 
     public void Tick()
@@ -469,10 +463,10 @@ internal sealed class WristHud
         // the seat roll/yaw and the pinky counter-abduction, which mirror because they are stated
         // in the CONTROLLER's frame. Left wrist and right wrist get the same, correct plate.
         //
-        // The per-style pitch/yaw/roll keep meaning exactly what they meant, because they are
-        // applied in the WRIST frame BEFORE this half turn (ApplyPose's remarks give the algebra):
-        // a pose tuned against the identity base keeps its plane and its text-up and only turns
-        // its readable face around. The pre-turn-around trims could not be carried
+        // The per-style pitch/yaw/roll are a tilt in the plate's own frame on top of this base
+        // (ApplyPose), and the shipped ones were measured on hardware against exactly this base —
+        // see the warning in ApplyPose before touching that order. The pre-turn-around trims could
+        // not be carried
         // over: they were the correction for a base that no longer exists, so their KEYS were
         // renamed ({Style}PalmPitch etc., HandsConfig) — a saved -180° yaw silently surviving
         // into the new base would have put the plate straight back on the knuckles, which is
