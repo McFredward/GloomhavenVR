@@ -1155,12 +1155,18 @@ internal sealed class RemoteControlBoard
         // slab, localized caption beneath, top slab greying out at zero) instead of the old single
         // flat card-back quad. Colors are the local stacks' verbatim; sizes come from the authored
         // Defaults so every client renders a given board identically regardless of local tuning.
+        // …and the OWNER's own item-cue dials ride along (record 28, ids 161..165): only the items
+        // stack ever builds the cue, but all three are handed the tuning so the day another stack
+        // grows one there is no second place to remember.
         _piles[0] = new PileCounter(contentParent, "DiscardStack", AnchorLocal(CardFxAnchor.Discard, _layout),
-            new Color(0.55f, 0.48f, 0.34f), PileViewer.Caption(PileKind.Discard), _layout.PileScale);
+            new Color(0.55f, 0.48f, 0.34f), PileViewer.Caption(PileKind.Discard), _layout.PileScale,
+            _owner.BoardTuning);
         _piles[1] = new PileCounter(contentParent, "BurntStack", AnchorLocal(CardFxAnchor.Burnt, _layout),
-            new Color(0.45f, 0.22f, 0.16f), PileViewer.Caption(PileKind.Burnt), _layout.PileScale);
+            new Color(0.45f, 0.22f, 0.16f), PileViewer.Caption(PileKind.Burnt), _layout.PileScale,
+            _owner.BoardTuning);
         _piles[2] = new PileCounter(contentParent, "ItemStack", AnchorLocal(CardFxAnchor.Items, _layout),
-            new Color(0.30f, 0.42f, 0.26f), PileViewer.Caption(PileKind.Items), _layout.PileScale);
+            new Color(0.30f, 0.42f, 0.26f), PileViewer.Caption(PileKind.Items), _layout.PileScale,
+            _owner.BoardTuning);
 
         // Full-parity panels. The initiative TRACK and the OBJECTIVES panel now mirror the game's
         // OWN widgets (RemoteWidgetMirror) and keep their mod-drawn versions only as fallbacks;
@@ -1381,17 +1387,31 @@ internal sealed class RemoteControlBoard
         private bool _usableCueOn;
         private readonly Transform _root;
 
-        // ---- frozen cue dials -------------------------------------------------------------------
-        // The owner's own [Cards] ItemCue* values do NOT ride the wire — extension record 28 (BOARD
-        // TUNING) is at its exact 255-byte ceiling and cannot carry another field — so a peer draws
-        // this cue at the SHIPPED defaults. Naming the Defaults entries (rather than re-typing the
-        // numbers) is what keeps an untuned table in agreement when a default moves; the pairs are
-        // pinned in scripts/check-remote-defaults.py so the second home can never be forgotten.
-        private const float ItemCueBeatSeconds = Defaults.ItemCueBeatSeconds;
-        private const float ItemCueRingReach = Defaults.ItemCueRingReach;
-        private const float ItemCueRingAlpha = Defaults.ItemCueRingAlpha;
-        private const float ItemCueEmberRate = Defaults.ItemCueEmberRate;
-        private const float ItemCueEmberSize = Defaults.ItemCueEmberSize;
+        // ---- the owner's own CUE dials (extension record 28, ids 161..165) -----------------------
+        // WIRE-OVERRIDABLE FALLBACKS, the same shape RemoteHandFan's geometry and RemoteItemFan's
+        // animation already use: the value the owner set where they moved the dial, this client's
+        // shipped constant where they did not — which is the same number, so an untuned peer's cue
+        // beats exactly as this build ships it. Seeded in the constructor; the rings and embers are
+        // built LAZILY on the first SetUsableCue(true), by which time these are long since set, and
+        // a change to the owner's tuning rebuilds the whole board (_builtTuningRevision).
+        //
+        // THEY WERE `const` UNTIL THIS ROUND, for a capacity reason and no other: record 28 stood at
+        // exactly its 255-byte per-record ceiling when this cue landed, so its dials could not ride
+        // and every peer beat at the shipped tempo whatever its owner had tuned. Paging removed the
+        // ceiling (Net/BoardTunePages.cs) and reserved these ids for exactly these dials, so the
+        // reason expired — and this cue is precisely what the 1:1 ruling is about: "Ändert ein
+        // Spieler also die Positionen für sich selber, so sollen alle anderen diese Position bei
+        // seinem board auch sehen" (2026-08-09), read together with the older ruling that names
+        // ANIMATIONS outright.
+        //
+        // Naming the Defaults entries rather than re-typing the numbers is still what keeps an
+        // untuned table in agreement when a default moves; the pairs stay pinned in
+        // scripts/check-remote-defaults.py, which accepts this form for that exact reason.
+        private float _itemCueBeatSeconds = Defaults.ItemCueBeatSeconds;
+        private float _itemCueRingReach = Defaults.ItemCueRingReach;
+        private float _itemCueRingAlpha = Defaults.ItemCueRingAlpha;
+        private float _itemCueEmberRate = Defaults.ItemCueEmberRate;
+        private float _itemCueEmberSize = Defaults.ItemCueEmberSize;
 
         /// <summary>Ring line thickness as a fraction of its own starting diameter — verbatim
         /// <c>PileViewer.PileStack.RingBandFraction</c>: thick enough that the two-tone edge
@@ -1404,7 +1424,7 @@ internal sealed class RemoteControlBoard
         private static readonly Color EmberColor = new(1f, 0.80f, 0.36f, 0.85f);
 
         public PileCounter(Transform parent, string name, Vector3 localPos, Color color,
-            string caption, float scale)
+            string caption, float scale, in RemoteBoardTuning tuning)
         {
             var root = new GameObject(name).transform;
             root.SetParent(parent, worldPositionStays: false);
@@ -1414,6 +1434,17 @@ internal sealed class RemoteControlBoard
             // the owner's own PileViewer stack carries.
             root.localScale = Vector3.one * (scale > 0f ? scale : 1f);
             _baseColor = color;
+
+            // The OWNER's own cue dials (record 28, ids 161..165), taken HERE and not where the cue
+            // is built: the rings and embers are built lazily on the first SetUsableCue(true), an
+            // edge that may arrive many seconds later, while the tuning is a build-time fact (a
+            // change to it rebuilds the whole board). Guarded the way the local PileViewer guards
+            // its own copies, because a WIRE value is never trusted — a zero beat divides.
+            _itemCueBeatSeconds = Mathf.Max(0.2f, tuning.ItemCueBeatSeconds);
+            _itemCueRingReach = Mathf.Max(1f, tuning.ItemCueRingReach);
+            _itemCueRingAlpha = Mathf.Clamp01(tuning.ItemCueRingAlpha);
+            _itemCueEmberRate = Mathf.Max(0f, tuning.ItemCueEmberRate);
+            _itemCueEmberSize = Mathf.Max(0.1f, tuning.ItemCueEmberSize);
 
             // Stack body — the local recipe verbatim (PileViewer.PileStack.Create): 4 thin slabs,
             // each a step behind the previous (+Z is into the board) with a small alternating
@@ -1546,11 +1577,11 @@ internal sealed class RemoteControlBoard
         /// </summary>
         private WorldUI.SoftCueReveal? BuildUsableRings()
         {
-            float alpha = Mathf.Clamp01(ItemCueRingAlpha);
-            float reach = Mathf.Max(1f, ItemCueRingReach);
+            float alpha = Mathf.Clamp01(_itemCueRingAlpha);
+            float reach = Mathf.Max(1f, _itemCueRingReach);
             if (alpha <= 0.002f || reach <= 1.001f)
-                return null; // dialled off in the shipped defaults — build nothing at all
-            float beat = Mathf.Max(0.2f, ItemCueBeatSeconds);
+                return null; // dialled off by the OWNER (or in the shipped defaults) — build nothing
+            float beat = Mathf.Max(0.2f, _itemCueBeatSeconds);
             float seed = Mathf.Max(SlabW, SlabH) * 1.05f; // just around the stack's own footprint
 
             var root = new GameObject("UsableRings");
@@ -1622,9 +1653,9 @@ internal sealed class RemoteControlBoard
             go.transform.localPosition = new Vector3(0f, 0f, -0.0016f);
             go.transform.localRotation = Quaternion.identity;
 
-            float beat = Mathf.Max(0.2f, ItemCueBeatSeconds);
-            float rate = Mathf.Max(0f, ItemCueEmberRate);
-            float emberSize = Mathf.Max(0.1f, ItemCueEmberSize);
+            float beat = Mathf.Max(0.2f, _itemCueBeatSeconds);
+            float rate = Mathf.Max(0f, _itemCueEmberRate);
+            float emberSize = Mathf.Max(0.1f, _itemCueEmberSize);
 
             var ps = go.AddComponent<ParticleSystem>();
             ParticleSystem.MainModule main = ps.main;

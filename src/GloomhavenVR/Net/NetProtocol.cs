@@ -2249,11 +2249,13 @@ internal static class NetProtocol
     /// effective radius since <see cref="TuneFanEffectiveRadius"/>.</summary>
     public const byte TuneFanRadius = 79;
 
-    /// <summary>[Cards] ItemBerthRingThickness — RESERVED for the item-use BERTH round developed in
-    /// parallel with this one (the outline thickness of the card-shaped recess, in metres). Declared
-    /// here so the merge is a sampler line and a struct member, never an id negotiation: an id, once
-    /// shipped, can never be renumbered, and two workers picking "the next free number" is exactly
-    /// how this file already collected one collision (see the note above record 22).</summary>
+    /// <summary>[Cards] ItemBerthRingThickness — the outline thickness of the card-shaped item-use
+    /// recess, in metres. The id was RESERVED here by the paging round for the item-use BERTH round
+    /// developed in parallel with it, so that the merge would be a sampler line and a struct member
+    /// and never an id negotiation: an id, once shipped, can never be renumbered, and two workers
+    /// picking "the next free number" is exactly how this file already collected one collision (see
+    /// the note above record 22). The reservation was CLAIMED in that merge — this is a live field,
+    /// written by <c>BoardTuningSampler.Sample</c> and resolved by <c>RemoteBoardTuning</c>.</summary>
     public const byte TuneItemBerthRingThickness = 80;
 
     // FACTOR (2 B, thousandths): dimensionless multipliers.
@@ -2352,26 +2354,64 @@ internal static class NetProtocol
     /// <summary>[Cards] FanRadiusFactor_Burnt.</summary>
     public const byte TuneFanRadiusFactorBurnt = 160;
 
-    // RESERVED for the item-cue / item-berth round developed in parallel (see the note at id 80).
-    // Ten dials, all [Cards] floats; declared here so the merge cannot become an id negotiation.
+    // The USABLE-ITEM CUE and the ITEM-USE BERTH (ids 161..169 here, plus 80). The paging round
+    // RESERVED these ids for the re-art round developed in parallel with it (see the note at id 80);
+    // the merge CLAIMED them, so all ten are live fields now — sampled, resolved and consumed by
+    // RemoteControlBoard's mirrored pile cue and RemoteBoardFurniture's mirrored berth. They landed
+    // in that parallel round as FROZEN constants for one reason only: record 28 stood at exactly its
+    // 255-byte ceiling and could not carry an eleventh dial. Paging removed the ceiling, so the
+    // reason expired and the 1:1 ruling ("Ändert ein Spieler also die Positionen für sich selber, so
+    // sollen alle anderen diese Position bei seinem board auch sehen", 2026-08-09) applies with
+    // nothing left to weigh against it.
+    //
+    // SECONDS AND PER-SECOND RATES IN THE FACTOR RANGE is the established convention here and not a
+    // category error: an id range fixes the value WIDTH, never the unit (see the record doc and the
+    // item-fan block above). The one dial that does NOT fit the factor width's own NUMERIC range is
+    // called out at its id.
 
-    /// <summary>[Cards] ItemCueBeatSeconds — RESERVED: the usable-item cue's heartbeat period.</summary>
+    /// <summary>[Cards] ItemCueBeatSeconds — the usable-item cue's heartbeat period, seconds.</summary>
     public const byte TuneItemCueBeatSeconds = 161;
-    /// <summary>[Cards] ItemCueRingReach — RESERVED: how far a cue ring travels off the pile.</summary>
+    /// <summary>[Cards] ItemCueRingReach — how far a cue ring travels off the pile, as a multiple of
+    /// the pile's own footprint.</summary>
     public const byte TuneItemCueRingReach = 162;
-    /// <summary>[Cards] ItemCueRingAlpha — RESERVED: peak opacity of those rings.</summary>
+    /// <summary>[Cards] ItemCueRingAlpha — peak opacity of those rings.</summary>
     public const byte TuneItemCueRingAlpha = 163;
-    /// <summary>[Cards] ItemCueEmberRate — RESERVED: embers per second off the closed items pile.</summary>
+
+    // ID 164 IS THE ONE DIAL ON THIS RECORD WHOSE OWN CONFIG RANGE DOES NOT FIT ITS WIDTH, so it is
+    // carried in TENTHS of its unit and the reason is written here rather than left to arithmetic.
+    // The FACTOR width is an i16 in thousandths and therefore saturates at 32.767, while
+    // [Cards] ItemCueEmberRate accepts 0..60 embers per second. Sampled RAW, a player at 40
+    // embers/s would be CLAMPED to 32.767 on every peer's screen — a silent divergence, which is
+    // precisely the failure the 1:1 ruling and scripts/check-wire-coverage.py exist to stop, and one
+    // that is invisible from inside the owner's own headset. Scaled by a tenth the whole config
+    // range codes to ≤6000 at 0.01 embers/s of resolution (finer than a particle emitter can
+    // express), and the id STAYS where the paging round reserved it: an id is a wire constant and
+    // can never be renumbered, whereas the unit a field is carried in is just a convention the two
+    // ends share — which the record already relies on for seconds in the factor range and for whole
+    // percent in the count range.
+
+    /// <summary>[Cards] ItemCueEmberRate — embers per second off the closed items pile, carried in
+    /// TENTHS of an ember per second (see the note above and
+    /// <see cref="TuneItemCueEmberRateScale"/>).</summary>
     public const byte TuneItemCueEmberRate = 164;
-    /// <summary>[Cards] ItemCueEmberSize — RESERVED: ember size multiplier.</summary>
+
+    /// <summary>The unit <see cref="TuneItemCueEmberRate"/> is carried in: TENTHS of an ember per
+    /// second. Named once rather than typed twice, because a sender and a receiver that disagreed
+    /// about it would disagree by a factor of ten with nothing failing. It lives in exactly two
+    /// places — <c>BoardTuningSampler.Sample</c> and <c>RemoteBoardTuning</c> — so every consumer
+    /// still reads a plain embers-per-second float and no renderer learns what it crossed in.</summary>
+    public const float TuneItemCueEmberRateScale = 0.1f;
+
+    /// <summary>[Cards] ItemCueEmberSize — ember size multiplier.</summary>
     public const byte TuneItemCueEmberSize = 165;
-    /// <summary>[Cards] ItemBerthGlow — RESERVED: brightness of the additive field in the recess.</summary>
+    /// <summary>[Cards] ItemBerthGlow — brightness of the additive warm field inside the recess.</summary>
     public const byte TuneItemBerthGlow = 166;
-    /// <summary>[Cards] ItemBerthPingSeconds — RESERVED: period of the inward "put it here" ping.</summary>
+    /// <summary>[Cards] ItemBerthPingSeconds — period of the inward "put it here" ping, seconds.</summary>
     public const byte TuneItemBerthPingSeconds = 167;
-    /// <summary>[Cards] ItemBerthPingReach — RESERVED: where outside the card rect that ping starts.</summary>
+    /// <summary>[Cards] ItemBerthPingReach — where outside the card rect that ping starts, as a
+    /// multiple of the card.</summary>
     public const byte TuneItemBerthPingReach = 168;
-    /// <summary>[Cards] ItemBerthRevealSeconds — RESERVED: grow-in / collapse-out time of the recess.</summary>
+    /// <summary>[Cards] ItemBerthRevealSeconds — grow-in / collapse-out time of the recess, seconds.</summary>
     public const byte TuneItemBerthRevealSeconds = 169;
 
     // ANGLE (2 B, hundredth-degrees).

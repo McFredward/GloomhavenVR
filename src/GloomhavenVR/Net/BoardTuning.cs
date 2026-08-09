@@ -47,7 +47,15 @@ namespace GloomhavenVR.Net;
 /// <see cref="Sample"/> rebuilds the field list into a persistent buffer on every send;
 /// <see cref="BoardTunePageSender.Update"/> byte-compares it against the list it holds, so an
 /// unchanged config costs one memcmp and the serializer's write path is a bounded copy of one page.
-/// Rebuilding is cheap enough to run per send — it allocates nothing and touches ~76 config entries.
+/// Rebuilding is cheap enough to run per send — it allocates nothing and touches ~86 config entries.
+///
+/// ─── AND THAT NUMBER IS NOW ALLOWED TO GROW ────────────────────────────────────────────────────
+/// It went 76 → 86 when the item-cue / item-berth re-art's ten dials were wired (ids 80 / 161..169),
+/// which is worth stating because under the OLD scheme it could not have: those ten are the exact
+/// dials that had to ship as frozen constants while the record stood at 255 bytes. The complete
+/// field list is 314 bytes at its worst case now (was 284) and still splits into TWO pages, so the
+/// convergence bound written down in <see cref="BoardTunePages"/> — complete state by
+/// T + pageCount × 200 ms — is unchanged at ≤400 ms.
 /// </summary>
 /// <remarks>CLASSIFICATION: WIRE (extension record 28) — LOCAL CONFIG that is neither GLOBAL (each
 /// player has their own) nor derivable from anything already synced. See INVARIANTS-Net-Rig.md
@@ -143,7 +151,7 @@ internal static class BoardTuningSampler
         n += Vec(payload, ref i, NetProtocol.TuneAssetOffset,
                  CardsConfig.AssetOffset(style), CardsConfig.BoardDefaults.AssetOffset[b]);
 
-        // ---- LENGTH fields (ids 64..75) — scalars measured in metres ------------------------
+        // ---- LENGTH fields (ids 64..80) — scalars measured in metres ------------------------
         n += Len(payload, ref i, NetProtocol.TunePileSpacing,
                  CardsConfig.PileSpacing(style), Defaults.PileSpacing_ByBoard[b]);
         n += Len(payload, ref i, NetProtocol.TuneRestButtonDiameter,
@@ -183,8 +191,14 @@ internal static class BoardTuningSampler
         // RemoteItemFan), so an owner who widened their pile fans was the only person who saw it.
         n += Len(payload, ref i, NetProtocol.TuneFanRadius,
                  CardsConfig.FanRadius, Defaults.FanRadius);
+        // The ITEM-USE BERTH's outline thickness (id 80) — the first of the ten dials the item-cue /
+        // item-berth re-art shipped as FROZEN constants because the record stood at exactly 255 and
+        // could not carry them. The paging round reserved the ids for them; this claims the first.
+        n += Len(payload, ref i, NetProtocol.TuneItemBerthRingThickness,
+                 CardsConfig.ItemBerthRingThickness, Defaults.ItemBerthRingThickness);
 
-        // ---- FACTOR fields (ids 128..142) — dimensionless multipliers ------------------------
+        // ---- FACTOR fields (ids 128..169) — dimensionless multipliers, plus the seconds- and
+        // per-second-valued dials that ride this WIDTH (the id range fixes the width, not the unit)
         n += Fac(payload, ref i, NetProtocol.TuneObjectivesScale,
                  CardsConfig.ObjectivesScale(style), CardsConfig.BoardDefaults.ObjectivesScale[b]);
         n += Fac(payload, ref i, NetProtocol.TuneObjectivesWidth,
@@ -263,6 +277,38 @@ internal static class BoardTuningSampler
                  CardsConfig.FanRadiusFactor(PileKind.Discard), Defaults.FanRadiusFactor_Discard);
         n += Fac(payload, ref i, NetProtocol.TuneFanRadiusFactorBurnt,
                  CardsConfig.FanRadiusFactor(PileKind.Burnt), Defaults.FanRadiusFactor_Burnt);
+        // The USABLE-ITEM CUE and the ITEM-USE BERTH (ids 161..169, plus 80 above). These nine and
+        // the berth's outline were FROZEN constants in RemoteControlBoard's mirrored pile cue and
+        // RemoteBoardFurniture's mirrored berth, for one reason and one only: record 28 was at its
+        // exact 255-byte ceiling when that re-art landed, so its ten dials could not ride. Paging
+        // removed the ceiling and the reason expired — an owner who slows their item heartbeat,
+        // dims the rings or opens the berth's glow must be SEEN doing it, which is the 1:1 ruling
+        // read literally ("Ändert ein Spieler also die Positionen für sich selber, so sollen alle
+        // anderen diese Position bei seinem board auch sehen", 2026-08-09) and, for the animated
+        // half of them, the older ruling that names ANIMATIONS outright.
+        n += Fac(payload, ref i, NetProtocol.TuneItemCueBeatSeconds,
+                 CardsConfig.ItemCueBeatSeconds, Defaults.ItemCueBeatSeconds);
+        n += Fac(payload, ref i, NetProtocol.TuneItemCueRingReach,
+                 CardsConfig.ItemCueRingReach, Defaults.ItemCueRingReach);
+        n += Fac(payload, ref i, NetProtocol.TuneItemCueRingAlpha,
+                 CardsConfig.ItemCueRingAlpha, Defaults.ItemCueRingAlpha);
+        // …and the ONE dial whose config range (0..60 embers/s) overruns the factor width's own
+        // ±32.767, carried in TENTHS so a player at 40 embers/s is not silently clamped to 32.767 on
+        // every peer's screen. The scale is NetProtocol's, named once and un-applied in
+        // RemoteBoardTuning; see TuneItemCueEmberRate for the whole argument.
+        n += FacScaled(payload, ref i, NetProtocol.TuneItemCueEmberRate,
+                       CardsConfig.ItemCueEmberRate, Defaults.ItemCueEmberRate,
+                       NetProtocol.TuneItemCueEmberRateScale);
+        n += Fac(payload, ref i, NetProtocol.TuneItemCueEmberSize,
+                 CardsConfig.ItemCueEmberSize, Defaults.ItemCueEmberSize);
+        n += Fac(payload, ref i, NetProtocol.TuneItemBerthGlow,
+                 CardsConfig.ItemBerthGlow, Defaults.ItemBerthGlow);
+        n += Fac(payload, ref i, NetProtocol.TuneItemBerthPingSeconds,
+                 CardsConfig.ItemBerthPingSeconds, Defaults.ItemBerthPingSeconds);
+        n += Fac(payload, ref i, NetProtocol.TuneItemBerthPingReach,
+                 CardsConfig.ItemBerthPingReach, Defaults.ItemBerthPingReach);
+        n += Fac(payload, ref i, NetProtocol.TuneItemBerthRevealSeconds,
+                 CardsConfig.ItemBerthRevealSeconds, Defaults.ItemBerthRevealSeconds);
 
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -345,6 +391,23 @@ internal static class BoardTuningSampler
                            BepInEx.Configuration.ConfigEntry<float>? live, float shipped) =>
         live == null ? 0
             : NetProtocol.WriteTuneFactorField(p, ref i, id, live.Value, shipped) ? 1 : 0;
+
+    /// <summary>
+    /// A FACTOR-width dial carried in a SCALED unit: the live and shipped values are both multiplied
+    /// by <paramref name="scale"/> before they are quantized, so the comparison that decides whether
+    /// to emit the field still happens on the wire CODE — the property that keeps "differs from the
+    /// default" stable across a config file's float round-trip, exactly as in <see cref="Quantized"/>.
+    ///
+    /// <para>It exists for one dial (<see cref="NetProtocol.TuneItemCueEmberRate"/>) and it exists
+    /// because that dial's config range overruns the factor width's ±32.767, not because scaling is
+    /// tidy. Reaching for it anywhere else is a sign the dial wants a different ID RANGE.</para>
+    /// </summary>
+    private static int FacScaled(byte[] p, ref int i, byte id,
+                                 BepInEx.Configuration.ConfigEntry<float>? live, float shipped,
+                                 float scale) =>
+        live == null ? 0
+            : NetProtocol.WriteTuneFactorField(p, ref i, id, live.Value * scale, shipped * scale)
+                ? 1 : 0;
 
     private static int Ang(byte[] p, ref int i, byte id,
                            BepInEx.Configuration.ConfigEntry<float>? live, float shipped) =>
@@ -450,6 +513,10 @@ internal readonly struct RemoteBoardTuning
     /// <summary>[Cards] FanRadius — the base arc radius the BOARD PILE fans multiply.</summary>
     public float FanRadius { get; }
 
+    /// <summary>[Cards] ItemBerthRingThickness — the outline thickness of the mirrored item-use
+    /// berth, in metres.</summary>
+    public float ItemBerthRingThickness { get; }
+
     // ---- FACTOR dials ------------------------------------------------------------------------
     public float ObjectivesScale { get; }
     public float ObjectivesWidth { get; }
@@ -500,6 +567,32 @@ internal readonly struct RemoteBoardTuning
     public float FanRadiusFactorDiscard { get; }
     /// <summary>[Cards] FanRadiusFactor_Burnt.</summary>
     public float FanRadiusFactorBurnt { get; }
+
+    // The USABLE-ITEM CUE on the closed items pile and the ITEM-USE BERTH (ids 161..169, plus 80
+    // above). Frozen constants in their consumers until the record was paged and had room again; the
+    // seconds- and per-second-valued members ride the FACTOR width for the reason stated everywhere
+    // else here — an id range fixes the value WIDTH, not the unit. ItemCueEmberRate is un-scaled
+    // back into embers per second in the constructor, so every consumer reads a plain dial.
+
+    /// <summary>[Cards] ItemCueBeatSeconds — the cue's heartbeat period, seconds.</summary>
+    public float ItemCueBeatSeconds { get; }
+    /// <summary>[Cards] ItemCueRingReach — how far a ring travels off the pile.</summary>
+    public float ItemCueRingReach { get; }
+    /// <summary>[Cards] ItemCueRingAlpha — peak opacity of those rings.</summary>
+    public float ItemCueRingAlpha { get; }
+    /// <summary>[Cards] ItemCueEmberRate — embers per second, in the dial's OWN unit (the wire
+    /// carries tenths — see <see cref="NetProtocol.TuneItemCueEmberRateScale"/>).</summary>
+    public float ItemCueEmberRate { get; }
+    /// <summary>[Cards] ItemCueEmberSize — ember size multiplier.</summary>
+    public float ItemCueEmberSize { get; }
+    /// <summary>[Cards] ItemBerthGlow — brightness of the warm field inside the berth.</summary>
+    public float ItemBerthGlow { get; }
+    /// <summary>[Cards] ItemBerthPingSeconds — the inward ping's period, seconds.</summary>
+    public float ItemBerthPingSeconds { get; }
+    /// <summary>[Cards] ItemBerthPingReach — where outside the card rect that ping starts.</summary>
+    public float ItemBerthPingReach { get; }
+    /// <summary>[Cards] ItemBerthRevealSeconds — the berth's grow-in / collapse-out time.</summary>
+    public float ItemBerthRevealSeconds { get; }
 
     /// <summary>[Cards] FanSwapOverlap as a 0..1 fraction (the wire carries whole percent).</summary>
     public float FanSwapOverlap { get; }
@@ -595,6 +688,8 @@ internal readonly struct RemoteBoardTuning
         FanSwapTravel = L(payload, len, NetProtocol.TuneFanSwapTravel, Defaults.FanSwapTravel);
         FanSwapArc = L(payload, len, NetProtocol.TuneFanSwapArc, Defaults.FanSwapArc);
         FanRadius = L(payload, len, NetProtocol.TuneFanRadius, Defaults.FanRadius);
+        ItemBerthRingThickness = L(payload, len, NetProtocol.TuneItemBerthRingThickness,
+                                   Defaults.ItemBerthRingThickness);
 
         ObjectivesScale = F(payload, len, NetProtocol.TuneObjectivesScale,
                             CardsConfig.BoardDefaults.ObjectivesScale[b]);
@@ -643,6 +738,27 @@ internal readonly struct RemoteBoardTuning
                                    Defaults.FanRadiusFactor_Discard);
         FanRadiusFactorBurnt = F(payload, len, NetProtocol.TuneFanRadiusFactorBurnt,
                                  Defaults.FanRadiusFactor_Burnt);
+        ItemCueBeatSeconds = F(payload, len, NetProtocol.TuneItemCueBeatSeconds,
+                               Defaults.ItemCueBeatSeconds);
+        ItemCueRingReach = F(payload, len, NetProtocol.TuneItemCueRingReach,
+                             Defaults.ItemCueRingReach);
+        ItemCueRingAlpha = F(payload, len, NetProtocol.TuneItemCueRingAlpha,
+                             Defaults.ItemCueRingAlpha);
+        // Un-scaled back into embers per second here, the ONE place that mirrors the sampler's
+        // FacScaled — the fallback is scaled the same way so an ABSENT field still resolves to the
+        // shipped default exactly, never to a tenth of it.
+        ItemCueEmberRate = F(payload, len, NetProtocol.TuneItemCueEmberRate,
+                             Defaults.ItemCueEmberRate * NetProtocol.TuneItemCueEmberRateScale)
+                           / NetProtocol.TuneItemCueEmberRateScale;
+        ItemCueEmberSize = F(payload, len, NetProtocol.TuneItemCueEmberSize,
+                             Defaults.ItemCueEmberSize);
+        ItemBerthGlow = F(payload, len, NetProtocol.TuneItemBerthGlow, Defaults.ItemBerthGlow);
+        ItemBerthPingSeconds = F(payload, len, NetProtocol.TuneItemBerthPingSeconds,
+                                 Defaults.ItemBerthPingSeconds);
+        ItemBerthPingReach = F(payload, len, NetProtocol.TuneItemBerthPingReach,
+                               Defaults.ItemBerthPingReach);
+        ItemBerthRevealSeconds = F(payload, len, NetProtocol.TuneItemBerthRevealSeconds,
+                                   Defaults.ItemBerthRevealSeconds);
 
         AssetPitchDegrees = A(payload, len, NetProtocol.TuneAssetPitch,
                               CardsConfig.BoardDefaults.AssetPitchDegrees[b]);

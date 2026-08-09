@@ -54,6 +54,15 @@ namespace GloomhavenVR.Net;
 /// pre-empts the extras gate and restarts the cycle at page 0, so the bound is measured from the
 /// drag, not from the next tick. Nothing is ever displayed torn: see the publication rule below.</para>
 ///
+/// <para>"TODAY'S TWO PAGES" IS A NUMBER THAT MOVES, so it is checked rather than remembered. The
+/// sampler's complete field run went 76 dials / 284 bytes to 86 / 314 when the item-cue and
+/// item-berth dials were wired (record 28 ids 80 / 161..169) — the first dials added since the
+/// ceiling came down — and it still splits into TWO pages, because page 0 fills to 246 of its 248
+/// field bytes either way and everything the ten added lands on page 1. So the bound is still
+/// ≤400 ms. There is room for ~60 more 3-byte dials before page 1 fills and the bound becomes
+/// ≤600 ms; <c>tests/GloomhavenVR.WireTests</c> pins the split at the real census so the day it
+/// moves is the day a test says so, in a sentence, instead of the day somebody re-derives it.</para>
+///
 /// <para>NO TORN VIEW, NO FLICKER. The receiver accumulates pages into a working set and PUBLISHES
 /// only when it holds every page of ONE generation (the <c>sig</c> is the generation id — an FNV-1a
 /// digest of the sender's complete field list, so pages of two different tunings can never be

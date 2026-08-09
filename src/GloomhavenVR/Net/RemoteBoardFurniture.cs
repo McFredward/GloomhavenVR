@@ -814,6 +814,16 @@ internal sealed class RemoteBoardFurniture
                 travel: TransientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
+        // The owner's own berth dials FIRST (record 28, ids 80 / 166..169): BuildItemUseRecess reads
+        // them as it lays the berth out, and the berth is built once per board — a tuning change
+        // rebuilds the whole board, so this is the only moment they are read. Guarded the same way
+        // the local PlayTray guards its own copies, because a WIRE value is never trusted: a zero or
+        // negative reveal collapses the animation and a negative band inverts the outline quad.
+        _itemBerthRingThickness = Mathf.Max(0.0008f, tuning.ItemBerthRingThickness);
+        _itemBerthGlow = Mathf.Clamp01(tuning.ItemBerthGlow);
+        _itemBerthPingSeconds = Mathf.Max(0f, tuning.ItemBerthPingSeconds);
+        _itemBerthPingReach = Mathf.Max(1f, tuning.ItemBerthPingReach);
+        _itemBerthRevealSeconds = Mathf.Max(0.01f, tuning.ItemBerthRevealSeconds);
         _itemUse = BuildItemUseRecess(ItemUseMount + tuning.ItemUseSlotOffset, out _itemUseReveal);
 
         // ---- shared decision drawer -----------------------------------------------------------
@@ -1513,17 +1523,30 @@ internal sealed class RemoteBoardFurniture
     private const float ItemBerthPingZ = 0.0030f;
     private const float ItemBerthOutlineZ = 0.0025f;
 
-    // ---- frozen berth dials -------------------------------------------------------------------
-    // The owner's own [Cards] ItemBerth* values do NOT ride the wire: extension record 28 (BOARD
-    // TUNING) is at its exact 255-byte per-record ceiling and cannot carry another field, so a peer
-    // draws this berth at the SHIPPED defaults. Naming the Defaults entries rather than re-typing
-    // the numbers is what keeps an untuned table in agreement when a default moves; the pairs are
-    // pinned in scripts/check-remote-defaults.py so this second home can never be forgotten.
-    private const float ItemBerthRingThickness = Defaults.ItemBerthRingThickness;
-    private const float ItemBerthGlow = Defaults.ItemBerthGlow;
-    private const float ItemBerthPingSeconds = Defaults.ItemBerthPingSeconds;
-    private const float ItemBerthPingReach = Defaults.ItemBerthPingReach;
-    private const float ItemBerthRevealSeconds = Defaults.ItemBerthRevealSeconds;
+    // ---- the owner's own BERTH dials (extension record 28, ids 80 / 166..169) -------------------
+    // WIRE-OVERRIDABLE FALLBACKS, exactly like RemoteHandFan's geometry and RemoteItemFan's
+    // animation: the value the owner set where they moved the dial, this client's shipped constant
+    // where they did not — which is the same number, so an untuned peer's berth is drawn exactly as
+    // this build ships it. Seeded from the tuning in the constructor, before BuildItemUseRecess
+    // reads them; a change to the owner's tuning rebuilds the whole board (RemoteControlBoard
+    // compares _builtTuningRevision), so there is no later refresh to miss.
+    //
+    // THEY WERE `const` UNTIL THIS ROUND, and only for a capacity reason: record 28 stood at exactly
+    // its 255-byte per-record ceiling when the berth re-art landed, so its five dials could not ride
+    // and a peer drew the berth at the shipped defaults whatever its owner had tuned. The paging
+    // round removed the ceiling (Net/BoardTunePages.cs) and reserved these ids for exactly these
+    // dials, so the reason expired and the 1:1 ruling applies with nothing left to weigh against it:
+    // "Ändert ein Spieler also die Positionen für sich selber, so sollen alle anderen diese Position
+    // bei seinem board auch sehen" (2026-08-09).
+    //
+    // Naming the Defaults entries rather than re-typing the numbers is still what keeps an untuned
+    // table in agreement when a default moves; the pairs stay pinned in
+    // scripts/check-remote-defaults.py, which accepts this form for that exact reason.
+    private float _itemBerthRingThickness = Defaults.ItemBerthRingThickness;
+    private float _itemBerthGlow = Defaults.ItemBerthGlow;
+    private float _itemBerthPingSeconds = Defaults.ItemBerthPingSeconds;
+    private float _itemBerthPingReach = Defaults.ItemBerthPingReach;
+    private float _itemBerthRevealSeconds = Defaults.ItemBerthRevealSeconds;
 
     /// <summary>
     /// The item-USE clip-in BERTH plus the localized "USE" caption below it — the mirror of
@@ -1587,12 +1610,12 @@ internal sealed class RemoteBoardFurniture
         Transform berth = berthGo.transform;
         var rev = berthGo.AddComponent<WorldUI.SoftCueReveal>();
         rev.DeactivateTarget = root.gameObject;
-        rev.Configure(ItemBerthRevealSeconds);
+        rev.Configure(_itemBerthRevealSeconds);
         reveal = rev;
 
         float rectW = ItemCardW * ItemBerthRectFactor;
         float rectH = ItemCardH * ItemBerthRectFactor;
-        float band = Mathf.Max(0.0008f, ItemBerthRingThickness);
+        float band = Mathf.Max(0.0008f, _itemBerthRingThickness);
         float corner = ItemCardW * ItemBerthCornerFactor;
         // The berth's gold, run through the chroma-key guard exactly as the owner's is, so no key
         // preset can turn a peer's berth into a hole through to their passthrough room. KeySafe
@@ -1600,7 +1623,7 @@ internal sealed class RemoteBoardFurniture
         Color berthGold = WorldUI.SoftCueArt.KeySafe(new Color(1f, 0.80f, 0.36f, 0.92f));
 
         // 1. THE FIELD — light in the berth, never a dark plate. (0 = a completely open berth.)
-        float glow = Mathf.Clamp01(ItemBerthGlow);
+        float glow = Mathf.Clamp01(_itemBerthGlow);
         if (glow > 0.002f)
         {
             GameObject field = WorldUI.SoftCueArt.FieldQuad("Field", berth,
@@ -1616,8 +1639,8 @@ internal sealed class RemoteBoardFurniture
         rev.Track(outline);
 
         // 3. THE INWARD PING — "put it in HERE", on the shared item beat, from 1.5× onto 1.0×.
-        float pingSeconds = ItemBerthPingSeconds;
-        float pingReach = Mathf.Max(1f, ItemBerthPingReach);
+        float pingSeconds = _itemBerthPingSeconds;
+        float pingReach = Mathf.Max(1f, _itemBerthPingReach);
         if (pingSeconds > 0.01f && pingReach > 1.001f)
         {
             GameObject ping = WorldUI.SoftCueArt.RectOutlineQuad("Ping", berth,

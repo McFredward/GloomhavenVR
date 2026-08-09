@@ -3834,6 +3834,168 @@ internal static class GoldenVectors
                "and BoardTuneMaxPages is DERIVED from those two, with the 6-byte worst-case split " +
                "waste folded in — so the whole id space always fits inside the page cap");
 
+        // -- 7v. BOARD TUNING: the ITEM CUE and the ITEM BERTH (ids 80 / 161..169) --------------
+        // The ten dials the old 255-byte ceiling had locked out COMPLETELY: the item-cue / item-berth
+        // re-art shipped them as frozen constants in RemoteControlBoard and RemoteBoardFurniture
+        // because record 28 could not carry an eleventh field, and the paging round RESERVED these
+        // exact ids for them so the merge would be a sampler line rather than an id negotiation.
+        // scripts/check-wire-coverage.py failed on all ten until they were claimed; these vectors are
+        // what stops them from being un-claimed by a refactor that "tidies" the sampler.
+        t.Case("7v. extras, item-cue + item-berth tuning dials");
+
+        // EVERY ONE OF THE TEN AT ITS SHIPPED VALUE, in ascending id order (the layout contract).
+        //   id  80 length ItemBerthRingThickness 0.0042 m -> 42 tenth-mm
+        //   id 161 factor ItemCueBeatSeconds     1.25 s   -> 1250   (SECONDS on the factor WIDTH)
+        //   id 162 factor ItemCueRingReach       2.3      -> 2300
+        //   id 163 factor ItemCueRingAlpha       0.95     -> 950
+        //   id 164 factor ItemCueEmberRate       22 /s    -> 2200   (TENTHS — see below)
+        //   id 165 factor ItemCueEmberSize       2.1      -> 2100
+        //   id 166 factor ItemBerthGlow          0.34     -> 340
+        //   id 167 factor ItemBerthPingSeconds   1.5 s    -> 1500
+        //   id 168 factor ItemBerthPingReach     1.5      -> 1500
+        //   id 169 factor ItemBerthRevealSeconds 0.26 s   -> 260
+        byte[] cueFields =
+        {
+            NetProtocol.TuneItemBerthRingThickness, 0x2A, 0x00,
+            NetProtocol.TuneItemCueBeatSeconds,     0xE2, 0x04,
+            NetProtocol.TuneItemCueRingReach,       0xFC, 0x08,
+            NetProtocol.TuneItemCueRingAlpha,       0xB6, 0x03,
+            NetProtocol.TuneItemCueEmberRate,       0x98, 0x08,
+            NetProtocol.TuneItemCueEmberSize,       0x34, 0x08,
+            NetProtocol.TuneItemBerthGlow,          0x54, 0x01,
+            NetProtocol.TuneItemBerthPingSeconds,   0xDC, 0x05,
+            NetProtocol.TuneItemBerthPingReach,     0xDC, 0x05,
+            NetProtocol.TuneItemBerthRevealSeconds, 0x04, 0x01,
+        };
+        t.Equal(30, cueFields.Length, "ten dials are 30 field bytes: one 3-byte length + nine 3-byte factors");
+        ushort cueSig = BoardTunePages.Signature(cueFields, 0, cueFields.Length);
+        var cuePage = new byte[255];
+        int cueLen = BoardTunePages.WritePage(cueFields, cueFields.Length, 0, cueSig, cuePage);
+        t.Equal(37, cueLen, "one page: 7 header + 30 field bytes");
+
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasBoardTuning = true, BoardTuningBytes = cuePage, BoardTuningLength = cueLen,
+        }, ext);
+        t.Wire(Hex.Bytes($@"
+            31 52 56 47 03 01 80 00
+            80 00
+            01
+            1C 25            // id 28, len 37
+            00 01            //   page 0 of 1
+            {cueSig & 0xFF:X2} {cueSig >> 8:X2}   //   generation
+            00 FF 0A         //   complete for ids 0..255, 10 fields
+            50 2A 00         //   id  80 length: berth outline 4.2 mm
+            A1 E2 04         //   id 161 factor: cue beat 1.250 s
+            A2 FC 08         //   id 162 factor: ring reach 2.300x
+            A3 B6 03         //   id 163 factor: ring alpha 0.950
+            A4 98 08         //   id 164 factor: ember rate 2.200 -> 22.0 embers/s (TENTHS)
+            A5 34 08         //   id 165 factor: ember size 2.100x
+            A6 54 01         //   id 166 factor: berth glow 0.340
+            A7 DC 05         //   id 167 factor: berth ping 1.500 s
+            A8 DC 05         //   id 168 factor: ping reach 1.500x
+            A9 04 01         //   id 169 factor: berth reveal 0.260 s
+            "), ext, m, "the ten dials ride ONE page, ids ascending — 80 in the LENGTH range because " +
+                        "it is a metre scalar, 161..169 in the FACTOR range because they are 2-byte " +
+                        "values; the range fixes the WIDTH, never the unit");
+        t.Equal(50, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 37) = 50 bytes");
+
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState cueT), "and it parses");
+        var cueAsm = new BoardTunePageAssembler();
+        t.True(cueAsm.Accept(cueT.BoardTuningBytes, 0, cueT.BoardTuningLength), "and assembles");
+        byte[] cueTune = cueAsm.Assembled;
+        int cueTuneLen = cueAsm.AssembledLength;
+        t.Equal(31, cueTuneLen, "assembled: 1 count byte + 30 field bytes");
+        t.Equal(10, cueTune[0], "all ten dials present");
+
+        t.Equal(0.0042f, NetProtocol.BoardTuneLength(cueTune, 0, cueTuneLen,
+                                                     NetProtocol.TuneItemBerthRingThickness, 0f),
+                "the berth's outline thickness decodes in tenth-millimetres, like every metre scalar");
+        t.Equal(1.25f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                   NetProtocol.TuneItemCueBeatSeconds, 0f),
+                "the cue's heartbeat period decodes to the millisecond");
+        t.Equal(2.3f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                  NetProtocol.TuneItemCueRingReach, 0f),
+                "ring reach");
+        t.Equal(0.95f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                   NetProtocol.TuneItemCueRingAlpha, 0f),
+                "ring alpha");
+        t.Equal(2.1f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                  NetProtocol.TuneItemCueEmberSize, 0f),
+                "ember size");
+        t.Equal(0.34f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                   NetProtocol.TuneItemBerthGlow, 0f),
+                "berth glow");
+        t.Equal(1.5f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                  NetProtocol.TuneItemBerthPingSeconds, 0f),
+                "the berth's inward ping period");
+        t.Equal(1.5f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                  NetProtocol.TuneItemBerthPingReach, 0f),
+                "and its reach");
+        t.Equal(0.26f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                   NetProtocol.TuneItemBerthRevealSeconds, 0f),
+                "the berth's grow-in / collapse-out time");
+
+        // THE EMBER RATE'S SCALE, pinned because nothing else can catch it. [Cards] ItemCueEmberRate
+        // accepts 0..60 embers/s and the FACTOR width is an i16 in thousandths, i.e. it saturates at
+        // 32.767 — so sampled RAW, a player who cranked their embers past 32 would be silently
+        // CLAMPED on every peer's screen. That is the exact class of invisible divergence this whole
+        // record exists to end, so the dial is carried in TENTHS of its own unit. A sender and a
+        // receiver that disagreed about the scale would disagree by a factor of ten with nothing
+        // failing, which is why the constant is named once in NetProtocol and asserted here.
+        t.Equal((short)32767, NetProtocol.EncodeTuneFactor(60f),
+                "60 embers/s SATURATES the raw factor width — the bug this scale exists to avoid");
+        t.Equal((short)6000, NetProtocol.EncodeTuneFactor(60f * NetProtocol.TuneItemCueEmberRateScale),
+                "…and codes to 6000 at tenths, comfortably inside i16, resolution 0.01 embers/s");
+        t.Equal(0.1f, NetProtocol.TuneItemCueEmberRateScale, "the scale is a tenth, stated once");
+        t.Equal(22f, NetProtocol.BoardTuneFactor(cueTune, 0, cueTuneLen,
+                                                 NetProtocol.TuneItemCueEmberRate, 0f)
+                     / NetProtocol.TuneItemCueEmberRateScale,
+                "and the wire's 2.200 un-scales to 22 embers/s, which is what RemoteBoardTuning hands " +
+                "the mirrored emitter — no renderer ever learns what container it crossed in");
+
+        // ABSENCE STILL MEANS "THE VALUE YOU ALREADY HAVE", for the scaled dial as much as any other:
+        // a peer who never touched their embers sends no field, and the receiver's fallback must
+        // resolve to the shipped rate and NOT to a tenth of it. (RemoteBoardTuning scales its own
+        // fallback before the lookup for exactly this reason.)
+        t.Equal(22f, NetProtocol.BoardTuneFactor(System.Array.Empty<byte>(), 0, 0,
+                                                 NetProtocol.TuneItemCueEmberRate,
+                                                 22f * NetProtocol.TuneItemCueEmberRateScale)
+                     / NetProtocol.TuneItemCueEmberRateScale,
+                "an ABSENT ember rate resolves to the shipped rate exactly, never to a tenth of it");
+
+        // THE CONVERGENCE BOUND IS UNCHANGED BY THESE TEN, and that is a claim about page ARITHMETIC
+        // rather than about bytes, so it is checked rather than asserted in a comment. This is the
+        // sampler's complete field run at its worst case — every dial moved — in the id-width census
+        // Sample() produces: 15 vec3 + 17 length + 41 factor + 9 angle + 4 count.
+        var census = new byte[314];
+        int cAt = 0;
+        void Field(byte id, int width)
+        {
+            census[cAt] = id;
+            cAt += 1 + width;
+        }
+        for (byte id = 1; id <= 15; id++) Field(id, 6);        // vec3   (ids 1..15)
+        for (byte id = 64; id <= 80; id++) Field(id, 2);       // length (ids 64..80, 80 is new)
+        for (byte id = 128; id <= 168; id++) Field(id, 2);     // factor (41 ids, nine of them new)
+        for (byte id = 192; id <= 200; id++) Field(id, 2);     // angle
+        for (byte id = 224; id <= 227; id++) Field(id, 1);     // count
+        t.Equal(314, cAt,
+                "the sampler's worst case is 314 field bytes over 86 dials — it was 284 over 76 " +
+                "before the item-cue / item-berth ten, and under the OLD scheme it could not have " +
+                "grown at all: the record's whole payload had to fit 255");
+        t.Equal(2, BoardTunePages.PageCount(census, cAt),
+                "and it STILL splits into two pages, so the convergence guarantee written down in " +
+                "BoardTunePages — complete state by T + pageCount x 200 ms — is unchanged at <=400 ms");
+        int cp0 = BoardTunePages.WritePage(census, cAt, 0, 1, cuePage);
+        t.Equal(253, cp0,
+                "page 0 fills to 7 header + 246 field bytes — the same 246 as before the ten, " +
+                "because a 3-byte field cannot fit the 2 bytes left of the 248-byte budget");
+        int cp1 = BoardTunePages.WritePage(census, cAt, 1, 1, cuePage);
+        t.Equal(75, cp1,
+                "…and everything the ten added lands on page 1, which holds 68 of its 248 field " +
+                "bytes: ~60 more 3-byte dials before the bound would go to <=600 ms");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
