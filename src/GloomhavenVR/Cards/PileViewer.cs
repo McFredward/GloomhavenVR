@@ -442,6 +442,12 @@ internal sealed class PileViewer
     /// the chips and <c>UseItemService</c> use, so the stack can never advertise a use the game would
     /// reject, and the stack cue and the per-card frames can never disagree.
     ///
+    /// <para>Since 2026-08-09 that predicate has a SECOND arm, and it is why the cue can now light up
+    /// off-turn: an item whose ACTIVE BONUS is being offered (the "Brille" asking, per attack or per
+    /// incoming hit, whether to spend itself) is playable by placing its card, and the game offers
+    /// that question in windows that are not the owner's action turn. The user asked for exactly
+    /// this cue — "dann soll die Brille im Gegenstands-Pile gehighlighted werden".</para>
+    ///
     /// Runs every frame the tray shows (a turn check + a pass over a handful of items), so it tracks
     /// turn/phase changes live. Purely local visual — nothing here touches game state or the network.
     /// </summary>
