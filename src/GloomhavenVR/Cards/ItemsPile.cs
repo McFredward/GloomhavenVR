@@ -123,13 +123,22 @@ internal sealed class ItemsPile
     /// <summary>Drop-into-use capture radius (world metres at board scale 1; scaled by the slot's live scale).</summary>
     private const float UseSlotRadius = 0.13f;
 
-    /// <summary>Inner-plate factor of the item-use recess — <c>PlayTray.BuildItemUseSlot</c>'s
-    /// FrameInner quad, 1.04× the card box inside the 1.12× gold frame. That dark plate IS the clear
-    /// area a placed card has to sit inside.</summary>
+    /// <summary>CLEAR-AREA factor of the item-use berth: the box a placed card is fitted into,
+    /// 1.04× the card metric.
+    ///
+    /// <para>THE DOC USED TO CALL THIS AN "inner-plate factor" — <c>PlayTray.BuildItemUseSlot</c>'s
+    /// FrameInner quad, 1.04× the card box inside a 1.12× gold frame — and that plate no longer
+    /// exists: the 2026-08-09 re-art deleted it (a dark plate on a widget that hangs below the board
+    /// with the player's room behind it is a hole through to passthrough near the black key preset;
+    /// the whole argument is at <c>PlayTray.BuildItemUseSlot</c>). What the number always really
+    /// meant survives unchanged: the clear area the card has to sit inside. The berth's two-tone
+    /// outline is now drawn just OUTSIDE it (1.08×) and its warm field just inside (1.03×). Mirrored
+    /// on the peer's board by <c>Net.RemoteBoardFurniture.UseSlotInnerFactor</c> and linted against
+    /// it (scripts/check-mirrors.sh).</para></summary>
     private const float UseSlotInnerFactor = 1.04f;
 
-    /// <summary>How much of that clear area a placed card fills, so the gold rim stays visible all
-    /// the way round instead of being covered by the card's own edge.</summary>
+    /// <summary>How much of that clear area a placed card fills, so the berth's outline stays
+    /// visible all the way round instead of being covered by the card's own edge.</summary>
     private const float UseSlotFillFraction = 0.94f;
 
     /// <summary>

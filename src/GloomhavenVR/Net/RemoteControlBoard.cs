@@ -672,6 +672,10 @@ internal sealed class RemoteControlBoard
                 _piles[1]?.Set(_owner.PileBurntCount);
                 _piles[2]?.Set(_owner.PileItemsCount);
             }
+            // The ITEMS stack's usable cue (board-UI byte 2 bit 7) — applied on BOTH refresh paths,
+            // because an actorless peer's board is exactly the case this global path exists for and
+            // the cue is no more actor-dependent than the counts above it are.
+            _piles[2]?.SetUsableCue(_owner.ItemsPileUsableCue);
         }
         catch (System.Exception e)
         {
@@ -742,6 +746,12 @@ internal sealed class RemoteControlBoard
             _piles[0]?.Set(discard);
             _piles[1]?.Set(burnt);
             _piles[2]?.Set(items);
+            // THE ITEMS STACK'S USABLE CUE (board-UI byte 2 bit 7 — the 1:1 gap this round closed).
+            // Straight off the owner's own rendered answer: their stack beats while an equipped item
+            // can be played, and until now that animation existed on nobody else's screen. It is
+            // change-gated inside SetUsableCue, so a per-refresh call costs a bool compare, and the
+            // beat itself runs on THIS client's clock (no traffic between the two edges).
+            _piles[2]?.SetUsableCue(_owner.ItemsPileUsableCue);
 
             LogContent(discard, burnt, items, showFronts, actor);
         }
@@ -842,6 +852,7 @@ internal sealed class RemoteControlBoard
                       $"rest='{(_status != null ? _status.RestText : string.Empty)}', " +
                       $"piles d/b/i={discard}/{burnt}/{items}" +
                       $"{(_owner.HasPileCounts ? "(synced)" : "(model)")}, " +
+                      $"item-cue={(_owner.ItemsPileUsableCue ? "beating" : "off")}, " +
                       $"round-card faces={slots}, " +
                       $"slot-occupancy={(_owner.SlotOccupancyKnown ? "0x" + _owner.BoardSlotMask.ToString("X1") + "(synced)" : "model-only")}, " +
                       $"active={(_active != null ? _active.Count : 0)} card(s) " +
@@ -1341,12 +1352,64 @@ internal sealed class RemoteControlBoard
         private readonly Color _baseColor;
         private int _shown = int.MinValue;
 
+        // ---- THE MIRRORED "AN ITEM IS USABLE" CUE (board-UI byte 2 bit 7) ------------------------
+        //
+        // WHY IT EXISTS AT ALL. Until this change a peer's mirrored items stack was three inert
+        // slabs and a number: the owner's stack puffs gold embers and throws rings of light on the
+        // shared item heartbeat while an equipped item can be played, and NONE of that crossed the
+        // wire. That is a straight breach of the standing 1:1 ruling — "alle Interaktionen,
+        // ANIMATIONEN und Anzeigen des Controllboards" — and a pre-existing one rather than
+        // something the 2026-08-09 re-art introduced; the old ember drift was equally invisible to
+        // peers. The whole point of the cue is that it is readable without being looked at, and on
+        // every screen but its owner's it did not exist at any amplitude.
+        //
+        // WHAT IS MIRRORED: the recipe of PileViewer.PileStack.BuildUsableRings /
+        // .BuildUsableEmbers, term for term, off the SHIPPED defaults (see the frozen constants
+        // below and scripts/check-remote-defaults.py). Two SoftCuePing rings sharing one period at
+        // opposite phases so a ring leaves the stack on every beat, plus the ember emitter whose
+        // loop duration IS the beat, so one burst at t=0 puffs on every heartbeat with no driver.
+        //
+        // DRIVEN ON THIS CLIENT'S CLOCK, from the wire bit's EDGES only — the same synced-state /
+        // locally-animated split the wanted-slot glow and the mirrored keycap dust already use. Two
+        // edges per decision, not a stream: the cue beats roughly twice a second and costs nothing.
+        //
+        // BUILT LAZILY AND ONLY ON THE ITEMS STACK, exactly like the local one: the discard and
+        // burnt stacks are never handed a true here, so they never pay for a particle system and
+        // two generated band textures they would not show.
+        private ParticleSystem? _usableEmbers;
+        private WorldUI.SoftCueReveal? _usableRings;
+        private bool _usableCueOn;
+        private readonly Transform _root;
+
+        // ---- frozen cue dials -------------------------------------------------------------------
+        // The owner's own [Cards] ItemCue* values do NOT ride the wire — extension record 28 (BOARD
+        // TUNING) is at its exact 255-byte ceiling and cannot carry another field — so a peer draws
+        // this cue at the SHIPPED defaults. Naming the Defaults entries (rather than re-typing the
+        // numbers) is what keeps an untuned table in agreement when a default moves; the pairs are
+        // pinned in scripts/check-remote-defaults.py so the second home can never be forgotten.
+        private const float ItemCueBeatSeconds = Defaults.ItemCueBeatSeconds;
+        private const float ItemCueRingReach = Defaults.ItemCueRingReach;
+        private const float ItemCueRingAlpha = Defaults.ItemCueRingAlpha;
+        private const float ItemCueEmberRate = Defaults.ItemCueEmberRate;
+        private const float ItemCueEmberSize = Defaults.ItemCueEmberSize;
+
+        /// <summary>Ring line thickness as a fraction of its own starting diameter — verbatim
+        /// <c>PileViewer.PileStack.RingBandFraction</c>: thick enough that the two-tone edge
+        /// survives the motion-blurred passthrough feed, thin enough to stay a ring.</summary>
+        private const float RingBandFraction = 0.11f;
+
+        /// <summary>The mod's telegraph gold warmed toward the initiative ring's amber — verbatim
+        /// <c>PileViewer.PileStack.EmberColor</c>. Alpha is the ember's CEILING; the lifetime
+        /// gradient never lets a mote hold it.</summary>
+        private static readonly Color EmberColor = new(1f, 0.80f, 0.36f, 0.85f);
+
         public PileCounter(Transform parent, string name, Vector3 localPos, Color color,
             string caption, float scale)
         {
             var root = new GameObject(name).transform;
             root.SetParent(parent, worldPositionStays: false);
             root.localPosition = localPos;
+            _root = root;
             // The AUTHORED per-board pile scale, keyed by the peer's synced style — the same factor
             // the owner's own PileViewer stack carries.
             root.localScale = Vector3.one * (scale > 0f ? scale : 1f);
@@ -1415,6 +1478,230 @@ internal sealed class RemoteControlBoard
                 if (_topMaterial.color != want)
                     _topMaterial.color = want;
             }
+        }
+
+        /// <summary>
+        /// USABLE-HIGHLIGHT, MIRRORED — start (or stop) this stack's "something in here is playable"
+        /// cue from the owner's own wire bit (board-UI byte 2 bit 7). The receiver-side twin of
+        /// <c>PileViewer.PileStack.SetUsableHighlight</c>, change-gated the same way so nothing is
+        /// re-triggered per refresh.
+        ///
+        /// <para>Switching OFF stops ember EMISSION only, so the motes already in flight finish their
+        /// fade instead of vanishing mid-air (a hard clear is what reads as a bug when the owner's
+        /// turn ends), and the rings COLLAPSE OUT through <see cref="WorldUI.SoftCueReveal"/> rather
+        /// than blinking away — the standing "nothing pops" rule, on the peer's board as on the
+        /// owner's.</para>
+        ///
+        /// <para>Mod-owned children of a mod-owned stack: hidden with the board, destroyed with it,
+        /// nothing game-side touched, nothing pokeable (both roots are built after the board's
+        /// collider strip but neither creates a collider — the ring quads and the particle renderer
+        /// are collider-free by construction).</para>
+        /// </summary>
+        public void SetUsableCue(bool on)
+        {
+            if (on == _usableCueOn)
+                return;
+            _usableCueOn = on;
+
+            if (_usableEmbers == null && on)
+                _usableEmbers = BuildUsableEmbers(); // null in a shader-less environment: degrade, never crash
+            if (_usableEmbers != null)
+            {
+                if (on)
+                    _usableEmbers.Play();
+                else
+                    _usableEmbers.Stop(withChildren: false, ParticleSystemStopBehavior.StopEmitting);
+            }
+
+            if (_usableRings == null && on)
+                _usableRings = BuildUsableRings();
+            if (_usableRings == null)
+                return;
+            if (on)
+            {
+                if (!_usableRings.gameObject.activeSelf)
+                    _usableRings.gameObject.SetActive(true);
+                _usableRings.Show();
+            }
+            else
+            {
+                _usableRings.Hide();
+            }
+        }
+
+        /// <summary>
+        /// The mirrored RING emitter — two <see cref="WorldUI.SoftCuePing"/> quads sharing one period
+        /// at opposite phases, so a ring leaves the stack on every beat and the cue is never
+        /// continuous and never silent for long. Mirror of <c>PileViewer.PileStack.BuildUsableRings</c>.
+        ///
+        /// <para>ROUND, and TWO-TONE, for the reasons written once at <c>WorldUI.SoftCueArt</c>: a
+        /// frame around the stack would be the rectangle of light the user rejected, and a cue drawn
+        /// in ONE tone can only be seen where it differs in luminance from a background nobody
+        /// controls — least of all here, where the backdrop of a peer's floating board in mixed
+        /// reality is the viewer's own room. Outward travel is the "look over here" sentence; the
+        /// item-use berth on the same board says the mirror-image "put it in here" inward.</para>
+        ///
+        /// <para>Parked a hair proud of the top slab and BEHIND the count label's plane (−0.0018 vs
+        /// the label's −0.0025), so a ring can never fog the number it flies around.</para>
+        /// </summary>
+        private WorldUI.SoftCueReveal? BuildUsableRings()
+        {
+            float alpha = Mathf.Clamp01(ItemCueRingAlpha);
+            float reach = Mathf.Max(1f, ItemCueRingReach);
+            if (alpha <= 0.002f || reach <= 1.001f)
+                return null; // dialled off in the shipped defaults — build nothing at all
+            float beat = Mathf.Max(0.2f, ItemCueBeatSeconds);
+            float seed = Mathf.Max(SlabW, SlabH) * 1.05f; // just around the stack's own footprint
+
+            var root = new GameObject("UsableRings");
+            root.transform.SetParent(_root, worldPositionStays: false);
+            root.transform.localPosition = new Vector3(0f, 0f, -0.0018f);
+            root.transform.localRotation = Quaternion.identity;
+            // The arrival/departure driver goes on FIRST: SoftCuePing caches its parent reveal in
+            // Init, and it is what fades the rings in and out instead of letting them blink.
+            var reveal = root.AddComponent<WorldUI.SoftCueReveal>();
+            reveal.DeactivateTarget = root;
+            reveal.Configure(RingRevealSeconds);
+
+            Color gold = WorldUI.SoftCueArt.KeySafe(new Color(1f, 0.80f, 0.36f, alpha));
+            for (int i = 0; i < 2; i++)
+            {
+                GameObject ring = WorldUI.SoftCueArt.RingQuad($"Ring{i}", root.transform,
+                    Vector3.zero, seed, seed * RingBandFraction, gold);
+                // The remote board resolves overlapping transparents by a FIXED intra-board ladder
+                // (BoardVisual) instead of the local board's furniture order group, so the cue is
+                // seated on that ladder explicitly: at the furniture tier, under the docked widgets.
+                var mr = ring.GetComponent<MeshRenderer>();
+                if (mr == null)
+                    continue; // no renderer, nothing to ping — degrade, never crash
+                mr.sortingOrder = BoardVisual.OrderFurniture;
+                var ping = ring.AddComponent<WorldUI.SoftCuePing>();
+                ping.Phase = i * 0.5f; // the two rings split the period between them
+                ping.Init(mr, gold,
+                    new Vector3(seed, seed, 1f),
+                    new Vector3(seed * reach, seed * reach, 1f),
+                    beat * 2f, duty: 0.85f);
+            }
+
+            VRLayers.Apply(root); // mod-owned FX on the mod layer, so the owned head camera renders it
+            reveal.Show();
+            return reveal;
+        }
+
+        /// <summary>Seconds the mirrored ring cue takes to grow in / collapse out — verbatim the
+        /// 0.28 s <c>PileViewer.PileStack.BuildUsableRings</c> configures its reveal with. Not a
+        /// config dial on either side, so there is no Defaults entry to name.</summary>
+        private const float RingRevealSeconds = 0.28f;
+
+        /// <summary>
+        /// The mirrored EMBER emitter — mirror of <c>PileViewer.PileStack.BuildUsableEmbers</c>,
+        /// module for module. Local simulation space so the motes ride the peer's board when they
+        /// carry it (world space would smear them into a trail behind it), a flattened box shape over
+        /// the whole pile face, and velocity authored rather than taken from the shape normal because
+        /// the stack lies FLAT: "up" for this cue is the board's own +Y with a lean toward the viewer.
+        ///
+        /// <para>ONE LOOP IS ONE BEAT — <c>main.duration = beat</c> — which is what makes a single
+        /// burst at time 0 puff on every heartbeat with no per-frame driver and no clock of its own to
+        /// drift against the rings'. The thin continuous bed between puffs keeps the pile alive; the
+        /// puff is the transient peripheral vision actually answers to.</para>
+        ///
+        /// <para>Material: <c>Sprites/Default</c> textured with <c>SoftCueArt.MoteTexture</c>, because
+        /// untextured that shader draws hard SQUARES — the exact look the round-mote texture exists to
+        /// replace. Returns null only when even that shader is missing.</para>
+        /// </summary>
+        private ParticleSystem? BuildUsableEmbers()
+        {
+            Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("Particles/Standard Unlit");
+            if (shader == null)
+                return null;
+
+            var go = new GameObject("UsableEmbers");
+            go.transform.SetParent(_root, worldPositionStays: false);
+            // Just proud of the top slab (which spans ±0.0009 about z 0) so the motes are never born
+            // inside the pile, but behind the count/caption text at −0.0025 so they never fog it.
+            go.transform.localPosition = new Vector3(0f, 0f, -0.0016f);
+            go.transform.localRotation = Quaternion.identity;
+
+            float beat = Mathf.Max(0.2f, ItemCueBeatSeconds);
+            float rate = Mathf.Max(0f, ItemCueEmberRate);
+            float emberSize = Mathf.Max(0.1f, ItemCueEmberSize);
+
+            var ps = go.AddComponent<ParticleSystem>();
+            ParticleSystem.MainModule main = ps.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.scalingMode = ParticleSystemScalingMode.Hierarchy; // follows the per-style pile scale
+            main.playOnAwake = false;
+            main.loop = true;
+            main.duration = beat; // one loop is one beat — see the doc
+            main.maxParticles = 128;
+            main.startSpeed = 0f; // drift comes from velocityOverLifetime below
+            main.gravityModifier = 0f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.4f, 2.2f);
+            main.startSize = new ParticleSystem.MinMaxCurve(
+                SlabW * 0.045f * emberSize, SlabW * 0.11f * emberSize);
+            main.startColor = EmberColor;
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, 2f * Mathf.PI);
+
+            ParticleSystem.EmissionModule emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = rate * 0.35f;
+            int puff = Mathf.Clamp(Mathf.RoundToInt(rate * 0.65f * beat), 0, 60);
+            emission.SetBursts(puff > 0
+                ? new[] { new ParticleSystem.Burst(0f, (short)puff) }
+                : System.Array.Empty<ParticleSystem.Burst>());
+
+            ParticleSystem.ShapeModule shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Box;
+            shape.scale = new Vector3(SlabW * 0.85f, SlabH * 0.85f, 0.0001f); // a flat sheet over the face
+            shape.randomDirectionAmount = 0f;
+
+            ParticleSystem.VelocityOverLifetimeModule vel = ps.velocityOverLifetime;
+            vel.enabled = true;
+            vel.space = ParticleSystemSimulationSpace.Local;
+            vel.x = new ParticleSystem.MinMaxCurve(-0.008f, 0.008f);
+            vel.y = new ParticleSystem.MinMaxCurve(0.022f, 0.048f);
+            vel.z = new ParticleSystem.MinMaxCurve(-0.018f, -0.006f);
+
+            ParticleSystem.NoiseModule noise = ps.noise;
+            noise.enabled = true;
+            noise.quality = ParticleSystemNoiseQuality.Low;
+            noise.strength = new ParticleSystem.MinMaxCurve(0.006f);
+            noise.frequency = 0.35f;
+            noise.scrollSpeed = new ParticleSystem.MinMaxCurve(0.12f);
+            noise.damping = true;
+
+            ParticleSystem.ColorOverLifetimeModule col = ps.colorOverLifetime;
+            col.enabled = true;
+            var grad = new Gradient();
+            grad.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.25f),
+                    new GradientAlphaKey(0.75f, 0.6f), new GradientAlphaKey(0f, 1f),
+                });
+            col.color = new ParticleSystem.MinMaxGradient(grad);
+
+            ParticleSystem.SizeOverLifetimeModule size = ps.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
+                new Keyframe(0f, 0.55f), new Keyframe(0.3f, 1f), new Keyframe(1f, 0.25f)));
+
+            var renderer = go.GetComponent<ParticleSystemRenderer>();
+            var mat = new Material(shader) { mainTexture = WorldUI.SoftCueArt.MoteTexture() };
+            renderer.sharedMaterial = mat;
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.alignment = ParticleSystemRenderSpace.View;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            // The local emitter draws at sortingOrder 2 relative to its board's furniture group; this
+            // board's ladder is absolute, so the same relationship is expressed against it — over the
+            // stack's own decor, still under the docked widgets (OrderDockedWidget == 4).
+            renderer.sortingOrder = BoardVisual.OrderFurniture + 2;
+
+            VRLayers.Apply(go); // mod-owned FX on the mod layer (no children — recursion-safe)
+            return ps;
         }
     }
 }

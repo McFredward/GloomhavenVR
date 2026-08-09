@@ -206,7 +206,10 @@ internal struct PresenceState
 
     /// <summary>Cap-state byte: the ACCENT / CONFIRMED / ENABLED bits of the owner's CONFIRM cap,
     /// their two rest discs and their turn-flow SKIP cap
-    /// (<see cref="NetProtocol.BoardUiCapConfirmAccentBit"/> …). Masked with
+    /// (<see cref="NetProtocol.BoardUiCapConfirmAccentBit"/> …) — plus, in bit 7, the one flag in
+    /// this byte that is not a cap at all: their closed items pile's "an item is usable now"
+    /// heartbeat cue (<see cref="NetProtocol.BoardUiCapItemPileUsableBit"/>, which states why it
+    /// rides here). Masked with
     /// <see cref="NetProtocol.BoardUiCapStateDefinedMask"/> on write AND on read. Meaningful only
     /// when <see cref="HasBoardCapStates"/>.</summary>
     public byte BoardCapStateMask;

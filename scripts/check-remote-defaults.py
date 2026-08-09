@@ -124,6 +124,27 @@ PAIRS = [
     ("Net/RemoteItemFan.cs", "_settleOvershoot", "Cards", "ItemFanSettleOvershoot"),
     ("Net/RemoteItemFan.cs", "_closeSeconds", "Cards", "ItemFanCloseDuration"),
     ("Net/RemoteItemFan.cs", "_closeStagger", "Cards", "ItemFanCloseStagger"),
+    # The ITEM-USE BERTH's art (2026-08-09 — the mirrored half of "Ueberarbeite das Aussehen des
+    # Item-Overlays"). These are FROZEN constants, not wire-overridable fallbacks, and that is not an
+    # oversight: extension record 28 (BOARD TUNING) is at its exact 255-byte per-record ceiling, so
+    # the ten new [Cards] ItemBerth*/ItemCue* dials cannot ride it the way the ItemFan* family above
+    # does. A peer therefore draws this berth at the SHIPPED defaults whatever the owner has tuned —
+    # which makes this list MORE load-bearing here than anywhere else on it, because the shipped
+    # default is the ONLY value the mirror will ever use. Move one without moving the other and two
+    # untuned players see two different berths.
+    ("Net/RemoteBoardFurniture.cs", "ItemBerthRingThickness", "Cards", "ItemBerthRingThickness"),
+    ("Net/RemoteBoardFurniture.cs", "ItemBerthGlow", "Cards", "ItemBerthGlow"),
+    ("Net/RemoteBoardFurniture.cs", "ItemBerthPingSeconds", "Cards", "ItemBerthPingSeconds"),
+    ("Net/RemoteBoardFurniture.cs", "ItemBerthPingReach", "Cards", "ItemBerthPingReach"),
+    ("Net/RemoteBoardFurniture.cs", "ItemBerthRevealSeconds", "Cards", "ItemBerthRevealSeconds"),
+    # The CLOSED ITEMS PILE's "an item is usable" cue on a peer's board (2026-08-09 — the 1:1 gap
+    # where a peer saw no cue at all). Same story as the berth above: frozen, because record 28
+    # cannot carry these dials, so the shipped default is what every mirrored stack beats at.
+    ("Net/RemoteControlBoard.cs", "ItemCueBeatSeconds", "Cards", "ItemCueBeatSeconds"),
+    ("Net/RemoteControlBoard.cs", "ItemCueRingReach", "Cards", "ItemCueRingReach"),
+    ("Net/RemoteControlBoard.cs", "ItemCueRingAlpha", "Cards", "ItemCueRingAlpha"),
+    ("Net/RemoteControlBoard.cs", "ItemCueEmberRate", "Cards", "ItemCueEmberRate"),
+    ("Net/RemoteControlBoard.cs", "ItemCueEmberSize", "Cards", "ItemCueEmberSize"),
 ]
 
 DEFAULTS_DIR = SRC / "Defaults"
