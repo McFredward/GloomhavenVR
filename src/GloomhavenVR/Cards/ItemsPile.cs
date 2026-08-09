@@ -4564,7 +4564,17 @@ internal sealed class ItemsPile
             img.fillCenter = false;   // hollow — a frame, never a wash over the art
             img.raycastTarget = false; // the chip is grabbed through its collider; nothing may raycast this
             img.color = color;
-            ringGo.AddComponent<WorldUI.SoftFramePulse>().Init(img, color);
+            // ONE RHYTHM FOR THE WHOLE ITEM CUE (2026-08-09 presence pass). This frame used to breathe
+            // on a private sine at a private period; the closed pile's rings and ember puffs now beat on
+            // [Cards] ItemCueBeatSeconds, and a player who has an item fan open is looking at BOTH the
+            // fan and the pile it came out of. Two unrelated periods read as two unrelated widgets
+            // flickering at each other; one shared heartbeat reads as one cue. The swing is opened up
+            // with it — the floor is lifted so the frame never disappears between beats, the ceiling
+            // taken to full, and the scale pulse roughly doubled, because a SILHOUETTE change is the
+            // half of this cue a bright passthrough room cannot swallow.
+            ringGo.AddComponent<WorldUI.SoftFramePulse>().Init(img, color,
+                beatSeconds: Mathf.Max(0.2f, CardsConfig.ItemCueBeatSeconds.Value),
+                minAlpha: 0.45f, maxAlpha: 1f, scalePulse: 0.07f);
 
             Core.VRLayers.Apply(canvasGo); // mod-owned overlay on the mod layer (no game children below it)
             // Perspective (user report 2026-08-08, MR: "Die mixed reality hintergründe schieben

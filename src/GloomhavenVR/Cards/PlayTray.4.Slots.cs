@@ -248,15 +248,92 @@ internal sealed partial class PlayTray
 
     // ------------------------------------------------------------------ item-use slot --
 
+    // ---- the item-use BERTH's geometry (see BuildItemUseSlot for the design and the report) ----
+
+    /// <summary>The berth OUTLINE's rectangle, as a factor of the card box. Just outside the
+    /// 1.04× clear area a placed card is fitted into (<c>ItemsPile.UseSlotInnerFactor</c>) and the
+    /// 0.94 of it the card actually fills, so the outline stays visible all the way round a seated
+    /// card instead of being covered by its edge — the property the old gold rim had, kept.</summary>
+    private const float ItemBerthRectFactor = 1.08f;
+
+    /// <summary>The warm FIELD inside the berth, as a factor of the card box: it fills the clear
+    /// area up to the outline's inner shoulder and no further.</summary>
+    private const float ItemBerthFieldFactor = 1.03f;
+
+    /// <summary>Corner rounding of the berth outline, as a factor of the card WIDTH. The item cards
+    /// themselves are rounded rectangles; a berth with square corners would read as a picture frame
+    /// hung around them rather than as the slot they belong in.</summary>
+    private const float ItemBerthCornerFactor = 0.10f;
+
+    // Board-local Z of the three berth layers. +Z is INTO the board, so all three sit BEHIND the
+    // z=0 plane a clipped-in card is parented at (ItemsPile.ItemChip.ClipIntoSlot) — the card lies
+    // ON the berth, and the berth's own layers never fight each other for depth.
+    private const float ItemBerthFieldZ = 0.0035f;
+    private const float ItemBerthPingZ = 0.0030f;
+    private const float ItemBerthOutlineZ = 0.0025f;
+
+    /// <summary>The berth's arrival/departure driver (see <see cref="SetItemUseSlotVisible"/>).
+    /// Null before the board is built; the component dies with the slot subtree.</summary>
+    private WorldUI.SoftCueReveal? _itemUseReveal;
+
+    /// <summary>The LOGICAL "an item is placeable right now" state — what
+    /// <see cref="SetItemUseSlotVisible"/> was last asked for, as opposed to what is on screen while
+    /// the departure animation is still running. This is the edge the multiplayer mirror is driven
+    /// from (<see cref="ItemUseSlotShown"/>).</summary>
+    private bool _itemUseSlotWanted;
+
     /// <summary>
-    /// Build the ITEM-USE clip-in slot (items rework, requirement 3): a card-sized recess
-    /// UNDER the board next to the Confirm/Undo buttons — a gold Frame + darker inner + a
-    /// pulsing "drop here" glow + a localized "USE" caption. Positioned at
+    /// Build the ITEM-USE clip-in berth (items rework, requirement 3): a card-sized destination
+    /// UNDER the board next to the Confirm/Undo buttons. Positioned at
     /// <see cref="ItemUseSlotBase"/> + the per-board <see cref="CardsConfig.ItemUseSlotOffset"/>
     /// (debug-menu tunable, live-applied via <see cref="SetItemUseSlotOffset"/>). Built ONCE and
     /// starts HIDDEN — <see cref="ItemsPile"/> shows it live only while the local player holds a
     /// usable item card on their own turn, then reads <see cref="ItemUseSlotTransform"/> to
-    /// detect a drop-in. Mirrors the procedural slot recess so it reads as a real card slot.
+    /// detect a drop-in.
+    ///
+    /// <para>REDESIGNED 2026-08-09 (user report: "Überarbeite das Aussehen des Item-Overlays.
+    /// Aktuell ist es einfach so ein schwarzes Rechteck, das am Rand pulsiert. Das sieht nicht sehr
+    /// gut aus. Überlege dir eine andere Darstellung die visuell ansprechender ist aber immer noch
+    /// das selbe vermittelt."). It WAS a mirror of the two play-slot recesses: an opaque gold 1.12×
+    /// frame, an opaque near-black 1.04× inner plate and a 1.28× additive gold quad breathing on
+    /// <c>SlotPulse</c>'s sine. Copying the play slots was the mistake, and it is a geometric one
+    /// rather than a matter of taste: those slots lie ON the board's opaque slab, which is what
+    /// their dark inner plate reads against. This berth hangs BELOW the board's lower edge
+    /// (<see cref="ItemUseSlotBase"/> is −BoardH/2 − 0.095) with nothing behind it at all — so in
+    /// mixed reality its backdrop is a chroma-key composite of the player's actual room, and a dark
+    /// plate over that is exactly what the report calls it. Worse, near the BLACK key preset a dark
+    /// plate is not a rectangle but a HOLE punched through to the passthrough camera.</para>
+    ///
+    /// <para>SO THE PLATE IS GONE AND THE BERTH IS OPEN. Four pieces, each carrying one of the four
+    /// things this widget has to keep saying:</para>
+    /// <list type="number">
+    /// <item>"A CARD GOES HERE" — a card-shaped, constant-thickness, rounded SOFT OUTLINE at the
+    ///   size a card actually lands at. It is the same outline language as the item cards' own
+    ///   "usable now" frame and the initiative ring (<see cref="WorldUI.SoftCueArt"/>), so the
+    ///   destination is drawn in the same hand as the thing that will fill it. And it is TWO-TONE —
+    ///   bright core, dark shoulder on both sides — which is what keeps it legible over a white
+    ///   wall and over a dark room alike (see SoftCueArt's CONTOUR note; with the BLACK key preset
+    ///   the dark shoulder is keyed away and the bright core carries the cue on its own).</item>
+    /// <item>"NOW" — an inward <see cref="WorldUI.SoftCuePing"/>: a ring that sweeps IN and closes
+    ///   onto the outline, on the shared item heartbeat. It is the exact mirror of the outward ring
+    ///   the closed items pile throws ("look here" ↔ "put it in here"), and it replaces the border
+    ///   sine, which was the least noticeable rhythm the widget could have had.</item>
+    /// <item>The middle is filled with LIGHT, not darkness — a pale warm translucent field, the same
+    ///   recipe <c>ItemsPile.BuildUseGhost</c> uses for the ghost card that previews a drop. The
+    ///   berth is now that ghost's resting state, so approaching with a card brightens a shape that
+    ///   is already there instead of introducing a second one. In mixed reality the room shows
+    ///   through it.</item>
+    /// <item>IT IS NOT A BUTTON (the constraint that forced the "USE" caption's restyle one round
+    ///   earlier, see the caption comment below). Every mod button is a raised, filled KEYCAP with a
+    ///   bright face and travel; this is a hollow outline with an open middle, no face, no travel,
+    ///   no press state. A hole you put something into and a cap you push are now maximally
+    ///   different objects — and the caption keeps the muted engraved pile-caption voice.</item>
+    /// </list>
+    ///
+    /// <para>And it ARRIVES and DEPARTS: the whole berth grows in with a back-ease overshoot and
+    /// collapses out (<see cref="WorldUI.SoftCueReveal"/>). It used to blink in and out on a raw
+    /// SetActive — the last unanimated transition in the item flow, and a breach of the standing
+    /// "nothing pops" rule.</para>
     /// </summary>
     private void BuildItemUseSlot()
     {
@@ -270,36 +347,57 @@ internal sealed partial class PlayTray
         go.transform.localPosition = ItemUseSlotBase + CardsConfig.ItemUseSlotOffset(CardsConfig.CurrentBoard).Value;
         go.transform.localRotation = _boardFaceFrame; // face the player like the slots / decision buttons
 
-        // Gold frame + darker inner (mirror of the procedural Slot1/Slot2 recess look).
-        var frame = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        frame.name = "Frame";
-        Object.Destroy(frame.GetComponent<Collider>());
-        frame.transform.SetParent(go.transform, worldPositionStays: false);
-        frame.transform.localScale = new Vector3(w * 1.12f, h * 1.12f, 1f);
-        frame.transform.localPosition = new Vector3(0f, 0f, 0.004f);
-        Tint(frame, new Color(0.55f, 0.45f, 0.22f));
+        // EVERYTHING THAT ANIMATES HANGS OFF ONE NODE, so the arrival and the departure are a single
+        // motion of a single object rather than four widgets each doing their own thing. The root
+        // above keeps the plain SetActive semantics the drop/ghost gates in ItemsPile read.
+        var berthGo = new GameObject("Berth");
+        berthGo.transform.SetParent(go.transform, worldPositionStays: false);
+        berthGo.transform.localPosition = Vector3.zero;
+        berthGo.transform.localRotation = Quaternion.identity;
+        Transform berth = berthGo.transform;
+        var reveal = berthGo.AddComponent<WorldUI.SoftCueReveal>();
+        reveal.DeactivateTarget = go;
+        reveal.Configure(CardsConfig.ItemBerthRevealSeconds.Value);
+        _itemUseReveal = reveal;
 
-        var inner = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        inner.name = "FrameInner";
-        Object.Destroy(inner.GetComponent<Collider>());
-        inner.transform.SetParent(go.transform, worldPositionStays: false);
-        inner.transform.localScale = new Vector3(w * 1.04f, h * 1.04f, 1f);
-        inner.transform.localPosition = new Vector3(0f, 0f, 0.003f);
-        Tint(inner, new Color(0.12f, 0.10f, 0.08f));
+        float rectW = w * ItemBerthRectFactor;
+        float rectH = h * ItemBerthRectFactor;
+        float band = Mathf.Max(0.0008f, CardsConfig.ItemBerthRingThickness.Value);
+        float corner = w * ItemBerthCornerFactor;
+        // The berth's gold, warmed toward the initiative ring's amber like every other cue in this
+        // family, run through the chroma-key guard so no key preset can turn the widget into a hole.
+        Color berthGold = WorldUI.SoftCueArt.KeySafe(new Color(1f, 0.80f, 0.36f, 0.92f));
 
-        // Pulsing warm "drop here to use" glow rim (self-animated, no PlayTray Update).
-        var glow = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        glow.name = "Glow";
-        Object.Destroy(glow.GetComponent<Collider>());
-        glow.transform.SetParent(go.transform, worldPositionStays: false);
-        glow.transform.localScale = new Vector3(w * 1.28f, h * 1.28f, 1f);
-        glow.transform.localPosition = new Vector3(0f, 0f, 0.0035f); // between frame and inner, proud
-        var glowRenderer = glow.GetComponent<MeshRenderer>();
-        var glowColor = new Color(1f, 0.82f, 0.35f, 0.8f); // warm gold — the inviting "use" highlight
-        _itemUseSlotGlow = MakeGlowMaterial(glowColor);
-        if (_itemUseSlotGlow != null)
-            glowRenderer.sharedMaterial = _itemUseSlotGlow;
-        glow.AddComponent<SlotPulse>().Init(glowRenderer, glowColor);
+        // 1. THE FIELD — light in the berth, never a dark plate. (0 = a completely open berth.)
+        float glow = Mathf.Clamp01(CardsConfig.ItemBerthGlow.Value);
+        if (glow > 0.002f)
+        {
+            GameObject field = WorldUI.SoftCueArt.FieldQuad("Field", berth,
+                new Vector3(0f, 0f, ItemBerthFieldZ),
+                w * ItemBerthFieldFactor, h * ItemBerthFieldFactor,
+                new Color(0.92f, 0.85f, 0.5f, glow)); // BuildUseGhost's own wash, at the berth's rest level
+            _itemUseSlotGlow = field.GetComponent<MeshRenderer>().sharedMaterial;
+            reveal.Track(field);
+        }
+
+        // 2. THE OUTLINE — the card-shaped destination itself.
+        GameObject outline = WorldUI.SoftCueArt.RectOutlineQuad("Outline", berth,
+            new Vector3(0f, 0f, ItemBerthOutlineZ), rectW, rectH, band, corner, berthGold);
+        reveal.Track(outline);
+
+        // 3. THE INWARD PING — "put it in HERE", on the shared item heartbeat.
+        float pingSeconds = CardsConfig.ItemBerthPingSeconds.Value;
+        float pingReach = Mathf.Max(1f, CardsConfig.ItemBerthPingReach.Value);
+        if (pingSeconds > 0.01f && pingReach > 1.001f)
+        {
+            GameObject ping = WorldUI.SoftCueArt.RectOutlineQuad("Ping", berth,
+                new Vector3(0f, 0f, ItemBerthPingZ), rectW, rectH, band, corner, berthGold);
+            ping.AddComponent<WorldUI.SoftCuePing>().Init(
+                ping.GetComponent<MeshRenderer>(), berthGold,
+                new Vector3(rectW * pingReach, rectH * pingReach, 1f),
+                new Vector3(rectW, rectH, 1f),
+                pingSeconds);
+        }
 
         // "USE" caption, BELOW the recess — never across it.
         //
@@ -330,8 +428,15 @@ internal sealed partial class PlayTray
         // the shipped pile scale the glyphs come out the same physical size. One glance now sorts the
         // board into "things you press" (bright caps, raised faces) and "things that name a zone"
         // (muted engraving under the zone) — and this is the latter.
+        //
+        // …AND IT NOW RIDES THE BERTH'S ARRIVAL. It hangs off the animated node rather than off the
+        // slot root, so the caption grows in and collapses out WITH the outline it names instead of
+        // blinking beside a widget that is animating. It is moved by the reveal's SCALE only —
+        // SoftCueReveal deliberately never writes a TMP's colour, because a TextMeshPro draws
+        // through one font-atlas material shared with every label in the game and its MR backing
+        // plate through one shared plate material (see SoftCueReveal.Track).
         var labelGo = new GameObject("Label");
-        labelGo.transform.SetParent(go.transform, worldPositionStays: false);
+        labelGo.transform.SetParent(berth, worldPositionStays: false);
         labelGo.transform.localPosition = new Vector3(0f, -(h * 0.5f + ItemUseLabelDrop), -0.002f);
         var label = labelGo.AddComponent<TextMeshPro>();
         // MOD string, not Loc.Game("GUI_USE"): that key does not resolve in this build, so the
@@ -354,11 +459,12 @@ internal sealed partial class PlayTray
         // slot awaiting the decision. See BuildButtons / SetItemUseConfirmVisible.
 
         Core.VRLayers.Apply(go);
-        // 2026-08-04 (status-placard defect family): the pulsing glow quad and the "USE" TMP
-        // caption are depth-less transparents — ride the board's furniture order group so a
-        // panel BEHIND the board cannot paint over them (opaque frame/inner quads skipped).
+        // 2026-08-04 (status-placard defect family): every piece of this berth is a depth-less
+        // alpha-blended transparent (there is no opaque quad left in it at all since the plate went)
+        // — ride the board's furniture order group so a panel BEHIND the board cannot paint over it.
         AdoptFurniture(go);
         go.SetActive(false); // ItemsPile toggles it live via SetItemUseSlotVisible
+        _itemUseSlotWanted = false; // a freshly built berth starts hidden; keep the logical state with it
         _itemUseSlot = go.transform;
     }
 
@@ -400,11 +506,52 @@ internal sealed partial class PlayTray
     /// </summary>
     internal Transform? ItemUseSlotTransform => _itemUseSlot;
 
-    /// <summary>Show/hide the item-use slot (idempotent). Driven live by <see cref="ItemsPile"/>'s gate.</summary>
+    /// <summary>
+    /// Show/hide the item-use berth (idempotent). Driven live by <see cref="ItemsPile"/>'s gate.
+    ///
+    /// <para>ANIMATED SINCE 2026-08-09 — this was a raw <c>SetActive</c>, i.e. the one transition in
+    /// the whole item flow that popped, against the standing "nothing that appears, disappears or
+    /// moves does so without an animation" rule. Showing activates the root and plays the berth's
+    /// arrival; hiding plays the departure and lets <see cref="WorldUI.SoftCueReveal"/> switch the
+    /// root off at the END of it, because a component cannot animate its own disappearance from
+    /// inside a GameObject that has already been deactivated.</para>
+    ///
+    /// <para>SO THE ROOT STAYS ACTIVE FOR THE LENGTH OF THE COLLAPSE (a fraction of a second), and
+    /// the two gates in <see cref="ItemsPile"/> that read its <c>activeSelf</c> see it. Both are
+    /// coarse pre-filters in front of the real authority and neither can act on its own:
+    /// <c>TickUseGhost</c> also requires the pile's own live "show the use slot" answer, which has
+    /// just gone false, and <c>OnChipReleased</c> goes on to ask the game's demand / active-bonus /
+    /// activatable checks, which are what actually decide whether a drop uses anything. The LOGICAL
+    /// state is tracked separately in <see cref="_itemUseSlotWanted"/> and is what the multiplayer
+    /// mirror is driven from (<see cref="ItemUseSlotShown"/>), so a peer's copy flips on the same
+    /// edge this animation starts on rather than at the end of it.</para>
+    /// </summary>
     internal void SetItemUseSlotVisible(bool visible)
     {
-        if (_itemUseSlot != null && _itemUseSlot.gameObject.activeSelf != visible)
-            _itemUseSlot.gameObject.SetActive(visible);
+        if (_itemUseSlot == null)
+            return;
+        bool active = _itemUseSlot.gameObject.activeSelf;
+        // Re-assert a SHOW whose root went inactive under us (board rebuild / teardown races) —
+        // the wanted flag alone would latch the berth away for the rest of the decision.
+        if (visible == _itemUseSlotWanted && (!visible || active))
+            return;
+        _itemUseSlotWanted = visible;
+        if (_itemUseReveal == null)
+        {
+            if (active != visible)
+                _itemUseSlot.gameObject.SetActive(visible); // shader-less fallback: no art, no reveal
+            return;
+        }
+        if (visible)
+        {
+            if (!active)
+                _itemUseSlot.gameObject.SetActive(true);
+            _itemUseReveal.Show();
+        }
+        else
+        {
+            _itemUseReveal.Hide(); // deactivates the root once the collapse has played out
+        }
     }
 
     /// <summary>
@@ -644,9 +791,15 @@ internal sealed partial class PlayTray
     /// see <see cref="ConfirmCapAccent"/>.</summary>
     internal bool ConfirmCapConfirmed => _confirm != null && _confirm.StateConfirmed;
 
-    /// <summary>True while the item-use clip-in RECESS is shown (ItemsPile toggles it while the
-    /// owner is handling a usable item).</summary>
-    internal bool ItemUseSlotShown => _itemUseSlot != null && _itemUseSlot.gameObject.activeSelf;
+    /// <summary>True while the item-use clip-in BERTH is shown (ItemsPile toggles it while the owner
+    /// is handling a usable item).
+    ///
+    /// <para>Reads the LOGICAL state, not the root's <c>activeSelf</c>: since the berth animates out
+    /// (see <see cref="SetItemUseSlotVisible"/>) the GameObject outlives the decision by the length
+    /// of the collapse, and a peer must flip on the edge the owner's own animation starts on — that
+    /// is what lets the mirror play its own matching arrival/departure instead of popping a frame
+    /// late.</para></summary>
+    internal bool ItemUseSlotShown => _itemUseSlot != null && _itemUseSlotWanted;
 
     /// <summary>True while the item-use USE cap is up (a card is clipped in / a demand pick is
     /// ready — the dynamic third member of the confirm cluster).</summary>

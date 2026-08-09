@@ -467,8 +467,10 @@ internal sealed class PileViewer
         _loggedUsable = usable;
         _loggedStackCue = on;
         VRLog.Info("Cards", $"ITEM highlight: {usable}/{itemCount} item(s) usable now — " +
-                            $"stack embers {(on ? "ON" : "off")}, fan {(_itemsBrowse.IsOpen ? "open" : "closed")} " +
-                            "(usable cards wear the soft gold frame; nothing is dimmed).");
+                            $"stack cue {(on ? "ON" : "off")} (ember puffs + outward rings on a " +
+                            $"{CardsConfig.ItemCueBeatSeconds.Value:0.00}s heartbeat), " +
+                            $"fan {(_itemsBrowse.IsOpen ? "open" : "closed")} " +
+                            "(usable cards wear the soft gold frame on the same beat; nothing is dimmed).");
     }
 
     // ------------------------------------------------------------------ dispatch --
@@ -529,11 +531,13 @@ internal sealed class PileViewer
         private int _shown = int.MinValue;
         private bool _hasCards;
 
-        // USABLE-HIGHLIGHT (items stack only, built lazily on first use): a slow drift of soft gold
-        // embers rising off the stack while at least one equipped item can be played right now. Built
-        // lazily because only the ITEMS stack ever asks for it — the discard/burnt stacks must not pay
-        // for a particle system they never show.
+        // USABLE-HIGHLIGHT (items stack only, built lazily on first use): soft gold embers rising off
+        // the stack while at least one equipped item can be played right now, plus — since the third
+        // "zu dezent" report (2026-08-09) — rings of light thrown outward off the pile on a shared
+        // heartbeat. Built lazily because only the ITEMS stack ever asks for either: the discard/burnt
+        // stacks must not pay for a particle system and two quads they never show.
         private ParticleSystem? _usableEmbers;
+        private WorldUI.SoftCueReveal? _usableRings;
         private bool _usableCueOn;
 
         // Slab footprint: 0.62× card size — reads as a mini pile without crowding
@@ -646,25 +650,44 @@ internal sealed class PileViewer
         }
 
         /// <summary>
-        /// USABLE-HIGHLIGHT — start (or stop) the stack's ember drift. Called every frame by
-        /// <see cref="PileViewer.TickItemsUsableHighlight"/> with the live "at least one item is usable
-        /// right now" answer, and change-gated here so the emitter is never re-triggered per frame.
+        /// USABLE-HIGHLIGHT — start (or stop) the closed items pile's "something in here is playable"
+        /// cue. Called every frame by <see cref="PileViewer.TickItemsUsableHighlight"/> with the live
+        /// answer, and change-gated here so nothing is re-triggered per frame.
         ///
-        /// WHY PARTICLES AND NOT A FRAME (user's own split): the item CARDS get a frame because a card
-        /// has a silhouette worth tracing; the closed stack does not — it is a 4-slab lump lying flat on
-        /// the board, and a frame around it would be exactly the rectangle of light the user rejected.
-        /// So the deck hints at "something in here is playable" the way a fantasy table would: a few soft
-        /// gold motes lifting off the pile and fading out, round and irregular, never a shape.
+        /// WHY PARTICLES AND NOT A FRAME (the user's own split, and it still stands): the item CARDS get
+        /// a frame because a card has a silhouette worth tracing; the closed stack does not — it is a
+        /// 4-slab lump lying flat on the board, and a frame around it would be exactly the rectangle of
+        /// light the user rejected. So the deck speaks in ROUND shapes: soft gold motes lifting off the
+        /// pile, and rings of light thrown outward off it.
         ///
-        /// SUBTLE BY CONSTRUCTION: ~5 motes a second, each a few millimetres across, living under two
-        /// seconds, at well under half opacity, drifting a couple of centimetres. At any instant there
-        /// are under a dozen on screen — a shimmer you notice in peripheral vision, not an effect that
-        /// competes with the board.
+        /// <para>THE RINGS ARE NEW, AND THEY ARE WHY THIS COMMENT NO LONGER SAYS "SUBTLE BY
+        /// CONSTRUCTION". It used to, in those words: "~5 motes a second, each a few millimetres across,
+        /// living under two seconds, at well under half opacity … a shimmer you notice in peripheral
+        /// vision". Every clause of that was a decision AGAINST being noticed, and it was authored for a
+        /// black VR skybox. The user has now reported it as too easy to miss three times, most recently
+        /// (2026-08-09) "Die Animation über dem Pile … ist immer noch zu dezent und kann man schnell
+        /// übersehen. Ich mag die Animation aber sie muss mehr herausstechen." — so the embers stay, and
+        /// two things they never had are added:</para>
+        /// <list type="bullet">
+        /// <item>A RHYTHM WITH A REST IN IT. A steady trickle is a continuous state, and peripheral
+        ///   vision — which is what "übersehen" is about — reports transients, not states. The emission
+        ///   now PUFFS on a heartbeat (<c>WorldUI.SoftCueArt.Heartbeat</c>), the same clock the item
+        ///   cards' frames beat on, so the whole item cue speaks with one pulse.</item>
+        /// <item>A CHANGING SILHOUETTE. Chroma-keyed passthrough is a live video feed of a lit room: it
+        ///   beats the mod on contrast and on static edges, but it contains nothing that changes SIZE.
+        ///   Each beat therefore throws a soft ROUND ring outward off the pile, growing and fading —
+        ///   round, so the rejected rectangle stays rejected, and the hollow sibling of the very mote
+        ///   texture the cue is already made of, so this is the same visual family enlarged rather than
+        ///   a new effect. Two rings share the period at opposite phases: never continuous, never
+        ///   silent for long.</item>
+        /// </list>
         ///
-        /// Switching OFF stops EMISSION only, so the motes already in flight finish their fade instead of
-        /// vanishing mid-air (a hard clear is what would read as a bug when a turn ends).
+        /// <para>Switching OFF stops ember EMISSION only, so the motes already in flight finish their
+        /// fade instead of vanishing mid-air (a hard clear is what would read as a bug when a turn
+        /// ends), and the rings collapse out through <see cref="WorldUI.SoftCueReveal"/> rather than
+        /// blinking away — the standing "nothing pops" rule.</para>
         ///
-        /// Mod-owned child of this stack: hidden with the stack, destroyed with it, nothing game-side
+        /// Mod-owned children of this stack: hidden with the stack, destroyed with it, nothing game-side
         /// touched. Purely local — no game state, no network traffic (multiplayer-neutral).
         /// </summary>
         internal void SetUsableHighlight(bool on)
@@ -672,19 +695,92 @@ internal sealed class PileViewer
             if (on == _usableCueOn)
                 return;
             _usableCueOn = on;
-            if (_usableEmbers == null)
+
+            if (_usableEmbers == null && on)
+                _usableEmbers = BuildUsableEmbers(); // null in a shader-less environment: degrade, never crash
+            if (_usableEmbers != null)
             {
-                if (!on)
-                    return; // never built, never needed — don't pay for the emitter
-                _usableEmbers = BuildUsableEmbers();
-                if (_usableEmbers == null)
-                    return; // shader-less environment — the cue degrades to nothing (never to a crash)
+                if (on)
+                    _usableEmbers.Play();
+                else
+                    _usableEmbers.Stop(withChildren: false, ParticleSystemStopBehavior.StopEmitting);
             }
+
+            if (_usableRings == null && on)
+                _usableRings = BuildUsableRings();
+            if (_usableRings == null)
+                return;
             if (on)
-                _usableEmbers.Play();
+            {
+                if (!_usableRings.gameObject.activeSelf)
+                    _usableRings.gameObject.SetActive(true);
+                _usableRings.Show();
+            }
             else
-                _usableEmbers.Stop(withChildren: false, ParticleSystemStopBehavior.StopEmitting);
+            {
+                _usableRings.Hide();
+            }
         }
+
+        /// <summary>
+        /// Build the pile's ring emitter once — two <see cref="WorldUI.SoftCuePing"/> quads sharing one
+        /// period at opposite phases, so a ring leaves the stack on every beat.
+        ///
+        /// <para>The rings are ROUND (<c>SoftCueArt.RingQuad</c>) and two-tone: a bright gold core with a
+        /// dark shoulder on either side, because a cue drawn in one tone can only be seen where it
+        /// differs in luminance from a background nobody controls — see SoftCueArt's CONTOUR note. They
+        /// travel outward, which is the "look over here" sentence; the item-use berth on the board says
+        /// the mirror-image "put it in here" with the same component travelling inward.</para>
+        ///
+        /// <para>Parked a hair proud of the top slab and BEHIND the count label's own plane, so a ring
+        /// can never fog the number it flies around. Returns null only if the shared quad recipe has no
+        /// shader to build on.</para>
+        /// </summary>
+        private WorldUI.SoftCueReveal? BuildUsableRings()
+        {
+            float alpha = Mathf.Clamp01(CardsConfig.ItemCueRingAlpha.Value);
+            float reach = Mathf.Max(1f, CardsConfig.ItemCueRingReach.Value);
+            if (alpha <= 0.002f || reach <= 1.001f)
+                return null; // dialled off — build nothing at all
+            float beat = Mathf.Max(0.2f, CardsConfig.ItemCueBeatSeconds.Value);
+            float w = CardsConfig.CardWidth.Value * SlabFactor;
+            float h = CardsConfig.CardHeight * SlabFactor;
+            float seed = Mathf.Max(w, h) * 1.05f; // starts just around the stack's own footprint
+
+            var root = new GameObject("UsableRings");
+            root.transform.SetParent(transform, worldPositionStays: false);
+            root.transform.localPosition = new Vector3(0f, 0f, -0.0018f);
+            root.transform.localRotation = Quaternion.identity;
+            // The arrival/departure driver goes on FIRST: SoftCuePing caches its parent reveal in Init,
+            // and it is what fades the rings in and out instead of letting them blink.
+            var reveal = root.AddComponent<WorldUI.SoftCueReveal>();
+            reveal.DeactivateTarget = root;
+            reveal.Configure(0.28f);
+
+            Color gold = WorldUI.SoftCueArt.KeySafe(new Color(1f, 0.80f, 0.36f, alpha));
+            for (int i = 0; i < 2; i++)
+            {
+                GameObject ring = WorldUI.SoftCueArt.RingQuad($"Ring{i}", root.transform,
+                    Vector3.zero, seed, seed * RingBandFraction, gold);
+                var ping = ring.AddComponent<WorldUI.SoftCuePing>();
+                ping.Phase = i * 0.5f; // the two rings split the period between them
+                ping.Init(ring.GetComponent<MeshRenderer>(), gold,
+                    new Vector3(seed, seed, 1f),
+                    new Vector3(seed * reach, seed * reach, 1f),
+                    beat * 2f, duty: 0.85f);
+            }
+
+            Core.VRLayers.Apply(root); // mod-owned FX on the mod layer
+            // Alpha-blended and depth-less like the labels — ride the board's furniture order group.
+            PlayTray.AdoptFurniture(root);
+            reveal.Show();
+            return reveal;
+        }
+
+        /// <summary>Ring line thickness as a fraction of its own starting diameter. Thick enough that
+        /// the two-tone edge survives the lower-resolution, motion-blurred passthrough feed; thin
+        /// enough that the ring stays a ring rather than becoming a disc.</summary>
+        private const float RingBandFraction = 0.11f;
 
         /// <summary>
         /// Build the stack's ember emitter once. Local simulation space so the motes ride the tray if the
@@ -716,23 +812,39 @@ internal sealed class PileViewer
             go.transform.localPosition = new Vector3(0f, 0f, -0.0016f);
             go.transform.localRotation = Quaternion.identity;
 
+            float beat = Mathf.Max(0.2f, CardsConfig.ItemCueBeatSeconds.Value);
+            float rate = Mathf.Max(0f, CardsConfig.ItemCueEmberRate.Value);
+            float emberSize = Mathf.Max(0.1f, CardsConfig.ItemCueEmberSize.Value);
+
             var ps = go.AddComponent<ParticleSystem>();
             ParticleSystem.MainModule main = ps.main;
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
             main.scalingMode = ParticleSystemScalingMode.Hierarchy; // follows a scaled tray
             main.playOnAwake = false;
             main.loop = true;
-            main.maxParticles = 24;
+            // ONE LOOP IS ONE BEAT. That is what lets a single burst at time 0 fire on every heartbeat
+            // for free, with no per-frame driver and no clock of its own to drift against the rings'.
+            main.duration = beat;
+            main.maxParticles = 128;
             main.startSpeed = 0f;      // drift comes from velocityOverLifetime below
             main.gravityModifier = 0f;
             main.startLifetime = new ParticleSystem.MinMaxCurve(1.4f, 2.2f);
-            main.startSize = new ParticleSystem.MinMaxCurve(w * 0.045f, w * 0.11f);
+            main.startSize = new ParticleSystem.MinMaxCurve(w * 0.045f * emberSize, w * 0.11f * emberSize);
             main.startColor = EmberColor;
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, 2f * Mathf.PI);
 
+            // A THIN CONTINUOUS BED PLUS A PUFF ON THE BEAT, rather than the old flat trickle. The bed
+            // keeps the pile alive between beats; the puff is the transient peripheral vision actually
+            // answers to (see SetUsableHighlight). Roughly a third of the budget is spent continuously
+            // and two thirds arrives at once — the split that reads as breathing rather than as a
+            // machine, and it is why turning the RATE up on its own never fixed this.
             ParticleSystem.EmissionModule emission = ps.emission;
             emission.enabled = true;
-            emission.rateOverTime = 5f;
+            emission.rateOverTime = rate * 0.35f;
+            int puff = Mathf.Clamp(Mathf.RoundToInt(rate * 0.65f * beat), 0, 60);
+            emission.SetBursts(puff > 0
+                ? new[] { new ParticleSystem.Burst(0f, (short)puff) }
+                : System.Array.Empty<ParticleSystem.Burst>());
 
             ParticleSystem.ShapeModule shape = ps.shape;
             shape.enabled = true;
@@ -745,9 +857,13 @@ internal sealed class PileViewer
             ParticleSystem.VelocityOverLifetimeModule vel = ps.velocityOverLifetime;
             vel.enabled = true;
             vel.space = ParticleSystemSimulationSpace.Local;
-            vel.x = new ParticleSystem.MinMaxCurve(-0.004f, 0.004f);
-            vel.y = new ParticleSystem.MinMaxCurve(0.010f, 0.022f);
-            vel.z = new ParticleSystem.MinMaxCurve(-0.008f, -0.002f);
+            // Roughly doubled since the presence pass: a mote that only drifts a couple of centimetres
+            // over its whole life never crosses enough of the visual field to be a MOVEMENT, and the
+            // lean toward the viewer is the term that separates the puff from the room in stereo —
+            // the one depth cue passthrough structurally cannot mask.
+            vel.x = new ParticleSystem.MinMaxCurve(-0.008f, 0.008f);
+            vel.y = new ParticleSystem.MinMaxCurve(0.022f, 0.048f);
+            vel.z = new ParticleSystem.MinMaxCurve(-0.018f, -0.006f);
 
             // Gentle organic wander — this is what keeps the drift from reading as a straight line.
             ParticleSystem.NoiseModule noise = ps.noise;
@@ -795,8 +911,10 @@ internal sealed class PileViewer
 
         /// <summary>The mod's telegraph gold, warmed toward the initiative ring's amber so the deck cue and
         /// the item cards' frame read as the same voice. Alpha is the ember's CEILING — the lifetime
-        /// gradient above never lets a mote reach it for long.</summary>
-        private static readonly Color EmberColor = new Color(1f, 0.80f, 0.36f, 0.45f);
+        /// gradient above never lets a mote reach it for long. Lifted from 0.45 in the 2026-08-09 pass:
+        /// "well under half opacity" was one of the clauses that made the cue subtle by construction,
+        /// and against a lit room half-opacity gold is not a mote, it is a suggestion of one.</summary>
+        private static readonly Color EmberColor = new Color(1f, 0.80f, 0.36f, 0.85f);
 
         // ---- grab (refused) --------------------------------------------------------
 
