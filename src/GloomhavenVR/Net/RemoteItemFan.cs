@@ -526,7 +526,10 @@ internal sealed class RemoteItemFan
             // answer — the exact defect ItemsPile fixed locally by having Relayout skip its own
             // PendingUse chip.
             if (i == _clipIndex)
+            {
+                TickRecessPop(i, hovered, dt);
                 continue;
+            }
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * _radius, (Mathf.Cos(rad) - 1f) * _radius, -ZStagger * i);
@@ -538,7 +541,15 @@ internal sealed class RemoteItemFan
             // animation — a 1:1 miss the standing ruling names explicitly. Same shared formula, same
             // ×ChipScale gain, and the pivot itself does not move: its lift comes below, exactly as
             // the owner's chip applies its pop on top of the finished arc pose.
-            if (hovered >= 0 && i != hovered)
+            //
+            // …UNLESS THE SINGLED-OUT CARD IS THE ONE LYING IN THE RECESS (see TickRecessPop). Record
+            // 6 now also names that card — it has a perfectly good arc index and its lift is a board
+            // animation the 1:1 ruling covers — but it is NOT at an arc position, so splitting the
+            // arc around its seat would open a gap around a card that is not there. The owner's own
+            // arc does not split for it either (a clipped chip is not sweep-eligible and therefore
+            // never becomes ItemsPile.Relayout's pivot), so declining here is what keeps the two
+            // arcs identical rather than an exception to the rule.
+            if (hovered >= 0 && hovered != _clipIndex && i != hovered)
                 pos += rot * new Vector3(SplitOffset(i - hovered) * ChipScale, 0f, 0f);
 
             // THE LIFT, exactly as the owner's own chip applies it (ItemsPile.ItemChip.Update):
@@ -787,6 +798,64 @@ internal sealed class RemoteItemFan
         t.localPosition = Vector3.Lerp(t.localPosition, Vector3.zero, k);
         t.localRotation = Quaternion.Slerp(t.localRotation, Quaternion.identity, k);
         t.localScale = Vector3.Lerp(t.localScale, Vector3.one * _clipFitScale, k);
+    }
+
+    /// <summary>
+    /// THE LIFT OF THE SLAB LYING IN THE MIRRORED RECESS — the receiver's copy of
+    /// <c>ItemsPile.ItemChip.TickRecessPop</c> (user report 2026-08-09: "Ich will das die
+    /// Gegenstandskarte die auf dem Overlay liegt auch nach oben hinweg gehighlighted wird …").
+    ///
+    /// <para>WHY IT IS MIRRORED AT ALL, stated because the standing 1:1 ruling deserves an answer and
+    /// not an exemption. A hover is inherently about the LOCAL player's hand, and the mod has already
+    /// drawn that line twice — for the ability fan and for the item arc — in exactly one place: the
+    /// highlighted card's POSITION travels, the HAPTIC does not (see <c>ItemsPile.UpdateHandSweep</c>'s
+    /// note: a pulse in the motor of one player's controller is not board state, and there is no hand
+    /// of theirs at that card on a peer's machine). A card visibly rising out of the berth on the
+    /// owner's control board IS board state — an <i>Anzeige</i> of their board, which is the wording
+    /// the ruling uses — so it travels, on the same terms and through the same channel as the arc's
+    /// lift: a bare INDEX on extension record 6, never an item identity, with the ramp run on the
+    /// LOCAL clock so the wire carries a position and never an animation.</para>
+    ///
+    /// <para>NO WIRE CHANGE AND NO NEW DIAL: the clipped slab already has an arc index (it is the very
+    /// number record 26 sends), so <c>ItemsPile.HighlightedIndex</c> simply names it when it is the
+    /// card being singled out, and this method recognises the case by comparing the received highlight
+    /// against the clip index it already holds.</para>
+    ///
+    /// <para>THE MOTION IS THE OWNER'S, term for term: <see cref="PopUp"/> along the recess frame's
+    /// +Y (the board's up), the owner's own <c>FanSelectedPopForward</c> along its −Z (out of the
+    /// board toward them), ×<see cref="PopScale"/> on top of the recess FIT scale, ramped at
+    /// <see cref="PopLerpSpeed"/> through the shared <see cref="PopAmount"/>. Rotation is left at the
+    /// identity the settle landed on — a lift is not a rotation, and the clipped slab carries no
+    /// tapped roll in the recess frame.</para>
+    ///
+    /// <para>THE ARRIVAL SETTLE WINS while it is running, exactly as it does locally: the two
+    /// animations must never write the same frame, and holding the ramp at zero until the card has
+    /// landed is what keeps the lift from starting halfway up when the settle's final exact
+    /// assignment lands. And when nothing is lifted this writes NOTHING, so the hierarchy goes on
+    /// holding the slab rigidly — the property <see cref="TickClipSettle"/> exists to protect.</para>
+    ///
+    /// <para>ONE WINDOW IT CANNOT COVER, honestly: while the owner's ARC IS DOWN and only the card
+    /// remains (<see cref="_clipDetached"/>), the sender has no open fan to read the highlight off —
+    /// <c>ItemsPile.Current</c> is unpublished by the close — so record 6 carries nothing and this
+    /// path is not reached. The card still LIES in the mirrored recess (record 26 / the detached
+    /// service); only its hover lift is dark there. Closing that needs a sender-side source, which
+    /// lives outside this renderer.</para>
+    /// </summary>
+    private void TickRecessPop(int i, int hovered, float dt)
+    {
+        if (_clipSettle > 0f)
+            return; // the arrival owns the pose; the lift starts once the card has landed
+        while (_pop.Count <= i)
+            _pop.Add(0f);
+        // Tested BEFORE the ramp is advanced, exactly as the owner's own guard is: asking afterwards
+        // would skip the very frame the ramp lands on zero and leave the slab stranded a millimetre
+        // or two out of its berth for as long as nobody hovered it again.
+        if (i != hovered && _pop[i] <= 0f)
+            return; // seated and un-hovered: touch nothing (see the settle's own note)
+        float popT = PopAmount(i, hovered, dt);
+        Transform t = _cards[i].transform;
+        t.localPosition = new Vector3(0f, PopUp * popT, -_popForward * popT);
+        t.localScale = Vector3.one * (_clipFitScale * (1f + (PopScale - 1f) * popT));
     }
 
     /// <summary>
