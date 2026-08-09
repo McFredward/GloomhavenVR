@@ -416,7 +416,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 96;
+    public const ushort ModBuild = 97;
+    // Build 97: the Skip cap is not a PlayTray BoardButton but a ButtonCluster member, so the
+    // per-character ownership machinery of builds 84-91 had never applied to it — it now computes
+    // the SAME four facts from the same sources as ConfirmCapsForeignView, nuance included. Its dial
+    // family ([RoundButtons], which already WAS its family — a second section would have meant two
+    // sections driving one cap) moved onto the board topic and, with three sibling families, onto
+    // the wire: 19 dials, PENDING debt 65 -> 46, page count unchanged so convergence stays <=400 ms.
+    // The item chips now lift, glow and buzz like ability cards — the chip's lift had no UPWARD
+    // component at all and its haptic hung off the grabber's highlight rather than the fan election,
+    // so buzz and lift landed on different chips at different moments and read as nothing.
+    // The laser stand-down reaches every fan: the browse arcs were structurally dead, their election
+    // grab-gated twice down to IsLocalHand — so reaching into ANOTHER PLAYER'S discard pile could
+    // never stand a beam down. And the contact test's lateral slack got an absolute floor: it was
+    // purely proportional, which silently made the near-square item card (2.2 mm of rim) harder to
+    // touch than an ability card (3.5 mm), and 9 of 26 logged contacts were captured under 1.5 mm —
+    // grazes, not holds. Tracking noise does not shrink because the card did.
+    // No wire FORMAT change; record 28 grew inside the paging scheme built in build 96.
     // Build 96: the item area gets its animations back and the 1:1 tuning guarantee gets teeth.
     // LOCAL: the item-flow caps were DESTROYED and RECREATED on every clip-in (33 board builds in
     // one session, 29 of them within three lines of a clip-in) — construction is the one transition
