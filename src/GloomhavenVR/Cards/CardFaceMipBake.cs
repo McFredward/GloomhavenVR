@@ -78,10 +78,11 @@ namespace GloomhavenVR.Cards;
 /// original sprites back before a face is returned to the game (full-restore
 /// contract, Patches/CardLifecyclePatches.cs).
 ///
-/// Budget: at most <see cref="MaxBakedTextures"/> unique textures, each ≤
-/// <see cref="MaxTextureDim"/>² (a 4096² RGBA32 mip chain ≈ 85 MB VRAM — PCVR renders
-/// on the desktop GPU, and in practice the card canvases sample 1-2 big atlases plus
-/// a handful of tiny strips). Every bake logs name/size/mip count/VRAM so the
+/// Budget: a VRAM BYTE ceiling, <see cref="MaxBakedVramBytes"/>, shared by the
+/// whole-atlas and per-sprite paths (each texture still ≤ <see cref="MaxTextureDim"/>²).
+/// It used to be two COUNT caps, and that is what caused the 2026-08 "wieder starkes
+/// Aliasing" regression — read <see cref="MaxBakedVramBytes"/> for the post-mortem.
+/// Every bake logs name/size/mip count/filter mode/VRAM and the running budget, so the
 /// hardware log carries the evidence. Failures are per-texture and permanent (no
 /// retry storms); the face then simply keeps sampling the original mipless atlas —
 /// never worse than before. Config gate: [Cards] FaceMipBake.
@@ -89,19 +90,52 @@ namespace GloomhavenVR.Cards;
 internal static class CardFaceMipBake
 {
     /// <summary>
-    /// Hard cap on unique baked ATLAS textures (VRAM guard). The first cut's cap of 8 was fully
-    /// consumed in the hardware log (MIP BAKE 8/8 — per-class art strips arrive async and stack
-    /// up across classes), so any later class' art was silently left mipless; 24 covered a full
-    /// four-class party with headroom, and hitting the cap now LOGS instead of silently skipping.
-    /// Raised to 32 when the WorldUI surfaces joined this shared cache (initiative-track
-    /// portraits are one small per-class texture each, tooltip frames ride the already-baked UI
-    /// atlases — see <c>WorldUI.PanelMipBake</c>): the newcomers are small, but they must never
-    /// evict a later class' card art into silent miplessness by exhausting the old budget.
+    /// THE budget that actually matters: total VRAM held by every baked copy (whole-atlas AND
+    /// per-sprite), because VRAM — not "how many textures" — is the scarce resource.
+    ///
+    /// <para>ALIASING REGRESSION, 2026-08 (user: "Die Linien und Rahmen auf allen Karten und den
+    /// Gegnerinfos haben wieder starkes Aliasing — ich hatte das Gefühl das war schonmal
+    /// besser."). He was right, and this constant is why. The old budgets were COUNTS —
+    /// <c>MaxBakedTextures = 32</c> and <c>MaxSpriteBakes = 48</c> — sized back when the ability
+    /// card faces were the only consumer of this cache. Since then ItemsPile (item cards),
+    /// <c>WorldUI.PanelMipBake</c> (initiative track + tooltips), <c>Net.RemoteElementStrip</c>
+    /// and <c>Net.RemoteCardArt</c> all joined the SAME pool, first-come-first-served. The
+    /// hardware log shows the result exactly:</para>
+    /// <list type="bullet">
+    /// <item><description>slot 48/48 was consumed by main-menu / button chrome
+    /// ('BtnAtlas_Shadow_34', 'Menu_Pointer', 'Highlighted_avatar_selector', 'Sarala_*',
+    /// 'Trust_Icon' …) BEFORE the scenario's card art had finished loading;</description></item>
+    /// <item><description>then 87 consecutive "budget exhausted" skips — including every class'
+    /// FRAME art (<c>AC_Brute_Background</c>, <c>AC_Berserker_Background</c>,
+    /// <c>AC_Elementalist_Background</c>, <c>AC_Summoner_Background</c>, <c>AC_Enemy</c>), every
+    /// element icon (<c>ConsumeIce</c>, <c>CreateDark_Highlight</c> …) and every item card icon:
+    /// literally "die Linien und Rahmen auf allen Karten";</description></item>
+    /// <item><description>and 32/32 on the texture side, which left the enemy portraits
+    /// 'cultist', 'living bones', 'living corpse elite' and 'city guard elite' mipless: literally
+    /// "die Gegnerinfos".</description></item>
+    /// </list>
+    /// <para>The counts were a bad proxy because the members differ by three orders of magnitude:
+    /// a 128² per-sprite bake is ~87 KB of VRAM while the 4096² BattleOverlayCanvas atlas is
+    /// ~85 MB, and the old code charged them the same "one slot". The whole per-sprite pool in
+    /// that log — all 48 bakes — cost under 6 MB. So the budget is now measured in BYTES: the
+    /// tiny sprites that carry the card lines and frames cost essentially nothing and can never
+    /// again be crowded out by menu chrome, while the genuinely expensive 4096² atlases stay
+    /// bounded. 384 MB is ~3× the ~125 MB the full hardware log actually baked (one 4096² atlas
+    /// + all class art + all portraits + every sprite), i.e. headroom for a second big atlas and
+    /// a full four-class party, on the desktop GPU that renders PCVR.</para>
     /// </summary>
-    private const int MaxBakedTextures = 32;
+    private const long MaxBakedVramBytes = 384L * 1024 * 1024;
 
-    /// <summary>Hard cap on PER-SPRITE bakes (trimmed/tight-packed sprites get their own small texture).</summary>
-    private const int MaxSpriteBakes = 48;
+    /// <summary>
+    /// Runaway guard only — NOT a tuning knob. The real gate is <see cref="MaxBakedVramBytes"/>;
+    /// this exists so a pathological stream of unique textures cannot grow the dictionaries
+    /// without bound even if every entry is 4 KB. Deliberately far above any observed content
+    /// (the hardware log's whole run baked 32 textures and 48 sprites).
+    /// </summary>
+    private const int MaxBakedTextures = 256;
+
+    /// <summary>Runaway guard on PER-SPRITE bakes — see <see cref="MaxBakedTextures"/>.</summary>
+    private const int MaxSpriteBakes = 512;
 
     /// <summary>Largest side for a per-sprite baked texture (card-face sprites are ≤ ~1024).</summary>
     private const int MaxSpriteDim = 2048;
@@ -150,6 +184,38 @@ internal static class CardFaceMipBake
     private static int s_spriteBakeCount;
     private static bool s_swapLogged;
     private static bool s_errorLogged;
+
+    /// <summary>VRAM currently held by every baked copy (whole-atlas + per-sprite) — the
+    /// quantity <see cref="MaxBakedVramBytes"/> bounds. Charged on success only.</summary>
+    private static long s_bakedVramBytes;
+
+    /// <summary>One line the first time the VRAM budget genuinely binds, so a hardware log says
+    /// "we ran out of the resource we meant to ration" instead of the old, misleading "we ran out
+    /// of slots" (which is what produced the 2026-08 aliasing regression).</summary>
+    private static bool s_vramBudgetLogged;
+
+    /// <summary>
+    /// VRAM an RGBA32 texture with a full mip chain occupies: w·h·4 for mip 0 plus the
+    /// geometric ¼-per-level tail, i.e. ×4/3. The one costing formula for both bake paths, so
+    /// a 128² sprite (~87 KB) and a 4096² atlas (~85 MB) are charged what they actually cost.
+    /// </summary>
+    private static long MipChainBytes(int width, int height) => (long)width * height * 4L * 4L / 3L;
+
+    /// <summary>Budget verdict + one-time log when the VRAM ceiling is what stops a bake.</summary>
+    private static bool FitsVramBudget(long cost, string what)
+    {
+        if (s_bakedVramBytes + cost <= MaxBakedVramBytes)
+            return true;
+        if (!s_vramBudgetLogged)
+        {
+            s_vramBudgetLogged = true;
+            VRLog.Warn("Cards", $"MIP BAKE VRAM budget reached at ~{s_bakedVramBytes / (1024f * 1024f):F0} MB " +
+                                $"of {MaxBakedVramBytes / (1024f * 1024f):F0} MB — '{what}' (~{cost / (1024f * 1024f):F1} MB) " +
+                                "and anything after it keep the game's mipless originals. This is the REAL " +
+                                "ceiling; if card lines/frames shimmer again, raise MaxBakedVramBytes, not a count.");
+        }
+        return false;
+    }
 
     /// <summary>
     /// Swap every mipless-atlas sprite under <paramref name="faceRoot"/> (the adopted
@@ -458,9 +524,15 @@ internal static class CardFaceMipBake
             }
             else
             {
-                if (s_spriteBakeCount >= MaxSpriteBakes)
+                // Budget: BYTES, not slots (see MaxBakedVramBytes — the 2026-08 regression was
+                // a 48-slot count cap that menu chrome consumed before the card frames loaded).
+                long spriteCost = MipChainBytes(fullW, fullH);
+                if (s_spriteBakeCount >= MaxSpriteBakes
+                    || !FitsVramBudget(spriteCost, source.name))
                 {
-                    LogSpriteSkip(source, $"per-sprite bake budget exhausted ({MaxSpriteBakes})");
+                    LogSpriteSkip(source, $"bake budget exhausted (~{s_bakedVramBytes / (1024f * 1024f):F0} MB " +
+                                          $"of {MaxBakedVramBytes / (1024f * 1024f):F0} MB VRAM, " +
+                                          $"{s_spriteBakeCount}/{MaxSpriteBakes} sprite bakes)");
                     return null;
                 }
                 // Pixel SOURCE (v4): the cached CPU readback of the WHOLE atlas — obtained by
@@ -492,6 +564,7 @@ internal static class CardFaceMipBake
                 regionTex.SetPixels32(slice);
                 regionTex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
                 s_spriteBakeCount++;
+                s_bakedVramBytes += spriteCost;
                 s_regionTextureByKey[regionKey] = regionTex;
                 // Full reconstruction parameters on the record, so a hardware log alone can
                 // verify the copy is exact (rect vs textureRect, offset, pivot, packing).
@@ -500,7 +573,10 @@ internal static class CardFaceMipBake
                                     $"{atlas.width}x{atlas.height}, trim offset +{dstX},+{dstY}, " +
                                     $"pivot ({source.pivot.x:F1},{source.pivot.y:F1})px, ppu {source.pixelsPerUnit:F1}, " +
                                     $"border ({source.border.x:F0},{source.border.y:F0},{source.border.z:F0},{source.border.w:F0}), " +
-                                    $"{PackingLabel(source)} → own mipmapped texture ({regionTex.mipmapCount} mips), " +
+                                    $"{PackingLabel(source)} → own mipmapped texture ({regionTex.mipmapCount} mips, " +
+                                    $"{regionTex.filterMode} aniso {regionTex.anisoLevel}, " +
+                                    $"~{spriteCost / 1024f:F0} KB VRAM; budget ~{s_bakedVramBytes / (1024f * 1024f):F0}/" +
+                                    $"{MaxBakedVramBytes / (1024f * 1024f):F0} MB), " +
                                     "margins restored — pixels: CPU row-slice of cached whole-atlas readback " +
                                     "(v4, no sub-rect GPU readback).");
             }
@@ -642,16 +718,24 @@ internal static class CardFaceMipBake
         }
 
         Texture2D? baked = null;
-        bool withinBudget = s_bakeCount < MaxBakedTextures
-            && tex.width <= MaxTextureDim && tex.height <= MaxTextureDim
+        // Budget: BYTES, not slots. The old count cap of 32 was reached in the hardware log by
+        // small chrome textures and left the enemy portraits ('cultist', 'living bones',
+        // 'living corpse elite', 'city guard elite', 512² ≈ 1.4 MB each) mipless — the
+        // "Gegnerinfos" half of the 2026-08 aliasing report. See MaxBakedVramBytes.
+        long cost = MipChainBytes(tex.width, tex.height);
+        bool sizeOk = tex.width <= MaxTextureDim && tex.height <= MaxTextureDim
             && tex.width >= 2 && tex.height >= 2;
+        bool withinBudget = s_bakeCount < MaxBakedTextures && sizeOk
+            && (tex.mipmapCount > 1 || FitsVramBudget(cost, tex.name));
         if (tex.mipmapCount <= 1 && !withinBudget)
         {
             // The first cut skipped this silently — the 8/8 cap in the hardware log meant any
             // later class' art stayed mipless with no evidence. Now it's on the record.
             VRLog.Warn("Cards", $"MIP BAKE skip: texture '{tex.name}' {tex.width}x{tex.height} stays " +
-                                $"MIPLESS — budget {s_bakeCount}/{MaxBakedTextures} or size outside " +
-                                $"[2, {MaxTextureDim}].");
+                                $"MIPLESS — {(sizeOk ? $"budget (~{s_bakedVramBytes / (1024f * 1024f):F0} MB of " +
+                                    $"{MaxBakedVramBytes / (1024f * 1024f):F0} MB VRAM, {s_bakeCount}/{MaxBakedTextures} " +
+                                    $"textures; this one wants ~{cost / (1024f * 1024f):F1} MB)"
+                                    : $"size outside [2, {MaxTextureDim}]")}.");
         }
         if (tex.mipmapCount <= 1 // an already-mipped texture needs nothing from us
             && withinBudget)
@@ -669,10 +753,13 @@ internal static class CardFaceMipBake
             if (baked != null)
             {
                 s_bakeCount++;
-                float vramMb = tex.width * (long)tex.height * 4L * 4f / 3f / (1024f * 1024f);
+                s_bakedVramBytes += cost;
                 VRLog.Info("Cards", $"MIP BAKE ({s_bakeCount}/{MaxBakedTextures}): '{tex.name}' " +
                                     $"{tex.width}x{tex.height} mips 1 → {baked.mipmapCount} " +
-                                    $"(RGBA32 Trilinear aniso {BakedAnisoLevel}, ~{vramMb:F0} MB VRAM) — " +
+                                    $"(RGBA32 {baked.filterMode} aniso {baked.anisoLevel}, " +
+                                    $"~{cost / (1024f * 1024f):F1} MB VRAM; budget " +
+                                    $"~{s_bakedVramBytes / (1024f * 1024f):F0}/" +
+                                    $"{MaxBakedVramBytes / (1024f * 1024f):F0} MB) — " +
                                     "consumer graphics (card faces / WorldUI panels) re-created on the baked copy.");
             }
         }
