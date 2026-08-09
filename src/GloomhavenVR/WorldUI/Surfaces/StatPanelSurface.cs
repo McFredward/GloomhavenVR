@@ -121,7 +121,21 @@ internal sealed class StatPanelSurface
 
         public UnityEngine.Events.UnityAction OnShown = null!;
         public UnityEngine.Events.UnityAction OnHidden = null!;
+
+        /// <summary>Unscaled time of the next mip-bake rescan (see <see cref="MipRescanInterval"/>).</summary>
+        public float NextMipRescan;
     }
+
+    /// <summary>
+    /// Mip-bake rescan cadence while a stat panel is converted (mirrors
+    /// <c>CardFace.MipRescanInterval</c>, halved). The stat card is the worst case for a
+    /// convert-time-only pass: the portrait arrives ASYNC through
+    /// <c>_imageSpriteLoader.LoadAsync</c>, and the release HYSTERESIS keeps ONE converted host
+    /// alive while the game repopulates it for a DIFFERENT actor (new portrait, new condition
+    /// icons, new stat-row art) without any reconversion. So the cadence — not the conversion —
+    /// is what actually keeps the panel mipmapped.
+    /// </summary>
+    private const float MipRescanInterval = 0.5f;
 
     private readonly Watch _actorPanel = new();
     private readonly Watch _enemyTurnPanel = new();
@@ -466,6 +480,13 @@ internal sealed class StatPanelSurface
                     watch.Panel.MrBackingSuppressed = true;
                     CountConversion(watch, name);
                     PlaceWatch(watch);
+                    // MIP BAKE (user report 2026-08: "Die Linien und Rahmen auf allen Karten und
+                    // den Gegnerinfos haben wieder starkes Aliasing"). THIS is the "Gegnerinfos"
+                    // surface — the enemy/actor stat card, real game widgets on a world quad,
+                    // sampling the game's MIPLESS UI atlases and the mipless 512² enemy portraits
+                    // ('cultist', 'living bones', 'living corpse elite' … in the hardware log).
+                    // It had never been wired to the bake at all. Immediate pass, then cadence.
+                    RescanMips(watch, name);
                 }
             }
         }
@@ -482,7 +503,23 @@ internal sealed class StatPanelSurface
             if (watch.Panel.HostRaycaster != null && watch.Panel.HostRaycaster.enabled)
                 watch.Panel.HostRaycaster.enabled = false;
             PlaceWatch(watch);
+            RescanMips(watch, name); // cadence-gated inside; catches the async portrait + actor swaps
         }
+    }
+
+    /// <summary>
+    /// One cadence-gated mip-bake pass over the converted stat panel. Config-gated and fully
+    /// guarded inside <see cref="PanelMipBake.Rescan"/> (a bake surprise can never break this
+    /// surface's tick), idempotent-cheap once warm (an already-baked graphic is a dictionary
+    /// hit and is not rewritten). Scans the GAME widget root rather than the host, so the same
+    /// handle stays valid for <see cref="PanelMipBake.Restore"/> after the content has gone home.
+    /// </summary>
+    private static void RescanMips(Watch watch, string name)
+    {
+        if (watch.Panel == null || watch.Attached == null || Time.unscaledTime < watch.NextMipRescan)
+            return;
+        watch.NextMipRescan = Time.unscaledTime + MipRescanInterval;
+        PanelMipBake.Rescan(watch.Attached, name);
     }
 
     // ---- second-panel snapshot pipeline -------------------------------------------------
@@ -550,7 +587,16 @@ internal sealed class StatPanelSurface
             // no-plate treatment (see TickWatch) or only one of two held figures grows a dark
             // rectangle behind its card in see-through mode.
             if (_copyPanel != null)
+            {
                 _copyPanel.MrBackingSuppressed = true;
+                // MIP BAKE for the SECOND hand's panel too — a peer/second held figure must not
+                // get a shimmering copy of a clean panel (the "alle Gegnerinfos" half of the
+                // 2026-08 report). One pass is enough and no restore is ever needed: unlike the
+                // real panels this is a throwaway clone WE own and destroy, and it is a STATIC
+                // snapshot — nothing loads into it afterwards. Most of its sprites resolve to
+                // cache hits from the real panel's own bake, so this costs ~nothing.
+                PanelMipBake.Rescan(_copyRect, "ActorStatPanelCopy");
+            }
         }
         if (_copyPanel != null)
         {
@@ -975,9 +1021,13 @@ internal sealed class StatPanelSurface
         watch.ReleaseAt = 0f;
         if (watch.Panel != null)
         {
+            // Mutate-and-restore house style: originals back BEFORE the subtree returns to the
+            // 2D UI, so the game's own screen-space stat panel is left exactly as authored.
+            PanelMipBake.Restore(watch.Attached);
             CanvasConversion.Release(watch.Panel);
             watch.Panel = null;
         }
+        watch.NextMipRescan = 0f; // a fresh conversion rescans immediately
     }
 
     private void DetachWatch(Watch watch)
@@ -988,8 +1038,10 @@ internal sealed class StatPanelSurface
             watch.Window.onHidden.RemoveListener(watch.OnHidden);
         }
         watch.Window = null;
-        watch.Attached = null;
+        // Release BEFORE dropping Attached: the release path restores the original sprites
+        // through that handle, so nulling it first would leave our baked copies on the 2D panel.
         Release(watch);
+        watch.Attached = null;
     }
 
     public void Shutdown()

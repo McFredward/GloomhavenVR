@@ -654,10 +654,22 @@ internal static class CardMesh
         {
             name = name,
             wrapMode = TextureWrapMode.Clamp,
-            filterMode = FilterMode.Bilinear,
+            // Trilinear + aniso, not Bilinear/aniso-1 (aliasing report 2026-08, "die Linien und
+            // Rahmen auf allen Karten"): having a mip chain is only half the sampling fix. With
+            // FilterMode.Bilinear the GPU picks ONE mip level and snaps between levels, so a card
+            // drifting in the fan pops across the mip boundary — that pop reads as crawling edges
+            // in stereo; Trilinear blends the two levels instead. anisoLevel 8 is the other half:
+            // cards lie nearly flat on the table and fan out at steep angles, and at grazing
+            // angles an isotropic sampler picks a mip for the SHORT axis, which over-blurs along
+            // one direction and still aliases along the other. Same values the mip bake gives the
+            // game's own card art (CardFaceMipBake.BakedAnisoLevel) — one consistent card look.
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = 8,
         };
         tex.SetPixels32(pixels);
         tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+        VRLog.Info("Cards", $"CARD TEX: '{name}' {w}x{h} RGBA32 mips {tex.mipmapCount} " +
+                            $"{tex.filterMode} aniso {tex.anisoLevel} — card cutout footprint.");
         return tex;
     }
 
@@ -703,7 +715,12 @@ internal static class CardMesh
         {
             name = "GloomhavenVR.CardBack",
             wrapMode = TextureWrapMode.Clamp,
-            filterMode = FilterMode.Bilinear,
+            // See MakeCutoutTexture for the full WHY. It matters most HERE: this pattern is
+            // nothing BUT lines — a 1-px gold diamond lattice and a 2-px gold inner frame at
+            // 128² — which is precisely the "Linien und Rahmen" content that shimmers under a
+            // mip-snapping bilinear sampler on a card lying at a grazing angle on the table.
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = 8,
         };
 
         var field = new Color(0.28f, 0.08f, 0.10f);
@@ -747,6 +764,9 @@ internal static class CardMesh
         // Keep CPU-readable: SetSilhouette samples this pattern (GetPixelBilinear) to
         // composite the card-back with the captured outline alpha.
         tex.Apply(updateMipmaps: true, makeNoLongerReadable: false);
+        VRLog.Info("Cards", $"CARD TEX: '{tex.name}' {size}x{size} RGBA32 mips {tex.mipmapCount} " +
+                            $"{tex.filterMode} aniso {tex.anisoLevel} — procedural card-back " +
+                            "lattice/frame (built once, shared by every card back).");
         _backTexture = tex;
         return tex;
     }

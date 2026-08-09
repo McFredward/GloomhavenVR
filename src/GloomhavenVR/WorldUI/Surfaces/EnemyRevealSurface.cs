@@ -94,6 +94,22 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private const float FitPinHardTimeoutSeconds = 2.5f;
 
+    /// <summary>
+    /// Mip-bake rescan cadence while the reveal is up (mirrors <c>CardFace.MipRescanInterval</c>,
+    /// halved). MIP BAKE was added here for the 2026-08 report "Die Linien und Rahmen auf allen
+    /// Karten und den Gegnerinfos haben wieder starkes Aliasing": these ARE monster ability
+    /// cards — the same mipless game atlases and the same 512² mipless monster portraits the
+    /// player's own cards were fixed for — shown on a world quad at board distance, and this
+    /// surface had never been wired to <see cref="PanelMipBake"/> at all. The cadence (rather
+    /// than a single pass at conversion) is load-bearing: the cards animate in STAGGERED
+    /// (<c>MonsterBaseUI.AnimateAppearance</c>, delayAnimationDraw) and their art loads async,
+    /// so a convert-time-only pass would bake the first card and leave the rest shimmering.
+    /// </summary>
+    private const float MipRescanInterval = 0.5f;
+
+    /// <summary>Unscaled time of the next mip-bake rescan; 0 = due now.</summary>
+    private float _nextMipRescan;
+
     // LAZY FOLLOW — ALL AXES (X/Z *and* Y), computed in the RIG-LOCAL frame. User #4's 11th
     // clarification ("I DO want the lazy movement so the enemy info stays in my field of view; I do
     // NOT want it to move UP/DOWN when I rotate or move the control board — but that is exactly what
@@ -287,11 +303,16 @@ internal sealed class EnemyRevealSurface
                     _easing = false;
                     _offGazeSince = -1f;
                     _dropLogged = false; // re-log the applied plant pose for this reveal (item 3)
+                    _nextMipRescan = 0f; // bake this reveal's cards from the first tick
                 }
             }
         }
         else if (!visible && _panel != null)
         {
+            // Mutate-and-restore: the monster cards go HOME to the 2D initiative track, so hand
+            // every graphic its original mipless sprite back BEFORE the reparent (house style —
+            // the baked copies are a VR presentation detail and must never leak into the game UI).
+            RestoreMips();
             CanvasConversion.Release(_panel);
             _panel = null;
             RestoreBoardCoupledScrollbars(); // hand the board-docked scrollbar back
@@ -306,7 +327,37 @@ internal sealed class EnemyRevealSurface
             ReassertScrollFreeze();
             PinWhenSettled();
             Place();
+            RescanMips(); // cadence-gated inside; catches the staggered/async monster card art
         }
+    }
+
+    /// <summary>
+    /// One cadence-gated mip-bake pass over the revealed monster cards. Config-gated and fully
+    /// guarded inside <see cref="PanelMipBake.Rescan"/> (a bake surprise can never break the
+    /// reveal), and idempotent-cheap once warm — a graphic already sampling a baked copy is a
+    /// dictionary hit and is not rewritten. Scans the game's <c>enemyCardsHolder</c> subtree,
+    /// which is what Convert reparented and what Release hands back.
+    /// </summary>
+    private void RescanMips()
+    {
+        if (Time.unscaledTime < _nextMipRescan)
+            return;
+        _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+        PanelMipBake.Rescan(EnemyCardsHolder(), Name);
+    }
+
+    /// <summary>Originals back on the monster cards (see <see cref="RescanMips"/>).</summary>
+    private void RestoreMips()
+    {
+        _nextMipRescan = 0f;
+        PanelMipBake.Restore(EnemyCardsHolder());
+    }
+
+    /// <summary>The game's enemy-card holder, or null when the track is gone.</summary>
+    private static RectTransform? EnemyCardsHolder()
+    {
+        InitiativeTrack? track = InitiativeTrack.Instance;
+        return track != null ? track.enemyCardsHolder as RectTransform : null;
     }
 
     /// <summary>
@@ -1077,6 +1128,7 @@ internal sealed class EnemyRevealSurface
     {
         if (_panel != null)
         {
+            RestoreMips(); // originals back before the cards return to the 2D track
             CanvasConversion.Release(_panel);
             _panel = null;
         }

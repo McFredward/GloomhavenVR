@@ -40,6 +40,14 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 ///   ray path so it cannot self-occlude the hover that keeps it alive.
 /// - Release HYSTERESIS + churn telemetry exactly like the stat panels: the game
 ///   hides/re-shows liberally while the pointer sweeps the board.
+/// - MIP BAKE (<see cref="PanelMipBake"/>), added 2026-08 for "Die Linien und Rahmen auf
+///   allen Karten und den Gegnerinfos haben wieder starkes Aliasing": this surface is a
+///   world-space quad showing REAL game widgets that sample the game's MIPLESS UI atlases,
+///   i.e. the identical texture-space aliasing the card faces and the initiative track were
+///   already fixed for — it had simply never been wired to the bake. Rescan on conversion
+///   and on <see cref="MipRescanInterval"/> (the release hysteresis keeps one host alive
+///   across hover changes, so the panel's CONTENT swaps without a reconversion), restore
+///   before release.
 /// </summary>
 internal sealed class PropInfoSurface
 {
@@ -69,7 +77,20 @@ internal sealed class PropInfoSurface
 
         public UnityEngine.Events.UnityAction OnShown = null!;
         public UnityEngine.Events.UnityAction OnHidden = null!;
+
+        /// <summary>Unscaled time of the next mip-bake rescan for this panel (see
+        /// <see cref="MipRescanInterval"/>).</summary>
+        public float NextMipRescan;
     }
+
+    /// <summary>
+    /// Mip-bake rescan cadence while a hover panel is converted (mirrors
+    /// <c>CardFace.MipRescanInterval</c> / the initiative track's, halved because the release
+    /// HYSTERESIS deliberately keeps ONE converted panel alive across hover changes: the same
+    /// host is repopulated with a different prop's icons and frame sprites without a
+    /// reconversion, so the scan — not the conversion — is what has to catch the new graphics.
+    /// </summary>
+    private const float MipRescanInterval = 0.5f;
 
     private readonly Watch _textInfo = new();
     private readonly Watch _propInfo = new();
@@ -135,6 +156,14 @@ internal sealed class PropInfoSurface
                 {
                     CountConversion(watch, name);
                     PlaceWatch(watch);
+                    // MIP BAKE (user report 2026-08: "Die Linien und Rahmen auf allen Karten und
+                    // den Gegnerinfos haben wieder starkes Aliasing"). These info cards are REAL
+                    // game widgets reparented onto a world-space host, so they sample the game's
+                    // MIPLESS UI atlases exactly like the card faces did — and unlike the
+                    // initiative track and the tooltip box, this surface never ran the bake at
+                    // all. Immediate pass on conversion + the cadence below for the async /
+                    // hover-swapped content.
+                    RescanMips(watch, name);
                 }
             }
         }
@@ -150,7 +179,25 @@ internal sealed class PropInfoSurface
             if (watch.Panel.HostRaycaster != null && watch.Panel.HostRaycaster.enabled)
                 watch.Panel.HostRaycaster.enabled = false;
             PlaceWatch(watch);
+            RescanMips(watch, name); // cadence-gated inside; catches hover-swapped / async graphics
         }
+    }
+
+    /// <summary>
+    /// One cadence-gated mip-bake pass over the converted hover panel. Config-gated and fully
+    /// guarded inside <see cref="PanelMipBake.Rescan"/> (a bake surprise can never break the
+    /// surface's tick), and idempotent-cheap once warm — a graphic already wearing a baked
+    /// sprite resolves to a dictionary hit and is not rewritten.
+    /// </summary>
+    private static void RescanMips(Watch watch, string name)
+    {
+        if (watch.Panel == null || watch.Attached == null || Time.unscaledTime < watch.NextMipRescan)
+            return;
+        watch.NextMipRescan = Time.unscaledTime + MipRescanInterval;
+        // Scan the GAME widget root, not the host: it is the exact subtree Convert reparented,
+        // and it stays the right root in both states — which is what lets Restore below use the
+        // same handle after the content has gone home.
+        PanelMipBake.Rescan(watch.Attached, name);
     }
 
     /// <summary>
@@ -215,9 +262,14 @@ internal sealed class PropInfoSurface
         watch.ReleaseAt = 0f;
         if (watch.Panel != null)
         {
+            // Mutate-and-restore house style: hand every graphic its ORIGINAL mipless sprite
+            // back BEFORE the subtree goes home to the 2D UI, so the game's own screen-space
+            // panel is left exactly as authored (the baked copies are a VR presentation detail).
+            PanelMipBake.Restore(watch.Attached);
             CanvasConversion.Release(watch.Panel);
             watch.Panel = null;
         }
+        watch.NextMipRescan = 0f; // a fresh conversion rescans immediately
     }
 
     private void DetachWatch(Watch watch)
@@ -228,8 +280,11 @@ internal sealed class PropInfoSurface
             watch.Window.onHidden.RemoveListener(watch.OnHidden);
         }
         watch.Window = null;
-        watch.Attached = null;
+        // Release BEFORE dropping Attached: the release path restores the original sprites
+        // through that very handle (PanelMipBake.Restore), so nulling it first would silently
+        // leave our baked copies on the game's 2D panel.
         Release(watch);
+        watch.Attached = null;
     }
 
     public void Shutdown()
