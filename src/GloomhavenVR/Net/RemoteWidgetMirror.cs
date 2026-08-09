@@ -306,6 +306,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 
             Sync();
             Fit();
+            AuditCloneGrowth();
             State = Fidelity.MirroredWidget;
             Reason = string.Empty;
             return true;
@@ -727,6 +728,71 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             skipTo[i] = j;
         }
     }
+
+    /// <summary>
+    /// THE TRIPWIRE FOR OBJECTS PARENTED ONTO A CLONE AND NEVER TAKEN OFF AGAIN.
+    ///
+    /// <para>WHY IT EXISTS (2026-08-09, and it is the most expensive lesson in this file).
+    /// <see cref="StructureMatches"/> validates the SOURCE subtree only — that is its job, because
+    /// the source is what the pairing describes. Nothing validated the CLONE. But the clone is a
+    /// public surface: callers legitimately decorate it through <see cref="CloneOf"/> (the peer's
+    /// track rings are the shipped case), and a decorator that adds on every content tick and
+    /// removes on none has no other detector at all. One did exactly that — two ring objects per
+    /// initiative entry, four times a second, forever, each an Image on the mirrored board's
+    /// world-space canvas.</para>
+    ///
+    /// <para>AND IT WAS INVISIBLE TO EVERY EXISTING NUMBER. The mod's Update steps stayed flat per
+    /// second, because the cost is not in Update: Unity rebuilds canvases after LateUpdate and
+    /// before the render loop, so an ever-larger canvas shows up in the frame split as "blocked
+    /// (waiting on GPU/compositor)" and looks like a network or GPU problem. The renderer census
+    /// could not see it either — a uGUI Graphic is not a <c>Renderer</c>. Both instruments have
+    /// since been widened; this one is the SOURCE-side counterpart, and it is the cheapest of the
+    /// three because the mirror already knows exactly how many nodes it built.</para>
+    ///
+    /// <para>MEASURE, NEVER ACT. Excess is legitimate by design, so this must not trigger a rebuild
+    /// and must not delete anything it did not create — a mirror that tore off a caller's rings
+    /// would break the feature it is instrumenting. It counts, and it says so ONCE per doubling, on
+    /// the content cadence (4 Hz), which is where the callers add.</para>
+    /// </summary>
+    private void AuditCloneGrowth()
+    {
+        if (_clone == null || _pairs.Length == 0)
+            return;
+
+        // _walk still holds the SOURCE walk that StructureMatches just took, so re-walking the
+        // CLONE here would clobber it for nobody's benefit — but the walk buffers are reusable and
+        // this runs at 4 Hz, not per frame, so a fresh walk is affordable and unambiguous.
+        Walk(_clone.transform, _walk);
+        int live = _walk.Count;
+        int excess = live - _pairs.Length;
+        if (excess < 0)
+            excess = 0;
+        Core.PerfMonitor.Count("Mirror.CloneExcessNodes", excess);
+
+        // One line per DOUBLING of the excess, so a decorator that adds a bounded set of rings is
+        // silent forever and one that adds two per entry per tick names itself within seconds.
+        if (excess <= _loggedExcess * 2 || excess < ExcessLogFloor)
+            return;
+        _loggedExcess = excess;
+        VRLog.Warn("Net", $"Remote board '{_name}' mirror: the CLONE now carries {live} node(s) "
+                          + $"against {_pairs.Length} paired — {excess} extra object(s) that this "
+                          + "mirror did not build. That is legitimate when a caller decorates the "
+                          + "clone through CloneOf (the per-peer track rings do), and it is an "
+                          + "OBJECT LEAK when it keeps climbing: every extra uGUI node is batched "
+                          + "into this board's world-space canvas and re-batched on every rebuild, "
+                          + "a cost that lands in the frame split's 'blocked' bucket rather than in "
+                          + "any mod step. Cross-check '[Perf] COUNTS' Mirror.CloneExcessNodes and "
+                          + "the uGUI half of the '[Perf] SPLIT' scene census: if all three climb "
+                          + "together with a steady scenario, the decorator is not releasing.");
+    }
+
+    /// <summary>Below this many extra clone nodes the audit stays silent — a handful of decorations
+    /// is the designed case and must not produce a warning.</summary>
+    private const int ExcessLogFloor = 16;
+
+    /// <summary>Last excess this mirror warned about; the gate is a DOUBLING, so a bounded
+    /// decoration logs at most once.</summary>
+    private int _loggedExcess = ExcessLogFloor;
 
     /// <summary>True while the cached pairing still describes the live source exactly (same nodes,
     /// same order, none destroyed). A single mismatch — a round ended and the track re-spawned its
