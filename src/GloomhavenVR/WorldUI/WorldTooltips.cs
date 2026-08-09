@@ -241,8 +241,10 @@ internal sealed class WorldTooltips
     /// <summary>True while <see cref="_mrBacking"/> is registered with <see cref="MrBacking"/>.</summary>
     private bool _mrRegistered;
 
-    /// <summary>Raised on every tick that ends with the box genuinely placed and shown — the
-    /// plate's visibility gate, polled by <c>MrBacking.TickSurfaces</c>.</summary>
+    /// <summary>Raised on every tick that ends with the box genuinely placed AND its own content
+    /// still showing — the plate's visibility gate, polled by <c>MrBacking.TickSurfaces</c>. See
+    /// <see cref="TooltipBacking.BackingAlpha"/>: this is deliberately NOT the placement grace the
+    /// rest of this class runs on.</summary>
     private bool _backingShown;
 
     /// <summary>Change-gated: the transparency evidence line was already written for this session.</summary>
@@ -300,20 +302,47 @@ internal sealed class WorldTooltips
     /// class computes for free — board area, floated window, or the game's own re-arrangement
     /// mid-hover.</para>
     ///
-    /// <para>SHOWN, NOT MERELY ALIVE: the plate is opaque and cannot fade, so it is gated on the
-    /// tick actually ending in a placed, visible box — never on the parked canvas, and never on a
-    /// pose that failed to resolve. A short pop at the start of the fade is the accepted cost; a
-    /// dark rectangle parked at <see cref="ParkPosition"/> or sitting at last hover's spot is not.
+    /// <para>SHOWN, NOT MERELY ALIVE, AND NOT MERELY PARKED: the plate is gated on the tick actually
+    /// ending in a placed box whose OWN content is still showing — never on the parked canvas, never
+    /// on a pose that failed to resolve, and (round 2, the "Streifen" report) never on the placement
+    /// grace window that outlives the content BY DESIGN. The "short pop at the start of the fade is
+    /// the accepted cost" this paragraph used to claim is gone as well: the plate rides the game's
+    /// own tween through <see cref="TooltipBacking.BackingAlpha"/>, so it appears and disappears
+    /// with the frame instead of snapping around it.
     /// The plate is deliberately built for the box WHETHER OR NOT the game enabled its background
     /// image (<c>UITooltipTarget.hideBackground</c> → <c>m_image.enabled</c>): a bare caption over
     /// live passthrough is precisely the unreadable case MrBacking exists for, and it is the one
     /// tooltip shape that has NO frame art of its own to survive on.</para>
     /// </summary>
-    private sealed class TooltipBacking : MrBacking.IBackedSurface
+    private sealed class TooltipBacking : MrBacking.IBackedSurface, MrBacking.IFadedBacking
     {
         private readonly WorldTooltips _owner;
 
         internal TooltipBacking(WorldTooltips owner) => _owner = owner;
+
+        /// <summary>
+        /// THE PLATE FADES ON THE GAME'S OWN TWEEN (user report 2026-08-09, MR: "Es verschwindet,
+        /// hinterlässt aber einen Streifen im Mixed-Reality-Modus der ca. 1 Sekunde da ist und dann
+        /// verschwindet. Der Streifen hat die selbe Hintergrundfarbe wie die anderen Elemente die im
+        /// Mixed-Reality-Modus nicht mehr transparent gemacht wurden.").
+        ///
+        /// <para>THE GAME FADES, IT DOES NOT SNAP — confirmed from its source, not inferred:
+        /// <see cref="EnsureFadeGrace"/> puts the widget in <c>UITooltip.Transition.Fade</c>, so
+        /// hiding it runs <c>EvaluateAndTransitionToState(false)</c> →
+        /// <c>StartAlphaTween(0f, m_TransitionDuration)</c> (decompiled UITooltip.cs:558-563), i.e.
+        /// a CanvasGroup ramp 1→0 over the <see cref="FadeGraceSeconds"/> this class widened.
+        /// Reporting that ramp here is what makes the plate ONE OBJECT with the frame it backs: it
+        /// fades in with the box on the show tween (the plate used to POP in at full opacity the
+        /// frame the alpha crossed <see cref="ShownAlphaEpsilon"/>) and out with it on the hide, and
+        /// <c>MrBacking</c> switches it off entirely once the ramp reaches its cutoff.</para>
+        ///
+        /// <para>A <c>CanvasGroup</c> could never have done this for us: it multiplies
+        /// <c>CanvasRenderer</c> graphics, and the plate is a world MeshRenderer parented under the
+        /// frame — which is precisely why it sat at full opacity while everything around it faded.
+        /// Zero when the widget is gone, so a torn-down tooltip reads as absent rather than as
+        /// opaque.</para>
+        /// </summary>
+        public float BackingAlpha => _owner._tooltip != null ? _owner._tooltip.alpha : 0f;
 
         /// <summary>The world-space presentation is up. On <see cref="Restore"/> this goes false
         /// AND the owner calls <c>MrBacking.Release</c> — the flag alone would only be noticed on
@@ -893,6 +922,18 @@ internal sealed class WorldTooltips
 
     public void LateTick()
     {
+        // MR PLATE GATE, CLEARED FIRST (user report 2026-08-09, the streak that outlived the
+        // tooltip). This flag is the plate's ONLY visibility signal, so it must be lowered before
+        // anything in this method can decide not to reach the end of it: every `return` below —
+        // the tooltip canvas not resolved yet, no head camera, the interval-gated CanvasManager
+        // search, the not-placed branch — used to leave the PREVIOUS frame's `true` standing, and a
+        // plate whose gate is stale is an opaque rectangle parked at the last hover's spot with
+        // nothing to back. Raised again at the far end of the method, in the same LateUpdate, and
+        // MrBacking.Tick reads it in the NEXT frame's Update (WorldUIModule.BuildTickSteps), so no
+        // observer can ever see the intermediate false — this cannot flicker, it can only fail
+        // closed. One bool store per frame.
+        _backingShown = false;
+
         // Menu2D keeps the vanilla 2D tooltip path (UICamera → FlatScreen RT); every
         // scenario mode (incl. ModalUI/BoardTargeting — Recompute() only leaves
         // Menu2D while a scenario runs) gets the world-space presentation.
@@ -1000,11 +1041,6 @@ internal sealed class WorldTooltips
             _lastShownTime = Time.unscaledTime;
         bool withinGrace = _tooltip != null && Time.unscaledTime - _lastShownTime <= HoverGraceSeconds;
         bool visible = contentShown || withinGrace;
-
-        // MR plate gate (see TooltipBacking): cleared here, raised only once this tick has
-        // actually placed a visible box. An opaque plate has no fade to hide behind, so it must
-        // never be shown for a parked canvas or a pose that failed to resolve.
-        _backingShown = false;
 
         // WHO OWNS THIS HINT decides where it goes — resolved BEFORE the pose/scale, because the
         // answer picks between two different pixels-to-metres factors (see ResolveHostOwner).
@@ -1120,8 +1156,19 @@ internal sealed class WorldTooltips
 
         _canvas.transform.SetPositionAndRotation(pos, rot);
 
-        // The box is placed and shown — the MR plate may render this frame (see TooltipBacking).
-        _backingShown = true;
+        // THE PLATE FOLLOWS THE BOX, NOT THE PLACEMENT LATCH — the whole "Streifen" fix (user report
+        // 2026-08-09). This used to be an unconditional `true`, reached whenever the canvas was
+        // placed, and "placed" is true for the ENTIRE hide sequence: the ~0.4 s FadeGraceSeconds
+        // ramp the tooltip's alpha runs down PLUS the 0.5 s HoverGraceSeconds placement latch that
+        // deliberately keeps the canvas parked at the anchor afterwards so a hover jitter does not
+        // teleport it. That is the reported ~1 second, exactly, and the shape is the giveaway: the
+        // game's own OnTweenFinished → InternalOnHide (decompiled UITooltip.cs:595-618) destroys the
+        // text lines and resets the rect to m_DefaultWidth, so a plate still sized from
+        // BackingSize == frame.rect.size collapses to a full-width, near-zero-height bar — the
+        // STRIPE the user saw, in the plate's own neutral, and MR-only because with MR off no plate
+        // is ever built at all. `contentShown` is the box's own alpha, so the latch may keep
+        // parking the canvas for the next hover while the backing goes when the content goes.
+        _backingShown = contentShown;
         LogMrEvidence();
 
         // Diagnostic (user #7a): one line when the hint parks at the resolved board anchor

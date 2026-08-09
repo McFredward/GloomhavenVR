@@ -387,6 +387,15 @@ internal static partial class VROptionsTab
     /// panel presented it. So this one entry gets a named-preset dropdown instead, over
     /// <see cref="MixedReality"/>'s own preset list.</para>
     ///
+    /// <para>The HEAD MASK is the third (user request 2026-08-09: "Ich will die Maske beim Avatar im
+    /// Optionsmenü auch mit nem Dropdown auswählen können statt einem Schieberegler wie aktuell").
+    /// <c>[Net] MaskId</c> is an int carrying an <c>AcceptableValueRange(0, MaskCount-1)</c>, so the
+    /// generic builder classified it as a bounded Number and gave it a slider — a three-position bar
+    /// reading "0", "1", "2", which says nothing about which mask you are putting on your face. It
+    /// is an ENUMERATION whose members merely happen to be stored as small integers, exactly the
+    /// case this table exists for; the size dial next to it stays a slider, because that one really
+    /// is a continuous quantity.</para>
+    ///
     /// <para>Kept as a lookup rather than an if-chain inside the row kit: the kit stays free of
     /// knowledge about individual settings, and the next entry that needs a hand-made control is
     /// one table row rather than another branch.</para>
@@ -395,7 +404,9 @@ internal static partial class VROptionsTab
         (string.Equals(item.Section, "MixedReality", StringComparison.Ordinal)
          && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
-            && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal));
+            && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "Net", StringComparison.Ordinal)
+            && string.Equals(item.Key, "MaskId", StringComparison.Ordinal));
 
     private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
                                            string? hintKey)
@@ -419,6 +430,47 @@ internal static partial class VROptionsTab
             BuildPresetRow(parent, item, caption, hintKey, modeNames,
                            (int)Cards.CardsConfig.BoardMoveMode.Value,
                            index => Cards.CardsConfig.BoardMoveMode.Value = (Cards.BoardMoveMode)index);
+            return true;
+        }
+
+        // THE HEAD MASK IS A NAMED CHOICE, NOT A NUMBER (see HasSpecialRow). The option list is
+        // built from Net.HeadMaskLibrary — the class that owns MaskCount, the Mask_<id>.prefab path
+        // convention and the wire clamp — rather than typed out here, so adding a mask is one edit
+        // in that class plus its name string and this row grows by itself. Index IS the config
+        // value by construction (MaskNames is in id order), which is why the apply is a plain write.
+        // Reaching this branch at all means the catalog produced a bound Net/MaskId entry, so the
+        // ConfigEntry is live.
+        if (string.Equals(item.Section, "Net", StringComparison.Ordinal))
+        {
+            int current = Net.NetModule.MaskId.Value;
+            string[] maskNames = Net.HeadMaskLibrary.MaskNames();
+            int offered = maskNames.Length;
+
+            // AN ID WE DO NOT OFFER IS SHOWN, NOT SWALLOWED. In practice BepInEx's own
+            // AcceptableValueRange(0, MaskCount-1) has already clamped any hand-edited or legacy
+            // value into range before this panel ever reads it, so the dropdown cannot be what
+            // destroys it — but "cannot happen" is not a reason to display a lie, and
+            // BuildPresetRow's own Mathf.Clamp would quietly show mask 0 while the config still
+            // held something else. An out-of-range id (a config carried back from a build that
+            // shipped more masks, a range that shrank) instead gets its OWN trailing entry naming
+            // the raw number, the dropdown opens on that entry, and NOTHING is written until the
+            // player deliberately picks a real mask — the apply refuses the synthetic index, so
+            // re-selecting it is a no-op rather than a fabricated value.
+            if (current < 0 || current >= offered)
+            {
+                var widened = new string[offered + 1];
+                maskNames.CopyTo(widened, 0);
+                widened[offered] = $"{Loc.Mod("mask")} {current}?";
+                current = offered;
+                maskNames = widened;
+            }
+
+            BuildPresetRow(parent, item, caption, hintKey, maskNames, current,
+                           index =>
+                           {
+                               if (index >= 0 && index < offered)
+                                   Net.NetModule.MaskId.Value = index; // BepInEx persists on set
+                           });
             return true;
         }
 

@@ -99,6 +99,29 @@ namespace GloomhavenVR.WorldUI;
 /// keine_ausblendung.png bleed-through, and a plate that stepped down the ladder to make room for a
 /// card cue would let a farther MENU shine through it again.
 ///
+/// THE PLATE MUST DIE WITH ITS CONTENT — AND FADE WITH IT (user report 2026-08-09, MR: "Wenn man
+/// jetzt mit dem Laser direkt zu der Option fährt wo vorher das Tooltip war, würde ich erwarten,
+/// dass es restlos sofort verschwindet […] Es verschwindet, hinterlässt aber einen Streifen im
+/// Mixed-Reality-Modus der ca. 1 Sekunde da ist"). A plate is OPAQUE by construction, so it has no
+/// fade of its own: every visibility gate in this file is a HARD on/off, and any content that
+/// disappears by fading rather than by being switched off therefore leaves a solid dark rectangle
+/// standing where it used to be — invisible on a normal background (the plate matches the panel
+/// neutral), unmissable over passthrough. Two shapes of that defect exist and both are answered by
+/// <see cref="IFadedBacking"/> / <see cref="Label(TMP_Text?, bool)"/>:
+/// <list type="bullet">
+/// <item><description>The plate OUTLIVES the content — the reported bug. See
+///   <c>WorldTooltips.TooltipBacking</c>: its gate was the placement grace, not the box.</description></item>
+/// <item><description>The plate SNAPS while the content fades — <c>Board.PingNameTag</c> runs a
+///   0.35 s alpha tail on its caption before destroying itself, so its plate stood at full opacity
+///   behind an already-invisible name and then vanished in one frame.</description></item>
+/// </list>
+/// The fade is OPT-IN, deliberately, and NOT derived from the content's alpha automatically: a
+/// label's alpha is not a statement about its presence. <c>ButtonCluster</c> parks a disabled
+/// button's caption at a STEADY alpha 0.35 (ButtonCluster.UpdateColor) — following that would thin
+/// its plate permanently and hand the passthrough room back through the one backing that exists to
+/// keep it out. Only a registrant that knows its alpha means "I am going away" asks for the fade;
+/// every other plate keeps the shared opaque material and this whole path costs one bool test.
+///
 /// KEY-COLOR SAFETY: the plate must NEVER render the chroma key (it would punch a passthrough
 /// hole exactly where readability was wanted). Presets are green/magenta/blue/black — the
 /// saturated keys are nowhere near the dark panel neutral, but the BLACK preset is close to
@@ -145,6 +168,22 @@ internal static class MrBacking
     }
 
     /// <summary>
+    /// OPT-IN companion to <see cref="IBackedSurface"/>: "my content DISAPPEARS BY FADING, so the
+    /// plate must fade with it". Implement it alongside the main interface and the plate's opacity
+    /// tracks <see cref="BackingAlpha"/> every tick (see the class doc, THE PLATE MUST DIE WITH ITS
+    /// CONTENT). A surface that does not implement it is bit-identical to before: one type test per
+    /// surface per MR-on tick over a list of two.
+    /// </summary>
+    internal interface IFadedBacking
+    {
+        /// <summary>0..1 — how present the backed content is THIS tick. 1 is the steady state and
+        /// keeps the shared opaque material; anything below it swaps the plate to its own
+        /// alpha-blended instance, and at <see cref="PlateFadeCutoff"/> the plate goes off
+        /// entirely (there is nothing left to back).</summary>
+        float BackingAlpha { get; }
+    }
+
+    /// <summary>
     /// Name every plate GameObject carries (<see cref="CreatePlate"/>). Public so a surface that
     /// render-hides a panel itself can REPORT, in its own log line, that the MR plate was among the
     /// renderers it switched off — the one component the ModBuild 84 hardware report proved a
@@ -170,6 +209,16 @@ internal static class MrBacking
     /// composites before the content it backs", the same contract sortingOrder 0 used to express
     /// before the ladder existed.</summary>
     private const int PlateQueue = 2998;
+
+    /// <summary>Below this opacity a fading plate is switched OFF rather than drawn: there is
+    /// nothing readable left to back, and an inactive plate is the same zero-cost, zero-risk state
+    /// every other gate in this file resolves to. Deliberately well under the 0.05 alpha at which
+    /// <c>WorldTooltips</c> already stops calling its box "shown", so the two agree.</summary>
+    private const float PlateFadeCutoff = 0.02f;
+
+    /// <summary>Opacity at or above which a plate counts as fully present and rides the SHARED
+    /// opaque material — the steady state for every plate in the mod.</summary>
+    private const float PlateOpaqueAlpha = 0.999f;
 
     /// <summary>The repo's dark panel neutral (RoundReadout/slot plates use the same family).</summary>
     private static readonly Color PlateDark = new(0.12f, 0.11f, 0.10f, 1f);
@@ -197,6 +246,20 @@ internal static class MrBacking
         /// order 0, the pre-ladder behaviour).</summary>
         public Renderer? LabelRenderer;
         public bool LabelRendererProbed;
+
+        /// <summary>The owner declared that this label DISAPPEARS BY FADING its own colour alpha
+        /// (see <see cref="Label(TMP_Text?, bool)"/>) — the only labels whose plate follows that
+        /// alpha. False for every other registrant, including the ones that sit at a steady
+        /// sub-1 alpha by design.</summary>
+        public bool Fades;
+
+        /// <summary>Per-plate alpha-blended material instance, built on the first faded tick and
+        /// destroyed with the plate (see <see cref="ApplyPlateAlpha"/>).</summary>
+        public Material? FadeMat;
+
+        /// <summary>The plate's renderer currently carries <see cref="FadeMat"/> (so the swap back
+        /// to the shared opaque material happens exactly once, not every frame).</summary>
+        public bool Faded;
     }
 
     private sealed class PanelEntry
@@ -213,6 +276,16 @@ internal static class MrBacking
         public IBackedSurface Surface = null!;
         public Transform? Plate;
         public Renderer? PlateRenderer;
+
+        /// <summary>Cached at registration: the surface also declared <see cref="IFadedBacking"/>,
+        /// so the type test happens once per surface instead of once per tick.</summary>
+        public IFadedBacking? Fade;
+
+        /// <summary>Per-plate alpha-blended material instance — see <see cref="LabelEntry.FadeMat"/>.</summary>
+        public Material? FadeMat;
+
+        /// <summary>The plate's renderer currently carries <see cref="FadeMat"/>.</summary>
+        public bool Faded;
     }
 
     private sealed class GraphicEntry
@@ -247,17 +320,29 @@ internal static class MrBacking
     /// </summary>
     internal static bool WantOpaque => MixedReality.BackingsWanted;
 
-    /// <summary>Register a free-floating world TMP label for a fitted backing plate (idempotent).</summary>
-    internal static void Label(TMP_Text? label)
+    /// <summary>
+    /// Register a free-floating world TMP label for a fitted backing plate (idempotent).
+    ///
+    /// <para><paramref name="fades"/> is the opt-in from the class doc's THE PLATE MUST DIE WITH ITS
+    /// CONTENT section: pass true ONLY when the owner makes this label disappear by tweening its own
+    /// <c>color.a</c> down to 0 (<c>Board.PingNameTag</c>'s 0.35 s expiry tail is the shipped case),
+    /// and the plate then fades in lockstep instead of standing solid behind an invisible caption
+    /// and snapping off a third of a second later. It is NOT the default because alpha is not a
+    /// presence signal in general — <c>ButtonCluster</c> parks a disabled button's caption at a
+    /// steady 0.35 and that plate must stay fully opaque.</para>
+    /// </summary>
+    internal static void Label(TMP_Text? label, bool fades = false)
     {
         if (label == null)
             return;
         for (int i = 0; i < Labels.Count; i++)
         {
-            if (ReferenceEquals(Labels[i].Label, label))
-                return;
+            if (!ReferenceEquals(Labels[i].Label, label))
+                continue;
+            Labels[i].Fades |= fades; // a re-registration may only ever ADD the opt-in
+            return;
         }
-        Labels.Add(new LabelEntry { Label = label });
+        Labels.Add(new LabelEntry { Label = label, Fades = fades });
     }
 
     /// <summary>Register a MOD-OWNED translucent backing Graphic: alpha 1 while MR, restored off.</summary>
@@ -293,8 +378,7 @@ internal static class MrBacking
         {
             if (Surfaces[i].Surface.BackingAlive)
                 continue;
-            if (Surfaces[i].Plate != null)
-                Object.Destroy(Surfaces[i].Plate!.gameObject);
+            DestroyPlate(Surfaces[i].Plate, Surfaces[i].FadeMat);
             Surfaces.RemoveAt(i);
         }
         for (int i = 0; i < Surfaces.Count; i++)
@@ -302,7 +386,9 @@ internal static class MrBacking
             if (ReferenceEquals(Surfaces[i].Surface, surface))
                 return;
         }
-        Surfaces.Add(new SurfaceEntry { Surface = surface });
+        // The fade opt-in is resolved ONCE here (see IFadedBacking): the per-tick sweep then reads a
+        // cached reference instead of type-testing every surface every frame.
+        Surfaces.Add(new SurfaceEntry { Surface = surface, Fade = surface as IFadedBacking });
     }
 
     /// <summary>
@@ -330,8 +416,7 @@ internal static class MrBacking
         {
             if (!ReferenceEquals(Surfaces[i].Surface, surface))
                 continue;
-            if (Surfaces[i].Plate != null)
-                Object.Destroy(Surfaces[i].Plate!.gameObject);
+            DestroyPlate(Surfaces[i].Plate, Surfaces[i].FadeMat);
             Surfaces.RemoveAt(i);
             return;
         }
@@ -389,20 +474,14 @@ internal static class MrBacking
     {
         RestoreAll();
         for (int i = 0; i < Labels.Count; i++)
-        {
-            if (Labels[i].Plate != null)
-                Object.Destroy(Labels[i].Plate!.gameObject);
-        }
+            DestroyPlate(Labels[i].Plate, Labels[i].FadeMat);
         for (int i = 0; i < Panels.Count; i++)
         {
             if (Panels[i].Plate != null)
-                Object.Destroy(Panels[i].Plate!.gameObject);
+                Object.Destroy(Panels[i].Plate!.gameObject); // panels never fade — no instance to drop
         }
         for (int i = 0; i < Surfaces.Count; i++)
-        {
-            if (Surfaces[i].Plate != null)
-                Object.Destroy(Surfaces[i].Plate!.gameObject);
-        }
+            DestroyPlate(Surfaces[i].Plate, Surfaces[i].FadeMat);
         Labels.Clear();
         Panels.Clear();
         Surfaces.Clear();
@@ -424,13 +503,23 @@ internal static class MrBacking
             LabelEntry e = Labels[i];
             if (e.Label == null) // Unity fake-null: label destroyed (its plate died with it)
             {
+                // The plate went with the label, but a fade material instance is OURS and would
+                // leak with the entry — Destroy takes a Unity-null plate in its stride.
+                DestroyPlate(e.Plate, e.FadeMat);
                 Labels.RemoveAt(i);
                 continue;
             }
             RectTransform rect = e.Label.rectTransform;
             Vector2 size = rect.sizeDelta; // TmpFit contract: the label box in local meters
+            // OPT-IN FADE (class doc, THE PLATE MUST DIE WITH ITS CONTENT): only a label whose owner
+            // declared that it EXPIRES BY FADING lets its alpha speak for the plate. Every other
+            // label reports 1 and this is bit-identical to the shipped behaviour — including the
+            // ones that sit at a steady sub-1 alpha on purpose (ButtonCluster's disabled captions),
+            // whose plates must stay fully opaque or the passthrough room comes back through them.
+            float alpha = e.Fades ? Mathf.Clamp01(e.Label.color.a) : 1f;
             bool visible = e.Label.isActiveAndEnabled && size.x > 0.001f && size.y > 0.001f
-                           && !string.IsNullOrEmpty(e.Label.text);
+                           && !string.IsNullOrEmpty(e.Label.text)
+                           && alpha > PlateFadeCutoff;
             if (e.Plate == null)
             {
                 if (!visible)
@@ -472,6 +561,7 @@ internal static class MrBacking
             float padY = fit.y * LabelPadFraction + LabelPadFloorMeters;
             Vector2 center = glyphs ? (Vector2)tb.center : rect.rect.center;
             Fit(e.Plate, rect, new Vector2(fit.x + padX, fit.y + padY), center);
+            ApplyPlateAlpha(e.PlateRenderer, ref e.FadeMat, ref e.Faded, alpha);
         }
     }
 
@@ -829,18 +919,23 @@ internal static class MrBacking
             {
                 // The registrant is gone. Its plate is a child of the host it destroyed (already
                 // Unity-null) OR still ours to drop — going through Destroy covers both.
-                if (e.Plate != null)
-                    Object.Destroy(e.Plate!.gameObject);
+                DestroyPlate(e.Plate, e.FadeMat);
                 Surfaces.RemoveAt(i);
                 continue;
             }
 
             Transform? anchor = s.BackingAnchor;
             Vector2 size = anchor != null ? s.BackingSize : Vector2.zero;
+            // OPT-IN FADE (class doc, THE PLATE MUST DIE WITH ITS CONTENT): a surface that declared
+            // IFadedBacking hands us the opacity its own content renders at this tick — the tooltip
+            // rides the game's CanvasGroup tween that way, so plate and frame appear and disappear
+            // as ONE object. A surface that did not is 1 and unchanged.
+            float alpha = e.Fade != null ? Mathf.Clamp01(e.Fade.BackingAlpha) : 1f;
             // Degenerate sizes read as "nothing to back": a mirror mid-rebuild reports zero, and an
             // opaque plate at a guessed rect is exactly the pop-in the panel sweep refuses too.
             bool visible = anchor != null && s.BackingVisible
-                           && size.x > 0.0001f && size.y > 0.0001f;
+                           && size.x > 0.0001f && size.y > 0.0001f
+                           && alpha > PlateFadeCutoff;
             if (e.Plate == null)
             {
                 if (!visible)
@@ -865,6 +960,7 @@ internal static class MrBacking
                 e.PlateRenderer.sortingOrder = order;
 
             Fit(e.Plate, anchor, size, s.BackingCenter);
+            ApplyPlateAlpha(e.PlateRenderer, ref e.FadeMat, ref e.Faded, alpha);
         }
     }
 
@@ -921,6 +1017,7 @@ internal static class MrBacking
         {
             if (Labels[i].Label == null)
             {
+                DestroyPlate(Labels[i].Plate, Labels[i].FadeMat);
                 Labels.RemoveAt(i);
                 continue;
             }
@@ -940,8 +1037,7 @@ internal static class MrBacking
             SurfaceEntry e = Surfaces[i];
             if (!e.Surface.BackingAlive)
             {
-                if (e.Plate != null)
-                    Object.Destroy(e.Plate!.gameObject);
+                DestroyPlate(e.Plate, e.FadeMat);
                 Surfaces.RemoveAt(i);
                 continue;
             }
@@ -1023,6 +1119,79 @@ internal static class MrBacking
         var scale = new Vector3(size.x, size.y, 1f);
         if (plate.localScale != scale)
             plate.localScale = scale;
+    }
+
+    /// <summary>
+    /// Drive one plate's opacity (class doc, THE PLATE MUST DIE WITH ITS CONTENT).
+    ///
+    /// <para>THE STEADY STATE IS FREE AND BIT-IDENTICAL: at full opacity — which is EVERY plate in
+    /// the mod except a tooltip mid-tween and a ping tag in its expiry tail — this is one float
+    /// compare against an already-false bool and returns. No material is ever created for a plate
+    /// that never fades.</para>
+    ///
+    /// <para>WHY A SECOND MATERIAL AND NOT A COLOUR WRITE ON THE SHARED ONE. The shared plate
+    /// material is <c>Blend One Zero</c> (see <see cref="EnsurePlateMaterial"/>) — genuinely opaque,
+    /// so its colour's alpha channel is not read by anything and writing it would do nothing at all.
+    /// Fading needs a different BLEND STATE, which is per-material, and the plate colour is shared
+    /// by every plate in the scene, so the fading one gets its own instance. It also drops
+    /// <c>_ZWrite</c>: a translucent surface that still stamped depth would occlude whatever it is
+    /// supposed to be revealing, which is the opposite of a fade.</para>
+    ///
+    /// <para>The instance is built lazily on the first faded tick, kept for the life of the plate
+    /// (a tooltip re-fades on every hover; churning a Material per hover is not free), re-tinted
+    /// from the LIVE <see cref="_plateColor"/> so the key-avoidance lift applies to it too, and
+    /// destroyed with the plate by <see cref="DestroyPlate"/>.</para>
+    /// </summary>
+    private static void ApplyPlateAlpha(Renderer? plate, ref Material? fadeMat, ref bool faded,
+                                        float alpha)
+    {
+        if (plate == null)
+            return;
+        if (alpha >= PlateOpaqueAlpha)
+        {
+            if (!faded)
+                return; // the overwhelmingly common path: nothing to do, nothing allocated
+            faded = false;
+            plate.sharedMaterial = _plateMat; // back to the shared opaque plate, depth write and all
+            return;
+        }
+        fadeMat ??= CreateFadeMaterial();
+        Color wanted = _plateColor;
+        wanted.a = alpha;
+        if (fadeMat.color != wanted)
+            fadeMat.color = wanted;
+        if (!faded)
+        {
+            faded = true;
+            plate.sharedMaterial = fadeMat;
+        }
+    }
+
+    /// <summary>The shared plate recipe with the blend flipped to straight alpha and the depth
+    /// write dropped — see <see cref="ApplyPlateAlpha"/> for why both are necessary. At alpha 1 it
+    /// composites identically to the opaque material (<c>src·1 + dst·0</c>), so the crossover in
+    /// either direction is invisible.</summary>
+    private static Material CreateFadeMaterial()
+    {
+        Material m = WorldUIAssets.CreateFlatMaterial(_plateColor, overlay: true);
+        if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);      // never occlude what it reveals
+        if (m.HasProperty("_ZTest")) m.SetInt("_ZTest", 4);        // LEqual — hands/board still win
+        if (m.HasProperty("_Cull")) m.SetInt("_Cull", 0);          // readable back side too
+        if (m.HasProperty("_SrcBlend")) m.SetInt("_SrcBlend", 5);  // SrcAlpha         ┐ straight
+        if (m.HasProperty("_DstBlend")) m.SetInt("_DstBlend", 10); // OneMinusSrcAlpha ┘ alpha blend
+        m.renderQueue = PlateQueue;
+        return m;
+    }
+
+    /// <summary>Drop a plate AND the fade-material instance it may own, in the one place that knows
+    /// they belong together. Both arguments tolerate an already-destroyed (Unity-null) object, which
+    /// is the normal case for a plate whose parent host died first.</summary>
+    private static void DestroyPlate(Transform? plate, Material? fadeMat)
+    {
+        if (plate != null)
+            Object.Destroy(plate.gameObject);
+        if (fadeMat != null)
+            Object.Destroy(fadeMat);
     }
 
     private static Transform CreatePlate(Transform parent)
