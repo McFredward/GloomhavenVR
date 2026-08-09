@@ -132,24 +132,26 @@ PAIRS = [
     # The ITEM-USE BERTH's art (2026-08-09 — the mirrored half of "Ueberarbeite das Aussehen des
     # Item-Overlays"). These landed as FROZEN constants because extension record 28 was at its exact
     # 255-byte per-record ceiling and could not carry them; the PAGING round in the same build
-    # removed that ceiling (ids 80 / 161..169 stand reserved for exactly these ten), so they are due
-    # to become wire-overridable fallbacks like the ItemFan* family above. Until they do, the
-    # shipped default is the ONLY value a mirrored berth will ever use — which makes this list more
-    # load-bearing here than anywhere else on it: move one without moving the other and two untuned
-    # players see two different berths.
-    ("Net/RemoteBoardFurniture.cs", "ItemBerthRingThickness", "Cards", "ItemBerthRingThickness"),
-    ("Net/RemoteBoardFurniture.cs", "ItemBerthGlow", "Cards", "ItemBerthGlow"),
-    ("Net/RemoteBoardFurniture.cs", "ItemBerthPingSeconds", "Cards", "ItemBerthPingSeconds"),
-    ("Net/RemoteBoardFurniture.cs", "ItemBerthPingReach", "Cards", "ItemBerthPingReach"),
-    ("Net/RemoteBoardFurniture.cs", "ItemBerthRevealSeconds", "Cards", "ItemBerthRevealSeconds"),
+    # removed that ceiling and RESERVED ids 80 / 161..169 for exactly these ten. Those reservations
+    # are CLAIMED now — all ten are wire-overridable fallback fields like the ItemFan* family above,
+    # so an owner who thickens their berth outline or opens its glow is seen doing it. The
+    # initialiser is what an UNTUNED peer's berth is still drawn with, which is what keeps them on
+    # this list: move a default without moving its copy and two untuned players see two different
+    # berths, and neither of them can tell from inside their own headset.
+    ("Net/RemoteBoardFurniture.cs", "_itemBerthRingThickness", "Cards", "ItemBerthRingThickness"),
+    ("Net/RemoteBoardFurniture.cs", "_itemBerthGlow", "Cards", "ItemBerthGlow"),
+    ("Net/RemoteBoardFurniture.cs", "_itemBerthPingSeconds", "Cards", "ItemBerthPingSeconds"),
+    ("Net/RemoteBoardFurniture.cs", "_itemBerthPingReach", "Cards", "ItemBerthPingReach"),
+    ("Net/RemoteBoardFurniture.cs", "_itemBerthRevealSeconds", "Cards", "ItemBerthRevealSeconds"),
     # The CLOSED ITEMS PILE's "an item is usable" cue on a peer's board (2026-08-09 — the 1:1 gap
-    # where a peer saw no cue at all). Same story as the berth above: frozen, because record 28
-    # cannot carry these dials, so the shipped default is what every mirrored stack beats at.
-    ("Net/RemoteControlBoard.cs", "ItemCueBeatSeconds", "Cards", "ItemCueBeatSeconds"),
-    ("Net/RemoteControlBoard.cs", "ItemCueRingReach", "Cards", "ItemCueRingReach"),
-    ("Net/RemoteControlBoard.cs", "ItemCueRingAlpha", "Cards", "ItemCueRingAlpha"),
-    ("Net/RemoteControlBoard.cs", "ItemCueEmberRate", "Cards", "ItemCueEmberRate"),
-    ("Net/RemoteControlBoard.cs", "ItemCueEmberSize", "Cards", "ItemCueEmberSize"),
+    # where a peer saw no cue at all). Same story as the berth above, and the same resolution: frozen
+    # while record 28 could not carry the dials, wire-overridable fallbacks (ids 161..165) now that
+    # paging has removed the ceiling. The initialiser is what an untuned peer's stack beats at.
+    ("Net/RemoteControlBoard.cs", "_itemCueBeatSeconds", "Cards", "ItemCueBeatSeconds"),
+    ("Net/RemoteControlBoard.cs", "_itemCueRingReach", "Cards", "ItemCueRingReach"),
+    ("Net/RemoteControlBoard.cs", "_itemCueRingAlpha", "Cards", "ItemCueRingAlpha"),
+    ("Net/RemoteControlBoard.cs", "_itemCueEmberRate", "Cards", "ItemCueEmberRate"),
+    ("Net/RemoteControlBoard.cs", "_itemCueEmberSize", "Cards", "ItemCueEmberSize"),
     # The PILE FANS' shape (2026-08-09, the paging round). These four were BARE LITERALS — the exact
     # thing the header calls "a stale literal" — and nothing caught them because a literal with no
     # pair on this list has nothing to be checked against. Worse than stale: RemoteItemFan's radius

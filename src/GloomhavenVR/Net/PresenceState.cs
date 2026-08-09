@@ -892,8 +892,16 @@ internal static class PresenceSerializer
     /// + 43 (USE BARS: 2 + mask 1 + 4 bars × (flags 1 + count 1 + its 8-slot cap))
     /// + 3 (ITEM-USE CLIP: 2 + its single index byte)
     /// + 28 (track order: 2 + count 1 + owned mask 1 + 4 × its 6-id cap)
-    /// + 257 (BOARD TUNING: 2 + count 1 + every one of its 66 fields at once —
-    /// 15 vec3 × 7 + 15 length × 3 + 26 factor × 3 + 6 angle × 3 + 4 count × 2 = 254) = 1289.
+    /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
+    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1289.
+    ///
+    /// <para>THAT LAST TERM IS DERIVED FROM THE PAGE, NOT FROM A FIELD CENSUS, and it has to be:
+    /// until the paging round it read "every one of its 66 fields at once — 15 vec3 × 7 + 15 length
+    /// × 3 + 26 factor × 3 + 6 angle × 3 + 4 count × 2 = 254", i.e. a number that had to be re-counted
+    /// every time a dial was added and was therefore wrong the moment one was. It is stated as the
+    /// page's own ceiling now, so wiring the item-cue / item-berth dials (ids 80 / 161..169, which
+    /// took the sampler from 76 dials / 284 bytes to 86 / 314) moved NOTHING here — see the fixed-
+    /// point note below.</para>
     ///
     /// <para>1264 → 1267 on 2026-08-09: the ITEM-USE CLIP record (26) added its own worst case of 3
     /// bytes — [id][len][index] — in its own commit, per the rule below. The margin at
