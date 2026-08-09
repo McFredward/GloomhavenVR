@@ -785,8 +785,12 @@ internal sealed partial class CardsDriver
         }
         // No `skip` here on purpose: `prox` above is only TESTED when it clears the grabber's own
         // conditions (not held, CanGrab, a member of the column), so skipping it unconditionally
-        // would re-open the very hole this scan closes for a rooted column card.
-        if (TryContactInPool(hand, _active.Cards, null, out hit, out geo))
+        // would re-open the very hole this scan closes for a rooted column card. IsShown IS
+        // required, though — SetVisible(false) disables the column root WITHOUT clearing the card
+        // list, and those cards keep their last world pose beside the board, where they would be
+        // an invisible obstacle. The proximity branch above never needed the gate because a
+        // disabled collider cannot be highlighted; a geometric scan has no such protection.
+        if (_active.IsShown && TryContactInPool(hand, _active.Cards, null, out hit, out geo))
         {
             zone = ZoneActive;
             return hit;
@@ -874,6 +878,12 @@ internal sealed partial class CardsDriver
     /// cards at once EITHER answer is correct, because the question is "does the beam leave through
     /// a card", not "which card would you take". Unity's lifetime-aware <c>==</c> covers a destroyed
     /// member. No allocations, no square roots.
+    ///
+    /// <para>ONLY WHAT IS ACTUALLY ON SCREEN. A pool can legitimately still LIST a card whose
+    /// GameObject is disabled (a closed fan root, a card mid-recycle), and a disabled card keeps its
+    /// last world pose — so without this test the scan would find an INVISIBLE obstacle and take the
+    /// beam away for nothing. The election branches never needed the test because a disabled
+    /// collider can neither be swept nor highlighted; a geometric scan has no such protection.</para>
     /// </summary>
     private static bool TryContactInPool(VRHand hand, IReadOnlyList<VRCard>? pool, VRCard? skip,
         out VRCard? hit, out ContactGeometry geo)
@@ -885,7 +895,7 @@ internal sealed partial class CardsDriver
         for (int i = 0; i < pool.Count; i++)
         {
             VRCard card = pool[i];
-            if (card == null || ReferenceEquals(card, skip))
+            if (card == null || ReferenceEquals(card, skip) || !card.gameObject.activeInHierarchy)
                 continue;
             if (TryHandContact(hand, card, out geo))
             {
@@ -908,7 +918,7 @@ internal sealed partial class CardsDriver
         for (int i = 0; i < pool.Count; i++)
         {
             ItemsPile.ItemChip chip = pool[i];
-            if (chip == null || ReferenceEquals(chip, skip))
+            if (chip == null || ReferenceEquals(chip, skip) || !chip.gameObject.activeInHierarchy)
                 continue;
             if (TryHandContact(hand, chip, out geo))
             {
