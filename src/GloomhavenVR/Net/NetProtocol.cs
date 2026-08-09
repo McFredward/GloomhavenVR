@@ -416,7 +416,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 93;
+    public const ushort ModBuild = 94;
+    // Build 94: hardware round, 13 reports, no wire format change at all (the first such round in
+    // a while — every fix landed in rendering, input policy or local state). The four that were
+    // mis-diagnosed before and are now proven from the log: the mip-bake budget counted SLOTS, so
+    // menu chrome ate all 48 sprite plates before the card FRAME art loaded (AC_*_Background,
+    // AC_Enemy) and 32/32 left four enemy portraits mipless — the budget is bytes now; the item
+    // recess CANCEL called UnclipChip on a chip a hand already held, re-parenting it out of the
+    // hand so TickHeldPose pinned it a few cm off the fan root for as long as the trigger was down;
+    // BoardTargeting's interactor policy granted Ray|Poke but not PalmGate, so 'fanBuffer=8,
+    // gateEnabled=False' — eight cards built with no way to reveal them; and the keycap appear fade
+    // ran on the SCALED clock with its only exit inside its own countdown, so a cap stranded at
+    // 15 % of its colour stayed black-on-black until the game state happened to flip.
+    // Also: TurnActor follows whose TURN it is rather than which figure acts (a hero summon is not
+    // a CPlayerActor, so nobody's cards docked); pile counts follow the card's ARRIVAL, ledger-free;
+    // menu tooltips pin their frame instead of trusting the game's pixel offset read as metres; the
+    // tooltip backdrop gets an opaque plate under the game's own frame art; a seam wall belongs to
+    // BOTH rooms it separates; and low water is permanently exempt from the fade.
     // Build 93: hardware round — the item chip's LEFT-hand pose finally gets ba70e43's mirror (its
     // copy of GetHeldPose predated the fix); a hand in physical contact PLUCKS the placed item card
     // instead of running the far-laser's put-it-back branch through the shared IPokeable entry; the
