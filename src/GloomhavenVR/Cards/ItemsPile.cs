@@ -174,7 +174,64 @@ internal sealed class ItemsPile
     // MOUNT is only the null fallback). Used solely as the emerge/collapse converge point — it is
     // not a parent and not a placement scale reference.
     private Transform? _anchor;
+
+    /// <summary>
+    /// THE CHARACTER WHOSE ITEMS THESE ARE — the hand the fan was OPENED for, and since the
+    /// 2026-08-09 focus regression that is the hand the BOARD PRESENTS
+    /// (<c>Board.CharacterFocus.PresentedHand</c>), not the hand the GAME presents.
+    ///
+    /// <para>USER REPORT (verbatim): "Wenn gerade ein Character am Zug ist, und man wechselt zu einem
+    /// anderen Character - dann ändert sich der Item Pile nicht, es bleibt der Item Pile des
+    /// Characters der gerade am Zug ist. … Der Item Pile soll von dem Fächer und der Nummer immer
+    /// dasjenige anzeigen dessen Character gerade ausgewählt ist - nicht desjenigen das am Zug ist."
+    /// This is the ModBuild-89 defect ("Wird der Character gewechselt sollen immer sofort die
+    /// jeweiligen richtigen Zahlen des Characters angezeigt werden") surviving in the one stack that
+    /// fix did not cover: <c>PileViewer.TickStatus</c> made the discard/burnt NUMBERS follow the
+    /// focus and kept feeding the whole ITEM path the game's hand.</para>
+    ///
+    /// <para>─── WHY THIS FIELD MOVED INSTEAD OF A SECOND "DISPLAY HAND" BEING ADDED BESIDE IT.
+    /// The obvious-looking alternative — leave <c>_hand</c> naming the ACTING character and re-resolve
+    /// only the display reads (<see cref="Count"/>, <see cref="Populate"/>, <see cref="Signature"/>,
+    /// <see cref="UsableCount"/>) to the focused one — was rejected, and it is the more dangerous of
+    /// the two structures. It would leave the arc holding character B's CItem instances while
+    /// <c>_hand</c> named character A, and every action path here reads BOTH: <see cref="ConfirmPendingUse"/>
+    /// builds <c>new UseItemService(_hand.PlayerActor)</c> and hands it <c>chip.Item</c>. That is
+    /// literally A's actor being told to spend B's item — the wrong-hand class of bug, manufactured
+    /// on purpose. <see cref="CanPlaceChoiceItem"/> and the sub-choice classification would likewise
+    /// ask A's hand about B's item's infusions.</para>
+    ///
+    /// <para>WITH THE FIELD MOVED, EVERY ACTION PATH IS SELF-CONSISTENT — the actor it names IS the
+    /// owner of the CItem it passes — and "a merely-watched character may not reach a game seam" is
+    /// enforced by a STRONGER mechanism than naming a different hand: the seams are UNREACHABLE.
+    /// <c>CardsGameApi.IsActionTurn(_hand)</c> is false by construction whenever <c>_hand</c> is not
+    /// the acting character, and it already stands in front of all of them — the use recess only
+    /// appears while <c>turn || heldBonus</c> (<see cref="Tick"/>), <see cref="PlayContinued"/>
+    /// cancels a placed card the moment it goes false, and <see cref="CanUseNow"/> /
+    /// <see cref="UsableCount"/> both require it. So no seam runs for the wrong person; no seam runs
+    /// at all.</para>
+    ///
+    /// <para>THE ONE HOLE THAT LEFT, and it is fixed at its own site: the second, deliberately
+    /// turn-INDEPENDENT arm — an item whose ACTIVE BONUS is on offer (the Brille). That predicate
+    /// matched the bar's bonuses to an item BY CARD ID, which is not a per-copy identity, so it could
+    /// answer YES for a watched character holding another copy of the acting character's item. See
+    /// <c>CardsGameApi.PlaceableBonusForItem</c>, which now also requires the bonus's own
+    /// <c>Actor</c>. The two FLOW pumps need no such fix: <see cref="TickDemandPick"/> and
+    /// <see cref="TickTakeDamagePick"/> are driven from <c>PileViewer.TickItemDemand</c> with the
+    /// GAME's hand (they mirror a game decision that belongs to the acting/deciding actor), and their
+    /// drop seams key REFERENCE-identical CItem instances out of the game's own dictionaries
+    /// (<c>ItemCardPicker.cardSlots</c>, <c>UIUseItemsBar.ItemSlots</c>; CItem overrides neither
+    /// Equals nor GetHashCode), so a watched character's card is structurally refused there.</para>
+    /// </summary>
     private CardsHandUI? _hand;
+
+    /// <summary>
+    /// The actor who OWNS the item cards this fan is showing (<see cref="_hand"/>'s player), or null.
+    /// Exists so <see cref="ItemChip.HasOfferedBonus"/> can scope its bonus lookup to its own owner —
+    /// see <c>CardsGameApi.PlaceableBonusForItem</c> for why an unscoped by-id match is a cross-actor
+    /// leak now that the fan follows the focused character.
+    /// </summary>
+    internal CPlayerActor? OwnerActor => _hand != null ? _hand.PlayerActor : null;
+
     private string _signature = string.Empty; // last-built inventory state, for cheap live refresh
     private bool _boardAnchored; // fan parented under the board root (mirrors PileBrowser)
 
@@ -1870,10 +1927,12 @@ internal sealed class ItemsPile
     }
 
     /// <summary>
-    /// USABLE-HIGHLIGHT truth source — can this chip's item be USED right now: it is the local
-    /// character's own action turn AND the item's live state is activatable (non-passive +
+    /// USABLE-HIGHLIGHT truth source — can this chip's item be USED right now: it is the action turn
+    /// OF THE CHARACTER THIS FAN BELONGS TO (<see cref="_hand"/> — the PRESENTED character since the
+    /// 2026-08-09 focus fix, see that field) AND the item's live state is activatable (non-passive +
     /// Useable/Selected — the exact gate <c>UseItemService.UseItem</c> enforces). Owner-driven
-    /// (turn-aware), so OFF-turn nothing highlights and ON-turn exactly the playable items light up.
+    /// (turn-aware), so a merely-watched character's cards never light up and the acting character's
+    /// playable ones do — the per-card twin of <see cref="UsableCount"/>'s stack cue.
     /// Polled live from each chip's per-frame face maintenance; never cached — usability moves with
     /// turn/phase and with every item the player spends.
     ///
@@ -1979,7 +2038,7 @@ internal sealed class ItemsPile
             || item.SlotState == CItem.EItemSlotState.Selected);
 
     /// <summary>
-    /// How many of the acting character's equipped items are PLAYABLE RIGHT NOW — the count that
+    /// How many of <paramref name="hand"/>'s equipped items are PLAYABLE RIGHT NOW — the count that
     /// drives the items STACK highlight while the fan is CLOSED (there are no chips then, so it is
     /// read straight from the live inventory). Two disjoint arms, matching <see cref="CanUseNow"/>
     /// exactly so the stack and the fanned-out cards can never disagree:
@@ -1991,19 +2050,35 @@ internal sealed class ItemsPile
     /// </list>
     /// Cheap: one pass over a handful of items, per frame, allocation-free (the bonus lookup walks
     /// the bar's own small slot dictionary).
+    ///
+    /// <para>─── THIS IS ALSO, WORD FOR WORD, THE USER'S SECOND RULE (2026-08-09): "Weiterhin möchte
+    /// ich das die Pile-Animation das etwas nutzbar ist NUR bei dem Character sichtbar ist der gerade
+    /// am Zug ist, denn nur da ist aktuell wirklich gerade etwas nutzbar, bei den anderen ja nicht."
+    /// NO SECOND GATE WAS ADDED FOR IT, deliberately — the rule the user gave is a consequence and
+    /// its REASON is the rule. Now that <c>PileViewer.TickStatus</c> asks this question about the
+    /// character the board is SHOWING, both arms already answer 0 for a character who has nothing to
+    /// play: arm 1 needs that character's own action turn, and arm 2 needs the game to be holding a
+    /// bonus row of that character's own (scoped by owner since this same pass — see
+    /// <c>CardsGameApi.PlaceableBonusForItem</c>; before it, an ID collision with the acting
+    /// character's copy of the same item WOULD have leaked the cue across actors, which is precisely
+    /// the leak the user's rule is about). A hard "…&amp;&amp; IsActionTurn" wrapped round the whole
+    /// thing would instead have deleted the Brille cue the user asked for two rounds earlier ("dann
+    /// soll die Brille im Gegenstands-Pile gehighlighted werden"), because the game offers that
+    /// question during an ENEMY's turn.</para>
     /// </summary>
     internal int UsableCount(CardsHandUI? hand)
     {
         if (hand == null)
             return 0;
         bool turn = CardsGameApi.IsActionTurn(hand);
+        CPlayerActor? owner = hand.PlayerActor;
         List<CItem>? items = ItemsOf(hand);
         if (items == null)
             return 0;
         int n = 0;
         for (int i = 0; i < items.Count; i++)
             if ((turn && IsItemActivatable(items[i]))
-                || CardsGameApi.PlaceableBonusForItem(items[i]) != null)
+                || CardsGameApi.PlaceableBonusForItem(items[i], owner) != null)
                 n++;
         return n;
     }
@@ -2132,7 +2207,12 @@ internal sealed class ItemsPile
         // offered while a take-damage decision is up — that is when a worn prevent-damage item asks
         // its question. Routing it here means the _tdActive branch below never sees a card it has no
         // items-bar slot for and would silently bounce.
-        CActiveBonus? offered = chip.Item != null ? CardsGameApi.PlaceableBonusForItem(chip.Item) : null;
+        // Owner-scoped (see PlaceableBonusForItem): this is a DROP ROUTER, so an unscoped by-id match
+        // would let the watched character's card toggle the ACTING character's bonus in
+        // ConfirmPendingBonus — the "an action path reading the focus" direction, and the one real
+        // hazard the item pile's move to the presented hand opened.
+        CActiveBonus? offered = chip.Item != null
+            ? CardsGameApi.PlaceableBonusForItem(chip.Item, OwnerActor) : null;
         if (offered != null)
         {
             HandleBonusDrop(chip, dropWorldPos, slot, vrHand, offered);
@@ -4258,7 +4338,12 @@ internal sealed class ItemsPile
         /// <c>UIActiveBonusBar</c> instead of on the items bar. Never cached: the offer appears and
         /// disappears with the game's own bar population, several times per turn.
         /// </summary>
-        internal bool HasOfferedBonus => CardsGameApi.PlaceableBonusForItem(Item) != null;
+        /// <para>Scoped to the OWNING actor (<see cref="ItemsPile.OwnerActor"/>): the bar is matched
+        /// by item CARD id, which two characters can share, so an unscoped ask would light this chip
+        /// up for a bonus that belongs to somebody else — see
+        /// <c>CardsGameApi.PlaceableBonusForItem</c>.</para>
+        internal bool HasOfferedBonus =>
+            CardsGameApi.PlaceableBonusForItem(Item, _owner != null ? _owner.OwnerActor : null) != null;
 
         // ---- THE LIFT AN ABILITY CARD GIVES, TERM FOR TERM (user report 2026-08-09) ------------
         //

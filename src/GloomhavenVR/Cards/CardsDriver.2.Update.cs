@@ -730,7 +730,10 @@ internal sealed partial class CardsDriver
             _tray.TickStatus(_fakeActive ? null : hand);
             _rest.TickStatus(_fakeActive ? null : hand);
             _piles.TickStatus(_fakeActive ? null : hand, _fakeActive ? null : presented);
-            PollActive(_fakeActive ? null : hand); // feature 6: rebuild the active area when its set changes
+            // feature 6: rebuild the active area when its set changes — watched on the PRESENTED
+            // hand, the same one UpdateActive builds from (see PollActive's doc for why the two
+            // halves reading different characters is the item-pile defect shape).
+            PollActive(_fakeActive ? null : presented);
             TickBurnToPile(_fakeActive ? null : hand); // issue B: fly damage-burned cards into the burnt pile
         }
         else
