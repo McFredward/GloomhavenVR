@@ -672,7 +672,7 @@ internal sealed class RemoteBrowserFan
         _collapseFrom.Clear();
         ClearPops(); // a rebuilt arc must never open with a stale card already lifted
 
-        Material back = CardMesh.CreateBackMaterial(); // SHARED cache — never ours to destroy
+        Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // SHARED cache — never ours to destroy
         for (int i = 0; i < count; i++)
         {
             var card = new GameObject($"Browse{i}");

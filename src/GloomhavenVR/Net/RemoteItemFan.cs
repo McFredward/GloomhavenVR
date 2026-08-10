@@ -1301,7 +1301,7 @@ internal sealed class RemoteItemFan
         ClearCollapseCapture(); // parallel to _cards — never let it outlive the slabs it indexed
         ClearPops();            // index-aligned with _cards too — a rebuilt arc starts flat
 
-        Material back = CardMesh.CreateBackMaterial(); // SHARED cache — never ours to destroy
+        Material back = CardMesh.CreateBackMaterial(CardBodyKind.Item); // SHARED cache — never ours to destroy
         for (int i = 0; i < count; i++)
         {
             var card = new GameObject($"Item{i}");

@@ -510,7 +510,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         backing.transform.SetParent(parent, worldPositionStays: false);
         backing.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(w, h);
         var renderer = backing.AddComponent<MeshRenderer>();
-        renderer.sharedMaterials = new[] { CardMesh.CreateEdgeMaterial(), CardMesh.CreateBackMaterial() };
+        // ABILITY-kind materials (2026-08-11 "keinen schwarzen Rand"): the shared pair that
+        // CardFace's silhouette capture alpha-clips to the ability card's own outline. Item
+        // chips take the Item pair; everyone else keeps the never-clipped Neutral pair — see
+        // CardBodyKind. Assigning the SHARED material (never an instance) is what lets a
+        // silhouette captured seconds later re-shape this card without rebuilding it.
+        renderer.sharedMaterials = new[]
+        {
+            CardMesh.CreateEdgeMaterial(CardBodyKind.Ability),
+            CardMesh.CreateBackMaterial(CardBodyKind.Ability),
+        };
         renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         return backing.transform;
     }

@@ -4870,7 +4870,14 @@ internal sealed class ItemsPile
                     backing.transform.SetParent(parent, worldPositionStays: false);
                     backing.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(cw, ch);
                     var mr = backing.AddComponent<MeshRenderer>();
-                    mr.sharedMaterials = new[] { CardMesh.CreateEdgeMaterial(), CardMesh.CreateBackMaterial() };
+                    // ITEM body kind (2026-08-11): the silhouette clip is captured per card KIND, and item cards
+                    // are a different, near-square outline — asking for the Neutral pair here is what
+                    // kept "auch die Itemkarten" from happening once the capture started working.
+                    mr.sharedMaterials = new[]
+                    {
+                        CardMesh.CreateEdgeMaterial(CardBodyKind.Item),
+                        CardMesh.CreateBackMaterial(CardBodyKind.Item),
+                    };
                     mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                     source = "procedural CardMesh backing (same edge/back material as the ability cards)";
                 }

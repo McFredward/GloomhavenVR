@@ -123,13 +123,10 @@ internal sealed class CardFace
 
         ApplyHostPose();
 
-        // Test #25: the card art has an artistic, non-rectangular outline. Once (session
-        // wide — the outer silhouette is shared by every ability card), capture the live
-        // art's opacity footprint and hand it to CardMesh, which re-shapes ALL card
-        // slabs to that outline via alpha-clip. Fully guarded/fallback-safe; never
-        // blocks adoption.
-        if (!s_silhouetteTried && !CardMesh.SilhouetteApplied)
-            TryCaptureSilhouette(owner);
+        // Test #25 / 2026-08-11: the card art has an artistic, non-rectangular outline.
+        // The capture is OFFERED from CardFaceMipBake.Rescan — the one per-face pump that
+        // both card kinds already run — so there is no separate call here; the Rescan a
+        // few lines down is what drives it. See the silhouette section below.
 
         // Aliasing round 3: log (once) what the world-space card canvas ACTUALLY samples.
         LogFaceTextureDiag(owner);
@@ -185,7 +182,14 @@ internal sealed class CardFace
         if (_face == null || _owner == null || _owner.fullAbilityCard == null)
             return;
         if (_artWatch.Poll("card face") > 0)
+        {
             _nextMipRescan = Time.unscaledTime + MipRescanInterval; // it just did the backstop's job
+            // ART JUST ARRIVED — the one moment a silhouette capture can newly succeed. Offering
+            // it here instead of waiting for the 1 s backstop keeps the window in which cards are
+            // still drawn as rectangles down to a frame or two: the clip is a one-shot that
+            // re-shapes every card at once, so the later it lands the more it reads as a POP.
+            Offer(_owner.fullAbilityCard);
+        }
     }
 
     /// <summary>Next unscaled time <see cref="CardArtGuard.Tick"/> runs for this face (replay of a
@@ -254,148 +258,383 @@ internal sealed class CardFace
 
     // ------------------------------------------------------- silhouette capture --
 
-    /// <summary>Session-wide guard for <see cref="TryCaptureSilhouette"/>: latched only once
-    /// the silhouette is successfully applied (or the retry budget is spent). Card art loads
-    /// ASYNC (ImageAddressableLoader.LoadAsync), so the first adopted card usually has no
-    /// sprites yet — a plain one-shot burned on that first attempt would permanently block
-    /// every later card whose art HAS loaded. We instead retry across the next few adoptions
-    /// until one yields a valid footprint.</summary>
-    private static bool s_silhouetteTried;
+    /// <summary>
+    /// USER REPORT, verbatim (2026-08-11, hardware, ModBuild 107, b765a5b):
+    /// "Die Karten im Spiel haben eine eigene Form die nicht Rechteckig ist - aktuell sind die
+    /// Karten Rechtecke und der Rand der Karten ist daher schwarz. Ich möchte dass die Karten
+    /// (alle Karten, auch die Itemkarten), keinen schwarzen Rand mehr haben sondern die meshes
+    /// genau die Ränder der Karten selber haben."
+    ///
+    /// WHAT THE BLACK BORDER IS — established, not assumed. The card ART carries its own
+    /// non-rectangular silhouette in its ALPHA channel; the mod's body is a rounded RECTANGLE
+    /// whose near-black front (<c>CardMesh.EdgeColor</c> 0.10/0.09/0.08) sits directly behind
+    /// it. Where the art is transparent, that front is what the player sees. It is NOT an inset
+    /// or a letterbox: <c>VRCard.SetCanvasSize</c> scales the backing to facePixels × fit ×
+    /// VisibleFaceFraction (0.94) and <see cref="BorderFraction"/> insets the art by exactly the
+    /// same 6 %, so slab edge and art edge already coincide — the only dark pixels left are the
+    /// ones INSIDE the art rect where the art itself is see-through. That is why shrinking the
+    /// margin further (test #24) never removed it and never could.
+    ///
+    /// WHY IT WAS STILL THERE THOUGH THE CURE ALREADY SHIPPED. The alpha-clip cure (test #25)
+    /// has been in the build since 6d7f1bb and HAS NEVER ONCE RUN. Evidence, ModBuild 107 log
+    /// (3.9 MB, b765a5b — the exact commit of the report): zero <c>CardMesh.SetSilhouette</c>
+    /// lines, zero "captured the card-art silhouette", zero "failed the silhouette sanity
+    /// guard", zero "capture skipped" — while <c>FACE TEXTURE DIAG</c> (line 748) DOES list five
+    /// live sprite textures for the very first adopted card. Both walk the same face with the
+    /// same <c>GetComponentsInChildren&lt;Image&gt;</c> call in the same method invocation; the
+    /// ONLY difference between them is that the capture additionally demanded
+    /// <c>img.isActiveAndEnabled</c>. And that is always false at that moment:
+    /// <c>VRCardFactory.CreateBlank</c> parents each new card under <c>PoolRoot</c>, which is
+    /// created <c>SetActive(false)</c> ("parked cards are invisible/inactive",
+    /// VRCardFactory.cs:54), and <c>AttachGameCard</c> → <see cref="Adopt"/> runs while the card
+    /// is still parked there. <c>isActiveAndEnabled</c> consults <c>activeInHierarchy</c>, so
+    /// every candidate image was rejected, nothing was stamped, and the pass returned through a
+    /// branch that logs NOTHING. The retry budget (16 adoptions) was then burnt by the first 16
+    /// pooled cards inside the first few frames — a fan adopts up to 24 at once — and latched
+    /// the feature off for the session before any art had loaded.
+    ///
+    /// THE FIX, in three parts.
+    /// 1. ACTIVE-STATE INDEPENDENCE. A footprint needs sprite pixels and rect geometry; neither
+    ///    requires the object to be live. The walk is <c>includeInactive: true</c> and the test
+    ///    is <c>img.enabled &amp;&amp; img.gameObject.activeSelf</c> — "the game intends this
+    ///    image to be drawn" — which is true in the pool and true in the fan.
+    /// 2. RETRY DRIVEN BY ART, NOT BY ADOPTION COUNT. Card art loads async
+    ///    (<c>ImageAddressableLoader.LoadAsync</c>), so the useful moment is when the sprite set
+    ///    CHANGES, not when the n-th card is adopted. Each attempt hashes the qualifying images'
+    ///    (instance id, sprite id) pairs; an unchanged hash is skipped for free, so the expensive
+    ///    readback only runs when there is genuinely something new to look at.
+    /// 3. NOTHING FAILS SILENTLY. Every rejection path names itself and its numbers, deduped by
+    ///    reason so a fan of 24 cards cannot spam the log.
+    ///
+    /// TWO SHAPES, ONE MECHANISM (his "auch die Itemkarten"). Ability cards are poker-aspect,
+    /// item cards near-square; a single footprint cannot serve both, so the capture is keyed by
+    /// <see cref="CardBodyKind"/> and each kind clips its own material pair. The entry point is
+    /// <see cref="Offer"/>, called from <c>CardFaceMipBake.Rescan</c> — the one per-face pump
+    /// BOTH kinds already run (this file on adoption + a 1 s cadence, <c>ItemsPile</c> on host +
+    /// a per-frame art poll for ~2 s + a 1 s cadence). No new update loop, and the item path
+    /// needs no change in a file this change does not own.
+    ///
+    /// REJECTED ALTERNATIVES.
+    /// • Remeshing the body to a traced contour. It would have to trace the SAME runtime alpha
+    ///   (the art is not readable offline — <c>ressources/</c> is Managed DLLs only), then
+    ///   triangulate it, for two shapes, and every consumer of the card's bounds — the dock grab
+    ///   apron, the neighbour-separation clamp, the laser hit test, <c>VRCard.WorldWidth</c> and
+    ///   the record-11 mirror width — measures the rectangle. Alpha-clip changes zero vertices
+    ///   and zero bounds and is exact at any distance; contour tracing would be an approximation
+    ///   that also moves the collider.
+    /// • Hand-authored profile constants. Cannot be measured from the assets, would have to be
+    ///   guessed per card kind, and would drift the moment the game re-skins a class.
+    /// • Clipping the LEGACY shared material pair (what the old code did). It is shared with the
+    ///   peer mirrors and the avatar mirror; see <see cref="CardBodyKind"/>.
+    /// </summary>
+    private sealed class SilhouetteState
+    {
+        internal bool Applied;
+        internal int Attempts;
+        internal int Hash;
+        internal float NextAttemptTime;
+        internal string? LastReason;
+        internal bool GaveUpLogged;
+    }
 
-    /// <summary>Bounded retry budget so a genuinely rectangular / never-capturable card set
-    /// stops re-blitting after a handful of adoptions.</summary>
-    private static int s_silhouetteAttempts;
-    private const int MaxSilhouetteAttempts = 16;
+    private static readonly SilhouetteState[] s_silhouette =
+    {
+        new(), new(), new(), // indexed by CardBodyKind (Neutral slot unused)
+    };
+
+    /// <summary>Hard ceiling on capture attempts per card kind. An attempt only happens when the
+    /// qualifying sprite set actually changed, and every card carries different image instances,
+    /// so without a ceiling a 24-card fan could pay 24 readback rounds for the same answer. Every
+    /// card of a class shares the frame art the outline comes from, so if the first few cannot
+    /// yield an outline neither can the rest.</summary>
+    private const int MaxSilhouetteAttempts = 8;
+
+    /// <summary>Minimum unscaled seconds between two REAL attempts (ones that reach the GPU
+    /// readback). A hand fan builds all its cards in one frame; this spreads any repeat cost
+    /// across frames instead of stacking it into a single 11.1 ms budget.</summary>
+    private const float SilhouetteAttemptInterval = 0.5f;
 
     /// <summary>Footprint resolution (card-space). ~224 px wide keeps the ornate curve
     /// crisp at fan distance while the one-shot CPU cost stays trivial.</summary>
     private const int FootprintWidth = 224;
 
+    /// <summary>Smallest share of the face rect an <c>Image</c> must cover to count toward the
+    /// OUTER outline. Icons, XP orbs and enhancement slots sit far inside it and can only add
+    /// noise.</summary>
+    private const float MinOutlineAreaFraction = 0.03f;
+
     /// <summary>
-    /// Capture the live card art's opacity footprint (card-space alpha) and drive
-    /// <see cref="CardMesh.SetSilhouette"/>. We union the alpha of the card's larger
-    /// <c>Image</c> sprites (the class-skin backgrounds / frame that define the outer
-    /// outline; tiny icons are skipped and never extend the silhouette anyway), each
-    /// sampled by GPU blit → readback so it works even for non-CPU-readable atlas
-    /// textures. Robust: any failure just leaves the opaque rounded-rect slab in place.
+    /// An image at least this large that is ALSO opaque at every probe point is a plain
+    /// rectangular backdrop, not the card's shape. Unioned in, it would erase the silhouette and
+    /// the result would be rejected as "solid" — so it is skipped. Safe by construction: if the
+    /// card genuinely has no outline beyond such a backdrop, what remains is sparse and the
+    /// sanity guard keeps the rounded rect, which is exactly the old look.
     /// </summary>
-    private static void TryCaptureSilhouette(AbilityCardUI owner)
+    private const float BackdropAreaFraction = 0.85f;
+
+    /// <summary>
+    /// Offer a live card face to the silhouette capture. Cheap and safe to call every frame:
+    /// returns immediately once that kind is done, and skips the readback entirely while the
+    /// face's qualifying sprite set is unchanged. Classifies by the game component itself, so a
+    /// root that is neither card kind (e.g. the peer's card canvas, which reaches
+    /// <c>CardFaceMipBake.Rescan</c> from <c>Net/RemoteCardArt</c>) is ignored.
+    /// </summary>
+    internal static void Offer(Component? faceRoot)
     {
-        // Retry across adoptions until a footprint applies; latch off only when the budget
-        // is exhausted (see s_silhouetteTried doc) so async-loaded art still gets captured.
-        if (++s_silhouetteAttempts >= MaxSilhouetteAttempts)
-            s_silhouetteTried = true;
-        var readbacks = new List<Texture2D>();
+        if (faceRoot == null)
+            return;
         try
         {
-            FullAbilityCard? faceCard = owner.fullAbilityCard;
-            if (faceCard == null)
-                return;
-            RectTransform faceRoot = faceCard.RectTransform;
-            if (faceRoot == null)
-                return;
-            Rect faceRect = faceRoot.rect;
-            if (faceRect.width < 1f || faceRect.height < 1f)
-                return;
-
-            int fw = FootprintWidth;
-            int fh = Mathf.Clamp(
-                Mathf.RoundToInt(fw * faceRect.height / faceRect.width), 64, 512);
-            var alpha = new byte[fw * fh];
-
-            var cache = new Dictionary<int, Texture2D>();
-            var corners = new Vector3[4];
-            bool stamped = false;
-
-            Image[] images = faceCard.GetComponentsInChildren<Image>(includeInactive: false);
-            foreach (Image img in images)
+            CardBodyKind kind;
+            RectTransform? root;
+            // Unity-null aware (a destroyed component is != null to C# but == null to Unity).
+            FullAbilityCard? ability = faceRoot.GetComponent<FullAbilityCard>();
+            if (ability != null)
             {
-                if (img == null || !img.isActiveAndEnabled)
-                    continue;
+                kind = CardBodyKind.Ability;
+                root = ability.RectTransform != null
+                    ? ability.RectTransform
+                    : ability.transform as RectTransform;
+            }
+            else if (faceRoot.GetComponent<ItemCardUI>() != null)
+            {
+                kind = CardBodyKind.Item;
+                root = faceRoot.transform as RectTransform;
+            }
+            else
+            {
+                return;
+            }
+            if (root == null)
+                return;
+
+            SilhouetteState state = s_silhouette[(int)kind];
+            if (state.Applied || CardMesh.SilhouetteApplied(kind))
+                return;
+            if (state.Attempts >= MaxSilhouetteAttempts)
+            {
+                if (!state.GaveUpLogged)
+                {
+                    state.GaveUpLogged = true;
+                    VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}): giving up after {state.Attempts} " +
+                                        $"attempt(s), last reason '{state.LastReason ?? "n/a"}' — that shape " +
+                                        "keeps the opaque rounded-rect body (unchanged look, no black border " +
+                                        "beyond what the art itself leaves transparent).");
+                }
+                return;
+            }
+            TryCapture(root, kind, state);
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", $"CARD SILHOUETTE offer skipped ({ex.GetType().Name}: {ex.Message}) — " +
+                                "kept the rounded-rect card slab.");
+        }
+    }
+
+    /// <summary>
+    /// Log a rejection once per distinct KIND OF reason per card kind. Deduping on a short
+    /// <paramref name="code"/> rather than on the full text is deliberate: the detail carries
+    /// per-card counts, so text dedup would still print once per card and a fan adopts up to 24
+    /// at a time. A NEW code is information; the same code again is not.
+    /// </summary>
+    private static void Reject(SilhouetteState state, CardBodyKind kind, string code, string detail)
+    {
+        if (state.LastReason == code)
+            return;
+        state.LastReason = code;
+        VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}): no footprint yet [{code}] — {detail}. " +
+                            "The body keeps its opaque rounded-rect shape until a usable outline appears.");
+    }
+
+    /// <summary>
+    /// Capture the live card art's opacity footprint (card-space alpha) for one card kind and
+    /// drive <see cref="CardMesh.SetSilhouette"/>. We union the alpha of the card's larger
+    /// <c>Image</c> sprites (the class-skin backgrounds / frame that define the outer outline),
+    /// each sampled by GPU blit → sub-rect readback so it works even for non-CPU-readable atlas
+    /// textures. Robust: any failure just leaves the opaque rounded-rect slab in place.
+    /// </summary>
+    private static void TryCapture(RectTransform faceRoot, CardBodyKind kind, SilhouetteState state)
+    {
+        Rect faceRect = faceRoot.rect;
+        if (faceRect.width < 1f || faceRect.height < 1f)
+        {
+            Reject(state, kind, "degenerate-rect",
+                   $"the face rect measures {faceRect.width:F1}x{faceRect.height:F1} px");
+            return;
+        }
+
+        Image[] images = faceRoot.GetComponentsInChildren<Image>(includeInactive: true);
+        if (images.Length == 0)
+        {
+            Reject(state, kind, "no-images", "the face carries no Image at all");
+            return;
+        }
+
+        // --- pass 1: which images can carry the OUTER outline, and has that set changed? ------
+        var picks = new List<(Image Img, Rect Norm)>(4);
+        int hash = 17;
+        int rejectedInactive = 0, rejectedTiny = 0, rejectedFaint = 0, rejectedType = 0, rejectedNoSprite = 0;
+        var corners = new Vector3[4];
+        foreach (Image img in images)
+        {
+            if (img == null)
+                continue;
+            // ACTIVE-STATE INDEPENDENCE (see the class note): activeSelf, never
+            // isActiveAndEnabled — a card parked under the inactive VRCardFactory.PoolRoot is
+            // exactly where the first adoption happens, and its images are perfectly readable.
+            if (!img.enabled || !img.gameObject.activeSelf)
+            {
+                rejectedInactive++;
+                continue;
+            }
+            Sprite sprite = img.sprite;
+            if (sprite == null || sprite.texture == null)
+            {
+                rejectedNoSprite++;
+                continue;
+            }
+            // Only Simple images map their sprite 1:1 onto their rect; a 9-sliced or tiled
+            // image would put the alpha somewhere else entirely, and a wrong outline is worse
+            // than none.
+            if (img.type != Image.Type.Simple)
+            {
+                rejectedType++;
+                continue;
+            }
+            if (img.color.a < 0.2f)
+            {
+                rejectedFaint++;
+                continue;
+            }
+
+            img.rectTransform.GetWorldCorners(corners);
+            float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
+            for (int c = 0; c < 4; c++)
+            {
+                Vector3 local = faceRoot.InverseTransformPoint(corners[c]);
+                float nx = (local.x - faceRect.xMin) / faceRect.width;
+                float ny = (local.y - faceRect.yMin) / faceRect.height;
+                if (nx < minNx) minNx = nx;
+                if (nx > maxNx) maxNx = nx;
+                if (ny < minNy) minNy = ny;
+                if (ny > maxNy) maxNy = ny;
+            }
+            float aw = maxNx - minNx, ah = maxNy - minNy;
+            if (aw <= 0.001f || ah <= 0.001f || aw * ah < MinOutlineAreaFraction)
+            {
+                rejectedTiny++;
+                continue;
+            }
+
+            picks.Add((img, new Rect(minNx, minNy, aw, ah)));
+            hash = hash * 31 + img.GetInstanceID();
+            hash = hash * 31 + sprite.GetInstanceID();
+        }
+
+        if (picks.Count == 0)
+        {
+            Reject(state, kind, "no-candidate",
+                   $"none of {images.Length} image(s) can carry the outer outline (rejected: " +
+                   $"{rejectedInactive} not drawn, {rejectedNoSprite} without a sprite, {rejectedType} " +
+                   $"non-Simple, {rejectedFaint} near-transparent, {rejectedTiny} smaller than " +
+                   $"{MinOutlineAreaFraction:P0} of the face) — the card's background art has most " +
+                   "likely not finished loading");
+            return;
+        }
+        if (hash == state.Hash)
+            return; // same sprites as the last attempt — nothing new to look at, cost nothing
+        if (Time.unscaledTime < state.NextAttemptTime)
+            return; // spread repeat readbacks across frames (see SilhouetteAttemptInterval)
+
+        state.Hash = hash;
+        state.NextAttemptTime = Time.unscaledTime + SilhouetteAttemptInterval;
+        state.Attempts++;
+
+        // --- pass 2: stamp the union of their alpha into a card-space footprint --------------
+        int fw = FootprintWidth;
+        int fh = Mathf.Clamp(Mathf.RoundToInt(fw * faceRect.height / faceRect.width), 64, 512);
+        var alpha = new byte[fw * fh];
+        var readbacks = new List<Texture2D>(picks.Count);
+        int stamped = 0, backdrops = 0;
+        try
+        {
+            var cache = new Dictionary<int, Texture2D>();
+            foreach ((Image img, Rect norm) in picks)
+            {
                 Sprite sprite = img.sprite;
                 if (sprite == null || sprite.texture == null)
                     continue;
-                float colorA = img.color.a;
-                if (colorA < 0.2f)
-                    continue;
-
-                // Image rect → normalized [0,1] within the face root (scale-independent:
-                // world corners transformed back into the face root's own local rect).
-                img.rectTransform.GetWorldCorners(corners);
-                float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
-                for (int c = 0; c < 4; c++)
-                {
-                    Vector3 local = faceRoot.InverseTransformPoint(corners[c]);
-                    float nx = (local.x - faceRect.xMin) / faceRect.width;
-                    float ny = (local.y - faceRect.yMin) / faceRect.height;
-                    if (nx < minNx) minNx = nx;
-                    if (nx > maxNx) maxNx = nx;
-                    if (ny < minNy) minNy = ny;
-                    if (ny > maxNy) maxNy = ny;
-                }
-                float aw = maxNx - minNx, ah = maxNy - minNy;
-                if (aw <= 0.001f || ah <= 0.001f)
-                    continue;
-                if (aw * ah < 0.03f)
-                    continue; // tiny icon — never part of the outer outline
-
-                int texId = sprite.texture.GetInstanceID();
-                if (!cache.TryGetValue(texId, out Texture2D readback))
-                {
-                    readback = ReadTexture(sprite.texture);
-                    cache[texId] = readback;
-                    readbacks.Add(readback);
-                }
                 Rect tr = sprite.textureRect;
-                float tW = readback.width, tH = readback.height;
+                if (tr.width < 2f || tr.height < 2f)
+                    continue;
 
-                int fx0 = Mathf.Clamp(Mathf.FloorToInt(minNx * fw), 0, fw - 1);
-                int fx1 = Mathf.Clamp(Mathf.CeilToInt(maxNx * fw), 0, fw - 1);
-                int fy0 = Mathf.Clamp(Mathf.FloorToInt(minNy * fh), 0, fh - 1);
-                int fy1 = Mathf.Clamp(Mathf.CeilToInt(maxNy * fh), 0, fh - 1);
+                // Keyed on the SPRITE, not its texture: two sprites routinely share one atlas
+                // and each needs its own sub-rect readback.
+                int key = sprite.GetInstanceID();
+                if (!cache.TryGetValue(key, out Texture2D region))
+                {
+                    region = ReadSpriteRegion(sprite.texture, tr);
+                    cache[key] = region;
+                    readbacks.Add(region);
+                }
+
+                float colorA = img.color.a;
+                // TRIM-CORRECT MAPPING. A tightly packed atlas sprite stores only its opaque
+                // island (textureRect) and remembers where that island sat inside the sprite's
+                // ORIGINAL bounds (rect + textureRectOffset). A Simple Image stretches the
+                // ORIGINAL bounds across its RectTransform, so image-rect space must be measured
+                // in sprite.rect pixels and the trimmed-away margin must read as alpha 0 — which
+                // is itself part of the silhouette. Sampling textureRect as if it were the whole
+                // image (what the predecessor did) stretched the art and lost that margin.
+                float srcW = Mathf.Max(1f, sprite.rect.width);
+                float srcH = Mathf.Max(1f, sprite.rect.height);
+                Vector2 trimOff = sprite.textureRectOffset;
+                bool trimmed = tr.width < srcW - 0.5f || tr.height < srcH - 0.5f;
+
+                // A full-bleed image that is opaque everywhere we probe is a backdrop, not a
+                // shape — unioning it in would flatten the silhouette to a rectangle. A TRIMMED
+                // sprite is never that: its margin is transparent by definition.
+                if (!trimmed && norm.width * norm.height >= BackdropAreaFraction
+                    && IsFullyOpaque(region, colorA))
+                {
+                    backdrops++;
+                    continue;
+                }
+
+                int fx0 = Mathf.Clamp(Mathf.FloorToInt(norm.xMin * fw), 0, fw - 1);
+                int fx1 = Mathf.Clamp(Mathf.CeilToInt(norm.xMax * fw), 0, fw - 1);
+                int fy0 = Mathf.Clamp(Mathf.FloorToInt(norm.yMin * fh), 0, fh - 1);
+                int fy1 = Mathf.Clamp(Mathf.CeilToInt(norm.yMax * fh), 0, fh - 1);
                 for (int fy = fy0; fy <= fy1; fy++)
                 {
-                    float v = (fy + 0.5f) / fh;
-                    float lv = (v - minNy) / ah;
+                    float lv = ((fy + 0.5f) / fh - norm.yMin) / norm.height;
                     if (lv < 0f || lv > 1f)
                         continue;
-                    float uvy = (tr.y + lv * tr.height) / tH;
+                    float py = lv * srcH - trimOff.y;
+                    if (py < 0f || py > tr.height)
+                        continue; // trimmed-away margin: transparent, contributes nothing
+                    float ty = py / tr.height;
                     int rowBase = fy * fw;
                     for (int fx = fx0; fx <= fx1; fx++)
                     {
-                        float u = (fx + 0.5f) / fw;
-                        float lu = (u - minNx) / aw;
+                        float lu = ((fx + 0.5f) / fw - norm.xMin) / norm.width;
                         if (lu < 0f || lu > 1f)
                             continue;
-                        float uvx = (tr.x + lu * tr.width) / tW;
-                        float sa = readback.GetPixelBilinear(uvx, uvy).a * colorA;
+                        float px = lu * srcW - trimOff.x;
+                        if (px < 0f || px > tr.width)
+                            continue;
+                        float sa = region.GetPixelBilinear(px / tr.width, ty).a * colorA;
                         var b = (byte)Mathf.Clamp(Mathf.RoundToInt(sa * 255f), 0, 255);
                         int idx = rowBase + fx;
                         if (b > alpha[idx])
                         {
                             alpha[idx] = b;
-                            stamped = true;
+                            stamped++;
                         }
                     }
                 }
             }
-
-            if (!stamped)
-                return;
-
-            bool applied = CardMesh.SetSilhouette(alpha, fw, fh);
-            if (applied)
-                s_silhouetteTried = true; // success — stop retrying regardless of budget
-            VRLog.Info("Cards", applied
-                ? $"CardFace captured the card-art silhouette ({fw}x{fh}) — 3D card body " +
-                  "now clipped to the artistic outline (test #25)."
-                : "CardFace captured a card-art footprint but it failed the silhouette " +
-                  "sanity guard (empty/solid/hollow) — kept the rounded-rect slab.");
-        }
-        catch (System.Exception ex)
-        {
-            VRLog.Warn("Cards", $"CardFace silhouette capture skipped ({ex.Message}) — " +
-                                "kept the rounded-rect card slab.");
         }
         finally
         {
@@ -403,14 +642,70 @@ internal sealed class CardFace
                 if (t != null)
                     Object.Destroy(t);
         }
+
+        if (stamped == 0)
+        {
+            Reject(state, kind, "sampled-empty",
+                   $"{picks.Count} candidate image(s) sampled to nothing ({backdrops} were opaque " +
+                   "full-bleed backdrops and were skipped by design)");
+            return;
+        }
+
+        VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) attempt {state.Attempts}: footprint {fw}x{fh} " +
+                            $"stamped from {picks.Count - backdrops} of {picks.Count} candidate image(s) " +
+                            $"({backdrops} opaque full-bleed backdrop(s) skipped) on a " +
+                            $"{faceRect.width:F0}x{faceRect.height:F0} px face — handing it to CardMesh.");
+        bool applied = CardMesh.SetSilhouette(kind, alpha, fw, fh);
+        if (applied)
+        {
+            state.Applied = true;
+            VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}): APPLIED — every body of this shape is now " +
+                                "alpha-clipped to the card art's own outline, so the dark front only shows " +
+                                "where the card itself is solid. This is the 2026-08-11 report " +
+                                "('keinen schwarzen Rand … die meshes genau die Ränder der Karten').");
+        }
+        else
+        {
+            Reject(state, kind, "guard-refused",
+                   "the footprint failed CardMesh's sanity guard (see the SetSilhouette line above)");
+        }
+    }
+
+    /// <summary>Is this sprite region opaque at every probe point? A 16x16 grid including the
+    /// extreme corners — an ornate outline is transparent there, a rectangular backdrop is
+    /// not.</summary>
+    private static bool IsFullyOpaque(Texture2D region, float colorA)
+    {
+        if (colorA < 0.99f)
+            return false;
+        const int probes = 16;
+        for (int y = 0; y < probes; y++)
+        {
+            float v = (y + 0.5f) / probes;
+            for (int x = 0; x < probes; x++)
+            {
+                if (region.GetPixelBilinear((x + 0.5f) / probes, v).a < 0.99f)
+                    return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>
-    /// CPU-read a texture's pixels via a GPU blit — works even when the source atlas
-    /// texture is not marked CPU-readable (the usual case for bundled sprites).
+    /// CPU-read ONE sprite's region out of a (usually non-CPU-readable, usually 4096²) atlas via
+    /// a GPU blit plus a sub-rect <c>ReadPixels</c>. Sub-rect on purpose: the predecessor read
+    /// the WHOLE atlas into a mipped RGBA32 Texture2D — ~85 MB and a full-frame stall per unique
+    /// texture per attempt. Only the sprite's own texels are ever sampled, so only they are
+    /// fetched, and no mip chain is built (<c>GetPixelBilinear</c> reads level 0). The result is
+    /// CPU-side only and destroyed by the caller; it is never rendered.
     /// </summary>
-    private static Texture2D ReadTexture(Texture src)
+    private static Texture2D ReadSpriteRegion(Texture src, Rect texRect)
     {
+        int rx = Mathf.Clamp(Mathf.FloorToInt(texRect.x), 0, Mathf.Max(0, src.width - 1));
+        int ry = Mathf.Clamp(Mathf.FloorToInt(texRect.y), 0, Mathf.Max(0, src.height - 1));
+        int rw = Mathf.Clamp(Mathf.RoundToInt(texRect.width), 1, src.width - rx);
+        int rh = Mathf.Clamp(Mathf.RoundToInt(texRect.height), 1, src.height - ry);
+
         RenderTexture rt = RenderTexture.GetTemporary(
             src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
         RenderTexture prev = RenderTexture.active;
@@ -418,23 +713,13 @@ internal sealed class CardFace
         {
             Graphics.Blit(src, rt);
             RenderTexture.active = rt;
-            // HONESTY NOTE (aliasing round 3): this readback texture is CPU-SIDE ONLY — it
-            // feeds GetPixelBilinear for the silhouette footprint and is destroyed in the
-            // caller's finally block; it is NEVER rendered. The mip/trilinear/aniso settings
-            // here (added by 9ca829b against the card shimmer) therefore CANNOT affect what
-            // the player sees: the visible card face is the ADOPTED LIVE game uGUI, whose
-            // Images sample the game's own atlas textures directly (see LogFaceTextureDiag —
-            // if those atlases ship without mips, no setting on our side can add them and
-            // the honest lever is [RenderQuality] EyeResolutionScale supersampling).
-            // Kept mipped + max aniso anyway: harmless one-shot cost, and future-proof
-            // should a readback ever be rendered.
-            var tex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mipChain: true)
+            var tex = new Texture2D(rw, rh, TextureFormat.RGBA32, mipChain: false)
             {
-                filterMode = FilterMode.Trilinear,
-                anisoLevel = 16,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
             };
-            tex.ReadPixels(new Rect(0f, 0f, src.width, src.height), 0, 0);
-            tex.Apply(updateMipmaps: true);
+            tex.ReadPixels(new Rect(rx, ry, rw, rh), 0, 0);
+            tex.Apply(updateMipmaps: false);
             return tex;
         }
         finally
@@ -443,7 +728,6 @@ internal sealed class CardFace
             RenderTexture.ReleaseTemporary(rt);
         }
     }
-
     /// <summary>
     /// (Re)compute the face-to-host fit scale against the host's CURRENT size. VRCard
     /// resizes the host canvas to the real face pixels right after <see cref="Adopt"/>,

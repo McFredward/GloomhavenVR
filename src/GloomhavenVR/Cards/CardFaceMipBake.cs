@@ -243,7 +243,24 @@ internal static class CardFaceMipBake
     /// </summary>
     internal static void Rescan(Component? faceRoot)
     {
-        if (faceRoot == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+        if (faceRoot == null)
+            return;
+
+        // CARD SILHOUETTE (2026-08-11 report: "die meshes genau die Ränder der Karten selber").
+        // This is the ONE per-face pump both card kinds already run — CardFace drives it on
+        // adoption and on a 1 s cadence for ability faces, ItemsPile on host, on a per-frame art
+        // poll for ~2 s and on a 1 s cadence for item faces — so it is also where a face is
+        // offered to the alpha-footprint capture. Doing it here means the item path needs no
+        // change in a file the silhouette work does not own, and no second update loop exists to
+        // fall out of step with this one. Offer is a cheap no-op once a kind is done and skips
+        // its readback entirely while the face's sprite set is unchanged; a root that is neither
+        // card kind (Net/RemoteCardArt passes a bare Canvas) is ignored inside it.
+        //
+        // DELIBERATELY AHEAD OF THE FaceMipBake GATE below: the silhouette is a separate feature
+        // and must not be switched off by a texture-quality dial.
+        CardFace.Offer(faceRoot);
+
+        if (CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
             return;
         try
         {

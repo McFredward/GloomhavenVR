@@ -1438,7 +1438,9 @@ internal sealed class RemoteHandFan
         ClearPops(); // a rebuilt fan must never open with a stale card already lifted
 
         Mesh mesh = SharedCardMesh;
-        Material back = CardMesh.CreateBackMaterial(); // shared: back texture on a Standard material
+        // Ability KIND so a peer's card backs take the same silhouette clip the owner's do — the MP
+        // 1:1 rule applies to the card's SHAPE as much as to its content.
+        Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // shared: back texture on a Standard material
 
         for (int i = 0; i < count; i++)
         {
@@ -1543,10 +1545,16 @@ internal sealed class RemoteHandFan
             Vector3.back, Vector3.back, Vector3.back, Vector3.back,
             Vector3.forward, Vector3.forward, Vector3.forward, Vector3.forward,
         };
-        // Planar card-space UVs; mirror X on the back copy so the (symmetric) lattice lines up.
+        // Planar card-space UVs, mirrored X on BOTH quads (2026-08-11). It used to be the back copy
+        // only, "so the (symmetric) lattice lines up" — true and sufficient while the material was
+        // just a back texture. It stopped being sufficient when that material gained an ALPHA CLIP:
+        // CardMesh bakes the cutout in the BACK copy's mirrored orientation, so a front quad on
+        // un-mirrored UVs would clip the silhouette mirror-flipped. Invisible for a left-right
+        // symmetric card outline — which is what ships, so this change is a no-op today by the same
+        // argument the old comment made — and wrong the moment an outline is not symmetric.
         var uv = new[]
         {
-            new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, 0f),
+            new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, 0f),
             new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, 0f),
         };
         // Winding chosen (verified via right-hand normal) so the front is visible from -Z and the

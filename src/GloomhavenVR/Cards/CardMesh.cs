@@ -1,7 +1,40 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
+
+/// <summary>
+/// Which CARD SHAPE a procedural body belongs to — the unit the silhouette is captured and
+/// applied per (2026-08-11 report: "alle Karten, auch die Itemkarten").
+///
+/// The mod draws two physically different cards: the tall poker-aspect ABILITY card and the
+/// near-square ITEM card. They do NOT share an outline, so they cannot share one alpha-clip
+/// footprint: the ability outline stretched onto a square item body would nibble the item
+/// card's own corners away. One mechanism, two footprints, keyed by this.
+///
+/// <see cref="Neutral"/> is the LEGACY pair every pre-existing caller still gets from the
+/// parameterless <see cref="CardMesh.CreateEdgeMaterial()"/> /
+/// <see cref="CardMesh.CreateBackMaterial()"/>. It is NEVER clipped. That is deliberate:
+/// those materials are shared with call sites this change did not audit at runtime — the
+/// peer mirrors (<c>Net/RemoteHandFan</c>, <c>RemoteItemFan</c>, <c>RemoteBrowserFan</c>,
+/// <c>RemoteCardFx</c>, <c>RemoteAvatar</c>, <c>RemoteBoardCard</c>), the desktop
+/// <c>WorldUI/AvatarMirror</c> and the burn-fallback slab in <c>CardsDriver.4.Rebuild</c> —
+/// and an alpha clip against a mesh whose UVs are not planar 0..1 would punch holes in
+/// somebody else's card rather than shape it. Opting a call site in is a one-word edit
+/// (pass the kind); opting it in by accident is a defect, so the default stays opaque.
+/// </summary>
+internal enum CardBodyKind
+{
+    /// <summary>Legacy shared pair — opaque, never alpha-clipped.</summary>
+    Neutral = 0,
+
+    /// <summary>The tall poker-aspect ability card (hand fan, tray slots, piles).</summary>
+    Ability = 1,
+
+    /// <summary>The near-square item card (<c>ItemsPile</c> chips).</summary>
+    Item = 2,
+}
 
 /// <summary>
 /// Procedural 3D card body (P7, hardware test #10: "cards look flat, I want real 3D
@@ -22,19 +55,36 @@ namespace GloomhavenVR.Cards;
 /// Silhouette (hardware test #25): the game's ability cards are NOT plain rectangles —
 /// the card art has an artistic, non-rectangular outline (transparent decorative
 /// edges), and the rounded-rect slab's dark front/rim used to show as a rectangular
-/// border AROUND that art. <see cref="SetSilhouette"/> switches the SHARED front/rim +
-/// back materials to alpha-CLIP (stock Standard shader, Cutout mode) against a
-/// card-space alpha footprint captured from the LIVE card art at runtime (see
-/// <see cref="CardFace"/>), so the visible 3D silhouette (front border ring, thin rim,
-/// decorative back) follows the card's ACTUAL outline instead of a rectangle. The mesh
-/// GEOMETRY is unchanged (the full-envelope rounded slab, same pivot/size → grab
-/// collider and fan layout unaffected); only the fragments inside the art outline
-/// survive the clip. Every vertex — front, back AND rim — carries card-space planar UVs
-/// so the single footprint texture maps onto every face; the rim samples a hair INSIDE
-/// its outline point so the thin edge survives the clip along the solid silhouette. If
-/// no footprint is ever supplied (or it fails the sanity guard) the materials stay
-/// opaque — exactly the round-24 rounded-rect look, so this can only ever add the
-/// ornate outline, never regress.
+/// border AROUND that art. <see cref="SetSilhouette"/> switches the front/rim + back
+/// materials OF ONE <see cref="CardBodyKind"/> to alpha-CLIP (stock Standard shader,
+/// Cutout mode) against a card-space alpha footprint captured from the LIVE card art at
+/// runtime (see <see cref="CardFace"/>), so the visible 3D silhouette (front border
+/// ring, thin rim, decorative back) follows the card's ACTUAL outline instead of a
+/// rectangle. The mesh GEOMETRY is unchanged (the full-envelope rounded slab, same
+/// pivot/size → grab collider, fan layout, dock apron and <c>VRCard.WorldWidth</c> all
+/// unaffected — nothing that measures a card measures the clip); only the fragments
+/// inside the art outline survive. Every vertex — front, back AND rim — carries
+/// card-space planar UVs so the single footprint texture maps onto every face; the rim
+/// samples a hair INSIDE its outline point so the thin edge survives the clip along the
+/// solid silhouette. If no footprint is ever supplied (or it fails the sanity guard) the
+/// materials stay opaque — exactly the round-24 rounded-rect look, so this can only ever
+/// add the ornate outline, never regress.
+///
+/// USER REPORT, verbatim (2026-08-11, hardware, ModBuild 107, b765a5b):
+/// "Die Karten im Spiel haben eine eigene Form die nicht Rechteckig ist - aktuell sind
+/// die Karten Rechtecke und der Rand der Karten ist daher schwarz. Ich möchte dass die
+/// Karten (alle Karten, auch die Itemkarten), keinen schwarzen Rand mehr haben sondern
+/// die meshes genau die Ränder der Karten selber haben."
+///
+/// WHY HE STILL SAW A BLACK RECTANGLE THOUGH ALL OF THE ABOVE ALREADY SHIPPED: the
+/// capture never once ran. Root cause and evidence in <see cref="CardFace"/>'s
+/// silhouette section — the short version is that the footprint pass required every
+/// candidate <c>Image</c> to be <c>isActiveAndEnabled</c>, and a freshly built VR card
+/// lives under <c>VRCardFactory.PoolRoot</c>, which is <c>SetActive(false)</c>, so the
+/// test was false for every image on every card and the pass returned SILENTLY. Its
+/// 16-adoption retry budget was then spent on 16 such no-ops and latched off for the
+/// session. Two shapes now, both driven by the same capture, and every rejection is
+/// logged with its numbers.
 /// </summary>
 internal static class CardMesh
 {
@@ -83,17 +133,23 @@ internal static class CardMesh
     /// </summary>
     internal const int HeldCardRenderQueue = 4200;
 
-    private static Mesh? _sharedMesh;
-    private static Vector2 _sharedMeshSize;
     private static Texture2D? _backTexture;
 
-    // Shared front/rim + back materials (one pair for ALL cards). Cached so that a
-    // silhouette supplied AFTER cards are built (SetSilhouette, first CardFace.Adopt)
-    // mutates the very instances every backing renderer already references — so every
-    // live card adopts the ornate outline at once. See VRCard.BuildProceduralBacking.
-    private static Material? _edgeMaterial;
-    private static Material? _backMaterial;
-    private static bool _silhouetteApplied;
+    // Shared front/rim + back materials, ONE PAIR PER CardBodyKind. Cached so that a
+    // silhouette supplied AFTER cards are built (SetSilhouette, driven from the first
+    // face that yields a footprint) mutates the very instances every backing renderer
+    // already references — so every live card of that kind adopts the ornate outline at
+    // once, with no rebuild and no pop. See VRCard.BuildProceduralBacking.
+    private static readonly Material?[] _edgeMaterials = new Material?[3];
+    private static readonly Material?[] _backMaterials = new Material?[3];
+    private static readonly bool[] _silhouetteApplied = new bool[3];
+
+    // One mesh per DISTINCT card size, quantised to 0.1 mm. This used to be a single
+    // slot keyed on the last size asked for, which was fine while only the ability card
+    // existed — but ItemsPile asks for the near-square ITEM size from the same cache
+    // (ItemsPile.BuildCardBacking), so the two sizes evicted each other and every
+    // alternating call rebuilt (and leaked) a Mesh. Same shape as _roundCapCache.
+    private static readonly Dictionary<(int, int), Mesh> _bodyCache = new();
 
     /// <summary>
     /// Build (or reuse) the rounded slab mesh for the given card size. Submesh 0 =
@@ -102,12 +158,12 @@ internal static class CardMesh
     /// </summary>
     internal static Mesh Get(float width, float height)
     {
-        var size = new Vector2(width, height);
-        if (_sharedMesh != null && _sharedMeshSize == size)
-            return _sharedMesh;
-        _sharedMesh = Build(width, height);
-        _sharedMeshSize = size;
-        return _sharedMesh;
+        var key = (Mathf.RoundToInt(width * 10000f), Mathf.RoundToInt(height * 10000f));
+        if (_bodyCache.TryGetValue(key, out Mesh cached) && cached != null)
+            return cached;
+        Mesh built = Build(width, height);
+        _bodyCache[key] = built;
+        return built;
     }
 
     private static Mesh Build(float width, float height)
@@ -508,46 +564,75 @@ internal static class CardMesh
     private static readonly Color EdgeColor = new(0.10f, 0.09f, 0.08f);
 
     /// <summary>
-    /// Dark neutral for the front (hidden behind the live face) and the rim edge.
-    /// SHARED across every card (see <see cref="_edgeMaterial"/>) so a later
-    /// <see cref="SetSilhouette"/> re-shapes them all at once.
+    /// Dark neutral for the front (hidden behind the live face) and the rim edge, for the
+    /// LEGACY <see cref="CardBodyKind.Neutral"/> pair — never alpha-clipped. Every call
+    /// site that existed before the two-shape silhouette work still lands here and is
+    /// therefore bit-for-bit unchanged; see <see cref="CardBodyKind"/> for why that is
+    /// the safe default.
     /// </summary>
-    internal static Material CreateEdgeMaterial()
-    {
-        if (_edgeMaterial == null)
-        {
-            _edgeMaterial = NewMaterial();
-            _edgeMaterial.color = EdgeColor;
-        }
-        return _edgeMaterial;
-    }
-
-    /// <summary>Opaque decorative card back: procedural lattice pattern texture. Shared
-    /// across every card (see <see cref="CreateEdgeMaterial"/>).</summary>
-    internal static Material CreateBackMaterial()
-    {
-        if (_backMaterial == null)
-        {
-            _backMaterial = NewMaterial();
-            _backMaterial.color = Color.white;
-            _backMaterial.mainTexture = GetBackTexture();
-        }
-        return _backMaterial;
-    }
-
-    /// <summary>True once <see cref="SetSilhouette"/> has re-shaped the card body to the
-    /// real card-art outline (one-shot).</summary>
-    internal static bool SilhouetteApplied => _silhouetteApplied;
+    internal static Material CreateEdgeMaterial() => CreateEdgeMaterial(CardBodyKind.Neutral);
 
     /// <summary>
-    /// Re-shape the 3D card body to the real card silhouette (hardware test #25). One
-    /// time per session: <paramref name="alpha"/> is a card-space opacity footprint of
-    /// the LIVE card art (row-major, <c>alpha[y*w + x]</c>, x → right, y → up, normalized
-    /// over the card face rect) captured by <see cref="CardFace"/>. Its alpha is baked
-    /// into the shared front/rim and back materials, which flip to the stock Standard
-    /// shader's Cutout (alpha-test) mode — so every card's slab is clipped to the art's
+    /// Dark front/rim material for one card SHAPE. Shared by every body of that kind, so a
+    /// later <see cref="SetSilhouette"/> re-shapes them all at once — including cards that
+    /// were built long before the footprint was captured.
+    /// </summary>
+    internal static Material CreateEdgeMaterial(CardBodyKind kind)
+    {
+        int i = (int)kind;
+        Material? m = _edgeMaterials[i];
+        if (m == null)
+        {
+            m = NewMaterial();
+            m.color = EdgeColor;
+            m.name = $"GloomhavenVR.CardEdge.{kind}";
+            _edgeMaterials[i] = m;
+        }
+        return m;
+    }
+
+    /// <summary>Opaque decorative card back: procedural lattice pattern texture. LEGACY
+    /// <see cref="CardBodyKind.Neutral"/> pair (see <see cref="CreateEdgeMaterial()"/>).</summary>
+    internal static Material CreateBackMaterial() => CreateBackMaterial(CardBodyKind.Neutral);
+
+    /// <summary>Decorative card back for one card SHAPE (see
+    /// <see cref="CreateEdgeMaterial(CardBodyKind)"/>). All kinds start from the same
+    /// procedural lattice; only the alpha clip differs once a footprint lands.</summary>
+    internal static Material CreateBackMaterial(CardBodyKind kind)
+    {
+        int i = (int)kind;
+        Material? m = _backMaterials[i];
+        if (m == null)
+        {
+            m = NewMaterial();
+            m.color = Color.white;
+            m.mainTexture = GetBackTexture();
+            m.name = $"GloomhavenVR.CardBack.{kind}";
+            _backMaterials[i] = m;
+        }
+        return m;
+    }
+
+    /// <summary>True once <see cref="SetSilhouette"/> has re-shaped this card SHAPE's body to
+    /// the real card-art outline (one-shot per kind).</summary>
+    internal static bool SilhouetteApplied(CardBodyKind kind) => _silhouetteApplied[(int)kind];
+
+    /// <summary>
+    /// Re-shape the 3D card body of ONE <paramref name="kind"/> to that shape's real card
+    /// silhouette (hardware test #25; 2026-08-11 "auch die Itemkarten"). Once per kind per
+    /// session: <paramref name="alpha"/> is a card-space opacity footprint of the LIVE card
+    /// art (row-major, <c>alpha[y*w + x]</c>, x → right, y → up, normalized over the card
+    /// face rect) captured by <see cref="CardFace"/>. Its alpha is baked into that kind's
+    /// shared front/rim and back materials, which flip to the stock Standard shader's
+    /// Cutout (alpha-test) mode — so every body of that kind is clipped to the art's
     /// outline: the dark front now reads as an ORNATE border ring, the rim follows the
     /// curve, the back carries the same shape.
+    ///
+    /// The footprint's 0..1 square maps onto the mesh's planar card-space UVs, and the
+    /// backing transform is scaled to exactly the RENDERED art rect on both card kinds
+    /// (<c>VRCard.SetCanvasSize</c> — facePixels × fit × VisibleFaceFraction, which equals
+    /// CardFace's own 1−BorderFraction inset; <c>ItemsPile</c> — native × fit). So footprint
+    /// texel (u,v) sits on the card pixel it was sampled from, at every card scale.
     ///
     /// Robust by design: returns without applying (cards stay the opaque rounded-rect)
     /// if the footprint is malformed, degenerate (mostly empty or a solid rectangle —
@@ -555,13 +640,23 @@ internal static class CardMesh
     /// the centre, or if the Standard shader (hence Cutout) is unavailable. It therefore
     /// can never make a card invisible. Returns whether the silhouette was applied.
     /// </summary>
-    internal static bool SetSilhouette(byte[]? alpha, int w, int h)
+    internal static bool SetSilhouette(CardBodyKind kind, byte[]? alpha, int w, int h)
     {
-        if (_silhouetteApplied)
+        if (kind == CardBodyKind.Neutral)
+        {
+            // The legacy pair is shared with call sites this change never audited at runtime
+            // (see CardBodyKind). Refusing here rather than at the caller keeps that promise
+            // in ONE place.
+            VRLog.Warn("Cards", "CardMesh.SetSilhouette: refused for the Neutral (legacy shared) " +
+                                "material pair — a clip there would reach the peer mirrors and the " +
+                                "avatar mirror, whose meshes this was never verified against.");
+            return false;
+        }
+        if (_silhouetteApplied[(int)kind])
             return true;
         if (alpha == null || w <= 1 || h <= 1 || alpha.Length != w * h)
         {
-            VRLog.Warn("Cards", $"CardMesh.SetSilhouette: malformed footprint " +
+            VRLog.Warn("Cards", $"CardMesh.SetSilhouette({kind}): malformed footprint " +
                                 $"(alpha={(alpha == null ? "null" : alpha.Length.ToString())}, {w}x{h}) — kept rounded-rect.");
             return false;
         }
@@ -569,11 +664,11 @@ internal static class CardMesh
         // Need the Standard shader for a proper opaque alpha-CLIP (Cutout). Without it a
         // fallback shader would only alpha-blend (unlit, sorting hazards) — not worth the
         // risk, so keep the opaque rounded-rect instead.
-        Material edge = CreateEdgeMaterial();
-        Material back = CreateBackMaterial();
+        Material edge = CreateEdgeMaterial(kind);
+        Material back = CreateBackMaterial(kind);
         if (edge.shader == null || edge.shader.name != "Standard")
         {
-            VRLog.Warn("Cards", $"CardMesh.SetSilhouette: Standard shader unavailable " +
+            VRLog.Warn("Cards", $"CardMesh.SetSilhouette({kind}): Standard shader unavailable " +
                                 $"(edge shader='{edge.shader?.name ?? "null"}') — kept rounded-rect (no Cutout clip).");
             return false;
         }
@@ -584,7 +679,7 @@ internal static class CardMesh
             if (alpha[i] >= 128) opaque++;
         float frac = (float)opaque / alpha.Length;
         bool centerOpaque = CenterOpaque(alpha, w, h);
-        VRLog.Info("Cards", $"CardMesh.SetSilhouette: footprint {w}x{h}, opaque frac={frac:F3}, " +
+        VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): footprint {w}x{h}, opaque frac={frac:F3}, " +
                             $"centerOpaque={centerOpaque} (accept if 0.12<frac<0.985 & centre solid).");
         if (frac < 0.12f || frac > 0.985f)
         {
@@ -592,14 +687,14 @@ internal static class CardMesh
             // rectangle — clipping would be a visual no-op). The backing is already fit to
             // the visible art (VRCard.VisibleFaceFraction), so the card shows no black
             // border either way; this only decides whether the RIM traces an ornate outline.
-            VRLog.Info("Cards", $"CardMesh.SetSilhouette: frac {frac:F3} out of range — kept rounded-rect " +
+            VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): frac {frac:F3} out of range — kept rounded-rect " +
                                 "(border already removed by the art-fitted backing).");
             return false;
         }
         // Centre must be solid card (a valid card is opaque at its middle).
         if (!centerOpaque)
         {
-            VRLog.Info("Cards", "CardMesh.SetSilhouette: centre not solid — kept rounded-rect.");
+            VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): centre not solid — kept rounded-rect.");
             return false;
         }
 
@@ -625,11 +720,12 @@ internal static class CardMesh
             }
         }
 
-        ConfigureCutout(edge, MakeCutoutTexture("GloomhavenVR.CardSilhouette.Edge", edgePixels, w, h));
-        ConfigureCutout(back, MakeCutoutTexture("GloomhavenVR.CardSilhouette.Back", backPixels, w, h));
-        _silhouetteApplied = true;
-        VRLog.Info("Cards", "CardMesh.SetSilhouette: APPLIED — shared front/rim + back materials " +
-                            "flipped to alpha-clip (Cutout); the 3D card body now traces the art outline.");
+        ConfigureCutout(edge, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Edge", edgePixels, w, h));
+        ConfigureCutout(back, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Back", backPixels, w, h));
+        _silhouetteApplied[(int)kind] = true;
+        VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): APPLIED — that shape's shared front/rim + " +
+                            "back materials flipped to alpha-clip (Cutout); every live body of this kind " +
+                            "now traces the art outline (no rebuild, no pop — the materials are shared).");
         return true;
     }
 

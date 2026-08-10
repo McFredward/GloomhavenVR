@@ -230,7 +230,7 @@ internal sealed class RemoteCardFx
             var mf = go.AddComponent<MeshFilter>();
             mf.sharedMesh = _mesh;
             var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = CardMesh.CreateBackMaterial(); // SHARED cache — never ours to destroy
+            mr.sharedMaterial = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // SHARED cache — never ours to destroy
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             go.SetActive(false);

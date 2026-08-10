@@ -1112,7 +1112,7 @@ internal sealed class AvatarMirror
                 _slabW = w;
                 _slabH = h;
                 _cardSlabMesh = RemoteHandFan.BuildBackSlab(w, h);
-                _cardBackMat = CardMesh.CreateBackMaterial();
+                _cardBackMat = CardMesh.CreateBackMaterial(CardBodyKind.Ability);
             }
             var slab = new GameObject($"MirrorCard{_cardSlabs.Count}");
             slab.transform.SetParent(_root!.transform, worldPositionStays: false);
