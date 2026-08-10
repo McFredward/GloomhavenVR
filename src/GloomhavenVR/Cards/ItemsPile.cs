@@ -6053,6 +6053,11 @@ internal sealed class ItemsPile
                     // offers this face, but only on the rate-limited backstop path; the explicit
                     // arrival flag is what makes the mute land before the first rendered frame.
                     CardFace.Offer(_cardUI, artJustArrived: true);
+                    // ...and the FACE CLIP on the same seam (2026-08-11: "alle Karten, auch die
+                    // Itemkarten"). A no-op until an Item footprint has actually been captured —
+                    // CardShapeMask.Wrap returns null with no side effects — so this can only ever
+                    // start working, never break the item chips as they are today.
+                    CardShapeMask.Wrap(_cardUI.transform as RectTransform, CardBodyKind.Item);
                     _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                     if (!s_loggedArtBaked)
                     {
@@ -6069,6 +6074,10 @@ internal sealed class ItemsPile
             {
                 _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                 CardFaceMipBake.Rescan(_cardUI);
+                // Backstop for the FACE CLIP: on a cold cache the Item shape is learned mid-session,
+                // and this is what puts it on a chip that was already hosted. Idempotent (an already
+                // wrapped face just re-fits its wrapper).
+                CardShapeMask.Wrap(_cardUI.transform as RectTransform, CardBodyKind.Item);
             }
 
             // USABLE HIGHLIGHT (live) — light the soft gold FRAME when this card CAN be played RIGHT NOW.
@@ -6691,6 +6700,10 @@ internal sealed class ItemsPile
                     // face it is given, item faces included; the pooled widget must go back with the
                     // game's own colours. No-op on a face that was never muted.
                     CardFace.ReleaseFaceBlackout(_cardUI);
+                    // ...and the FACE CLIP wrapper, which also puts back every Canvas.overrideSorting
+                    // it neutralised. The pool must never receive a widget parented inside a mod
+                    // GameObject or holding a value we wrote. No-op if it was never wrapped.
+                    CardShapeMask.Release(_cardUI.transform as RectTransform);
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
                 catch (System.Exception e)

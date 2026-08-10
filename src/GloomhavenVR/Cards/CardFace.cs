@@ -60,6 +60,11 @@ internal sealed class CardFace
     private bool _origActive;
     private bool _origLock;
 
+    /// <summary>The card-shaped stencil wrapper this face is currently inside, if any. Null while
+    /// no footprint exists (first run before the capture lands) or while the wrap was refused —
+    /// both of which are exactly today's look. See <see cref="EnsureShapeMask"/>.</summary>
+    private CardShapeMask? _shape;
+
     private float _fitScale = 1f;
     // Host size the fit scale was last computed against — the host canvas is resized
     // to the real face pixels AFTER Adopt (VRCard.SetCanvasSize), so the fit must be
@@ -409,12 +414,61 @@ internal sealed class CardFace
     /// after that: correct from the first drawn pixel, on every construction path, because they all
     /// pass through that one factory.
     ///
-    /// WHY NOT A uGUI <c>Mask</c> ON THE FACE (the obvious "clip the art" answer). A Mask
-    /// stencil-clips every child graphic through per-graphic material variants
-    /// (<c>StencilMaterial.Add</c>) — and this project has already paid for that class of change
-    /// once: <c>VRCard.SetRenderOnTop</c> is a permanent no-op-forward because per-instance
-    /// material copies on the face's TMP text "swallowed all card TEXT". Muting one provably
-    /// shape-less Image cannot swallow anything.
+    /// THE uGUI <c>Mask</c> ON THE FACE — built, in <see cref="CardShapeMask"/>. It bounds
+    /// EVERYTHING the face draws by the card outline regardless of which component paints it, which
+    /// is the only answer that does not first require naming the culprit. It was declined earlier in
+    /// round 5 and then built, because the objections turned out to be about PLACEMENT and
+    /// VERIFIABILITY rather than about the idea. Each one, and what answers it:
+    /// <list type="number">
+    /// <item>PRECEDENT — <c>VRCard.SetRenderOnTop</c> is a permanent no-op-forward because
+    ///   per-instance material copies on the face's TMP text "swallowed all card TEXT". Different
+    ///   mechanism: that was per-renderer material INSTANCES plus a render-queue bump. A mask uses
+    ///   uGUI's own <c>StencilMaterial</c> cache, whose variants are keyed on
+    ///   (base material, stencil state) and therefore SHARED by every card at the same depth — no
+    ///   instance per graphic, no queue change, and TMP resolves masking through its own
+    ///   <c>IMaterialModifier</c> path.</item>
+    /// <item>IT MUST SIT ON AN ANCESTOR — so it does: a mod-owned wrapper inserted between the host
+    ///   and the face, never a Graphic added to the game's own <c>FullAbilityCard</c> GameObject
+    ///   (<c>Graphic</c> is <c>[DisallowMultipleComponent]</c> and that GO may already own one).
+    ///   <see cref="Maintain"/>'s per-frame parent assertion learns the extra level through
+    ///   <see cref="IsOurParent"/> rather than fighting it.</item>
+    /// <item>IT REACHES ONLY OUR HOSTS — <c>CardShapeMask.Wrap</c> takes a face rect and inserts the
+    ///   wrapper into whatever parent that face already has, so the peer mirror
+    ///   (<c>Net/RemoteCardArt</c>) is one call away from the identical outline. That call is not
+    ///   made from here; the file is not this work's to edit.</item>
+    /// <item>IT CAN SILENTLY DO NOTHING, WHICH IS THIS DEFECT'S SIGNATURE FAILURE (attempt 1 shipped
+    ///   a clip that never executed). <c>MaskUtilities.FindRootSortOverrideCanvas</c> stops at the
+    ///   first ancestor Canvas with <c>overrideSorting</c>, and <c>FullAbilityCard</c> carries its
+    ///   own Canvas whose sorting the game toggles
+    ///   (<c>CardsHandUI.ToggleFullCardCanvasSorting</c>). So the wrapper forces
+    ///   <c>overrideSorting</c> false on every Canvas inside the face while we own it (recorded,
+    ///   re-asserted per frame, restored exactly on release) AND then asks uGUI's own resolver
+    ///   whether the stencil actually resolves for a graphic under the face. Depth 0 → the wrapper
+    ///   removes itself, the face goes back exactly as found, and one log line says so. It cannot
+    ///   claim a success it did not have.</item>
+    /// </list>
+    /// The shape-less-quad MUTING below stays alongside it: it is cheaper, it names what it found,
+    /// and it still works on the one build where the stencil is refused.
+    ///
+    /// WHAT ROUND 5 ESTABLISHED, so round 6 starts from facts instead of re-deriving them:
+    /// <list type="bullet">
+    /// <item>The mask's 0..1 and the card body's 0..1 are the SAME rectangle — the "0.94 mismatch"
+    ///   is refuted by arithmetic, see the note in <c>CardMesh.SetSilhouette</c>.</item>
+    /// <item>Therefore, once the clip is applied, the card's visible extent equals the ART's opaque
+    ///   extent: the slab is fitted to the rendered art rect and clipped by the art's own alpha, so
+    ///   it can paint nothing the art does not also cover. Any black the player still sees is drawn
+    ///   BY THE FACE — either inside the art's own opaque pixels or by a face graphic the blackout
+    ///   was structurally unable to see.</item>
+    /// <item>And the captured outline is NOT a rectangle: bounding box 95.5 % of the face, filled
+    ///   0.928. If the body defined the card's visible edge, the card would have stopped looking
+    ///   rectangular the moment attempt 2 landed. It did not — which is the positive evidence that
+    ///   the FACE paints over the body's whole footprint, and the reason round 5 clips the face
+    ///   itself (<see cref="CardShapeMask"/>) rather than scheduling it as a next round.</item>
+    /// </list>
+    /// Three mechanisms therefore ship together, and they are not alternatives: the FACE CLIP bounds
+    /// whatever paints; the DARK BORDER PEEL takes a printed black frame out of the shape both the
+    /// clip and the mesh use; the widened BLACKOUT still mutes provably shape-less dark quads and
+    /// prints the full face inventory so the next reader sees what was actually there.
     /// </summary>
     private sealed class SilhouetteState
     {
@@ -505,6 +559,168 @@ internal sealed class CardFace
     /// trim removes nothing the player can see, while an under-eager one leaves today's look.
     /// </summary>
     private const byte ShadowLumaMax = 56;
+
+    // ------------------------------------------------- dark border peel (round 5) --
+    //
+    // "STOP TREATING OPAQUE AS CARD."  The drop-shadow trim above only reaches SEMI-transparent
+    // dark pixels.  A PRINTED black frame — a dark band that is fully opaque and sits on the
+    // outside of the art — is therefore card by the capture's own definition, is unioned into the
+    // footprint, and no alpha clip built from that footprint can ever remove it.  If the black
+    // rectangle the user still reports is that band, every previous round was arithmetically
+    // correct and visually a no-op, which is exactly what he described ("Exakt gleiches Fehlerbild
+    // wie zuvor.  Hat sich an den Kartenrändern nichts geändert.", ModBuild 109).
+    //
+    // The peel below erodes inward from the silhouette's OUTER boundary for as long as the texels
+    // it meets are opaque AND near-black, up to a hard depth cap.  It is a boundary band by
+    // construction (the flood is seeded only from texels that are already outside, plus the
+    // footprint's own image border), so a dark ornament in the middle of the card is unreachable.
+    //
+    // THE PEEL AND THE FACE CLIP ARE ONE MECHANISM — READ THEM TOGETHER.  On its own the peel would
+    // be cosmetically inert: the footprint drives the MESH, the mesh sits BEHIND the art, and
+    // shrinking it under an OPAQUE art pixel changes nothing the player can see.  That was the
+    // licence the drop-shadow trim above rests on, and it is exactly why a mesh-side answer alone
+    // could never close this defect.  <see cref="CardShapeMask"/> now clips the FACE to this same
+    // footprint, so what the peel removes is genuinely removed from the picture: peel the printed
+    // black frame out of the mask, and the face clip stops the art drawing it.
+    //
+    // THAT INVERTS THE SAFETY ARGUMENT, so the guards are the safety now, not the invisibility:
+    //   • DARK.  Only near-black texels qualify (<see cref="DarkBorderLumaMax"/>) — "der schwarze
+    //     Rand", not a merely dark ornament.
+    //   • THIN.  <see cref="DarkBorderMaxDepthFraction"/> caps how far in it can reach; a frame is a
+    //     few millimetres, and nothing deeper is a frame.
+    //   • BOUNDED.  Past <see cref="DarkBorderMaxAreaFraction"/> of the opaque area the whole peel is
+    //     DISCARDED rather than partially applied — a dark CARD is not a dark FRAME, and the
+    //     standing rule is to degrade to the shape we already had, never to a guessed one.
+    //   • BOUNDARY-ONLY BY CONSTRUCTION.  The flood is seeded solely from texels that are already
+    //     outside (plus the footprint's own image border), so a black ornament in the middle of the
+    //     card is unreachable at any threshold.
+    //
+    // AND IT IS THE ROUND'S FALSIFIER.  The log line always prints, peel or no peel.  Read it
+    // together with the CARD FACE CLIP line: peel > 0 and clip VERIFIED means the printed frame was
+    // there and is now gone; peel ~0 and clip VERIFIED means the black was never in the art and the
+    // clip has bounded whatever else was painting it; clip REFUSED means the face cannot be
+    // stencilled from above its own Canvas on this build and says so in one line rather than
+    // pretending.
+
+    /// <summary>
+    /// Maximum Rec.601 luminance (0..255) an OPAQUE boundary texel may have and still be peeled as
+    /// "printed black frame" rather than card. 48 is the deliberate compromise: the mod's own card
+    /// edge is 0.10/0.09/0.08 → luma 24, a printed ink frame the player calls "schwarz" sits under
+    /// ~50, and card ART — parchment, illustration, the coloured action halves — is far brighter.
+    ///
+    /// <para>It is NOT set generously, because the face clip makes an over-eager peel VISIBLE: it
+    /// would cut real art off the card rather than merely shrinking a hidden mesh. If a future
+    /// report says a dark-but-not-black frame survived, this number is the turn to make — a
+    /// threshold change, not a redesign.</para>
+    /// </summary>
+    private const byte DarkBorderLumaMax = 48;
+
+    /// <summary>How deep the peel may reach, as a fraction of the footprint's SHORT side. 0.05 of
+    /// 224 texels ≈ 11 texels ≈ 3 mm on a 63.5 mm card — wide enough for any printed frame, far too
+    /// narrow to hollow a card out.</summary>
+    private const float DarkBorderMaxDepthFraction = 0.05f;
+
+    /// <summary>Hard ceiling on what the peel may take, as a fraction of the OPAQUE area it started
+    /// from. Past this the footprint is a dark card, not a dark frame, and the whole peel is
+    /// discarded (logged) rather than partially applied — degrade to the shape we already had,
+    /// never to a guessed one.</summary>
+    private const float DarkBorderMaxAreaFraction = 0.12f;
+
+    /// <summary>
+    /// Erode the opaque, near-black band on the OUTSIDE of a captured footprint (see the block
+    /// above). Mutates <paramref name="alpha"/> in place and returns how many texels went; returns
+    /// 0 and leaves the mask untouched when nothing qualifies or the caps are exceeded.
+    /// </summary>
+    private static int PeelDarkBorder(byte[] alpha, byte[] luma, int fw, int fh,
+                                      out int maxDepthReached, out int meanLuma, out bool capped)
+    {
+        maxDepthReached = 0;
+        meanLuma = 0;
+        capped = false;
+        int maxDepth = Mathf.Max(1, Mathf.RoundToInt(Mathf.Min(fw, fh) * DarkBorderMaxDepthFraction));
+
+        long opaqueBefore = 0;
+        for (int i = 0; i < alpha.Length; i++)
+            if (alpha[i] >= 128)
+                opaqueBefore++;
+        if (opaqueBefore <= 0)
+            return 0;
+
+        // depth[i] == 0 -> unvisited; >0 -> peel distance from the outside.
+        var depth = new ushort[alpha.Length];
+        var queue = new Queue<int>(1024);
+        var peeled = new List<int>(1024);
+        long lumaSum = 0;
+
+        void Seed(int idx)
+        {
+            if (depth[idx] != 0 || alpha[idx] < 128 || luma[idx] > DarkBorderLumaMax)
+                return;
+            depth[idx] = 1;
+            queue.Enqueue(idx);
+            peeled.Add(idx);
+            lumaSum += luma[idx];
+        }
+
+        // Seeds: every opaque near-black texel that touches a TRANSPARENT texel, plus the
+        // footprint's own image border (a card whose art runs to the very edge of the face rect
+        // has no transparent neighbour there, and its frame must still be reachable).
+        for (int y = 0; y < fh; y++)
+        {
+            int row = y * fw;
+            for (int x = 0; x < fw; x++)
+            {
+                int i = row + x;
+                if (alpha[i] >= 128)
+                {
+                    if (x == 0 || y == 0 || x == fw - 1 || y == fh - 1)
+                        Seed(i);
+                    continue;
+                }
+                // transparent: its opaque 4-neighbours are on the outer boundary
+                if (x > 0) Seed(i - 1);
+                if (x < fw - 1) Seed(i + 1);
+                if (y > 0) Seed(i - fw);
+                if (y < fh - 1) Seed(i + fw);
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue();
+            int d = depth[i];
+            if (d > maxDepthReached)
+                maxDepthReached = d;
+            if (d >= maxDepth)
+                continue;
+            int x = i % fw, y = i / fw;
+            void Step(int n)
+            {
+                if (depth[n] != 0 || alpha[n] < 128 || luma[n] > DarkBorderLumaMax)
+                    return;
+                depth[n] = (ushort)(d + 1);
+                queue.Enqueue(n);
+                peeled.Add(n);
+                lumaSum += luma[n];
+            }
+            if (x > 0) Step(i - 1);
+            if (x < fw - 1) Step(i + 1);
+            if (y > 0) Step(i - fw);
+            if (y < fh - 1) Step(i + fw);
+        }
+
+        if (peeled.Count == 0)
+            return 0;
+        meanLuma = (int)(lumaSum / peeled.Count);
+        if (peeled.Count > opaqueBefore * DarkBorderMaxAreaFraction)
+        {
+            capped = true;
+            return 0; // nothing applied — this is a dark CARD, not a dark FRAME
+        }
+        for (int p = 0; p < peeled.Count; p++)
+            alpha[peeled[p]] = 0;
+        return peeled.Count;
+    }
 
     /// <summary>
     /// Offer a live card face to the silhouette capture AND to the face blackout. Cheap and safe
@@ -966,6 +1182,29 @@ internal sealed class CardFace
             }
         }
 
+        // DARK BORDER PEEL (round 5) — see the block above PeelDarkBorder for the derivation and
+        // for why this line is the round's falsifier. Runs on every capture, logs either way.
+        int peeled = PeelDarkBorder(alpha, luma, fw, fh, out int peelDepth, out int peelLuma,
+                                    out bool peelCapped);
+        VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) DARK BORDER PEEL: {peeled} texel(s) = " +
+                            $"{(float)peeled / alpha.Length:P2} of the face removed as a printed black " +
+                            $"frame (opaque, luma <= {DarkBorderLumaMax}, reachable from outside, max depth " +
+                            $"{peelDepth} of {Mathf.Max(1, Mathf.RoundToInt(Mathf.Min(fw, fh) * DarkBorderMaxDepthFraction))} " +
+                            $"texels; mean luma of what went = {peelLuma})" +
+                            (peelCapped
+                                ? " — DISCARDED: the band exceeded " +
+                                  $"{DarkBorderMaxAreaFraction:P0} of the opaque area, so this is a dark CARD, " +
+                                  "not a dark FRAME. Footprint kept exactly as captured."
+                                : peeled == 0
+                                    ? " — the card art carries NO opaque black band on its outside, so the " +
+                                      "black border the user reports is not printed into the art: it is drawn " +
+                                      "by something on the FACE (see the blackout line) or by a body this " +
+                                      "clip does not reach."
+                                    : " — the mask now describes the card WITHOUT its printed frame. The mesh " +
+                                      "sits BEHIND the art, so this alone cannot uncover a band the ART paints; " +
+                                      "what it does buy is a tighter definition of 'outside the card' for the " +
+                                      "face blackout below."));
+
         VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) attempt {state.Attempts}: footprint {fw}x{fh} " +
                             $"stamped from {picks.Count - backdrops} of {picks.Count} candidate image(s) " +
                             $"({backdrops} opaque full-bleed backdrop(s) skipped) on a " +
@@ -1169,14 +1408,51 @@ internal sealed class CardFace
         /// </summary>
         private const float BlackoutStripOutsideFraction = 0.66f;
 
+        /// <summary>
+        /// ROUND-5 CORRECTION TO TIER B. Tier B exists for a rim assembled from thin EDGE STRIPS —
+        /// and until this build it could never fire on one, because the size test that precedes the
+        /// tiers rejected anything under <see cref="MinOutlineAreaFraction"/> (3 % of the face)
+        /// BEFORE either tier was evaluated and before the quad was even counted as "considered".
+        /// A 2 %-wide full-height strip is exactly the construction Tier B was written for and
+        /// exactly the one that gate hid — including from the log, which is why the ModBuild-109
+        /// line could truthfully say "1 sprite-less quad" while a rim of four strips stood on the
+        /// same face. The size test now only gates TIER A (which genuinely means "card-sized
+        /// backdrop"); Tier B sees every quad down to this noise floor, and every one of them is
+        /// reported.
+        /// </summary>
+        private const float BlackoutNoiseFloorFraction = 0.002f;
+
         /// <summary>Probe grid used to measure "how much of this quad falls outside the card".
         /// 24x36 ≈ the footprint's own aspect; 864 lookups per candidate per second.</summary>
         private const int ProbeX = 24;
         private const int ProbeY = 36;
 
-        /// <summary>Muted images and the colour we wrote them from, keyed by instance id so a
+        /// <summary>Muted graphics and the colour we wrote them from, keyed by instance id so a
         /// pooled/recycled widget can never collide with a live one.</summary>
-        private static readonly Dictionary<int, (Image Img, Color Orig, Color Muted)> s_muted = new();
+        private static readonly Dictionary<int, (Graphic Img, Color Orig, Color Muted)> s_muted = new();
+
+        /// <summary>
+        /// Is this graphic a provably SHAPE-LESS quad — i.e. does uGUI draw it as a plain
+        /// rectangle in <c>Graphic.color</c>?
+        ///
+        /// <para>Round 5 widens the answer from "an <c>Image</c> without a sprite" to "an
+        /// <c>Image</c> without a sprite OR a <c>RawImage</c> without a texture". The rectangle
+        /// argument that makes muting safe (see the class doc) holds identically for both, and the
+        /// narrower test was an assumption about which component the game reached for, never a
+        /// measurement: a <c>RawImage</c> backdrop would have been invisible to every pass of the
+        /// previous four rounds — it is not an <c>Image</c>, so neither the capture's rejection
+        /// counts nor the blackout's candidate list would have mentioned it once.</para>
+        ///
+        /// <para>Everything that CARRIES art is still refused here on purpose: its shape is the
+        /// artist's business, and muting a whole sprite because part of it falls outside the
+        /// outline would delete card art.</para>
+        /// </summary>
+        private static bool IsShapelessQuad(Graphic g) => g switch
+        {
+            Image img => img.sprite == null,
+            RawImage raw => raw.texture == null,
+            _ => false,
+        };
 
         private static readonly bool[] s_logged = new bool[3];
         private static readonly bool[] s_loggedMuted = new bool[3];
@@ -1206,7 +1482,9 @@ internal sealed class CardFace
             if (faceRect.width < 1f || faceRect.height < 1f)
                 return;
 
-            Image[] images = faceRoot.GetComponentsInChildren<Image>(includeInactive: true);
+            // EVERY Graphic, not every Image (see IsShapelessQuad) — a RawImage backdrop was
+            // structurally invisible to rounds 1-4.
+            Graphic[] images = faceRoot.GetComponentsInChildren<Graphic>(includeInactive: true);
             // The per-candidate detail is only ever printed by the two one-shot latches below, and
             // this pass runs once a second PER CARD — a full fan plus a browser is twenty-odd
             // instances. Build the string only while a latch can still fire; afterwards this is a
@@ -1216,12 +1494,16 @@ internal sealed class CardFace
             int muted = 0, considered = 0;
             var corners = new Vector3[4];
 
-            foreach (Image img in images)
+            foreach (Graphic img in images)
             {
                 if (img == null || !img.enabled || !img.gameObject.activeSelf)
                     continue;
-                if (img.sprite != null)
-                    continue; // carries art; its shape is the artist's business, not ours
+                // Art-bearing graphics are NEVER muted (their shape is the artist's business) —
+                // but they ARE measured once, for the inventory in the log line below. Four rounds
+                // have now been spent inferring what paints the border from what the code happens
+                // to look at; the next log states what is actually on the face and how much of each
+                // element lies outside the captured outline.
+                bool shapeless = IsShapelessQuad(img);
                 int imgId = img.GetInstanceID();
                 if (outlineIds.Contains(imgId))
                     continue; // (cannot happen — the union needs a sprite — but state it anyway)
@@ -1231,8 +1513,22 @@ internal sealed class CardFace
                 // does exactly that on focus/unfocus). If the game's new colour is no longer a
                 // dark opaque quad, it is a legitimate visible element again — stop tracking it
                 // and leave the game's value alone.
-                if (s_muted.TryGetValue(imgId, out (Image Img, Color Orig, Color Muted) tracked))
+                if (s_muted.TryGetValue(imgId, out (Graphic Img, Color Orig, Color Muted) tracked))
                 {
+                    // IT GAINED ART WHILE MUTED. The addressable loader nulls a card element's
+                    // sprite for the duration of a load (see CardArtGuard), so a quad can be
+                    // shape-less — and therefore mutable — at one pass and carrying the card's own
+                    // art at the next. Hand it straight back: a muted sprite is invisible ART, which
+                    // is the one outcome this mechanism must never produce. Round 5 widened what may
+                    // be muted, so this stops being a theoretical ordering note and starts being a
+                    // guard.
+                    if (!shapeless)
+                    {
+                        s_muted.Remove(imgId);
+                        if (img.color == tracked.Muted)
+                            img.color = tracked.Orig;
+                        continue;
+                    }
                     Color live = img.color;
                     if (live == tracked.Muted)
                         continue; // still muted, nothing to do
@@ -1247,6 +1543,11 @@ internal sealed class CardFace
                     s_muted[imgId] = (img, tracked.Orig, remute);
                     continue;
                 }
+
+                // Past this point everything is MEASUREMENT. An art-bearing graphic can never be
+                // muted, so it is only walked while a report latch is still open (the inventory).
+                if (!shapeless && report == null)
+                    continue;
 
                 Color c = img.color;
                 img.rectTransform.GetWorldCorners(corners);
@@ -1263,8 +1564,11 @@ internal sealed class CardFace
                 }
                 float aw = maxNx - minNx, ah = maxNy - minNy;
                 float area = Mathf.Max(0f, aw) * Mathf.Max(0f, ah);
-                if (area < MinOutlineAreaFraction)
-                    continue; // too small to be anyone's border — not even worth reporting
+                // NOISE FLOOR ONLY — the 3 % test that used to stand here gated BOTH tiers and so
+                // made Tier B unreachable for the exact construction it was written for. See
+                // BlackoutNoiseFloorFraction. Tier A still requires BlackoutMinAreaFraction below.
+                if (area < BlackoutNoiseFloorFraction)
+                    continue;
 
                 float luma = c.r * 0.299f + c.g * 0.587f + c.b * 0.114f;
 
@@ -1289,34 +1593,42 @@ internal sealed class CardFace
                 }
                 float outsideFrac = probes > 0 ? (float)outside / probes : 0f;
 
-                considered++;
-                // Both gates start from "opaque AND dark AND sprite-less", which is the part that
+                if (shapeless)
+                    considered++;
+                // Both gates start from "opaque AND dark AND shape-less", which is the part that
                 // makes muting safe (see the class note). They differ only in what makes the quad
                 // ILLEGITIMATE: Tier A "it is a card-sized backdrop that reaches past the outline",
                 // Tier B "whatever size it is, it lives mostly where the card is not".
                 bool opaqueDark = c.a >= BlackoutMinAlpha && luma <= BlackoutMaxLuma;
-                bool backdropTier = opaqueDark
+                bool backdropTier = shapeless && opaqueDark
                                     && area >= BlackoutMinAreaFraction
                                     && outsideFrac >= BlackoutMinOutsideFraction;
-                bool stripTier = opaqueDark && outsideFrac >= BlackoutStripOutsideFraction;
+                bool stripTier = shapeless && opaqueDark && outsideFrac >= BlackoutStripOutsideFraction;
                 bool qualifies = backdropTier || stripTier;
 
                 if (report != null)
                 {
                     if (report.Length > 0)
                         report.Append("; ");
-                    report.Append('\'').Append(img.name).Append("' ").Append(area.ToString("P0"))
+                    string art = img is Image im && im.sprite != null ? $"sprite '{im.sprite.name}'"
+                               : img is RawImage rw && rw.texture != null ? $"texture '{rw.texture.name}'"
+                               : img is Image ? "no sprite"
+                               : img is RawImage ? "no texture"
+                               : img.GetType().Name;
+                    report.Append('\'').Append(img.name).Append("' [").Append(art).Append("] ")
+                          .Append(area.ToString("P0"))
                           .Append(" of the face, rgba(").Append(c.r.ToString("F2")).Append(',')
                           .Append(c.g.ToString("F2")).Append(',').Append(c.b.ToString("F2")).Append(',')
                           .Append(c.a.ToString("F2")).Append("), luma ").Append(luma.ToString("F2"))
                           .Append(", ").Append(outsideFrac.ToString("P0")).Append(" of it outside the card → ")
                           .Append(qualifies ? (backdropTier ? "MUTED (tier A: card-sized backdrop)"
                                                             : "MUTED (tier B: mostly outside the card)")
-                                            : (c.a < BlackoutMinAlpha ? "kept (translucent — a dimmer, not a backdrop)"
+                                            : !shapeless ? "kept (carries art — inventory only, never muted)"
+                                            : c.a < BlackoutMinAlpha ? "kept (translucent — a dimmer, not a backdrop)"
                                             : luma > BlackoutMaxLuma ? "kept (not dark)"
                                             : area < BlackoutMinAreaFraction ? "kept (too small for tier A, and " +
                                                   $"under {BlackoutStripOutsideFraction:P0} outside for tier B)"
-                                            : "kept (paints nothing outside the card)"));
+                                            : "kept (paints nothing outside the card)");
                 }
 
                 if (!qualifies)
@@ -1332,14 +1644,19 @@ internal sealed class CardFace
             // (art still arriving), and a log that only ever prints that pass would hide the real
             // answer. So: print the first pass that MUTES something, and — separately, once — the
             // first pass that found candidates and muted none.
-            if (muted > 0 ? !s_loggedMuted[(int)kind] : (!s_logged[(int)kind] && considered > 0))
+            // The inventory is the reason the "nothing muted" latch no longer needs a shape-less
+            // candidate to fire: a face with ZERO shape-less quads is itself the answer to "what
+            // paints the border", and a silent pass would have hidden it (again).
+            if (muted > 0 ? !s_loggedMuted[(int)kind] : (!s_logged[(int)kind] && report != null && report.Length > 0))
             {
                 if (muted > 0)
                     s_loggedMuted[(int)kind] = true;
                 s_logged[(int)kind] = true;
-                VRLog.Info("Cards", $"CARD FACE BLACKOUT ({kind}): {muted} of {considered} sprite-less " +
-                                    $"quad(s) on the first measured face muted — {report}. A sprite-less " +
-                                    "uGUI Image is a plain RECTANGLE, so anything it paints outside the " +
+                VRLog.Info("Cards", $"CARD FACE BLACKOUT ({kind}): {muted} of {considered} shape-less " +
+                                    "quad(s) on the first measured face muted. FULL FACE INVENTORY (every " +
+                                    "drawn Graphic, art-bearing ones listed but never muted) — " +
+                                    $"{report}. A shape-less " +
+                                    "uGUI Image/RawImage is a plain RECTANGLE, so anything it paints outside the " +
                                     "captured card outline is the black rectangular border of the " +
                                     "2026-08-11 report ('der schwarze Rand … immer noch vollständig da'); " +
                                     "the card BODY behind it is alpha-clipped already, which is why he saw " +
@@ -1362,7 +1679,7 @@ internal sealed class CardFace
             if (s_muted.Count < 128 && s_nextPass.Count < 256)
                 return;
             var deadImages = new List<int>();
-            foreach (KeyValuePair<int, (Image Img, Color Orig, Color Muted)> kv in s_muted)
+            foreach (KeyValuePair<int, (Graphic Img, Color Orig, Color Muted)> kv in s_muted)
                 if (kv.Value.Img == null)
                     deadImages.Add(kv.Key);
             foreach (int id in deadImages)
@@ -1379,13 +1696,13 @@ internal sealed class CardFace
             if (faceRoot == null)
                 return;
             s_nextPass.Remove(faceRoot.transform.GetInstanceID());
-            Image[] images = faceRoot.GetComponentsInChildren<Image>(includeInactive: true);
-            foreach (Image img in images)
+            Graphic[] images = faceRoot.GetComponentsInChildren<Graphic>(includeInactive: true);
+            foreach (Graphic img in images)
             {
                 if (img == null)
                     continue;
                 int id = img.GetInstanceID();
-                if (!s_muted.TryGetValue(id, out (Image Img, Color Orig, Color Muted) rec))
+                if (!s_muted.TryGetValue(id, out (Graphic Img, Color Orig, Color Muted) rec))
                     continue;
                 s_muted.Remove(id);
                 Color now = img.color;
@@ -1428,6 +1745,10 @@ internal sealed class CardFace
         if (_face == null || _host == null)
             return;
         RefreshFitScale();
+        // Drop any stale wrapper first: this method exists to re-assert the pose after somebody
+        // moved the face, and a wrapper left behind would be an empty shell under the host.
+        Cards.CardShapeMask.Release(_face);
+        _shape = null;
         _face.SetParent(_host, worldPositionStays: false);
         _face.anchorMin = CenterAnchor;
         _face.anchorMax = CenterAnchor;
@@ -1437,6 +1758,23 @@ internal sealed class CardFace
         _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
         if (!_face.gameObject.activeSelf)
             _face.gameObject.SetActive(true);
+        EnsureShapeMask();
+    }
+
+    /// <summary>
+    /// THE FACE CLIP. Wrap the adopted face in the card-shaped stencil mask
+    /// (<see cref="CardShapeMask"/>) as soon as a footprint exists. Two entry points on purpose:
+    /// here, so a warm cache has the mask in place BEFORE the face's first drawn frame (the
+    /// footprint is loaded inside the card body's material factory, i.e. before this card's shell
+    /// finished building), and from <see cref="Maintain"/>, so the FIRST run — where the shape is
+    /// only learned once the art loads — picks it up the moment it lands instead of at the next
+    /// re-adoption. Cheap: one field test in the steady state.
+    /// </summary>
+    private void EnsureShapeMask()
+    {
+        if (_face == null || _shape != null)
+            return;
+        _shape = Cards.CardShapeMask.Wrap(_face, CardBodyKind.Ability);
     }
 
     /// <summary>
@@ -1456,7 +1794,11 @@ internal sealed class CardFace
             return;
         }
 
-        if (!ReferenceEquals(_face.parent, _host))
+        // OURS = directly under the host, or one level down inside our own card-shape stencil
+        // wrapper (CardShapeMask). Without the second reading every wrapped card would look to
+        // this test like a face a game dialog had stolen, and Maintain would fight its own wrapper
+        // every frame.
+        if (!IsOurParent(_face.parent))
         {
             // Who moved it? A hand-layout refresh re-parents the face back under its
             // own AbilityCardUI (reclaim it). A game DIALOG (burn/redraw popups take
@@ -1550,6 +1892,13 @@ internal sealed class CardFace
         float scale = _face.localScale.x;
         if (!Mathf.Approximately(scale, _fitScale))
             _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
+        // FIRST RUN ONLY in practice: with a warm cache the wrapper was built during Adopt. On a
+        // cold cache the shape is learned mid-session, and this is what puts the clip on every face
+        // already on screen in the frame the footprint lands. In the steady state it is one field
+        // test; once wrapped it only re-fits the wrapper to the face's rendered rect.
+        EnsureShapeMask();
+        if (_shape != null)
+            _shape.RefreshRect();
     }
 
     /// <summary>
@@ -1560,6 +1909,17 @@ internal sealed class CardFace
     /// <c>FullCardHandViewer.CardContainer</c> instead — and is short-circuited here
     /// anyway by <c>LockFullCard</c> — so this never mis-fires on a preview.
     /// </summary>
+    /// <summary>Is <paramref name="parent"/> the host, or our own stencil wrapper sitting directly
+    /// under it? See the call site in <see cref="Maintain"/>.</summary>
+    private bool IsOurParent(Transform? parent)
+    {
+        if (parent == null || _host == null)
+            return false;
+        if (ReferenceEquals(parent, _host))
+            return true;
+        return CardShapeMask.IsWrapper(parent) && ReferenceEquals(parent.parent, _host);
+    }
+
     private static bool IsDialogContent(Transform? parent) =>
         parent != null && parent.GetComponentInParent<DialogPopup>() != null;
 
@@ -1572,8 +1932,12 @@ internal sealed class CardFace
         _reclaimedFromDialog = false;
         _artWatch.Clear();
         // The face stops being ours — hand back every quad the blackout muted (full-restore
-        // contract; a dialog that shows this face must see the game's own colours).
+        // contract; a dialog that shows this face must see the game's own colours)...
         FaceBlackout.Restore(_face);
+        // ...and drop the stencil wrapper, which also puts every neutralised Canvas' overrideSorting
+        // back. A dialog that shows this face must get the game's own hierarchy, not ours.
+        CardShapeMask.Release(_face);
+        _shape = null;
         if (_owner != null)
         {
             CardArtGuard.NoteReleased(_owner.fullAbilityCard);
@@ -1592,11 +1956,18 @@ internal sealed class CardFace
         _face = null;
         _host = null;
         _owner = null;
+        _shape = null;
         _reclaimedFromDialog = false;
         _artWatch.Clear();
 
         if (face == null)
             return;
+
+        // FULL-RESTORE CONTRACT, and it must run BEFORE the transform is put back: the wrapper lifts
+        // the face out of itself and restores every Canvas.overrideSorting it neutralised. A widget
+        // must never return to the game's pool inside a mod GameObject or with a game canvas still
+        // holding a value we wrote.
+        CardShapeMask.Release(face);
 
         // The face stops being ours here — the guard must not keep suppressing/healing a
         // widget the game owns again (owner may already be gone during scene teardown).

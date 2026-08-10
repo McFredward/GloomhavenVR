@@ -821,6 +821,25 @@ internal static class CardMesh
     /// CardFace's own 1−BorderFraction inset; <c>ItemsPile</c> — native × fit). So footprint
     /// texel (u,v) sits on the card pixel it was sampled from, at every card scale.
     ///
+    /// <para>THE 0.94 COORDINATE-MISMATCH HYPOTHESIS IS REFUTED — DO NOT RE-TEST IT (round 5,
+    /// checked against the ModBuild-109 log, `738bc15`). The suspicion was that the mask spans the
+    /// FULL face while the body spans only <c>VisibleFaceFraction</c> of it, so the body's rim would
+    /// sample the mask at ~0.94 — still opaque, since the footprint's opaque bounding box reaches
+    /// 0.955 of the face — and nothing would ever be clipped at the edge. The arithmetic says
+    /// otherwise, and both halves carry the SAME 0.94:
+    /// <list type="bullet">
+    /// <item>the host canvas is <c>sizeDelta = FaceSize</c> = the game face's own rect (294×450 px,
+    ///   logged), so <c>CardFace.ComputeFitScale(hostSize, FaceSize)</c> = 1 and the adopted face is
+    ///   drawn at <c>_fitScale</c> = 1 − BorderFraction = 0.94 → a rendered art rect of
+    ///   276.4 × 423 canvas px;</item>
+    /// <item>the slab is <c>facePixels × fit × VisibleFaceFraction</c> = the same 294 × 0.94 by
+    ///   450 × 0.94 → 276.4 × 423 canvas px, concentric with it (canvas at local z −0.0012, both
+    ///   centred, <c>_visualRoot</c> is unit-scaled and never rescaled).</item>
+    /// </list>
+    /// Slab and rendered art rect are therefore the SAME rectangle, and UV 0..1 on the body
+    /// corresponds to the FULL 294×450 face — the footprint's own space. The mask lands exactly
+    /// where it was authored. Whatever the user still sees, it is not this.</para>
+    ///
     /// Robust by design: returns without applying (cards stay the opaque rounded-rect)
     /// if the footprint is malformed, degenerate (mostly empty or a solid rectangle —
     /// the latter would be pointless AND is the signature of a bad capture), hollow in
@@ -1023,7 +1042,23 @@ internal static class CardMesh
     /// </summary>
     private const uint CacheMagic = 0x53525647; // 'GVRS' little-endian
 
-    private const byte CacheVersion = 1;
+    /// <summary>
+    /// Bump this whenever the MEANING of a stored mask changes, not just its layout — a file whose
+    /// bytes still parse but no longer mean what this build thinks they mean is worse than no file.
+    ///
+    /// <para>v1 → v2 (round 5): the capture now peels the opaque, near-black band off the OUTSIDE of
+    /// the footprint (<c>CardFace.PeelDarkBorder</c>), so a v2 mask describes the card WITHOUT its
+    /// printed frame while a v1 mask describes it WITH one. This matters concretely rather than
+    /// academically: the ModBuild-109 run WROTE a v1 file, and <see cref="EnsureSilhouetteCacheLoaded"/>
+    /// applies the cache before the first card body exists while
+    /// <see cref="RefreshSilhouetteCache"/> deliberately refuses to re-apply mid-session (that
+    /// re-shape IS the visible transition the user rejected). Left at v1 the next launch would
+    /// therefore apply the OLD mask, the peel would only reach the FILE, and the change would not be
+    /// visible until the launch after that — i.e. the user would test round 5 and see round 4. The
+    /// bump costs exactly one cold start for this shape, which is the documented and accepted
+    /// first-run behaviour, and never a wrong shape.</para>
+    /// </summary>
+    private const byte CacheVersion = 2;
 
     private static string CacheFilePath(CardBodyKind kind) => System.IO.Path.Combine(
         BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}.bin");

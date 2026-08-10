@@ -416,7 +416,68 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 109;
+    public const ushort ModBuild = 110;
+    // Build 110: attempt FIVE at the black card border, and the first that clips the layer the
+    // black is actually on. No wire change; the bump is here because 110 is what goes to the friend.
+    //
+    // WHAT FOUR ATTEMPTS GOT WRONG, because it is the generalisable part: every one of them acted on
+    // the card BODY. The 109 log finally proved the body cannot be the answer — its own new
+    // diagnostic refuted the standing hypothesis (there is exactly ONE sprite-less quad on a face and
+    // it is WHITE: 'UIFX_Overlay', luma 1.00, kept), and the shape line reported a captured outline
+    // whose bounding box is 95.5 % of the face at 0.928 fill, i.e. with real corner cuts. If the
+    // clipped body were what bounds the visible card, the cards would have STOPPED looking
+    // rectangular in attempt 2. The user's report is unchanged: rectangles with a black rim. So the
+    // FACE paints over the body's whole footprint and the rim is on the face.
+    //
+    // (A 0.94 coordinate-mismatch hypothesis was raised by the integrator and REFUTED by arithmetic:
+    // the host rect is the face rect, so ComputeFitScale is 1 and both the art inset and the slab
+    // carry the same 0.94. UV 0..1 on the body is the full face. Written into SetSilhouette's doc as
+    // do-not-re-test.)
+    //
+    // THE FIX: Cards/CardShapeMask.cs stencil-clips the adopted FACE itself to the same footprint —
+    // a mod-owned wrapper between host and face, at the face's sibling index, sized to the face's
+    // RENDERED rect, with showMaskGraphic = false so nothing of ours ever draws.
+    //
+    // The reason this was not simply done in round 1 is real and is the interesting part:
+    // MaskUtilities.FindRootSortOverrideCanvas stops at the first ancestor Canvas with
+    // overrideSorting, FullAbilityCard carries its own Canvas, and the game TOGGLES its sorting
+    // (CardsHandUI.ToggleFullCardCanvasSorting) — so a mask above it can silently render a plain
+    // rectangle while every log line claims success, which is precisely how attempt 1 failed. Hence:
+    // overrideSorting is forced false on EVERY canvas inside the wrapped face (each one's original
+    // recorded, because a toggle means a canvas reading false at install can read true two frames
+    // later), re-asserted per frame, re-scanned as the game grows the hierarchy, restored exactly on
+    // release. And the install VERIFIES itself by making the same two calls MaskableGraphic makes —
+    // FindRootSortOverrideCanvas then GetStencilDepth — requiring depth >= 1. It logs INSTALLED and
+    // VERIFIED, REFUSED and REMOVED (wrapper lifted out, canvases restored, latched per kind), or
+    // INCONCLUSIVE (a card parked under the inactive pool root has no active canvas to resolve
+    // against). A mechanism that can silently do nothing does not go into this file again.
+    //
+    // Verified by the integrator against the local uGUI package rather than taken on trust:
+    // Mask.IsRaycastLocationValid filters by RectangleContainsScreenPoint — the RECT only, never the
+    // alpha — so the game's raycasts, on-card highlight and half-selection zones are untouched; and
+    // StencilMaterial sets useAlphaClip = operation != Keep && writeMask > 0, so the mask really does
+    // clip on the sprite's alpha rather than its rect.
+    //
+    // Fail-closed is structural: if the mask graphic ever stops writing, the children's stencil depth
+    // collapses to 0 in the same walk and they render UNMASKED. There is no state where this clips a
+    // card away. The one way it could have — a wrapper on a layer the head camera culls, testing
+    // against a buffer nothing wrote — is closed by taking the face's own layer.
+    //
+    // Alongside it, PeelDarkBorder erodes an opaque near-black boundary band out of the captured
+    // footprint (dark-only, depth-capped at 5 % of the short side, whole peel DISCARDED past 12 % of
+    // the opaque area, boundary-seeded so a mid-card ornament is unreachable). On its own that was
+    // cosmetically inert because the mesh sits behind opaque art; with the face clipped to the same
+    // footprint it is what removes a PRINTED black frame. Its safety argument inverted with its
+    // effect, so the threshold was retightened.
+    //
+    // CacheVersion 1 -> 2, and this is load-bearing rather than hygiene: the 109 run wrote a v1 file,
+    // the cache is applied before the first card body exists, and a mid-session refresh is refused by
+    // design — left at v1 the user would have tested round 5 and seen round 4.
+    //
+    // Peers take the same clip (Net/RemoteCardArt: wrapped at the build seam so a peer's card is
+    // shaped from its FIRST drawn frame, again on art arrival for the cold-cache case, and RELEASED
+    // before the clone is destroyed — required, not tidiness, since the wrapper becomes its parent).
+    //
     // Build 109: the card SILHOUETTE round, plus three fixes whose root causes were each one layer
     // away from the symptom. No wire change; the bump is here because 109 is what goes to the friend.
     //

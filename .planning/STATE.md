@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 109`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 110`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,23 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 110** — attempt FIVE at the black card border, and the first that clips the layer the
+  black is on. **The generalisable lesson: four attempts all acted on the card BODY, and the body was
+  never what bounds the visible card.** The 109 log refuted the standing hypothesis with its own new
+  diagnostic (exactly ONE sprite-less quad on a face, and it is WHITE) and reported a captured
+  outline with real corner cuts (bbox 95.5 % of the face, 0.928 fill) — so if the clipped body bound
+  the card, the cards would have stopped looking rectangular in attempt 2. They did not. Therefore
+  the FACE paints over the body's whole footprint. `Cards/CardShapeMask.cs` now stencil-clips the
+  adopted face itself. The reason that was not trivial: `MaskUtilities.FindRootSortOverrideCanvas`
+  stops at `FullAbilityCard`'s own Canvas, whose sorting the game TOGGLES — so a mask above it can
+  render a plain rectangle while every log line claims success, exactly how attempt 1 failed. It
+  therefore neutralises `overrideSorting` on every canvas inside the face (recording each original,
+  because a toggle can flip one after install) and VERIFIES itself by making the same two calls
+  `MaskableGraphic` makes, refusing and removing itself if the stencil would not resolve.
+  Integrator-verified against the local uGUI package: `Mask.IsRaycastLocationValid` filters by RECT
+  only, so input is untouched, and `StencilMaterial` really does set `useAlphaClip`.
+  A 0.94 coordinate-mismatch hypothesis (the integrator's) was raised and REFUTED by arithmetic —
+  recorded as do-not-re-test.
 - **ModBuild 109** — the card SILHOUETTE round. **The black card border took four attempts, and
   every wrong turn was a layer error**, which is why it is worth reading in full.
   Attempt 1 shipped an alpha clip that never executed (`isActiveAndEnabled` against cards adopting
