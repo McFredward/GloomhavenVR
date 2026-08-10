@@ -87,6 +87,19 @@ internal static class NetFigures
         /// one palm" rejection, see <see cref="NetProtocol.ExtIdSecondFigure"/>.</summary>
         public bool HandKnown;
         public bool LeftHand;
+
+        /// <summary>
+        /// The figure's own LOCAL scale at its board cell, captured on the frame this hold became
+        /// fresh (the same guard that spawns the home ghost, so the figure is still at home and
+        /// untouched). Restored verbatim on every release path.
+        /// </summary>
+        public Vector3 HomeLocalScale = Vector3.one;
+
+        /// <summary>
+        /// The HOLDER's rig scale at the moment their grab was first seen here, or 0 when it was not
+        /// available. Divisor of the held-size ratio — see <see cref="EaseSlot"/>.
+        /// </summary>
+        public float GrabRigScale;
     }
 
     /// <summary>Both wire slots of ONE remote player. Slots are independent: a peer holding a mini
@@ -195,6 +208,16 @@ internal static class NetFigures
             rec = new RemoteHeld();
             if (slot == SlotSecondary) player.Secondary = rec;
             else player.Primary = rec;
+
+            // HELD SIZE, CAPTURED ONCE PER HOLD (2026-08-11). A fresh record is the receive-side
+            // equivalent of the grab edge, and the figure has not been eased anywhere yet, so its
+            // transform still carries the board-cell scale. Both numbers of the ratio EaseSlot
+            // applies are taken here and nowhere else: re-reading them per frame would track the
+            // holder's live zoom, which is precisely the behaviour this round removed.
+            Transform? home = RootTransform(actor);
+            if (home != null)
+                rec.HomeLocalScale = home.localScale;
+            rec.GrabRigScale = NetAvatarDriver.TryGetPeerRigScale(playerId, out float rigNow) ? rigNow : 0f;
         }
         rec.Actor = actor;
         rec.ActorId = actorId;
@@ -231,12 +254,14 @@ internal static class NetFigures
         {
             if (player.Secondary == null)
                 return;
+            RestoreHomeScale(player.Secondary); // scale is the one thing the game will not re-author
             player.Secondary = null;
         }
         else
         {
             if (player.Primary == null)
                 return;
+            RestoreHomeScale(player.Primary);
             player.Primary = null;
         }
 
@@ -250,6 +275,13 @@ internal static class NetFigures
     /// hanging in a hand nobody is attached to any more.</summary>
     public static void ReleaseRemote(int playerId)
     {
+        if (_byPlayer.TryGetValue(playerId, out PlayerHeld leaving))
+        {
+            // Both slots, before the record goes: a peer who leaves mid-hold must not leave a mini
+            // standing on the board at their zoom (see RestoreHomeScale).
+            RestoreHomeScale(leaving.Primary);
+            RestoreHomeScale(leaving.Secondary);
+        }
         if (_byPlayer.Remove(playerId))
             RebuildSet();
     }
@@ -274,8 +306,8 @@ internal static class NetFigures
         foreach (KeyValuePair<int, PlayerHeld> kv in _byPlayer)
         {
             PlayerHeld player = kv.Value;
-            if (!EaseSlot(player.Primary, k)) { player.Primary = null; pruned = true; }
-            if (!EaseSlot(player.Secondary, k)) { player.Secondary = null; pruned = true; }
+            if (!EaseSlot(player.Primary, kv.Key, k)) { RestoreHomeScale(player.Primary); player.Primary = null; pruned = true; }
+            if (!EaseSlot(player.Secondary, kv.Key, k)) { RestoreHomeScale(player.Secondary); player.Secondary = null; pruned = true; }
             if (player.Primary == null && player.Secondary == null)
                 _scratchPlayers.Add(kv.Key);
         }
@@ -288,7 +320,7 @@ internal static class NetFigures
 
     /// <summary>Ease one slot toward its target. False when the slot is gone (empty, or its actor
     /// was destroyed) and must be dropped.</summary>
-    private static bool EaseSlot(RemoteHeld? rec, float k)
+    private static bool EaseSlot(RemoteHeld? rec, int playerId, float k)
     {
         if (rec == null)
             return false;
@@ -297,6 +329,28 @@ internal static class NetFigures
             return false; // actor gone → drop this hold
         t.position = Vector3.Lerp(t.position, rec.TargetPos, k);
         t.rotation = Quaternion.Slerp(t.rotation, rec.TargetRot, k);
+
+        // HELD SIZE — the 1:1 half of the 2026-08-11 held-scale latch. On the holder's machine a
+        // grabbed mini now KEEPS the size it had at the grab ("die Größe soll nur abhängig sein
+        // wann sie greift und dann fix in der Hand sein"), so it no longer follows their zoom. This
+        // wire has never carried a scale and EaseSlot never wrote one, which used to be exactly
+        // right — the peer's own board size WAS the holder's size. It stopped being right the
+        // moment the holder's size became a function of when they grabbed, so the same ratio is
+        // reproduced here or the two machines disagree for the whole time the holder zooms.
+        //
+        // ZERO WIRE BYTES: the holder's live rig scale already arrives on every rig packet
+        // (Rig.LocalRigSampler → RemoteAvatar.AppliedScale) and the grab-time value was latched
+        // when this record was created. When either is unavailable the ratio is 1 and the figure
+        // renders at this client's board size — exactly the pre-2026-08-11 behaviour, which is the
+        // right thing to degrade to.
+        if (rec.GrabRigScale > 0f
+            && NetAvatarDriver.TryGetPeerRigScale(playerId, out float rigNow)
+            && rigNow > 0f)
+        {
+            Vector3 want = rec.HomeLocalScale * (rigNow / rec.GrabRigScale);
+            if (t.localScale != want)
+                t.localScale = want;
+        }
         return true;
     }
 
@@ -398,6 +452,27 @@ internal static class NetFigures
             int id = (int)hash;
             return id != 0 ? id : 1;
         }
+    }
+
+    /// <summary>
+    /// Put a released remote figure back at its board-cell scale.
+    ///
+    /// <para>THIS MUST BE CALLED ON EVERY RELEASE PATH, and it is the one thing about the held-size
+    /// mirror that does NOT heal itself. Position and rotation are re-authored by the game's own
+    /// Update the moment a figure leaves <see cref="NetHeldFigures"/>, which is why the release
+    /// paths never had to restore those — but the game never writes a figure's SCALE, so a mini
+    /// released while its holder was zoomed in would keep the enlarged size forever.</para>
+    ///
+    /// <para>Writes only when it differs, and only when a hold actually latched a scale, so a
+    /// record from before this existed (or one whose actor is gone) is a no-op.</para>
+    /// </summary>
+    private static void RestoreHomeScale(RemoteHeld? rec)
+    {
+        if (rec == null || rec.GrabRigScale <= 0f)
+            return;
+        Transform? t = RootTransform(rec.Actor);
+        if (t != null && t.localScale != rec.HomeLocalScale)
+            t.localScale = rec.HomeLocalScale;
     }
 
     private static Transform? RootTransform(ActorBehaviour actor)

@@ -104,10 +104,80 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // grabbed never changes the resting hold and it never clips into a downward-pointing palm.
     private Transform? _anchor;
 
-    // SIZE PARITY — the mini's WORLD (lossy) scale as it stood ON THE BOARD, captured before the
-    // reparent into the hand. It is the ONLY size the held mini is ever rendered at; see
-    // ApplyHeldPose / HeldLocalScale for why that is what makes holder and peer agree.
+    // The mini's WORLD (lossy) scale as it stood ON THE BOARD, sampled before the reparent into the
+    // hand. It is the SOURCE of the grab-time latch below (and the number the [Size] log prints);
+    // it is no longer what the hold re-asserts every frame — see _heldLocalScale.
     private Vector3 _homeWorldScale = Vector3.one;
+
+    // HELD SIZE IS LATCHED AT THE GRAB — the mini's scale in the HAND ANCHOR's frame, captured once
+    // when the hold begins and then never recomputed until the next grab.
+    //
+    // USER REPORT (hardware, 2026-08-11, ModBuild 108, verbatim): "Wenn ich eine oder zwei Figuren
+    // in der Hand halte und dann zoome verändern auch die Figuren in meiner Hand ihre Größe - das
+    // soll nicht der Fall sein - die Größe soll nur abhängig sein wann sie greift und dann fix in
+    // der Hand sein - auch wenn man dabei zoomed."
+    //
+    // ROOT CAUSE. The diorama zoom is the RIG's own scale (Rig/WorldGrab writes
+    // rigRoot.localScale; VRRigDriver: "its lossyScale is the diorama scale"), and the hand anchor
+    // hangs under that rig — HandVisuals normalises Socket_Grab against handRoot.parent.lossyScale,
+    // so GrabAnchor.lossyScale IS the rig scale exactly, free of any per-style hand scale. The old
+    // hold re-derived the mini's anchor-LOCAL scale from a CONSTANT world size every frame
+    // (homeWorldScale / anchor.lossyScale), i.e. it pinned the mini's size in WORLD space. But the
+    // player's eyes are scaled by that same rig, so a world-constant object changes apparent size
+    // with every zoom: pinning the world size is exactly what makes the mini in the hand grow and
+    // shrink. Proven from the ModBuild 108 log rather than inferred — three grabs in one session
+    // printed `boardWorld=1 anchorScale=41.368`, `41.368` and `10.149`, so the same board-size mini
+    // was rendered at three anchor-local sizes a factor of ~4 apart purely because of the zoom.
+    //
+    // WHAT THE OLD BEHAVIOUR WAS FOR (do not simply revert it): it was the fix for the earlier MP
+    // defect "Die Figuren-Größen ändern sich wenn man sie in die Hand nimmt … so sehe ich beim
+    // Remote-Spieler eine andere Größe der Figur in der Hand als er selbst" — the hold used to
+    // multiply by [FigureGrab] ActiveHeldScale (1.5x, bound per hand style) while the wire carries
+    // POSE ONLY, so no two clients could agree. That multiplier stays gone and stays LEGACY. What
+    // this change touches is only the SECOND half of that fix — "pin the world size" — which is a
+    // stronger statement than "start from the board size" and is the half the user is reporting.
+    // At the instant of the grab the two are identical, so the mini still ENTERS the hand at
+    // exactly its board size; it simply stops chasing the zoom afterwards.
+    //
+    // REJECTED ALTERNATIVES.
+    //   (a) Delete the per-frame re-assert (TickHeldScale) instead of changing what it asserts.
+    //       The tick is above the config gate on purpose: a mini still in the hand when
+    //       GrabFigures is toggled off is released by the gate's ReleaseAll on THAT frame and must
+    //       not be rendered at a drifted size for the frame in between. Kept, now idempotent.
+    //   (b) Latch the WORLD scale at grab. That is what the code already did (the board does not
+    //       rescale), i.e. it is the defect.
+    //   (c) Latch the raw rig scale number and rebuild a factor from it. Latching the anchor-LOCAL
+    //       TRS component is the same value with one fewer assumption: it needs no opinion about
+    //       WHICH transform in the chain carries the zoom, so re-posing or rescaling the board (or
+    //       anything else moving between the board and the mini) cannot desynchronise it.
+    //
+    // MULTIPLAYER — what a peer sees, and the one thing this change owes Net/. Nothing about the
+    // wire changes here (no scale has ever ridden it: NetFigures.TrySampleHeldSlot sends world
+    // position + rotation, NetFigures.EaseSlot writes exactly those two and never a localScale), and
+    // nothing in Net/ was touched. The consequence is precise and worth stating rather than
+    // smoothing over:
+    //   - Position and rotation still cross exactly as before, so WHERE the peer sees the mini is
+    //     unchanged. Only its SIZE is at issue.
+    //   - A peer renders the held mini at its own board size, and it renders the holder's HANDS at
+    //     the holder's live rig scale (RemoteAvatar applies state.WorldScale to the part holders).
+    //     So today, while a holder zooms, a peer ALREADY sees that holder's hand grow or shrink
+    //     around a board-size mini — the peer side has always shown the "unlatched" picture.
+    //   - After this change the holder's mini world size is boardSize × (rigScaleNow /
+    //     rigScaleAtGrab). The peer still draws boardSize. The two therefore differ by exactly the
+    //     zoom the holder applied SINCE grabbing — 1.0 unless they zoom mid-hold, and it resolves
+    //     itself on release, but it is a real divergence and it is new.
+    //   - The fix costs ZERO wire bytes and is entirely receive-side, because the receiver already
+    //     has both numbers: the sender's live rig scale arrives every rig packet as
+    //     AvatarState.WorldScale (LocalRigSampler.cs:50 samples rigRoot.lossyScale.x — the SAME
+    //     quantity as GrabAnchor.lossyScale here, since HandVisuals.NormalizeSocket compensates
+    //     Socket_Grab against handRoot.parent.lossyScale), and the receiver already knows the frame
+    //     a hold BEGINS (NetFigures.ApplyRemoteHeld's fresh-hold guard, the one that spawns the home
+    //     ghost). Latching the sender's WorldScale there and multiplying the figure's home local
+    //     scale by WorldScaleNow / WorldScaleAtHoldStart reproduces the holder's picture exactly.
+    //     The receiver MUST restore the home local scale when the slot is released — the game never
+    //     writes a figure's scale, so unlike position and rotation it will not heal itself. Exact
+    //     call sites are in this round's report; it is a Net/-owned change and was NOT made here.
+    private Vector3 _heldLocalScale = Vector3.one;
 
     // Issue B — render-on-top state so a mini held in FRONT of the opaque control board (PlayTray)
     // is not painted over by the board's on-top HUD widgets (queue 4000, ZTest Always, ZWrite off).
@@ -343,8 +413,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         _origLocalRot = t.localRotation;
         _origLocalScale = t.localScale;
 
-        // SIZE PARITY: the board WORLD size, sampled while the mini is still standing on the board.
-        // Everything the hold does to the mini's scale is expressed as "reproduce exactly this".
+        // The board WORLD size, sampled while the mini is still standing on the board. Note this is
+        // read AFTER the re-grab FinishGlide above, so a re-grab mid-glide latches the true board
+        // size and not a mid-glide sample.
         _homeWorldScale = t.lossyScale;
 
         // TASK #3 — leave a translucent ghost at the figure's HOME board pose while it is held.
@@ -365,15 +436,20 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         CActor? ca = Character;
         _grabCell = ca != null ? ca.ArrayIndex : default;
 
-        // Ride the hand's grab anchor. worldPositionStays keeps the mini at its board
-        // world-scale as it enters the hand (no scale pop) — and ApplyHeldPose below then RE-DERIVES
-        // that same world scale from the anchor every frame, so a rig pinch-zoom mid-hold cannot
-        // drag the mini's size along with it either. The held ROTATION is NOT snapshotted from the
-        // board — it is a fixed constant anchor-local rotation (FigureGrabConfig.HeldUprightRotation),
-        // so the mini snaps to the same orientation in the palm regardless of the grab approach angle.
+        // Ride the hand's grab anchor. worldPositionStays keeps the mini at its board world-scale as
+        // it enters the hand (no scale pop). The held ROTATION is NOT snapshotted from the board —
+        // it is a fixed constant anchor-local rotation (FigureGrabConfig.HeldUprightRotation), so
+        // the mini snaps to the same orientation in the palm regardless of the grab approach angle.
         Transform anchor = hand.Rig.GrabAnchor;
         t.SetParent(anchor, worldPositionStays: true);
         _anchor = anchor;
+
+        // THE SIZE LATCH (see _heldLocalScale for the user report and the root cause). This is the
+        // whole of "die Größe soll nur abhängig sein wann sie greift": the mini's size in the hand's
+        // own frame, taken at this instant and frozen. Because the grab-time anchor scale IS the
+        // zoom at this instant, the value equals the board size right now — and holding it fixed is
+        // what makes a later zoom leave the mini in the hand alone.
+        _heldLocalScale = AnchorLocalScale(anchor, _homeWorldScale);
         _uprightBase = CaptureUprightBase(anchor);
         _attached = true;
 
@@ -405,14 +481,18 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             $"— anchor +Y is the palm normal, so up.y=+1 is 'standing straight out of the palm'. " +
             $"hand={Fmt(anchor.rotation)} worldHeld={Fmt(t.rotation)}.");
 
-        // SIZE PARITY probe (next-test anchor). boardWorld is the size the mini had ON THE BOARD and
-        // heldWorld the size it is rendered at IN THE HAND — they must be equal to the printed digits,
-        // on BOTH machines, which is the whole of "the peer sees what the holder sees" (the peer
-        // renders this same figure at its own, identical, board scale; no scale is on the wire).
+        // SIZE probe (the line that PROVED this defect — three grabs in one ModBuild 108 session
+        // printed the same boardWorld=1 against anchorScale 41.368 / 41.368 / 10.149, i.e. the same
+        // mini at three in-hand sizes a factor of ~4 apart, purely from the zoom). anchorScale is
+        // the LIVE diorama scale; heldLocal is the frozen latch. From here on the two are allowed to
+        // disagree: heldLocal stays put while anchorScale follows every pinch-zoom, and that is the
+        // fix, not a drift. heldWorld is therefore boardWorld × (anchorScale / anchorScale-at-grab)
+        // — equal to boardWorld on this frame by construction.
         VRLog.Info("FigureGrab",
             $"[Size] {Describe()} boardWorld={_homeWorldScale.x:0.####} heldWorld={t.lossyScale.x:0.####} " +
-            $"anchorScale={anchor.lossyScale.x:0.###} — held size IS board size (no inspection zoom; " +
-            "peers render the same mini at their own board scale, so holder and peer match 1:1).");
+            $"anchorScale={anchor.lossyScale.x:0.###} heldLocal={_heldLocalScale.x:0.######} — size LATCHED "
+            + "at the grab and fixed in the hand from now on; a zoom mid-hold no longer resizes it, and "
+            + "the release glide eases it back to the board's live size.");
     }
 
     /// <summary>
@@ -483,50 +563,56 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             ? FigureGrabConfig.HeldUprightRotation(side)
             : FigureGrabConfig.HeldPalmRotation());
 
-        // SIZE PARITY (hardware MP defect 2026-08: "Die Figuren-Größen ändern sich wenn man sie in
-        // die Hand nimmt … so sehe ich beim Remote-Spieler eine andere Größe der Figur in der Hand
-        // als er selbst"). The held mini keeps EXACTLY its board world size. Both halves of that
-        // defect were the same line:
-        //   (a) the mini was rendered at `boardScale * FigureGrabConfig.ActiveHeldScale` — 1.5x by
-        //       default, and bound PER HAND STYLE, so two players could not even agree on the
-        //       factor. Grabbing therefore always resized the figure. That multiplier is gone (the
-        //       config entries stay bound and are marked LEGACY — no effect; CHARTER §5);
-        //   (b) the wire carries the held figure's POSE ONLY (NetFigures.TrySampleHeldSlot sends
-        //       position + rotation; the receive side eases exactly those two and never writes a
-        //       scale), so a peer always rendered the mini at ITS OWN board scale. With the holder
-        //       rendering board scale too, the two sizes are identical BY CONSTRUCTION and no scale
-        //       has to ride the wire at all — the board is unscaled game world space on every
-        //       client, only the RIG is pinch-zoomed (Rig/WorldGrab) and that is per player.
-        // Re-derived from the anchor's CURRENT lossyScale rather than snapshotted, because the hand
-        // anchor hangs under the rig root: zooming the rig while holding a mini would otherwise
-        // scale the mini with it and re-open (b). Convention-agnostic — it reproduces whatever world
-        // scale the figure had on the board, so the project's 100x armature scale needs no case here.
+        // SIZE — the value LATCHED at the grab (see _heldLocalScale for the report, the root cause
+        // and the rejected alternatives). Grabbing still never resizes a mini: the latch is taken
+        // from the board world size at the grab instant, so the figure enters the hand at exactly
+        // the size it stood on the board — the old [FigureGrab] ActiveHeldScale multiplier (1.5x,
+        // bound PER HAND STYLE, so two players could not even agree on the factor) stays gone and
+        // stays marked LEGACY (CHARTER §5). What changed is only that the size is no longer
+        // RE-DERIVED from the live anchor every frame, so a pinch-zoom mid-hold leaves it alone.
+        // Assigned here as well as in ReassertHeldScale so the live-tune path (ReapplyAll) writes a
+        // complete pose; both write the same frozen vector, so this is idempotent.
         t.localScale = HeldLocalScale();
     }
 
     /// <summary>
-    /// The anchor-LOCAL scale that renders the held mini at exactly its HOME BOARD world size,
-    /// given the hand anchor's current <c>lossyScale</c> (which carries the rig pinch-zoom).
-    /// Degenerate/zero anchor axes fall back to the home world scale rather than dividing by zero.
+    /// The size this mini is rendered at while held: the anchor-LOCAL scale LATCHED at the grab
+    /// (<see cref="_heldLocalScale"/>), never re-derived from the live anchor. Constant for the
+    /// whole hold, per figure — two minis grabbed at two different zooms keep two different latches,
+    /// which is what the report's "eine oder zwei Figuren" needs.
     /// </summary>
-    private Vector3 HeldLocalScale()
+    private Vector3 HeldLocalScale() => _heldLocalScale;
+
+    /// <summary>
+    /// Convert a WORLD scale into the scale a child of <paramref name="anchor"/> needs to render at
+    /// that world size, using the anchor's <c>lossyScale</c> AT THE MOMENT OF THE CALL. Used exactly
+    /// once per hold, to take the grab-time latch. Degenerate/zero anchor axes fall back to the
+    /// world scale rather than dividing by zero.
+    /// </summary>
+    private static Vector3 AnchorLocalScale(Transform anchor, Vector3 worldScale)
     {
-        Vector3 s = _homeWorldScale;
-        if (_anchor == null)
-            return s;
-        Vector3 a = _anchor.lossyScale;
+        Vector3 a = anchor.lossyScale;
         return new Vector3(
-            Mathf.Abs(a.x) > 1e-6f ? s.x / a.x : s.x,
-            Mathf.Abs(a.y) > 1e-6f ? s.y / a.y : s.y,
-            Mathf.Abs(a.z) > 1e-6f ? s.z / a.z : s.z);
+            Mathf.Abs(a.x) > 1e-6f ? worldScale.x / a.x : worldScale.x,
+            Mathf.Abs(a.y) > 1e-6f ? worldScale.y / a.y : worldScale.y,
+            Mathf.Abs(a.z) > 1e-6f ? worldScale.z / a.z : worldScale.z);
     }
 
     /// <summary>
-    /// Re-assert every held mini's BOARD world size. Called once per frame from
-    /// <see cref="FigureGrabDriver"/>: the mini is parented to the hand anchor, so a rig pinch-zoom
-    /// (Rig/WorldGrab scales the rig root) would otherwise resize it mid-hold — visible to the
-    /// holder as the figure growing in the hand, and invisible to peers, who render the same mini
-    /// at their own board scale. One vector divide per held figure (at most two).
+    /// Re-assert every held mini's LATCHED grab-time size. Called once per frame from
+    /// <see cref="FigureGrabDriver"/>.
+    ///
+    /// <para>KEPT, with a new subject. It used to re-derive a constant WORLD size from the live
+    /// anchor, which is precisely the zoom-follows-the-hand defect (see
+    /// <see cref="_heldLocalScale"/>); it now re-writes the frozen latch, so it is idempotent and a
+    /// zoom moves nothing. Its REASON for existing is untouched and still needed: it sits above the
+    /// config gate because a mini still in the hand when GrabFigures is toggled off is released by
+    /// the gate's ReleaseAll on THIS frame, and it must not be rendered at a size some other writer
+    /// has touched for the frame in between. It is also the only thing that would reveal such a
+    /// writer at all — the game's own transform writers are prefix-skipped for held actors
+    /// (<see cref="ActorBehaviour_HeldTransform_Patch"/>) and none of them writes scale, so today
+    /// this is cheap insurance rather than a correction. One vector store per held figure (at most
+    /// two).</para>
     /// </summary>
     internal static void TickHeldScale()
     {
@@ -655,6 +741,23 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// ghost alive (FigureGhosts reconciles on the held-sets), and (c) keeps the net send
     /// streaming the gliding pose so peers watch the same glide. False when a glide is unsafe
     /// (caller falls back to the instant <see cref="Restore"/>).
+    ///
+    /// <para>SIZE ON RELEASE — the glide is also what makes the grab-time size latch safe. Because
+    /// the hold freezes the mini's size relative to the HAND, a player who zooms while holding is
+    /// carrying a mini whose WORLD size no longer matches the board; it has to come back to the
+    /// board's size, and the project forbids doing that by popping. Both halves fall out of this
+    /// method's existing shape and need no size-specific code:</para>
+    /// <list type="bullet">
+    ///   <item>the reparent below keeps the world pose, so <c>_glideFromScale</c> is exactly the
+    ///   size the mini was rendered at in the hand — the glide starts where the eye left it;</item>
+    ///   <item><c>_origLocalScale</c> is a LOCAL scale under <c>_origParent</c>, i.e. under the
+    ///   board's own hierarchy. Writing a local value reproduces whatever world size that hierarchy
+    ///   currently has, so the mini lands at the board's LIVE size — including when the board was
+    ///   re-posed or rescaled during the hold. Latching a world size here instead would be the same
+    ///   mistake this round removed from the hold.</item>
+    /// </list>
+    /// <para>So the size eases home over the same 0.28 s as the position and rotation, on the same
+    /// ease-out curve, and the mini never changes size in a single frame.</para>
     /// </summary>
     private bool TryBeginGlide()
     {
@@ -677,7 +780,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         _glideFromPos = t.localPosition;
         _glideFromRot = t.localRotation;
-        _glideFromScale = t.localScale;
+        _glideFromScale = t.localScale; // the in-hand size, preserved by the worldPositionStays reparent
         _glideStartTime = Time.unscaledTime;
         _glideActive = true;
         Gliding.Add(this);
@@ -731,6 +834,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         float e = 1f - (1f - u) * (1f - u) * (1f - u); // cubic ease-out — fast start, soft landing
         t.localPosition = Vector3.LerpUnclamped(_glideFromPos, _origLocalPos, e);
         t.localRotation = Quaternion.SlerpUnclamped(_glideFromRot, _origLocalRot, e);
+        // Size rides the same curve as the position: a mini released after a mid-hold zoom eases
+        // from its latched in-hand size back to the board's live size instead of snapping there.
         t.localScale = Vector3.LerpUnclamped(_glideFromScale, _origLocalScale, e);
     }
 
@@ -791,6 +896,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
                 t.SetParent(parent, worldPositionStays: false);
                 t.localPosition = _origLocalPos;
                 t.localRotation = _origLocalRot;
+                // Local (not world) scale, so the mini lands at the board's LIVE size even if the
+                // board moved or rescaled during the hold — same reasoning as the glide's landing.
+                // This path changes the size in one frame, which is deliberate and is NOT the
+                // "popping" the project forbids: it is reached only by a SAFETY release whose whole
+                // value is that it takes no time (turn-deadlock gate, authoritative cell moved,
+                // teardown, config gate) or as TryBeginGlide's fallback when a glide is impossible
+                // at all (dead root/parent). The ordinary player release glides. See OnRelease.
                 t.localScale = _origLocalScale;
             }
             _attached = false;

@@ -148,10 +148,16 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // (the toggle's ReleaseAll → Restore also finishes glides instantly as a backstop).
         TickGuard.Run("FigureGrab.Glide", FigureGrabbable.TickGlides);
 
-        // SIZE PARITY — re-assert every held mini's BOARD world size. Above the config gate for the
-        // same reason as Glide: a mini still in the hand when GrabFigures is toggled off is released
-        // by the gate's ReleaseAll on THIS frame, and it must not be rendered at a zoom-drifted size
-        // for the frame in between. Cheap and a strict no-op when nothing is held.
+        // HELD SIZE — re-assert every held mini's LATCHED grab-time size (user, 2026-08-11: "die
+        // Größe soll nur abhängig sein wann sie greift und dann fix in der Hand sein - auch wenn man
+        // dabei zoomed"). This step used to re-derive a constant WORLD size from the LIVE hand anchor
+        // every frame, and since the hand anchor carries the diorama zoom (Rig/WorldGrab writes the
+        // rig root's scale), that is exactly what made a mini change size in the hand while zooming;
+        // it now writes the vector frozen at the grab, so a zoom moves nothing. Kept above the config
+        // gate for the same reason as Glide: a mini still in the hand when GrabFigures is toggled off
+        // is released by the gate's ReleaseAll on THIS frame, and it must not be rendered at a size
+        // some other writer touched for the frame in between. Cheap (one vector store per held
+        // figure) and a strict no-op when nothing is held. See FigureGrabbable._heldLocalScale.
         TickGuard.Run("FigureGrab.HeldSize", FigureGrabbable.TickHeldScale);
 
         if (!FigureGrabConfig.GrabFigures.Value)

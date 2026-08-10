@@ -450,6 +450,32 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// and no extra traffic. Strictly read-only and strictly local; a peer with no valid head pose
     /// yet is simply not counted.</para>
     /// </summary>
+    /// <summary>
+    /// A peer's LIVE rig scale — their diorama zoom — or false when that peer has no avatar yet.
+    ///
+    /// <para>Same shape and same argument as <see cref="CollectPeerHeads"/>: strictly read-only,
+    /// strictly local, and NO NEW WIRE. The number is already here — <c>Rig.LocalRigSampler</c>
+    /// samples <c>rigRoot.lossyScale.x</c> into every rig packet and it lands as
+    /// <see cref="RemoteAvatar.AppliedScale"/> at rig-packet rate, i.e. in lockstep with the pose
+    /// the held figure is eased toward.</para>
+    ///
+    /// <para>Its consumer is <c>Net.NetFigures.EaseSlot</c> (2026-08-11). A held mini now keeps the
+    /// size it had at the MOMENT OF THE GRAB instead of following its holder's zoom — that is the
+    /// user's requirement, "die Größe soll nur abhängig sein wann sie greift und dann fix in der
+    /// Hand sein". The receiver must reproduce the same ratio or the two machines disagree for as
+    /// long as the holder zooms mid-hold, which the 1:1 ruling forbids. Both numbers the ratio needs
+    /// are already on this side, so the parity costs zero bytes.</para>
+    /// </summary>
+    internal static bool TryGetPeerRigScale(int playerId, out float scale)
+    {
+        scale = 1f;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(playerId, out RemoteAvatar avatar) || avatar == null)
+            return false;
+        scale = avatar.AppliedScale;
+        return scale > 0f;
+    }
+
     internal static int CollectPeerHeads(List<Vector3> into)
     {
         NetAvatarDriver? driver = _instance;
