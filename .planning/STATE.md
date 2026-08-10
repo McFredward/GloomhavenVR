@@ -2,8 +2,8 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 106`** — it carries TWO rounds, the unbumped `76daf29` and the
-  slot-overlay unification, and is waiting on its first hardware run.
+  **`NetProtocol.ModBuild = 107`** (`12bc248`), awaiting its hardware run. First round run under
+  the integrator role — two agents, two disjoint file sets, both diffs reviewed before merge.
 - **Last update:** 2026-08-11
 
 ---
@@ -126,6 +126,24 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 107** — two defects ModBuild 106 had already claimed to fix, both of which had been
+  fixed ONE LAYER AWAY from where they live. That generalises, so it is the entry's headline.
+  (1) The figure highlight is not raised by `FigureGrabDriver` at all — `ProximityGrabber` raises
+  it, on the nearest grabbable inside its CARD-sized 13 cm palm reach. The driver's election is
+  only a VETO, and the veto was distance-gated (`suppressed = inReach && !winner`), so a figure
+  outside the sphere was actively written back to ALLOWED; the grabber reads those flags a frame
+  late, so the figure CROSSING IN was momentarily the only allowed candidate and won "nearest" by
+  default. One frame of amber at the far edge of the reach, walking figure to figure — "verschiedene
+  Figuren", and "zu weit weg" because the leak fired at 130 mm, not at the 40 mm pick radius. Log:
+  137 highlight lines against 9 elections. The 106 hysteresis/dwell stabilise the ELECTION and were
+  never in this path. Veto is unconditional now and fails closed.
+  (2) The quest text's one-frame blank was in the RENDER path; 106 had hardened the POLL path,
+  which cannot produce a one-frame anything (the goal re-derives every 0.5 s). Two render paths
+  were open and BOTH were closed rather than distinguished by a diagnostic on the next run: the
+  label's draw order was written in Update *and* LateUpdate while its opaque MR plate copies it in
+  Update only (plate paints over the glyphs in the frame between), and a single `!activeInHierarchy`
+  frame on the tray mount takes the whole host panel down. Rank is Update-only now, guarded by a
+  once-per-session assertion; the mount HIDE is debounced 2 frames, the SHOW is untouched.
 - **ModBuild 106** — the two blinking slot rectangles and the card that lands in them were sized by
   two unrelated numbers with no dial between them: the card took `[Cards] SlotCardFill` = 1.45, the
   overlays took CODE LITERALS off the card metric (teal wanted-pulse 1.36, gold snap glow 1.24), so
