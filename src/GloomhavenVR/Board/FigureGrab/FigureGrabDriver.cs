@@ -64,6 +64,41 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     private FigureGrabbable? _lastElectedLeft;
     private FigureGrabbable? _lastElectedRight;
 
+    /// <summary>
+    /// How far past <see cref="FigureGrabConfig.PickRadiusRealMeters"/> the figure that ALREADY
+    /// holds the election keeps it — the release ring of the Schmitt trigger in
+    /// <see cref="TickOffsetAnchorSelect"/>. A factor and not a second dial on purpose: a player
+    /// tunes "how close must I get", never "how much slack does letting go get", and two dials that
+    /// can be set to cross each other would need a third rule to sort them out.
+    ///
+    /// <para>1.25 = a quarter of the reach again. At the shipped 40 mm that is a 10 mm dead band,
+    /// which is wider than the boundary drift the hardware log shows (39 → 38 → 37 mm on one
+    /// figure) and far narrower than the distance between two minis on neighbouring hexes, so it
+    /// cannot make a NEIGHBOUR sticky.</para>
+    /// </summary>
+    private const float PickExitFactor = 1.25f;
+
+    /// <summary>
+    /// Consecutive frames a NEW nearest figure must stay nearest before it is allowed to light up
+    /// (the dwell in <see cref="TickOffsetAnchorSelect"/>). Six frames is ~67 ms at 90 Hz — under
+    /// the ~100 ms at which a delay starts being felt as lag, and far longer than the one or two
+    /// frames a figure owns the nearest slot while a hand sweeps past it.
+    /// </summary>
+    private const int PickDwellFrames = 6;
+
+    /// <summary>The figure each hand's election currently rests on — the hysteresis state, indexed
+    /// by <see cref="HandSide"/>. Distinct from <see cref="_lastElectedLeft"/>/<see cref="_lastElectedRight"/>,
+    /// which are the LOG's dedupe and are written by <see cref="LogElection"/> itself: sharing them
+    /// would make every election look unchanged to the log and silence it.</summary>
+    private readonly FigureGrabbable?[] _electedBySide = new FigureGrabbable?[2];
+
+    /// <summary>The candidate currently serving its dwell, per hand, and how many consecutive
+    /// frames it has served. Reset by any change of candidate, so two figures alternating can never
+    /// accumulate a dwell between them.</summary>
+    private readonly FigureGrabbable?[] _pendingBySide = new FigureGrabbable?[2];
+
+    private readonly int[] _dwellBySide = new int[2];
+
     // Cached per-frame tick delegates ([Optimize] CacheTickDelegates — see Update).
     private System.Action? _tickRegistry;
     private System.Action? _tickAutoRelease;
@@ -347,6 +382,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             {
                 ClearSuppression(hand.Side);
                 LogElection(hand, null, 0f); // forget the candidate so re-entering it logs again
+                // …and drop the hysteresis with it. A stale holder would otherwise keep the WIDE
+                // exit ring across a grab or a tracking dropout, so the first figure met after it
+                // would be admitted on the release radius instead of the reach radius.
+                int idle = (int)hand.Side;
+                _electedBySide[idle] = null;
+                _pendingBySide[idle] = null;
+                _dwellBySide[idle] = 0;
             }
             return;
         }
@@ -366,6 +408,35 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // aiming the pinch at. The palm reach is the interactor's own gate and stays as the outer
         // filter (a figure it never considers can never be highlighted anyway); the pinch radius is
         // the tight one that decides what the player can actually pick up.
+        // ---- NO FLASHING (user, ModBuild 105) -------------------------------------------------
+        //
+        // "das highlighting blitzt immer mal wieder auf bei verschiedenen Figuren, obwohl ich nach
+        // deinem letzten fix zu weit weg sein sollte. Wenn ich mit der Hand richtig zu den Figuren
+        // gehe ist es auch wie ich es will - verhindere dieses 'Aufblitzen'."
+        //
+        // The hardware log says he was NOT too far away — it says he was exactly ON the line:
+        // "'Actor(Clone)' at 39 mm real from the pinch point (radius 40 mm)", then 38, then 37.
+        // A bare radius is a step function, so a hand drifting along the boundary crosses it many
+        // times a second, and each crossing is one highlight. Two mechanisms, because the report
+        // describes two different flashes and one lever cannot answer both:
+        //
+        //   ENTER/EXIT (a Schmitt trigger) kills the chatter of ONE figure at the boundary: the
+        //   winner has to come inside the configured radius, but it only LOSES the election past a
+        //   wider exit radius. Between the two the answer is whatever it already was, so drift
+        //   cannot toggle it. The exit ring is a factor rather than a second dial: a player tunes
+        //   "how close do I have to get", not "how much slack does the release get".
+        //
+        //   DWELL kills the sweep across SEVERAL figures ("bei verschiedenen Figuren"): a NEW
+        //   candidate must hold the election for a few consecutive frames before it is allowed to
+        //   light up. Reaching for a mini clears that in well under the time it takes to notice;
+        //   sweeping a hand across the board never does, because each figure owns the nearest slot
+        //   for only a frame or two on the way past.
+        //
+        // Neither weakens the deliberate grab the user says already works: he ends up INSIDE the
+        // radius and STAYS there, which is precisely the case both mechanisms are built to pass.
+        float exitWorld = pickWorld * PickExitFactor;
+        int side = (int)hand.Side;
+        FigureGrabbable? held = _electedBySide[side];
         FigureGrabbable? winner = null;
         float bestAnchorDist = float.MaxValue;
         foreach (Adopted adopted in _adoptions.Values)
@@ -378,7 +449,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             if (Vector3.Distance(palm, collider.ClosestPoint(palm)) > reach)
                 continue; // not a proximity candidate this frame
             float anchorDist = Vector3.Distance(offsetAnchor, collider.ClosestPoint(offsetAnchor));
-            if (anchorDist > pickWorld)
+            // The figure that already holds the election keeps it out to the EXIT ring; anything
+            // else has to come inside the configured radius to take it.
+            float admit = ReferenceEquals(adopted.Grabbable, held) ? exitWorld : pickWorld;
+            if (anchorDist > admit)
                 continue; // in the palm's reach, but not in the PINCH — you have to reach for a mini
             if (anchorDist < bestAnchorDist)
             {
@@ -386,6 +460,34 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 winner = adopted.Grabbable;
             }
         }
+
+        // DWELL. A candidate that is not the one already lit has to be asked for
+        // PickDwellFrames consecutive frames before it becomes the winner; until then the
+        // PREVIOUS winner stands (or nothing does). Counted per hand, reset by any change of
+        // candidate, so the count can never be accumulated by two figures alternating.
+        if (!ReferenceEquals(winner, held))
+        {
+            if (!ReferenceEquals(winner, _pendingBySide[side]))
+            {
+                _pendingBySide[side] = winner;
+                _dwellBySide[side] = 1;
+            }
+            else
+            {
+                _dwellBySide[side]++;
+            }
+            // Letting GO is immediate — only ARRIVING has to be earned. A hand that has genuinely
+            // left every figure must stop highlighting in the same frame, or the release would
+            // itself become a lag the player feels as stickiness.
+            if (winner != null && _dwellBySide[side] < PickDwellFrames)
+                winner = held;
+        }
+        else
+        {
+            _pendingBySide[side] = winner;
+            _dwellBySide[side] = PickDwellFrames;
+        }
+        _electedBySide[side] = winner;
         LogElection(hand, winner, bestAnchorDist);
 
         // Pass 2: suppress every palm-reach candidate except the winner; clear everyone else. With

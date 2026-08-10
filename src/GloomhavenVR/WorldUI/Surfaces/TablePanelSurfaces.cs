@@ -1909,6 +1909,18 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// picks a goal on the scenario intro; updates via the 0.5 s refresh.
     /// </summary>
     private const float QuestRefreshInterval = 0.5f;
+
+    /// <summary>
+    /// How long an UNANSWERABLE battle-goal poll (the hand is mid-rebuild, so there is nothing to
+    /// ask) may keep the last resolved text on screen before the label gives up and hides. See the
+    /// flicker block in <see cref="TickQuestLabel"/> for why only that kind of empty is held.
+    ///
+    /// <para>Two refresh intervals: long enough that a hand rebuild — which is over within a frame
+    /// or two — never reaches it, short enough that a real teardown clears the label about as fast
+    /// as the panel it hangs off does. It is deliberately NOT a config entry: it is the width of an
+    /// engine-side gap, not a preference, and a dial here would only invite tuning a symptom.</para>
+    /// </summary>
+    private const float QuestBlankHoldSeconds = QuestRefreshInterval * 2f;
     /// <summary>Label rect height as a fraction of the panel width (label-local units).</summary>
     private const float QuestRectHeightFrac = 0.34f;
     /// <summary>Gap between the panel's bottom edge and the label top (fraction of width).</summary>
@@ -1938,6 +1950,10 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     private int _questAppliedOrder = int.MinValue;
 
     private float _nextQuestRefresh;
+
+    /// <summary>Unscaled time the current run of UNANSWERABLE polls began, or 0 while the goal is
+    /// resolving normally (see <see cref="QuestBlankHoldSeconds"/>).</summary>
+    private float _questBlankSince;
     private string _questShown = "";
 
     public override void Tick()
@@ -1996,14 +2012,45 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         if (Time.unscaledTime >= _nextQuestRefresh)
         {
             _nextQuestRefresh = Time.unscaledTime + QuestRefreshInterval;
-            string text = BuildQuestText();
+            string text = BuildQuestText(out bool unanswerable);
             if (text.Length > 0)
             {
                 bool fresh = EnsureQuestLabel(); // rebuilds after scene unloads (Unity-null aware)
                 if (fresh || text != _questShown)
                     _questTmp!.text = text;
+                _questShown = text;
+                _questBlankSince = 0f;
             }
-            _questShown = text;
+            // ---- THE FLICKER (user, ModBuild 105) -----------------------------------------
+            // "Der Text der persönlichen Quest flackert immer mal wieder auf (verschwindet für ein
+            // frame und taucht dann sofort wieder auf)."
+            //
+            // ROOT CAUSE: one empty poll used to blank the label outright. BuildQuestText resolves
+            // through CardsGameApi.ActiveHand(), and that hand is momentarily null while the game
+            // rebuilds it — a character switch, a hand re-deal, the frame a pooled CardsHandUI is
+            // re-bound. An empty answer therefore meant BOTH "there is no battle goal" and "ask me
+            // again in a moment", and the second reading was being rendered as the first.
+            //
+            // SO THE TWO ARE TOLD APART AT THE SOURCE (the `unanswerable` flag), and only the
+            // transient kind is held. That distinction is what keeps the hold honest: it is NOT a
+            // grace period on the answer, it is a refusal to act on a NON-answer. A DEFINITE empty
+            // — the secrecy gate said no, or this character has not chosen a goal yet — still hides
+            // the label in the same tick it always did, so the goal of a merc you just switched
+            // away from can never linger, and an online peer's goal can never appear at all.
+            else if (!unanswerable)
+            {
+                _questShown = string.Empty;   // a real "no goal" — hide now, exactly as before
+                _questBlankSince = 0f;
+            }
+            else
+            {
+                // Unanswerable: keep showing what was last resolved, but not forever — if the hand
+                // never comes back (teardown, scenario end) the label must not stand there stale.
+                if (_questBlankSince <= 0f)
+                    _questBlankSince = Time.unscaledTime;
+                else if (Time.unscaledTime - _questBlankSince >= QuestBlankHoldSeconds)
+                    _questShown = string.Empty;
+            }
         }
 
         bool show = _questShown.Length > 0 && _questGo != null;
@@ -2198,19 +2245,40 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// never starve the WorldUI tick (the unguarded-Update lesson); failures log once
     /// and render nothing.
     /// </summary>
-    private string BuildQuestText()
+    /// <param name="unanswerable">
+    /// True when an empty result means "there is nothing to ASK right now" rather than "the answer
+    /// is no goal": the hand the goal is resolved through is mid-rebuild, or the map state is not
+    /// up yet. <see cref="TickQuestLabel"/> holds the last text through that and hides on every
+    /// other empty — the two used to be indistinguishable, which is what made the label flicker.
+    /// Meaningless when the returned text is non-empty.
+    /// </param>
+    private string BuildQuestText(out bool unanswerable)
     {
+        unanswerable = false;
         try
         {
             CardsHandUI? hand = CardsGameApi.ActiveHand();
             CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
             if (actor == null || actor.Class == null)
+            {
+                // NOT an answer: CardsGameApi.ActiveHand() is null for the frames in which the game
+                // re-binds a pooled CardsHandUI (character switch, re-deal), and a hand without a
+                // PlayerActor is the same window seen one step later. Nothing about the battle goal
+                // changed — we simply asked while the phone was off the hook.
+                unanswerable = true;
                 return "";
+            }
             var mapState = AdventureState.MapState;
             MapRuleLibrary.MapState.CQuestState? questState =
                 mapState != null ? mapState.InProgressQuestState : null;
             if (questState == null)
-                return ""; // no running quest (level editor / pre-scenario) — nothing dealt
+            {
+                // Also not an answer while the map state is still coming up (scenario load). Once
+                // it IS up and simply has no running quest — level editor, pre-scenario — the
+                // holder above times out and the label hides; there is no hand to come back.
+                unanswerable = mapState == null;
+                return "";
+            }
             // SECRECY (the game's own gate, BattleGoalContainer.Show / ActorStatPanel.cs:566):
             // online, a battle goal is shown ONLY for actors under my control. ActiveHand is
             // the local player's hand, so this is belt-and-braces — but the game enforces it
