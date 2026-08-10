@@ -33,6 +33,15 @@ internal static class HandVisuals
     private static AssetBundle? _bundle;
     private static bool _bundleProbed;
 
+    /// <summary>
+    /// False when <see cref="_bundle"/> was ADOPTED from another module (Cards/WorldUI load the
+    /// same file) — an adopted bundle must never be unloaded here. See <see cref="GetBundle"/>.
+    /// </summary>
+    private static bool _bundleOwned;
+
+    /// <summary>In-flight prewarm (see <see cref="Prewarm"/>); null once realized.</summary>
+    private static AssetBundleCreateRequest? _bundleRequest;
+
     // ---- procedural hand dimensions (meters, right hand; X mirrored for left) --------
 
     private static readonly Vector3 PalmCenterPos = new(0f, -0.008f, 0.05f);
@@ -95,9 +104,18 @@ internal static class HandVisuals
         rig.VisualStyle = prefab != null ? effectiveStyle : HandStyle.Glove;
         if (prefab != null)
         {
-            GameObject instance = Object.Instantiate(prefab, handRoot, worldPositionStays: false);
-            instance.name = $"Glove_{side}";
-            MapPrefabRig(instance.transform, rig, side);
+            // MEASURED SCOPE (c) of the boot-stall split — see the block comment on Prewarm.
+            // Instantiate is where the deserialized prefab becomes a live object tree (and where
+            // its meshes/textures are first touched by the render pipeline); MapPrefabRig is a
+            // name-keyed recursive walk over that tree. Both are pure main-thread work, so if the
+            // split lands HERE the async prewarm cannot help and the answer is a smaller prefab.
+            GameObject instance;
+            using (PerfMonitor.Scope("Hands.GloveSpawn"))
+            {
+                instance = Object.Instantiate(prefab, handRoot, worldPositionStays: false);
+                instance.name = $"Glove_{side}";
+                MapPrefabRig(instance.transform, rig, side);
+            }
             // The glove is instantiated AFTER HandsDriver's tree-wide VRLayers.Apply, so
             // it would stay on layer 0 and get CULLED by the menu head camera (which
             // renders the mod layer only) — the hands vanished in front of the menu.
@@ -200,11 +218,28 @@ internal static class HandVisuals
     /// <summary>Release the cached bundle (module shutdown / hot reload).</summary>
     internal static void UnloadBundle()
     {
-        if (_bundle != null)
+        // An in-flight prewarm must be COMPLETED, not dropped: an abandoned
+        // AssetBundleCreateRequest still finishes on the loading thread and leaves the bundle
+        // registered with nobody holding a reference — the next LoadFromFile would then be
+        // refused as a duplicate and every module would silently fall back to procedural.
+        if (_bundleRequest != null)
         {
-            _bundle.Unload(unloadAllLoadedObjects: false);
-            _bundle = null;
+            AssetBundle? pending = _bundleRequest.assetBundle;
+            _bundleRequest = null;
+            if (_bundle == null)
+            {
+                _bundle = pending;
+                _bundleOwned = pending != null;
+            }
         }
+
+        // Only unload what we own. Since the adoption probe below, _bundle can be another
+        // module's instance; unloading it there would pull the tray/card/table assets out from
+        // under Cards and WorldUI on a hot reload.
+        if (_bundle != null && _bundleOwned)
+            _bundle.Unload(unloadAllLoadedObjects: false);
+        _bundle = null;
+        _bundleOwned = false;
         _bundleProbed = false;
     }
 
@@ -217,6 +252,19 @@ internal static class HandVisuals
         if (bundle == null)
             return null;
 
+        // MEASURED SCOPE (b) of the boot-stall split — see the block comment on Prewarm.
+        // Deserialization of the prefab and its dependency closure (meshes, textures, materials,
+        // the bundled GloomhavenVR/BoardLit shader) plus the GPU upload happen inside these
+        // LoadAsset calls. TypeTrees are deliberately ON in the bundle
+        // (unity/GloomhavenVR.Assets/Assets/Editor/BuildBundles.cs), which makes this path more
+        // expensive than a stripped bundle would be — if the split lands here, that is the dial.
+        using (PerfMonitor.Scope("Hands.PrefabLoad"))
+            return LoadPrefabFrom(bundle, side, style, ref effectiveStyle);
+    }
+
+    private static GameObject? LoadPrefabFrom(AssetBundle bundle, HandSide side, HandStyle style,
+        ref HandStyle effectiveStyle)
+    {
         string suffix = side == HandSide.Left ? "L" : "R";
 
         // Styled pair first (Plate/Arcane resolve to their own prefabs; Glove to the
@@ -249,25 +297,200 @@ internal static class HandVisuals
         return null;
     }
 
-    private static AssetBundle? GetBundle()
+    /// <summary>Full path of the shipped bundle, or null when it is not deployed.</summary>
+    private static string? BundlePath()
     {
-        if (_bundleProbed)
-            return _bundle;
-        _bundleProbed = true;
-
         string pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
         string bundlePath = Path.Combine(pluginDir, BundleFileName);
-        if (!File.Exists(bundlePath))
+        return File.Exists(bundlePath) ? bundlePath : null;
+    }
+
+    /// <summary>
+    /// ADOPTION PROBE — the bundle may already be loaded by another module (Cards' VRCardFactory,
+    /// WorldUI's WorldUIAssets: same file). Unity REFUSES a second <c>LoadFromFile</c> on a loaded
+    /// bundle and returns null, so the loaded-bundle registry is asked first. The other two
+    /// modules have always done this; HandVisuals did not, and only got away with it because it
+    /// happens to be first today. The moment anything touches the bundle earlier the hands would
+    /// have fallen back to procedural — a silent failure that reads as a rendering bug.
+    /// The three now read as one pattern.
+    /// </summary>
+    private static AssetBundle? FindLoadedBundle()
+    {
+        foreach (AssetBundle loaded in AssetBundle.GetAllLoadedAssetBundles())
         {
-            VRLog.Info("Hands", $"Asset bundle not found ({bundlePath}) — procedural hands active.");
-            return null;
+            if (loaded != null && loaded.name.Contains("gloomhavenvr"))
+                return loaded;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// BOOT-STALL PREWARM — start the bundle load as early as the mod exists, on Unity's LOADING
+    /// THREAD, so the main thread does not have to sit through it later.
+    ///
+    /// <para>MEASUREMENT (hardware log ModBuild 107 / b765a5b6e, during the Unity splash, before
+    /// the intro): frame 4 cost 1145.21 ms of which the mod was 1007.15 ms, and 981.48 ms of that
+    /// was the single step <c>Hands.Rig</c> — the mod's first touch of the bundle. <c>[Perf]
+    /// STEPS</c> confirms it is a one-off (<c>Hands.Rig</c> averages 1.340 ms over 733 frames,
+    /// worst 981.48). It hides under the black splash, so the player perceives only the game's own
+    /// boot freeze, but a full second of that boot is ours.</para>
+    ///
+    /// <para>ROOT CAUSE, read out of the shipped file itself — not inferred. The UnityFS archive
+    /// (29,416,312 bytes) contains exactly ONE data block: 29,416,152 compressed →
+    /// <b>57,998,411 uncompressed, compression type 1 = LZMA</b> (nodes:
+    /// <c>CAB-…</c> 12.7 MB + <c>CAB-….resS</c> 45.3 MB). That is whole-stream LZMA, which is what
+    /// <c>BuildAssetBundleOptions.None</c> produces — the archive is NOT chunk-compressed. For an
+    /// LZMA bundle <c>AssetBundle.LoadFromFile</c> cannot read on demand: it must inflate the
+    /// ENTIRE 58 MB stream into memory before it returns, single-threaded, on the calling thread.
+    /// At the 50–70 MB/s a single LZMA decoder manages that is ~0.8–1.2 s — which is the measured
+    /// 981 ms, and it explains why the stall is a boot ONE-OFF that no amount of asset-side
+    /// trimming would have touched.</para>
+    ///
+    /// <para>WHAT THIS CHANGES. <see cref="AssetBundle.LoadFromFileAsync(string)"/> performs that
+    /// same decompression on Unity's loading thread. Issued from <c>HandsDriver.Awake</c> (BepInEx
+    /// chainloader time, before frame 0) it overlaps the game's own boot — frames 0–3 already burn
+    /// hundreds of ms of wall time on the game's side (frame 2 alone was 571.85 ms, and the log's
+    /// own verdict there is "NOT the mod"). <see cref="GetBundle"/> then blocks on
+    /// <c>request.assetBundle</c> for the REMAINDER only. Nothing about WHEN the hands appear
+    /// changes: <see cref="Build"/> still returns a complete <see cref="HandRig"/> synchronously on
+    /// the same frame it does today, so there is no procedural→glove pop and no deferred hand.</para>
+    ///
+    /// <para>REJECTED ALTERNATIVES.
+    /// (1) <b>Rebuild the bundle with <c>ChunkBasedCompression</c> (LZ4HC).</b> This is the actual
+    /// fix — LZ4 bundles are memory-mapped and decompressed per block on demand, so
+    /// <c>LoadFromFile</c> becomes a header read (single-digit ms) and only the hand prefab's own
+    /// blocks inflate, at ~1–2 GB/s. It is a one-word change in
+    /// <c>unity/GloomhavenVR.Assets/Assets/Editor/BuildBundles.cs</c>, but it changes the SHIPPED
+    /// BUNDLE'S IDENTITY (refactor-guard pins it) and may only be rebuilt with
+    /// <c>/home/claw/unity-2021.3.5</c>. That is a deliberate decision for the integrator, not a
+    /// side effect of a perf pass — so it is written down here and NOT done.
+    /// (2) <b>Make <see cref="Build"/> itself async</b> (return a procedural hand, swap in the
+    /// glove when the load lands). Rejected: it would pop, which the project forbids, and
+    /// <c>Net.RemoteAvatar</c> depends on the synchronous contract.
+    /// (3) <b>Decompress off the main thread ourselves.</b> Rejected outright: every AssetBundle
+    /// API is main-thread-only; calling one from a worker is a crash, not an optimisation.</para>
+    ///
+    /// <para>KNOWN NARROW HAZARD. While the prewarm is IN FLIGHT the bundle is in no registry, so
+    /// the adoption probes in Cards/WorldUI cannot see it and a <c>LoadFromFile</c> from those
+    /// modules would be refused. Unity exposes no way to observe an in-flight load, so the window
+    /// is bounded instead: it opens at chainloader time and closes at the first
+    /// <see cref="PumpPrewarm"/> that sees <c>isDone</c> (or at the first <see cref="Build"/>,
+    /// frame ~4). Both other consumers only reach the bundle when a table/tray/card exists — i.e.
+    /// inside a scenario, hundreds of frames later. The <c>[Hands] PREWARM</c> log lines below make
+    /// the exact window visible in the next log.</para>
+    /// </summary>
+    internal static void Prewarm()
+    {
+        if (_bundleProbed || _bundleRequest != null)
+            return;
+
+        // Never start an async load for a bundle that is already resident — that is precisely the
+        // duplicate load Unity refuses, and an in-flight request cannot be adopted by anyone.
+        AssetBundle? adopted = FindLoadedBundle();
+        if (adopted != null)
+        {
+            _bundle = adopted;
+            _bundleOwned = false;
+            _bundleProbed = true;
+            return;
         }
 
-        _bundle = AssetBundle.LoadFromFile(bundlePath);
+        string? bundlePath = BundlePath();
+        if (bundlePath == null)
+            return; // GetBundle logs the miss once, with the path it looked at.
+
+        _bundleRequest = AssetBundle.LoadFromFileAsync(bundlePath);
+        VRLog.Info("Hands", "PREWARM: asset bundle load started ASYNC (loading thread). The shipped " +
+                            "bundle is a single 58 MB LZMA block, so a synchronous LoadFromFile has to " +
+                            "inflate all of it on the main thread — that was the 981 ms one-off in " +
+                            "'Hands.Rig' at boot. Whatever the loading thread finishes before the hands " +
+                            "are built is free; the rest is still paid, once, in 'Hands.BundleLoad'.");
+    }
+
+    /// <summary>
+    /// Realize a COMPLETED prewarm without blocking (one <c>isDone</c> read per frame). Called from
+    /// <c>HandsDriver.TickRig</c>. Its only job is to close the in-flight window described on
+    /// <see cref="Prewarm"/> as early as possible, so the bundle is in Unity's loaded-bundle
+    /// registry — and therefore adoptable by Cards/WorldUI — the frame it finishes rather than the
+    /// frame the hands happen to be built.
+    /// </summary>
+    internal static void PumpPrewarm()
+    {
+        if (_bundleRequest == null || !_bundleRequest.isDone)
+            return;
+        ConsumePrewarm();
+    }
+
+    /// <summary>Take the finished (or force-completed) prewarm request as our bundle.</summary>
+    private static void ConsumePrewarm()
+    {
+        AssetBundleCreateRequest request = _bundleRequest!;
+        _bundleRequest = null;
+        // THE LINE THAT SETTLES THE NEXT HARDWARE RUN: 'done=True' means the loading thread had
+        // already finished the 58 MB inflate when the hands were built and the prewarm converted
+        // the whole 981 ms one-off into zero main-thread time; 'done=False' means we still paid a
+        // remainder, and 'Hands.BundleLoad' on the [Perf] SPIKE line prices exactly how much.
+        bool wasDone = request.isDone;
+        float progress = request.progress;
+        // Reading .assetBundle on a request that is NOT done stalls the main thread until it is —
+        // which is exactly the intended behaviour on the GetBundle path: pay the remainder, once.
+        _bundle = request.assetBundle;
+        _bundleOwned = _bundle != null;
+        _bundleProbed = true;
+        VRLog.Info("Hands", $"PREWARM realized: done={wasDone} progress={progress:0.00} at frame {Time.frameCount} " +
+                            $"(bundle {(_bundle != null ? "loaded" : "NULL")}). done=True ⇒ the async load beat the " +
+                            "hand build and the boot stall is gone; done=False ⇒ 'Hands.BundleLoad' on the next " +
+                            "[Perf] SPIKE line is the residual that was still paid on the main thread.");
         if (_bundle == null)
-            VRLog.Warn("Hands", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural hands active. " +
-                                $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
-        return _bundle;
+        {
+            string? path = BundlePath();
+            VRLog.Warn("Hands", $"AssetBundle.LoadFromFileAsync failed for {path} — procedural hands active. " +
+                                $"Cause: {(path != null ? BundleDiagnostics.Explain(path) : "file missing")}");
+        }
+    }
+
+    private static AssetBundle? GetBundle()
+    {
+        if (_bundleProbed && _bundleRequest == null)
+            return _bundle;
+
+        // MEASURED SCOPE (a) of the boot-stall split — see the block comment on Prewarm. With the
+        // prewarm in place this is the RESIDUAL of the 58 MB LZMA inflate that the loading thread
+        // had not finished yet; without it (bundle adopted, or prewarm never ran) it is the whole
+        // synchronous LoadFromFile.
+        using (PerfMonitor.Scope("Hands.BundleLoad"))
+        {
+            if (_bundleRequest != null)
+            {
+                ConsumePrewarm();
+                return _bundle;
+            }
+
+            _bundleProbed = true;
+
+            AssetBundle? adopted = FindLoadedBundle();
+            if (adopted != null)
+            {
+                _bundle = adopted;
+                _bundleOwned = false;
+                return _bundle;
+            }
+
+            string? bundlePath = BundlePath();
+            if (bundlePath == null)
+            {
+                string pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+                VRLog.Info("Hands", $"Asset bundle not found ({Path.Combine(pluginDir, BundleFileName)}) — procedural hands active.");
+                return null;
+            }
+
+            _bundle = AssetBundle.LoadFromFile(bundlePath);
+            _bundleOwned = _bundle != null;
+            if (_bundle == null)
+                VRLog.Warn("Hands", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural hands active. " +
+                                    $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
+            return _bundle;
+        }
     }
 
     // ---- prefab rig mapping -------------------------------------------------------------

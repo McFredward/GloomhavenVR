@@ -48,6 +48,19 @@ internal sealed class HandsDriver : MonoBehaviour
         _tickRig = TickRig;
         _tickSim = AnimateSimulation;
         _tickGhost = HandGhosts.Tick;
+
+        // BOOT STALL (hardware log ModBuild 107 / b765a5b6e): the mod's first touch of
+        // gloomhavenvr.bundle cost 981.48 ms of a 1145.21 ms frame 4, under the black Unity
+        // splash — 64 % of a 1717 ms stall was ours. The archive is ONE 58 MB LZMA block (read
+        // out of the shipped file; see HandVisuals.Prewarm), and a synchronous LoadFromFile has
+        // to inflate all of it on the calling thread before it returns. This Awake runs at BepInEx
+        // chainloader time, several hundred milliseconds of wall clock BEFORE the hands are first
+        // built (the hand build lands in frame 4; frame 2 alone was 571.85 ms of game-side work),
+        // so starting the load here lets Unity's loading thread do that inflate concurrently with
+        // the game's own boot. Nothing about WHEN the hands appear changes — HandVisuals.Build
+        // still completes synchronously on the same frame; it just blocks on the remainder instead
+        // of on the whole thing.
+        HandVisuals.Prewarm();
     }
 
     private void OnEnable()
@@ -108,6 +121,11 @@ internal sealed class HandsDriver : MonoBehaviour
     /// </summary>
     private void TickRig()
     {
+        // Non-blocking: realizes the boot prewarm the frame it finishes (one isDone read), so the
+        // bundle enters Unity's loaded-bundle registry — and becomes adoptable by Cards/WorldUI —
+        // as early as possible rather than only when the hands are built. See HandVisuals.Prewarm.
+        HandVisuals.PumpPrewarm();
+
         bool simulate = Plugin.SimulateHands.Value && !VRSession.IsRunning;
 
         Transform? parent = null;
