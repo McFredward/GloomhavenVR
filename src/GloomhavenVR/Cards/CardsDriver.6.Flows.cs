@@ -1998,7 +1998,7 @@ internal sealed partial class CardsDriver
     {
         int highlightSlot = ReferenceEquals(_snapHighlightCard, card) ? _snapHighlightSlot : -1;
         int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
-            out float d1, out float d2, out float radius);
+            out PlayTray.SlotProbe probe);
         if (slot >= 0 && _tray.Occupant(slot) != null && _tray.Occupant(slot) != card)
         {
             int other = 1 - slot;
@@ -2007,7 +2007,7 @@ internal sealed partial class CardsDriver
         string rule = highlightSlot >= 0 ? "highlight" : slot >= 0 ? "radius" : "none";
         if (highlightSlot >= 0)
             slot = highlightSlot; // test #15: what glows is what drops (see OnCardReleased)
-        VRLog.Info("Cards", $"Drop ({hand.Side}, fake): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
+        VRLog.Info("Cards", $"Drop ({hand.Side}, fake): {probe.Describe()}, " +
                             $"rule={rule} → " + (slot >= 0 ? $"slot {slot + 1}." : "fan."));
         if (slot >= 0 || _tray.ContainsCard(card))
             _tray.NoteSlotActivity(); // accident window (test #19), fake-mode parity

@@ -427,7 +427,11 @@ internal static class ActorBars
                 // than a dead turn machine, and it is the smaller half of what this hide is for
                 // anyway — the clutter it removes is mostly the long tail of just standing there
                 // holding a mini.
-                if (hide && controller != null && controller.FlowControlActive())
+                // No `controller != null` here on purpose: the loop already returned on that at the
+                // top (see the guard above with panel.HostGo), and re-testing it reset the compiler's
+                // flow state, which turned the TryGetTrackPoint call below into a fresh CS8604. The
+                // seventh nullability warning in this project's build was born and died right here.
+                if (hide && controller.FlowControlActive())
                     hide = false;
             }
 

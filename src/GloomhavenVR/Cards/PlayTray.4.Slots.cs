@@ -110,45 +110,173 @@ internal sealed partial class PlayTray
     internal bool ContainsCard(VRCard card) => SlotOf(card) >= 0;
 
     /// <summary>
-    /// Which slot would capture a card with the card center at <paramref name="cardPos"/>
-    /// and the holding hand at <paramref name="handPos"/>? EITHER sample within the
-    /// capture radius accepts — the pinch-grip held pose (P8) offsets the card center
-    /// from the palm, so "hand over the slot" and "card over the slot" must both work
-    /// (test #13). Returns -1 when outside both radii. With <paramref name="log"/> the
-    /// full distance table and the verdict go to the log (drop-time diagnostics).
+    /// One capture probe of the two recesses: what each sample measured, which recess won, and
+    /// why. Purely a value carrier for the drop diagnostics — <see cref="SlotNear(Vector3,
+    /// Vector3, out SlotProbe)"/> fills it, nothing in here decides anything.
+    ///
+    /// <para>It exists because the old three <c>out float</c>s could only report ONE number per
+    /// slot (the min of the two samples), which is exactly the number that hid the 2026-08-11
+    /// defect: a log line reading "slot1 0.31 m, slot2 0.09 m" cannot tell you whether 0.09 came
+    /// from the card or from the hand, so the report that the wrong recess lit up could not be
+    /// confirmed from a log. Card and hand are separate fields now, and
+    /// <see cref="Describe"/> names which of them picked the winner.</para>
     /// </summary>
-    internal int SlotNear(Vector3 cardPos, Vector3 handPos) =>
-        SlotNear(cardPos, handPos, out _, out _, out _);
+    internal readonly struct SlotProbe
+    {
+        /// <summary>Card-centre distance to slot 1 / slot 2 (world metres at board scale).</summary>
+        internal readonly float Card0, Card1;
+
+        /// <summary>Holding hand's palm distance to slot 1 / slot 2.</summary>
+        internal readonly float Hand0, Hand1;
+
+        /// <summary>The capture radius both samples were tested against (board-scaled).</summary>
+        internal readonly float Radius;
+
+        /// <summary>The winning recess (-1 = none captured) — ranked by CARD distance.</summary>
+        internal readonly int Slot;
+
+        /// <summary>Which recess the HAND sample alone would have picked (-1 = none). Diagnostic
+        /// only; it has no vote. When this differs from <see cref="Slot"/> the log line says so,
+        /// which is the one-grep proof that the 2026-08-11 fix is doing its work.</summary>
+        internal readonly int HandWouldPick;
+
+        /// <summary>True when the winner became eligible ONLY through the hand sample (the card
+        /// centre itself is outside the radius). The pinch-grip reach case — see
+        /// <see cref="SlotNear(Vector3, Vector3, out SlotProbe)"/>.</summary>
+        internal readonly bool WinnerViaHandOnly;
+
+        internal SlotProbe(float card0, float card1, float hand0, float hand1, float radius,
+            int slot, int handWouldPick, bool winnerViaHandOnly)
+        {
+            Card0 = card0;
+            Card1 = card1;
+            Hand0 = hand0;
+            Hand1 = hand1;
+            Radius = radius;
+            Slot = slot;
+            HandWouldPick = handWouldPick;
+            WinnerViaHandOnly = winnerViaHandOnly;
+        }
+
+        /// <summary>
+        /// The drop log's distance clause (test #14 keeps one concise line per real drop). Reads
+        /// e.g. <c>slot1 card 0.31 / hand 0.44 m, slot2 card 0.52 / hand 0.09 m, radius 0.25 m,
+        /// ranked by CARD → slot1 (hand-nearest was slot2 — CARD OVERRODE HAND)</c>. Grep
+        /// <c>OVERRODE</c> to find every drop where the two samples disagreed, which is the
+        /// family the 2026-08-11 report is from. Note it does NOT claim the pre-fix build would
+        /// have chosen slot2: that build ranked on <c>min(card, hand)</c>, so it agreed with the
+        /// card whenever the card's own distance was the smaller of the four.
+        /// </summary>
+        internal string Describe()
+        {
+            string verdict = Slot < 0 ? "none"
+                : "slot" + (Slot + 1)
+                  + (HandWouldPick >= 0 && HandWouldPick != Slot
+                      ? $" (hand-nearest was slot{HandWouldPick + 1} — CARD OVERRODE HAND)"
+                      : " (hand agrees)")
+                  + (WinnerViaHandOnly ? " [eligible via HAND sample only]" : string.Empty);
+            return $"slot1 card {Card0:F2} / hand {Hand0:F2} m, "
+                   + $"slot2 card {Card1:F2} / hand {Hand1:F2} m, "
+                   + $"radius {Radius:F2} m, ranked by CARD → {verdict}";
+        }
+    }
 
     /// <summary>
-    /// Same test with the sampled distances exposed so the RELEASE path can log one
-    /// concise line per real drop (test #14) — no logging in here.
+    /// Which slot would capture a card with the card center at <paramref name="cardPos"/>
+    /// and the holding hand at <paramref name="handPos"/>? EITHER sample within the
+    /// capture radius makes a recess ELIGIBLE — the pinch-grip held pose (P8) offsets the card
+    /// center from the palm, so "hand over the slot" and "card over the slot" must both work
+    /// (test #13) — but the CHOICE between the two eligible recesses is the CARD's alone.
+    /// Returns -1 when outside both radii of both slots.
     /// </summary>
-    internal int SlotNear(Vector3 cardPos, Vector3 handPos, out float d0, out float d1, out float radius)
+    internal int SlotNear(Vector3 cardPos, Vector3 handPos) =>
+        SlotNear(cardPos, handPos, out _);
+
+    /// <summary>
+    /// Same test with the full sample table exposed so the RELEASE path can log one concise line
+    /// per real drop (test #14) — no logging in here, see <see cref="SlotProbe.Describe"/>.
+    /// </summary>
+    /// <remarks>
+    /// USER REPORT, 2026-08-11 (hardware, ModBuild 108), verbatim:
+    /// "Wenn man eine Karte zum Overlay hält wird aktuell das Overlay gehighlighted das näher an
+    /// der Hand ist. Und die Karte wird dann dort hingelegt. Das hat zB zur Folge, dass ich auf den
+    /// linken Platz etwas hinlegen wil und mit der rechten hand die Karte zum linken Platz führe -
+    /// aber da meine rechte hand näher am Rechten Platz ist geht die Karte zum rechten Platz. Das
+    /// soll nicht sein - das Overlay das näher zur Karte (zB dem Kartemittelpunkt) und NICHT näher
+    /// zur hand ist soll reagieren."
+    ///
+    /// <para>ROOT CAUSE: ELIGIBILITY AND RANKING HAD BEEN CONFLATED INTO ONE NUMBER. The loop used
+    /// to reduce each recess to <c>Mathf.Min(cardDistance, handDistance)</c> and then take the
+    /// smallest of those two minima. The min is the right ELIGIBILITY test and the wrong RANKING
+    /// key: a right hand leading a card across to the LEFT recess sits nearer the RIGHT one, its
+    /// hand sample undercuts the left recess's card sample, and the right recess wins a comparison
+    /// the card was never allowed to enter. Both halves of the bug follow from that single number —
+    /// the gold snap glow lights on the hand's recess (CardsDriver.UpdateSlotHighlight ranks
+    /// through here) and the card then drops there (OnCardReleased takes the glow first, this test
+    /// second), so the telegraph was consistent with the drop and BOTH were wrong.</para>
+    ///
+    /// <para>WHY THE HAND SAMPLE EXISTS — DO NOT DELETE IT. It is not a tie-breaker and never was:
+    /// the pinch grip (P8) parks the card centre a good way off the palm, so requiring the CARD
+    /// centre inside the capture radius would shrink the physical reach of every drop by roughly
+    /// that offset, and "hand over the recess" is how a lot of players actually aim (test #13).
+    /// Deleting it was considered and REJECTED for exactly that: it fixes the ranking by making
+    /// the tray harder to hit, which is a second defect, not a fix. So the hand sample keeps its
+    /// full ELIGIBILITY vote and loses its RANKING vote — the accept SET is bit-for-bit what it
+    /// was (a recess captures iff either sample is within radius), only WHICH of two eligible
+    /// recesses wins has changed, and that is now the card's answer.</para>
+    ///
+    /// <para>REJECTED ALTERNATIVE — "any eligible slot opens the tray, then rank ALL slots by card
+    /// distance". It reads closer to the report's wording, and it differs from what is implemented
+    /// in exactly one case: the card is outside the radius of the recess it is nearest to while
+    /// the OTHER recess is eligible through the hand. That case is a card held well off both
+    /// recesses (&gt; 0.25 board units ≈ 1.6 slot spacings) with the palm hovering over one of
+    /// them — and letting a card that is near nothing drop into a recess that nothing was near is
+    /// worse than letting the hand have the only eligible one. So candidacy stays per-recess. When
+    /// only ONE recess is eligible it wins whatever the card distances say; that is not the hand
+    /// winning a ranking, it is a ranking with one candidate.</para>
+    ///
+    /// <para>No wire change: the peer's board mirrors <see cref="HighlightedSlot"/> and
+    /// <see cref="OccupiedSlotMask"/>, i.e. the RESULT of this decision, both of which already
+    /// ride the board-UI record.</para>
+    /// </remarks>
+    internal int SlotNear(Vector3 cardPos, Vector3 handPos, out SlotProbe probe)
     {
-        d0 = d1 = float.PositiveInfinity;
-        radius = 0f;
+        probe = default;
         if (_root == null || !IsVisible)
             return -1;
         float scale = _root.lossyScale.x;
-        radius = SlotCaptureRadius * scale;
-        int best = -1;
-        float bestDist = float.MaxValue;
+        float radius = SlotCaptureRadius * scale;
+        float card0 = float.PositiveInfinity, card1 = float.PositiveInfinity;
+        float hand0 = float.PositiveInfinity, hand1 = float.PositiveInfinity;
+        int best = -1, handBest = -1;
+        float bestCard = float.MaxValue, bestHand = float.MaxValue;
         for (int i = 0; i < 2; i++)
         {
             Transform? slot = _slots[i];
             if (slot == null)
                 continue;
-            float dist = Mathf.Min(
-                Vector3.Distance(cardPos, slot.position),
-                Vector3.Distance(handPos, slot.position));
-            if (i == 0) d0 = dist; else d1 = dist;
-            if (dist <= radius && dist < bestDist)
+            float cardDist = Vector3.Distance(cardPos, slot.position);
+            float handDist = Vector3.Distance(handPos, slot.position);
+            if (i == 0) { card0 = cardDist; hand0 = handDist; }
+            else { card1 = cardDist; hand1 = handDist; }
+            // ELIGIBILITY: either sample inside the radius (unchanged — this is the reach).
+            if (cardDist > radius && handDist > radius)
+                continue;
+            // RANKING: the CARD's distance decides which eligible recess wins. The hand's is
+            // tracked alongside for the log only (see the remarks) and casts no vote.
+            if (cardDist < bestCard)
             {
-                bestDist = dist;
+                bestCard = cardDist;
                 best = i;
             }
+            if (handDist < bestHand)
+            {
+                bestHand = handDist;
+                handBest = i;
+            }
         }
+        bool viaHandOnly = best >= 0 && bestCard > radius;
+        probe = new SlotProbe(card0, card1, hand0, hand1, radius, best, handBest, viaHandOnly);
         return best;
     }
 

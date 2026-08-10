@@ -2397,6 +2397,11 @@ internal sealed partial class CardsDriver
             }
             int want = PickTargetSlot();
             bool onField = pickHeld != null && _fieldCards.Contains(pickHeld);
+            // ELIGIBILITY ONLY (>= 0): the recess that lights is `want`, which the pick flow
+            // chooses — the geometry never picks between the two here, so the 2026-08-11
+            // card-vs-hand ranking change is a no-op on this path and the dual-sample reach
+            // this telegraph depends on is unchanged. HandlePickRelease asks the identical
+            // question at release, so glow and drop still agree here too.
             bool near = pickHeld != null && pickHolder != null && !onField && want >= 0
                 && _tray.SlotNear(pickHeld.transform.position, pickHolder.Rig.PalmCenter.position) >= 0;
             int glowSlot = near ? want : -1;
@@ -2436,6 +2441,12 @@ internal sealed partial class CardsDriver
             }
             if (held != null && holder != null)
             {
+                // THE recess election, and the only one on this path: PlayTray.SlotNear ranks the
+                // two eligible recesses by the CARD CENTRE's distance (2026-08-11 user report —
+                // the glow used to follow the HAND, so leading a card across to the left recess
+                // with the right hand lit and filled the right one). OnCardReleased calls this
+                // same method and prefers this very glow, so "what glows is what drops" now also
+                // means "what the CARD is nearest to is what glows".
                 slot = _tray.SlotNear(held.transform.position, holder.Rig.PalmCenter.position);
                 // Task #4b GATE ("what glows is what drops"): a fan card that the release
                 // path would REFUSE (fewer than 2 playable cards — the player must rest,

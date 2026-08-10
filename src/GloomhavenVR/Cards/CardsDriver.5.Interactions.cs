@@ -476,10 +476,13 @@ internal sealed partial class CardsDriver
         //    just out of radius (3.2–6 m vs 2.74 m at diorama scale ~23) while the
         //    glow HAD triggered; what glows is what drops, guaranteed.
         // 2. RADIUS fallback: generous dual-sample capture (test #13) — card center
-        //    AND holding-hand palm both count, whichever is nearest.
+        //    AND holding-hand palm both make a recess ELIGIBLE, but WHICH of the two
+        //    eligible recesses wins is the card centre's answer alone (2026-08-11, see
+        //    PlayTray.SlotNear's remarks). Rule 1 above ranks through the very same call
+        //    (UpdateSlotHighlight → SlotNear), so the glow and this fallback cannot disagree.
         int highlightSlot = ReferenceEquals(_snapHighlightCard, card) ? _snapHighlightSlot : -1;
         int slot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
-            out float d1, out float d2, out float radius);
+            out PlayTray.SlotProbe probe);
         bool wasInTray = _tray.ContainsCard(card);
         CAbilityCard ability = card.GameCard.AbilityCard;
 
@@ -524,8 +527,7 @@ internal sealed partial class CardsDriver
             : wasInTray ? $"reorder to slot {slot + 1}."
             : _tray.Occupant(slot) != null ? $"swap into slot {slot + 1} (occupant → hand)."
             : $"play into slot {slot + 1}.";
-        VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
-                            $"rule={rule} → {outcome}");
+        VRLog.Info("Cards", $"Drop ({hand.Side}): {probe.Describe()}, rule={rule} → {outcome}");
 
         // Accident window (test #19): every drop/take-back touching the slots arms
         // the tray's CONFIRM guard — the release gesture is exactly what brushed
@@ -937,8 +939,12 @@ internal sealed partial class CardsDriver
     private void HandlePickRelease(VRCard card, VRHand hand, CardsHandUI gameHand)
     {
         bool wasOnField = _fieldCards.Contains(card);
+        // NOTE (2026-08-11): here SlotNear is used purely as an ELIGIBILITY test — the landing
+        // recess is `target` below, which the pick FLOW decides (PickTargetSlot / PickSeatOfIndex),
+        // not the geometry. The card-vs-hand ranking change therefore cannot move a pick card; the
+        // dual-sample reach this path depends on is untouched.
         int nearSlot = _tray.SlotNear(card.transform.position, hand.Rig.PalmCenter.position,
-            out float d1, out float d2, out float radius);
+            out PlayTray.SlotProbe probe);
         bool highlight = ReferenceEquals(_fieldHighlightCard, card) && _fieldHighlightSlot >= 0;
         bool accept = highlight || nearSlot >= 0;
         string rule = highlight ? "highlight" : nearSlot >= 0 ? "radius" : "none";
@@ -958,7 +964,7 @@ internal sealed partial class CardsDriver
         if (accept && !wasOnField && target < 0
             && !_pickReopenBusy && !CardsGameApi.IsPickConfirmDialogOpen(gameHand))
         {
-            VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, " +
+            VRLog.Info("Cards", $"Drop ({hand.Side}): {probe.Describe()}, " +
                                 $"rule={rule} → REFUSED: current batch of " +
                                 $"{Mathf.Min(2, CardsGameApi.PickCardsWanted() - _pickLockedCount)} is full — " +
                                 "press the board CONFIRM to lock it in before choosing more. Card returns to the fan.");
@@ -969,7 +975,7 @@ internal sealed partial class CardsDriver
 
         // THE one log line per real pick drop (the test #14 contract).
         string where = target >= 0 && target < 2 ? "slot " + (target + 1) : "the locked stack beside slot 2";
-        VRLog.Info("Cards", $"Drop ({hand.Side}): slot1 {d1:F2} m, slot2 {d2:F2} m, radius {radius:F2} m, rule={rule} → " +
+        VRLog.Info("Cards", $"Drop ({hand.Side}): {probe.Describe()}, rule={rule} → " +
                             (accept
                                 ? (wasOnField ? "stay in " + where + "." : "select into " + where + ".")
                                 : (wasOnField ? "take back (unselect)." : "return to fan.")));
