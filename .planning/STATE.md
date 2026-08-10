@@ -230,13 +230,29 @@ should be a **hitch-free 45**, not 90. Say so plainly rather than implying more.
 
 ## 6. Working practice that actually matters
 
-### Parallel workers
+### Your role: INTEGRATOR (user ruling, 2026-08-11, standing)
 
-The user has standing instructions to parallelise into workers. **Always pass
-`isolation: worktree`** — without it they collide in the shared checkout. Brief every worker
-with: the hard rules (§1), the five gates (§2), "do NOT bump ModBuild", "do NOT commit or
-push", and the exact user report **verbatim in German**. Review every diff yourself before
-merging.
+> "Ich will, dass du hauptsächlich dafür da bist die Ergebnisse der agenten zu mergen und deine
+> Aufgaben an spezialisierte Agenten abgibst die auf feature branches arbeiten. So sollst du deine
+> Anstrengen auch parallelisieren. In Begründeten Außnahmefällen kannst du auch mal direkt etwas
+> implementieren, sonst an Implementierungsagenten auslagern."
+
+Implementation goes to specialised agents on feature branches, in parallel. Implementing yourself
+is the exception and needs a stated reason. **"The files are coupled" is not one** — that was the
+argument used in ModBuild 106 and the user rejected it, because coupling is something the
+integrator designs away *before* dispatching:
+
+1. **Land the shared contract first.** Any symbol several workers need (a config accessor, a Tune
+   id, an interface) is a thin slice you write and commit to `main` yourself BEFORE fanning out.
+   Minutes of work, and every worker then compiles on its own.
+2. **Split by FILE OWNERSHIP, not by topic** — name each worker's exclusive file set in its brief.
+   Overlapping FILES cause collisions; overlapping subject matter does not.
+3. Typical lanes for a board feature: local/render · net mirror · localisation + options UI ·
+   tests + checkers.
+4. **Always pass `isolation: worktree`** — without it they collide in the shared checkout.
+5. Brief every worker with: the hard rules (§1), the five gates (§2), "do NOT bump ModBuild",
+   "do NOT commit or push", "never `git stash`", and the exact user report **verbatim in German**.
+6. **You** review every diff, merge, bump ModBuild, write the build note, push, and report.
 
 Worker first command: `bash scripts/worktree-setup.sh` (links `ressources`, `libs`,
 `.planning/debug/default` and the refactor-guard baseline).
