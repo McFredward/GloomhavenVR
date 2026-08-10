@@ -1600,7 +1600,13 @@ internal sealed class RemoteAvatar
         var mf = holder.gameObject.AddComponent<MeshFilter>();
         mf.sharedMesh = mesh;
         var mr = holder.gameObject.AddComponent<MeshRenderer>();
-        mr.sharedMaterial = Cards.CardMesh.CreateBackMaterial();
+        // Ability KIND, not the never-clipped Neutral pair (2026-08-11). This is the peer's HELD
+        // card slab, and it was the one mirror site the previous round's five opt-ins missed — a
+        // peer holding a card would still have shown the black rectangle every other surface had
+        // lost. Safe by construction: the mesh is RemoteHandFan.BuildBackSlab, whose planar
+        // card-space UVs are exactly what the footprint is authored against, and which mirrors X on
+        // both quads for precisely this reason.
+        mr.sharedMaterial = Cards.CardMesh.CreateBackMaterial(Cards.CardBodyKind.Ability);
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         mr.receiveShadows = false;
         VRLayers.Apply(holder.gameObject);

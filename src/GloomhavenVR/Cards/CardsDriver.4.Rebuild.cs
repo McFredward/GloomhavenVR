@@ -2331,7 +2331,17 @@ internal sealed partial class CardsDriver
             var mf = go.AddComponent<MeshFilter>();
             mf.sharedMesh = CardMesh.Get(w, h);
             var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterials = new[] { CardMesh.CreateEdgeMaterial(), CardMesh.CreateBackMaterial() };
+            // ABILITY kind, not the never-clipped Neutral pair (2026-08-11: "Der schwarze Rand soll
+            // im gesamten Spiel entfernt werden egal wo die Karte ist"). This slab IS an ability
+            // card — it is CardMesh.Get(CardWidth, CardHeight), the very mesh VRCard's backing uses,
+            // with the same planar card-space UVs — so the Ability footprint maps onto it exactly.
+            // Asking for Neutral here left the one card the player watches most closely (the burn
+            // flight, front and centre over the board) as the only black rectangle left in the game.
+            mr.sharedMaterials = new[]
+            {
+                CardMesh.CreateEdgeMaterial(CardBodyKind.Ability),
+                CardMesh.CreateBackMaterial(CardBodyKind.Ability),
+            };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             Core.VRLayers.Apply(go);
 

@@ -423,6 +423,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         {
             _backing = BuildProceduralBacking(_visualRoot, w, h);
         }
+        LogBackingSource(backingPrefab != null);
         // Asset contract (unity/.../Table/README.md): the backing is authored at the
         // configured card size — remember it so the backing can be re-fit to the
         // face canvas once the real face pixels are known (no visible dead margin).
@@ -499,6 +500,42 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             _fullColliderSize = new Vector3(faceW, faceH, 0.02f);
             ResetColliderRegion(); // re-applies the dock grab pad when set
         }
+    }
+
+    /// <summary>
+    /// Which body an ability card is actually wearing, once per session.
+    ///
+    /// WHY THIS LINE EXISTS (2026-08-11 round 2, "Der schwarze Rand soll im gesamten Spiel entfernt
+    /// werden egal wo die Karte ist"). The card-art alpha clip lives on the SHARED
+    /// <c>CardBodyKind.Ability</c> material pair, which only <see cref="BuildProceduralBacking"/>
+    /// hands out. When the bundle ships <c>Assets/Bundle/Table/CardBacking.prefab</c>, the branch
+    /// above takes an authored prefab with its OWN materials instead, and the clip — plus every
+    /// silhouette line in the log claiming success — reaches nothing the player can see. That
+    /// branch was chosen SILENTLY, and <c>VRCardFactory.LoadPrefab</c> logs nothing either way, so a
+    /// hardware log could not distinguish "the clip works" from "the clip is applied to a material
+    /// nobody draws". <c>ItemsPile</c> has printed its own equivalent ("ITEM CARD backing source")
+    /// since the item chips were built; the ability cards never did.
+    ///
+    /// Today's evidence says the procedural branch is the live one — the user watched the border go
+    /// TRANSPARENT for a moment during a character switch on the ModBuild-108 build, which only a
+    /// clipped body can do — but that is an inference from a symptom, and this makes it a fact in
+    /// the next log.
+    /// </summary>
+    private static bool s_backingSourceLogged;
+
+    private static void LogBackingSource(bool fromBundle)
+    {
+        if (s_backingSourceLogged)
+            return;
+        s_backingSourceLogged = true;
+        Core.VRLog.Info("Cards", "ABILITY CARD backing source: " + (fromBundle
+            ? "bundle 'Assets/Bundle/Table/CardBacking.prefab' — NOTE: an authored prefab carries its " +
+              "OWN materials, so the card-art silhouette clip (CardMesh.SetSilhouette, which only " +
+              "touches the shared CardBodyKind.Ability pair) does NOT reach this body. Every 'CARD " +
+              "SILHOUETTE (Ability): APPLIED' line above is then true and invisible."
+            : "procedural CardMesh rounded slab on the SHARED CardBodyKind.Ability material pair — " +
+              "this is the body the silhouette clip re-shapes, so an APPLIED line above is a change " +
+              "the player can see."));
     }
 
     private static Transform BuildProceduralBacking(Transform parent, float w, float h)

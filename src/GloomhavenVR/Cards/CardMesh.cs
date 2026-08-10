@@ -144,6 +144,185 @@ internal static class CardMesh
     private static readonly Material?[] _backMaterials = new Material?[3];
     private static readonly bool[] _silhouetteApplied = new bool[3];
 
+    // The APPLIED footprint per kind, kept live so CardFace's face blackout can ask "is this pixel
+    // card?" without re-capturing, and so a cache-loaded mask serves the very first face of a
+    // session. Row-major, [y*W + X], y up, 0..255 alpha.
+    private static readonly byte[]?[] _footprints = new byte[]?[3];
+    private static readonly int[] _footW = new int[3];
+    private static readonly int[] _footH = new int[3];
+    private static readonly string?[] _footSource = new string?[3];
+
+    /// <summary>Whether the persisted cache has been probed for this kind yet (once per session,
+    /// re-entrancy guard for the <see cref="SetSilhouette"/> call it makes).</summary>
+    private static readonly bool[] _cacheProbed = new bool[3];
+
+    /// <summary>
+    /// The applied footprint for <paramref name="kind"/>, or null while that shape is still the
+    /// plain rounded rect. Callers must treat it as READ-ONLY — it is the live mask.
+    /// </summary>
+    internal static byte[]? Footprint(CardBodyKind kind, out int w, out int h)
+    {
+        int i = (int)kind;
+        w = _footW[i];
+        h = _footH[i];
+        return _footprints[i];
+    }
+
+    /// <summary>Name of the sprite the applied footprint was captured from (cache provenance).</summary>
+    internal static string? FootprintSource(CardBodyKind kind) => _footSource[(int)kind];
+
+    // ------------------------------------------------ silhouette for FOREIGN materials --
+
+    /// <summary>
+    /// Which look a bound material wants behind the card outline — see
+    /// <see cref="BindSilhouette"/>.
+    /// </summary>
+    internal enum SilhouetteLayer
+    {
+        /// <summary>White RGB, footprint alpha. Multiplied by the material's own colour, so a dark
+        /// material stays dark and simply stops painting outside the card.</summary>
+        Mask = 0,
+
+        /// <summary>The decorative card-back lattice, footprint alpha. For a quad that shows a
+        /// FACE-DOWN card.</summary>
+        Back = 1,
+    }
+
+    private static readonly Texture2D?[,] _exportTextures = new Texture2D?[3, 2];
+
+    /// <summary>Materials that asked to wear the card outline, with the layer each one wants.
+    /// Re-applied whenever a footprint lands, so a material minted before the capture still gets
+    /// the shape (see <see cref="BindSilhouette"/>). Bounded by construction — one entry per peer
+    /// board card slot — and destroyed entries are dropped on the next apply.</summary>
+    private static readonly List<(Material Mat, CardBodyKind Kind, SilhouetteLayer Layer)> _bound = new();
+
+    /// <summary>
+    /// USER REQUIREMENT (2026-08-11, verbatim): "UND auch alle Karten genauso die remote angezeigt
+    /// werden im Multiplayer bei anderen Spielern."
+    ///
+    /// THE PROBLEM THIS EXISTS FOR. Five of the six peer mirrors draw a card as a MESH wearing this
+    /// class's own shared <see cref="CardBodyKind"/> material pair, so the alpha clip reaches them
+    /// for free. <c>Net/RemoteBoardCard</c> is the one that does not: a peer's board recess is a
+    /// flat <c>BoardVisual.Quad</c> whose material is minted locally on <c>Sprites/Default</c> —
+    /// it only borrows this class's back TEXTURE off <c>CreateBackMaterial().mainTexture</c> and
+    /// re-wraps it, which drops the alpha channel the clip lives in. Under the requirement above
+    /// that is a black rectangle on every peer's control board, i.e. exactly the reported defect
+    /// seen from the other side.
+    ///
+    /// WHY A BINDING AND NOT A GETTER. A getter would be read once, in that quad's constructor,
+    /// which on a cold cache runs before any footprint exists — and the peer's board would then
+    /// keep the rectangle for the whole session while the local cards did not. Registering the
+    /// material means the ONE moment a footprint lands (cache load or live capture) re-paints every
+    /// consumer at once, which is the same "no rebuild, no pop, the materials are shared" property
+    /// the mesh path already has.
+    ///
+    /// Degrades to today: with no footprint the material is left exactly as the caller built it.
+    /// </summary>
+    internal static void BindSilhouette(Material? m, CardBodyKind kind, SilhouetteLayer layer)
+    {
+        if (m == null || kind == CardBodyKind.Neutral)
+            return;
+        // A consumer may be the FIRST thing in the process to want this kind's shape (a spectator
+        // who sees a peer's board before building a card of their own), so probe the cache here too.
+        EnsureSilhouetteCacheLoaded(kind);
+        for (int i = 0; i < _bound.Count; i++)
+        {
+            if (_bound[i].Mat == m)
+            {
+                _bound[i] = (m, kind, layer);
+                ApplyBinding(m, kind, layer);
+                return;
+            }
+        }
+        _bound.Add((m, kind, layer));
+        ApplyBinding(m, kind, layer);
+    }
+
+    private static void ApplyBinding(Material m, CardBodyKind kind, SilhouetteLayer layer)
+    {
+        Texture2D? tex = ExportTexture(kind, layer);
+        if (tex != null)
+            m.mainTexture = tex;
+    }
+
+    /// <summary>Re-paint every bound material after a footprint landed; drops destroyed ones.</summary>
+    private static void ApplyBindings(CardBodyKind kind)
+    {
+        int repainted = 0;
+        for (int i = _bound.Count - 1; i >= 0; i--)
+        {
+            (Material Mat, CardBodyKind Kind, SilhouetteLayer Layer) b = _bound[i];
+            if (b.Mat == null)
+            {
+                _bound.RemoveAt(i);
+                continue;
+            }
+            if (b.Kind != kind)
+                continue;
+            ApplyBinding(b.Mat, b.Kind, b.Layer);
+            repainted++;
+        }
+        if (repainted > 0)
+        {
+            VRLog.Info("Cards", $"CardMesh.BindSilhouette({kind}): re-painted {repainted} foreign " +
+                                "material(s) with the card outline — the flat quads that draw a PEER's " +
+                                "board recess cannot wear the Cutout mesh material, so they carry the " +
+                                "same footprint as an alpha channel instead (2026-08-11: 'UND auch alle " +
+                                "Karten genauso die remote angezeigt werden im Multiplayer').");
+        }
+    }
+
+    /// <summary>
+    /// The footprint as a blendable RGBA texture for a caller that cannot use the Cutout material
+    /// (built once per kind+layer, cached). Null while that kind is still the plain rounded rect.
+    ///
+    /// <para>ORIENTATION: FRONT, i.e. un-mirrored — deliberately NOT the mesh back material's
+    /// mirrored bake. The mesh's back submesh is drawn through mirrored UVs (see <see cref="Build"/>)
+    /// and its texture is baked to match; a plain <c>BoardVisual.Quad</c> has ordinary 0..1 UVs and
+    /// would show that bake flipped. Invisible on a left-right symmetric outline — which is what
+    /// ships — and wrong the moment one is not, so it is stated rather than left to luck. Same
+    /// reasoning as <c>Net/RemoteHandFan.BuildBackSlab</c>'s mirrored-UV note, opposite conclusion,
+    /// because that mesh mirrors its UVs and this quad does not.</para>
+    /// </summary>
+    private static Texture2D? ExportTexture(CardBodyKind kind, SilhouetteLayer layer)
+    {
+        int i = (int)kind;
+        int l = (int)layer;
+        Texture2D? cached = _exportTextures[i, l];
+        if (cached != null)
+            return cached;
+        byte[]? alpha = _footprints[i];
+        int w = _footW[i], h = _footH[i];
+        if (alpha == null || w <= 1 || h <= 1 || alpha.Length != w * h)
+            return null;
+
+        var pixels = new Color32[alpha.Length];
+        if (layer == SilhouetteLayer.Mask)
+        {
+            for (int p = 0; p < alpha.Length; p++)
+                pixels[p] = new Color32(255, 255, 255, alpha[p]);
+        }
+        else
+        {
+            Texture2D backPattern = GetBackTexture();
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    int p = y * w + x;
+                    Color rgb = backPattern.GetPixelBilinear((x + 0.5f) / w, (y + 0.5f) / h);
+                    pixels[p] = new Color32(
+                        (byte)(rgb.r * 255f), (byte)(rgb.g * 255f), (byte)(rgb.b * 255f), alpha[p]);
+                }
+            }
+        }
+        // Name distinct from the MESH pair's ".Edge"/".Back" bakes on purpose — a hardware log must
+        // be able to say which of the two families a CARD TEX line belongs to.
+        Texture2D tex = MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Quad{layer}", pixels, w, h);
+        _exportTextures[i, l] = tex;
+        return tex;
+    }
+
     // One mesh per DISTINCT card size, quantised to 0.1 mm. This used to be a single
     // slot keyed on the last size asked for, which was fine while only the ability card
     // existed — but ItemsPile asks for the near-square ITEM size from the same cache
@@ -588,7 +767,14 @@ internal static class CardMesh
             m.name = $"GloomhavenVR.CardEdge.{kind}";
             _edgeMaterials[i] = m;
         }
-        return m;
+        // THE FIRST DRAWN PIXEL IS ALREADY RIGHT (2026-08-11: "Der Prozess der 'Ausblendung' soll
+        // auch nicht sichtbar sein, sondern direkt die richtigen meshes sichtbar sein"). This is
+        // the ONE choke point every card body of a kind passes through on its way to existing, so
+        // loading the persisted mask here — not from a module init hook — means it is applied
+        // before the renderer that will draw it has a material at all, on every construction path
+        // there is or ever will be.
+        EnsureSilhouetteCacheLoaded(kind);
+        return _edgeMaterials[i]!;
     }
 
     /// <summary>Opaque decorative card back: procedural lattice pattern texture. LEGACY
@@ -610,7 +796,8 @@ internal static class CardMesh
             m.name = $"GloomhavenVR.CardBack.{kind}";
             _backMaterials[i] = m;
         }
-        return m;
+        EnsureSilhouetteCacheLoaded(kind); // see CreateEdgeMaterial — same choke point, same reason
+        return _backMaterials[i]!;
     }
 
     /// <summary>True once <see cref="SetSilhouette"/> has re-shaped this card SHAPE's body to
@@ -641,6 +828,16 @@ internal static class CardMesh
     /// can never make a card invisible. Returns whether the silhouette was applied.
     /// </summary>
     internal static bool SetSilhouette(CardBodyKind kind, byte[]? alpha, int w, int h)
+        => SetSilhouette(kind, alpha, w, h, source: null, fromCache: false);
+
+    /// <summary>
+    /// <inheritdoc cref="SetSilhouette(CardBodyKind, byte[], int, int)"/>
+    /// <para><paramref name="source"/> names the sprite the mask came from (cache provenance);
+    /// <paramref name="fromCache"/> suppresses the write-back so loading never rewrites what it
+    /// just read.</para>
+    /// </summary>
+    internal static bool SetSilhouette(CardBodyKind kind, byte[]? alpha, int w, int h,
+                                       string? source, bool fromCache)
     {
         if (kind == CardBodyKind.Neutral)
         {
@@ -675,12 +872,49 @@ internal static class CardMesh
 
         // --- sanity guard: reject empty / solid / hollow-centre footprints ----------
         long opaque = 0;
-        for (int i = 0; i < alpha.Length; i++)
-            if (alpha[i] >= 128) opaque++;
+        int bx0 = w, bx1 = -1, by0 = h, by1 = -1;
+        for (int y = 0; y < h; y++)
+        {
+            int row = y * w;
+            for (int x = 0; x < w; x++)
+            {
+                if (alpha[row + x] < 128)
+                    continue;
+                opaque++;
+                if (x < bx0) bx0 = x;
+                if (x > bx1) bx1 = x;
+                if (y < by0) by0 = y;
+                if (y > by1) by1 = y;
+            }
+        }
         float frac = (float)opaque / alpha.Length;
         bool centerOpaque = CenterOpaque(alpha, w, h);
+
+        // IS THIS AN OUTLINE OR JUST A SMALLER RECTANGLE? (2026-08-11 round 2.) The 0.12..0.985
+        // window says nothing about SHAPE: an inset axis-aligned box of 89 % area sails through it
+        // exactly as an ornate curve of 89 % area does, and the two are worth completely different
+        // things to the player. bboxFill = opaque / bounding-box area is the discriminator — 1.000
+        // means the footprint IS its own bounding rectangle, and the only thing the clip then buys
+        // is a slightly narrower slab. Reported, never guessed at again.
+        long bboxArea = (bx1 >= bx0 && by1 >= by0) ? (long)(bx1 - bx0 + 1) * (by1 - by0 + 1) : 0L;
+        float bboxFill = bboxArea > 0 ? (float)opaque / bboxArea : 0f;
+        float bboxCoverage = (float)bboxArea / ((long)w * h);
         VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): footprint {w}x{h}, opaque frac={frac:F3}, " +
-                            $"centerOpaque={centerOpaque} (accept if 0.12<frac<0.985 & centre solid).");
+                            $"centerOpaque={centerOpaque} (accept if 0.12<frac<0.985 & centre solid) — " +
+                            $"SHAPE: bounding box {(bx1 - bx0 + 1)}x{(by1 - by0 + 1)} = {bboxCoverage:P1} of " +
+                            $"the face, filled {bboxFill:F3} (1.000 = a plain rectangle, so the clip only " +
+                            "narrows the slab; below ~0.97 = a genuinely non-rectangular outline).");
+
+        // A footprint that is the FULL face AND solid to its own bounding box is a no-op clip: it
+        // would flip the materials to Cutout, cost a keyword and buy nothing. Refuse it rather than
+        // burn the one shot, so a later, better footprint can still land.
+        if (bboxFill >= 0.995f && bboxCoverage >= 0.99f)
+        {
+            VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): the footprint is the full face and solid " +
+                                "to its own bounding box — a clip here removes nothing. Kept rounded-rect; " +
+                                "the one shot stays available for a later footprint.");
+            return false;
+        }
         if (frac < 0.12f || frac > 0.985f)
         {
             // near-empty (bad/early capture, art not loaded) or near-solid (a plain
@@ -723,9 +957,209 @@ internal static class CardMesh
         ConfigureCutout(edge, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Edge", edgePixels, w, h));
         ConfigureCutout(back, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Back", backPixels, w, h));
         _silhouetteApplied[(int)kind] = true;
-        VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): APPLIED — that shape's shared front/rim + " +
-                            "back materials flipped to alpha-clip (Cutout); every live body of this kind " +
-                            "now traces the art outline (no rebuild, no pop — the materials are shared).");
+        _footprints[(int)kind] = alpha;
+        _footW[(int)kind] = w;
+        _footH[(int)kind] = h;
+        _footSource[(int)kind] = source;
+        VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): APPLIED from {(fromCache ? "the PERSISTED CACHE " +
+                            "(before this session drew a single card — no visible transition)" : "a live capture")} " +
+                            $"[source '{source ?? "n/a"}'] — that shape's shared front/rim + back materials " +
+                            "flipped to alpha-clip (Cutout); every live body of this kind now traces the art " +
+                            "outline (no rebuild, no pop — the materials are shared).");
+        // FOREIGN CONSUMERS LAST, and only now that _footprints holds the mask: the flat quads that
+        // draw a PEER's board recess cannot wear a Cutout mesh material, so they carry the same
+        // footprint as an alpha channel. See BindSilhouette for why this is a binding, not a getter.
+        ApplyBindings(kind);
+        if (!fromCache)
+            WriteSilhouetteCache(kind, alpha, w, h, source);
+        return true;
+    }
+
+    // ------------------------------------------------- persisted silhouette cache --
+
+    /// <summary>
+    /// USER REQUIREMENT (2026-08-11, verbatim): "Der Prozess der 'Ausblendung' soll auch nicht
+    /// sichtbar sein, sondern direkt die richtigen meshes sichtbar sein."
+    ///
+    /// A footprint captured from LIVE card art cannot exist before that art has loaded, so within
+    /// one session there is an unavoidable window between "the first card is drawn" and "the shape
+    /// is known". The only way to close it is to not learn it in that session at all: the mask is
+    /// written to the mod's own per-user data directory the first time it is captured, and read
+    /// back — and APPLIED — inside <see cref="CreateEdgeMaterial(CardBodyKind)"/>, i.e. at the
+    /// moment a card body's material is created and therefore before any renderer using it can
+    /// draw. From the second launch onward the card is born with the correct silhouette and there
+    /// is no transition to see.
+    ///
+    /// THE FIRST LAUNCH AFTER INSTALLING IS THE ONE EXCEPTION, and it is stated rather than hidden:
+    /// on a cold cache the cards keep exactly today's opaque rounded rect until the first card art
+    /// loads (in the ModBuild-108 log: the same frame the hand fan opened), then take the outline
+    /// in one step. That is deliberately the OLD look during the window, never a guessed shape —
+    /// the standing rule is to degrade to today's rectangle, never to a wrong one.
+    ///
+    /// WHERE IT IS WRITTEN. <c>Paths.ConfigPath</c> as
+    /// <c>BepInEx/config/dev.gloomhavenvr.cardsilhouette.{kind}.bin</c> — the mod's own per-user
+    /// data directory, the same place and the same <c>PLUGIN_GUID</c> naming
+    /// <c>Core/ModuleConfig</c> puts every module cfg and <c>WorldUI/LoadingIndicator</c> puts its
+    /// baked boot icon. NEVER the game's own tree and never <c>ressources/</c>.
+    ///
+    /// <para>NOT <c>Paths.CachePath</c>, which is the first instinct and is wrong here: BepInEx
+    /// owns <c>BepInEx/cache</c> and clears it on its own schedule (assembly patch caches live
+    /// there). Losing this file is not a normal cache miss — it silently reintroduces the ONE
+    /// visible transition this whole mechanism exists to remove, and it would do so without any
+    /// user-visible cause. A file that must survive to keep a look promise belongs where the
+    /// user's other mod data lives.</para>
+    ///
+    /// A missing, unreadable, truncated or version-mismatched file is simply ignored (and the log
+    /// says which), so the feature can only ever fall back to the cold-start behaviour above.
+    ///
+    /// CLASS DRIFT. The mask is keyed by <see cref="CardBodyKind"/> alone, but it is captured from
+    /// ONE character's background art ('AC_Berserker_Background' in the reported session). The
+    /// Gloomhaven ability-card frame is a shared template, so this is expected to be a constant —
+    /// but it is not GUARANTEED, so the cache records the source sprite name and
+    /// <see cref="RefreshSilhouetteCache"/> silently re-learns it once per session from whatever
+    /// class is actually being played. A drift is corrected for the NEXT launch rather than
+    /// re-applied mid-session, because re-applying is precisely the visible transition the user
+    /// rejected.
+    /// </summary>
+    private const uint CacheMagic = 0x53525647; // 'GVRS' little-endian
+
+    private const byte CacheVersion = 1;
+
+    private static string CacheFilePath(CardBodyKind kind) => System.IO.Path.Combine(
+        BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}.bin");
+
+    /// <summary>Load and apply the persisted mask for one kind. Runs at most once per kind per
+    /// session and is re-entrancy safe (it calls <see cref="SetSilhouette"/>, which calls back into
+    /// the material factories).</summary>
+    private static void EnsureSilhouetteCacheLoaded(CardBodyKind kind)
+    {
+        int i = (int)kind;
+        if (_cacheProbed[i])
+            return;
+        _cacheProbed[i] = true; // BEFORE anything that can re-enter
+        if (kind == CardBodyKind.Neutral || _silhouetteApplied[i])
+            return;
+
+        string path = CacheFilePath(kind);
+        try
+        {
+            if (!System.IO.File.Exists(path))
+            {
+                VRLog.Info("Cards", $"CARD SILHOUETTE CACHE ({kind}): none at '{path}' — FIRST RUN for this " +
+                                    "shape. Cards keep today's opaque rounded rect until the first card art " +
+                                    "loads, then take the outline in one step; the mask is written here so " +
+                                    "every later launch has it before the first card exists.");
+                return;
+            }
+            byte[] raw = System.IO.File.ReadAllBytes(path);
+            if (raw.Length < 18)
+            {
+                VRLog.Warn("Cards", $"CARD SILHOUETTE CACHE ({kind}): '{path}' is {raw.Length} bytes — too " +
+                                    "short to be a header. Ignored; this session re-learns it.");
+                return;
+            }
+            using var ms = new System.IO.MemoryStream(raw, writable: false);
+            using var br = new System.IO.BinaryReader(ms);
+            uint magic = br.ReadUInt32();
+            byte version = br.ReadByte();
+            byte storedKind = br.ReadByte();
+            if (magic != CacheMagic || version != CacheVersion || storedKind != (byte)kind)
+            {
+                VRLog.Warn("Cards", $"CARD SILHOUETTE CACHE ({kind}): header mismatch in '{path}' " +
+                                    $"(magic 0x{magic:X8} want 0x{CacheMagic:X8}, version {version} want " +
+                                    $"{CacheVersion}, kind {storedKind} want {(byte)kind}). Ignored; this " +
+                                    "session re-learns it.");
+                return;
+            }
+            int w = br.ReadInt32();
+            int h = br.ReadInt32();
+            string source = br.ReadString();
+            if (w <= 1 || h <= 1 || (long)w * h > 4_000_000L)
+            {
+                VRLog.Warn("Cards", $"CARD SILHOUETTE CACHE ({kind}): implausible footprint {w}x{h} — ignored.");
+                return;
+            }
+            var alpha = br.ReadBytes(w * h);
+            if (alpha.Length != w * h)
+            {
+                VRLog.Warn("Cards", $"CARD SILHOUETTE CACHE ({kind}): truncated ({alpha.Length} of {w * h} " +
+                                    "mask bytes) — ignored; this session re-learns it.");
+                return;
+            }
+            VRLog.Info("Cards", $"CARD SILHOUETTE CACHE ({kind}): loaded {w}x{h} from '{source}' — applying " +
+                                "BEFORE the first card body draws.");
+            SetSilhouette(kind, alpha, w, h, source, fromCache: true);
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", $"CARD SILHOUETTE CACHE ({kind}): load skipped ({ex.GetType().Name}: " +
+                                $"{ex.Message}) — cards keep the rounded rect until a live capture.");
+        }
+    }
+
+    private static void WriteSilhouetteCache(CardBodyKind kind, byte[] alpha, int w, int h, string? source)
+    {
+        string path = CacheFilePath(kind);
+        try
+        {
+            string? dir = System.IO.Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+                System.IO.Directory.CreateDirectory(dir);
+            using var ms = new System.IO.MemoryStream(w * h + 64);
+            using (var bw = new System.IO.BinaryWriter(ms))
+            {
+                bw.Write(CacheMagic);
+                bw.Write(CacheVersion);
+                bw.Write((byte)kind);
+                bw.Write(w);
+                bw.Write(h);
+                bw.Write(source ?? string.Empty);
+                bw.Write(alpha, 0, w * h);
+            }
+            System.IO.File.WriteAllBytes(path, ms.ToArray());
+            VRLog.Info("Cards", $"CARD SILHOUETTE CACHE ({kind}): wrote {w}x{h} from '{source ?? "n/a"}' to " +
+                                $"'{path}' — the NEXT launch applies this before the first card is drawn, so " +
+                                "the shape change is never seen again on this machine.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", $"CARD SILHOUETTE CACHE ({kind}): write skipped ({ex.GetType().Name}: " +
+                                $"{ex.Message}) — this session is unaffected; the next launch simply " +
+                                "re-learns the shape the same way this one did.");
+        }
+    }
+
+    /// <summary>
+    /// A live capture ran while a mask was ALREADY applied (normally: applied from the cache).
+    /// Never re-applies — re-applying mid-session IS the visible transition the user rejected —
+    /// but rewrites the cache when the freshly measured mask disagrees, so a class whose card frame
+    /// really does differ corrects itself on the next launch. Returns whether the file was rewritten.
+    /// </summary>
+    internal static bool RefreshSilhouetteCache(CardBodyKind kind, byte[] alpha, int w, int h, string? source)
+    {
+        int i = (int)kind;
+        byte[]? live = _footprints[i];
+        if (live != null && _footW[i] == w && _footH[i] == h)
+        {
+            long differing = 0;
+            for (int p = 0; p < alpha.Length; p++)
+                if ((alpha[p] >= 128) != (live[p] >= 128))
+                    differing++;
+            float frac = (float)differing / alpha.Length;
+            if (frac <= 0.005f)
+            {
+                VRLog.Info("Cards", $"CARD SILHOUETTE CACHE ({kind}): this session's live capture from " +
+                                    $"'{source ?? "n/a"}' agrees with the applied mask to {1f - frac:P2} — " +
+                                    "cached shape confirmed, nothing rewritten.");
+                return false;
+            }
+            VRLog.Info("Cards", $"CARD SILHOUETTE CACHE ({kind}): live capture from '{source ?? "n/a"}' " +
+                                $"differs from the applied mask (from '{_footSource[i] ?? "n/a"}') in " +
+                                $"{frac:P1} of texels — the card frame is NOT the constant it was assumed " +
+                                "to be. Rewriting the cache; the shape is corrected on the NEXT launch, " +
+                                "deliberately not mid-session (that would be the visible transition).");
+        }
+        WriteSilhouetteCache(kind, alpha, w, h, source);
         return true;
     }
 

@@ -2,9 +2,8 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 108`**, awaiting its hardware run. Six reports run as six parallel
-  agents on disjoint file sets; every diff reviewed before merge, cross-file changes applied by
-  the integrator.
+  **`NetProtocol.ModBuild = 109`**, awaiting its hardware run. Rounds are run as parallel agents on
+  disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
 ---
@@ -127,6 +126,29 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 109** — the card SILHOUETTE round. **The black card border took four attempts, and
+  every wrong turn was a layer error**, which is why it is worth reading in full.
+  Attempt 1 shipped an alpha clip that never executed (`isActiveAndEnabled` against cards adopting
+  art under an inactive pool root; the rejecting branch logged nothing). Attempt 2 made it execute
+  — and the border did not move. Attempt 3 found why, from the user's own sentence: during a
+  character switch the loader takes the art down, nothing paints, and the border VANISHES — so the
+  mesh behind it is already clipped, and **the remaining black is painted by the adopted uGUI FACE,
+  not by the card body**. A clipped mesh cannot un-clip itself. The suspects are sprite-less
+  `Image`s (22 enabled ones on a single face), which uGUI draws as plain colour quads — rectangles,
+  incapable of carrying the card's shape. Attempt 4 mutes them in the same frame the art arrives,
+  on the seam `CardFaceMipBake` already uses to swap sprites before a card's first drawn pixel.
+  User then narrowed it: every placement, **no visible transition**, item cards, and every card a
+  PEER draws. The transition is answered by not learning the shape in that session — the footprint
+  is persisted to `BepInEx/config` and re-applied from inside the body's own material factory,
+  before any renderer that will draw it has a material. Two uncovered local paths and two missed
+  mirror sites were found; the peer FRONT was the bigger hole and needed no wire (the pump passes
+  the CANVAS, whose GameObject carries no card component — the clone is its child).
+  Also in 109: held figures keep the size they had at the grab (`TickHeldScale` pinned WORLD size,
+  and the diorama zoom IS the rig scale the anchor hangs under — log: `boardWorld=1` at anchorScale
+  41.368 vs 10.149); the slot a card lands in is ranked by the CARD, not the hand (an eligibility
+  test had been used as a ranking key); and the boot spinner is the GAME's symbol (the previous
+  round's "it is serialized inside the scene being loaded" was true of that OBJECT and wrong as a
+  conclusion — a second copy lives in the Intro scene, switched on a frame before our arming edge).
 - **ModBuild 108** — six reports, one round. **The generalisable lesson: three of the six were
   defects in a layer nobody had looked at, not in the layer the symptom pointed at.**
   (1) **THE DEADLOCK** (critical, user-flagged): lifting a figure mid-attack killed the turn

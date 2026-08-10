@@ -239,7 +239,15 @@ internal sealed class RemoteCardArt
         // whenever the cadence below next happens to fire. The cadenced pass stays as the
         // backstop for Images the clone's widget created after the watch was captured.
         if (_artWatch.Poll("remote card") > 0)
+        {
+            // …and mute the peer clone's sprite-less black quads in the SAME frame the art lands,
+            // for the same reason the mip swap happens here rather than on the cadence: a peer's
+            // card must not show the black rectangle for even one frame that the owner's card does
+            // not (user, 2026-08-11: "auch alle Karten genauso die remote angezeigt werden").
+            // Belt to the build-time RescanMips walk, which already covers a clone's first draw.
+            Cards.CardFace.Offer(_clone.transform, artJustArrived: true);
             _nextMipRescan = Time.unscaledTime + MipRescanInterval;
+        }
         if (Time.unscaledTime < _nextMipRescan)
             return;
         RescanMips();

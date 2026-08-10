@@ -416,7 +416,59 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 108;
+    public const ushort ModBuild = 109;
+    // Build 109: the card SILHOUETTE round, plus three fixes whose root causes were each one layer
+    // away from the symptom. No wire change; the bump is here because 109 is what goes to the friend.
+    //
+    // (1) THE BLACK CARD BORDER, fourth attempt and the first that names the right layer. The mesh
+    // clip has worked since 496671e — the user's own report proved it: during a character switch the
+    // loader takes the art down, nothing paints, and the border VANISHES, because the mesh behind it
+    // is already clipped away. A clipped mesh cannot un-clip itself, so the remaining black is
+    // painted by the adopted uGUI FACE, not by the mod's card body. Prime suspect, evidenced by the
+    // capture's own count: 22 enabled sprite-less Images on ONE face, which uGUI draws as plain
+    // colour quads — rectangles, so they can never carry the card's shape. Those are now muted, in
+    // the SAME frame the art arrives (CardFace.Offer(artJustArrived:true), the seam CardFaceMipBake
+    // already uses to swap sprites before a card's first drawn pixel), with the 1 s pass demoted to
+    // a self-heal backstop.
+    //   The user then narrowed the requirement: every placement, no visible transition, item cards
+    //   too, and every card a PEER draws. The transition is answered by not learning the shape in
+    //   that session at all — the footprint is PERSISTED to BepInEx/config and re-applied from
+    //   inside the card body's own material factory, before any renderer that will draw it has a
+    //   material. First launch after installing still has to learn it once; every launch after that
+    //   is correct from the first pixel, on every path, because they all pass through that factory.
+    //   Two uncovered local paths were found and fixed (the burn-fallback slab asked for the
+    //   never-clipped Neutral pair; the authored-prefab branch could silently bypass the clip while
+    //   every APPLIED line still printed). An inherited capture gate that would have latched a WRONG
+    //   outline was removed: "after 12 fruitless offers take the largest candidate" is spendable in
+    //   one frame, because a fan adopts up to 24 cards at once and each is an offer — and the
+    //   largest candidate at that moment is an action half.
+    //   MULTIPLAYER: two mirror sites the previous round missed (RemoteAvatar's HELD card slab, and
+    //   RemoteBoardCard, which re-wraps only .mainTexture and needed the shape BOUND rather than
+    //   fetched, since a spectator can see a peer's board before ever building a card). And the peer
+    //   FRONT, which was the bigger hole and needed no wire: RemoteCardArt's pump passes the CANVAS,
+    //   whose GameObject carries no card component — the clone is its child — so Offer's root-only
+    //   classification never reached it and peers kept the full black rectangle.
+    //
+    // (2) HELD FIGURE SIZE followed the zoom. TickHeldScale pinned the mini's WORLD size, re-deriving
+    // the anchor-local scale from the LIVE anchor every frame — and the diorama zoom IS the rig
+    // scale the anchor hangs under, while the player's eyes scale with the same rig. Log: three grabs
+    // at boardWorld=1 against anchorScale 41.368 / 41.368 / 10.149. The scale is latched once at the
+    // grab now. Receive side reproduces the same ratio (zero wire bytes — the holder's rig scale
+    // already rides every rig packet), and every release path restores the board-cell scale, because
+    // the game re-authors a released figure's position and rotation but NEVER its scale.
+    //
+    // (3) THE SLOT A CARD LANDS IN was ranked by min(cardDistance, handDistance) — a correct
+    // ELIGIBILITY test used as a RANKING key. A right hand leading a card to the LEFT recess is
+    // nearer the right one, so the right recess's HAND sample undercut the left recess's CARD sample.
+    // Eligibility is unchanged (reach moves 0 mm); the winner among eligible recesses is now the
+    // card's nearest. Glow and drop cannot disagree: one decision function, two readers.
+    //
+    // (4) THE BOOT SPINNER is the GAME's symbol now, not the mod's ring. The previous round's
+    // "LoadingScreen is serialized inside the scene being loaded" was true of that OBJECT and wrong
+    // as a conclusion: the game shows a SECOND copy from the Intro scene, switched on a full frame
+    // before the mod's arming edge (IntroPlayer.ShowLogos line 98 then 99), and the Intro scene
+    // survives the window. Persisted copy → live Intro widget → procedural ring, in that order.
+    //
     // Build 108: SIX reports in one round, run as six parallel agents on disjoint file sets. The
     // headline is the DEADLOCK; the pattern worth carrying forward is that three of the six were
     // defects in a layer nobody had looked at, not in the layer the symptom pointed at.

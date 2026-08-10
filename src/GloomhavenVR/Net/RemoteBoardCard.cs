@@ -97,6 +97,23 @@ internal sealed class RemoteBoardCard
         // relationship CardMesh's slab has to an adopted face on the local board.
         _bodyMat = BoardVisual.Unlit(new Color(0.09f, 0.08f, 0.07f, 1f));
 
+        // THE PEER'S BOARD CARDS TAKE THE SILHOUETTE TOO (user, 2026-08-11: "auch alle Karten
+        // genauso die remote angezeigt werden im Multiplayer bei anderen Spielern"). This site was
+        // deliberately left out of the previous round's five opt-ins because it does not USE
+        // CardMesh's materials — it reads only `.mainTexture` off one and re-wraps it in its own
+        // unlit material, which would have dropped the alpha. Under the 1:1 rule that exclusion is
+        // no longer acceptable, so the shape is BOUND to these three materials instead of fetched:
+        // this constructor can run before any footprint exists — a spectator may see a peer's board
+        // long before building a card of their own — and a getter would leave that board
+        // rectangular for the rest of the session.
+        //
+        // Sprites/Default multiplies texture × colour and alpha-blends, so the Mask layer (white
+        // RGB, footprint alpha) leaves the dark body dark and only stops it painting outside the
+        // card's own outline. No footprint yet, or none ever: unchanged from today.
+        CardMesh.BindSilhouette(_backMat, CardBodyKind.Ability, CardMesh.SilhouetteLayer.Back);
+        CardMesh.BindSilhouette(_faceMat, CardBodyKind.Ability, CardMesh.SilhouetteLayer.Mask);
+        CardMesh.BindSilhouette(_bodyMat, CardBodyKind.Ability, CardMesh.SilhouetteLayer.Mask);
+
         _bg = BoardVisual.Quad(_root.transform, "Face", new Vector2(width, height), _backMat);
 
         _initLabel = RemoteBoardContent.Label(_root.transform, "Initiative",

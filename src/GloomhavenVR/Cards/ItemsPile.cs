@@ -6047,6 +6047,12 @@ internal sealed class ItemsPile
                 {
                     _artBaked = true;
                     CardFaceMipBake.Rescan(_cardUI); // art just arrived — bake it NOW
+                    // ...and ride the same arrival seam for the card SILHOUETTE / face blackout
+                    // (2026-08-11: "Weiterhin sollen Item-Karten genauso betroffen sein" and "der
+                    // Prozess der 'Ausblendung' soll auch nicht sichtbar sein"). Rescan already
+                    // offers this face, but only on the rate-limited backstop path; the explicit
+                    // arrival flag is what makes the mute land before the first rendered frame.
+                    CardFace.Offer(_cardUI, artJustArrived: true);
                     _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                     if (!s_loggedArtBaked)
                     {
@@ -6680,6 +6686,11 @@ internal sealed class ItemsPile
                     // game reuses this card elsewhere. (The usable highlight is a mod-owned frame canvas,
                     // destroyed with the chip below — it never touches the game card, nothing to reset.)
                     CardFaceMipBake.RestoreSprites(_cardUI);
+                    // ...and the same for the round-2 face blackout (2026-08-11: "der schwarze Rand
+                    // … auch die Itemkarten"). CardFace.Offer mutes sprite-less black quads on any
+                    // face it is given, item faces included; the pooled widget must go back with the
+                    // game's own colours. No-op on a face that was never muted.
+                    CardFace.ReleaseFaceBlackout(_cardUI);
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
                 catch (System.Exception e)
