@@ -17,22 +17,35 @@ internal sealed partial class PlayTray
     // ------------------------------------------------------------------ debug-menu live apply --
 
     /// <summary>
-    /// PART F live-apply: move the slot snap-glow / wanted-glow overlays to a new per-board
-    /// offset in place (no rebuild). Base local-Z is preserved; the offset adds on top.
+    /// PART F live-apply: move AND size the slot snap-glow / wanted-glow overlays in place (no
+    /// rebuild). Base local-Z is preserved; the offset adds on top.
     /// Item 1: the two overlays are a PAIR, so a per-board SPACING spreads them apart along
     /// the slot-local X (the board's long/inter-slot axis) — slot 0 (left) −½, slot 1 (right) +½.
+    /// 2026-08-11: the SIZE rides along here too, because it is the same dial as the resting card's
+    /// (<see cref="SlotCardScale"/>) and the re-home at the bottom of this loop already applies that
+    /// half — resizing anywhere else would let the two drift apart for a frame.
     /// </summary>
     internal void SetOverlayOffset(Vector3 offset, float spacing)
     {
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+        float snap = SnapGlowScale;
+        float wanted = WantedGlowScale;
         for (int i = 0; i < 2; i++)
         {
             float xSpread = (i == 0 ? -0.5f : 0.5f) * spacing; // spread the pair apart along the slot axis
             if (_slotHighlights[i] != null)
+            {
                 _slotHighlights[i]!.transform.localPosition =
                     new Vector3(offset.x + xSpread, offset.y, SlotGlowBaseZ + offset.z);
+                _slotHighlights[i]!.transform.localScale = new Vector3(w * snap, h * snap, 1f);
+            }
             if (_wantedHighlights[i] != null)
+            {
                 _wantedHighlights[i]!.transform.localPosition =
                     new Vector3(offset.x + xSpread, offset.y, WantedGlowBaseZ + offset.z);
+                _wantedHighlights[i]!.transform.localScale = new Vector3(w * wanted, h * wanted, 1f);
+            }
             // Item B: the placed card's resting spot follows the SAME overlay offset/spread — the
             // glow AND the physical card move together. Re-home any resting (non-held) occupant now;
             // freshly placed cards read the coupled offset via SlotHomeOffsetFor.

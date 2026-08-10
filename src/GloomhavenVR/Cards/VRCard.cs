@@ -1076,7 +1076,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// CARD-LOCAL units (this collider's space) — computed from the live slot transforms
     /// so it tracks every board scale/config. -1 when no board/slots exist. Used to clamp
     /// the apron side pads so two docked cards' grab zones can never cross the midline
-    /// between the recesses, no matter how the pad fractions or SlotCardFill are tuned.
+    /// between the recesses, no matter how the pad fractions or SlotOverlayScale are tuned.
     /// </summary>
     private float DockSlotPitchLocal()
     {

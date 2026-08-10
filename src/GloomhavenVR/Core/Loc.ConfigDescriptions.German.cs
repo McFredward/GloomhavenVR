@@ -944,14 +944,8 @@ internal static partial class Loc
                 + "Karten, angedockte Aktionskarten und die Layouts für Einzelkartenwahl/kurze Rast "
                 + "gleichermaßen. Ändert NICHT Breite/Höhe der Karte (ein separater Schritt richtet die "
                 + "Vertiefung an der Karte aus).",
-            ["Cards/SlotCardFill"] =
-                "Punkt 3: wie weit eine in einen Brett-Slot gelegte Karte HOCHSKALIERT wird, um die physische "
-                + "Vertiefung zu füllen. Multipliziert ihre Slot-Größe (zusätzlich zum 1.3x SlotScale des "
-                + "Rahmens). 1.0 = Größe vor der Korrektur, sichtbar kleiner als die Vertiefung. PRO BRETT: "
-                + "Richtung Vertiefungs-/Kartenverhältnis des AKTIVEN Bretts erhöhen, bis die Karte sie fast "
-                + "füllt, ohne den Rand zu überragen; der Standard passt zum mitgelieferten PlayTray. Gilt für "
-                + "gespielte Karten, Einzelkartenwahl-Kandidaten und angedockte Aktionskarten. Ändert NICHT die "
-                + "Vertiefung oder die Sitztiefe (das ist SlotCardInset).",
+            // Cards/SlotCardFill ist WEG (stillgelegt 2026-08-11) — Nachfolger ist das brettweise
+            // Cards/SlotOverlayScale_*, das Überlagerung und liegende Karte gemeinsam bemisst.
             ["Cards/RoundButtonDiameter"] =
                 "VERALTET — ohne Wirkung, ersetzt durch das brettweise RestButtonDiameter_<board>. Nichts "
                 + "liest diesen Wert: den brettweisen Eintrag, den der alte Text hier als \"zukünftig\" "
@@ -1058,6 +1052,16 @@ internal static partial class Loc
                 + "langen (Slot-zu-Slot-)Achse des Boards ADDIERT wird — Slot 0 (links) wandert −½, Slot 1 "
                 + "(rechts) +½. Startwert 0 (die Slots verteilen die Overlays bereits; positiv zieht sie "
                 + "auseinander). Item 1.",
+            ["Cards/SlotOverlayScale_*"] =
+                "GRÖSSE der beiden blinkenden Slot-Overlays UND der Karte, die darin zu liegen kommt — ein "
+                + "Regler für beides, damit die Fläche, die den Platz markiert, genau die Fläche ist, die die "
+                + "Karte danach bedeckt. Multipliziert die eigene Breite/Höhe der Karte (zusätzlich zum 1.3x "
+                + "SlotScale des Rahmens), 1.0 = Karte in ihrer angelegten Größe. Das türkise Wunsch-Leuchten "
+                + "nimmt genau diesen Wert; das goldene Einrast-Leuchten behält sein Verhältnis von 0,912 dazu "
+                + "und liegt weiter INNERHALB des türkisen, wenn beide zu sehen sind. So weit erhöhen, bis die "
+                + "Karte die physische Vertiefung fast füllt, ohne den Rand zu überragen. Ersetzt das "
+                + "stillgelegte globale SlotCardFill und übernimmt dessen 1.45 unverändert. Ändert NICHT die "
+                + "Sitztiefe (das ist SlotCardInset).",
             ["Cards/DecisionGap_*"] =
                 "Senkrechter Abstand zwischen dem ENTSCHEIDUNGSTEXT (den das Spiel an der Unterkante "
                 + "des Bretts zeichnet) und der OBERKANTE der Entscheidungsknöpfe, in board-lokalen "

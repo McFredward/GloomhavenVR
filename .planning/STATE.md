@@ -1,10 +1,10 @@
 # GSD State
 
 - **Milestone:** v0.1 (first playable VR release)
-- **Position:** **Hardware iteration loop, multiplayer-capable.** Current shipped build:
-  **`NetProtocol.ModBuild = 105`** (commit `e4ccf8c`); one further fix round is merged on top
-  (`76daf29`) and does **not** yet carry a bump, because it has not been handed to the friend.
-- **Last update:** 2026-08-10
+- **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
+  **`NetProtocol.ModBuild = 106`** — it carries TWO rounds, the unbumped `76daf29` and the
+  slot-overlay unification, and is waiting on its first hardware run.
+- **Last update:** 2026-08-11
 
 ---
 
@@ -126,7 +126,24 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **`76daf29`** (no bump) — quest text flickered because ONE empty poll blanked it: the goal
+- **ModBuild 106** — the two blinking slot rectangles and the card that lands in them were sized by
+  two unrelated numbers with no dial between them: the card took `[Cards] SlotCardFill` = 1.45, the
+  overlays took CODE LITERALS off the card metric (teal wanted-pulse 1.36, gold snap glow 1.24), so
+  the card overhung the rectangle that had just marked its spot by 6.6 % (119.7 mm inside 112.3 mm,
+  board metres, shipped defaults). The dial the user found, `[Cards] ActiveCardScale_*`, sizes the
+  ACTIVE PILE via `ActivePileViewer`, which does not exist during selection — hence "no effect". The
+  POSITION half of the coupling already existed (`SlotOverlayOffset`/`Spacing` feed both the glows
+  and `SlotHomeOffsetFor`); only SIZE was missing. Now one per-board dial,
+  `[Cards] SlotOverlayScale_{board}`, seeded with SlotCardFill's 1.45: the card is untouched, the
+  teal grew to meet it exactly (user: "exakt ausfüllen"), the gold keeps its shipped 0.912 ratio so
+  it still reads inside the teal when both show. `SlotCardFill` retired (ConfirmUndoSize pattern) —
+  no migration marker, the successor key is new. Wire: field **171** (FACTOR range), needed because
+  the peer's glows are not cards — `RemoteBoardFurniture` builds them from the recess metric × a
+  factor, and record 11 only carries the finished card WIDTH. Ratio is now one shared constant
+  `PlayTray.SnapGlowRatio` instead of a literal on each side. Side finding: `Fill` is in no
+  `ConfigSteps` unit row, so the retired dial had been stepping off its own magnitude all along —
+  the successor's `Scale` ending fixes that and a step vector pins it.
+- **`76daf29`** (folded into the 106 bump) — quest text flickered because ONE empty poll blanked it: the goal
   resolves through `CardsGameApi.ActiveHand()`, which is null while the game re-binds a pooled
   hand, so "no goal" and "ask again in a moment" were indistinguishable. Now told apart at the
   source. Figure-grab highlight flashed because a bare radius is a step function and the hand
@@ -161,14 +178,10 @@ Newest first. Each entry names the *root cause*, because that is what generalise
 
 ### 5a. Committed to the user, not yet done
 
-**Card overlay size/position must also govern the cards lying on the control board** (user,
-2026-08-10, item 3). What was established: the dial he found, `[Cards] ActiveCardScale_*`,
-governs the **active pile** (played cards) via `Cards/ActivePileViewer.cs` — which does not
-exist during the selection phase, hence "no effect". The cards lying in the board slots are
-sized by `[Cards] SlotCardFill` and positioned by `PlayTray.SlotHomeOffsetFor`
-(`Cards/PlayTray.4.Slots.cs`). His request is a **unification of two families** so one size and
-one position drive the overlay *and* the placed cards. Touches the slots, the overlay and the
-MP mirror. **Do this first, with workers.**
+*(Empty. The slot-overlay unification that stood here shipped in ModBuild 106 — see §4. Note for
+next time: "overlay" in the user's vocabulary means the two BLINKING RECTANGLES on the board where
+a hand card may be laid, not the active pile off its right edge. The predecessor's entry here read
+it the other way and that cost a clarification round.)*
 
 ### 5b. Awaiting the next hardware session (diagnostics are already in place)
 

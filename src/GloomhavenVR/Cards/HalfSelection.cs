@@ -270,7 +270,7 @@ internal sealed class HalfSelection
                 // they were played into — home scale 1 under the slot root, so the
                 // slot's own SlotScale is the card density (test #18 pattern). Seated
                 // into the physical recess with the shared inset (test #28) and scaled up
-                // to fill the recess (ITEM 3, [Cards] SlotCardFill).
+                // to fill the recess (ITEM 3, [Cards] SlotOverlayScale_{board}).
                 card.SetHome(slot, PlayTray.SlotHomeOffset, Quaternion.identity, PlayTray.SlotCardScale);
             }
             else

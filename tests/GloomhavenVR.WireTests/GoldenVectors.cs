@@ -1404,7 +1404,7 @@ internal static class GoldenVectors
 
         // -- 7l. SLOT-CARD SIZE (extension record 11) --------------------------------------
         // The remote board hardcoded 0.0635 × 1.3 = 82.55 mm for a parked card and dropped the
-        // owner's CardWidth config and [Cards] SlotCardFill (default 1.45!) entirely, so even two
+        // owner's CardWidth config and [Cards] SlotOverlayScale_{board} (default 1.45!) entirely, so even two
         // default-configured clients disagreed by 31 % — the user's "Kartengröße nicht 1:1"
         // report. The record carries BOTH live widths (frame metric + card) in board-local
         // tenth-mm; absent = the legacy constant, which is exactly what pre-record peers render.

@@ -60,7 +60,13 @@ internal static partial class Defaults
     internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees  (legacy: superseded by the per-board BoardPitchMax_<board>)
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
     internal const float SlotCardInset = 0.004f;                                                      // => [Cards] SlotCardInset
-    internal const float SlotCardFill = 1.45f;                                                        // => [Cards] SlotCardFill
+    // [Cards] SlotCardFill is GONE (retired 2026-08-11, user report "das Karten-Overlay soll auch
+    // die Karten regieren, die auf dem Board liegen"). It sized the card in the recess while the
+    // blinking overlays sized themselves off a code literal, so the two could never be brought into
+    // register. Its 1.45 lives on as the SEED of the per-board SlotOverlayScale_{board} below, which
+    // now sizes the overlay AND the card together. No line here on purpose — a tuned cfg still
+    // carrying the key is reported UNMAPPED by scripts/rebase-defaults.py, which is right for a
+    // retired key.
     internal const float RoundButtonDiameter = 0.105f;                                                // => [Cards] RoundButtonDiameter  (legacy: read once as the seed for its successor)
     internal const float RoundButtonThickness = 0.012f;                                               // => [Cards] RoundButtonThickness  (legacy: read once as the seed for its successor)
     internal const float RestButtonInsetX = 0.024f;                                                   // => [Cards] RestButtonInsetX  (legacy: read once as the seed for its successor)
@@ -433,6 +439,12 @@ internal static partial class Defaults
     internal const float SlotOverlaySpacing_Oak = -0.008f;                                            // => [Cards] SlotOverlaySpacing_Oak
     internal const float SlotOverlaySpacing_Steel = 0.002f;                                           // => [Cards] SlotOverlaySpacing_Steel
     internal const float SlotOverlaySpacing_Bronze = 0.002f;                                          // => [Cards] SlotOverlaySpacing_Bronze
+    // THE OVERLAY/CARD SIZE, shared by the blinking wanted-glow and the card that lands in it. 1.45
+    // is the retired [Cards] SlotCardFill carried over unchanged, so the card's fit in the physical
+    // recess is exactly what it was; the overlay grew 1.36 -> 1.45 to meet it. See PlayTray.4.Slots.
+    internal const float SlotOverlayScale_Oak = 1.45f;                                                // => [Cards] SlotOverlayScale_Oak
+    internal const float SlotOverlayScale_Steel = 1.45f;                                              // => [Cards] SlotOverlayScale_Steel
+    internal const float SlotOverlayScale_Bronze = 1.45f;                                             // => [Cards] SlotOverlayScale_Bronze
     internal static readonly Vector3 InitiativeOffset_Oak = new Vector3(0f, 0.17f, -0.048f);          // => [Cards] InitiativeOffset_Oak
     internal static readonly Vector3 InitiativeOffset_Steel = new Vector3(0f, 0.2f, -0.07f);          // => [Cards] InitiativeOffset_Steel
     internal static readonly Vector3 InitiativeOffset_Bronze = new Vector3(0f, 0.2f, -2e-09f);        // => [Cards] InitiativeOffset_Bronze

@@ -295,7 +295,7 @@ internal sealed class RemoteAvatar
     public float SlotFrameWidth { get; private set; }
 
     /// <summary>Board-local width a CARD parked in the sender's recess renders at — their
-    /// <c>CardWidth × SlotScale × SlotCardFill</c> (extension record 11). Same 0-means-legacy
+    /// <c>CardWidth × SlotScale × SlotOverlayScale</c> (extension record 11). Same 0-means-legacy
     /// contract as <see cref="SlotFrameWidth"/>. This is the size the user's 1:1 rule is about:
     /// the card-to-board ratio on the remote board must equal what the owner sees.</summary>
     public float SlotCardWidth { get; private set; }

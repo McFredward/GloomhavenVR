@@ -321,7 +321,7 @@ internal struct PresenceState
     /// True when this packet carries the sender's SLOT-CARD SIZE (extension record
     /// <see cref="NetProtocol.ExtIdSlotCardSize"/>): the board-local widths their own board renders
     /// its slot FRAME overlays and a parked CARD at — local config
-    /// (<c>[Cards] CardWidth</c>/<c>SlotCardFill</c>) that is not derivable from anything already
+    /// (<c>[Cards] CardWidth</c>/<c>SlotOverlayScale</c>) that is not derivable from anything already
     /// synced. False means "the legacy constant" (<see cref="NetProtocol.SlotCardWidthLegacy"/>) —
     /// either the sender's config really lands on it or they predate the record; both render
     /// identically, which is why the record is only written when the sizes differ.
@@ -334,7 +334,7 @@ internal struct PresenceState
     public ushort SlotFrameWidthCode;
 
     /// <summary>Wire code (tenth-mm) of the width a CARD parked in the sender's recess renders at —
-    /// <c>CardWidth × SlotScale × SlotCardFill</c>. Meaningful only when
+    /// <c>CardWidth × SlotScale × SlotOverlayScale</c>. Meaningful only when
     /// <see cref="HasSlotCardSize"/>.</summary>
     public ushort SlotCardWidthCode;
 

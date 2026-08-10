@@ -134,8 +134,11 @@ internal static class CardsConfig
     internal static ConfigEntry<float> SpawnForwardMeters = null!;
     internal static ConfigEntry<float> SpawnDownMeters = null!;
 
-    /// <summary>Item 3: multiplier that scales a slotted card UP to (nearly) fill the physical slot recess.</summary>
-    internal static ConfigEntry<float> SlotCardFill = null!;
+    // [Cards] SlotCardFill is GONE (retired 2026-08-11). It scaled a slotted card up to fill the
+    // physical recess, but the blinking slot overlays took their size from a code literal, so the
+    // card that landed was 6.6 % wider than the overlay that had just marked the spot and there was
+    // no dial that could close the gap. Both are the per-board SlotOverlayScale_{board} now — see
+    // PlayTray.SlotCardScale. Deliberately NOT bound any more (tombstone, ConfirmUndoSize pattern).
 
     /// <summary>LEGACY — no effect, superseded by the per-board <c>RestButtonDiameter_{board}</c>, which
     /// <c>RestControls.EnsureBuilt</c> reads. Bound for cfg back-compat only. ("Round" here means the
@@ -209,6 +212,13 @@ internal static class CardsConfig
     // Item 1: the two slot overlays move together as a PAIR (Overlays element); this spacing
     // spreads them apart along the inter-slot (board long) axis — slot 0 by −½, slot 1 by +½.
     private static readonly ConfigEntry<float>[] _slotOverlaySpacing = new ConfigEntry<float>[3];
+    // THE SLOT-OVERLAY SIZE, and — this is the point of it — the size of the card that lands there.
+    // User report 2026-08-10/11: "die zwei Bereiche die Blinken … Overlay-Größe und -Position sollen
+    // auch die Karten regieren, die auf dem Board liegen", answered with "exakt ausfüllen". The
+    // position half of that coupling already existed (_slotOverlayOffset + spacing, read by both the
+    // glows and SlotHomeOffsetFor); this is the missing size half, and it retires [Cards]
+    // SlotCardFill, whose 1.45 it inherits so the card's fit in the recess is unchanged.
+    private static readonly ConfigEntry<float>[] _slotOverlayScale = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _initiativeOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _pickBannerOffset = new ConfigEntry<Vector3>[3];
     // Hover-hint (game tooltip) anchor above the board, user report 2026-08-03: a hint that BELONGS
@@ -529,6 +539,7 @@ internal static class CardsConfig
         // Width/Height for both shapes now; see the tombstone at the _confirmUndoOffset field.
         internal static readonly Vector3[] SlotOverlayOffset = { Defaults.SlotOverlayOffset_Oak, Defaults.SlotOverlayOffset_Steel, Defaults.SlotOverlayOffset_Bronze };
         internal static readonly float[] SlotOverlaySpacing = { Defaults.SlotOverlaySpacing_Oak, Defaults.SlotOverlaySpacing_Steel, Defaults.SlotOverlaySpacing_Bronze };
+        internal static readonly float[] SlotOverlayScale = { Defaults.SlotOverlayScale_Oak, Defaults.SlotOverlayScale_Steel, Defaults.SlotOverlayScale_Bronze };
         internal static readonly Vector3[] InitiativeOffset = { Defaults.InitiativeOffset_Oak, Defaults.InitiativeOffset_Steel, Defaults.InitiativeOffset_Bronze };
         internal static readonly float[] DecisionGap = { Defaults.DecisionGap_Oak, Defaults.DecisionGap_Steel, Defaults.DecisionGap_Bronze };
         internal static readonly Vector3[] PickBannerOffset = { Defaults.PickBannerOffset_Oak, Defaults.PickBannerOffset_Steel, Defaults.PickBannerOffset_Bronze };
@@ -712,15 +723,9 @@ internal static class CardsConfig
             "surface facing the player. Raise it if cards still look sunken, lower it if they float. Applies to played " +
             "cards, docked action cards and the single-card pick/short-rest layouts alike. Does NOT " +
             "change the card width/height (a separate pass aligns the recess to the card).");
-        SlotCardFill = _file.Bind("Cards", "SlotCardFill", Defaults.SlotCardFill,
-            "Item 3: how much a card laid in a board slot scales UP to fill the physical slot " +
-            "recess. Multiplies the card's in-slot size (on top of the slot frame's own 1.3x " +
-            "SlotScale). 1.0 = the pre-fix size (visibly smaller than the recess). PER-BOARD: " +
-            "raise toward the recess/card ratio of the ACTIVE control-board asset until the card " +
-            "nearly fills the recess without overflowing the rim; the default is tuned for the " +
-            "current bundled PlayTray. Applies to played cards, single-card pick candidates and " +
-            "docked action cards alike. Does NOT change the recess or the card's slot seating depth " +
-            "(that is SlotCardInset).");
+        // SlotCardFill is deliberately NOT bound any more — see the tombstone at its former field.
+        // Its successor is the per-board SlotOverlayScale_{board}, bound with the other per-board
+        // dials below, which sizes the blinking overlay and the card that lands in it together.
         RoundButtonDiameter = _file.Bind("Cards", "RoundButtonDiameter", Defaults.RoundButtonDiameter,
             "LEGACY — no effect, superseded by the per-board RestButtonDiameter_<board>. Nothing " +
             "reads this value: the per-board descriptor this entry's old text called 'a future' one " +
@@ -1042,6 +1047,15 @@ internal static class CardsConfig
                 $"[{board}] EXTRA gap (board-local meters) ADDED between the TWO slot overlays along the " +
                 "board's long (inter-slot) axis — slot 0 (left) moves −½, slot 1 (right) +½. Seeded 0 " +
                 "(the slots already space the overlays; positive spreads them apart). Item 1.");
+            _slotOverlayScale[i] = _file.Bind("Cards", $"SlotOverlayScale_{board}", BoardDefaults.SlotOverlayScale[i],
+                $"[{board}] SIZE of the two blinking slot overlays AND of the card that comes to rest " +
+                "in them — one dial for both, so what the overlay marks is exactly what the card " +
+                "covers. Multiplies the card's own width/height (on top of the slot frame's 1.3x " +
+                "SlotScale), so 1.0 = a card at its authored size. The teal 'wanted' pulse takes this " +
+                "value exactly; the gold snap glow keeps its shipped 0.912 ratio to it so it still " +
+                "reads INSIDE the teal when both show. Raise until the card nearly fills the physical " +
+                "recess without overflowing the rim. Replaces the retired global SlotCardFill and " +
+                "ships its 1.45 unchanged. Does NOT change the seating depth (that is SlotCardInset).");
             _initiativeOffset[i] = _file.Bind("Cards", $"InitiativeOffset_{board}",
                 BoardDefaults.InitiativeOffset[i],
                 $"[{board}] initiative-track mount local position (replaces the fixed mount pos), " +
@@ -1663,6 +1677,7 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> ItemCardOffset(ControlBoard b) => _itemCardOffset[(int)b];
     internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
     internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
+    internal static ConfigEntry<float> SlotOverlayScale(ControlBoard b) => _slotOverlayScale[(int)b];
     internal static ConfigEntry<Vector3> InitiativeOffset(ControlBoard b) => _initiativeOffset[(int)b];
 
     /// <summary>Per-board offset of the pick-status placard (board-local metres) — user request

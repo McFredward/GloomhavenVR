@@ -207,6 +207,7 @@ internal static partial class VROptionsTab
                     {
                         new BoardRef("Cards", "SlotOverlayOffset"),
                         new BoardRef("Cards", "SlotOverlaySpacing"),
+                        new BoardRef("Cards", "SlotOverlayScale"),
                         new BoardRef("Cards", "ItemUseSlotOffset"),
                         new BoardRef("Cards", "ItemCardOffset"),
                     },

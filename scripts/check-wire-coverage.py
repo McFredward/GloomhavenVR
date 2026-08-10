@@ -100,7 +100,11 @@ EXEMPT = {
     ("Cards", "TrayScale"): ("DERIVED", "seats the board; the resulting SCALE is synced"),
     ("Cards", "TrayFollow"): ("DERIVED", "an anchor MODE; the pin cap's label rides record 13 and the pose rides the board transform"),
     ("Cards", "BoardMoveMode"): ("DERIVED", "its own bind says it: local cosmetics only, peers see the resulting board pose"),
-    ("Cards", "SlotCardFill"): ("DERIVED", "the product it feeds (the slot card WIDTH) rides extension record 11"),
+    # ("Cards", "SlotCardFill") is GONE with its dial (retired 2026-08-11). It was DERIVED because
+    # the product it fed rode record 11 — true while the card was the only thing it sized. Its
+    # per-board successor SlotOverlayScale_{board} also sizes the blinking slot overlays, which are
+    # NOT cards and are built from a factor on the peer's side, so it carries a field of its own
+    # (id 171) instead of an exemption.
     ("Cards", "BrowseFanOffset"): ("DERIVED", "the browse fan's board-local anchor rides extension record 5 while the fan is open"),
     ("Cards", "Board"): ("DERIVED", "the board STYLE rides the extras block, byte A bits 5..6"),
     # RECLASSIFIED FROM PENDING (2026-08-09). Its reason read "a bool, and record 28 has no bool

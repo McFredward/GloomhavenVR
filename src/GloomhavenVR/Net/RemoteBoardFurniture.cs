@@ -1169,9 +1169,18 @@ internal sealed class RemoteBoardFurniture
         for (int i = 0; i < 2; i++)
         {
             Vector3 card = (i == 0 ? slot0CardLocal : slot1CardLocal) + SlotOverlayLocal(in tuning, i);
-            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", card, 1.36f, -0.003f,
+            // SIZE = the OWNER's [Cards] SlotOverlayScale_{board} (tuning field 171), not the 1.36 /
+            // 1.24 literals this used to carry. Those literals were the local build's, and the local
+            // build no longer has them: since 2026-08-11 the wanted-glow is EXACTLY the size of the
+            // card that lands in it (one dial for both — user: "exakt ausfüllen") and the snap glow
+            // keeps the shipped ratio to it. A peer who left the dial alone sees precisely what
+            // shipped; a peer who moved it sees their own overlay and their own card in register,
+            // which is the tuning guarantee. _slotFrameW is the owner's CardWidth × SlotScale from
+            // record 11, so this is the same product as the local quad's.
+            float wantedScale = tuning.SlotOverlayScale;
+            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", card, wantedScale, -0.003f,
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
-            _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, 1.24f, -0.005f,
+            _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, wantedScale * Cards.PlayTray.SnapGlowRatio, -0.005f,
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
         }
 

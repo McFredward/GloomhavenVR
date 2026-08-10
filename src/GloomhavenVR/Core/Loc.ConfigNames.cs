@@ -211,7 +211,8 @@ internal static partial class Loc
             ["Cards/TrayPitch"] = Pair("Board pitch (grab, °)", "Brett-Neigung (Griff, °)"),
             ["Cards/CardLerpSpeed"] = Pair("Card flight speed", "Kartenflug-Tempo"),
             ["Cards/SlotCardInset"] = Pair("Slot card: lift out (m)", "Slot-Karte: anheben (m)"),
-            ["Cards/SlotCardFill"] = Pair("Slot card: fill factor", "Slot-Karte: Füllgrad"),
+            // Cards/SlotCardFill ("Slot-Karte: Füllgrad") is GONE — retired 2026-08-11 together with
+            // its entry; its successor is Cards/SlotOverlayScale_* below, which names both surfaces.
             ["Cards/WantedSlotHint"] = Pair("Glow on expected slot", "Erwarteter Slot leuchtet"),
             ["Cards/CardDust"] = Pair("Card dust burst", "Karten-Staubwolke"),
             ["Cards/GameCardParticles"] = Pair("Game card particles", "Karten-Partikel (Spiel)"),
@@ -302,6 +303,7 @@ internal static partial class Loc
             ["Cards/ItemCardOffset_*"] = Pair("Item cards: position", "Item-Karten: Position"),
             ["Cards/SlotOverlayOffset_*"] = Pair("Slot glow: position", "Slot-Glühen: Position"),
             ["Cards/SlotOverlaySpacing_*"] = Pair("Slot glow: spacing (m)", "Slot-Glühen: Abstand (m)"),
+            ["Cards/SlotOverlayScale_*"] = Pair("Slot glow + card: size", "Slot-Glühen + Karte: Größe"),
             ["Cards/InitiativeOffset_*"] = Pair("Initiative: position", "Initiative: Position"),
             ["Cards/PickBannerOffset_*"] = Pair("Status placard: position", "Statustafel: Position"),
             // Config KEY kept for cfg compatibility; the DISPLAY name follows the unified

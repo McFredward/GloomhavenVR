@@ -416,7 +416,39 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 105;
+    public const ushort ModBuild = 106;
+    // Build 106: TWO rounds in one bump — 105 shipped, then a fix round rode on top unbumped
+    // (76daf29) because it never reached the friend's machine. Both are in here.
+    //
+    // THE ROUND'S SUBJECT: the two blinking rectangles that mark where a hand card may be laid, and
+    // the card that then lands in them, were sized by two unrelated numbers that could not be
+    // brought into register. The card took [Cards] SlotCardFill = 1.45; the overlays took CODE
+    // LITERALS off the card metric — the teal wanted-pulse 1.36, the gold snap glow 1.24 — so on
+    // shipped defaults, in board metres, the card was 119.7 mm inside a 112.3 mm rectangle and
+    // overhung it on all four sides by 6.6 %. There was no dial for the overlay at all, which is why
+    // the one the user found ([Cards] ActiveCardScale_*) appeared to do nothing: that one sizes the
+    // ACTIVE PILE through ActivePileViewer, and the active pile does not exist during selection.
+    //
+    // The POSITION half of this coupling had been built already (SlotOverlayOffset/Spacing feed both
+    // the glows and SlotHomeOffsetFor); only the SIZE half was missing. It is now one per-board dial,
+    // [Cards] SlotOverlayScale_{board}, seeded with SlotCardFill's 1.45 — so the card does not move
+    // or resize by a hair, the teal grew 1.36 → 1.45 to meet it exactly ("exakt ausfüllen"), and the
+    // gold keeps its shipped 1.24/1.36 = 0.912 ratio to the teal so it still reads INSIDE it when
+    // both show. SlotCardFill is retired (ConfirmUndoSize pattern); no migration marker is needed
+    // because the successor key is new and BepInEx binds it at its default.
+    //
+    // WHY IT NEEDS WIRE (field 171, FACTOR range): record 11 already carries the card's finished
+    // WIDTH, but the peer's glows are not cards — RemoteBoardFurniture builds them from the recess
+    // metric times a factor, and it needs the factor, not the product. Recovering it by dividing
+    // record 11 would rest on a second dial travelling in step. The two literals over there are gone
+    // with the local ones; the ratio is now a single shared constant, PlayTray.SnapGlowRatio.
+    //
+    // Also in this bump, from the unbumped round: quest text no longer blanks on a single empty poll
+    // (CardsGameApi.ActiveHand() is null while the game re-binds a pooled hand, so "no goal" and
+    // "ask again" were indistinguishable), and the figure-grab highlight no longer flashes (a bare
+    // radius is a step function and the hand was drifting ON the boundary — now enter/exit hysteresis
+    // plus a 6-frame dwell).
+    //
     // Build 105: a multiplayer round, and its centre of gravity is that a peer's board was being
     // DESCRIBED to the other client instead of being SHOWN to it.
     //   * THE DECISION ROW. What crossed was a label string — the hardware log has it verbatim,
@@ -1392,7 +1424,8 @@ internal static class NetProtocol
     /// <para>THE DEFECT IT FIXES (user, hardware MP test 2026-08-04: "Die Kartengröße am fremden
     /// Board stimmt nicht 1:1 — ich sehe sie kleiner"). The LOCAL board renders a card parked in a
     /// recess at <c>CardsConfig.CardWidth × PlayTray.SlotScale × PlayTray.SlotCardScale</c> —
-    /// the last factor is <c>[Cards] SlotCardFill</c>, whose DEFAULT is 1.45 — while the remote
+    /// the last factor is <c>[Cards] SlotOverlayScale_{board}</c>, whose DEFAULT is 1.45 (it was the
+    /// global <c>SlotCardFill</c> until that dial's 2026-08-11 retirement) — while the remote
     /// mirror hardcoded <c>Defaults.CardWidth × SlotScale</c> and dropped the fill entirely, so
     /// even two default-configured clients disagreed by 31 %: everyone's remote cards rendered at
     /// 82.6 mm where their owner sees 119.7 mm. Both factors are LOCAL CONFIG on the sender and
@@ -1402,9 +1435,14 @@ internal static class NetProtocol
     /// <para>WHY TWO WIDTHS: the board's slot visuals are TWO independent sizes layered from the
     /// same config — the recess/glow FRAME metric (<c>CardWidth × SlotScale</c>, what
     /// <c>PlayTray.4.Slots</c> sizes the wanted-glow/frame quads from) and the CARD occupying it
-    /// (that × <c>SlotCardFill</c>). Transmitting only the card width would leave the receiver
-    /// unable to reproduce the frame (the fill is not recoverable from one number), so the glow
-    /// overlays would mis-frame the very card the record just fixed.</para>
+    /// (that × the overlay scale). Transmitting only the card width would leave the receiver unable
+    /// to reproduce the frame (the scale is not recoverable from one number), so the glow overlays
+    /// would mis-frame the very card the record just fixed.</para>
+    ///
+    /// <para>2026-08-11: the two are no longer independent — one dial sizes the wanted-glow and the
+    /// card alike (<see cref="TuneSlotOverlayScale"/>), so the CARD width here equals the glow's.
+    /// The FRAME metric stays, and stays separate: it is the recess the peer's overlays are seated
+    /// against, and the record predates the coupling in shipped builds that are still out there.</para>
     ///
     /// <para>NO IDENTITY, NO GAMEPLAY: two cosmetic lengths. Written only while a control board
     /// exists AND at least one of the two differs from the legacy assumption
@@ -2995,6 +3033,30 @@ internal static class NetProtocol
     /// the SDF spread (0..1). A dimensionless fraction, so it rides the FACTOR width with the rest of
     /// its kind; its COLOUR is id 49 and its on/off switch id 229.</summary>
     public const byte TuneLabelOutlineWidth = 170;
+
+    /// <summary>
+    /// [Cards] SlotOverlayScale_{board} — ONE size for the two blinking slot overlays AND for the
+    /// card that comes to rest in them (user 2026-08-11: "exakt ausfüllen"). Dimensionless multiple
+    /// of the authored card metric, hence the FACTOR width.
+    ///
+    /// <para>WHY IT NEEDS A FIELD OF ITS OWN even though the card's own size already travels. The
+    /// receiver's card metric arrives on extension record 11 as the finished product
+    /// <c>CardWidth × SlotScale × SlotCardScale</c> — a LENGTH, and one that the peer's mirrored
+    /// cards consume. The GLOWS are not cards: <c>RemoteBoardFurniture</c> builds them from the
+    /// board's own recess anchors times a factor, so it needs the FACTOR, and dividing record 11 by
+    /// the owner's CardWidth to recover it would rest on a second dial travelling in step. The
+    /// factor is also what preserves the gold/teal ratio on the far side.</para>
+    ///
+    /// <para>Predecessor: the retired GLOBAL SlotCardFill dial, which never had a tuning field
+    /// because record 11 already carried its product. Retiring it for a per-board dial is what makes
+    /// this field necessary — and per-board is right, because the recess it fills is board geometry.
+    /// (Written without its brackets on purpose: check-wire-coverage.py resolves a field to a dial
+    /// by the NEAREST bracketed key above the declaration, so a second one here would name the dead
+    /// dial as this field's subject.)</para>
+    ///
+    /// <para>[Cards] SlotOverlayScale_{board}.</para>
+    /// </summary>
+    public const byte TuneSlotOverlayScale = 171;
 
     // ANGLE (2 B, hundredth-degrees).
 

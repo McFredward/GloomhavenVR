@@ -50,12 +50,42 @@ internal sealed partial class PlayTray
 
     /// <summary>
     /// ITEM 3: the home scale a card takes when it seats in a slot — it grows to (nearly)
-    /// fill the recess. Multiplies on top of the slot frame's inherited 1.3× SlotScale;
-    /// tuned per board via <c>[Cards] SlotCardFill</c>. Shared by every slot-home path
-    /// (<see cref="PlaceCard"/>, <see cref="PlacePickCard"/>, HalfSelection docked cards)
-    /// so a slotted card is the same size regardless of how it got there.
+    /// fill the recess. Multiplies on top of the slot frame's inherited 1.3× SlotScale.
+    /// Shared by every slot-home path (<see cref="PlaceCard"/>, <see cref="PlacePickCard"/>,
+    /// HalfSelection docked cards) so a slotted card is the same size regardless of how it got there.
+    ///
+    /// <para>THIS IS THE OVERLAY SIZE (2026-08-11). It used to be its own dial, <c>[Cards]
+    /// SlotCardFill</c>, while <see cref="BuildWantedHighlights"/> sized the blinking overlay off a
+    /// code literal — 1.36 against the card's 1.45, so the card that landed overhung by 6.6 % the
+    /// very rectangle that had just marked the spot, and no dial could close it. User, after being
+    /// asked whether the overlay should keep a visible rim: "exakt ausfüllen". So the card and the
+    /// wanted-glow now read ONE per-board number, <c>[Cards] SlotOverlayScale_{board}</c>, seeded
+    /// with SlotCardFill's 1.45 — the card is unchanged, the overlay grew to meet it, and turning
+    /// the dial moves both. Both live in the slot frame and both scale the same authored card
+    /// metric (<see cref="VRCard.WorldWidth"/> is <c>CardWidth × lossyScale</c>, the quad is
+    /// <c>CardWidth × factor</c>), so the two numbers are directly comparable — that is what makes
+    /// "exactly fills" a single shared factor rather than a fitted constant.</para>
     /// </summary>
-    internal static float SlotCardScale => Mathf.Max(0.1f, CardsConfig.SlotCardFill.Value);
+    internal static float SlotCardScale =>
+        Mathf.Max(0.1f, CardsConfig.SlotOverlayScale(CardsConfig.CurrentBoard).Value);
+
+    /// <summary>
+    /// The gold SNAP glow's size as a fraction of the teal WANTED glow (= of the card). The two
+    /// shipped as 1.24 and 1.36 and can be on together — a held card in snap range over a slot the
+    /// game still wants — where the teal is meant to read as a rim AROUND the gold. Keeping their
+    /// RATIO rather than a second dial preserves that reading at every setting of
+    /// <c>SlotOverlayScale</c>; 1.24/1.36 is where it shipped.
+    /// </summary>
+    /// <remarks>Internal, not private: <c>Net.RemoteBoardFurniture</c> reproduces the pair on a
+    /// peer's board and must hold the same ratio — a second literal over there is exactly how the
+    /// two drifted apart before.</remarks>
+    internal const float SnapGlowRatio = 1.24f / 1.36f;
+
+    /// <summary>The teal wanted-pulse quad's size factor — the card's own, by construction.</summary>
+    private static float WantedGlowScale => SlotCardScale;
+
+    /// <summary>The gold snap-glow quad's size factor: the card's, held at the shipped ratio.</summary>
+    private static float SnapGlowScale => SlotCardScale * SnapGlowRatio;
 
     /// <summary>
     /// Slot anchor transform (test #19: HalfSelection docks the round cards into
@@ -179,9 +209,10 @@ internal sealed partial class PlayTray
             // ADDED over the board, NEGATIVE local-Z (proud toward the player), depth-correct (no
             // RenderOnTop, occludes naturally). The hand-fan insertion overlay uses this SAME
             // helper so the two telegraphs look identical.
+            float snap = SnapGlowScale; // 2026-08-11: the card's size, at the shipped gold/teal ratio
             _slotHighlights[i] = CardGlow.CreateGlowQuad("SlotHighlight",
                 slot!,
-                new Vector3(w * 1.24f, h * 1.24f, 1f),
+                new Vector3(w * snap, h * snap, 1f),
                 new Vector3(ov.x + xSpread, ov.y, SlotGlowBaseZ + ov.z),
                 new Color(1f, 0.85f, 0.3f, 0.95f));
             // 2026-08-04 (status-placard defect family): additive glow, depth-less — ride the
@@ -225,10 +256,13 @@ internal sealed partial class PlayTray
             quad.name = "WantedHighlight";
             Object.Destroy(quad.GetComponent<Collider>());
             quad.transform.SetParent(slot, worldPositionStays: false);
-            // Larger rim than the snap glow (1.24×) so the teal reads AROUND the gold when both
-            // show; sits a hair less proud (base z -0.004) than the snap glow (-0.006) so the gold
-            // snap draws in front of the teal, preserving the old ordering.
-            quad.transform.localScale = new Vector3(w * 1.36f, h * 1.36f, 1f);
+            // Larger rim than the snap glow so the teal reads AROUND the gold when both show; sits a
+            // hair less proud (base z -0.004) than the snap glow (-0.006) so the gold snap draws in
+            // front of the teal, preserving the old ordering. 2026-08-11: this is now EXACTLY the
+            // size of the card that will land here (SlotCardScale) — that is the whole point of the
+            // shared dial, see SlotCardScale's doc — and the gold keeps its ratio to it.
+            float wanted = WantedGlowScale;
+            quad.transform.localScale = new Vector3(w * wanted, h * wanted, 1f);
             quad.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, WantedGlowBaseZ + ov.z); // PROUD toward the player + per-board offset + pair spacing
             var renderer = quad.GetComponent<MeshRenderer>();
             var baseColor = new Color(0.25f, 0.85f, 0.6f, 0.7f); // teal accent — the "drop here" hint

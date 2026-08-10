@@ -423,6 +423,9 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.GenericButtonShape(b).SettingChanged += OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged += OnOverlayOffsetChanged;
                 CardsConfig.SlotOverlaySpacing(b).SettingChanged += OnOverlayOffsetChanged; // item 1: overlay pair spacing
+                // 2026-08-11: the overlay SIZE is the same live-apply as its offset — one call
+                // resizes both glows AND re-homes the resting card, which is the coupling itself.
+                CardsConfig.SlotOverlayScale(b).SettingChanged += OnOverlayOffsetChanged;
                 CardsConfig.InitiativeOffset(b).SettingChanged += OnInitiativeOffsetChanged;
                 CardsConfig.PickBannerOffset(b).SettingChanged += OnPickBannerOffsetChanged;
                 CardsConfig.AssetOffset(b).SettingChanged += OnAssetPoseChanged;
@@ -607,7 +610,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
             _applyOverlayOffset = false;
             _tray.SetOverlayOffset(CardsConfig.SlotOverlayOffset(b).Value, CardsConfig.SlotOverlaySpacing(b).Value);
             VRLog.Info("Cards", $"Debug live-apply [{b}]: slot overlay offset {CardsConfig.SlotOverlayOffset(b).Value} " +
-                                $"(spacing {CardsConfig.SlotOverlaySpacing(b).Value:F3} m).");
+                                $"(spacing {CardsConfig.SlotOverlaySpacing(b).Value:F3} m, " +
+                                $"size {CardsConfig.SlotOverlayScale(b).Value:F3}× — glow AND resting card).");
         }
         if (_applyInitiativeOffset)
         {

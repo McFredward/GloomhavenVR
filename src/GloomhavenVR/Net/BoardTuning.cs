@@ -307,6 +307,11 @@ internal static class BoardTuningSampler
                  CardsConfig.PileScale(style), Defaults.PileScale_ByBoard[b]);
         n += Fac(payload, ref i, NetProtocol.TuneActiveCardScale,
                  CardsConfig.ActiveCardScale(style), CardsConfig.BoardDefaults.ActiveCardScale[b]);
+        // The blinking slot overlays AND the card resting in them are ONE size (2026-08-11) — the
+        // peer draws both from this factor, which is why it travels even though the card metric
+        // itself already rides record 11. See NetProtocol.TuneSlotOverlayScale.
+        n += Fac(payload, ref i, NetProtocol.TuneSlotOverlayScale,
+                 CardsConfig.SlotOverlayScale(style), CardsConfig.BoardDefaults.SlotOverlayScale[b]);
         n += Fac(payload, ref i, NetProtocol.TuneClusterScale,
                  CardsConfig.ClusterScale(style), Defaults.ClusterScale_ByBoard[b]);
         n += Fac(payload, ref i, NetProtocol.TuneDecisionScale,
@@ -780,6 +785,9 @@ internal readonly struct RemoteBoardTuning
     public float ElementsScale { get; }
     public float PileScale { get; }
     public float ActiveCardScale { get; }
+    /// <summary>The owner's slot-overlay size — the blinking wanted-glow AND the card that rests in
+    /// it, one number (<c>[Cards] SlotOverlayScale_{board}</c>). See NetProtocol's field doc.</summary>
+    public float SlotOverlayScale { get; }
     public float ClusterScale { get; }
     public float DecisionScale { get; }
     public float FanFlatCurvatureFactor { get; }
@@ -1024,6 +1032,8 @@ internal readonly struct RemoteBoardTuning
         PileScale = F(payload, len, NetProtocol.TunePileScale, Defaults.PileScale_ByBoard[b]);
         ActiveCardScale = F(payload, len, NetProtocol.TuneActiveCardScale,
                             CardsConfig.BoardDefaults.ActiveCardScale[b]);
+        SlotOverlayScale = F(payload, len, NetProtocol.TuneSlotOverlayScale,
+                             CardsConfig.BoardDefaults.SlotOverlayScale[b]);
         ClusterScale = F(payload, len, NetProtocol.TuneClusterScale, Defaults.ClusterScale_ByBoard[b]);
         DecisionScale = F(payload, len, NetProtocol.TuneDecisionScale, Defaults.DecisionScale_ByBoard[b]);
         FanFlatCurvatureFactor = F(payload, len, NetProtocol.TuneFanFlatCurvatureFactor,

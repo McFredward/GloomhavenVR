@@ -149,10 +149,12 @@ internal sealed class VRCardFactory
     /// Load the control-board prefab for the selected <see cref="ControlBoard"/>. Tries the
     /// selected board's bundle path first; if it isn't in the bundle yet, falls back to the
     /// Oak (original) path; if that also fails, returns null so <c>PlayTray.EnsureBuilt</c>'s
-    /// procedural fallback board kicks in. NOTE (per-board tuning seam): SlotCardInset,
-    /// SlotCardFill and RoundButtonDiameter (CardsConfig) are documented as per-board — for
-    /// now they stay single global values; a future per-board descriptor keyed by
-    /// <see cref="ControlBoard"/> may override them once the new boards' recess dimensions land.
+    /// procedural fallback board kicks in. NOTE (per-board tuning seam): SlotCardInset and
+    /// RoundButtonDiameter (CardsConfig) are documented as per-board but stay single global values
+    /// for now; a future per-board descriptor keyed by <see cref="ControlBoard"/> may override them
+    /// once the new boards' recess dimensions land. The card's fill factor already left this list —
+    /// it became the per-board <c>[Cards] SlotOverlayScale_{board}</c> on 2026-08-11, because the
+    /// recess it fills is board geometry and it now sizes the slot overlays with it.
     /// </summary>
     internal GameObject? GetTrayPrefab()
     {

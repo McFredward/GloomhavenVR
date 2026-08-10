@@ -128,7 +128,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     // Two round-card slots. The LEGACY metric below (authored card width × the local board's 1.3
     // SlotScale) is now only the FALLBACK for peers that predate extension record 11: it was
     // billed as "the exact size a card parked in the owner's recess renders at", but it dropped
-    // the owner's [Cards] SlotCardFill (default 1.45!) and their CardWidth config entirely, so
+    // the owner's [Cards] SlotOverlayScale_{board} (default 1.45!) and their CardWidth config entirely, so
     // every remote card rendered 31 % smaller than its owner sees it even between two
     // default-configured clients — the user's "nicht 1:1, ich sehe sie kleiner" report. The live
     // sizes now ride the wire (NetProtocol.ExtIdSlotCardSize) and are read via SlotCardW/SlotCardH
@@ -137,7 +137,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     private const float CardH = CardW * (88f / 63.5f);
 
     /// <summary>The width THIS peer's slot cards must render at: their synced effective size
-    /// (extension record 11 — <c>CardWidth × SlotScale × SlotCardFill</c>, the exact chain
+    /// (extension record 11 — <c>CardWidth × SlotScale × SlotOverlayScale</c>, the exact chain
     /// <c>PlayTray</c> scales a parked card by), or the legacy constant for a pre-record peer.</summary>
     private float SlotCardW => _owner.SlotCardWidth > 0f ? _owner.SlotCardWidth : CardW;
     private float SlotCardH => SlotCardW * (88f / 63.5f);
@@ -471,7 +471,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             Destroy();
         }
         // The peer's synced SLOT-CARD SIZE changed (extension record 11 — a live edit of their
-        // [Cards] CardWidth / SlotCardFill, or the record appearing on the first packet after a
+        // [Cards] CardWidth / SlotOverlayScale, or the record appearing on the first packet after a
         // legacy-sized build). The card panels and the furniture's glow rims are
         // constructor-sized, so the same teardown-rebuild the style switch uses applies; rare
         // (a settings edit on their side) and one frame. 0.4 mm epsilon = the wire's own
@@ -1214,7 +1214,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // Round-card slots: ON the real recess anchors when the asset is up (a card then sits IN
         // the recess of whatever board the peer runs), else at the authored fallback layout on the
         // flat frame. Sized to the OWNER's synced slot-card width (extension record 11 — their
-        // CardWidth × SlotScale × SlotCardFill), so the card-to-board ratio here is exactly the
+        // CardWidth × SlotScale × SlotOverlayScale), so the card-to-board ratio here is exactly the
         // one they see; the built sizes are latched as the change key for the live rebuild in Tick.
         _builtSlotCardW = SlotCardW;
         _builtSlotFrameW = SlotFrameW;

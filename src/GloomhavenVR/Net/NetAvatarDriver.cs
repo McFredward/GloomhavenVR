@@ -907,7 +907,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         // SLOT-CARD SIZE (extension record 11, defect "Kartengröße am fremden Board nicht 1:1"):
         // the widths the local board renders its slot overlays and a parked card at — the exact
-        // factor chain PlayTray uses (CardWidth × SlotScale for the frame metric, × SlotCardFill
+        // factor chain PlayTray uses (CardWidth × SlotScale for the frame metric, × SlotOverlayScale
         // for the card; see PlayTray.4.Slots.SlotCardScale). Local config, not derivable from
         // anything already synced, so it must ride the wire like the board style does. Sampled
         // before the rate gate so a live config edit reaches peers on the next frame.
@@ -1448,7 +1448,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // SLOT-CARD SIZE (extension record 11): written only while a live tray exists AND either
         // width differs from the legacy assumption every pre-record receiver hardcodes
         // (NetProtocol.SlotCardWidthLegacy = 82.55 mm). At the SHIPPED defaults it always differs
-        // — SlotCardFill defaults to 1.45, so an untuned player's card renders at 119.7 mm while
+        // — SlotOverlayScale defaults to 1.45, so an untuned player's card renders at 119.7 mm while
         // every peer used to draw 82.55 mm; that 31 % gap is the reported defect. A sender whose
         // config lands exactly on the legacy constant omits the record and stays byte-identical
         // to the previous build.

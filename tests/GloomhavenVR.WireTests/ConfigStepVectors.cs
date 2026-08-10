@@ -67,6 +67,11 @@ internal static class ConfigStepVectors
         Unit(t, "RestButtonDiameter_Steel", 0.01d, ConfigSteps.UnitScope.Variant);
         Unit(t, "SlotOverlaySpacing_Bronze", 0.01d, ConfigSteps.UnitScope.Variant);
         Unit(t, "DecisionGap_Oak", 0.01d, ConfigSteps.UnitScope.Variant);
+        // The slot-overlay SIZE (2026-08-11). Its retired predecessor was called SlotCardFill, and
+        // "Fill" is in no unit row — so that dial had been stepping off its own default's magnitude
+        // all along, the exact defect this file exists to pin. Pinned as the reason the successor is
+        // named …Scale: a factor's step is 0.05, not a fiftieth of whatever it happened to ship at.
+        Unit(t, "SlotOverlayScale_Oak", 0.05d, ConfigSteps.UnitScope.Variant);
         // …unless the key also names a pose. A pitch is a pitch on every board.
         Unit(t, "AssetPitchDegrees_Oak", 1d, ConfigSteps.UnitScope.Component);
         Unit(t, "BoardTilt_Oak", 1d, ConfigSteps.UnitScope.Component);
