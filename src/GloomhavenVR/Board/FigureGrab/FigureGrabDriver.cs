@@ -248,7 +248,9 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             if (collider == null || actor == null)
                 continue;
 
-            var grabbable = new FigureGrabbable(actor);
+            // The collider rides along for the highlight diagnostic only (FigureGrabbable.DescribeReach) —
+            // the same one the election measures against, so the two readings are commensurable.
+            var grabbable = new FigureGrabbable(actor, collider);
             VRInteractables.RegisterGrabbable(grabbable, collider);
             _adoptions[interactable] = new Adopted { Grabbable = grabbable, Collider = collider };
         }
@@ -338,8 +340,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             // a suppressed figure was never a laser target either. Now that a figure can be inside
             // the palm reach with NO winner elected, the laser can reach one that is suppressed —
             // and ForceGrab consults the same AllowsHand filter, so without this it would refuse a
-            // pluck the player aimed at. Safe to clear: the next frame either sees the hold (which
-            // clears suppression for the whole hand anyway) or re-derives it from scratch.
+            // pluck the player aimed at. Safe to clear for exactly one frame: on the next one the
+            // holding branch of SelectByOffsetAnchor elects THIS figure (it is the one in the hand)
+            // and vetoes every other, so the clear cannot widen into a second grabbable figure.
+            // — that branch used to CLEAR the veto for the whole hand instead, which is the leak
+            // ApplySuppression was written to end; this sentence was corrected with it.
             adopted.Grabbable.SetProximitySuppressed(hand.Side, false);
             hand.Grabber.ForceGrab(adopted.Grabbable, releaseOnTriggerUp: true);
         }
@@ -351,9 +356,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// rather than nearest to the palm. We can't change <see cref="ProximityGrabber"/>'s palm-based
     /// metric, so instead we mark every figure EXCEPT the offset-anchor winner as suppressed for
     /// that hand (per-hand <see cref="IGrabbableHandFilter"/>): the grabber then skips the losers and
-    /// can only highlight/grab the winner. Runs every frame per hand; uncontested figures (single
-    /// figure in reach, or a far laser target out of proximity reach) are never suppressed, so the
-    /// laser far-grab (which keeps using the ray pick) is untouched.
+    /// can only highlight/grab the winner. Runs every frame per hand, and the veto covers EVERY
+    /// adopted figure, near or far — see <see cref="ApplySuppression"/> for the flashing-highlight
+    /// defect that a distance-gated veto caused. The laser far-grab is untouched because it clears
+    /// its own target's veto at the moment of the pluck (<see cref="TryLaserGrab"/>).
     ///
     /// <para>IT IS ALSO THE PICK VOLUME (user report 2026-08, accidental grabs). The same offset
     /// anchor that decides WHICH figure wins now decides WHETHER any figure wins at all: a
@@ -371,25 +377,31 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private void SelectByOffsetAnchor(VRHand? hand)
     {
-        if (_adoptions.Count == 0)
+        if (_adoptions.Count == 0 || hand == null)
             return;
 
-        // No usable hand (untracked) or already holding → nothing to arbitrate; clear this hand's
-        // suppression on every figure so none is left stuck non-grabbable.
-        if (hand == null || !hand.HasPose || hand.Grabber.Held != null)
+        // No usable hand (untracked) or already holding → there is no election to run, but the
+        // veto still has to be WRITTEN this frame (see ApplySuppression: a frame in which a hand's
+        // flags are not written is a frame in which the ProximityGrabber may highlight on stale
+        // ones). So instead of clearing the veto — which would leave EVERY figure grabbable for a
+        // hand that is not even tracked — we elect the figure this hand is HOLDING, if any, and
+        // suppress the rest.
+        //
+        // Why the held figure has to stay allowed: ProximityGrabber.HealDeadHeld force-releases a
+        // hold whose target starts refusing its holder (`AllowsHand`), so vetoing the mini in your
+        // own hand would drop it with a warning. A held CARD (not one of ours) elects nobody, which
+        // is also right — a hand with a card in it is not hovering a mini.
+        if (!hand.HasPose || hand.Grabber.Held != null)
         {
-            if (hand != null)
-            {
-                ClearSuppression(hand.Side);
-                LogElection(hand, null, 0f); // forget the candidate so re-entering it logs again
-                // …and drop the hysteresis with it. A stale holder would otherwise keep the WIDE
-                // exit ring across a grab or a tracking dropout, so the first figure met after it
-                // would be admitted on the release radius instead of the reach radius.
-                int idle = (int)hand.Side;
-                _electedBySide[idle] = null;
-                _pendingBySide[idle] = null;
-                _dwellBySide[idle] = 0;
-            }
+            ApplySuppression(hand, hand.Grabber.Held as FigureGrabbable);
+            LogElection(hand, null, 0f); // forget the candidate so re-entering it logs again
+            // …and drop the hysteresis with it. A stale holder would otherwise keep the WIDE
+            // exit ring across a grab or a tracking dropout, so the first figure met after it
+            // would be admitted on the release radius instead of the reach radius.
+            int idle = (int)hand.Side;
+            _electedBySide[idle] = null;
+            _pendingBySide[idle] = null;
+            _dwellBySide[idle] = 0;
             return;
         }
 
@@ -490,18 +502,66 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         _electedBySide[side] = winner;
         LogElection(hand, winner, bestAnchorDist);
 
-        // Pass 2: suppress every palm-reach candidate except the winner; clear everyone else. With
-        // no winner (nothing inside the pinch radius) that suppresses ALL of them, which is the
-        // whole point: a hand hovering a hand-span above the board highlights nothing at all.
+        ApplySuppression(hand, winner);
+    }
+
+    /// <summary>
+    /// Pass 2 — publish this frame's election as a per-hand veto: EVERY adopted figure except
+    /// <paramref name="winner"/> refuses <paramref name="hand"/> (<see cref="FigureGrabbable.AllowsHand"/>),
+    /// so <see cref="ProximityGrabber"/> can only ever highlight and grab the one figure this driver
+    /// elected.
+    ///
+    /// ---- WHY THIS IS UNCONDITIONAL (user, ModBuild 106) -------------------------------------
+    ///
+    /// "Wenn ich meine Hand über die Spielfiguren halte werden sie zwar nicht mehr dauerhaft
+    /// ausgewählt sondern das highlighting blitzt immer mal wieder auf bei verschiedenen Figuren,
+    /// obwohl ich nach deinem letzten fix zu weit weg sein sollte. Wenn ich mit der hand richtug zu
+    /// den figuren gehe ist es auch wie ich es will - verhindere dieses 'Aufblitzen'."
+    ///
+    /// ROOT CAUSE, and it is NOT the election. This driver does not raise the highlight at all —
+    /// <see cref="ProximityGrabber.UpdateHighlight"/> does, on the nearest registered grabbable
+    /// inside its CARD-sized 13 cm palm reach that still allows the hand. The election is only a
+    /// VETO, and it used to be published for palm-reach figures ONLY:
+    ///
+    ///     bool inReach = … ≤ reach;
+    ///     SetProximitySuppressed(side, inReach &amp;&amp; !winner);   // ← everything else: NOT suppressed
+    ///
+    /// A figure outside the palm sphere was therefore actively written back to "allowed", and the
+    /// grabber ticks in its own driver (Hands) — one frame's flags in arrears. So on the frame a
+    /// figure CROSSED INTO the 13 cm sphere it was still un-vetoed, while every figure that had
+    /// been in the sphere longer was already vetoed; the newcomer was thus the only ALLOWED
+    /// candidate and won the grabber's "nearest" by default. One frame of amber glow on the figure
+    /// at the far EDGE of the palm reach — repeating on figure after figure as a hovering hand
+    /// drifts. That is "blitzt auf bei VERSCHIEDENEN Figuren", and it is why the hand felt "zu weit
+    /// weg": the leak fires at the 130 mm palm reach, not at the 40 mm pick radius.
+    ///
+    /// The hardware log of ModBuild 106 (5f3e3807f) is unambiguous about the mechanism: 137
+    /// "pre-grab highlight ENGAGED" lines against 9 "pinch candidate" elections. The hysteresis and
+    /// the dwell added in 76daf29 stabilise the ELECTION, and the election was never what lit those
+    /// 128 other figures.
+    ///
+    /// The veto is now written for every adopted figure on every frame a hand is ticked, so it can
+    /// never be stale and it FAILS CLOSED: a figure is grabbable only because this driver said so
+    /// THIS frame. That also makes the fix independent of the Update order between HandsDriver and
+    /// this driver, which Unity does not define.
+    ///
+    /// REJECTED — shrinking [FigureGrab] PickRadiusMillimeters. The leak fires on the palm reach,
+    /// so the dial the player would be told to turn is not the one in the causal chain; it would
+    /// have made deliberate grabs harder and left the flashing exactly where it was.
+    /// REJECTED — narrowing ProximityGrabber's 13 cm reach. That reach is a CARD's reach; the hand
+    /// fan is measured in it (see FigureGrabConfig.PickRadiusRealMeters), and figures may not drag
+    /// the card fan's ergonomics along behind them.
+    /// REJECTED — pinning the two drivers with [DefaultExecutionOrder]. It would hide this bug
+    /// behind an ordering the project explicitly refuses to freeze (see the note in TryLaserGrab),
+    /// and the veto would still be one frame old the moment anything else moved.
+    ///
+    /// The far LASER grab is untouched: it clears its own target's veto immediately before
+    /// <c>ForceGrab</c> (see <see cref="TryLaserGrab"/>, which already had to, and says why).
+    /// </summary>
+    private void ApplySuppression(VRHand hand, FigureGrabbable? winner)
+    {
         foreach (Adopted adopted in _adoptions.Values)
-        {
-            Collider collider = adopted.Collider;
-            bool inReach = collider != null && collider.enabled && collider.gameObject.activeInHierarchy
-                && adopted.Grabbable.CanGrab
-                && Vector3.Distance(palm, collider.ClosestPoint(palm)) <= reach;
-            bool suppressed = inReach && !ReferenceEquals(adopted.Grabbable, winner);
-            adopted.Grabbable.SetProximitySuppressed(hand.Side, suppressed);
-        }
+            adopted.Grabbable.SetProximitySuppressed(hand.Side, !ReferenceEquals(adopted.Grabbable, winner));
     }
 
     /// <summary>
@@ -562,11 +622,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + $"(radius {FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm).");
     }
 
-    private void ClearSuppression(HandSide side)
-    {
-        foreach (Adopted adopted in _adoptions.Values)
-            adopted.Grabbable.SetProximitySuppressed(side, false);
-    }
+    // NOTE — there is deliberately no ClearSuppression(side) any more. It existed for the
+    // "untracked hand / already holding" branch of SelectByOffsetAnchor, and clearing the veto for
+    // a whole hand is precisely the state this round's defect was made of: the next frame the
+    // ProximityGrabber ticks (it ticks first) it would see every figure allowed and light up the
+    // nearest one inside its 13 cm palm reach. That branch now publishes a veto like any other —
+    // see ApplySuppression, which also explains why the held figure is the winner there.
 
     private void Drop(CInteractableActor key)
     {

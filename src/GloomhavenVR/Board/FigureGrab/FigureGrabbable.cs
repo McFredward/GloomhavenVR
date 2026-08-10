@@ -61,6 +61,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     private readonly ActorBehaviour _actor;
 
+    /// <summary>
+    /// The interactable collider this figure was adopted on — the SAME one the driver measures the
+    /// election with and the one the <see cref="ProximityGrabber"/> measures its palm reach with.
+    /// Held for diagnostics only (the distances printed by <see cref="OnGrabHighlight"/>); nothing
+    /// decides anything from it here. Unity-nullable: the figure may die under the grabbable.
+    /// </summary>
+    private readonly Collider? _collider;
+
     private VRHand? _holder;
 
     // Item 3 — offset-anchor nearest selection. When the hand hovers over MULTIPLE figures in
@@ -71,6 +79,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // It carries the PICK VOLUME too (2026-08 accidental-grab report): a figure that no hand has
     // actually reached — nothing within [FigureGrab] PickRadiusMillimeters of the pinch point — is
     // suppressed for every hand, so "no winner" and "loser" are the same state here.
+    //
+    // THE FLAG IS AN UNCONDITIONAL PER-FRAME VETO, not a hint about nearby figures. The driver
+    // writes it for EVERY adopted figure on every frame it ticks a hand, however far away that
+    // figure is, because the ProximityGrabber reads it one frame in arrears: a figure the driver
+    // declined to write was a figure the grabber was free to highlight on its own 13 cm palm reach.
+    // That is the whole of the "highlighting blitzt bei verschiedenen Figuren auf" defect — see
+    // FigureGrabDriver.ApplySuppression for the full account.
     private bool _suppressLeft;
     private bool _suppressRight;
     private Transform? _origParent;
@@ -147,7 +162,11 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         return $"({e.x:0.#},{e.y:0.#},{e.z:0.#})";
     }
 
-    internal FigureGrabbable(ActorBehaviour actor) => _actor = actor;
+    internal FigureGrabbable(ActorBehaviour actor, Collider? collider = null)
+    {
+        _actor = actor;
+        _collider = collider;
+    }
 
     internal ActorBehaviour Actor => _actor;
 
@@ -189,8 +208,11 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// reached this one at all ([FigureGrab] PickRadiusMillimeters, real millimetres at the hand —
     /// the interactor's own 13 cm palm reach is a card's reach, not a mini's). Set each frame by
     /// <see cref="FigureGrabDriver"/>; the <see cref="ProximityGrabber"/> then skips the losers,
-    /// leaving only the offset-anchor-nearest figure grabbable. Uncontested figures (single figure,
-    /// or a far laser target out of proximity reach) are never suppressed, so far-grab is untouched.
+    /// leaving only the offset-anchor-nearest figure grabbable. EVERY adopted figure is written
+    /// every frame, near or far — a figure that is merely out of reach is a LOSER, not an
+    /// exception (a distance-gated veto is what made the highlight flash on distant figures; see
+    /// <c>FigureGrabDriver.ApplySuppression</c>). The far laser grab is untouched: it clears its
+    /// own target's veto at the moment of the pluck.
     /// </summary>
     public bool AllowsHand(VRHand hand)
         => !NetHeldFigures.Owns(_actor)
@@ -231,7 +253,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             GameObject animated = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
             bool glow = _highlight.Apply(root, animated);
             VRLog.Info("FigureGrab",
-                $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}) — animated additive glow "
+                $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}, {DescribeReach(hand)}) — "
+                + "animated additive glow "
                 + (glow ? "overlaid on the figure's own meshes (wall-occluded, no scale change)."
                         : "UNAVAILABLE (bundle Overlay shader missing) — no highlight."));
         }
@@ -239,6 +262,34 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         {
             ClearHighlight();
         }
+    }
+
+    /// <summary>
+    /// WHERE THE HAND ACTUALLY WAS when this figure lit up — the two distances that tell an
+    /// ELECTION apart from a LEAK, in the same real millimetres the dial is set in.
+    ///
+    /// <para>Written because the ModBuild 106 log could not answer that question: it carried 137
+    /// "highlight ENGAGED" lines against 9 "pinch candidate" elections, which proved the two were
+    /// not the same event but not which distance the extra ones fired at. The pinch distance is the
+    /// one the driver's radius gates; the palm distance is the one the
+    /// <see cref="ProximityGrabber"/>'s own 13 cm reach gates. So on the next hardware run the line
+    /// is binary: a highlight whose pinch distance is inside the printed radius came from an
+    /// election and the radius is simply set too wide; one that engages FAR outside it, near the
+    /// palm reach instead, means something is highlighting past this driver's veto again.</para>
+    ///
+    /// <para>Costs two ClosestPoint calls on the highlight EDGE only — never per frame.</para>
+    /// </summary>
+    private string DescribeReach(VRHand hand)
+    {
+        if (_collider == null)
+            return "distance unknown (no collider)";
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        Vector3 palm = hand.Rig.PalmCenter.position;
+        Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(FigureGrabConfig.HeldOffsetFor(hand.Side));
+        float pinchMm = Vector3.Distance(pinch, _collider.ClosestPoint(pinch)) / scale * 1000f;
+        float palmMm = Vector3.Distance(palm, _collider.ClosestPoint(palm)) / scale * 1000f;
+        return $"{pinchMm:F0} mm from the pinch point / {palmMm:F0} mm from the palm, real at the "
+               + $"hand; pick radius {FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm";
     }
 
     /// <summary>
