@@ -2,8 +2,9 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 107`** (`12bc248`), awaiting its hardware run. First round run under
-  the integrator role — two agents, two disjoint file sets, both diffs reviewed before merge.
+  **`NetProtocol.ModBuild = 108`**, awaiting its hardware run. Six reports run as six parallel
+  agents on disjoint file sets; every diff reviewed before merge, cross-file changes applied by
+  the integrator.
 - **Last update:** 2026-08-11
 
 ---
@@ -126,6 +127,33 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 108** — six reports, one round. **The generalisable lesson: three of the six were
+  defects in a layer nobody had looked at, not in the layer the symptom pointed at.**
+  (1) **THE DEADLOCK** (critical, user-flagged): lifting a figure mid-attack killed the turn
+  machine permanently. No exception — a wait that never completes, hence nothing logged.
+  `ActorBars` hides the figure's panel HOST while its mini is held; `AttackModBar`'s flow is a
+  coroutine started ON that controller; Unity kills a coroutine when its GameObject is
+  deactivated; `FinalizeFlow` (sole writer of `IsFlowActive = false`) is its last statement, so
+  the flag latches; and `WaitingForPlayerIdle` waits on it with NO timeout. The find that shaped
+  the fix: the game waits on the attack's **TARGET**, not the acting figure — a guard on "whose
+  turn is it" would have missed it. Prevented structurally (`FigureBusy`), mechanism removed
+  (`ActorBars` no longer hides a live-flow bar), watchdog behind both.
+  (2) **MR plate flicker** on the pile captions — 107's per-registrant fix does not scale, because
+  the order writer is usually not the registrant. `MrBacking` re-syncs plates phase-blind now.
+  (3) **Pile symbols** — a second defect at the same place: `PileViewer.SetVisible` hit by the
+  pooled-hand re-bind window. Hide debounced 2 frames. Closed rather than distinguished on a run.
+  (4) **Card X spacing** — `HalfSelection` used the spread-free slot-home accessor (its only
+  caller); a docked pair sat 5.5 mm wider, a 42 % change in the gap the eye judges. Accessor
+  retired; the peer mirror fixed by converting through the board root (local slots carry
+  `SlotScale`, remote prefab anchors do not).
+  (5) **No turning while scrolling** — the axes never contended, the thumb did. Releases on the
+  turn axis returning to rest, not on the scroll ending.
+  (6) **Card silhouette** — the alpha clip had shipped in `6d7f1bb` and had NEVER RUN
+  (`isActiveAndEnabled` against cards adopting art under an inactive pool root, rejecting branch
+  logged nothing, retry budget burnt blind).
+  Startup freeze: measured, not assumed — 21.3 ms of 2667 ms is the mod, 62 % is game-side YML
+  parsing on the main thread. Spinner now covers the window; the mod's own 981 ms bundle inflate
+  is prewarmed. See `.planning/startup-freeze.md`, incl. the bundle rebuild the user declined.
 - **ModBuild 107** — two defects ModBuild 106 had already claimed to fix, both of which had been
   fixed ONE LAYER AWAY from where they live. That generalises, so it is the entry's headline.
   (1) The figure highlight is not raised by `FigureGrabDriver` at all — `ProximityGrabber` raises

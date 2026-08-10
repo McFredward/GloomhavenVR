@@ -416,7 +416,68 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 107;
+    public const ushort ModBuild = 108;
+    // Build 108: SIX reports in one round, run as six parallel agents on disjoint file sets. The
+    // headline is the DEADLOCK; the pattern worth carrying forward is that three of the six were
+    // defects in a layer nobody had looked at, not in the layer the symptom pointed at.
+    //
+    // (1) THE DEADLOCK — the round's critical item ("ich habe ein Skelet hochgehoben während es
+    // dran war, dann ist plötzlich nichts mehr passiert"). No exception; a wait that never
+    // completes, so nothing was ever logged. ActorBars hides a figure's worldspace-panel HOST
+    // while its mini is held; AttackModBar's flow is a coroutine started ON that controller; Unity
+    // kills a coroutine permanently when its GameObject is deactivated; FinalizeFlow — the only
+    // writer of IsFlowActive = false — is that coroutine's last statement, so the flag latches
+    // true; and Choreographer's WaitingForPlayerIdle waits on it with NO tick timeout, unlike
+    // every neighbouring wait state. Turn machine dead, session over. Log: the rule engine's last
+    // word is Player.log:18635, the attack at :18640 is the only one of seven with no matching
+    // "finish", the grabs are at :18660 and :18695. THE FIND THAT SHAPED THE FIX: CAbilityAttack
+    // waits on the attack's TARGET, not the acting figure — a guard that refused only "the figure
+    // whose turn it is" would have missed this entirely. Now prevented structurally (FigureBusy),
+    // the mechanism removed as well as the trigger (ActorBars no longer hides a bar whose flow is
+    // live), and a watchdog behind both that repairs an untimed wait via the game's own UI seam.
+    //
+    // (2) MR PLATE FLICKER on the pile captions. ModBuild 107 fixed ONE label by moving its rank
+    // into the Update pass; that does not scale, because the order writer is usually not the
+    // registrant — the pile captions are ranked by the board FURNITURE band, which runs in
+    // LateUpdate and must. Their plates were one frame stale BY CONSTRUCTION, and so were four
+    // remote-board labels, the item-use caption and the keycap engravings. MrBacking now re-syncs
+    // every plate from its content as the last act of TickPanelOrder, phase-blind.
+    //
+    // (3) PILE SYMBOLS — a SECOND defect at the same place, closed rather than distinguished on
+    // the next run. Plates cannot reach them (opaque slabs, no plate on digits or cue). What they
+    // share is PileViewer.SetVisible, hit by the hand == null branch during the pooled-hand
+    // re-bind window — the same window builds 105 and 107 each had to defend a different surface
+    // against. Hide debounced 2 frames, show immediate.
+    //
+    // (4) CARD X SPACING. HalfSelection docked its round cards through the spread-FREE slot-home
+    // accessor — its only caller — while every other path takes the spread. A docked pair sat
+    // 5.5 mm wider than the same pair placed during selection: small absolutely, but the gap
+    // BETWEEN the cards is what the eye judges and that changed 42 %. The accessor is retired. A
+    // peer's cards had the same omission; fixed by converting the seat through the board root,
+    // because the local slot transform carries SlotScale and the remote prefab anchor does not.
+    //
+    // (5) NO TURNING WHILE SCROLLING. Two comments asserted turn and scroll cannot contend
+    // because they read different AXES — true about the axes, false about the thumb: the shipped
+    // mode is Smooth with a 0.2 deadzone. New ScrollTurnGate releases on the turn axis returning
+    // to rest, not on the scroll ending, so the still-deflected stick cannot fire the very turn
+    // being complained about 200 ms later. Fails open by construction. 42 new wire tests.
+    //
+    // (6) CARD SILHOUETTE. The alpha clip that removes the black rim had shipped in 6d7f1bb and
+    // had NEVER RUN: the capture demanded img.isActiveAndEnabled while cards adopt their art
+    // parked under an inactive pool root, and the rejecting branch logged nothing, so its retry
+    // budget was burnt blind in the first few frames. Fixed, made trim-correct, and given a
+    // per-KIND material set so item cards get their own outline; the peer mirrors opt in too,
+    // because the 1:1 rule covers a card's SHAPE.
+    //
+    // Also: the startup freeze was MEASURED rather than assumed — 21.3 ms of a 2667 ms stall is
+    // the mod, 62 % is the game parsing YML on the main thread, and the hands necessarily freeze
+    // with it. The spinner now covers the window (it stands still at those frames too, and the
+    // user was told so). The mod's OWN 981 ms boot stall is one LZMA inflate of the 58 MB bundle
+    // and is now prewarmed onto Unity's loading thread. Full record: .planning/startup-freeze.md,
+    // including the bundle rebuild the user declined.
+    //
+    // NO WIRE CHANGE in this build. The bump is here because 108 is what goes to the friend.
+    //
     // Build 107: two defects the PREVIOUS round had already claimed to fix, both of which turned
     // out to have been fixed one layer away from where they actually live. That is the lesson of
     // this build and it is why both entries name the layer, not just the cause.
