@@ -188,6 +188,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             // for the local grab (proximity + laser both consult CanGrab) until they release it.
             if (NetHeldFigures.Owns(_actor))
                 return false;
+            // TURN-DEADLOCK GATE (user, 2026-08-11: "DEADLOCK … die Gegner haben nicht mehr
+            // weitergemacht - sowas darf unter keinen Umständen passieren"). A figure the game's
+            // turn machine currently depends on cannot be picked up at all — see FigureBusy for the
+            // reconstructed chain and for why the dangerous figure is the attack's TARGET rather
+            // than the one whose turn it is. Same shape as the MP grab-lock directly above: the
+            // figure simply is not a candidate, so nothing highlights and nothing is broadcast.
+            if (FigureBusy.IsBusy(_actor))
+                return false;
             CActor? actor = Character;
             return actor != null && !actor.IsDead;
         }
@@ -213,9 +221,19 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// exception (a distance-gated veto is what made the highlight flash on distant figures; see
     /// <c>FigureGrabDriver.ApplySuppression</c>). The far laser grab is untouched: it clears its
     /// own target's veto at the moment of the pluck.
+    ///
+    /// <para>IT IS ALSO THE AUTO-RELEASE FOR THE TURN-DEADLOCK GATE. A figure that was picked up
+    /// while the game was idle can still BECOME load-bearing under the hand (an attack starts and
+    /// targets it). Refusing the holder here is not a new mechanism: <c>ProximityGrabber.HealDeadHeld</c>
+    /// already force-releases any hold whose target stops allowing its hand, through the normal
+    /// <see cref="OnRelease"/> path and with a Warn line. So the mini leaves the hand the same frame
+    /// the game starts depending on it, which is what stops <c>ActorBars</c>' host hide from killing
+    /// the bar coroutine that the choreographer's untimed wait is blocked on. See
+    /// <see cref="FigureBusy"/>.</para>
     /// </summary>
     public bool AllowsHand(VRHand hand)
         => !NetHeldFigures.Owns(_actor)
+           && !FigureBusy.IsBusy(_actor)
            && !(hand.Side == HandSide.Left ? _suppressLeft : _suppressRight);
 
     /// <summary>Driver hook: mark this figure suppressed (proximity loser) for a hand, or clear it.</summary>
@@ -594,6 +612,25 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
+        // TURN-DEADLOCK GATE — a release forced because the game started depending on this figure
+        // does NOT glide. The glide deliberately keeps the actor in HeldFigures until it lands
+        // (that is what keeps the ghost and the net stream alive), and HeldFigures membership is
+        // exactly what makes ActorBars hide the actor's bar host — so a 0.28 s glide would leave
+        // 0.28 s in which the bar coroutine the choreographer is blocked on can still be killed.
+        // The instant path hands the actor back on THIS frame. It is the same instant restore the
+        // authoritative-cell auto-release already uses (FigureGrabDriver.AutoReleaseMovedFigures)
+        // and it is not the "popping" the project forbids: that rule governs what the mod ANIMATES,
+        // and this is a safety release whose whole value is that it takes no time. See FigureBusy.
+        if (FigureBusy.IsBusy(_actor, out string busyWhy))
+        {
+            Restore();
+            VRLog.Info("FigureGrab",
+                $"{hand.Side} released figure ({Describe()}) INSTANTLY (no glide) — {busyWhy}. "
+                + "The game regains this actor on this frame so nothing of the mod's can be holding "
+                + "its bar down while the choreographer waits on it.");
+            return;
+        }
+
         // GLIDE-BACK: instead of the instant restore, ease the mini from the hand back to its
         // home pose (~0.28 s, ease-out). Falls back to the exact old instant path whenever a
         // safe glide is impossible (dead root/parent, teardown mid-hold).
@@ -793,4 +830,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         CActor? actor = Character;
         return actor != null && actor.Class != null ? actor.Class.ID : "?";
     }
+
+    /// <summary>The figure's class id for log lines written by the driver (same vocabulary every
+    /// other FigureGrab line uses, so a hardware log reads as one story).</summary>
+    internal string Label => Describe();
 }

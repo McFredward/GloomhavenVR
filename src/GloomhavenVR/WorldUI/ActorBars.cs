@@ -402,6 +402,33 @@ internal static class ActorBars
                 if (adopted.Actor == null && controller.m_ObjectToTrack != null)
                     adopted.Actor = ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack);
                 hide = adopted.Actor != null && HeldFigures.Owns(adopted.Actor);
+
+                // …UNLESS THIS BAR IS RESOLVING AN ATTACK. THIS LINE IS THE DEADLOCK MECHANISM
+                // (user, hardware, ModBuild 107: "SEHR WICHTIG: DEADLOCK - ich habe ein Skelet
+                // hochgehoben während es dran war, dann ist plötzlich nichts mehr passiert die
+                // Gegner haben nicht mehr weitergemacht").
+                //
+                // The chain, read from the log and the decompiled source: AttackModBar's flow runs
+                // as a coroutine STARTED ON THIS CONTROLLER. Deactivating a GameObject kills its
+                // coroutines permanently — re-activating does not resume them — and FinalizeFlow(),
+                // the only writer of IsFlowActive = false, is that coroutine's last statement. So
+                // the flag latches true, and Choreographer's WaitingForPlayerIdle, which has NO
+                // tick timeout unlike every neighbouring wait state, never calls StepComplete().
+                // The rule engine's last word in the reported session is Player.log:18635; the
+                // attack flow it belongs to logs "ShowAttackModifDamage show label" at :18640 and
+                // is the ONLY one of the session's seven with no matching "finish"; the figure was
+                // grabbed at :18660 and :18695. 3600 further lines, and the enemies never move again.
+                //
+                // FigureGrab's FigureBusy gate now refuses the grab outright during those waits, so
+                // this branch should already be unreachable in the failing case. This is the second
+                // layer, and on a defect that ends the user's session it is worth the cost: it takes
+                // away the MECHANISM, not just the trigger. Price: the bar of a figure you are
+                // holding stays visible for the ~2 s an attack resolves. That is a far better trade
+                // than a dead turn machine, and it is the smaller half of what this hide is for
+                // anyway — the clutter it removes is mostly the long tail of just standing there
+                // holding a mini.
+                if (hide && controller != null && controller.FlowControlActive())
+                    hide = false;
             }
 
             // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset

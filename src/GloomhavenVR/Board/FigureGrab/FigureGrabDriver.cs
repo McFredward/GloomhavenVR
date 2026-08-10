@@ -99,6 +99,14 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private readonly int[] _dwellBySide = new int[2];
 
+    // TURN-DEADLOCK GATE refusal feedback (see NoteBusyRefusal): one "no" per second per hand, and
+    // the game's own negative ping as the last resort behind its invalid-option item.
+    private const float BusyRefusalIntervalSeconds = 1f;
+    private const string NegativePingFallback = "PlaySound_UIPingRewardNegative";
+    private static readonly string[] BusyRefusalFallbacks = new string[1];
+    private float _nextBusyRefusalLeft;
+    private float _nextBusyRefusalRight;
+
     // Cached per-frame tick delegates ([Optimize] CacheTickDelegates — see Update).
     private System.Action? _tickRegistry;
     private System.Action? _tickAutoRelease;
@@ -111,17 +119,25 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         FigureGrabbable.FinishAllGlides(); // land any in-flight release glide (no stale suppression)
         FigureGhosts.Clear();
         FigureRingSuppressor.Clear();
+        FigureStallWatchdog.Reset();
     }
 
     private void Update()
     {
-        // FRAME-ORDER FigureGrabDriver.Update [FigureGrab.Ghosts, FigureGrab.Glide, FigureGrab.HeldSize, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
-        //   The GATE token is load-bearing, not decoration: Ghosts and Glide must run BEFORE the
-        //   config gate's early-out. Ghosts so REMOTE-held ghosts still appear and clear while
-        //   local figure-grab is off, Glide so a release glide already in flight still lands when
-        //   the toggle is flipped mid-air. Moving either below the gate strands a mini in the air
-        //   on a remote peer — a bug that is invisible in single-player and invisible to
+        // FRAME-ORDER FigureGrabDriver.Update [FigureGrab.StallWatchdog, FigureGrab.Ghosts, FigureGrab.Glide, FigureGrab.HeldSize, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
+        //   The GATE token is load-bearing, not decoration: StallWatchdog, Ghosts and Glide must run
+        //   BEFORE the config gate's early-out. Ghosts so REMOTE-held ghosts still appear and clear
+        //   while local figure-grab is off, Glide so a release glide already in flight still lands
+        //   when the toggle is flipped mid-air, StallWatchdog so a turn already stalled before the
+        //   toggle was flipped off still gets repaired (turning figure-grab off must not strand the
+        //   session in a dead turn machine). Moving any of them below the gate strands a mini in the
+        //   air on a remote peer — a bug that is invisible in single-player and invisible to
         //   refactor-guard.sh (it is an ordinary in-type diff). Locked; reordering is Tier 3.
+        // TURN-DEADLOCK BACKSTOP (user, 2026-08-11) — repair a choreographer wait that a killed
+        // AttackModBar coroutine has left blocked forever. Strict no-op unless a figure was held
+        // during the stalled wait; see FigureStallWatchdog and FigureBusy for the whole account.
+        TickGuard.Run("FigureGrab.StallWatchdog", FigureStallWatchdog.Tick);
+
         // TASK #3 — reconcile home-spot ghosts against the local + remote held-sets (spawn is done at
         // grab time; this only tears down ghosts whose figure was released, incl. remote releases).
         // Runs even when local figure-grab is disabled so REMOTE-held ghosts still appear/clear.
@@ -279,8 +295,29 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         foreach (Adopted adopted in _adoptions.Values)
         {
             FigureGrabbable grabbable = adopted.Grabbable;
-            if (grabbable.IsHeld && grabbable.AuthoritativeCellChanged())
+            if (!grabbable.IsHeld)
+                continue;
+            if (grabbable.AuthoritativeCellChanged())
+            {
                 grabbable.Restore();
+                continue;
+            }
+
+            // TURN-DEADLOCK GATE, second belt. FigureGrabbable.AllowsHand already refuses a busy
+            // figure, which makes ProximityGrabber.HealDeadHeld force-release it through the normal
+            // path — that is the primary route and it also cleans up the hand's grab state. This is
+            // here because the suppression the game hangs on lives in HeldFigures, not in the
+            // grabber: if the grabber ever fails to tick (mode policy, interactor disabled, a hand
+            // going untracked in the same frame) the actor must STILL leave HeldFigures, or
+            // ActorBars keeps its bar host deactivated and the choreographer's untimed wait keeps
+            // waiting. Restore() is idempotent, so the two paths cannot fight.
+            if (FigureBusy.IsBusy(grabbable.Actor, out string why))
+            {
+                grabbable.Restore();
+                VRLog.Info("FigureGrab",
+                    $"AUTO-RELEASE (turn-deadlock gate): handed a held figure back to the game — {why}. "
+                    + "Nothing of the mod's is holding its bar down any more.");
+            }
         }
     }
 
@@ -451,13 +488,34 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         FigureGrabbable? held = _electedBySide[side];
         FigureGrabbable? winner = null;
         float bestAnchorDist = float.MaxValue;
+
+        // TURN-DEADLOCK GATE, the LEGIBLE half. A busy figure is simply not a candidate (CanGrab is
+        // false, like the MP grab-lock), so nothing lights up and the pinch does nothing — which on
+        // its own reads as "the grab is broken". So on a TRIGGER EDGE ONLY we note the busy figure
+        // the player was actually reaching for and answer it the way this project already answers a
+        // refused click: the game's own invalid-option item through GameAudio, plus one log line.
+        // Zero per-frame cost — the extra work happens on the frames the trigger goes down and on
+        // no others, and only until the first busy figure inside the pick volume is found.
+        bool scanRefusal = hand.TriggerDown;
+        FigureGrabbable? refusedBusy = null;
+        string refusedWhy = string.Empty;
+
         foreach (Adopted adopted in _adoptions.Values)
         {
             Collider collider = adopted.Collider;
             if (collider == null || !collider.enabled || !collider.gameObject.activeInHierarchy)
                 continue;
             if (!adopted.Grabbable.CanGrab)
+            {
+                if (scanRefusal && refusedBusy == null
+                    && FigureBusy.IsBusy(adopted.Grabbable.Actor, out string busyWhy)
+                    && Vector3.Distance(offsetAnchor, collider.ClosestPoint(offsetAnchor)) <= pickWorld)
+                {
+                    refusedBusy = adopted.Grabbable;
+                    refusedWhy = busyWhy;
+                }
                 continue;
+            }
             if (Vector3.Distance(palm, collider.ClosestPoint(palm)) > reach)
                 continue; // not a proximity candidate this frame
             float anchorDist = Vector3.Distance(offsetAnchor, collider.ClosestPoint(offsetAnchor));
@@ -503,6 +561,51 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         LogElection(hand, winner, bestAnchorDist);
 
         ApplySuppression(hand, winner);
+
+        if (refusedBusy != null && winner == null)
+            NoteBusyRefusal(hand, refusedBusy, refusedWhy);
+    }
+
+    /// <summary>
+    /// Say NO out loud when a pinch lands on a figure the turn machine is currently depending on
+    /// (<see cref="FigureBusy"/>). Uses the project's EXISTING refusal recipe rather than a new one:
+    /// the game's own invalid-option audio item
+    /// (<c>UIInfoTools.generalAudioButtonProfile.nonInteractableMouseDownAudioItem</c>) played
+    /// listener-anchored through <see cref="Core.GameAudio"/>, falling back to the game's negative
+    /// ping — exactly the chain <c>WorldUI/Surfaces/InitiativePortraitClickSound</c> resolved for the
+    /// initiative-track refusal (see that file for why the positional overload is silent in VR).
+    ///
+    /// <para>Throttled to once per second per hand, like <c>ProximityGrabber.LogRefusal</c>, so a
+    /// player mashing the trigger at a resolving enemy hears one clear "no" and not a rattle.
+    /// Strict no-op offline and online alike: it plays a local sound and writes a local line.</para>
+    /// </summary>
+    private void NoteBusyRefusal(VRHand hand, FigureGrabbable figure, string why)
+    {
+        bool left = hand.Side == HandSide.Left;
+        float next = left ? _nextBusyRefusalLeft : _nextBusyRefusalRight;
+        if (Time.unscaledTime < next)
+            return;
+        if (left)
+            _nextBusyRefusalLeft = Time.unscaledTime + BusyRefusalIntervalSeconds;
+        else
+            _nextBusyRefusalRight = Time.unscaledTime + BusyRefusalIntervalSeconds;
+
+        // Read field-by-field, never through UIInfoTools.InvalidOptionAudioItem: that property is an
+        // unchecked `generalAudioButtonProfile.nonInteractableMouseDownAudioItem` and NREs before a
+        // scene has assigned the profile (UIInfoTools.cs:467).
+        UIInfoTools tools = UIInfoTools.Instance;
+        AudioButtonProfile? general = tools != null ? tools.generalAudioButtonProfile : null;
+        string preferred = general != null ? general.nonInteractableMouseDownAudioItem ?? string.Empty : string.Empty;
+        BusyRefusalFallbacks[0] = NegativePingFallback;
+        bool played = Core.GameAudio.PlayListenerAnchored(preferred, BusyRefusalFallbacks,
+                                                          out string item, out bool valid, out string note);
+
+        VRLog.Info("FigureGrab",
+            $"{hand.Side} grab REFUSED on {figure.Label} — {why}. This is the turn-deadlock gate "
+            + "(user report 2026-08-11): a figure the game is waiting on may not be picked up, "
+            + "because hiding its actor bar under the hand kills the very coroutine the "
+            + "choreographer's untimed wait needs. Refusal sound: item "
+            + $"'{item}' valid={valid} played={played}{note}.");
     }
 
     /// <summary>

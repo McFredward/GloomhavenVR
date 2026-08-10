@@ -38,7 +38,7 @@
 VRHand.UpdateBody.pose | src/GloomhavenVR/Hands/VRHand.cs | ordered | [ReadSimulated, ReadDevice, UpdateVelocity, UpdatePoseClassification, UpdateCurlTargets, _curler.Tick, Poke.Tick]
 VRHand.UpdateBody.interactors | src/GloomhavenVR/Hands/VRHand.cs | ordered | [Poke, Ray, RayUgui, RayGrab, Grabber, PalmGate]
 BoardDriver.Update | src/GloomhavenVR/Board/BoardDriver.cs | ordered | [Board.SyncRayMask, Board.CameraArrival, Board.Click, Board.Aoe, Board.Targeting, Board.OwnershipFallback]
-FigureGrabDriver.Update | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | ordered | [FigureGrab.Ghosts, FigureGrab.Glide, FigureGrab.HeldSize, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
+FigureGrabDriver.Update | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | ordered | [FigureGrab.StallWatchdog, FigureGrab.Ghosts, FigureGrab.Glide, FigureGrab.HeldSize, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
 FigureGrabDriver.LateUpdate | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | LateUpdate-required | [HeldFigures.PinAnimatedRoots, NetHeldFigures.PinAnimatedRoots, FigureRingSuppressor.Tick]
 WallSegmentFade.FadeDriver.LateUpdate | src/GloomhavenVR/Core/WallSegmentFade.cs | LateUpdate-required | [WallFade.Late]
 VRRigDriver._tailSteps | src/GloomhavenVR/Rig/VRRigDriver.cs | ordered | [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.DepthPrepass, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
