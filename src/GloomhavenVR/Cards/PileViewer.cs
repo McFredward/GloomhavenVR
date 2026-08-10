@@ -294,8 +294,67 @@ internal sealed class PileViewer
         }
     }
 
+    /// <summary>
+    /// Frames a HIDE request must stand before it is obeyed. Two, matching the panel-host debounce
+    /// ModBuild 107 shipped: the observed dropout is ONE frame, so 2 closes it with a frame of margin
+    /// while total hide latency stays at 3 frames ≈ 33 ms at 90 Hz.
+    /// </summary>
+    private const int HideGraceFrames = 2;
+
+    /// <summary>
+    /// Frame at which a pending HIDE becomes real; 0 = no hide pending. See <see cref="SetVisible"/>.
+    /// </summary>
+    private int _hideAt;
+
+    /// <summary>
+    /// Show/hide the three pile stacks — and, since 2026-08-11, DEBOUNCE THE HIDE BY TWO FRAMES.
+    ///
+    /// <para>User, hardware, ModBuild 107, in mixed reality: "Nicht nur der Text sondern auch die
+    /// pile symbole haben hin und wieder geflackert." The captions' flicker was a draw-order defect
+    /// and is fixed centrally in <c>MrBacking.SyncPlateOrders</c> — but that story provably cannot
+    /// reach the stacks' own graphics: the slabs are OPAQUE (Standard, queue 2000), never join the
+    /// furniture order group, and resolve by depth. The count digits and the item cue have no plate
+    /// at all. The one thing caption, digits and cue DO share is this method: they are children of
+    /// the three <c>PileStack_*</c> objects it switches off.</para>
+    ///
+    /// <para>ROOT CAUSE (read from source; no log line records it, so this is inference and is
+    /// labelled as such). <c>CardsDriver.RebuildFakeOrClear</c> hides the piles on its
+    /// <c>hand == null</c> branch, and the hand resolves through <c>CardsGameApi.ActiveHand()</c>,
+    /// which is NULL for a frame or two while the game re-binds a pooled <c>CardsHandUI</c> — the
+    /// very window ModBuild 105 had to defend the battle-goal text against, and ModBuild 107 the
+    /// objectives panel. That same branch deliberately KEEPS THE TRAY UP ("initiative track /
+    /// objectives / status stay readable"); the piles were simply never included in that ruling, so
+    /// they alone blink out and back while the rest of the board stands still. Hence "hin und
+    /// wieder" rather than constantly.</para>
+    ///
+    /// <para>The cure is the one that already shipped for the panel hosts in ModBuild 107 and that
+    /// the user confirmed worked there: SHOW immediately, HIDE only after the request has stood for
+    /// two frames (three total ≈ 33 ms at 90 Hz, under this project's established lag threshold). A
+    /// real teardown lasts far longer than that and is unaffected; a one-frame dropout stops being
+    /// visible at all. <c>Time.frameCount</c> and not a call counter, because Rebuild reaches this
+    /// from more than one path in a frame — the same trap the panel debounce documents.</para>
+    ///
+    /// <para>REJECTED for now, and it is the better fix if this ever needs revisiting: teaching the
+    /// hand resolver to tell "no hand" apart from "ask again in a moment" at the source, the way
+    /// <c>76daf29</c> did for the goal text. It touches the card pipeline's one latching seam, so it
+    /// is not worth the risk while a proven two-frame debounce closes the symptom.</para>
+    /// </summary>
     internal void SetVisible(bool visible)
     {
+        if (visible)
+        {
+            _hideAt = 0;
+        }
+        else if (_hideAt == 0)
+        {
+            _hideAt = Time.frameCount + HideGraceFrames; // arm the grace, hide nothing yet
+            return;
+        }
+        else if (Time.frameCount < _hideAt)
+        {
+            return; // still inside the grace — a one-frame dropout never reaches the stacks
+        }
+
         if (_discard != null && _discard.gameObject.activeSelf != visible)
             _discard.gameObject.SetActive(visible);
         if (_burnt != null && _burnt.gameObject.activeSelf != visible)

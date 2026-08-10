@@ -18,6 +18,7 @@ internal static class Program
             GoldenVectors.Run(t);
             RelaunchVectors.Run(t);
             ConfigStepVectors.Run(t, repoRoot);
+            ScrollTurnGateVectors.Run(t);
         }
         catch (Exception e)
         {

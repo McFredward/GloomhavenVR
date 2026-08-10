@@ -469,6 +469,194 @@ internal static class MrBacking
         }
     }
 
+    // ---- the plate must be right at RENDER time, not at UPDATE time ---------------------------
+    //
+    // USER REPORT (hardware, ModBuild 107, MIXED REALITY, verbatim): "Das Flackern ist weg bei dem
+    // Quest Text - aber nun ist mir aufgefallen, dass das selbe Flackern auch bei dem 'ABGEWORFEN',
+    // 'VERBRANNT', 'GEGENSTÄNDE' Text auftritt - ich teste gerade im mixed reality modus. Schau dir
+    // alle text nochmal an ob sie eventuell auch an dem Selben Problem leiden könnten."
+    //
+    // ROOT CAUSE — THE SAME DEFECT AS THE BATTLE-GOAL LABEL, BUT IT WAS NEVER THE LABEL'S FAULT.
+    // ModBuild 107 fixed the quest caption by moving ITS rank write into the Update pass, because
+    // Tick() (and with it TickLabels' order copy) is the last Update step in
+    // WorldUIModule.BuildTickSteps. That is a per-registrant contract, and this file has ~15
+    // registrants. The board's pile captions are the proof that the contract cannot be kept by
+    // hand: NOBODY writes their order in Update at all. They are transparent board furniture, so
+    // CanvasConversion.9.Furniture's ApplyFurnitureOrder writes them — from TickPanelOrder, which
+    // WorldUIModule pins as the LAST step of the LATE pass ("TRANSPARENCY ROUND, and it must stay
+    // LAST"). So the sequence for every furniture-backed caption was, every single frame:
+    //
+    //     Update      MrBacking.TickLabels  : plate := label.sortingOrder      (last frame's band)
+    //     LateUpdate  ApplyFurnitureOrder   : label := new band base + offset
+    //     render                            : label = new, plate = OLD
+    //
+    // and whenever the band moved DOWN — which is half of all band moves — the plate ended the
+    // frame ranked ABOVE the glyphs it backs. It is Blend One Zero with _ZWrite 1, seated a couple
+    // of millimetres behind, and TMP writes no depth to stop it, so it painted the caption out for
+    // exactly that frame and the next Update re-synced both. One frame blank, then back.
+    //
+    // EVIDENCE, from the ModBuild 107 / b765a5b6e hardware log (MR ON, .planning/debug/LogOutput.log):
+    //   * 172 'FURNITURE ORDER' lines — the control board's band re-seats 172 times in one session
+    //     and travels the whole ladder (95..99, 111..115, 191..195, 399..403, 511..515). Every one
+    //     of those is a frame in which every label plate on the board carried the previous band.
+    //   * 'BATTLE-GOAL LADDER' reports 1, 16, 38, 13, 54, 60, 12, 15 draw-order changes between
+    //     consecutive lines: the ladder these plates follow moves continuously, it is not a rare
+    //     event. (That label itself no longer skews — 'FRAME-ORDER BREACH' fired ZERO times, which
+    //     is the ModBuild 107 fix confirming itself.)
+    //
+    // THE FIX IS CENTRAL AND PHASE-BLIND. A plate's order only has to be correct at ONE moment —
+    // the moment the frame is rendered — and the last thing that runs before that is LateUpdate.
+    // So the copy is repeated there, after every order writer in the mod has had its say:
+    // <see cref="SyncPlateOrders"/> is called from the END of CanvasConversion.TickPanelOrder,
+    // which is where ApplyPanelOrder, TickFurnitureOrder, the see-through ladder and
+    // Core.UnseenTileOrder.Tick all write. Calling it there rather than appending a step to
+    // WorldUIModule's late list is deliberate: the guarantee is then LOCAL ("the orders were just
+    // assigned; re-seat the plates that copy them") and cannot be broken by someone reordering a
+    // list in another file.
+    //
+    // WHAT IT COSTS. One walk of Labels + Surfaces per frame while MR is ON — ~15 + ~2 entries in
+    // the shipped scene. Per entry: two Unity-null tests and one int compare; a WRITE happens only
+    // when the value actually differs, so a steady frame writes nothing and a band move writes at
+    // most one int per plate. With MR OFF it is a single bool test (`_applied`), the same
+    // no-effect-when-off regression bar the rest of this file keeps. The Update copy in TickLabels
+    // and TickSurfaces is KEPT, not replaced: a plate created this frame must be seated before this
+    // frame's render even if TickPanelOrder early-outs (no WorldCamera), and the Update copy is
+    // what makes the LateUpdate pass a no-op in the overwhelming majority of frames.
+    //
+    // REJECTED ALTERNATIVES.
+    //   * "Fix each registrant, like ModBuild 107 did." That is what produced this report. The
+    //     order writer is often not the registrant at all (the furniture ladder writes the pile
+    //     captions, the slot labels, the round readout, the ButtonCluster engravings and the item
+    //     berth's USE caption), so 'write your rank in Update' is not even an instruction those
+    //     owners could follow without leaving the furniture band.
+    //   * "Move ApplyFurnitureOrder into the Update pass." It reads panel POSES, and every
+    //     board-docked surface re-places its host in LateTick; measuring earlier would rank the
+    //     whole ladder from last frame's geometry. WorldUIModule states that constraint explicitly
+    //     and it outranks this one.
+    //   * "Make the plate an order FOLLOWER of the furniture group." That works only for renderers
+    //     the group knows about, and it would put a second writer on a field this class documents
+    //     itself as the single writer of (Net/BoardVisual.AdoptBoardOrder skips plates by name for
+    //     exactly that reason). Following the label's LIVE value keeps one writer and covers every
+    //     registrant, including ones whose order comes from somewhere nobody has thought of yet.
+    //   * "Drop the plate's _ZWrite so it cannot paint over the glyphs." The depth write is what
+    //     makes the plate an honest opaque surface instead of a sorting trick (see the class doc's
+    //     PLATE RENDERING note), and losing it would re-open the transparent-sort gambling the
+    //     ladder exists to remove.
+    //
+    // NOTE FOR THE NEXT ROUND: the per-registrant guard this replaces
+    // (Surfaces/TablePanelSurfaces.AssertPlateOrderSynced, 'FRAME-ORDER BREACH') is now structurally
+    // unable to fire. It is harmless and was left alone — it is another agent's file — but it is no
+    // longer the diagnostic to read. Read 'MR PLATE ORDER RESYNC' below instead.
+
+    /// <summary>
+    /// Re-copy every plate's sortingOrder from the content it backs, in the LATE pass — see the
+    /// block above. Called as the last act of <c>CanvasConversion.TickPanelOrder</c>, so it runs
+    /// after every draw-order writer in the frame and the value it seats is the one that renders.
+    ///
+    /// <para>PANEL plates deliberately do nothing here and need nothing: they are registered as
+    /// offset-0 ORDER FOLLOWERS of their own panel (<see cref="TickPanels"/>), so
+    /// <c>ApplyPanelOrder</c> writes plate and panel in the same statement, in this same pass —
+    /// they were never able to skew.</para>
+    /// </summary>
+    internal static void SyncPlateOrders()
+    {
+        if (!_applied)
+            return; // MR off (or never ticked on): no plate exists — one bool per frame
+
+        int fixes = 0;
+        for (int i = 0; i < Labels.Count; i++)
+        {
+            LabelEntry e = Labels[i];
+            // Both references are probed/cached by TickLabels and go Unity-null with their owner;
+            // a label that has not become visible yet has neither, and has nothing to re-seat.
+            Renderer? label = e.LabelRenderer;
+            Renderer? plate = e.PlateRenderer;
+            if (label == null || plate == null || plate.sortingOrder == label.sortingOrder)
+                continue;
+            RecordResync(fixes, e.Label, plate.sortingOrder, label.sortingOrder);
+            plate.sortingOrder = label.sortingOrder;
+            fixes++;
+        }
+        for (int i = 0; i < Surfaces.Count; i++)
+        {
+            SurfaceEntry e = Surfaces[i];
+            Renderer? plate = e.PlateRenderer;
+            // BackingOrder is polled off the registrant, and a registrant whose host died reports
+            // a safe 0 — but asking a dead one is pointless work, so the liveness flag gates it.
+            if (plate == null || !e.Surface.BackingAlive)
+                continue;
+            int order = e.Surface.BackingOrder;
+            if (plate.sortingOrder == order)
+                continue;
+            RecordResync(fixes, null, plate.sortingOrder, order);
+            plate.sortingOrder = order;
+            fixes++;
+        }
+
+        Core.PerfMonitor.Count("MrBacking.OrderResync", fixes);
+        LogResync(fixes);
+    }
+
+    /// <summary>The label whose plate the CURRENT frame's first late re-sync belonged to, plus the
+    /// two orders involved — the raw reference, never its name: <c>Object.name</c> allocates on
+    /// every read and this runs per frame, so the formatting happens only inside the rate-limited
+    /// log line below. Null for a non-label surface (they have no single TMP to name).</summary>
+    private static TMP_Text? s_resyncFirst;
+    private static int s_resyncFrom;
+    private static int s_resyncTo;
+
+    /// <summary>Frames in which at least one plate had to be re-seated late, and the total number
+    /// of re-seats — the churn rate the next hardware report is read against.</summary>
+    private static int s_resyncFrames;
+    private static int s_resyncTotal;
+    private static float s_resyncNextLogAt;
+
+    /// <summary>Seconds between two <c>MR PLATE ORDER RESYNC</c> lines. The counters keep running
+    /// between them, so the line always states a rate rather than a single frame.</summary>
+    private const float ResyncLogIntervalSeconds = 20f;
+
+    private static void RecordResync(int already, TMP_Text? label, int from, int to)
+    {
+        if (already != 0)
+            return; // one example per frame is an identification; a list is a wall
+        s_resyncFirst = label;
+        s_resyncFrom = from;
+        s_resyncTo = to;
+    }
+
+    /// <summary>
+    /// THE line the next MR flicker report is read against. It answers, arithmetically, the one
+    /// question a "the text blinked" report cannot answer on its own: did a plate actually end a
+    /// frame ranked apart from its content, and how often. Zero frames here means the draw order is
+    /// NOT the cause of whatever is still blinking and the next round must look elsewhere.
+    /// </summary>
+    private static void LogResync(int fixes)
+    {
+        if (fixes > 0)
+        {
+            s_resyncFrames++;
+            s_resyncTotal += fixes;
+        }
+        float now = Time.unscaledTime;
+        if (now < s_resyncNextLogAt)
+            return;
+        s_resyncNextLogAt = now + ResyncLogIntervalSeconds;
+        if (s_resyncTotal == 0)
+            return; // silence is the steady state; do not log a heartbeat of nothing
+        string named = s_resyncFirst != null
+            ? $" Last example: '{s_resyncFirst.gameObject.name}' {s_resyncFrom}→{s_resyncTo}."
+            : $" Last example: a non-panel backed surface, {s_resyncFrom}→{s_resyncTo}.";
+        VRLog.Info("WorldUI", $"MR PLATE ORDER RESYNC: {s_resyncTotal} plate re-seat(s) across " +
+                              $"{s_resyncFrames} frame(s) since load. Each one is a frame in which an " +
+                              "OPAQUE MR backing plate would have rendered ranked apart from the text " +
+                              "it backs — above it, and the glyphs would have been painted out for that " +
+                              "one frame. The order is copied in Update AND again here in LateUpdate " +
+                              "(after CanvasConversion.TickPanelOrder, i.e. after the panel ladder, the " +
+                              "board furniture band and the see-through pass have all written), so the " +
+                              "value that renders is always the content's own." + named);
+        s_resyncFirst = null;
+    }
+
     /// <summary>Hot-reload / module teardown: destroy every plate, restore every alpha.</summary>
     internal static void Shutdown()
     {

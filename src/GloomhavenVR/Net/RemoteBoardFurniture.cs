@@ -532,7 +532,7 @@ internal sealed class RemoteBoardFurniture
     /// they have moved the dial and the SHIPPED per-board default keyed by their SYNCED style
     /// where they have not — the two coincide for every untuned player.
     /// </summary>
-    private static Vector3 SlotOverlayLocal(in RemoteBoardTuning t, int slot)
+    internal static Vector3 SlotOverlayLocal(in RemoteBoardTuning t, int slot)
     {
         Vector3 ov = t.SlotOverlayOffset;
         float spread = (slot == 0 ? -0.5f : 0.5f) * t.SlotOverlaySpacing;

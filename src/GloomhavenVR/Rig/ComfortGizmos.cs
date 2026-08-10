@@ -66,6 +66,9 @@ internal sealed class ComfortGizmos : MonoBehaviour
             _sb.Append(turn != null && turn.WaitingForRearm ? " [waiting re-arm]" : " [armed]");
         if (VRModeStateMachine.CurrentMode == VRMode.BoardTargeting)
             _sb.Append("  (SUPPRESSED: BoardTargeting owns the stick)");
+        else if (turn != null && turn.ScrollBlocked)
+            _sb.Append("  (SUPPRESSED: menu scrolling owns the stick — release the stick sideways, "
+                       + "or flick it hard sideways, to turn)");
 
         _sb.Append("\nclamp ").Append(RigClamp.LastClampActive ? "ACTIVE (head lifted)" : "ok");
         if (comfort != null && comfort.ChordProgress > 0f)

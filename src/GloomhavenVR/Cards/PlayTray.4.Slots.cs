@@ -18,16 +18,21 @@ internal sealed partial class PlayTray
 
     internal VRCard? Occupant(int slot) => _occupants[slot];
 
-    /// <summary>
-    /// Home offset that seats a card ON the physical recess surface instead of at the
-    /// bundle anchor's mid-plane centre (test #28): a small push toward the viewer
-    /// (the board's -Z face), tuned by [Cards] SlotCardInset. Shared by every path
-    /// that parks a card in a slot — <see cref="PlaceCard"/>, <see cref="PlacePickCard"/>
-    /// and HalfSelection's docked action cards — so the seating is consistent and
-    /// tunable in one place. The slot itself carries the tray tilt/scale; the card
-    /// inherits both.
-    /// </summary>
-    internal static Vector3 SlotHomeOffset => SlotHomeOffsetFor(0, applySpread: false);
+    // SlotHomeOffset IS RETIRED (2026-08-11) — the spread-free convenience accessor that used to
+    // stand here, `SlotHomeOffsetFor(0, applySpread: false)`. Its doc claimed it was "shared by
+    // every path that parks a card in a slot", and that was the defect: PlaceCard, PlacePickCard
+    // and the live-tune re-home in PlayTray.3.Pose all take SlotHomeOffsetFor(slot) WITH the pair
+    // spread, and so do both slot glows — only HalfSelection's docked action cards read this one,
+    // for BOTH cards, so a docked pair sat 5.5 mm wider than the same pair placed there during
+    // selection and each card 2.75 mm off its own overlay (Oak, shipped defaults; the full
+    // arithmetic and the user report are on the call site in HalfSelection.SetCards). One accessor
+    // per seat, spread included, is the whole point of the debug menu's "Overlays" element; a
+    // second, spread-free one is only ever a way to lose it again. No migration marker is needed —
+    // this is an internal code seam, not a config key.
+    //
+    // If a future caller genuinely wants the un-spread centre of a recess, call
+    // SlotHomeOffsetFor(slot, applySpread: false) at the site and say there why the pair spread
+    // does not apply to it.
 
     /// <summary>
     /// Item B (couple the resting card to the Overlays element): the slot-local home offset a card

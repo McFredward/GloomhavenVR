@@ -258,9 +258,16 @@ internal sealed class RayUguiDriver
     /// compendium, an open dropdown's item list) respond exactly as to a wheel.
     ///
     /// Stick contention: this reads ONLY the Y axis and ONLY while actually hovering a
-    /// scrollable; SnapTurn/AoE read the X axis (SnapTurn engages at |x| ≥ 0.7), so
-    /// neither consumes the other's input — a deliberate straight-up push scrolls, a
-    /// deliberate sideways flick turns. Unscaled time: menus pause the game clock.
+    /// scrollable; SnapTurn/AoE read the X axis. Unscaled time: menus pause the game clock.
+    ///
+    /// <para>THE "DIFFERENT AXES, THEREFORE NO CONTENTION" CLAIM THAT USED TO STAND HERE WAS
+    /// WRONG, and the user reported it (2026-08-11): "Während dessen man in einem menu scrollt
+    /// soll auch die Drehung blockiert sein, das passiert mir immer wieder versehentlich
+    /// ungewollt." A thumb is not an axis decomposer — pushing a list up carries a few tenths of
+    /// sideways with it — and the reasoning only ever held against snap turn's |x| ≥ 0.7 engage,
+    /// while the SHIPPED mode is Smooth, whose deadzone is 0.2. So every scroll yawed the world.
+    /// The arbitration is <c>Rig.ScrollTurnGate</c>, fed from the same <see cref="UiScrollFocus"/>
+    /// signal published below; nothing on this path changed for it.</para>
     ///
     /// <para>STICK FLIGHT reads the SAME y axis, and it is the one control that genuinely
     /// collides here (user 2026-08-03: scrolling a menu also flew the player forward). The

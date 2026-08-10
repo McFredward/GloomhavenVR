@@ -474,6 +474,25 @@ internal static partial class CanvasConversion
         }
         Core.UnseenTileOrder.Tick(eye);
 
+        // (7) THE MR BACKING PLATES RE-COPY THE ORDER OF WHAT THEY BACK — and this is the only
+        // place in the frame where that copy is guaranteed to be the value that RENDERS.
+        //
+        // An MR plate is opaque (Blend One Zero, ZWrite 1) and sits a couple of millimetres behind
+        // its content, so it stays readable only while it shares that content's sortingOrder — its
+        // earlier renderQueue (2998 vs ~3000) is what draws it just UNDER the glyphs inside the
+        // shared slot. MrBacking ticks in UPDATE, and steps (4)-(6) above are in LATE UPDATE, so
+        // every plate whose content is ranked HERE spent the frame carrying the PREVIOUS frame's
+        // order: whenever the new value was lower, the plate ended the frame ranked ABOVE the text
+        // and painted it out for exactly that frame. The board's pile captions are the shipped case
+        // — nobody writes their order in Update at all, ApplyFurnitureOrder in step (5) does — and
+        // the ModBuild 107 hardware log counts 172 furniture-band re-seats in one session.
+        //
+        // Called from HERE rather than appended to WorldUIModule's late list on purpose: the
+        // guarantee is then LOCAL and self-evident ("the orders were just assigned; re-seat the
+        // plates that copy them") instead of depending on a step staying last in a list in another
+        // file. Full root cause, cost and rejected alternatives: MrBacking.SyncPlateOrders.
+        MrBacking.SyncPlateOrders();
+
         LogPanelOrder();
 
         // One handoff per frame, four counters, all no-ops while [Perf] Attribution is off

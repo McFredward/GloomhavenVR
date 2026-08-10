@@ -1,5 +1,7 @@
+using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 
 namespace GloomhavenVR.Rig;
@@ -18,6 +20,18 @@ namespace GloomhavenVR.Rig;
 /// modal reads the stick, and the player must keep full diorama movement while a
 /// dialog floats. It is further suppressed while the turn hand participates in a
 /// world grab.
+///
+/// MENU SCROLLING OWNS THIS STICK TOO (user, hardware 2026-08-11: "Während dessen man
+/// in einem menu scrollt soll auch die Drehung blockiert sein, das passiert mir immer
+/// wieder versehentlich ungewollt."). Scrolling reads the stick's y axis, turning its x,
+/// and on his rig both sit on the RIGHT controller — so the incidental sideways component
+/// of a thumb pushing a list up yawed the world, continuously, because the shipped turn
+/// mode is Smooth with a 0.2 deadzone. The suppression, its release edge and the two ways
+/// out of it live in <see cref="ScrollTurnGate"/>; this class only feeds it. Note what the
+/// condition is NOT keyed on: an open menu. That would contradict the ModalUI ruling
+/// directly above — the signal is <c>UiScrollFocus</c>, i.e. THIS hand's own pointer on a
+/// scrollable whose content really overflows, published by the code that delivers the
+/// wheel, which is the same authority <c>Flight.ScrollAllowed</c> already answers to.
 /// </summary>
 internal sealed class SnapTurn : MonoBehaviour
 {
@@ -29,8 +43,24 @@ internal sealed class SnapTurn : MonoBehaviour
 
     private bool _armed = true;
 
+    /// <summary>Scroll-vs-turn arbitration for the turn stick (see <see cref="ScrollTurnGate"/>).</summary>
+    private ScrollTurnGate _scrollGate;
+
+    /// <summary>
+    /// Which hand the gate's state belongs to. A live <c>[Comfort] TurnHand</c> switch — which the
+    /// player performs IN the scrollable options list this feature blocks on — must not carry a
+    /// latch built from one stick over to the other, so the gate is reset when this changes.
+    /// </summary>
+    private HandSide? _gateHand;
+
+    /// <summary>Last logged scroll-block verdict, so the diagnostic is edge-only (Flight's contract).</summary>
+    private bool _loggedScrollBlock;
+
     /// <summary>True while a snap flick has fired and the stick hasn't re-centered (gizmos).</summary>
     internal bool WaitingForRearm => !_armed;
+
+    /// <summary>True while menu scrolling is holding the turn axis down (gizmos / diagnostics).</summary>
+    internal bool ScrollBlocked => _scrollGate.IsBlocking;
 
     private void Awake() => Instance = this;
 
@@ -48,7 +78,10 @@ internal sealed class SnapTurn : MonoBehaviour
 
         TurnMode mode = ComfortSettings.Turn.Value;
         if (mode == TurnMode.Off)
+        {
+            _scrollGate.Reset(); // fail open: no latch survives turning being switched off
             return;
+        }
 
         VRMode vrMode = VRModeStateMachine.CurrentMode;
         // Test #13: ModalUI no longer suppresses turning (see class doc).
@@ -56,16 +89,46 @@ internal sealed class SnapTurn : MonoBehaviour
             || (vrMode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
             _armed = true; // never fire a stale flick when the stick is handed back
+            _scrollGate.Reset(); // …and no stale scroll latch either: this mode owns the stick
             return;
         }
 
         VRHand? hand = ResolveTurnHand();
         if (hand == null || !hand.HasPose)
+        {
+            // Fail open. !HasPose here is a REAL loss, not a blip — VRHand.HoldPoseThroughGap
+            // keeps the pose (and the last input) through short dropouts, so reaching this line
+            // means the controller has been gone past that grace and whatever the stick was doing
+            // when it left is no longer information.
+            _scrollGate.Reset();
+            _gateHand = null;
             return;
+        }
+        if (_gateHand != hand.Side)
+        {
+            // Turn hand switched (or first frame): the latch describes one physical stick and
+            // means nothing on the other. The player performs this switch INSIDE the scrollable
+            // options list this feature blocks on, so it is not a hypothetical path.
+            _gateHand = hand.Side;
+            _scrollGate.Reset();
+        }
         if (WorldGrab.Instance != null && WorldGrab.Instance.IsHandGrabbing(hand))
             return;
 
         float x = hand.Thumbstick.x;
+
+        // SCROLLING OWNS THIS STICK (user 2026-08-11 — see the class doc). The verdict, its
+        // release edge and its two exits are ScrollTurnGate's; the re-arm threshold handed to it
+        // is the deflection THIS mode already treats as no input, so "the axis is back at rest"
+        // never means something the mode itself would have turned on.
+        float rearm = mode == TurnMode.Snap ? SnapRearmThreshold : SmoothDeadzone;
+        bool scrollOwnsStick = UiScrollFocus.IsScrolling(hand);
+        if (!_scrollGate.Evaluate(scrollOwnsStick, x, hand.Thumbstick.y, rearm))
+        {
+            LogScrollBlock(hand, blocked: true);
+            return;
+        }
+        LogScrollBlock(hand, blocked: false);
 
         if (mode == TurnMode.Snap)
         {
@@ -108,6 +171,28 @@ internal sealed class SnapTurn : MonoBehaviour
         // Spawn ring: a stick turn is the player choosing their own facing — the multiplayer
         // join placement must never override that afterwards (VRRigDriver.NotifyPlayerLocomotion).
         VRRigDriver.NotifyPlayerLocomotion("stick turn");
+    }
+
+    /// <summary>
+    /// Edge-only diagnostic for the scroll block, same contract as <c>Flight.ScrollAllowed</c>'s:
+    /// one line per change of verdict, never per frame. The suppression line carries
+    /// <c>UiScrollFocus.Describe</c> — WHICH surface stamped the hover, by which producer, how
+    /// old the stamp is. That attribution is not decoration: the 2026-08-04 flight-latch hunt
+    /// cost three hardware rounds precisely because the log said "SUSPENDED" and named no
+    /// suppressor, and this gate reads the very same signal.
+    /// </summary>
+    private void LogScrollBlock(VRHand hand, bool blocked)
+    {
+        if (blocked == _loggedScrollBlock)
+            return;
+        _loggedScrollBlock = blocked;
+        VRLog.Info("Comfort", blocked
+            ? $"stick turn: SUSPENDED on the {hand.Side} hand — its pointer is on a scrollable menu " +
+              "list and scrolling owns this stick, so the sideways drift of a scroll push no longer " +
+              "yaws the world (user 2026-08-11). It comes back when the stick's sideways axis returns " +
+              $"to rest, and a deliberate sideways flick (|x| ≥ {ScrollTurnGate.DeliberateDeflection:F2} " +
+              $"and more sideways than forward) turns even now. [{UiScrollFocus.Describe(hand)}]"
+            : $"stick turn: RESUMED on the {hand.Side} hand.");
     }
 
     private static VRHand? ResolveTurnHand() =>

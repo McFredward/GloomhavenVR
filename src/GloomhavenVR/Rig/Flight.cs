@@ -336,8 +336,13 @@ internal sealed class Flight : MonoBehaviour
     /// there is no second opinion to drift out of sync.</para>
     ///
     /// <para>PER HAND: the query is scoped to the FLIGHT hand only, so a player scrolling with the
-    /// off hand keeps flying with the other, and turning is untouched in every case (it reads the
-    /// sideways axis, which no scroll path claims).</para>
+    /// off hand keeps flying with the other. TURNING now makes the same query for its own hand
+    /// (<see cref="ScrollTurnGate"/>, user 2026-08-11) — the clause that used to stand here,
+    /// "turning is untouched in every case (it reads the sideways axis, which no scroll path
+    /// claims)", was true about the AXES and wrong about the THUMB: a scroll push carries a
+    /// sideways component well past Smooth turn's 0.2 deadzone. Turning's gate is stricter than
+    /// this one because losing turning matters more than losing flight: a deliberate sideways
+    /// flick is still honoured there, and the block does not lift until the axis re-centres.</para>
     ///
     /// <para>NON-LATCHING: the underlying hover stamp expires by itself, so the frame the beam
     /// leaves the list, flight is back. The only hold is the short grace UiScrollFocus arms from an

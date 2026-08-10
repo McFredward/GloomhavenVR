@@ -77,12 +77,24 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\ConfigSteps.cs" Link="worldui\ConfigSteps.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file either, and here for the ConfigSteps reason exactly: it arbitrates one
+       thumbstick between menu scrolling and turning, and its verdict is only ever observed by
+       FEEL, from inside a headset. A latch that never releases does not throw, does not log and
+       does not look wrong — it produces a player who cannot turn (user report 2026-08-11). Its
+       release edge and its two exits are unreachable from anywhere else in this repo, so
+       ScrollTurnGate.cs was written free of Unity (beyond Mathf), of config and of the hand model
+       precisely so it could be linked in here and driven frame by frame. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Rig\ScrollTurnGate.cs" Link="rig\ScrollTurnGate.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
     <Compile Include="GoldenVectors.cs" />
     <Compile Include="RelaunchVectors.cs" />
     <Compile Include="ConfigStepVectors.cs" />
+    <Compile Include="ScrollTurnGateVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

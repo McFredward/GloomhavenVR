@@ -1220,17 +1220,45 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _builtSlotFrameW = SlotFrameW;
         float cardW = _builtSlotCardW;
         float cardH = SlotCardH;
+        // THE PAIR SPREAD BELONGS ON THE CARDS TOO (2026-08-11). The owner's round cards do not sit
+        // at the bare recess anchor: every local slot-home path adds SlotHomeOffsetFor(slot), whose
+        // X carries [Cards] SlotOverlayOffset plus HALF the [Cards] SlotOverlaySpacing pair spread
+        // with opposite sign per slot — that is the whole point of the debug menu's "Overlays"
+        // element, glow and resting card move together. The remote GLOWS already took that seat
+        // (RemoteBoardFurniture.SlotOverlayLocal); the remote CARDS were built at the anchor with
+        // nothing added, so a peer saw the owner's pair sitting wider than the owner does and off
+        // its own glow — on Oak's shipped values, 10.4 mm board-local, ≈5.5 mm world. It is the same
+        // omission the owner's own docked cards had until this round (HalfSelection.SetCards).
+        //
+        // WHY THE FRAME CONVERSION, and do not simplify it away: SlotOverlayLocal returns BOARD-LOCAL
+        // metres (the authored slot-local value already multiplied by PlayTray.SlotScale), because
+        // the LOCAL slot transform is scaled by SlotScale in PlayTray.1.Core (`slot.localScale *=
+        // SlotScale`) and everything parented under it inherits that. The REMOTE anchors are the raw
+        // prefab transforms — RemoteTrayVisual never scales them — so their local frame is NOT the
+        // local build's slot frame, and adding board-local metres to a child of one would be a
+        // silent scale error. Converting through the board root is exact and needs no assumption
+        // about what scale the prefab anchor happens to carry, which is scene data we cannot read.
+        // The glows need no conversion because they hang off the board ROOT already.
         if (_tray != null)
         {
-            _cards[0] = new RemoteBoardCard(_tray.SlotAnchor(0),
-                new Vector3(0f, 0f, CardOnAnchorProudZ), cardW, cardH);
-            _cards[1] = new RemoteBoardCard(_tray.SlotAnchor(1),
-                new Vector3(0f, 0f, CardOnAnchorProudZ), cardW, cardH);
+            for (int i = 0; i < 2; i++)
+            {
+                Transform anchor = _tray.SlotAnchor(i);
+                Vector3 seatBoardLocal = RemoteBoardFurniture.SlotOverlayLocal(_owner.BoardTuning, i);
+                Vector3 seatOnAnchor = anchor.InverseTransformVector(
+                    _root.transform.TransformVector(seatBoardLocal));
+                _cards[i] = new RemoteBoardCard(anchor,
+                    seatOnAnchor + new Vector3(0f, 0f, CardOnAnchorProudZ), cardW, cardH);
+            }
         }
         else
         {
-            _cards[0] = new RemoteBoardCard(_root.transform, SlotLocal(0), cardW, cardH);
-            _cards[1] = new RemoteBoardCard(_root.transform, SlotLocal(1), cardW, cardH);
+            // Fallback frame: the flat authored layout hangs off the board root, so the board-local
+            // seat adds directly — no conversion, same reason the glows need none.
+            _cards[0] = new RemoteBoardCard(_root.transform,
+                SlotLocal(0) + RemoteBoardFurniture.SlotOverlayLocal(_owner.BoardTuning, 0), cardW, cardH);
+            _cards[1] = new RemoteBoardCard(_root.transform,
+                SlotLocal(1) + RemoteBoardFurniture.SlotOverlayLocal(_owner.BoardTuning, 1), cardW, cardH);
         }
 
         // CONTENT hangs straight off the board root now. The old "ContentProud" spacer carried a

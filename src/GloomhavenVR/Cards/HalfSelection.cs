@@ -271,7 +271,45 @@ internal sealed class HalfSelection
                 // slot's own SlotScale is the card density (test #18 pattern). Seated
                 // into the physical recess with the shared inset (test #28) and scaled up
                 // to fill the recess (ITEM 3, [Cards] SlotOverlayScale_{board}).
-                card.SetHome(slot, PlayTray.SlotHomeOffset, Quaternion.identity, PlayTray.SlotCardScale);
+                //
+                // THE SEAT IS PER-SLOT (2026-08-11). User report, verbatim: "Die Karten auf dem
+                // controllboard liegen leicht unterschiedlich auf der x-achse als andere. Das fällt
+                // mir auch wenn ich die charactere wechsle, haben manche Karten einen leicht höhren
+                // abstand auf der x-achse zwischen sich, nicht viel - aber visibel."
+                //
+                // ROOT CAUSE: this line used to read PlayTray.SlotHomeOffset — which is
+                // SlotHomeOffsetFor(0, applySpread: FALSE), i.e. the pair-spread term dropped, and
+                // dropped for BOTH cards. Every other slot-home path (PlayTray.PlaceCard,
+                // PlacePickCard, the live-tune re-home in PlayTray.3.Pose) takes
+                // SlotHomeOffsetFor(slot) WITH the spread, and so do the teal wanted-pulse and the
+                // gold snap glow (BuildWantedHighlights / BuildSlotHighlights) and the peer's copies
+                // of them (Net.RemoteBoardFurniture.SlotOverlayLocal). So the two writers of the
+                // very same two recesses disagreed on exactly ONE axis — X — which is the axis the
+                // report names.
+                //
+                // THE ARITHMETIC (Oak, shipped defaults: SlotSpacing 0.155, SlotOverlayOffset_Oak
+                // x = +0.002, SlotOverlaySpacing_Oak = −0.008, SlotScale 1.3, board world scale
+                // TrayScale 0.57247 × BoardScale_Oak 0.92378 = 0.5288, card world width
+                // CardWidth 0.0635 × SlotCardScale 1.45 × 1.3 × 0.5288 = 63.3 mm):
+                //   placed  (spread)   → slot-local x = 0.002 ∓ 0.004, centre distance
+                //                        (0.155 − 0.008·1.3)·0.5288 = 76.5 mm, visible edge gap
+                //                        76.5 − 63.3 = 13.2 mm
+                //   docked  (no spread)→ slot-local x = 0.002 for both, centre distance
+                //                        0.155·0.5288 = 82.0 mm, visible edge gap 18.7 mm
+                // Each card sat 2.75 mm off its own overlay and the pair sat 5.5 mm too wide — an
+                // absolute error small enough to read as "nicht viel" while the GAP between the two
+                // cards, which is what the eye actually measures, changed by 42 %. It flips on every
+                // seam that swaps a placed pair for a docked one: the selection→action phase change,
+                // and a character switch, where a watched character's played cards arrive through
+                // this dock while our own lie in the slots from PlaceCard.
+                //
+                // REJECTED: adding a second dial for the dock. The whole point of the "Overlays"
+                // element (ModBuild 106) is that ONE per-board number moves the glow and the card
+                // that lands in it together; a second number is how the two drifted apart in the
+                // first place. The spread-free PlayTray.SlotHomeOffset had no other caller and is
+                // retired with this change so the trap cannot be re-armed.
+                card.SetHome(slot, PlayTray.SlotHomeOffsetFor(i), Quaternion.identity,
+                    PlayTray.SlotCardScale);
             }
             else
             {
@@ -285,7 +323,57 @@ internal sealed class HalfSelection
             else
                 ArmCard(card);
         }
+
+        LogDockSeats(n);
     }
+
+    /// <summary>
+    /// Change-gated seat dump for the docked pair — the measurement the 2026-08-11 X-axis report
+    /// had to be argued without. Prints, in REAL millimetres at the board's live world scale, each
+    /// docked card's slot-local X seat, the resulting CENTRE distance and the VISIBLE edge gap
+    /// between the two cards; the last two are the numbers the eye actually judges, and the gap is
+    /// the one that moved 42 % while the seats moved 2.75 mm.
+    ///
+    /// <para>Not per frame and not per dock: gated on a key built from the rounded seats and the
+    /// card count, so it prints once per genuinely different layout (a dial edit, a board switch, a
+    /// one-card round) and stays silent through the rebuild storm of a character switch. Developer-
+    /// facing; it names the dials so the next log can be read without re-deriving anything.</para>
+    /// </summary>
+    private void LogDockSeats(int n)
+    {
+        Transform? s0 = DockSlot(0);
+        Transform? s1 = DockSlot(1);
+        if (n <= 0 || s0 == null || s1 == null)
+            return;
+
+        Vector3 o0 = PlayTray.SlotHomeOffsetFor(0);
+        Vector3 o1 = PlayTray.SlotHomeOffsetFor(1);
+        // Rounded to a tenth of a millimetre in slot-local metres: a stepper press changes this,
+        // controller jitter cannot (the slot transforms are not read for the key).
+        int key = n * 1_000_000
+                  + (Mathf.RoundToInt(o0.x * 10_000f) & 0x7FF) * 2048
+                  + (Mathf.RoundToInt(o1.x * 10_000f) & 0x7FF);
+        if (_loggedSeatKey == key)
+            return;
+        _loggedSeatKey = key;
+
+        float slotScale = s0.lossyScale.x;                       // board world scale × PlayTray.SlotScale
+        float cardW = CardsConfig.CardWidth.Value * PlayTray.SlotCardScale * slotScale;
+        float centres = Vector3.Distance(s0.TransformPoint(o0), s1.TransformPoint(o1));
+        ControlBoard b = CardsConfig.CurrentBoard;
+        Core.VRLog.Info("Cards",
+            $"Dock seats [{b}]: {n} card(s) docked in the recesses at slot-local x " +
+            $"{o0.x * 1000f:F1} / {o1.x * 1000f:F1} mm — the SAME [Cards] SlotOverlayOffset_{b} + " +
+            $"SlotOverlaySpacing_{b} seat PlayTray.PlaceCard and both slot glows take " +
+            $"(SlotHomeOffsetFor, spread applied per slot). Card {cardW * 1000f:F1} mm wide, " +
+            $"centres {centres * 1000f:F1} mm apart, visible gap between them " +
+            $"{(centres - cardW) * 1000f:F1} mm. If the two cards ever read unevenly spaced against " +
+            "the pair that was PLACED there during selection, these three numbers differ between the " +
+            "two phases and one of the writers dropped the spread again.");
+    }
+
+    /// <summary>Change gate for <see cref="LogDockSeats"/>; int.MinValue = never printed.</summary>
+    private int _loggedSeatKey = int.MinValue;
 
     internal void ClearCards()
     {
