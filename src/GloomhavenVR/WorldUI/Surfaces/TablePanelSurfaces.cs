@@ -105,6 +105,76 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
     /// <summary>Which way the panel extends from the mount origin (unit XY in mount space).</summary>
     protected abstract Vector2 GrowDirection { get; }
 
+    /// <summary>
+    /// HIDING IS DEBOUNCED, SHOWING IS NOT — how many CONSECUTIVE frames the mount may read
+    /// invisible before a docked panel actually hides.
+    ///
+    /// <para>THE REPORT (user, hardware, ModBuild 106, verbatim): "Der Text der persönlichen Quest
+    /// flackert immer mal wieder auf (verschwindet für ein frame und taucht dann sofort wieder
+    /// auf)." Two mechanisms could produce a ONE-FRAME blank on that label and both are real; the
+    /// draw-order one is answered in <see cref="ObjectivesSurface.RankQuestLabel"/>, and THIS is the
+    /// other. The quest label's own visibility gate is <c>Panel.HostGo.activeInHierarchy</c>
+    /// (<see cref="ObjectivesSurface.TickQuestLabel"/>), and this method is what writes it — from a
+    /// single unfiltered read of <c>mount.gameObject.activeInHierarchy</c>. One frame in which that
+    /// read is false takes the whole docked panel AND the label hanging off it down and back up.
+    /// Both are neutralised in the same build ON PURPOSE: a hardware test costs the user a game
+    /// launch and headset time, and a run that only tells us which of two hypotheses was right
+    /// burns it (his standing instruction: "Versuch selber zu evaluieren, dass du mir immer nur
+    /// solche Tests gibst von denen du dir sicher bist, dass du das Problem gelöst hast").</para>
+    ///
+    /// <para>THAT ONE-FRAME READ IS STRUCTURALLY REACHABLE, from source: the mount's
+    /// <c>activeInHierarchy</c> is governed by the tray ROOT (<c>PlayTray.SetVisible</c>:
+    /// <c>show = visible &amp;&amp; _placed</c>), and both of its terms can drop for a moment.
+    /// <c>_placed</c> is cleared and re-earned by the placement deferral and by the watchdog
+    /// rebuild (<c>PlayTray.2.Watchdog</c> ends with "a recovery must never leave the board
+    /// hidden", i.e. it can find it hidden); <c>visible</c> comes from the CardsDriver rebuild,
+    /// whose no-active-hand branch hides the tray when <c>CardsGameApi.InScenario</c> reads false —
+    /// and a lost hand binding is the SAME pooled-<c>CardsHandUI</c> re-bind window ModBuild 105
+    /// already had to defend the goal text against. I did NOT catch this firing in the hardware
+    /// log — there is no line that would have shown it — so it is a reachable path, not an observed
+    /// one. The debounce closes it whichever of those inputs blinked, which is the point of fixing
+    /// it structurally rather than chasing the blink.</para>
+    ///
+    /// <para>WHY 2. The observed defect is ONE frame, so a grace of 1 would close exactly the
+    /// reported case with no margin at all — and a two-frame dropout (two ticks landing inside one
+    /// gap, a hitch, a double-buffered activation) would sail straight through it. 2 buys a frame
+    /// of margin over the only case we have evidence for while the TOTAL hide latency stays at 3
+    /// frames ≈ 33 ms at 90 Hz, comfortably under the ~67 ms this project already established as
+    /// "under the threshold where a delay reads as lag" (the figure-grab dwell, 76daf29). Anything
+    /// larger would start to be a policy about teardown timing rather than noise rejection.</para>
+    ///
+    /// <para>THE SHOW PATH IS UNTOUCHED, deliberately: <c>mountVisible</c> forces the panel visible
+    /// in the same frame, with no grace on the way in. Appearing late is its own defect on this
+    /// project ("everything that fades or moves does so WITH the animation") and a debounce that
+    /// worked in both directions would have traded one pop for another.</para>
+    ///
+    /// <para>THIS IS A SHARED BASE PATH — it applies to every <see cref="TrayMountedPanelSurface"/>,
+    /// i.e. the three control-board docks: <see cref="InitiativeTrackSurface"/>,
+    /// <see cref="ElementBoardSurface"/> and <see cref="ObjectivesSurface"/>. Harmless for all
+    /// three, and the reasoning is the same for each: (1) the hide is a bare <c>SetActive</c> with
+    /// no animation and no game-side side effect — these hosts CARRY game canvases but the game's
+    /// own widgets are never touched by it — so two extra frames change nothing but how long a
+    /// static panel is on screen; (2) a genuine teardown lasts far longer than 33 ms, so nothing
+    /// that should disappear stays up perceptibly; (3) the DESTRUCTIVE case does not come through
+    /// here at all — a destroyed mount is Unity-null and takes the floating-fallback branch above,
+    /// so scenario exit and board teardown are unaffected by this timer; (4) the MR backing plates
+    /// follow <c>panel.HostGo.activeInHierarchy</c> in <c>MrBacking.TickPanels</c>, so plate and
+    /// panel stay in lockstep for the same two frames and no plate is left standing alone.</para>
+    ///
+    /// <para>THE ONE CASE I CANNOT RULE OUT FROM SOURCE, stated rather than smoothed over: if some
+    /// caller ever toggled the tray's visibility ON AND OFF every other frame, this grace would
+    /// hold the panels permanently visible instead of letting them strobe. I found no such caller —
+    /// every writer traced above is an event-driven state change, not a per-frame gate — and a
+    /// strobing tray would be a defect in its own right. But that is an argument from the callers I
+    /// read, not a guarantee the type can make about itself.</para>
+    /// </summary>
+    private const int MountHideGraceFrames = 2;
+
+    /// <summary>Last <see cref="Time.frameCount"/> at which the mount read visible; 0 = never seen
+    /// visible, which must hide immediately (a panel that has never been shown has nothing to
+    /// protect). See <see cref="MountHideGraceFrames"/>.</summary>
+    private int _mountVisibleFrame;
+
     protected override void Place()
     {
         if (Panel == null)
@@ -127,8 +197,15 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
         // viewing angle — see ConvertedPanel.OrderCluster.
         Panel.OrderCluster = PlayTray.Current;
 
-        // Tray hidden (out-of-scenario transitions, hands down) → panel hides too.
-        bool visible = mount.gameObject.activeInHierarchy;
+        // Tray hidden (out-of-scenario transitions, hands down) → panel hides too. SHOWING IS
+        // IMMEDIATE, HIDING IS EARNED — see MountHideGraceFrames for the report this asymmetry
+        // answers and why it is safe for every panel that mounts here.
+        bool mountVisible = mount.gameObject.activeInHierarchy;
+        if (mountVisible)
+            _mountVisibleFrame = Time.frameCount;
+        bool visible = mountVisible
+                       || (_mountVisibleFrame != 0
+                           && Time.frameCount - _mountVisibleFrame <= MountHideGraceFrames);
         if (Panel.HostGo.activeSelf != visible)
             Panel.HostGo.SetActive(visible);
         if (!visible)
@@ -1937,12 +2014,31 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// </summary>
     private const int QuestPanelLift = 12;
 
+    /// <summary>Minimum gap between two lines of the ladder-churn diagnostic (see
+    /// <see cref="LogQuestOrderChurn"/>) — the raw change events can arrive several times a second
+    /// while the head drifts, and a rate is what the next hardware log has to answer with.</summary>
+    private const float QuestOrderLogIntervalSeconds = 10f;
+
+    /// <summary>How many ladder-churn lines one session may spend. After this the churn is
+    /// established and further lines would only be noise in a log that is read by hand.</summary>
+    private const int QuestOrderLogCap = 8;
+
     private static readonly Vector3[] QuestCorners = new Vector3[4];
     private static bool s_questErrorLogged;
+
+    /// <summary>One-shot latch for the frame-order assertion (<see cref="AssertPlateOrderSynced"/>).
+    /// Static: the invariant is a property of the tick list, not of a surface instance, so a scene
+    /// reload must not re-arm it into a repeating line.</summary>
+    private static bool s_questPlateOrderWarned;
 
     private GameObject? _questGo;
     private TextMeshPro? _questTmp;
     private Renderer? _questRenderer;
+
+    /// <summary>The MR backing plate's renderer, found READ-ONLY under the label and cached — the
+    /// frame-order assertion's only instrument (<see cref="AssertPlateOrderSynced"/>). Never
+    /// written to: <c>MrBacking</c> is and stays the plate's one writer.</summary>
+    private Renderer? _questPlateRenderer;
 
     /// <summary>Last ladder order written onto <see cref="_questRenderer"/> (change-gate).
     /// <c>int.MinValue</c> = never written, so a freshly built label is seated on its first
@@ -1955,6 +2051,13 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// resolving normally (see <see cref="QuestBlankHoldSeconds"/>).</summary>
     private float _questBlankSince;
     private string _questShown = "";
+
+    /// <summary>Ladder-churn diagnostic (<see cref="LogQuestOrderChurn"/>): unscaled time the next
+    /// line may be written, how many order changes have accumulated since the last one, and how
+    /// much of the line budget is spent.</summary>
+    private float _questOrderLogAt;
+    private int _questOrderChanges;
+    private int _questOrderLines;
 
     public override void Tick()
     {
@@ -1979,6 +2082,10 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// both sit on the board's CURRENT pose while it is being flung around (user: "der Aufgabentext
     /// links zieht immer ein wenig nach"). The label follows the host's world rect, so leaving it
     /// on the Update pass would just move the one-frame lag from the panel onto the label.
+    ///
+    /// <para>POSE ONLY — the label's DRAW ORDER is deliberately NOT re-derived here. See the
+    /// ONE-FRAME BLANK block on <see cref="RankQuestLabel"/>: the order has exactly one legal frame
+    /// phase, and it is the Update pass.</para>
     /// </summary>
     public override void LateTick()
     {
@@ -1994,6 +2101,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         _questGo = null;
         _questTmp = null;
         _questRenderer = null;
+        _questPlateRenderer = null;
         _questAppliedOrder = int.MinValue;
         _questShown = "";
         base.Shutdown();
@@ -2001,6 +2109,11 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 
     private void TickQuestLabel()
     {
+        // FIRST, before anything this frame is written: does the plate still carry the order the
+        // label ended the LAST frame with? That is the whole frame-order invariant, asked from the
+        // one side that can see both numbers. See AssertPlateOrderSynced.
+        AssertPlateOrderSynced();
+
         bool panelVisible = Panel != null && Panel.HostGo != null && Panel.HostGo.activeInHierarchy;
         if (!panelVisible)
         {
@@ -2056,8 +2169,11 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         bool show = _questShown.Length > 0 && _questGo != null;
         if (_questGo != null && _questGo.activeSelf != show)
             _questGo.SetActive(show);
-        if (show)
-            PlaceQuestLabel();
+        // THE ONLY PLACE THE LABEL'S DRAW ORDER IS EVER WRITTEN, and it must stay in the UPDATE
+        // pass — see the ONE-FRAME BLANK block on RankQuestLabel. The pose is placed again in
+        // LateTick (rigidity); the RANK deliberately is not.
+        if (show && PlaceQuestLabel())
+            RankQuestLabel();
     }
 
     /// <summary>
@@ -2067,11 +2183,17 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// host itself or it inherits exactly the one-frame drag the late placement exists to remove
     /// (see <see cref="TrayMountedPanelSurface.LateTick"/>). Cheap and stateless — reading four
     /// corners and writing one transform.
+    ///
+    /// <para>POSE ONLY. It used to end with <see cref="RankQuestLabel"/>, which made the draw order
+    /// a LateUpdate write and cost the label one blank frame every time the order moved — see the
+    /// ONE-FRAME BLANK block on <see cref="RankQuestLabel"/>. Returns whether a pose was actually
+    /// written, so the Update-pass caller only ranks a label that is really laid out (ranking a
+    /// zero-width or unplaced label would measure a distance to nowhere).</para>
     /// </summary>
-    private void PlaceQuestLabel()
+    private bool PlaceQuestLabel()
     {
         if (Panel == null || _questGo == null || !_questGo.activeSelf)
-            return;
+            return false;
 
         // Anchored below the host's world rect (the exact plane the converted objectives render
         // on), sized proportional to the panel width so it rides tray grabs/resizes and diorama
@@ -2080,14 +2202,14 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         Vector3 bl = QuestCorners[0];
         float width = (QuestCorners[3] - bl).magnitude;
         if (width < 1e-4f)
-            return; // not laid out yet
+            return false; // not laid out yet
         Vector3 up = (QuestCorners[1] - bl).normalized;
         Vector3 bottomCenter = (bl + QuestCorners[3]) * 0.5f;
         Transform t = _questGo!.transform;
         t.rotation = Panel.HostTransform.rotation;
         t.localScale = Vector3.one * width;
         t.position = bottomCenter - up * (width * (QuestGapFrac + QuestRectHeightFrac * 0.5f));
-        RankQuestLabel(); // the pose just written is the one the rank is measured from
+        return true;
     }
 
     /// <summary>
@@ -2131,6 +2253,88 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// observable, the same trade every other <c>OrderAboveDistance</c> caller accepts. Cost is
     /// one clamp, one distance, one walk of the listed panels and a CHANGE-GATED int write, and
     /// only while the label is actually shown.</para>
+    ///
+    /// <para>---- THE ONE-FRAME BLANK (user, hardware, ModBuild 106, verbatim: "Der Text der
+    /// persönlichen Quest flackert immer mal wieder auf (verschwindet für ein frame und taucht dann
+    /// sofort wieder auf)." — the SECOND round on this report; ModBuild 105's answer, the
+    /// unanswerable-poll hold in <see cref="TickQuestLabel"/>, was in the build he tested.) ----</para>
+    ///
+    /// <para>WHY THE POLL COULD NEVER HAVE BEEN THE WHOLE STORY, and the evidence that says so: the
+    /// text is re-derived every <see cref="QuestRefreshInterval"/> = 0.5 s and the label's shown/
+    /// hidden state is a pure function of the last poll. A poll-driven blank therefore lasts AT
+    /// LEAST half a second — it cannot produce "one frame, and back". The user's wording is
+    /// precise and it rules the whole poll path out; what it points at is the RENDER.</para>
+    ///
+    /// <para>ROOT CAUSE — A FRAME-PHASE ASYMMETRY BETWEEN THIS LABEL AND ITS OPAQUE MR BACKING
+    /// PLATE. <see cref="EnsureQuestLabel"/> registers the label with <c>MrBacking.Label</c>, and
+    /// the hardware log for this very run says the plate was live for the whole session
+    /// (LogOutput.log:80, "MR backings ON", with no OFF line after it). That plate is a Quad on the
+    /// SHARED opaque material: <c>Blend One Zero</c>, <c>_ZWrite 1</c>, renderQueue 2998, parented
+    /// under the label and seated 2 mm behind it. It is kept UNDER its own glyphs by ONE thing —
+    /// sharing their <c>sortingOrder</c>, where its earlier renderQueue is the tie-break
+    /// (MrBacking, PLATE SORTING ORDER). Unity resolves transparents by sortingLayer →
+    /// sortingOrder → renderQueue, so the instant the plate's order is HIGHER than the label's, the
+    /// plate paints AFTER the glyphs; TMP writes no depth, so nothing stops it and an opaque dark
+    /// rectangle lands exactly on the text. The text does not fade or move — it is simply gone for
+    /// that one rendered frame.</para>
+    ///
+    /// <para>AND THE TWO ORDERS WERE WRITTEN IN DIFFERENT FRAME PHASES.
+    /// <c>MrBacking.TickLabels</c> copies the LABEL renderer's live order in the UPDATE pass
+    /// (WorldUIModule.BuildTickSteps: "MrBacking" is the last UPDATE step, after
+    /// <c>Surface:ObjectivesSurface</c>). This method used to be called from
+    /// <see cref="PlaceQuestLabel"/>, which runs in BOTH passes — so the value that actually
+    /// RENDERED was the one written in <see cref="LateTick"/>, a phase the plate never sees.
+    /// Per frame: Update writes O_u and the plate copies O_u; LateUpdate overwrites the label with
+    /// O_l; the frame renders label=O_l, plate=O_u. Whenever O_l &lt; O_u the plate outranks its own
+    /// text for that frame, and the next Update re-syncs both — "verschwindet für ein frame und
+    /// taucht dann sofort wieder auf", exactly.</para>
+    ///
+    /// <para>WHY O_u AND O_l DIFFER AT ALL, which is what makes it INTERMITTENT rather than
+    /// constant: <c>OrderAboveDistance</c> is a STEP function of the measured eye distance with no
+    /// hysteresis of its own (CanvasConversion.8.Order.cs, <c>FartherPanelOrder</c>: the answer is
+    /// the highest ladder order among panels within <c>OrderSwapMarginMeters</c>-tolerant "farther
+    /// than me", and the ladder steps by 16). Both passes read the SAME ladder snapshot — it is
+    /// rebuilt only at the very end of LateUpdate — so the only moving input is the label's own
+    /// distance, and both of its terms move between the passes: the label is RE-POSED off the
+    /// board's fresher pose in <see cref="LateTick"/>, and the head camera is driven by a
+    /// <c>TrackedPoseDriver</c> in <c>UpdateAndBeforeRender</c> mode, i.e. by a MonoBehaviour
+    /// <c>Update</c> with no execution-order relation to <c>WorldUIModule.Update</c>. Millimetres
+    /// are enough when the distance is sitting on a step edge — and this label hangs a few
+    /// centimetres under a panel that is ITSELF on the ladder, so an edge is exactly where it
+    /// lives. INFERRED, not read from a log: the mod has never logged this order. Hence the
+    /// churn diagnostic below, which makes the next hardware run answer it as a yes/no.</para>
+    ///
+    /// <para>THE FIX IS THE PHASE, NOT A BIGGER NUMBER. The rank now happens ONCE per frame, in the
+    /// UPDATE pass, from <see cref="TickQuestLabel"/> — before <c>MrBacking.Tick</c> in the same
+    /// pass — and nothing writes it afterwards, so the value that renders is by construction the
+    /// value the plate copied. DO NOT move this call back into <see cref="PlaceQuestLabel"/> "so it
+    /// matches the fresh pose": that is precisely the defect. The pose still gets its late write;
+    /// only the ORDER is pinned to the phase its follower reads. That ordering lives in another
+    /// file, so it is asserted at runtime from this one — see <see cref="AssertPlateOrderSynced"/>.</para>
+    ///
+    /// <para>THIS IS ONE OF TWO ONE-FRAME BLANKS, AND BOTH ARE CLOSED IN THIS BUILD. The other is
+    /// the unfiltered mount-visibility read that gates the whole docked panel, now debounced in
+    /// <see cref="TrayMountedPanelSurface.MountHideGraceFrames"/> — that comment carries its own
+    /// evidence. Neither was shipped as "the likely one with a diagnostic for the other": a
+    /// hardware run is expensive enough that two candidates which both fit the evidence get
+    /// neutralised together, and the churn line below was demoted to confirmation accordingly.</para>
+    ///
+    /// <para>WHAT THIS COSTS, stated honestly: the order is now derived from the Update-pass pose,
+    /// so while the board is being flung the label's slot can be one frame behind its own position.
+    /// That is the identical trade the ladder itself already makes (it reads the previous frame's
+    /// distances) and it is invisible at 16-per-step granularity; a mis-ordered frame during a
+    /// throw is not a blanked frame while sitting still.</para>
+    ///
+    /// <para>REJECTED ALTERNATIVES. (1) Stamping the plate's <c>sortingOrder</c> directly from here
+    /// by finding the child named <c>MrBacking.PlateObjectName</c> — that name is documented as
+    /// DIAGNOSTIC ONLY and <c>MrBacking</c> is documented as the plate's one writer; two writers on
+    /// one renderer is how the next flicker gets built. (2) Giving the plate a dead-band or
+    /// hysteresis so the order stops churning — that treats the churn as the defect, but churn is
+    /// legitimate (the label really does cross other panels' distances) and a synchronised order is
+    /// correct at every churn rate. (3) Dropping the label's ladder rank altogether — that is the
+    /// ModBuild-90 regression this method exists to prevent (the figure-grab info card painting
+    /// over the goal line). (4) Suppressing the MR plate for this label — it would hand the
+    /// passthrough room back through the one backing that keeps the line readable.</para>
     /// </summary>
     private void RankQuestLabel()
     {
@@ -2153,8 +2357,120 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         int order = CanvasConversion.OrderAboveDistance(eyeDistance, QuestPanelLift);
         if (order == _questAppliedOrder)
             return;
+        int previous = _questAppliedOrder;
         _questAppliedOrder = order;
         _questRenderer.sortingOrder = order;
+        _questOrderChanges++;
+        LogQuestOrderChurn(order, previous, eyeDistance);
+    }
+
+    /// <summary>
+    /// WHICH DEFECT WAS ACTUALLY FIRING — confirmation, NOT the thing that decides the next round.
+    ///
+    /// <para>Two mechanisms could each blank this label for exactly one frame, and BOTH are closed
+    /// in this build: the draw-order desync above, and the unfiltered mount-visibility read now
+    /// debounced in <see cref="TrayMountedPanelSurface.MountHideGraceFrames"/>. That is deliberate
+    /// and it is the reason this line is no longer a question: shipping a diagnostic that merely
+    /// tells the two apart would spend a hardware run — a game launch plus headset time — on
+    /// learning which hypothesis was right instead of on a fixed game.</para>
+    ///
+    /// <para>What it still earns its place for: the fix above rests on one INFERRED link — that
+    /// this label's ladder order really does move while the player sits at the table (see
+    /// RankQuestLabel, "WHY O_u AND O_l DIFFER AT ALL"). Everything else in that chain is read from
+    /// source, but nothing has ever logged this number. So the line states a RATE: how many order
+    /// changes happened since the last one. A busy rate says the draw-order mechanism was live and
+    /// is what the phase fix removed; a flat zero says the mount blink was the one that mattered
+    /// and the ladder was never involved. Either way the flicker is already gone — this only tells
+    /// the next reader which comment was load-bearing. Rate-limited to
+    /// <see cref="QuestOrderLogIntervalSeconds"/> and capped at <see cref="QuestOrderLogCap"/>
+    /// lines, because a log that scrolls is a log nobody reads; Info level on purpose (BepInEx's
+    /// default disk config drops Debug entirely).</para>
+    /// </summary>
+    private void LogQuestOrderChurn(int order, int previous, float eyeDistance)
+    {
+        if (_questOrderLines >= QuestOrderLogCap)
+            return;
+        float now = Time.unscaledTime;
+        if (_questOrderLogAt > 0f && now < _questOrderLogAt)
+            return;
+        _questOrderLogAt = now + QuestOrderLogIntervalSeconds;
+        _questOrderLines++;
+        int changes = _questOrderChanges;
+        _questOrderChanges = 0;
+        string from = previous == int.MinValue ? "fresh label" : previous.ToString();
+        string tail = _questOrderLines >= QuestOrderLogCap
+            ? " (last line of this session's budget — the rate is established by now)"
+            : string.Empty;
+        VRLog.Info("WorldUI", $"BATTLE-GOAL LADDER: {changes} draw-order change(s) since the last " +
+                              $"line — now {order} (from {from}), label {eyeDistance:0.000} m from " +
+                              "the eye. This is the flicker diagnostic: the order is written in the " +
+                              "UPDATE pass ONLY, so the label's opaque MR backing plate (which " +
+                              "copies it later in that SAME pass) can never end a frame ranked " +
+                              "ABOVE the glyphs it backs. A one-frame blank reported while these " +
+                              "lines show zero changes around it means the ladder is NOT the cause." +
+                              tail);
+    }
+
+    /// <summary>
+    /// THE FRAME-ORDER ASSERTION, and it IS detectable from this side — no reach into
+    /// <c>MrBacking</c> is needed and none is made.
+    ///
+    /// <para>WHAT IT DEFENDS: the fix in <see cref="RankQuestLabel"/> is correct only because the
+    /// label's order is written EARLIER IN THE SAME UPDATE PASS than <c>MrBacking.Tick</c>, which
+    /// copies it onto the opaque backing plate. That ordering lives in
+    /// <c>WorldUIModule.BuildTickSteps</c> — another file, and one this class cannot constrain.
+    /// Move <c>MrBacking</c> above the slot surfaces and the one-frame blank comes back with
+    /// nothing to say it did.</para>
+    ///
+    /// <para>HOW IT DETECTS THAT WITHOUT A SECOND WRITER: the plate is a direct child of the label
+    /// (<c>MrBacking.CreatePlate</c> parents it to the TMP's own rect) under the documented name
+    /// <c>MrBacking.PlateObjectName</c>, so its renderer can simply be READ. At the top of the tick,
+    /// before this frame writes anything, plate order and label order must be EQUAL — that is what
+    /// "the plate copied the value that rendered" means, expressed as a state instead of as an
+    /// ordering. If <c>MrBacking</c> ever ran first, it would copy the previous frame's value and
+    /// this comparison would catch it on the first frame the order actually moved, which is exactly
+    /// the first frame it could have blanked the text. Reading a name that its owner calls
+    /// diagnostic-only is precisely the sanctioned use; the REJECTED alternative was writing
+    /// through it (see RankQuestLabel).</para>
+    ///
+    /// <para>NO FALSE POSITIVES, by construction: it asks only while MR actually wants plates
+    /// (<c>MrBacking.WantOpaque</c> — with MR off no plate exists and the whole check is one bool),
+    /// only once a plate has been found, only while that plate is <c>activeInHierarchy</c> (MrBacking
+    /// deactivates plates when MR is off or the label is hidden, and a deactivated plate's order is
+    /// stale by design), and only after the label has been ranked at least once. A freshly rebuilt
+    /// label has no plate child yet and is skipped until one exists. Latched to ONE line for the
+    /// session — this is an invariant breach, not a rate.</para>
+    /// </summary>
+    private void AssertPlateOrderSynced()
+    {
+        if (s_questPlateOrderWarned || !MrBacking.WantOpaque)
+            return;
+        if (_questGo == null || _questRenderer == null || _questAppliedOrder == int.MinValue)
+            return;
+        if (_questPlateRenderer == null) // Unity-null aware: also re-finds after a label rebuild
+        {
+            Transform? plate = _questGo.transform.Find(MrBacking.PlateObjectName);
+            if (plate == null)
+                return; // not built yet — MrBacking creates it lazily on the first visible tick
+            _questPlateRenderer = plate.GetComponent<Renderer>();
+            if (_questPlateRenderer == null)
+                return;
+        }
+        if (!_questPlateRenderer.gameObject.activeInHierarchy)
+            return;
+        int plateOrder = _questPlateRenderer.sortingOrder;
+        if (plateOrder == _questRenderer.sortingOrder)
+            return;
+        s_questPlateOrderWarned = true;
+        VRLog.Warn("WorldUI", "FRAME-ORDER BREACH (battle-goal label): its MR backing plate is at " +
+                              $"sortingOrder {plateOrder} while the label it backs is at " +
+                              $"{_questRenderer.sortingOrder}. The plate is OPAQUE, so whenever it " +
+                              "ranks HIGHER it paints over the text for that frame — the one-frame " +
+                              "quest-text flicker, back again. The invariant is that the label's " +
+                              "order is written EARLIER IN THE SAME UPDATE PASS than MrBacking.Tick, " +
+                              "which copies it: check WorldUIModule.BuildTickSteps still lists " +
+                              "'MrBacking' AFTER the slot surfaces, and that nothing has moved " +
+                              "RankQuestLabel back into a LateUpdate caller. Logged once per session.");
     }
 
     /// <summary>Build (or rebuild after a scene unload) the quest TMP label. True when fresh.</summary>
@@ -2171,6 +2487,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         // is precisely the band this ranking exists to leave.
         _questRenderer = _questTmp.GetComponent<Renderer>();
         _questAppliedOrder = int.MinValue;
+        _questPlateRenderer = null; // the old plate died with the old label — re-find under the new one
         _questTmp.alignment = TextAlignmentOptions.Top;
         _questTmp.color = new Color(0.92f, 0.88f, 0.76f);
         NativeButtonSkin.ApplyFont(_questTmp); // native HUD font, like the pile captions

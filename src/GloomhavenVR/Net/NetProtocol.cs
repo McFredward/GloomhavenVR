@@ -416,7 +416,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 106;
+    public const ushort ModBuild = 107;
+    // Build 107: two defects the PREVIOUS round had already claimed to fix, both of which turned
+    // out to have been fixed one layer away from where they actually live. That is the lesson of
+    // this build and it is why both entries name the layer, not just the cause.
+    //
+    // (1) THE FIGURE HIGHLIGHT FLASHED ON FIGURE AFTER FIGURE. FigureGrabDriver does not raise that
+    // highlight at all — ProximityGrabber does, on the nearest grabbable inside its CARD-sized 13 cm
+    // palm reach that still passes AllowsHand. The driver's election is only a VETO, and the veto was
+    // DISTANCE-GATED (`suppressed = inReach && !winner`), so every figure outside the palm sphere was
+    // actively written back to ALLOWED. The grabber ticks in a different driver and reads those flags
+    // one frame in arrears, so on the frame a figure CROSSED INTO the sphere it was the only allowed
+    // candidate and won "nearest" by default: one frame of amber on the figure at the FAR EDGE of the
+    // reach, walking from figure to figure as a hovering hand drifts. Hence "verschiedene Figuren",
+    // and hence "zu weit weg" — the leak fired at 130 mm, not at the 40 mm pick radius. The hysteresis
+    // and 6-frame dwell of build 106 stabilise the ELECTION, which had never lit those figures: the
+    // log of the reported run shows 137 highlight-ENGAGED lines against 9 elections. The veto is
+    // unconditional now and fails closed; ClearSuppression is gone with a note saying why.
+    //
+    // (2) THE PERSONAL-QUEST TEXT VANISHED FOR EXACTLY ONE FRAME. Build 106 hardened the POLL path,
+    // but the text is re-derived every 0.5 s, so no poll-driven blank can last one frame — the user's
+    // own wording ruled that layer out. Two one-frame RENDER paths were open and BOTH are closed
+    // rather than told apart on the next run: (a) the label's draw order was written in the Update
+    // pass AND again in LateUpdate, while its opaque MR backing plate copies that order in Update
+    // only — so whenever the late value ranked lower, the plate (ZWrite on, TMP writes no depth)
+    // painted over the glyphs for the frame in between. The rank is now written in the Update pass
+    // exclusively, with a once-per-session runtime assertion that fires if the plate ever ends a tick
+    // ranked apart from its label. (b) a single frame in which the tray mount reads
+    // !activeInHierarchy takes the whole host panel down with the text; the hide is now debounced by
+    // 2 frames (33 ms at 90 Hz) while the SHOW path stays immediate.
+    //
+    // No wire change in this build. The bump is here because 107 is what goes to the friend.
+    //
     // Build 106: TWO rounds in one bump — 105 shipped, then a fix round rode on top unbumped
     // (76daf29) because it never reached the friend's machine. Both are in here.
     //
