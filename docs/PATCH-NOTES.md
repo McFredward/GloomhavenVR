@@ -14,6 +14,13 @@
 > **It is not checked against the source.** Treat it as prose, not as an
 > authority for "is this a patch target?" — that question is answered by the
 > generated inventory (`CHARTER.md` §5).
+>
+> **Scope warning for a newcomer:** the prose below covers the *Phase-5* patch set only. The
+> patch surface has since roughly quadrupled (60 classes / 87 methods as of ModBuild 105) and
+> the newer patches are documented where they live — in a block comment above the patch class
+> itself, which by project convention states the user report verbatim, the root cause and the
+> rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
+> where the project stands.
 
 ## Effect / gate prose for the Phase-5 patch set
 

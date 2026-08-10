@@ -2,9 +2,16 @@
 
 **A Demeo-style room-scale VR mod for [Gloomhaven (digital)](https://store.steampowered.com/app/780290/Gloomhaven/)** — Unity Mono, loaded via BepInEx 5, patched with Harmony. No game files are modified.
 
-> **Status: v0.1 pre-alpha — feature-complete and integrated (phases 0–5), awaiting
-> the full-loop hardware pass** (`docs/TESTING-FULL-LOOP.md`). Release zips are
-> produced by `scripts/package-release.sh`; install guide: [INSTALL.md](INSTALL.md).
+> **Status: v0.1 pre-alpha, in the hardware iteration loop.** The phase plan (0–5) is long
+> since complete; development is now round-by-round against real Quest 3 sessions, and
+> multiplayer is supported. Release zips are produced by `scripts/package-release.sh`; install
+> guide: [INSTALL.md](INSTALL.md).
+>
+> **Working on this repo? Read [`.planning/STATE.md`](.planning/STATE.md) first.** It is the
+> handover document: the hard rules, the five verification gates every change must pass, the
+> multiplayer 1:1 ruling, what the recent rounds actually fixed and why, the open queue, and the
+> operational hazards that have each cost a round. The phase documents below describe how the
+> project was *built*; STATE.md describes where it *is*.
 
 ## Features (v0.1)
 

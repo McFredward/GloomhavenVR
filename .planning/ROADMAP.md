@@ -1,5 +1,10 @@
 # GloomhavenVR — Roadmap
 
+> **HISTORICAL.** Phases P0–P5 are complete and were completed long before ModBuild 92. This
+> file records how the project was built and is kept for provenance; it does **not** describe
+> current work. For where the project stands, what is open and how a round is run, read
+> [`STATE.md`](STATE.md).
+
 > Phases derive from `.planning/ARCHITECTURE.md`. Requirements R1–R5 from `.planning/PROJECT.md`.
 > Parallelization model: independent `feat/*` branches per workstream, orchestrator merges to
 > `main` after review; `main` must always build.

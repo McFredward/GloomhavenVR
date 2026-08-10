@@ -1,38 +1,277 @@
 # GSD State
 
 - **Milestone:** v0.1 (first playable VR release)
-- **Position:** **Hardware iteration loop.** Round 26 = **Test-#25 fixes** merged: (1) short rest — whole confirm-window (`box` = question + Ja/Nein) now docks below the cards & is clickable (the deadlock: only the isolated button row docked, no text, measured empty → tiny/dead); native "Kurze Rast" bar held bigger, no mod-button flicker; the random-loss burn/redraw choice resolves via the already-docked DialogPopup; the randomly-sacrificed card (`CardsHandUI.ShortRestedCard`) is laid at the board CENTRE (display-only, swaps on redraw). (2) card 3D silhouette now ALPHA-CLIPPED to the real card art's own alpha footprint (captured at runtime via GPU blit→ReadPixels, Standard Cutout) so it follows whatever the true outline is — ornate or rounded-rect — with a safe fallback to the round-24/25 slab; watch for `[Cards] CardFace captured the card-art silhouette` log. (3) every remaining mod-drawn button (long rest, gear, pin, CONFIRM/UNDO fallbacks, pile labels, ButtonCluster caps) reskins from the game's LIVE UI — sampled 9-slice button sprite + HUD font (MarcellusSC) + native tints (NativeButtonSkin.cs), procedural fallback. **Control-board 3D asset**: user generated a Hunyuan3D/Replicate GLB (ressources/boards/, gitignored) — good PBR (oak+brass+parchment, 4K maps) but 500k tris + unscaled; needs decimate→~20k, scale to 0.64×0.32 m, orient (face −Z), 6 named anchors, then Unity bundle build (user-side). Guide: .planning/research/CONTROL-BOARD-ASSET.md. Awaiting hardware test #26.
-- **Prior:** Round 25 = **Test-#24 fixes** merged (7 items): (1) settings panel now grabbable/resizable/pinnable via the shared PanelGrabHandle ([SettingsPanel] section); (2) new shared PanelPlacement in-view clamp (yaw ±35°, pitch [-30,+20], dist [0.45,1.4] m) heals every settings + combat-log spawn/re-place so nothing strands out of view (fixes combat log lost after MR toggle); (3) rest controls are comfortable tray-styled buttons (short+long together, redundant "Kurze Rast" header removed, initiative badge over slot 0 deleted — LONG REST has no native widget so it's a mod button routing GetCard(-1).OnClick); (4) hand Y offset fixed — baked -2cm wrist drop × -60° grip pitch put the palm 5-7cm low; now [Hands] HandVerticalOffset default +0.045, hand seats on the controller grip pose (laser stays on aim); (5) short-rest "Bist du sicher?" YesNoDialog (GUI_SHORT_REST_CONFIRMATION) was shown in a HUD holder next to the button = unpressable deadlock → wired into DecisionDock claim map ("YesNoDialog"), Yes/No docked below the cards, pressable (runs game's _yesAction/_noAction); (6) fat black card border was the fit computed against a stale placeholder host size → recompute against live host size, border now ~1.9mm; card mesh corners smoothed 4→6 segments; (7) whole-board laser reticle via an invisible BoardSurface plane collider at z0.002 (behind widgets, steals no clicks, also stops the beam passing through to a hex behind). Awaiting hardware test #25.
-- **Prior:** Round 24 = **Test-#23 fixes** merged (6 items, .planning/TEST-23-FINDINGS.md): (1) combat log re-show always re-places in front of the head (root cause = stale persisted grab-pose, not flag desync); (2) Mixed Reality now disables the opaque scenario BACKDROP MESH geometry — the level "sky" is Apparance environment mesh, NOT a Unity skybox/clear-flag ([MixedReality] HideSkyMeshes heuristic, reversible, logs candidates); (3) enemy reveal flattened (Flatten2D) + host-rect pinned + scales with the diorama via BaseWorldScale (old code cancelled zoom by multiplying by live WorldScale) + lazy yaw follow; (4) native Ready/Undo/ShortRest game widgets docked on the board via new TrayControlDockSurface ([WorldUI] TrayNativeControls; long rest has no discrete widget → stays mod-drawn, Skip out of scope); (5)+(6) burn-two-discarded deadlock/NRE fixed — root cause was NOT dock suppression but stale queued clicks + VR laser hover thrash firing TakeDamagePanel's own mouse handlers after ResetAndHide nulled actorBeingAttacked → liveness Harmony guard (TakeDamagePanelSafety, VR-gated) + hover stand-down while docked + IsLethalDamage backstop; two discard slots + native confirm/undo (game's dialogPopup) now work; damage tooltip flattened + docked beside the row. Awaiting hardware test #24.
-- **Prior:** Round 23 = **Demeo card-parity pass** merged (Phase 0 config + Groups A-D, decompiled Demeo blueprint .planning/research/DEMEO-HANDS-CARDS.md): G1 fan curvature scales with hand fill (FanCurveByFill), G2 whole-fan splits around the hovered card + hovered pop→config (FanSplitMultiplier/FanSplitFalloff gaussian/FanSelectedPopForward), G3 cards grab with TRIGGER not grip ([Cards] GrabButton, arbitrated vs UI/board click via HasFreshUiHit), G4 eased dead-zoned fan follow (FanFollowSmoothing/Deadzone, 0=rigid legacy), G5 reveal preset generous|demeo + busy-hand gate (PalmGate.ApplyDemeoPreset/IgnoreWhenHandBusy), G6 finger-proximity as a second fan-hover source. Controller pose smoothing deliberately NOT added (Demeo has none either). All tunable in dev.gloomhavenvr.cards.cfg. **Test #23 (pre-Demeo build) findings logged in .planning/TEST-23-FINDINGS.md** — 6 items incl. a CRITICAL burn-two deadlock (TakeDamagePanel.IsLethalDamage NRE: actorBeingAttacked null while our docked toggle drives BurnDiscardedCards); fix workers dispatched next. Awaiting hardware test #24.
-- **Prior:** Test #22 done: menu 3D + flat combat log confirmed. Round 22 merged (4 branches): (1) DecisionDock — generalized registry (ID/predicate→dock) that docks the REAL game widgets of in-scenario decisions (TakeDamagePanel + generic DialogPopup burn/short-rest confirms) in a drawer BELOW the two cards (was over-slot overlay); no ModalUI while claimed (fan stays live); grace hand-off to float if a row can't be isolated. Systematic dock-vs-float inventory in commit. (2) Burn card visuals: black card / oversized hover VFX / fullscreen burn flash all ONE root — DialogPopup.Show(fullAbilityCard) skips the healthy full-card prep so the card shader gets wrong inputs; fix reclaims the card onto our known-good FaceCanvas (readable, VFX card-sized, CardSmoke clamped to Local). (3) Pile viewer: grab-to-hand reading fan (cards individually grabbable/laser-readable, not playable), single close-on-foreign-interaction watchdog, discard-as-hand for burn-two (LoseCard + CardPileType.Discarded count 2, one SelectCard commit path). (4) Combat log X-close + settings respawn; Mixed Reality mode ([MixedReality] Enabled/KeyColor green default) nulls RenderSettings.skybox + forces HeadCamera/other Skybox-clear cams to SolidColor key so VD keys passthrough while the diorama stays. **Demeo study committed**: decompiled Demeo (Bowser framework + Assembly-CSharp into gitignored decompiled-demeo/), blueprint at .planning/research/DEMEO-HANDS-CARDS.md — hand/card rework spec for a future round (curvature-by-fill, split-on-hover, trigger-grab, dead-zoned fan follow). Awaiting hardware test #23. (1) menu video black root cause: APIOnly re-kick never resumed playback (isPlaying=False, frame -1 in log) → whole re-route DELETED; video depth now = shifted left-RT copies per eye (player untouched, background RT is video-only since the split; intermediate blit because Sprites/Default ignores _MainTex_ST). (2) Combat log oblique content: tilt is BAKED into the game prefab (rendered through perspective UICamera in 2D) + re-written live by ObjectPool.Spawn world-identity rotations and LeanTween MOVE_LOCAL z — per-frame LateUpdate flatten sweep (rotation→identity, z→0, x/y untouched), opt-in Flatten2D per surface, restore on release. (3) TakeDamagePanel: three choice buttons dock centered over the slot zone (native widgets), DamageBackground vignette + window suppressed, NO ModalUI (fan stays live for the burn follow-up); generic ID→dock claim map in ModalFallback with 1.5 s fallback to float. (4) Pile viewer: discard + burnt stacks docked off the tray's right edge (counts, poke/grab → head-relative browse arc; contents via CharacterClass.DiscardedAbilityCards/Lost+PermanentlyLost, widgets adopted read-only); physical pick flows in LoseCard/Discard/Recover modes: grab candidate → drop field over slot zone (slot mechanics reused) → CardsHandUI.SelectCard seam, poke-select fallback, single guarded commit path. PlayTray merge conflict (DamageMount vs PileMount) union-resolved. Awaiting hardware test #22. (1) combat log world-static by default (was head-relative follow + yaw billboard = perceived content drift; config key renamed CombatLogFollow→CombatLogFollowSeat to kill persisted follow), host rect pinned 569x291 (no fit thrash). (2) Initiative invisible = round-19 regression (disabled nested Canvas stops rendering its subtree; children merge only on DESTROY) → adoption scheme: nested canvases stay enabled, overrideSorting cleared + re-asserted, own GraphicRaycaster registered (UguiPokeSurfaces.RegisterNested; UguiPointer raycasts host+nested, topmost wins). (3) Element board (the "circle with squiggles") docked under objectives (ElementMount, density 0.8, elementsHolder-scoped fit); world SET button (SettingsPanel.GearButton) deleted; half-zone gold/teal backing tint removed (game's own uGUI highlight only + poke haptics). (4) Enemy round reveal (enemyCardsHolder MonsterBaseUI cards; level signal = enemyCardsBlocker.raycastTarget) floats 0.55 m over the board center, display-only, restores on hide; was rendering invisibly small on the docked track. (5) Menu STILL flat root cause: the UI-less loading scene latched FlatScreen's no-UI split watchdog (_splitFailed) permanently → whole stereo/video chain structurally unreachable in menu; latch now scene-scoped, re-arms on stack release/UI-camera capture; per-eye shift math verified opposite-direction; all route gates change-dedup logged. Awaiting hardware test #21. (1) laser guaranteed in EVERY mode — root cause: HalfSelection/TableIdle interactor policy had no Ray; single-target attacks stay in WaitingForCardSelection (not a TargetingState) → silent off; now level-derived suppression only while holding, reason-logged flips. (2) Initiative track: nested game Canvas sortingOrder=40 caused BOTH always-on-top rendering AND hollow GraphicRaycaster (Graphics registered with nested canvas) → CanvasConversion now neutralizes nested canvases (+30-frame sweep for pooled rows); docked-rect Info log. (3) VideoDepth 0.8→2.2 m (~2.4× screen distance), glass gap 3→6 cm; combat log head-facing yaw billboard (arc-slot pose faced table center = skew) + tray-style grab/resize/pin via shared PanelGrab (TrayGrab generalized). (4) Deliberate confirm: 0.35 s poke dwell on CONFIRM/UNDO/SET with charge visual + haptics, 0.7 s post-drop guard (accidental poke-confirms in #19 log), gold ✓ ready mirror, revoke via UIReadyToggle.ReadyUp(false) — offline ReadyButton is a one-shot party commit (no game-side revoke state). (5) Action selection on tray: x-offset root cause = game's ToggleFullCard re-anchors face rect (CardFace.Maintain now re-asserts anchors/pivot/rotation); round cards dock into tray slots; half-affordance hybrid (poke→PlayHalf, laser→Top/Bottom uGUI, per-half tint); Undo|Ready|Skip cluster docked bottom-center. Known duplicate: tray CONFIRM/UNDO + docked cluster Ready/Undo coexist. Awaiting hardware test #20. (1) screen LAYER SPLIT — screen-space-camera canvases can only render through their assigned camera (mirrors can never show them; right eye had no menu UI once video-depth replaced suspension) → UI stack retargeted to a transparent glass RT on its own quad (both eyes identical, floats in front), 3D background + mirrors behind, camera-plane video via APIOnly decode + per-tick texture copy with verified readiness ([WorldUI] ScreenLayerSplit, suspension fallback, black-video root cause: mid-play renderMode switch never re-opens the render path — now re-kicked). (2) UITextInfoPanel ("Geschlossene Tür") is a HOVER prop-info panel, not a dialog — ModalFallback treating it modal froze board picking → game's hover-leave Hide never ran → self-sustaining ModalUI lock (tests #17+#18); now passive PropInfoSurface (with UIPropInfoPanel), all 26 remaining modal IDs audited (DurabilityPanel unmapped, kept modal); HMD-worn virtual-mouse absolute priority (VD injects host mouse events → flip-war). (3) Floating "Runde 1" PhaseBanner box removed — its stuck soft lock ALSO disabled every converted panel's raycaster all scenario; round readout now a tray TMP label; initiative portrait clicks → CardsHandManager.SwitchHand (chain verified, provenance-logged); card slots 1.3×. Awaiting hardware test #19. (1) window frame/recess REMOVED (user dislike); camera-plane videos re-routed to RenderTexture and composited into BOTH eye RTs with behind-screen disparity ([WorldUI] VideoDepth 0.8 m, kill switch VideoDepthLayer) — menu UI floats in front of receded video background; intro force-suspends stereo in pre-menu scenes (both eyes guaranteed; IntroPlayer's VideoPlayer binding is scene-serialized, invisible to code). (2) Doff/don hard-lock fixed: virtual-mouse currency keep-alive was edge-triggered from FlatScreen-only warp calls — now level-triggered per-tick incl. device re-add (VirtualMouseBridge); VRPresenceWatch → SessionResumed sweep re-floats open modals in front of the head; non-dominant A/X chord force-closes the top modal via UIWindow.Escape/Hide; CanvasConversion re-fit hysteresis (CombatLog churned 2×/s). (3) Objectives density 0.6× (initiative untouched); tray always spawns head-relative then re-pins (PINNED world pose was never persisted — spawned at map bottom); scale-aware near/far clip planes (hands clipped at max zoom). Awaiting hardware test #18.
-- **Last update:** 2026-07-17
+- **Position:** **Hardware iteration loop, multiplayer-capable.** Current shipped build:
+  **`NetProtocol.ModBuild = 105`** (commit `e4ccf8c`); one further fix round is merged on top
+  (`76daf29`) and does **not** yet carry a bump, because it has not been handed to the friend.
+- **Last update:** 2026-08-10
 
-## Done
-- Research (5 reports + PATCH-TARGETS real-DLL audit) → ARCHITECTURE → ROADMAP
-- P0 skeleton, P0b asset pipeline, P1 XR bootstrap (M1), P2 hands & primitives (M2),
-  P3a board touch, P3b Demeo card hand (M3), P3c world-space UI (M4), P4 comfort,
-  P5 integration + in-VR settings panel + packaging
-- All builds green at every merge; Harmony inventory: 17 patched methods, zero cross-module
-  duplicates (`docs/PATCH-INVENTORY.md`)
-- `dist/GloomhavenVR-0.1.0.zip` (17 entries, layout-verified against runtime path constants)
+---
 
-## Human hardware steps (in order)
-1. Windows-PC: Gloomhaven + BepInEx 5.4.23.5 + release zip per `INSTALL.md`; chainload smoke test (log lines per `docs/TESTING-P1.md`)
-2. Quest 3 session: full-loop script `docs/TESTING-FULL-LOOP.md` (covers P1–P4 checklists)
-3. Unity 2021.3 editor harvest (`unity/HARVESTING.md`) — replaces provisional RuntimeDeps 1:1; only needed if XR misbehaves or before public release
-4. SteamVR glove import + bundle build (`unity/HANDS.md`) — replaces procedural hands/props
-5. Report tuning values flagged in TESTING docs (world scale, fan arc, panel poses, poke tuning, laser cone)
+## 0. READ THIS FIRST (successor briefing)
 
-## Known gaps (accepted for v0.1 pre-alpha)
-- Runtime behavior entirely unvalidated on hardware (all code paths compile-verified + desktop-dev-harness only)
-- Asset bundle absent → procedural visuals ship
-- Item/ability/augment bars + party HUD not physicalized (flat screen fallback)
-- Menu rig assumes a usable Camera.main in menu scenes (config off-switch exists)
-- Multiplayer untested by design (v1 single-player scope)
+This file is the handover. Everything below is written for someone who has never seen the
+project before and has to be productive in the first ten minutes.
 
-## Standing decisions
-- BepInEx 5.4.23.5, HarmonyX, net472, publicized refs; OpenXR 1.10.0 + XR Management 4.5.0; MultiPass default
-- Never patch ScenarioRuleLibrary/Bolt; commit through UI seams only
-- License GPL-3.0 (LCVR/RepoXR pattern reuse, credited); SteamVR hands BSD-3
-- Module config: `dev.gloomhavenvr.<module>.cfg` via `ModuleConfig.Create`
+### The one-paragraph description
+
+A BepInEx 5 + HarmonyX mod that turns *Gloomhaven Digital* (Unity 2021.3.5f1, Mono, net472)
+into a room-scale VR game on a Quest 3 over Virtual Desktop (VDXR), MultiPass stereo, 90 Hz
+(11.1 ms). The board becomes a physical diorama on a table; the player's hand holds a real
+card fan; the game's own 2D UI is *converted* into world-space panels docked on a wooden
+control board. **Multiplayer is supported and is a first-class constraint, not an
+afterthought** (see §3).
+
+### The user
+
+Frederik (`frederik@lissek.info`). **Always answer in German.** Worker/agent prompts may be
+English. He tests on real hardware every round and reports numbered findings; each round is
+"read the reports → dispatch workers → review their diffs → merge → bump → push → write him a
+German report".
+
+### Where the truth lives
+
+| Question | Authority |
+|---|---|
+| What is patched, by whom | `docs/PATCH-INVENTORY.md` (**generated** — `scripts/patch-inventory.sh generate`) |
+| Why a patch exists, what it costs | `docs/PATCH-NOTES.md` (hand prose, not checked) |
+| Architecture, module boundaries | `.planning/ARCHITECTURE.md` |
+| Refactor rules, invariants | `.planning/refactor/CHARTER.md`, `INVARIANTS-*.md` |
+| Frame-order contracts | `.planning/refactor/FRAME-ORDER.lock` |
+| Performance measurements | `.planning/perf/FINDINGS.md`, `.planning/perf-zoomed-out.md` |
+| Multiplayer design | `.planning/multiplayer/PLAN.md`, `PLAN2.md`, `RESEARCH.md` |
+| Parked/abandoned work | `.planning/static-batching-removed.md`, `.planning/wall-fade-stereo-rivalry.md` |
+| Anything user-facing | `src/GloomhavenVR/Core/Loc.cs` (+ `Loc.Config*.cs`) |
+| Every shipped default | `src/GloomhavenVR/Defaults/*.cs`, one annotated line each |
+
+**The code is the documentation.** This project deliberately writes long block comments that
+state the user report verbatim, the root cause, the evidence and the rejected alternatives.
+When you change something, write that comment — several rounds have been saved by a comment
+that said "do NOT swap this back, here is why".
+
+---
+
+## 1. Hard rules (violating any of these is a defect, not a style choice)
+
+1. **Mod-side only.** Never modify game data. `ressources/` is a READ-ONLY symlink to the
+   installed game (`Managed/*.dll`). Never `git add` it or `libs/`. Decompiled reference
+   sources are under `decompiled/` (and `decompiled-demeo/`), also never edited.
+2. **`NetProtocol.ModBuild` +1 on every build handed to another player.** It is the
+   multiplayer handshake key; mismatched peers get a blocking dialog. Write a full build note
+   next to it — the note history in `NetProtocol.cs` is the project's real changelog.
+3. **Wire:** magic `GVR1`, `Version` byte stays **3**, all changes **additive TLV** only, old
+   readers skip unknown records by length. **Card identity NEVER goes on the wire, ever** —
+   reveals go only through `Net/RevealGate.cs`. Records 1–17 and 22–29 are used; 30+ free. The
+   extras flag byte is FULL and record 4 has no free bits: claim a NEW record rather than
+   squeezing (the reservation comment in `NetProtocol.cs` records a past double-claim
+   incident).
+4. **Lights are never hidden or written by any visibility system. Figures are never touched by
+   any wall/visibility system.**
+5. **Everything that fades or moves does so WITH the animation.** Popping is unacceptable.
+   Exception granted by the user for one case only: the decision area's *collapse* is instant.
+6. **The user's approved look outranks geometric or technical correctness.**
+7. **Localisation:** every user-facing string via `Core/Loc.cs`, German **and** English.
+8. **Config:** every default on one annotated line in `src/GloomhavenVR/Defaults/` with a
+   `// => [Section] Key` comment. A new KEY must end in a unit word `ConfigSteps` recognises —
+   an unrecognised suffix silently falls back to "a fiftieth of the shipped default" and
+   produces an unusable stepper. This has been user-reported **twice**; there is now a test
+   (`tests/GloomhavenVR.WireTests/ConfigStepVectors.cs`) that pins it.
+9. **Never mention remaining context or advise a fresh session** (the readout is a harness
+   bug). Do not talk about token budgets.
+
+## 2. The five gates — every change must pass all of them
+
+```
+./scripts/build.sh                        # 0 errors (6 pre-existing nullability warnings are OK)
+bash scripts/wire-tests.sh                # currently 1441 assertions
+./scripts/refactor-guard.sh check --summary
+python3 scripts/rebase-defaults.py check
+python3 scripts/check-wire-coverage.py
+```
+
+Reading `refactor-guard`: only the **five gate lines** matter (patch surface, frame order,
+mirrors, remote defaults, bundle). Its **exit code is 1 whenever the compiled form differs
+from the stored baseline**, which is normal after any change — that is a report, not a gate.
+The baseline lives in gitignored `.planning/refactor/.guard/` and can be regenerated from a
+clean tree with `./scripts/refactor-guard.sh baseline`.
+
+`refactor-guard` hard-fails if `docs/PATCH-INVENTORY.md` is stale. Fix with
+`bash scripts/patch-inventory.sh generate`.
+
+**Bundles are built ONLY with `/home/claw/unity-2021.3.5`** — not `unity-2021.3`. The wrong
+editor produces a bundle that silently loads nothing.
+
+## 3. The multiplayer 1:1 ruling (user, verbatim, standing)
+
+> "generell gilt die Regel, das man alle Interaktionen, Animationen und Anzeigen des
+> Controllboards in MP auch synchronisieren soll. Die einzige Ausnahme ist hier die geheime
+> Quest des characters und während der Auswahlphase die tatsächlichen Oberseiten der Karten.
+> Ansonsten soll alles 1:1 übertragen werden."
+
+Narrowed and extended since:
+- Card **fronts** of a remote player are visible in every phase **except** card selection.
+- The **initiative NUMBER** stays masked to "?" during selection.
+- The personal quest / battle goal is never mirrored.
+- **The tuning guarantee:** "Ändert ein Spieler also die Positionen für sich selber, so sollen
+  alle anderen diese Position bei seinem board auch sehen." Board-affecting dials therefore
+  ride **record 28**, which is range-paged (a full lap is a snapshot; convergence ≤ 400 ms at
+  two pages). `scripts/check-wire-coverage.py` fails the build when a board-affecting dial has
+  neither a record-28 field nor an annotated EXEMPT.
+
+**The trap to avoid** (it has been hit): a wire field with *no consumer*. `check-wire-coverage`
+would call it covered while the peer still sees no difference. See the `[Cards]
+FanCloseDuration` note in that script.
+
+## 4. Where the project stands — recent rounds
+
+Newest first. Each entry names the *root cause*, because that is what generalises.
+
+- **`76daf29`** (no bump) — quest text flickered because ONE empty poll blanked it: the goal
+  resolves through `CardsGameApi.ActiveHand()`, which is null while the game re-binds a pooled
+  hand, so "no goal" and "ask again in a moment" were indistinguishable. Now told apart at the
+  source. Figure-grab highlight flashed because a bare radius is a step function and the hand
+  was drifting *on* the boundary (log: 39 → 38 → 37 mm against a 40 mm radius) — now
+  enter/exit hysteresis plus a 6-frame dwell.
+- **ModBuild 105 `e4ccf8c`** — a peer's board was being **described** instead of shown. The
+  decision row crossed as a label string; the receiver rebuilt flat plates. Fixed by realising
+  the game already builds the whole widget tree on every client (`TakeDamagePanel` is a
+  per-client Singleton, `ShowOtherPlayer`), so only ROLES need to travel — new record 29. Also:
+  a peer's board sat on a static sub-ladder (0/4/8) below the panel ladder's base (100), so it
+  could never rank against anything; card aliasing was a 1 s rescan timer, not a slow bake; the
+  refusal sound was keyed on ownership after free focus had made "look at another player's
+  character" a success.
+- **ModBuild 104 `0064307`** — performance. `FindObjectsOfType<T>()` is O(*every loaded
+  object*); three independent measurements price ONE call at 10–15 ms in a big room, and the
+  mod made ~7 per second (~89 ms/s, delivered as 20–100 ms hitches). Replaced by
+  `Core/SceneRegistry.cs`. The perf instrument also gained a **zoom axis** (`FRAME`/`SPLIT`
+  now bucket a window's frames into near/middle/far thirds).
+- **ModBuild 103 `06cb184`** — six reports, three of which were one defect class (a
+  transparent deciding its paint order from something that moves). Includes the **invisible
+  buttons** root cause, found after three failed rounds: the cap FACE is multiplied by the
+  player's `[ButtonColors]` tint, the WELL it sits in is not, so at tint 0.5 a disabled face
+  (0.105) is darker than its own hole (0.15) — pure arithmetic, hence a steady state.
+- **ModBuild 102 `f200f7f`** — the wrist HUD. A uGUI canvas is read from its **-Z** side; an
+  identity base therefore aimed the readable face out of the back of the hand while the gate
+  revealed it from the palm, so the player saw the mirrored back face.
+- **ModBuild 101 `a1623e1`** — `ConfigSteps` resolver: a key ending in a bare axis letter never
+  matched a unit word, so its step fell to a fiftieth of the shipped default (0.05 mm per
+  press). 73 of 351 dials changed step.
+
+## 5. Open items — the successor's queue
+
+### 5a. Committed to the user, not yet done
+
+**Card overlay size/position must also govern the cards lying on the control board** (user,
+2026-08-10, item 3). What was established: the dial he found, `[Cards] ActiveCardScale_*`,
+governs the **active pile** (played cards) via `Cards/ActivePileViewer.cs` — which does not
+exist during the selection phase, hence "no effect". The cards lying in the board slots are
+sized by `[Cards] SlotCardFill` and positioned by `PlayTray.SlotHomeOffsetFor`
+(`Cards/PlayTray.4.Slots.cs`). His request is a **unification of two families** so one size and
+one position drive the overlay *and* the placed cards. Touches the slots, the overlay and the
+MP mirror. **Do this first, with workers.**
+
+### 5b. Awaiting the next hardware session (diagnostics are already in place)
+
+- **The glasses among the symbols** (`[WorldUI] USE BARS: bonus-bar split KEPT …`). The
+  predicate `CardsGameApi.BonusIsPlaceable` is a four-way conjunction that **fails open**, which
+  is also the shape a host/client divergence takes. The new line names WHICH condition kept each
+  row — compare the host's and the peer's logs for the same bonus.
+- **Fog-tile shimmer**: grep `UNSEEN TILE ORDER` and read the **apply count**. A rewrite is the
+  only event that driver has which can change anything on screen, so "the tiles moved" and "the
+  count did not move" cannot both be true.
+- **Perf**: the next capture should run with `[Optimize] QuietDiagnostics = true` (about a third
+  of the ModBuild 104 saving is behind that switch) and `[Perf] SceneProfile = true` (feeds the
+  zoom clause). Then read the new `ZOOM` clause on `[Perf] SPLIT`.
+- **Figure pick radius**: `[FigureGrab] PickRadiusMillimeters` (5…130; **130 restores the old
+  palm-wide reach exactly**). At the user's zoom 40 mm ≈ 1.1 hex widths — if the flashing
+  persists after the hysteresis, the radius itself is the next lever.
+
+### 5c. Declined by the user — do not re-propose without new information
+
+The zoomed-out overview cannot reach 90 Hz without changing what the head camera declares
+visible. The user was presented with the options and chose **none of them**:
+- narrowing the head camera's culling mask (`[Optimize] HeadMaskFromScenarioCamera`),
+- distance-culling VFX/particles,
+- animation LOD for distant figures,
+- bar material de-duplication (small but real look risk).
+
+Expected outcome of what WAS built: close-in should reach a stable 90 Hz; the far overview
+should be a **hitch-free 45**, not 90. Say so plainly rather than implying more.
+
+### 5d. Parked by user ruling
+
+- **Per-eye wall-fade stereo rivalry** — proven unfixable on the game's masonry shader without
+  losing the dissolve (`.planning/wall-fade-stereo-rivalry.md`).
+- **Static batching ("Bündelung")** — tried and completely removed; Apparance reveal-clones of
+  batched sources are born without material slots (`.planning/static-batching-removed.md`).
+
+### 5e. Known gaps, carried
+
+- `Net/BoardVisual.cs`'s sub-ladder was fixed in 105, but mod-owned free plates near a peer's
+  board (fan hints, ping labels) are still at order 0 and lose to it.
+- 16 PENDING wire-coverage debts (`check-wire-coverage.py` lists them with reasons).
+- `Selectable` sprite-swap transitions write `Image.overrideSprite`, which the mip bake has
+  never covered — hovering an action half can still sample a mipless state sprite.
+- A receiver whose own take-damage prompt is docked falls back to plates for that window
+  (self-healing, logged).
+
+## 6. Working practice that actually matters
+
+### Parallel workers
+
+The user has standing instructions to parallelise into workers. **Always pass
+`isolation: worktree`** — without it they collide in the shared checkout. Brief every worker
+with: the hard rules (§1), the five gates (§2), "do NOT bump ModBuild", "do NOT commit or
+push", and the exact user report **verbatim in German**. Review every diff yourself before
+merging.
+
+Worker first command: `bash scripts/worktree-setup.sh` (links `ressources`, `libs`,
+`.planning/debug/default` and the refactor-guard baseline).
+
+### Hazards that have actually bitten (all of these cost a round)
+
+1. **`git stash` is NOT worktree-isolated.** `refs/stash` is shared by every worktree; two
+   agents stashing concurrently pop each other's work. Forbid it in worker briefs.
+2. **The shell's working directory persists between tool calls**, and `cd`-ing into a worktree
+   to inspect a diff leaves you there. Two commits landed on a worker branch instead of `main`
+   this way. **Use absolute paths, and verify with `git log --oneline -1 origin/main` after
+   every push.**
+3. **`git apply` is atomic.** It prints "Applied patch to X cleanly" per file and then rolls
+   *everything* back if a later file conflicts. A green build afterwards proves nothing — a new
+   file compiles on its own. Verify a merged symbol with `grep`.
+4. **`grep -c` returning 0 exits non-zero** and breaks `&&` chains. Use `;`.
+5. Bash heredoc + Python triple-quote collide — write the script to the scratchpad first.
+
+### Logs
+
+The user drops hardware logs in `.planning/debug/` (gitignored); a peer's logs go to
+`.planning/debug/remote/`. Tuned config snapshots land in `.planning/debug/default/` and are
+taken over with `python3 scripts/rebase-defaults.py apply`. **Those cfg values are always tuned
+against the NEWEST build — take them over verbatim, never re-express them for a frame change
+that shipped in the same round.** (Learned the hard way; see the do-not-swap note in
+`WristHud.ApplyPose`.)
+
+Always check the build stamp at the top of a dropped log before reasoning about it:
+`[Core] GloomhavenVR ModBuild N` and `v0.1.0 build <sha> [main]`.
+
+### Reporting to the user
+
+German, prose, no bullet-point dumps. State the **root cause**, separate what was **proven from
+the log/source** from what is **inferred**, and say plainly what you did *not* do and why. He
+values a stated limitation far above a smoothed-over one, and he has corrected over-confident
+claims more than once.
+
+---
+
+## Standing technical decisions
+
+- BepInEx 5.4.23.5, HarmonyX, net472, publicized refs; OpenXR 1.10.0 + XR Management 4.5.0;
+  MultiPass.
+- Never patch `ScenarioRuleLibrary`/Bolt; commit through UI seams only.
+- License GPL-3.0 (LCVR/RepoXR pattern reuse, credited); SteamVR hands BSD-3.
+- Module config: `dev.gloomhavenvr.<module>.cfg` via `ModuleConfig.Create`.
+- Distance ladder (`WorldUI/CanvasConversion.8.Order.cs`): base 100, step 16, nearer = higher
+  order; `OrderAboveDistance(eyeDistance, lift)` is the seam for non-panel plates.
+- `HandRig.Wrist` is **not** in `HandRig.Root`'s frame: `Anchor_Wrist` carries +90° about X, so
+  wrist +Y is along the fingers and wrist +Z is out of the palm. A uGUI canvas parented there is
+  read from its **-Z** side.
