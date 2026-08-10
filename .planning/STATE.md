@@ -329,6 +329,24 @@ that shipped in the same round.** (Learned the hard way; see the do-not-swap not
 Always check the build stamp at the top of a dropped log before reasoning about it:
 `[Core] GloomhavenVR ModBuild N` and `v0.1.0 build <sha> [main]`.
 
+### Never invite a test before the round is pushed (user ruling, 2026-08-11, standing)
+
+> "Ich hatte aber gepulled und kompiliert. Sorge dafür das nach einer Runde wenn ich zum tsten
+> aufgefordert bin die änderungen auch immer im master gepusht sind!"
+
+He pulls and compiles from `main`; an open worker lane is invisible to him. So:
+
+- **Do not name log strings to grep, expected visual changes, or things to watch for** for any
+  item whose lane is not yet merged AND pushed. Describing what to look for reads as an
+  invitation to test even without the words "please test" — that is exactly how this was broken.
+- **End every round-closing report with two explicit lines:** the commit to test (verified with
+  `git log --oneline -1 origin/main` *after* pushing), and which reported items are NOT in it.
+- While lanes are still running, either say plainly "noch nicht testen" or scope the test to the
+  merged items and name them.
+
+Same economics as the test-confidence rule: a run whose outcome is already known costs him a
+full game launch plus headset time.
+
 ### Reporting to the user
 
 German, prose, no bullet-point dumps. State the **root cause**, separate what was **proven from
