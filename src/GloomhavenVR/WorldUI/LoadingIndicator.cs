@@ -1,4 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using BepInEx;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
@@ -104,12 +108,71 @@ namespace GloomhavenVR.WorldUI;
 /// is running before and after the two stalls instead of an empty void), not whether the main
 /// thread stalls. The mod's 0.8 % share is not where the time goes and cannot be made to be.</para>
 ///
-/// <para>ONE VISUAL CONSEQUENCE: <c>LoadingScreen</c> — the object the real spinner art is read
-/// from — lives IN <c>Gloomhaven_unified</c>, the scene that is still loading. During the boot
-/// window there is therefore no art to read and the procedural ring stands in (logged at Info,
-/// not Warn: this is expected, not a failure). It is marked provisional and dropped the next
-/// time the indicator is HIDDEN, so every later load shows the game's own spinner again — the
-/// swap never happens while the thing is on screen.</para>
+/// <para><b>THE BOOT SPINNER IS THE GAME'S OWN ART (user, 2026-08-11, verbatim: "Statt eine
+/// eigene Ladeanimation am Anfang die du eingefügt hast, bitte nutze auch an dieser Stelle (wie
+/// an jeder anderen auch) das Ladesymbol vom Spiel das sich dreht, dass du anderer Stelle schon
+/// implementiert hast").</b> ModBuild 108 shipped a procedural ring here and called it
+/// unavoidable, reasoning that <c>LoadingScreen</c> is a serialized reference INSIDE
+/// <c>Gloomhaven_unified</c> — the scene still loading. That is true of <c>LoadingScreen</c> and
+/// false as a conclusion, because the game puts a SECOND copy of the same spinner in the scene
+/// that IS loaded:</para>
+/// <list type="number">
+/// <item><c>IntroPlayer</c> (Intro scene) holds a serialized <c>GameObject _loading</c>, and the
+///   last two statements of its <c>ShowLogos</c> coroutine are
+///   <c>_loading.SetActive(true); onCompleted?.Invoke();</c>. That callback IS
+///   <c>IntroPlayer.EventCompleted</c> — the event <c>Bootstrap.ShowSplash</c> is waiting on
+///   before it logs "Finished showing splash screen." and assigns <c>_loadScene</c>. Because
+///   <c>ShowSplash</c> then has to spin one more <c>yield return null</c> before it sees
+///   <c>introCompleted</c>, the game's own loading widget is switched on a FULL FRAME BEFORE
+///   this indicator's arming edge — by construction, not by luck.</item>
+/// <item>The Intro scene is still loaded for the whole window: the game's
+///   <c>UnloadSceneAsync("Intro")</c> is refused, and the refusal stands in the user's
+///   Player.log ("Unloading the last loaded scene Assets/Scenes/Intro.unity … is not supported")
+///   two lines above "Finished showing splash screen.".</item>
+/// <item>The widget is driven by <c>AnimateLoadingIcon</c>: same four serialized numbers as
+///   <c>LoadingScreen</c> (<c>m_IconSpinSpeed</c>/<c>m_IconGlowSpeed</c>/<c>m_IconUpdateSpeed</c>/
+///   <c>m_IconOverlayMinAlpha</c>), same <c>m_LoadingIconBase</c>/<c>m_LoadingIconOverlay</c>
+///   pair, same AnimateIcon loop — differing ONLY in that it waits on
+///   <c>WaitForSecondsRealtime</c> instead of Chronos' <c>Timekeeper</c>. No code anywhere
+///   references that class, so it can only be attached in a scene, and a Chronos-free duplicate
+///   exists precisely because the scene it lives in has no Timekeeper. At boot the Intro scene
+///   is the only such scene.</item>
+/// </list>
+/// <para>HOW FAR THAT IS PROVEN: (1) and (2) are read straight out of the decompiled sources and
+/// the log. (3) is an INFERENCE — serialized scene data is not readable from <c>decompiled/</c>,
+/// so WHICH component sits on <c>_loading</c> cannot be settled here. The code therefore does not
+/// depend on it: it looks for <c>AnimateLoadingIcon</c> first (best case — art AND the exact
+/// tuning), and otherwise takes the sprite <c>Image</c>s under <c>IntroPlayer._loading</c>
+/// whatever drives them. The "Loading indicator boot art:" line names the source that actually
+/// won, so one hardware run settles it.</para>
+///
+/// <para>AND A PERSISTED COPY, because that inference may be wrong. The first time an ORDINARY
+/// load resolves the real <c>LoadingScreen</c> sprites they are written to
+/// <c>BepInEx/config/dev.gloomhavenvr.loadingicon.{base,overlay}.png</c> plus a small
+/// <c>.txt</c> carrying the tints, the size ratio and the four animation numbers. Later boots
+/// PREFER that copy over the live Intro art, because it is the very symbol every other load
+/// shows — which is what was asked for. Cost: one <c>ReadPixels</c> per layer of a sub-rect
+/// capped at <see cref="CopyMaxPixels"/> on its long edge, once per installation, on an ordinary
+/// load frame that is already behind a spinner — never on the boot path. Re-taken only when the
+/// live sprites' names or pixel sizes stop matching the stored identity (i.e. a game update
+/// changed the art).</para>
+///
+/// <para>ORDER: persisted copy → live Intro widget → procedural ring. With the Intro path
+/// working the game's symbol shows from the very first launch; if it does not, the first launch
+/// after installing still shows the ring and every launch after it shows the game's own.
+/// Showing NOTHING during the boot window was rejected: those eleven seconds are exactly the
+/// picture that must not read as a crash, which is why this clause exists at all. Whichever
+/// source wins, the art is marked PROVISIONAL and dropped on the next hide, so every later load
+/// re-reads the live <c>LoadingScreen</c> exactly as it did before — the swap never happens
+/// while the spinner is on screen.</para>
+///
+/// <para>THE BOOT COPY IS MOD-OWNED, and has to be: the Intro scene's textures die when
+/// <c>Gloomhaven_unified</c> activates (Unity unloads the now-unused serialized files), which is
+/// ~2.7 s BEFORE the game's own loading screen takes over — holding the raw sprite reference
+/// would put blank white quads on screen for exactly that stretch. Both layers are therefore
+/// blitted into mod-owned <c>RenderTexture</c>s on the arming frame: GPU-side, no readback, no
+/// pipeline stall. (A GPU device reset inside the window would blank them; the ordinary path
+/// re-reads the live art on the next load either way.)</para>
 ///
 /// <para>APPEARING AND DISAPPEARING: one <see cref="FadeSeconds"/> unscaled alpha ramp both
 /// ways (hard rule — nothing in this project pops), applied as a FACTOR on both layers so the
@@ -157,6 +220,15 @@ internal sealed class LoadingIndicator
     /// search only runs in the BeforeIntro state and stops on the first hit, so this is a
     /// handful of calls in a scene with five renderers — never a steady-state cost.</summary>
     private const float BootSearchIntervalSeconds = 0.25f;
+    /// <summary>Longest edge of a mod-owned copy of one spinner layer, in pixels — it caps both
+    /// the boot-frame blit and the once-per-installation <c>ReadPixels</c>. Sized off the HMD,
+    /// not off a round number: the icon spans <see cref="SizeMeters"/> = 0.25 m at
+    /// <see cref="DistanceMeters"/> = 1.5 m, i.e. 9.5°, and the eye texture measured on the user's
+    /// rig (3072 px over ~105°) resolves ~29 px per degree — about 280 px across. 512 therefore
+    /// stays above native for the copy, so the boot spinner is not visibly softer than the raw
+    /// sprite every later load uses. Smaller sources are never upscaled.</summary>
+    private const int CopyMaxPixels = 512;
+
     /// <summary>Runaway cap on the boot clause. The measured window is ~11 s; this is a
     /// safety net, not a schedule — if it ever fires, the indicator simply reverts to its
     /// pre-boot-clause behaviour instead of hiding the game behind a stuck spinner.</summary>
@@ -208,10 +280,18 @@ internal sealed class LoadingIndicator
     private float _glowStep = FallbackGlowStep;
     private float _minAlpha = FallbackMinAlpha;
     private bool _artFailedLogged;
-    /// <summary>The acquired art is the procedural stand-in, not the game's — dropped on the
-    /// next HIDE so the real sprites are picked up once they exist (boot window).</summary>
-    private bool _artIsFallback;
+    /// <summary>The acquired art is a BOOT-WINDOW stand-in (persisted copy, live Intro widget or
+    /// the procedural ring) rather than the live <c>LoadingScreen</c> — dropped on the next HIDE
+    /// so the real sprites are picked up once they exist.</summary>
+    private bool _artIsProvisional;
     private bool _bootArtLogged;
+    /// <summary>Textures this class created and must destroy (boot-window copies: the two
+    /// <c>RenderTexture</c> blits, or the two decoded cache PNGs). The procedural ring keeps its
+    /// own two fields because those are rebuilt on a different path.</summary>
+    private readonly List<Texture> _ownedArtTextures = new(2);
+    /// <summary>One cache-write attempt per session — success or failure, we never retry in the
+    /// same run (a read-only config directory would otherwise cost a readback on every load).</summary>
+    private bool _cacheWriteAttempted;
 
     // AnimateIcon replica state.
     private float _accum;
@@ -317,7 +397,7 @@ internal sealed class LoadingIndicator
             VRLog.Info("WorldUI", "Loading indicator hidden (loading ended, faded out) — flat screen released.");
         }
         _shownLogged = false;
-        if (_artIsFallback && SceneController.Instance != null)
+        if (_artIsProvisional && SceneController.Instance != null)
             DropProvisionalArt();
     }
 
@@ -344,9 +424,10 @@ internal sealed class LoadingIndicator
         DestroyObj(ref _overlayMesh);
         DestroyObj(ref _fallbackBaseTex);
         DestroyObj(ref _fallbackOverlayTex);
+        DestroyOwnedArtTextures();
         _baseArt = null;
         _overlayArt = null;
-        _artIsFallback = false;
+        _artIsProvisional = false;
         _shownLogged = false;
         _fade = 0f;
         // _boot is deliberately NOT reset: the latch is one-way for the whole process. A VR
@@ -356,14 +437,14 @@ internal sealed class LoadingIndicator
     }
 
     /// <summary>
-    /// Throw away the boot window's provisional ring while the indicator is INVISIBLE, so the
-    /// next show re-resolves the game's own spinner sprites. Deliberately not done at the
-    /// moment the real art becomes available (that moment is mid-boot-window, with the ring on
+    /// Throw away the boot window's provisional art while the indicator is INVISIBLE, so the
+    /// next show re-resolves the game's own live spinner sprites. Deliberately not done at the
+    /// moment the real art becomes available (that moment is mid-boot-window, with the spinner on
     /// screen — swapping the art under the player is exactly the pop this project forbids).
     /// </summary>
     private void DropProvisionalArt()
     {
-        _artIsFallback = false;
+        _artIsProvisional = false;
         _baseArt = null;
         _overlayArt = null;
         _baseQuad = null;
@@ -379,8 +460,22 @@ internal sealed class LoadingIndicator
         DestroyObj(ref _overlayMesh);
         DestroyObj(ref _fallbackBaseTex);
         DestroyObj(ref _fallbackOverlayTex);
-        VRLog.Info("WorldUI", "Loading indicator: provisional boot-window ring dropped while hidden — the next load " +
-                              "re-reads the game's own spinner art.");
+        DestroyOwnedArtTextures();
+        VRLog.Info("WorldUI", "Loading indicator: provisional boot-window art dropped while hidden — the next load " +
+                              "re-reads the game's own live spinner art.");
+    }
+
+    /// <summary>Destroy the boot-window copies (RenderTexture blits / decoded cache PNGs). They
+    /// are not scene objects, so nothing else ever collects them.</summary>
+    private void DestroyOwnedArtTextures()
+    {
+        for (int i = 0; i < _ownedArtTextures.Count; i++)
+        {
+            Texture t = _ownedArtTextures[i];
+            if (t != null)
+                UnityEngine.Object.Destroy(t);
+        }
+        _ownedArtTextures.Clear();
     }
 
     private static void DestroyObj<T>(ref T? obj) where T : UnityEngine.Object
@@ -639,18 +734,11 @@ internal sealed class LoadingIndicator
             return;
         if (SceneController.Instance == null)
         {
-            // BOOT WINDOW: LoadingScreen is a serialized reference INSIDE Gloomhaven_unified,
-            // the scene that is still loading — there is nothing to read yet, and that is
-            // expected rather than a failure (hence Info, and _artFailedLogged untouched so a
-            // genuine later failure can still say so once).
-            if (!_bootArtLogged)
-            {
-                _bootArtLogged = true;
-                VRLog.Info("WorldUI", "Loading indicator art: the game's LoadingScreen does not exist yet (its scene " +
-                                      "is the one being loaded) — procedural ring for the boot window, re-read for " +
-                                      "every later load.");
-            }
-            BuildFallbackArt();
+            // BOOT WINDOW: the live LoadingScreen is a serialized reference INSIDE
+            // Gloomhaven_unified, the scene still loading — but the game's own spinner art is
+            // reachable anyway (class comment). Never a failure path, hence Info and
+            // _artFailedLogged untouched so a genuine later failure can still say so once.
+            ResolveBootArt();
             return;
         }
         try
@@ -666,7 +754,7 @@ internal sealed class LoadingIndicator
                 {
                     _baseArt = baseArt;
                     _overlayArt = overlayArt;
-                    _artIsFallback = false;
+                    _artIsProvisional = false;
                     _spinDegrees = ReadTuning(ls, "m_IconSpinSpeed", FallbackSpinDegrees);
                     _stepSeconds = ReadTuning(ls, "m_IconUpdateSpeed", FallbackStepSeconds);
                     _glowStep = ReadTuning(ls, "m_IconGlowSpeed", FallbackGlowStep);
@@ -675,6 +763,10 @@ internal sealed class LoadingIndicator
                     _minAlpha = (minAlpha >= 0f && minAlpha < 1f) ? minAlpha : FallbackMinAlpha;
                     VRLog.Info("WorldUI", "Loading indicator art: game spinner sprites acquired " +
                                           $"(base '{DescribeTex(_baseArt)}', overlay '{DescribeTex(_overlayArt)}').");
+                    // Off the boot path by construction (this branch needs a live SceneController):
+                    // persist a copy so the NEXT boot can show this exact symbol even if the Intro
+                    // source above ever fails. Once per installation; see the class comment.
+                    TryWriteIconCache(baseGo, overlayGo, _baseArt, _overlayArt);
                     return;
                 }
             }
@@ -696,6 +788,472 @@ internal sealed class LoadingIndicator
         }
         BuildFallbackArt();
     }
+
+    // ---- boot-window art: the game's own symbol, not the mod's ring -----------------------
+
+    /// <summary>
+    /// Acquire the boot window's art in strict preference order (class comment):
+    /// <list type="number">
+    /// <item>the PERSISTED copy of the game's own loading screen, written by an earlier session —
+    ///   byte-identical to the symbol every ordinary load shows, which is what the user asked
+    ///   for;</item>
+    /// <item>the LIVE widget the game itself switched on one frame ago in the Intro scene;</item>
+    /// <item>the procedural ring — now a last resort, not the answer.</item>
+    /// </list>
+    /// Always produces something, never throws: every step is individually guarded and simply
+    /// falls through to the next. Whatever wins is PROVISIONAL and dropped on the next hide.
+    /// </summary>
+    private void ResolveBootArt()
+    {
+        string source;
+        if (TryCachedIconArt())
+            source = "the persisted copy of the game's own loading screen (written by an earlier session)";
+        else if (TryIntroIconArt(out string introHow))
+            source = introHow;
+        else
+        {
+            BuildFallbackArt();
+            source = "the procedural ring — neither a persisted copy nor the Intro scene's own loading widget " +
+                     "could be read; the game's symbol will be persisted on the first ordinary load and used " +
+                     "from the next launch on";
+        }
+        if (!_bootArtLogged)
+        {
+            _bootArtLogged = true;
+            VRLog.Info("WorldUI", $"Loading indicator boot art: {source} " +
+                                  $"(base '{DescribeTex(_baseArt!)}', overlay '{DescribeTex(_overlayArt!)}', " +
+                                  $"step {_spinDegrees:0.#}° / {_stepSeconds:0.###}s, glow {_glowStep:0.###}, " +
+                                  $"min alpha {_minAlpha:0.##}).");
+        }
+    }
+
+    /// <summary>
+    /// The live loading widget in the Intro scene — the one the game's own boot code switched on
+    /// in the statement before the edge this indicator arms at. Preferred shape is
+    /// <c>AnimateLoadingIcon</c>, which carries both layers AND the four animation numbers, so
+    /// the spin direction, the step size and the glow pulse are the game's own rather than this
+    /// file's constants. If that component is not there, the game's serialized
+    /// <c>IntroPlayer._loading</c> object is walked for sprite <c>Image</c>s instead — that path
+    /// keeps the fallback tuning, which is stated in the log line so a hardware run can tell the
+    /// two apart.
+    /// </summary>
+    private bool TryIntroIconArt(out string how)
+    {
+        how = string.Empty;
+        try
+        {
+            GameObject? baseGo = null;
+            GameObject? overlayGo = null;
+            AnimateLoadingIcon? anim = FindLiveInstance<AnimateLoadingIcon>();
+            if (anim != null)
+            {
+                baseGo = AccessTools.Field(typeof(AnimateLoadingIcon), "m_LoadingIconBase")?.GetValue(anim) as GameObject;
+                overlayGo = AccessTools.Field(typeof(AnimateLoadingIcon), "m_LoadingIconOverlay")?.GetValue(anim) as GameObject;
+                how = "the live 'AnimateLoadingIcon' widget in the Intro scene (art AND the game's own animation numbers)";
+            }
+            if (baseGo == null || overlayGo == null)
+            {
+                // Second shape: whatever the game switches on, read as plain uGUI. Hierarchy
+                // order decides base/overlay — that is how both known animators declare them.
+                IntroPlayer? intro = FindLiveInstance<IntroPlayer>();
+                var loading = intro != null
+                    ? AccessTools.Field(typeof(IntroPlayer), "_loading")?.GetValue(intro) as GameObject
+                    : null;
+                if (loading == null)
+                    return false;
+                Image[] images = loading.GetComponentsInChildren<Image>(includeInactive: true);
+                var icons = new List<Image>(2);
+                for (int i = 0; i < images.Length; i++)
+                {
+                    Image img = images[i];
+                    if (img == null || img.sprite == null)
+                        continue;
+                    // Keep only square-ish rects. A "loading" object plausibly also carries a
+                    // full-width backdrop or a text bar, and blowing one of those up into the
+                    // spinner quad would look far worse than the ring this replaces. Every icon
+                    // the game animates (LoadingScreen's and AnimateLoadingIcon's alike) is a
+                    // rotating disc, so squareness is the one property that must hold.
+                    Rect r = img.rectTransform.rect;
+                    float aspect = r.height > 0.01f ? r.width / r.height : 0f;
+                    if (aspect < 0.5f || aspect > 2f)
+                        continue;
+                    icons.Add(img);
+                }
+                if (icons.Count == 0)
+                    return false;
+                baseGo = icons[0].gameObject;
+                overlayGo = icons[icons.Count > 1 ? 1 : 0].gameObject;
+                anim = null;
+                how = $"the spinner sprites under the game's own 'IntroPlayer._loading' object " +
+                      $"({icons.Count} of {images.Length} image(s) kept; no AnimateLoadingIcon found, so the " +
+                      "animation numbers stay at this file's fallbacks)";
+            }
+
+            LayerArt? baseArt = ReadLayer(baseGo, baseGo);
+            LayerArt? overlayArt = ReadLayer(overlayGo, baseGo);
+            if (baseArt == null || overlayArt == null)
+                return false;
+            // The Intro scene's textures die when Gloomhaven_unified activates — take mod-owned
+            // copies NOW or the last ~2.7 s of the window renders blank white quads.
+            if (!AdoptOwnedCopy(baseArt) || !AdoptOwnedCopy(overlayArt))
+            {
+                DestroyOwnedArtTextures();
+                return false;
+            }
+            _baseArt = baseArt;
+            _overlayArt = overlayArt;
+            _artIsProvisional = true;
+            if (anim != null)
+            {
+                _spinDegrees = ReadAnimTuning(anim, "m_IconSpinSpeed", FallbackSpinDegrees);
+                _stepSeconds = ReadAnimTuning(anim, "m_IconUpdateSpeed", FallbackStepSeconds);
+                _glowStep = ReadAnimTuning(anim, "m_IconGlowSpeed", FallbackGlowStep);
+                float minAlpha = ReadFloatField(anim, typeof(AnimateLoadingIcon), "m_IconOverlayMinAlpha");
+                _minAlpha = (minAlpha >= 0f && minAlpha < 1f) ? minAlpha : FallbackMinAlpha;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            VRLog.Info("WorldUI", $"Loading indicator: the Intro scene's loading widget could not be read " +
+                                  $"({ex.GetType().Name}: {ex.Message}) — falling through to the next source.");
+            return false;
+        }
+    }
+
+    /// <summary>First live (scene-resident) instance of a game component, inactive ones included.
+    /// <c>FindObjectOfType</c> skips inactive objects and would miss a widget whose parent canvas
+    /// is off; the scene check rejects the prefab/asset copies <c>FindObjectsOfTypeAll</c> also
+    /// returns. Runs once, in a boot window where the only loaded scene is the Intro.</summary>
+    private static T? FindLiveInstance<T>() where T : Component
+    {
+        T[] all = Resources.FindObjectsOfTypeAll<T>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i] != null && all[i].gameObject.scene.IsValid())
+                return all[i];
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Replace a layer's borrowed texture with a mod-owned copy of just its sprite sub-rect.
+    /// GPU-side <c>Graphics.Blit</c>: no <c>ReadPixels</c>, no readback, no pipeline stall — this
+    /// runs on the arming frame, which is on the boot path. Capped at
+    /// <see cref="CopyMaxPixels"/> on the long edge, aspect preserved.
+    /// </summary>
+    private bool AdoptOwnedCopy(LayerArt art)
+    {
+        Texture? src = art.Tex;
+        if (src == null || src.width <= 0 || src.height <= 0)
+            return false;
+        Rect uv = art.Uv;
+        float pw = Mathf.Max(1f, uv.width * src.width);
+        float ph = Mathf.Max(1f, uv.height * src.height);
+        float shrink = Mathf.Min(1f, CopyMaxPixels / Mathf.Max(pw, ph));
+        int w = Mathf.Max(1, Mathf.RoundToInt(pw * shrink));
+        int h = Mathf.Max(1, Mathf.RoundToInt(ph * shrink));
+        var rt = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB)
+        {
+            name = "GloomhavenVR.LoadingIconCopy",
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+        };
+        if (!rt.Create())
+        {
+            UnityEngine.Object.Destroy(rt);
+            return false;
+        }
+        RenderTexture prev = RenderTexture.active;
+        try
+        {
+            // Blit leaves the sub-rect filling the whole target, so the layer's UV rect becomes
+            // the identity and CreateQuad keeps the shared primitive mesh.
+            Graphics.Blit(src, rt, new Vector2(uv.width, uv.height), new Vector2(uv.x, uv.y));
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+        }
+        art.Tex = rt;
+        art.Uv = new Rect(0f, 0f, 1f, 1f);
+        _ownedArtTextures.Add(rt);
+        return true;
+    }
+
+    private static float ReadAnimTuning(AnimateLoadingIcon anim, string field, float fallback)
+    {
+        float v = ReadFloatField(anim, typeof(AnimateLoadingIcon), field);
+        return (v > 0f && !float.IsNaN(v) && !float.IsInfinity(v)) ? v : fallback;
+    }
+
+    private static float ReadFloatField(object target, Type type, string field)
+    {
+        object? v = AccessTools.Field(type, field)?.GetValue(target);
+        return v is float f ? f : float.NaN;
+    }
+
+    // ---- persisted copy of the game's own loading symbol ----------------------------------
+
+    /// <summary>Per-user data lives where every other mod-owned file lives — the BepInEx config
+    /// directory, under the same <c>dev.gloomhavenvr.*</c> naming the module configs use. Never
+    /// the game install.</summary>
+    private static string IconCachePath(string suffix) =>
+        Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_GUID + ".loadingicon" + suffix);
+
+    /// <summary>What the stored copy is a copy OF. Compared against the live sprites on every
+    /// ordinary load so a game update that changes the art re-takes the capture exactly once.</summary>
+    private static string IconCacheIdentity(Sprite b, Sprite o) =>
+        string.Format(CultureInfo.InvariantCulture, "{0}:{1}x{2}|{3}:{4}x{5}",
+            b.name, (int)b.textureRect.width, (int)b.textureRect.height,
+            o.name, (int)o.textureRect.width, (int)o.textureRect.height);
+
+    /// <summary>
+    /// Load the persisted spinner. Any problem at all — files missing, unreadable, truncated,
+    /// not a PNG, a manifest from a future version — returns false with the partial work cleaned
+    /// up, so the caller simply falls through to the next source. Corrupt input therefore
+    /// degrades to today's behaviour and never to an exception on the boot path.
+    /// </summary>
+    private bool TryCachedIconArt()
+    {
+        Texture2D? baseTex = null;
+        Texture2D? overlayTex = null;
+        try
+        {
+            string manifest = IconCachePath(".txt");
+            if (!File.Exists(manifest) || !File.Exists(IconCachePath(".base.png")) || !File.Exists(IconCachePath(".overlay.png")))
+                return false;
+            Dictionary<string, string> kv = ParseManifest(File.ReadAllLines(manifest));
+            if (!kv.TryGetValue("v", out string? version) || version != "1")
+                return false;
+            baseTex = LoadPngTexture(IconCachePath(".base.png"), "GloomhavenVR.LoadingIconCached.Base");
+            overlayTex = baseTex != null ? LoadPngTexture(IconCachePath(".overlay.png"), "GloomhavenVR.LoadingIconCached.Overlay") : null;
+            if (baseTex == null || overlayTex == null)
+            {
+                DestroyObj(ref baseTex);
+                DestroyObj(ref overlayTex);
+                return false;
+            }
+            // The PNGs are already cropped to the sprite rect, so the UV rect is the identity and
+            // the pixel dimensions carry the authored aspect.
+            _baseArt = new LayerArt
+            {
+                Tex = baseTex,
+                Tint = ParseColor(kv, "basetint", Color.white),
+                Width = baseTex.width,
+                Height = baseTex.height,
+            };
+            _overlayArt = new LayerArt
+            {
+                Tex = overlayTex,
+                Tint = ParseColor(kv, "overlaytint", Color.white),
+                Width = overlayTex.width,
+                Height = overlayTex.height,
+                SizeRatio = Mathf.Clamp(ParseFloat(kv, "overlayratio", 1f), 0.25f, 4f),
+            };
+            _ownedArtTextures.Add(baseTex);
+            _ownedArtTextures.Add(overlayTex);
+            _artIsProvisional = true;
+            _spinDegrees = PositiveOr(ParseFloat(kv, "spin", float.NaN), FallbackSpinDegrees);
+            _stepSeconds = PositiveOr(ParseFloat(kv, "step", float.NaN), FallbackStepSeconds);
+            _glowStep = PositiveOr(ParseFloat(kv, "glow", float.NaN), FallbackGlowStep);
+            float minAlpha = ParseFloat(kv, "minalpha", float.NaN);
+            _minAlpha = (minAlpha >= 0f && minAlpha < 1f) ? minAlpha : FallbackMinAlpha;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            DestroyObj(ref baseTex);
+            DestroyObj(ref overlayTex);
+            VRLog.Info("WorldUI", $"Loading indicator: the persisted loading symbol could not be read " +
+                                  $"({ex.GetType().Name}: {ex.Message}) — falling through to the next source; " +
+                                  "it is rewritten on the next ordinary load.");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Persist the game's own spinner so the NEXT boot can show it. Called only from the
+    /// ordinary path (a live <c>SceneController</c> is required to get here), at most once per
+    /// session and only when there is no current copy on disk.
+    ///
+    /// <para>COST, stated plainly: two <c>Graphics.Blit</c>es plus two
+    /// <c>Texture2D.ReadPixels</c> of at most <see cref="CopyMaxPixels"/>² pixels. A ReadPixels
+    /// is a full pipeline stall — at the 512×512 cap that is 1 MiB per layer, order a few
+    /// milliseconds for the pair. It happens on ONE frame, once per installation, during an
+    /// ordinary load that is already covered by this very spinner, and never during the boot
+    /// window. If the game's sprites are smaller than the cap, so is the readback.</para>
+    /// </summary>
+    private void TryWriteIconCache(GameObject? baseGo, GameObject? overlayGo, LayerArt baseArt, LayerArt overlayArt)
+    {
+        if (_cacheWriteAttempted || baseGo == null || overlayGo == null)
+            return;
+        _cacheWriteAttempted = true;
+        Texture2D? basePixels = null;
+        Texture2D? overlayPixels = null;
+        try
+        {
+            Image? baseImage = baseGo.GetComponent<Image>();
+            Image? overlayImage = overlayGo.GetComponent<Image>();
+            Sprite? baseSprite = baseImage != null ? baseImage.sprite : null;
+            Sprite? overlaySprite = overlayImage != null ? overlayImage.sprite : null;
+            if (baseSprite == null || overlaySprite == null)
+                return;
+            string identity = IconCacheIdentity(baseSprite, overlaySprite);
+            string manifest = IconCachePath(".txt");
+            if (File.Exists(manifest) && File.Exists(IconCachePath(".base.png")) && File.Exists(IconCachePath(".overlay.png")))
+            {
+                Dictionary<string, string> existing = ParseManifest(File.ReadAllLines(manifest));
+                if (existing.TryGetValue("v", out string? v) && v == "1" &&
+                    existing.TryGetValue("id", out string? id) && id == identity)
+                    return; // already the current art — no readback at all
+            }
+            basePixels = CaptureSpritePixels(baseSprite);
+            overlayPixels = basePixels != null ? CaptureSpritePixels(overlaySprite) : null;
+            if (basePixels == null || overlayPixels == null)
+                return;
+            File.WriteAllBytes(IconCachePath(".base.png"), basePixels.EncodeToPNG());
+            File.WriteAllBytes(IconCachePath(".overlay.png"), overlayPixels.EncodeToPNG());
+            File.WriteAllText(IconCachePath(".txt"), BuildIconManifest(identity, baseArt, overlayArt));
+            VRLog.Info("WorldUI", $"Loading indicator: the game's loading symbol was persisted to " +
+                                  $"'{IconCachePath(".*")}' ({basePixels.width}x{basePixels.height} + " +
+                                  $"{overlayPixels.width}x{overlayPixels.height}) — from the next launch on, the " +
+                                  "boot window shows this exact symbol instead of a stand-in.");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Info("WorldUI", $"Loading indicator: persisting the game's loading symbol failed " +
+                                  $"({ex.GetType().Name}: {ex.Message}) — harmless, the boot window keeps using the " +
+                                  "Intro scene's live widget (or the ring).");
+        }
+        finally
+        {
+            DestroyObj(ref basePixels);
+            DestroyObj(ref overlayPixels);
+        }
+    }
+
+    /// <summary>Sprite sub-rect → a readable RGBA32 <see cref="Texture2D"/> via a temporary render
+    /// target. The blit is what makes this work on compressed/atlased/non-readable game textures;
+    /// the readback is the cost documented on <see cref="TryWriteIconCache"/>.</summary>
+    private static Texture2D? CaptureSpritePixels(Sprite sprite)
+    {
+        Texture2D src = sprite.texture;
+        if (src == null || src.width <= 0 || src.height <= 0)
+            return null;
+        Rect tr = sprite.textureRect;
+        float shrink = Mathf.Min(1f, CopyMaxPixels / Mathf.Max(Mathf.Max(1f, tr.width), Mathf.Max(1f, tr.height)));
+        int w = Mathf.Max(1, Mathf.RoundToInt(Mathf.Max(1f, tr.width) * shrink));
+        int h = Mathf.Max(1, Mathf.RoundToInt(Mathf.Max(1f, tr.height) * shrink));
+        RenderTexture rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        RenderTexture prev = RenderTexture.active;
+        try
+        {
+            Graphics.Blit(src, rt,
+                new Vector2(tr.width / src.width, tr.height / src.height),
+                new Vector2(tr.x / src.width, tr.y / src.height));
+            RenderTexture.active = rt;
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false, linear: false);
+            tex.ReadPixels(new Rect(0f, 0f, w, h), 0, 0, recalculateMipMaps: false);
+            tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+            return tex;
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+        }
+    }
+
+    private static Texture2D? LoadPngTexture(string path, string name)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        if (bytes.Length < 8)
+            return null;
+        var tex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: false, linear: false)
+        {
+            name = name,
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+        };
+        if (!tex.LoadImage(bytes, markNonReadable: true))
+        {
+            UnityEngine.Object.Destroy(tex);
+            return null;
+        }
+        return tex;
+    }
+
+    /// <summary>The manifest carries the tuning that the boot window otherwise has no way to
+    /// know: this session's numbers have just been read off the live <c>LoadingScreen</c>, so the
+    /// persisted spinner rotates in the same direction, at the same step, with the same glow.</summary>
+    private string BuildIconManifest(string identity, LayerArt baseArt, LayerArt overlayArt)
+    {
+        var sb = new System.Text.StringBuilder(256);
+        sb.Append("# GloomhavenVR — a copy of the GAME's own loading symbol, taken once so the boot window\n");
+        sb.Append("# (intro over, Gloomhaven_unified still loading) can show it. Delete these three files to\n");
+        sb.Append("# have the mod re-take them on the next load. Nothing here is user tuning.\n");
+        sb.Append("v=1\n");
+        sb.Append("id=").Append(identity).Append('\n');
+        Append(sb, "spin", _spinDegrees);
+        Append(sb, "step", _stepSeconds);
+        Append(sb, "glow", _glowStep);
+        Append(sb, "minalpha", _minAlpha);
+        sb.Append("basetint=").Append(FormatColor(baseArt.Tint)).Append('\n');
+        sb.Append("overlaytint=").Append(FormatColor(overlayArt.Tint)).Append('\n');
+        Append(sb, "overlayratio", overlayArt.SizeRatio);
+        return sb.ToString();
+
+        static void Append(System.Text.StringBuilder b, string key, float value) =>
+            b.Append(key).Append('=').Append(value.ToString("R", CultureInfo.InvariantCulture)).Append('\n');
+    }
+
+    private static string FormatColor(Color c) => string.Format(CultureInfo.InvariantCulture,
+        "{0:R},{1:R},{2:R},{3:R}", c.r, c.g, c.b, c.a);
+
+    private static Dictionary<string, string> ParseManifest(string[] lines)
+    {
+        var kv = new Dictionary<string, string>(12, StringComparer.Ordinal);
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            if (string.IsNullOrEmpty(line) || line[0] == '#')
+                continue;
+            int eq = line.IndexOf('=');
+            if (eq <= 0)
+                continue;
+            kv[line.Substring(0, eq).Trim()] = line.Substring(eq + 1).Trim();
+        }
+        return kv;
+    }
+
+    private static float ParseFloat(Dictionary<string, string> kv, string key, float fallback) =>
+        kv.TryGetValue(key, out string? s) &&
+        float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float v) &&
+        !float.IsNaN(v) && !float.IsInfinity(v)
+            ? v
+            : fallback;
+
+    private static Color ParseColor(Dictionary<string, string> kv, string key, Color fallback)
+    {
+        if (!kv.TryGetValue(key, out string? s))
+            return fallback;
+        string[] parts = s.Split(',');
+        if (parts.Length != 4)
+            return fallback;
+        var c = new Color();
+        for (int i = 0; i < 4; i++)
+        {
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out float v) ||
+                float.IsNaN(v) || float.IsInfinity(v))
+                return fallback;
+            c[i] = Mathf.Clamp01(v);
+        }
+        return c;
+    }
+
+    private static float PositiveOr(float value, float fallback) =>
+        (value > 0f && !float.IsNaN(value) && !float.IsInfinity(value)) ? value : fallback;
 
     private static string DescribeTex(LayerArt art) =>
         art.Tex != null ? $"{art.Tex.name} {art.Uv}" : "procedural";
@@ -745,7 +1303,7 @@ internal sealed class LoadingIndicator
     /// (so the stepped rotation stays visible and the glow pulse has something to pulse).</summary>
     private void BuildFallbackArt()
     {
-        _artIsFallback = true;
+        _artIsProvisional = true;
         DestroyObj(ref _fallbackBaseTex);
         DestroyObj(ref _fallbackOverlayTex);
         _fallbackBaseTex = BuildRingTexture(arcGradient: false);

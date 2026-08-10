@@ -75,10 +75,23 @@ the three main-thread frames, with the hands frozen alongside. **The freeze is n
 millisecond shorter.** This changes what he looks at, not whether the main thread stalls, and he
 was told so before it was built.
 
-Cosmetic consequence: during the boot window the spinner is the procedural ring, not the game's
-art — `LoadingScreen` is a serialized reference *inside* the scene being loaded, so there is
-nothing to read yet. Marked provisional and dropped on the next hide, so every later load shows
-the game's own spinner; the swap never happens on screen.
+**Superseded (ModBuild 109):** this section originally recorded a "cosmetic consequence" — the
+boot spinner is the mod's procedural ring because `LoadingScreen` is a serialized reference
+*inside* the scene being loaded. **That conclusion was wrong**, and the user rejected it
+("bitte nutze auch an dieser Stelle … das Ladesymbol vom Spiel"). It is true of `LoadingScreen`
+and false as a conclusion: the game shows a SECOND copy of the same spinner from the scene that
+IS loaded. `IntroPlayer.ShowLogos` ends with `_loading.SetActive(true); onCompleted?.Invoke();`,
+and that callback is the `EventCompleted` `Bootstrap.ShowSplash` waits on before assigning
+`_loadScene` — so the game's own loading widget is switched on a full frame *before* the
+indicator's arming edge, and the Intro scene survives the whole window (its `UnloadSceneAsync`
+is refused, in the log). `AnimateLoadingIcon` — a `Timekeeper`-free duplicate of
+`LoadingScreen.AnimateIcon` with the same four serialized numbers, referenced by no code — is
+what drives it. `WorldUI/LoadingIndicator.cs` now reads that art, blits it into mod-owned
+render textures on the arming frame (the Intro textures die at scene activation), and also
+persists a copy of the *ordinary* loading screen's sprites to
+`BepInEx/config/dev.gloomhavenvr.loadingicon.*` so a later boot can use that instead. The
+procedural ring is now the last resort only. **The generalisable lesson: "the object is in the
+scene being loaded" was about ONE object, not about the ART.**
 
 ## 4. The SECOND stall — ours, and not the one he reported
 
