@@ -102,6 +102,12 @@ internal static class ConfigStepVectors
         Unit(t, "BoardPitchMin_Oak", 1d, ConfigSteps.UnitScope.Component);
         Unit(t, "BoardPitchMax_Oak", 1d, ConfigSteps.UnitScope.Component);
         Unit(t, "ScaleMin", 0.05d, ConfigSteps.UnitScope.Value);
+        // The HELD-FIGURE STRETCH family (2026-08-11): the gesture's two clamps end in a Min/Max
+        // qualifier BEHIND the unit word — the exact shape that has shipped dead dials before —
+        // and its capture radius rides the millimetres row. Pinned on the day they were added.
+        Unit(t, "StretchScaleMin", 0.05d, ConfigSteps.UnitScope.Value);
+        Unit(t, "StretchScaleMax", 0.05d, ConfigSteps.UnitScope.Value);
+        Unit(t, "StretchReachMillimeters", 5d, ConfigSteps.UnitScope.Value);
 
         // ---- THE HEALTH BARS' SIZE AND ITS TWO BOUNDS MOVE ALIKE --------------------------------
         // One size and the min/max the table zoom may carry it between. The bounds are worth

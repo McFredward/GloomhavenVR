@@ -1153,6 +1153,143 @@ internal static class GoldenVectors
         t.True(rigHeld.HasHeldFigure, "with the FIRST held figure still delivered by the rig packet");
         t.Equal(0x01020304, rigHeld.HeldFigureActorId, "and its actor id intact");
 
+        // -- 7i2. HELD-FIGURE STRETCH (extension record 30) --------------------------------
+        // The manual two-hand resize factor of the sender's held figure(s): [u16 primary LE]
+        // [u16 secondary LE], milli-factors, 1000 = 1.0× = neutral. Written only while a factor
+        // is non-neutral; absence means both are 1.0, and a garbage code decodes to neutral —
+        // never to a clamped extreme.
+        t.Case("7i2. extras, held-figure stretch record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldStretch = true,
+            HeldStretchPrimaryCode = 1500,  // 1.5×
+            HeldStretchSecondaryCode = 1000, // neutral — that slot is unstretched (or empty)
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            1E 04            // record: id 30 (held-figure stretch), len 4
+            DC 05            // primary milli-factor 1500 = 1.5x, u16 LE
+            E8 03            // secondary milli-factor 1000 = neutral, u16 LE
+            "), ext, m, "the stretch record is [id 30][len 4][u16 primary][u16 secondary]");
+        t.Equal(17, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 4 = 17 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hs1), "and it parses");
+        t.True(hs1.HasHeldStretch, "the stretch record is delivered");
+        t.Equal(1500, (int)hs1.HeldStretchPrimaryCode, "with the primary factor intact");
+        t.Equal(1000, (int)hs1.HeldStretchSecondaryCode, "and the neutral secondary intact");
+
+        // Both slots stretched (the second mini was grabbed after a first was resized, then
+        // resized itself): shrink and grow travel together in one 4-byte record.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldStretch = true,
+            HeldStretchPrimaryCode = 500,   // 0.5×
+            HeldStretchSecondaryCode = 3000, // 3.0×
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1E 04
+            F4 01            // primary 500 = 0.5x
+            B8 0B            // secondary 3000 = 3.0x
+            "), ext, m, "both slots ride the same record, primary first");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hs2), "and it parses");
+        t.Equal(500, (int)hs2.HeldStretchPrimaryCode, "the shrunk primary is delivered");
+        t.Equal(3000, (int)hs2.HeldStretchSecondaryCode, "and the grown secondary with it");
+
+        // ABSENT WHEN NEUTRAL — the whole backward-compatibility argument for the sender side: a
+        // player who never stretched (or whose gesture came back to exactly 1.0) is byte-for-byte
+        // a pre-record-30 sender, tail and all.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldStretch = true,
+            HeldStretchPrimaryCode = (ushort)NetProtocol.HeldStretchCodeNeutral,
+            HeldStretchSecondaryCode = (ushort)NetProtocol.HeldStretchCodeNeutral,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "both factors neutral -> no record, no tail, no block: byte-identical to build 113");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noHs), "and it parses");
+        t.True(!noHs.HasHeldStretch, "with HasHeldStretch false (peers reset to neutral)");
+
+        // THE QUANTIZER'S CLAMPS AND THE DECODER'S FAIL-CLOSED ENVELOPE, pinned as numbers: the
+        // encoder clamps a real factor into [0.10×, 8.0×] (a legitimate sender can never emit a
+        // rejectable code — the config dials' bind ranges sit INSIDE this envelope), the decoder
+        // treats anything outside it (including 0) as neutral, never as a clamped extreme.
+        t.Equal(1500, (int)NetProtocol.EncodeHeldStretch(1.5f), "1.5x encodes to 1500");
+        t.Equal(NetProtocol.HeldStretchCodeMin, (int)NetProtocol.EncodeHeldStretch(0.01f),
+                "an impossible tiny factor clamps UP to the envelope floor on the SENDER");
+        t.Equal(NetProtocol.HeldStretchCodeMax, (int)NetProtocol.EncodeHeldStretch(64f),
+                "an impossible huge factor clamps DOWN to the envelope ceiling on the SENDER");
+        t.Equal(NetProtocol.HeldStretchCodeNeutral, (int)NetProtocol.EncodeHeldStretch(float.NaN),
+                "NaN encodes to neutral — never trust a float either");
+        t.True(NetProtocol.DecodeHeldStretch(1500) == 1.5f, "1500 decodes to exactly 1.5x");
+        t.True(NetProtocol.DecodeHeldStretch(0) == 1f,
+               "code 0 decodes to NEUTRAL on the RECEIVER — a zeroed record must not make a "
+               + "figure invisible");
+        t.True(NetProtocol.DecodeHeldStretch(NetProtocol.HeldStretchCodeMin - 1) == 1f
+               && NetProtocol.DecodeHeldStretch(NetProtocol.HeldStretchCodeMax + 1) == 1f,
+               "either side of the envelope decodes to neutral, never to a clamped extreme");
+
+        // READER SANITIZATION IS PER SLOT: a poisoned secondary must not cost the primary its
+        // real factor. Hand-built packet: primary 0 (garbage), secondary 1500 (real).
+        byte[] dirtyHs = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1E 04
+            00 00            // primary code 0 -> sanitized to neutral
+            DC 05            // secondary 1500 -> kept
+            ");
+        t.True(PresenceSerializer.TryRead(dirtyHs, dirtyHs.Length, out PresenceState dirty),
+               "a half-garbage stretch record still parses the packet");
+        t.True(dirty.HasHeldStretch, "and is delivered");
+        t.Equal(1000, (int)dirty.HeldStretchPrimaryCode, "with the garbage slot read as neutral");
+        t.Equal(1500, (int)dirty.HeldStretchSecondaryCode, "and the sane slot intact");
+
+        // BACKWARD COMPATIBILITY, the direction that actually ships: a peer built BEFORE record
+        // 30 sees it as an unknown 4-byte record, steps over it by its length, and reads what it
+        // does know behind it. (Same assertion shape as record 8's: unknown id 99 stands in for
+        // how the old build's reader classifies id 30.)
+        byte[] oldHsReader = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // 2 records
+            63 04 DC 05 E8 03            // id 99, len 4 -- record 30 as a PRE-RECORD-30 READER sees it
+            03 07 01 00 30 2E 31 2E 30   // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(oldHsReader, oldHsReader.Length, out PresenceState oldHs),
+               "a 4-byte record this build does not know is skipped, and the packet parses");
+        t.True(!oldHs.HasHeldStretch, "the unknown record delivers nothing (as on a pre-record-30 peer)");
+        t.True(oldHs.HasModVersion, "and the record behind it is read past it");
+
+        // ID ORDER: the stretch rides the tail LAST, behind the second-figure record it modifies.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasSecondFigure = true, SecondFigureActorId = 0x01020304, SecondFigurePose = Figure(),
+            SecondFigureLeftHand = true,
+            HasHeldStretch = true, HeldStretchPrimaryCode = 2000, HeldStretchSecondaryCode = 1000,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01
+            80 00
+            80 00
+            02               // tail: 2 records, in id order
+            08 19 01 04 03 02 01
+            " + PoseFigure + @"
+            1E 04 D0 07 E8 03            // id 30 behind id 8; primary 2000 = 2.0x
+            "), ext, m, "the stretch record rides the tail after the second figure (id order 8, 30)");
+
+        // A TRUNCATED record (claims 4 payload bytes, delivers 2): the tail is abandoned
+        // mid-record, everything parsed before it survives, nothing throws.
+        byte[] cutHs = Hex.Bytes("31 52 56 47 03 01 80 00 90 00 C8 01 1E 04 DC 05");
+        t.True(PresenceSerializer.TryRead(cutHs, cutHs.Length, out PresenceState cutStretch),
+               "a truncated stretch record still parses the packet");
+        t.True(cutStretch.HasMaskSize, "the mask size ahead of the tail survives");
+        t.True(!cutStretch.HasHeldStretch, "and the incomplete record is simply not delivered");
+
         // -- 7j. BOARD TOOLTIP (extension record 9) ----------------------------------------
         // The tooltip parked in the sender's board tooltip area, UTF8, capped and truncated on
         // a CHARACTER boundary. Written only while a board-owned tooltip is shown AND the

@@ -416,7 +416,43 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 113;
+    public const ushort ModBuild = 114;
+    // Build 114: TWO lanes — the border's attempt TEN, and a new feature, the held-figure stretch.
+    // WIRE CHANGE: extension record 30 (ExtIdHeldStretch) — additive TLV, old readers skip by
+    // length, absence means neutral, an unstretched player is byte-identical to 113.
+    //
+    // (1) THE BORDER, ATTEMPT TEN. The 113 log narrowed it to two failures. The action plates had
+    // escaped eligibility heuristics twice (Image.Type.Simple in round 8, the 90 % span gate in
+    // round 9: "1 layer(s) eligible"), so heuristics are gone: the five face layers are resolved BY
+    // IDENTITY from CardEffects' own serialized fields (_headerImage, _topButton, _bottomAction,
+    // _topDefAction, _botDefAction — verified against decompiled source at merge). And the punched
+    // background produced no visible change even where only it paints, which leaves one explanation
+    // class: erasing to transparent black does not change what his renderer draws — the CardEffects
+    // custom material's shader may ignore alpha, which would retroactively explain all nine
+    // texture-side rounds AND the band vanishing during the game's own dissolve animation. Two
+    // answers ship together: CARD SHADER IDENTITY (one latched line per shader, blend state and a
+    // verdict clause — that answer stands whatever else happens) and the shader-AGNOSTIC fix: the
+    // punched sprite is cropped to the outline's extent and the layer's RectTransform shrunk to
+    // exactly the face rect the kept pixels cover, so no rasterized geometry exists in the band
+    // under ANY alpha semantics. Fallbacks (peer clones, item faces, unmappable layers) keep the
+    // named alpha punch and latch a line naming their gate.
+    //
+    // (2) HELD-FIGURE STRETCH (user request, verbatim in FigureStretch.cs): while one hand holds a
+    // mini, the OTHER hand's trigger near it starts a ratio-based stretch — outward grows, inward
+    // shrinks, s0 x (d/d0), clamped [FigureGrab] StretchScaleMin/Max, distances in real metres so a
+    // mid-gesture zoom cannot masquerade as hand travel, measured to the mini's root so the output
+    // cannot feed the input. Collisions closed from source: the held mini cannot be steal-grabbed
+    // (CanGrab false while held), the gesture hand's election is suppressed and TryLaserGrab
+    // early-outs while engaged, a hand hovering a CARD does not capture (the visible highlight
+    // keeps its trigger), and the busy gate is untouched — scaling is presentation-only and stays
+    // allowed mid-attack. Scope: THIS hold only; release restores board size on every path (the
+    // HeldScale config family is retired LEGACY, so no persistence was invented). MP per the 1:1
+    // ruling: record 30 carries two u16 milli-factors (slot-aligned with record 8), sent at the
+    // extras fast gate only while non-neutral; the receiver eases it into the existing
+    // zoom-ratio product and every release path still restores HomeLocalScale. +40 wire test
+    // vectors (1526 total), incl. byte-exact layout, neutral omission, fail-closed decode and the
+    // ConfigSteps pins for the three new dials.
+    //
     // Build 113: the black card border, attempt NINE — the punch region is now GEOMETRY, not luma.
     // No wire change; the bump is here because 113 goes to the friend.
     //
@@ -1670,6 +1706,88 @@ internal static class NetProtocol
     public const int SecondFigureRecordBytes = 25;
 
     /// <summary>
+    /// Extension record id: HELD-FIGURE STRETCH — the manual in-hand scale factor of the sender's
+    /// held figure(s). 4 bytes: <c>[u16 primaryFactor LE][u16 secondaryFactor LE]</c>, each a
+    /// milli-factor (1000 = 1.0×), slot-aligned with the two held-figure slots (primary = the rig
+    /// packet's <see cref="FlagHeldFigure"/> block, secondary = record <see cref="ExtIdSecondFigure"/>).
+    ///
+    /// <para>RECORD-ID CLAIM, 2026-08-11: this change takes id 30 — the first of the free range the
+    /// record-29 note left open. Declared beside record 8 because the held-figure records belong
+    /// together. Ids in use are now 1..17, 22..30; 18..21 stay reserved; 31+ are free.</para>
+    ///
+    /// <para>WHY IT EXISTS (user request 2026-08-11, verbatim: "Ich möchte, dass die Größe der
+    /// Figur in der Hand änderbar ist. Dabei stelle ich mir vor, dass ich mit der anderen Hand zu
+    /// der Figur gehe und dann Trigger gedrückt halte und nach innen oder außen schiebe (nach außen
+    /// heißt größer, nach innen kleiner) und somit die Größe der Figur skaliert."). The receive side
+    /// already reconstructs a held mini's size as boardSize × the holder's zoom ratio with ZERO wire
+    /// bytes (<c>NetFigures.EaseSlot</c> — both numbers arrive anyway). A MANUAL stretch gesture has
+    /// no such luck: the factor exists only in the holder's hand motion, is derivable from nothing
+    /// already on the wire, and the 1:1 ruling (§3) forbids the two machines disagreeing about the
+    /// size for the whole hold. So the factor itself travels, and nothing else does — the receiver
+    /// multiplies it into the ratio it already applies.</para>
+    ///
+    /// <para>WHY ONE RECORD FOR BOTH SLOTS: the gesture needs a free hand, so at most ONE figure can
+    /// be stretched at a time — but its factor persists for the REST of the hold (the gesture can be
+    /// repeated, and the other hand can grab a second mini afterwards), so both slots must be
+    /// statable at once. Two fixed u16 fields beat a flags byte + variable layout: the neutral value
+    /// 1000 already means "no stretch", so there is nothing a presence flag would add, and a fixed
+    /// 4-byte record keeps the golden vectors hand-checkable.</para>
+    ///
+    /// <para>Written ONLY while at least one factor differs from <see cref="HeldStretchCodeNeutral"/>
+    /// after quantization, so an unstretched hold — and every idle player — emits the exact bytes
+    /// previous builds emitted. Absence means BOTH factors are 1.0: an old sender reads as neutral
+    /// on a new peer, an old peer steps over the record by its length and keeps rendering
+    /// boardSize × zoom ratio (the pre-record picture), and a new receiver resets to neutral the
+    /// moment the record stops arriving. While the factor is CHANGING (the holder is mid-gesture)
+    /// the sender promotes the extras packet to the rig rate, exactly like a carried second figure —
+    /// same cadence, same receive-side easing, so the peer watches the stretch as motion, not as
+    /// steps.</para>
+    ///
+    /// <para>VALIDATION IS FAIL-CLOSED TO NEUTRAL: a code outside
+    /// [<see cref="HeldStretchCodeMin"/>, <see cref="HeldStretchCodeMax"/>] decodes to 1.0, never to
+    /// a clamped extreme — a garbage byte must render the pre-record picture, not a figure at 6.5×
+    /// or an invisible one at 0. (A legitimate sender clamps BEFORE quantizing, so nothing real is
+    /// ever in that range.) The config dials bounding the local gesture
+    /// (<c>[FigureGrab] StretchScaleMin/Max</c>) are deliberately INSIDE this wire envelope, and the
+    /// receiver applies the SENDER's factor unclamped-by-local-config: it is the holder's hand and
+    /// the holder's board, so their bounds govern (the 1:1 ruling again).</para>
+    /// </summary>
+    public const byte ExtIdHeldStretch = 30;
+
+    /// <summary>Payload length of <see cref="ExtIdHeldStretch"/>: two u16 milli-factors. A reader
+    /// requires at least this much before it trusts the record.</summary>
+    public const int HeldStretchRecordBytes = 4;
+
+    /// <summary>The neutral held-stretch milli-factor: 1000 = 1.0× = "no manual stretch". The
+    /// writer omits the record when both slots quantize to this, so absence and neutrality are the
+    /// same statement.</summary>
+    public const int HeldStretchCodeNeutral = 1000;
+
+    /// <summary>Smallest sane held-stretch milli-factor a peer will believe (0.10×). Below it the
+    /// code reads as garbage and decodes to neutral — never to a near-invisible figure.</summary>
+    public const int HeldStretchCodeMin = 100;
+
+    /// <summary>Largest sane held-stretch milli-factor a peer will believe (8.0×). Above it the
+    /// code reads as garbage and decodes to neutral. Both bounds deliberately ENCLOSE the config
+    /// dials' own ranges, so no legitimately tuned sender can ever be rejected.</summary>
+    public const int HeldStretchCodeMax = 8000;
+
+    /// <summary>Quantize a held-stretch factor to its wire milli-code, clamped to the sane
+    /// envelope. NaN/non-finite degrade to neutral (never trust a float either).</summary>
+    public static ushort EncodeHeldStretch(float factor)
+    {
+        if (float.IsNaN(factor) || float.IsInfinity(factor))
+            return (ushort)HeldStretchCodeNeutral;
+        int code = UnityEngine.Mathf.RoundToInt(factor * 1000f);
+        return (ushort)UnityEngine.Mathf.Clamp(code, HeldStretchCodeMin, HeldStretchCodeMax);
+    }
+
+    /// <summary>Decode a held-stretch milli-code. Out-of-envelope codes (including 0) FAIL CLOSED
+    /// to 1.0 — the pre-record picture — rather than clamping to an extreme.</summary>
+    public static float DecodeHeldStretch(int code)
+        => code < HeldStretchCodeMin || code > HeldStretchCodeMax ? 1f : code / 1000f;
+
+    /// <summary>
     /// Extension record id: the BOARD TOOLTIP the sender is reading right now — the game's hover
     /// tooltip while it is parked in the control board's TOOLTIP AREA (top-left of the board,
     /// <c>WorldUI.WorldTooltips</c>) — as UTF8 bytes, capped at <see cref="TooltipTextMaxBytes"/>.
@@ -2210,7 +2328,9 @@ internal static class NetProtocol
     // (declared beside record 25, because the two item-flow records belong together). The claim was
     // stated in that change's report per the rule above. Id 29 was claimed on the same day by the
     // DECISION WIDGET IDENTITY record (declared beside records 12/24, because the three decision
-    // records belong together). Ids 18..21 remain free, and so does 30+.
+    // records belong together). Id 30 was claimed 2026-08-11 by the HELD-FIGURE STRETCH record
+    // (declared beside record 8, because the held-figure records belong together; the claim is
+    // stated in that change's report per the rule above). Ids 18..21 remain free, and so does 31+.
     //
     // THE SAME RULE APPLIES TO BITS, NOT ONLY TO RECORD IDS, and a bit was claimed on 2026-08-09:
     // BOARD-UI RECORD BYTE 2, BIT 7 (BoardUiCapItemPileUsableBit — "at least one equipped item is
@@ -2608,8 +2728,9 @@ internal static class NetProtocol
     // ---- record 29: DECISION WIDGET IDENTITY -------------------------------------------------
     // RECORD-ID CLAIM, 2026-08-09 (the "die Entscheidungsbuttons sollen auch 1:1 aussehen" round):
     // this change takes id 29 — the first of the free range the record-28 note left open. Ids in
-    // use are now 1..17 and 22..29; 18..21 stay reserved for the parallel round that claimed them,
-    // 30+ are free. No existing record was widened: record 24 has a fixed shape and squeezing a
+    // use are now 1..17 and 22..30 (30 = HELD-FIGURE STRETCH, claimed 2026-08-11, declared beside
+    // record 8); 18..21 stay reserved for the parallel round that claimed them,
+    // 31+ are free. No existing record was widened: record 24 has a fixed shape and squeezing a
     // role field into its option byte would have spent its last reserved bits on something that is
     // not a state.
 

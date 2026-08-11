@@ -179,6 +179,34 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     //     call sites are in this round's report; it is a Net/-owned change and was NOT made here.
     private Vector3 _heldLocalScale = Vector3.one;
 
+    // HELD-FIGURE STRETCH — the manual in-hand scale factor, multiplied ON TOP of the latch above.
+    //
+    // USER REQUEST (2026-08-11, verbatim): "Ich möchte, dass die Größe der Figur in der Hand
+    // änderbar ist. Dabei stelle ich mir vor, dass ich mit der anderen Hand zu der Figur gehe und
+    // dann Trigger gedrückt halte und nach innen oder außen schiebe (nach außen heißt größer, nach
+    // innen kleiner) und somit die Größe der Figur skaliert."
+    //
+    // WHY A SEPARATE FACTOR AND NOT A WRITE INTO _heldLocalScale: the latch is the BOARD size at
+    // the grab instant and several consumers reason about it as exactly that (the [Size] log, the
+    // glide doc, the peer-side ratio reconstruction in Net/NetFigures). Folding the gesture into it
+    // would make "the size the mini entered the hand at" unrecoverable mid-hold, and the factor is
+    // ALSO precisely the ONE number that has to cross the wire for a peer to reproduce the picture
+    // (NetProtocol.ExtIdHeldStretch — a manual stretch is derivable from nothing already synced).
+    // Keeping it separate makes the wire sample a field read instead of a division.
+    //
+    // SCOPE — THIS HOLD ONLY, deliberately. The factor resets to 1 at every grab and is never
+    // persisted: the user asked to change "die Größe der Figur in der Hand", not a standing
+    // preference, and the one config family that ever meant "preferred held size"
+    // ([FigureGrab] HeldScale) is retired LEGACY with its own note explaining why a local-only
+    // multiplier was a multiplayer defect. Release is untouched by construction: both release
+    // paths write _origLocalScale / glide toward it (board frame), so the stretch can never leak
+    // onto the board — the glide simply starts from the stretched in-hand size (_glideFromScale is
+    // read off the transform) and eases home like any other release.
+    //
+    // Written by FigureStretch (the two-handed gesture driver), clamped THERE against
+    // [FigureGrab] StretchScaleMin/Max before it ever reaches this field.
+    private float _stretch = 1f;
+
     // Issue B — render-on-top state so a mini held in FRONT of the opaque control board (PlayTray)
     // is not painted over by the board's on-top HUD widgets (queue 4000, ZTest Always, ZWrite off).
     // On grab we snapshot each held renderer's ORIGINAL shared materials and swap in per-renderer
@@ -450,6 +478,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // zoom at this instant, the value equals the board size right now — and holding it fixed is
         // what makes a later zoom leave the mini in the hand alone.
         _heldLocalScale = AnchorLocalScale(anchor, _homeWorldScale);
+        _stretch = 1f; // the manual stretch is per-hold: every grab starts at the board size
         _uprightBase = CaptureUprightBase(anchor);
         _attached = true;
 
@@ -577,11 +606,70 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     /// <summary>
     /// The size this mini is rendered at while held: the anchor-LOCAL scale LATCHED at the grab
-    /// (<see cref="_heldLocalScale"/>), never re-derived from the live anchor. Constant for the
-    /// whole hold, per figure — two minis grabbed at two different zooms keep two different latches,
-    /// which is what the report's "eine oder zwei Figuren" needs.
+    /// (<see cref="_heldLocalScale"/>), never re-derived from the live anchor, times the manual
+    /// two-hand stretch (<see cref="_stretch"/>, 1 unless the player stretched THIS hold). Constant
+    /// between gesture frames, per figure — two minis grabbed at two different zooms keep two
+    /// different latches, which is what the report's "eine oder zwei Figuren" needs.
     /// </summary>
-    private Vector3 HeldLocalScale() => _heldLocalScale;
+    private Vector3 HeldLocalScale() => _heldLocalScale * _stretch;
+
+    /// <summary>The manual in-hand stretch factor of this hold (1 = untouched). Read by
+    /// <c>Net.NetFigures</c> as the wire sample for <c>NetProtocol.ExtIdHeldStretch</c>.</summary>
+    internal float Stretch => _stretch;
+
+    /// <summary>
+    /// Write the manual stretch factor and re-assert the rendered size in the same call, so the
+    /// mini tracks the gesture hand within the frame. The CALLER (<see cref="FigureStretch"/>)
+    /// owns the clamp — this is a dumb store on purpose, so the wire sampler and the renderer can
+    /// never see two differently-clamped values.
+    /// </summary>
+    internal void SetStretch(float factor)
+    {
+        _stretch = factor;
+        ReassertHeldScale();
+    }
+
+    /// <summary>The held mini's centre in world space (its root position — deliberately NOT a
+    /// collider surface point, which would shrink and grow WITH the gesture and feed the scale
+    /// back into the distance that drives it). False when not attached to a hand.</summary>
+    internal bool TryGetHeldCenter(out Vector3 world)
+    {
+        world = default;
+        GameObject? root = Root;
+        if (!_attached || root == null)
+            return false;
+        world = root.transform.position;
+        return true;
+    }
+
+    /// <summary>The grabbable currently ATTACHED to <paramref name="side"/>'s hand, or null. Scans
+    /// <see cref="Live"/> (≤ 2 entries). Gliding minis are deliberately absent — a released figure
+    /// cannot be stretched.</summary>
+    internal static FigureGrabbable? HeldBy(HandSide side)
+    {
+        foreach (FigureGrabbable g in Live)
+        {
+            if (g._attached && g._holder != null && g._holder.Side == side)
+                return g;
+        }
+        return null;
+    }
+
+    /// <summary>The stretch factor of the hold on <paramref name="actor"/>, or 1 when it is not in
+    /// a hand here (unknown, gliding, or remote). This is the SEND-side sample for
+    /// <c>NetProtocol.ExtIdHeldStretch</c>: a glide reads as neutral, so the wire eases the peer's
+    /// copy back toward board ratio over the same window the local glide plays.</summary>
+    internal static float StretchOf(ActorBehaviour actor)
+    {
+        if (actor == null)
+            return 1f;
+        foreach (FigureGrabbable g in Live)
+        {
+            if (g._attached && ReferenceEquals(g._actor, actor))
+                return g._stretch;
+        }
+        return 1f;
+    }
 
     /// <summary>
     /// Convert a WORLD scale into the scale a child of <paramref name="anchor"/> needs to render at

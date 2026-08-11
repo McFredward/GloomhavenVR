@@ -124,7 +124,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private void Update()
     {
-        // FRAME-ORDER FigureGrabDriver.Update [FigureGrab.StallWatchdog, FigureGrab.Ghosts, FigureGrab.Glide, FigureGrab.HeldSize, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
+        // FRAME-ORDER FigureGrabDriver.Update [FigureGrab.StallWatchdog, FigureGrab.Ghosts, FigureGrab.Glide, FigureGrab.HeldSize, GATE:FigureGrabConfig.GrabFigures, FigureGrab.Registry, FigureGrab.AutoRelease, FigureGrab.Stretch, FigureGrab.OffsetAnchorSelect, FigureGrab.LaserGrab]
         //   The GATE token is load-bearing, not decoration: StallWatchdog, Ghosts and Glide must run
         //   BEFORE the config gate's early-out. Ghosts so REMOTE-held ghosts still appear and clear
         //   while local figure-grab is off, Glide so a release glide already in flight still lands
@@ -175,6 +175,15 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         bool cache = PerfConfig.CacheDelegates;
         TickGuard.Run("FigureGrab.Registry", cache ? _tickRegistry ??= RefreshRegistry : RefreshRegistry);
         TickGuard.Run("FigureGrab.AutoRelease", cache ? _tickAutoRelease ??= AutoReleaseMovedFigures : AutoReleaseMovedFigures);
+        // HELD-FIGURE STRETCH — the two-hand resize gesture (user, 2026-08-11: "mit der anderen
+        // Hand zu der Figur … Trigger gedrückt halte und nach innen oder außen schiebe"). MUST run
+        // BEFORE OffsetAnchorSelect and LaserGrab: its engagement state is the gate both consult
+        // this same frame (an engaged hand elects nobody and plucks nothing), and computing it
+        // after them would leave the veto one frame stale — the exact defect class ApplySuppression
+        // exists to end. Below the config gate on purpose: the gesture needs a locally-held figure,
+        // which cannot exist while GrabFigures is off (the gate's ReleaseAll also clears the
+        // gesture state via FigureStretch.Clear). See FigureStretch for the gesture itself.
+        TickGuard.Run("FigureGrab.Stretch", FigureStretch.Tick);
         TickGuard.Run("FigureGrab.OffsetAnchorSelect", cache ? _tickAnchorSelect ??= TickOffsetAnchorSelect : TickOffsetAnchorSelect);
         TickGuard.Run("FigureGrab.LaserGrab", cache ? _tickLaserGrab ??= TickLaserGrab : TickLaserGrab);
 
@@ -337,6 +346,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     {
         if (hand == null || !hand.HasPose || !hand.Ray.Enabled)
             return;
+        // HELD-FIGURE STRETCH: an engaged hand's trigger belongs to the gesture — no far pluck.
+        // Belt to the arbitration below: FigureStretch's beam clamp is a FOREIGN fresh UI hit to
+        // this method (the clamp-frame bookkeeping is deliberately not shared), so the trigger
+        // branch would defer anyway; the early-out also stops the beam clamp fight (both writers
+        // would otherwise re-aim Ray.UiHitOverride in the same frame).
+        if (FigureStretch.Engaged(hand.Side))
+            return;
         // Near reach-grab (a highlighted figure in the palm) belongs to the ProximityGrabber;
         // the far pluck only runs when the grabber is idle this frame.
         if (hand.Grabber.Held != null || hand.Grabber.Highlighted != null)
@@ -445,6 +461,26 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             _electedBySide[idle] = null;
             _pendingBySide[idle] = null;
             _dwellBySide[idle] = 0;
+            return;
+        }
+
+        // HELD-FIGURE STRETCH capture: while this hand sits inside the stretch zone of the mini
+        // in the OTHER hand (or is mid-gesture), it elects NOBODY — the veto covers every adopted
+        // figure, so the ProximityGrabber can neither highlight nor grab a board figure standing
+        // behind the held mini, and the trigger belongs to the gesture (FigureStretch clamps the
+        // beam, which already makes every HasFreshUiHit consumer defer). Published as a veto like
+        // any other frame — never skipped — for the ApplySuppression reason: a frame in which a
+        // hand's flags are not written is a frame the grabber may highlight on stale ones. The
+        // hysteresis drops with it so leaving the zone re-admits figures on the tight entry
+        // radius, not the wide exit ring.
+        if (FigureStretch.Engaged(hand.Side))
+        {
+            ApplySuppression(hand, null);
+            LogElection(hand, null, 0f);
+            int captured = (int)hand.Side;
+            _electedBySide[captured] = null;
+            _pendingBySide[captured] = null;
+            _dwellBySide[captured] = 0;
             return;
         }
 
@@ -761,5 +797,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // the next sweep re-resolves everything from scratch.
         _figureInteractables.Clear();
         HeldFigures.Clear();
+        // Every hold just ended, so no stretch gesture can be live either — clear its state so a
+        // re-enable (or the next scenario) starts with no captured hand.
+        FigureStretch.Clear();
     }
 }

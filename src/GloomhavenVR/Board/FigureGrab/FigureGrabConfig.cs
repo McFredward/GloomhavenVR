@@ -78,6 +78,61 @@ internal static class FigureGrabConfig
     /// <summary>The legacy shared palm reach (<c>ProximityGrabber.ReachMeters</c>), in mm.</summary>
     internal const float PickRadiusMaxMm = 130f;
 
+    // ---- HELD-FIGURE STRETCH (two-hand resize gesture; see FigureStretch) -------------------
+
+    /// <summary>Capture radius of the stretch gesture: how close the free hand's pinch point must
+    /// come to the mini in the OTHER hand before trigger starts the resize, real mm at the hand.</summary>
+    public static ConfigEntry<float> StretchReachMillimeters = null!;
+
+    /// <summary>Smallest total stretch factor the gesture can reach (relative to the grab size).</summary>
+    public static ConfigEntry<float> StretchScaleMin = null!;
+
+    /// <summary>Largest total stretch factor the gesture can reach (relative to the grab size).</summary>
+    public static ConfigEntry<float> StretchScaleMax = null!;
+
+    /// <summary>Bind-range floor/ceiling of the two stretch clamps. Deliberately INSIDE the wire's
+    /// sane envelope (<c>NetProtocol.HeldStretchCodeMin/Max</c>, 0.10×..8.0×), so no legitimately
+    /// tuned factor can ever be rejected by a peer's fail-closed decode.</summary>
+    internal const float StretchScaleFloor = 0.1f;
+    internal const float StretchScaleCeiling = 8f;
+
+    /// <summary>The stretch capture radius as REAL METRES AT THE HAND — same unit story as
+    /// <see cref="PickRadiusRealMeters"/>: the distance the player's own hand travels, never a
+    /// distance on the board, so zooming the diorama never changes the gesture's feel.</summary>
+    internal static float StretchReachRealMeters
+    {
+        get
+        {
+            float mm = StretchReachMillimeters != null
+                ? StretchReachMillimeters.Value
+                : Defaults.StretchReachMillimeters;
+            return Mathf.Clamp(mm, PickRadiusMinMm, 300f) * 0.001f;
+        }
+    }
+
+    /// <summary>The lower stretch clamp, cross-clamped so Min can never exceed Max: two dials that
+    /// crossed would otherwise need a third rule to sort out mid-gesture (the PickExitFactor
+    /// argument, applied to a pair we DO ship as two dials because both ends are things a player
+    /// legitimately tunes).</summary>
+    internal static float StretchScaleMinValue
+    {
+        get
+        {
+            float min = StretchScaleMin != null ? StretchScaleMin.Value : Defaults.StretchScaleMin;
+            return Mathf.Clamp(Mathf.Min(min, StretchScaleMaxValue), StretchScaleFloor, StretchScaleCeiling);
+        }
+    }
+
+    /// <summary>The upper stretch clamp (see <see cref="StretchScaleMinValue"/>).</summary>
+    internal static float StretchScaleMaxValue
+    {
+        get
+        {
+            float max = StretchScaleMax != null ? StretchScaleMax.Value : Defaults.StretchScaleMax;
+            return Mathf.Clamp(max, StretchScaleFloor, StretchScaleCeiling);
+        }
+    }
+
     /// <summary>
     /// Inspection zoom applied ON TOP of the figure's preserved board world-scale while
     /// held (1 = same size it is on the board, just in your hand; &gt;1 enlarges it).
@@ -307,6 +362,31 @@ internal static class FigureGrabConfig
                 "still pick figures up by accident; 130 is the old palm-wide reach that made " +
                 "hovering anywhere above a mini enough.",
                 new AcceptableValueRange<float>(PickRadiusMinMm, PickRadiusMaxMm)));
+        StretchReachMillimeters = config.Bind(
+            "FigureGrab", "StretchReachMillimeters", Defaults.StretchReachMillimeters,
+            new ConfigDescription(
+                "While one hand HOLDS a figure: how close your OTHER hand's pinch point must come " +
+                "to that mini before holding TRIGGER and dragging resizes it (outward = larger, " +
+                "inward = smaller), in REAL MILLIMETRES AT YOUR HAND — the same unit as the pick " +
+                "radius, so zooming the table never changes the feel. Wider than the pick radius " +
+                "on purpose: the mini is in your own hand, there is no neighbouring figure to " +
+                "disambiguate from. Inside this zone the trigger belongs to the gesture; a hovered " +
+                "card still wins its own grab.",
+                new AcceptableValueRange<float>(PickRadiusMinMm, 300f)));
+        StretchScaleMin = config.Bind(
+            "FigureGrab", "StretchScaleMin", Defaults.StretchScaleMin,
+            new ConfigDescription(
+                "Smallest size the stretch gesture can shrink a held figure to, as a factor of the " +
+                "size it was grabbed at (0.5 = half). The gesture is a ratio — slide back out and " +
+                "the figure returns through every size — so this is a clamp, not a step.",
+                new AcceptableValueRange<float>(StretchScaleFloor, 1f)));
+        StretchScaleMax = config.Bind(
+            "FigureGrab", "StretchScaleMax", Defaults.StretchScaleMax,
+            new ConfigDescription(
+                "Largest size the stretch gesture can grow a held figure to, as a factor of the " +
+                "size it was grabbed at (3 = three times). Applies to this hold only: releasing " +
+                "always glides the figure back to its true board size.",
+                new AcceptableValueRange<float>(1f, StretchScaleCeiling)));
         // The six entries below are LEGACY (see the per-STYLE block further down, which
         // superseded them): each is read exactly once, as the bind DEFAULT that seeds its
         // three per-style successors the first time this cfg file is written, and never

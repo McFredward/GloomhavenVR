@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 113`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 114`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,15 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 114** — two lanes. BORDER ATTEMPT TEN: heuristics retired after losing twice on the
+  same two sprites — the five face layers resolve BY IDENTITY from CardEffects' serialized fields;
+  a CARD SHADER IDENTITY line settles whether the custom card shader ignores alpha (the only
+  theory left that explains nine invisible texture rounds at once); and the shader-agnostic rect
+  crop removes the band's geometry entirely on local ability faces. HELD-FIGURE STRETCH: second
+  hand + trigger near a held mini scales it ratio-based (s0 x d/d0), this-hold-only, wire record
+  30 (first new record since the reservation note; additive, neutral-omitted, fail-closed decode),
+  +40 wire vectors -> 1526. If the border survives 114: read CARD SHADER IDENTITY first — its
+  verdict clause dictates whether the next move is shader-side or a sixth-layer hunt.
 - **ModBuild 113** — the border, attempt NINE: the punch region is GEOMETRY now, not luma. 112's
   BAND INVENTORY named the culprits (punched background still 102/264 band probes — the luma-BFS is
   interrupted by decoration; the two ACTION-HALF plates 55/72, never punched). Screenshot profiling

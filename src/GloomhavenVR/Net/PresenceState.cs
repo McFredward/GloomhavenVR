@@ -285,6 +285,26 @@ internal struct PresenceState
     public bool PrimaryFigureLeftHand;
 
     /// <summary>
+    /// True when this packet carries the HELD-FIGURE STRETCH record (extension record
+    /// <see cref="NetProtocol.ExtIdHeldStretch"/>): the manual in-hand scale factor the sender has
+    /// two-hand-stretched their held figure(s) to, one milli-factor per held-figure slot. Written
+    /// ONLY while at least one factor differs from <see cref="NetProtocol.HeldStretchCodeNeutral"/>,
+    /// so an unstretched hold — and every idle player — emits the exact bytes previous builds
+    /// emitted; absence means both factors are 1.0, which is also what a peer predating the record
+    /// renders (boardSize × zoom ratio, see the record doc).
+    /// </summary>
+    public bool HasHeldStretch;
+
+    /// <summary>Milli-factor (1000 = 1.0×) of the PRIMARY held-figure slot — the mini in the rig
+    /// packet's held-figure block. Meaningful only when <see cref="HasHeldStretch"/>; sanitized on
+    /// read (out-of-envelope codes fail closed to neutral).</summary>
+    public ushort HeldStretchPrimaryCode;
+
+    /// <summary>Milli-factor of the SECONDARY held-figure slot — the mini in extension record 8.
+    /// Meaningful only when <see cref="HasHeldStretch"/>; sanitized like the primary code.</summary>
+    public ushort HeldStretchSecondaryCode;
+
+    /// <summary>
     /// True when this packet carries the BOARD TOOLTIP the sender is reading (extension record
     /// <see cref="NetProtocol.ExtIdBoardTooltip"/>) — the game's hover tooltip while it is parked
     /// in their control board's tooltip area. Written only while such a tooltip is really shown
@@ -883,6 +903,12 @@ internal struct PresenceState
 ///                        lookalike, plus the take-damage option's damage number and its lethal /
 ///                        shielded / mandatory picture. Roles are index-aligned with records 12 and
 ///                        24; written on record 12's own gate, see NetProtocol.ExtIdDecisionWidgets)
+///                        30 HELD-FIGURE STRETCH ([u16 primaryFactor LE][u16 secondaryFactor LE],
+///                        milli-factors, 1000 = 1.0× — the manual two-hand stretch the sender has
+///                        applied to their held figure(s), slot-aligned with the rig packet's
+///                        held-figure block and record 8. Written only while a factor is
+///                        non-neutral; absence = both 1.0, and out-of-envelope codes decode to
+///                        neutral, see NetProtocol.ExtIdHeldStretch)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -930,8 +956,13 @@ internal static class PresenceSerializer
     /// + 43 (USE BARS: 2 + mask 1 + 4 bars × (flags 1 + count 1 + its 8-slot cap))
     /// + 3 (ITEM-USE CLIP: 2 + its single index byte)
     /// + 28 (track order: 2 + count 1 + owned mask 1 + 4 × its 6-id cap)
+    /// + 6 (HELD-FIGURE STRETCH: 2 + its two u16 milli-factors)
     /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
-    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1289.
+    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1295.
+    ///
+    /// <para>1289 → 1295 on 2026-08-11: the HELD-FIGURE STRETCH record (30) added its own worst
+    /// case of 6 bytes — [id][len][u16][u16] — in its own commit, per the rule below. The margin at
+    /// <see cref="MaxSize"/> = 1600 is 305 bytes, still more than the largest single record.</para>
     ///
     /// <para>THAT LAST TERM IS DERIVED FROM THE PAGE, NOT FROM A FIELD CENSUS, and it has to be:
     /// until the paging round it read "every one of its 66 fields at once — 15 vec3 × 7 + 15 length
@@ -950,7 +981,8 @@ internal static class PresenceSerializer
     /// 1:1 ruling names ANIMATIONS. Six of them ride a 3-byte container and two a 2-byte one, so the
     /// record went 235 → 257.</para>
     ///
-    /// <para>AND THEN STOPPED GROWING — 1289 IS NOW A FIXED POINT (the paging round, 2026-08-09).
+    /// <para>AND THEN STOPPED GROWING WITH THE BOARD — 1289 WAS A FIXED POINT AGAINST DIALS (the
+    /// paging round, 2026-08-09; a NEW record still adds its own term, as record 30 did above).
     /// Record 28 carries ONE PAGE per packet and a page is at most 255 payload bytes by definition
     /// (<c>NetProtocol.BoardTunePageMaxFieldBytes</c> + its 7-byte header), so its contribution here
     /// is 2 + 255 = 257 FOREVER, no matter how many dials the board grows. That is the second reason
@@ -1078,6 +1110,13 @@ internal static class PresenceSerializer
                           // (no flags, no roles) it writes no record, so it must not open the tail
                           // either.
                           || (state.HasDecisionWidgets && DecisionWidgetsPayload(in state) > 0)
+                          // A NEUTRAL stretch (both factors 1.0) writes no record, so it must not
+                          // open the tail either — an unstretched hold stays byte-identical to the
+                          // previous build's packet, which is the whole absence-means-1.0 contract.
+                          || (state.HasHeldStretch
+                              && (state.HeldStretchPrimaryCode != NetProtocol.HeldStretchCodeNeutral
+                                  || state.HeldStretchSecondaryCode
+                                     != NetProtocol.HeldStretchCodeNeutral))
                           // No bar up (or every bar render-hidden for another character's focus)
                           // writes no record, so it must not open the tail either — the same
                           // idle-packet rule the wall-fade set and the decision state follow.
@@ -1713,6 +1752,25 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
+                if (state.HasHeldStretch
+                    && (state.HeldStretchPrimaryCode != NetProtocol.HeldStretchCodeNeutral
+                        || state.HeldStretchSecondaryCode != NetProtocol.HeldStretchCodeNeutral)
+                    && i + 2 + NetProtocol.HeldStretchRecordBytes <= buffer.Length)
+                {
+                    // HELD-FIGURE STRETCH (30): [u16 primary][u16 secondary], milli-factors,
+                    // slot-aligned with the rig packet's held figure and record 8. Written ONLY
+                    // while a factor is non-neutral (the tail gate above uses the same test), so an
+                    // unstretched hold — and every idle player — emits the exact bytes previous
+                    // builds emitted. Appended LAST, in id order behind record 29, per the tail's
+                    // id-order contract.
+                    buffer[i++] = NetProtocol.ExtIdHeldStretch;
+                    buffer[i++] = (byte)NetProtocol.HeldStretchRecordBytes;
+                    buffer[i++] = (byte)(state.HeldStretchPrimaryCode & 0xFF);
+                    buffer[i++] = (byte)(state.HeldStretchPrimaryCode >> 8);
+                    buffer[i++] = (byte)(state.HeldStretchSecondaryCode & 0xFF);
+                    buffer[i++] = (byte)(state.HeldStretchSecondaryCode >> 8);
+                    records++;
+                }
                 buffer[countAt] = records;
             }
         }
@@ -2326,6 +2384,28 @@ internal static class PresenceSerializer
                             state.SecondFigureLeftHand = secondLeft;
                             state.PrimaryFigureLeftHand = primaryLeft;
                         }
+                    }
+                    else if (id == NetProtocol.ExtIdHeldStretch
+                             && len >= NetProtocol.HeldStretchRecordBytes)
+                    {
+                        // HELD-FIGURE STRETCH: two u16 milli-factors, slot-aligned with the two
+                        // held-figure slots. Validation is FAIL-CLOSED TO NEUTRAL (never trust the
+                        // wire): a code outside the sane envelope — including 0 — is re-encoded as
+                        // 1000 = 1.0×, i.e. the exact picture a peer predating the record renders,
+                        // never a clamped extreme (a garbage byte must not make a figure invisible
+                        // or 65× tall). Each slot sanitizes independently: a poisoned secondary
+                        // must not cost the primary its real factor.
+                        ushort primCode = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+                        ushort secCode = (ushort)(buffer[i + 2] | (buffer[i + 3] << 8));
+                        if (primCode < NetProtocol.HeldStretchCodeMin
+                            || primCode > NetProtocol.HeldStretchCodeMax)
+                            primCode = (ushort)NetProtocol.HeldStretchCodeNeutral;
+                        if (secCode < NetProtocol.HeldStretchCodeMin
+                            || secCode > NetProtocol.HeldStretchCodeMax)
+                            secCode = (ushort)NetProtocol.HeldStretchCodeNeutral;
+                        state.HasHeldStretch = true;
+                        state.HeldStretchPrimaryCode = primCode;
+                        state.HeldStretchSecondaryCode = secCode;
                     }
                     else if (id == NetProtocol.ExtIdBoardTooltip && len >= 1)
                     {

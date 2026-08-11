@@ -100,6 +100,26 @@ internal static class NetFigures
         /// available. Divisor of the held-size ratio — see <see cref="EaseSlot"/>.
         /// </summary>
         public float GrabRigScale;
+
+        /// <summary>
+        /// The holder's MANUAL stretch factor for this slot, as last received on extension record
+        /// 30 (<see cref="NetProtocol.ExtIdHeldStretch"/>) — the one component of the held size a
+        /// receiver cannot derive (the zoom ratio it CAN derive lives above). 1 until a record
+        /// arrives, reset to 1 when the record stops arriving, so an old sender — and a peer who
+        /// simply never stretched — renders exactly as before the record existed.
+        /// </summary>
+        public float StretchTarget = 1f;
+
+        /// <summary>The stretch this client is currently RENDERING, eased toward
+        /// <see cref="StretchTarget"/> every <see cref="Tick"/> with the same sharpness as the
+        /// pose — the record arrives at packet cadence and a raw write would step visibly
+        /// ("everything moves WITH animation").</summary>
+        public float StretchApplied = 1f;
+
+        /// <summary>True once <see cref="EaseSlot"/> has written this figure's localScale at least
+        /// once — the release paths restore <see cref="HomeLocalScale"/> exactly when a scale was
+        /// actually touched, whatever combination of ratio and stretch touched it.</summary>
+        public bool ScaleTouched;
     }
 
     /// <summary>Both wire slots of ONE remote player. Slots are independent: a peer holding a mini
@@ -157,6 +177,23 @@ internal static class NetFigures
         rot = t.rotation;
         leftHand = side == HandSide.Left;
         return true;
+    }
+
+    /// <summary>
+    /// Send side: the MANUAL stretch factor of the figure in wire slot <paramref name="slot"/>
+    /// (the two-hand resize gesture, <c>Board.FigureGrab.FigureStretch</c>) — 1.0 when that slot
+    /// holds nothing, when the mini is mid-glide (its size is easing home and the wire should ease
+    /// the peer's copy with it), or when the player simply never stretched. The caller
+    /// (<c>NetAvatarDriver</c>) quantizes with <see cref="NetProtocol.EncodeHeldStretch"/> and
+    /// omits record 30 entirely while both slots read neutral, so an unstretched session emits the
+    /// exact bytes previous builds emitted. Strict no-op offline: with nothing held it returns 1
+    /// and nothing is ever written.
+    /// </summary>
+    public static float SampleHeldStretch(int slot)
+    {
+        if (!HeldFigures.TryGetSlot(slot, out ActorBehaviour actor, out _))
+            return 1f;
+        return FigureGrabbable.StretchOf(actor);
     }
 
     // ---- receive ------------------------------------------------------------------------
@@ -240,6 +277,39 @@ internal static class NetFigures
             player.Primary.HandKnown = true;
             player.Primary.LeftHand = leftHand;
         }
+    }
+
+    /// <summary>
+    /// Receive side: <paramref name="playerId"/>'s manual held-figure stretch factors (extension
+    /// record 30), slot-aligned with the two held-figure slots. Stored as TARGETS —
+    /// <see cref="EaseSlot"/> eases the rendered factor toward them, so the packet-cadence steps
+    /// arrive as motion. A slot with no live record here is simply skipped: the factor is
+    /// re-asserted on every extras packet that carries the record, and the fresh-hold path resets
+    /// to 1, so ordering between the hold's first packet and the stretch record cannot wedge.
+    /// </summary>
+    public static void ApplyHeldStretch(int playerId, float primary, float secondary)
+    {
+        if (!_byPlayer.TryGetValue(playerId, out PlayerHeld player))
+            return;
+        if (player.Primary != null)
+            player.Primary.StretchTarget = primary;
+        if (player.Secondary != null)
+            player.Secondary.StretchTarget = secondary;
+    }
+
+    /// <summary>
+    /// Receive side: an extras packet from <paramref name="playerId"/> WITHOUT record 30 —
+    /// absence means both factors are 1.0 (the record's contract, and what an old sender always
+    /// transmits). Eased back like any other change, never snapped.
+    /// </summary>
+    public static void ResetHeldStretch(int playerId)
+    {
+        if (!_byPlayer.TryGetValue(playerId, out PlayerHeld player))
+            return;
+        if (player.Primary != null)
+            player.Primary.StretchTarget = 1f;
+        if (player.Secondary != null)
+            player.Secondary.StretchTarget = 1f;
     }
 
     /// <summary>Receive side: <paramref name="playerId"/> released the figure in one wire slot. That
@@ -338,18 +408,38 @@ internal static class NetFigures
         // moment the holder's size became a function of when they grabbed, so the same ratio is
         // reproduced here or the two machines disagree for the whole time the holder zooms.
         //
-        // ZERO WIRE BYTES: the holder's live rig scale already arrives on every rig packet
-        // (Rig.LocalRigSampler → RemoteAvatar.AppliedScale) and the grab-time value was latched
-        // when this record was created. When either is unavailable the ratio is 1 and the figure
-        // renders at this client's board size — exactly the pre-2026-08-11 behaviour, which is the
-        // right thing to degrade to.
+        // ZERO WIRE BYTES for the ratio: the holder's live rig scale already arrives on every rig
+        // packet (Rig.LocalRigSampler → RemoteAvatar.AppliedScale) and the grab-time value was
+        // latched when this record was created. When either is unavailable the ratio is 1 and the
+        // figure renders at this client's board size — exactly the pre-2026-08-11 behaviour, which
+        // is the right thing to degrade to.
+        //
+        // TIMES THE MANUAL STRETCH (2026-08-11, "die Größe der Figur in der Hand änderbar"): the
+        // two-hand gesture factor is the one component a receiver CANNOT derive, so it rides
+        // extension record 30 and lands in StretchTarget. It is eased here with the same k as the
+        // pose — the record steps at packet cadence and a raw write would pop — and it multiplies
+        // the ratio rather than replacing it, because the two are independent facts (what the
+        // holder's zoom did since the grab × what their other hand did on purpose). Neutral (1.0)
+        // everywhere unless a record said otherwise, so old senders and unstretched holds render
+        // byte-for-byte the previous picture.
+        rec.StretchApplied = Mathf.Lerp(rec.StretchApplied, rec.StretchTarget, k);
+        float ratio = 1f;
         if (rec.GrabRigScale > 0f
             && NetAvatarDriver.TryGetPeerRigScale(playerId, out float rigNow)
             && rigNow > 0f)
         {
-            Vector3 want = rec.HomeLocalScale * (rigNow / rec.GrabRigScale);
+            ratio = rigNow / rec.GrabRigScale;
+        }
+        float sizeFactor = ratio * rec.StretchApplied;
+        // Write only when something actually asks for a non-home size (or asked before and is
+        // easing back): a record whose ratio is unavailable AND whose stretch is neutral must not
+        // start authoring scale at all — that is the degrade-to-old-behaviour contract above.
+        if (rec.ScaleTouched || !Mathf.Approximately(sizeFactor, 1f))
+        {
+            Vector3 want = rec.HomeLocalScale * sizeFactor;
             if (t.localScale != want)
                 t.localScale = want;
+            rec.ScaleTouched = true;
         }
         return true;
     }
@@ -463,12 +553,14 @@ internal static class NetFigures
     /// paths never had to restore those — but the game never writes a figure's SCALE, so a mini
     /// released while its holder was zoomed in would keep the enlarged size forever.</para>
     ///
-    /// <para>Writes only when it differs, and only when a hold actually latched a scale, so a
-    /// record from before this existed (or one whose actor is gone) is a no-op.</para>
+    /// <para>Writes only when it differs, and only when the hold actually AUTHORED a scale
+    /// (<see cref="RemoteHeld.ScaleTouched"/> — set by <see cref="EaseSlot"/> for the zoom ratio
+    /// and the manual stretch alike), so a record that never touched the figure's size (ratio
+    /// unavailable, stretch neutral, or an actor that is gone) is a no-op.</para>
     /// </summary>
     private static void RestoreHomeScale(RemoteHeld? rec)
     {
-        if (rec == null || rec.GrabRigScale <= 0f)
+        if (rec == null || !rec.ScaleTouched)
             return;
         Transform? t = RootTransform(rec.Actor);
         if (t != null && t.localScale != rec.HomeLocalScale)

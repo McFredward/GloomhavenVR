@@ -358,6 +358,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _lastSentSecondActorId;
     private Vector3 _lastSentSecondPos;
     private Quaternion _lastSentSecondRot = Quaternion.identity;
+
+    // HELD-FIGURE STRETCH (extension record 30) — the last QUANTIZED codes sent, compared instead
+    // of the raw floats so the change test asks about the very bytes that would go on the wire
+    // (a sub-milli wobble that quantizes identically is not a change). Neutral = record omitted.
+    private int _lastSentStretchPrimary = NetProtocol.HeldStretchCodeNeutral;
+    private int _lastSentStretchSecondary = NetProtocol.HeldStretchCodeNeutral;
+    private bool _loggedStretch;
     private bool _loggedSecondFigure;
 
     // SECOND HELD CARD (user ruling: "Alles soll synchronisiert werden - auch die Karten in der
@@ -537,6 +544,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
         _sentSecondCardValid = false;   // nor its second held card
+        _lastSentStretchPrimary = NetProtocol.HeldStretchCodeNeutral;   // nor a stale stretch
+        _lastSentStretchSecondary = NetProtocol.HeldStretchCodeNeutral; // (record 30)
+        _loggedStretch = false;
         // Version handshake is session state; badges are reversible game-UI decoration — both
         // must not survive a driver teardown (hot reload / module shutdown).
         VersionGuard.Reset();
@@ -1169,6 +1179,22 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 || Quaternion.Angle(secondCardRot, _lastSentSecondCardRot) > 0.05f);
         bool secondCardDue = secondCardMoving && _extrasAccumulator >= fastInterval;
 
+        // HELD-FIGURE STRETCH (extension record 30): the manual two-hand resize factor of each
+        // held-figure slot, quantized HERE so the change test compares wire codes, not floats.
+        // A mid-gesture drag is a MOTION, not an edge — it rides the fast interval exactly like a
+        // carried second figure (15 Hz while the codes keep changing), never pre-empting outright,
+        // or a 90 Hz hand drag would become a 90 Hz packet stream. Appear/disappear needs no edge
+        // treatment either: the factor grows continuously from 1.0 and eases back to it, so there
+        // is nothing discrete for a peer to miss. Both slots neutral ⇒ record omitted (the writer's
+        // own gate), which is every idle player and every build before this one.
+        int stretchPrimaryCode = NetProtocol.EncodeHeldStretch(
+            NetFigures.SampleHeldStretch(NetFigures.SlotPrimary));
+        int stretchSecondaryCode = NetProtocol.EncodeHeldStretch(
+            NetFigures.SampleHeldStretch(NetFigures.SlotSecondary));
+        bool stretchChanged = stretchPrimaryCode != _lastSentStretchPrimary
+                              || stretchSecondaryCode != _lastSentStretchSecondary;
+        bool stretchDue = stretchChanged && _extrasAccumulator >= fastInterval;
+
         // BOARD TOOLTIP (extension record 9): the text of the board-owned tooltip the owner is
         // reading, ALREADY identity-gated by WorldTooltips (only content public to peers ever
         // reaches this read — see NetProtocol.ExtIdBoardTooltip). Sampled before the rate gate so
@@ -1314,6 +1340,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
+            && !stretchDue
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
             && !wallFadesDue
@@ -2228,6 +2255,35 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentSecondPos = secondPos;
         _lastSentSecondRot = secondRot;
 
+        // HELD-FIGURE STRETCH (extension record 30): the manual two-hand resize factors, written
+        // only while at least one slot is non-neutral — an unstretched hold and every idle player
+        // emit the exact bytes previous builds emitted (the serializer re-checks the same gate).
+        if (stretchPrimaryCode != NetProtocol.HeldStretchCodeNeutral
+            || stretchSecondaryCode != NetProtocol.HeldStretchCodeNeutral)
+        {
+            extras.HasHeldStretch = true;
+            extras.HeldStretchPrimaryCode = (ushort)stretchPrimaryCode;
+            extras.HeldStretchSecondaryCode = (ushort)stretchSecondaryCode;
+            if (!_loggedStretch)
+            {
+                _loggedStretch = true;
+                VRLog.Info("Net", "Held-figure stretch SENT: factors "
+                    + $"{stretchPrimaryCode / 1000f:0.###} / {stretchSecondaryCode / 1000f:0.###} "
+                    + "(primary/secondary slot) — extension record 30 (4 B: two u16 milli-factors). "
+                    + $"While a factor changes the extras packet rides at {NetProtocol.SendRateHz:0} Hz; "
+                    + "peers multiply it into the zoom ratio they already apply and ease it like the "
+                    + "pose. Logged once per stretch episode.");
+            }
+        }
+        else if (_loggedStretch)
+        {
+            _loggedStretch = false;
+            VRLog.Info("Net", "Held-figure stretch SENT: back to neutral — record 30 omitted again; "
+                + "peers ease the mini back to boardSize × zoom ratio.");
+        }
+        _lastSentStretchPrimary = stretchPrimaryCode;
+        _lastSentStretchSecondary = stretchSecondaryCode;
+
         // SECOND HELD CARD (extension record 10): the card in the player's OTHER hand — pose
         // only, no hand byte (the receiver renders the slab at the absolute pose, never parented
         // to a hand) and no identity, ever. Written only while BOTH hands really hold a card, so
@@ -2417,6 +2473,20 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     {
                         NetFigures.ReleaseRemoteSlot(kv.Key, NetFigures.SlotSecondary);
                     }
+
+                    // HELD-FIGURE STRETCH (extension record 30): the holder's manual two-hand
+                    // resize factors for both held-figure slots. Absence means BOTH are 1.0 —
+                    // exactly what an old sender transmits and what an unstretched hold means —
+                    // so the else branch RESETS rather than leaves the last factor standing: a
+                    // sender whose gesture returned to neutral stops writing the record, and the
+                    // peer's copy must follow it home. Both paths are eased by NetFigures.Tick
+                    // (same k as the pose), never snapped.
+                    if (p.HasHeldStretch)
+                        NetFigures.ApplyHeldStretch(kv.Key,
+                            NetProtocol.DecodeHeldStretch(p.HeldStretchPrimaryCode),
+                            NetProtocol.DecodeHeldStretch(p.HeldStretchSecondaryCode));
+                    else
+                        NetFigures.ResetHeldStretch(kv.Key);
 
                     // CHARACTER FOCUS (extension record 22): which character this peer is looking
                     // at, plus their local-only "the character the game is waiting on is mine" bit
