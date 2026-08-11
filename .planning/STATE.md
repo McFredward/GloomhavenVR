@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 112`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 113`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,19 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 113** — the border, attempt NINE: the punch region is GEOMETRY now, not luma. 112's
+  BAND INVENTORY named the culprits (punched background still 102/264 band probes — the luma-BFS is
+  interrupted by decoration; the two ACTION-HALF plates 55/72, never punched). Screenshot profiling
+  found the structural failure of every luma approach: content luma 55-65 vs threshold 48 vs frame
+  <40 — a knife edge — while the gold TRIM sits at ~213. The card's true outline is now derived from
+  the bright-trim contour once per kind, validated against the screenshot's band widths, and erased
+  on EVERY layer mapping outside it. **The decisive find: the action halves fell at Image.Type.Simple
+  — they are 9-SLICED Button plates, and the punch now replicates GenerateSlicedSprite's mapping.**
+  First time in nine attempts they are touched. CacheVersion 4→5 (fourth load-bearing bump). If it
+  fails: "CARD OUTLINE refused" = behaviour is exactly 112; otherwise BAND INVENTORY prints derived
+  bands beside the culprit — disagreement indicts the derivation, agreement indicts an escaped
+  consumer. Known pre-existing residual: hovered halves render Image.overrideSprite (§5e), uncovered
+  by any bake.
 - **ModBuild 112** — the border, attempt EIGHT: round 7's falsifier fired (ART RECT 100 % x
   100 % — no letterbox on his art), leaving the series' one POSITIVE measurement standing: the
   PEEL hit its depth cap twice (11/11, then 18/18 texels, mean luma 22). The band is a PRINTED

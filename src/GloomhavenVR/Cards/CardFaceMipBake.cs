@@ -433,6 +433,13 @@ internal static class CardFaceMipBake
 
     // ------------------------------------------------------- frame punch (round 8) --
     //
+    // ROUND 9 NOTE, read first: everything below (the luma-BFS erosion) is now the FALLBACK.
+    // The primary mechanism is the GEOMETRIC punch further down (OutlinePunchedReplacementFor),
+    // driven by the card outline CardOutline derives from the bright trim contour — the 112 log
+    // measured this BFS stopping at 24 px with 102 of 264 band probes still dark, because the
+    // frame's dark pixels are not luma-connected to the boundary. Do not re-tune the BFS; the
+    // definition of "frame" moved from per-pixel darkness to geometry.
+    //
     // THE BLACK BAND IS IN THE ART'S OWN PIXELS. Two hardware runs measured it with the capture's
     // dark-border peel: ModBuild 110 "945 texel(s) … max depth 11 of 11", ModBuild 111 "1263
     // texel(s) = 1.64 % of the face … max depth 18 of 18 texels; mean luma of what went = 22". An
@@ -531,21 +538,329 @@ internal static class CardFaceMipBake
         return made;
     }
 
-    /// <summary>Build the punched sprite for <paramref name="source"/> — see the block comment
-    /// above for the derivation. Only exact rect reconstructions are attempted (same contract as
-    /// <see cref="TrimmedReplacementFor"/>); anything else is a logged skip and today's look.</summary>
-    private static Sprite? MintPunched(Sprite source)
+    // ----------------------------------------------- geometric frame punch (round 9) --
+    //
+    // ROUND 9 SUPERSEDES THE LUMA RULE WITH GEOMETRY. The ModBuild-112 log proves the BFS above
+    // is structurally insufficient: its punched background still painted 102 of 264 near-black
+    // band probes (the erosion stopped at 24 px because brighter features interrupt the dark
+    // connectivity), and the two action-half plates (55 of 72 band probes) never reached the
+    // punch at all — the ">= 70 % of the face" area gate excluded them although they are genuine
+    // face LAYERS spanning the full card width at top and bottom. The region to erase is now
+    // defined ONCE, geometrically, by CardOutline (the card's bright-trim contour, derived from
+    // the background sprite), and applied to EVERY full-span face layer: a pixel outside the
+    // outline is frame no matter how dark, how bright, or how connected. The luma-BFS punch
+    // above remains only as the fallback when the outline derivation refuses (validation gates
+    // in CardOutline) — i.e. the look then degrades to exactly ModBuild 112, never to a guess.
+    //
+    // SAFETY AUDIT (unchanged from round 8, re-verified for this path):
+    //   • Pixel source is a FRESH row-slice copy (SlicePixelsFor / the loop below) of the cached
+    //     whole-atlas readback — the shared readback and the shared whole-atlas bake are NEVER
+    //     mutated.
+    //   • The punched sprite registers in s_originalByReplacement exactly like every other
+    //     replacement, so RestoreSprites hands the game its ORIGINAL sprite on every existing
+    //     restore path (CardFace.Restore, ItemsPile's pool recycle, PanelMipBake.Restore).
+    //   • s_replacementBySource is re-pointed at the punched copy, so the Rescan bulk pass,
+    //     CardArtWatch's arrival seam and both of those on a PEER's clone (Net/RemoteCardArt)
+    //     serve it with no further coordination.
+    //   • Textures are content-keyed (atlas identity + region + outline identity + drawn rect),
+    //     so every card of a class and every peer clone share one punched texture and one
+    //     budget charge.
+
+    /// <summary>Erased fraction above which the geometric punch refuses — if most of a "face
+    /// layer" maps outside the card, the drawn-rect mapping is wrong, not the art.</summary>
+    private const float OutlinePunchMaxEraseFraction = 0.9f;
+
+    /// <summary>
+    /// How a face layer's sprite pixels map into face-normalized space (round 9). The ModBuild-112
+    /// sweep proves this cannot be Simple-only: the two action-half plates painted 55 of their 72
+    /// band probes yet appeared in NEITHER of the sweep's counts — at ~18 % drawn coverage they can
+    /// only have fallen to the <c>Image.Type.Simple</c> filter, i.e. they are the game's
+    /// prefab-serialized 9-SLICED button plates (<c>FullAbilityCardAction.actionButton</c> is a
+    /// <c>Button</c>; a plate Image under a Button is classically sliced). A sliced image does not
+    /// map its sprite uniformly onto its rect — corners draw at native border size, edges/center
+    /// stretch — so the punch must map each pixel through the same piecewise-linear function uGUI's
+    /// <c>GenerateSlicedSprite</c> uses, or it would erase the wrong pixels. <see cref="MapU"/> /
+    /// <see cref="MapV"/> replicate exactly that (borders divided by the multiplied
+    /// pixels-per-unit, then clamp-scaled when the rect is smaller than the combined borders —
+    /// built by the sweep from live values, nothing hard-coded). A uniform mapping (Simple, Filled
+    /// at full fill, sliced with a zero border) degenerates to a plain lerp over the drawn rect.
+    /// </summary>
+    internal readonly struct PunchMapping
     {
+        /// <summary>The layer's drawn rect in face-normalized space.</summary>
+        internal readonly Rect FaceRect;
+
+        /// <summary>9-slice borders in SPRITE pixels (x=left, y=bottom, z=right, w=top); zero =
+        /// uniform mapping.</summary>
+        internal readonly Vector4 SpriteBorderPx;
+
+        /// <summary>The same borders as drawn, in FACE-normalized units.</summary>
+        internal readonly Vector4 DestBorderFace;
+
+        internal readonly bool Sliced;
+
+        internal PunchMapping(Rect faceRect)
+        {
+            FaceRect = faceRect;
+            SpriteBorderPx = Vector4.zero;
+            DestBorderFace = Vector4.zero;
+            Sliced = false;
+        }
+
+        internal PunchMapping(Rect faceRect, Vector4 spriteBorderPx, Vector4 destBorderFace)
+        {
+            FaceRect = faceRect;
+            SpriteBorderPx = spriteBorderPx;
+            DestBorderFace = destBorderFace;
+            Sliced = spriteBorderPx != Vector4.zero;
+        }
+
+        /// <summary>Face-u of sprite pixel-center x (in sprite px) for a sprite of width w.</summary>
+        internal float MapU(float sx, float w) => Sliced
+            ? Piece(sx, w, SpriteBorderPx.x, SpriteBorderPx.z, FaceRect.xMin, FaceRect.width,
+                    DestBorderFace.x, DestBorderFace.z)
+            : FaceRect.xMin + sx / w * FaceRect.width;
+
+        /// <summary>Face-v of sprite pixel-center y (in sprite px) for a sprite of height h.</summary>
+        internal float MapV(float sy, float h) => Sliced
+            ? Piece(sy, h, SpriteBorderPx.y, SpriteBorderPx.w, FaceRect.yMin, FaceRect.height,
+                    DestBorderFace.y, DestBorderFace.w)
+            : FaceRect.yMin + sy / h * FaceRect.height;
+
+        /// <summary>One 9-slice axis: [0..b0] → the near dest border, [size-b1..size] → the far
+        /// one, the middle stretched between. Degenerate borders fall back to the uniform lerp.</summary>
+        private static float Piece(float s, float size, float b0, float b1,
+                                   float f0, float fsize, float d0, float d1)
+        {
+            if (b0 + b1 >= size - 0.5f || d0 + d1 >= fsize || (b0 <= 0f && b1 <= 0f))
+                return f0 + s / size * fsize;
+            if (s <= b0)
+                return f0 + (b0 > 0f ? s / b0 * d0 : 0f);
+            if (s >= size - b1)
+                return f0 + fsize - d1 + (b1 > 0f ? (s - (size - b1)) / b1 * d1 : 0f);
+            return f0 + d0 + (s - b0) / (size - b0 - b1) * (fsize - d0 - d1);
+        }
+
+        /// <summary>Cache-key fragment — two mappings that differ produce different punches.</summary>
+        internal string CacheKey => Sliced
+            ? $"{R(FaceRect)}|sb{V(SpriteBorderPx)}|db{V(DestBorderFace)}"
+            : R(FaceRect);
+
+        private static string R(Rect r) => $"{r.xMin:F3},{r.yMin:F3},{r.width:F3},{r.height:F3}";
+
+        private static string V(Vector4 v) => $"{v.x:F3},{v.y:F3},{v.z:F3},{v.w:F3}";
+    }
+
+    /// <summary>Face-normalized drawn rect each geometrically punched source was minted for. A
+    /// SECOND materially different rect for the same sprite instance would need a different
+    /// punched copy — it is refused with one log line instead of served a wrong one (never
+    /// observed: the face layers are one Image each; this is the guard, not the expectation).</summary>
+    private static readonly Dictionary<int, Rect> s_punchRectBySource = new(8);
+
+    private static bool s_punchRectMismatchLogged;
+
+    /// <summary>
+    /// The GEOMETRICALLY punched replacement for <paramref name="source"/> (a GAME sprite —
+    /// resolve through <see cref="OriginalOf"/> first): every pixel that maps outside
+    /// <paramref name="outline"/> under <paramref name="mapping"/> (uniform for Simple images,
+    /// piecewise 9-slice for sliced plates) is erased to alpha 0. Minted and cached on first
+    /// sight; null when the sprite draws nothing outside the outline (clean — no copy needed) or
+    /// the punch was refused (latched, logged with numbers). On success all future swaps on any
+    /// face — local, item, peer clone — serve the punched copy, exactly like the round-8 plumbing.
+    /// </summary>
+    internal static Sprite? OutlinePunchedReplacementFor(Sprite source, in PunchMapping mapping,
+                                                         CardOutline outline)
+    {
+        int id = source.GetInstanceID();
+        if (s_punchedBySource.TryGetValue(id, out Sprite? cached))
+        {
+            if (cached != null && s_punchRectBySource.TryGetValue(id, out Rect usedRect)
+                && RectsDiffer(usedRect, mapping.FaceRect) && !s_punchRectMismatchLogged)
+            {
+                s_punchRectMismatchLogged = true;
+                VRLog.Warn("Cards", $"CARD FRAME PUNCH: sprite '{source.name}' is drawn at two different " +
+                                    $"face rects ({usedRect} vs {mapping.FaceRect}) — serving the copy " +
+                                    "punched for the FIRST; if a band survives on one placement only, this " +
+                                    "line is the reason.");
+            }
+            return cached;
+        }
+
+        Sprite? made = null;
+        try
+        {
+            made = MintOutlinePunched(source, mapping, outline);
+        }
+        catch (System.Exception ex)
+        {
+            LogPunchSkip(source, $"geometric punch failed ({ex.GetType().Name}: {ex.Message})");
+        }
+        if (made != null)
+        {
+            s_originalByReplacement[made.GetInstanceID()] = source; // full-restore contract
+            s_replacementBySource[id] = made;                        // all future swaps serve the punched copy
+            s_punchRectBySource[id] = mapping.FaceRect;
+        }
+        s_punchedBySource[id] = made;
+        return made;
+    }
+
+    private static bool RectsDiffer(Rect a, Rect b) =>
+        Mathf.Abs(a.xMin - b.xMin) > 0.01f || Mathf.Abs(a.yMin - b.yMin) > 0.01f
+        || Mathf.Abs(a.width - b.width) > 0.01f || Mathf.Abs(a.height - b.height) > 0.01f;
+
+    /// <summary>Build the geometrically punched sprite — see the round-9 block above.</summary>
+    private static Sprite? MintOutlinePunched(Sprite source, in PunchMapping mapping, CardOutline outline)
+    {
+        Texture2D? atlas = source.texture;
+        if (!TryGetRegionGeometry(source, out int fullW, out int fullH, out int srcX, out int srcY,
+                out int w, out int h, out int dstX, out int dstY, out string? geomRefusal)
+            || atlas == null)
+        {
+            LogPunchSkip(source, geomRefusal ?? "no texture");
+            return null;
+        }
+        Rect drawnFaceRect = mapping.FaceRect;
+        if (drawnFaceRect.width <= 0.001f || drawnFaceRect.height <= 0.001f)
+        {
+            LogPunchSkip(source, $"degenerate drawn rect {drawnFaceRect.width:F3}x{drawnFaceRect.height:F3}");
+            return null;
+        }
+
+        string key = $"{IdentityOf(atlas)}|{srcX},{srcY},{w}x{h}|{fullW}x{fullH}|+{dstX},+{dstY}" +
+                     $"|{outline.SourceKey}|{mapping.CacheKey}|opunch";
+        if (s_punchedTexByKey.TryGetValue(key, out Texture2D? punchedTex))
+        {
+            if (punchedTex == null)
+            {
+                VRLog.Debug("Cards", $"CARD FRAME PUNCH (geometric): '{source.name}' shares an earlier " +
+                                     $"verdict — {(s_punchVerdictByKey.TryGetValue(key, out string v) ? v : "refused")}.");
+                return null;
+            }
+            return MakePunchedSprite(source, punchedTex, fullW, fullH);
+        }
+
+        Color32[]? atlasPixels = AtlasPixelsFor(atlas);
+        if (atlasPixels == null || atlasPixels.Length != atlas.width * atlas.height)
+        {
+            s_punchedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = "atlas readback unavailable";
+            LogPunchSkip(source, "whole-atlas CPU readback failed — no pixel source to punch");
+            return null;
+        }
+        // FRESH copy — the cached atlas readback is shared by every per-sprite bake and is never
+        // mutated. Default Color32 = transparent trim margins, exactly like TrimmedReplacementFor.
+        var slice = new Color32[fullW * fullH];
+        for (int row = 0; row < h; row++)
+        {
+            System.Array.Copy(atlasPixels, (srcY + row) * atlas.width + srcX,
+                slice, (dstY + row) * fullW + dstX, w);
+        }
+
+        // THE ERASE: a pixel is frame iff its face-space position is outside the outline —
+        // no luma rule, no connectivity, no depth cap. Every consumer (this punch, the mesh
+        // footprint, the disabled shape mask) reads the SAME InsideFace answer. The per-axis
+        // face positions are precomputed once (the 9-slice mapping is piecewise per axis, so
+        // u depends only on x and v only on y).
+        var us = new float[fullW];
+        for (int x = 0; x < fullW; x++)
+            us[x] = mapping.MapU(x + 0.5f, fullW);
+        var vs = new float[fullH];
+        for (int y = 0; y < fullH; y++)
+            vs[y] = mapping.MapV(y + 0.5f, fullH);
+        long opaqueCount = 0;
+        int erased = 0;
+        for (int y = 0; y < fullH; y++)
+        {
+            float v = vs[y];
+            int row = y * fullW;
+            for (int x = 0; x < fullW; x++)
+            {
+                int i = row + x;
+                if (slice[i].a == 0)
+                    continue;
+                opaqueCount++;
+                if (!outline.InsideFace(us[x], v))
+                {
+                    slice[i].a = 0;
+                    erased++;
+                }
+            }
+        }
+        if (erased == 0)
+        {
+            s_punchedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = "draws nothing outside the card outline (clean)";
+            VRLog.Info("Cards", $"CARD FRAME PUNCH (geometric): '{source.name}' {fullW}x{fullH} draws " +
+                                "nothing outside the card outline — clean by construction, no copy needed.");
+            return null;
+        }
+        if (opaqueCount > 0 && erased > opaqueCount * OutlinePunchMaxEraseFraction)
+        {
+            s_punchedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = $"implausible erase ({erased} of {opaqueCount} opaque px)";
+            VRLog.Info("Cards", $"CARD FRAME PUNCH (geometric) refused: '{source.name}' {fullW}x{fullH} — " +
+                                $"{(float)erased / opaqueCount:P0} of its opaque pixels map outside the " +
+                                $"outline (gate {OutlinePunchMaxEraseFraction:P0}); the drawn-rect mapping " +
+                                "is implausible for a face layer. This sprite keeps its unpunched copy and " +
+                                "renders exactly as today.");
+            return null;
+        }
+
+        long cost = MipChainBytes(fullW, fullH);
+        if (s_spriteBakeCount >= MaxSpriteBakes || !FitsVramBudget(cost, source.name + " (opunch)"))
+        {
+            s_punchedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = "bake budget exhausted";
+            LogPunchSkip(source, $"bake budget exhausted (~{s_bakedVramBytes / (1024f * 1024f):F0} MB of " +
+                                 $"{MaxBakedVramBytes / (1024f * 1024f):F0} MB VRAM)");
+            return null;
+        }
+        var tex = new Texture2D(fullW, fullH, TextureFormat.RGBA32, mipChain: true, linear: false)
+        {
+            name = source.name + " (VR-mip-punch)",
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = BakedAnisoLevel,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        tex.SetPixels32(slice);
+        tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+        s_spriteBakeCount++;
+        s_bakedVramBytes += cost;
+        s_punchedTexByKey[key] = tex;
+        VRLog.Info("Cards", $"CARD FRAME PUNCH (geometric): '{source.name}' {fullW}x{fullH} — {erased} px = " +
+                            $"{(float)erased / ((long)fullW * fullH):P2} of the sprite erased as OUTSIDE the " +
+                            $"card outline derived from '{outline.SourceName}' (bands {outline.BandSummary}; " +
+                            $"drawn rect x {drawnFaceRect.xMin:F3}..{drawnFaceRect.xMax:F3}, y " +
+                            $"{drawnFaceRect.yMin:F3}..{drawnFaceRect.yMax:F3} of the face, " +
+                            $"{(mapping.Sliced ? "9-slice" : "uniform")} mapping). " +
+                            $"~{cost / (1024f * 1024f):F1} MB VRAM; budget {BudgetSummary}. The face renders " +
+                            "this copy from its first pixel and the silhouette capture samples IT — mesh " +
+                            "and face share ONE geometry.");
+        return MakePunchedSprite(source, tex, fullW, fullH);
+    }
+
+    /// <summary>
+    /// The shared geometry contract of every pixel-surgery path (BFS punch, geometric punch,
+    /// outline derivation): only an exact, unrotated, non-tight rect reconstruction qualifies —
+    /// the same contract <see cref="TrimmedReplacementFor"/> enforces, factored out in round 9 so
+    /// three callers cannot drift apart. False = a stated refusal; the caller logs it.
+    /// </summary>
+    private static bool TryGetRegionGeometry(Sprite source, out int fullW, out int fullH,
+                                             out int srcX, out int srcY, out int w, out int h,
+                                             out int dstX, out int dstY, out string? refusal)
+    {
+        fullW = fullH = srcX = srcY = w = h = dstX = dstY = 0;
         Texture2D? atlas = source.texture;
         if (atlas == null)
         {
-            LogPunchSkip(source, "no texture");
-            return null;
+            refusal = "no texture";
+            return false;
         }
         if (IsRotatedPacked(source) || IsTightPacked(source))
         {
-            LogPunchSkip(source, "rotated/tight atlas packing — its region cannot be extracted as a rect");
-            return null;
+            refusal = "rotated/tight atlas packing — its region cannot be extracted as a rect";
+            return false;
         }
         Rect tr;
         Vector2 off;
@@ -556,33 +871,105 @@ internal static class CardFaceMipBake
         }
         catch (System.Exception)
         {
-            LogPunchSkip(source, "textureRect unavailable (tight-packed mesh geometry)");
-            return null;
+            refusal = "textureRect unavailable (tight-packed mesh geometry)";
+            return false;
         }
-        int fullW = Mathf.RoundToInt(source.rect.width);
-        int fullH = Mathf.RoundToInt(source.rect.height);
-        int srcX = Mathf.RoundToInt(tr.x);
-        int srcY = Mathf.RoundToInt(tr.y);
-        int w = Mathf.RoundToInt(tr.width);
-        int h = Mathf.RoundToInt(tr.height);
-        int dstX = Mathf.RoundToInt(off.x);
-        int dstY = Mathf.RoundToInt(off.y);
+        fullW = Mathf.RoundToInt(source.rect.width);
+        fullH = Mathf.RoundToInt(source.rect.height);
+        srcX = Mathf.RoundToInt(tr.x);
+        srcY = Mathf.RoundToInt(tr.y);
+        w = Mathf.RoundToInt(tr.width);
+        h = Mathf.RoundToInt(tr.height);
+        dstX = Mathf.RoundToInt(off.x);
+        dstY = Mathf.RoundToInt(off.y);
         if (fullW < 32 || fullH < 32 || w < 1 || h < 1)
         {
-            LogPunchSkip(source, $"degenerate/too-small geometry (rect {fullW}x{fullH}, textureRect {w}x{h}) " +
-                                 "— a card face layer is never this small");
-            return null;
+            refusal = $"degenerate/too-small geometry (rect {fullW}x{fullH}, textureRect {w}x{h}) " +
+                      "— a card face layer is never this small";
+            return false;
         }
         if (fullW > MaxSpriteDim || fullH > MaxSpriteDim)
         {
-            LogPunchSkip(source, $"logical rect {fullW}x{fullH} exceeds the {MaxSpriteDim} per-sprite cap");
-            return null;
+            refusal = $"logical rect {fullW}x{fullH} exceeds the {MaxSpriteDim} per-sprite cap";
+            return false;
         }
         if (srcX < 0 || srcY < 0 || srcX + w > atlas.width || srcY + h > atlas.height
             || dstX < 0 || dstY < 0 || dstX + w > fullW || dstY + h > fullH)
         {
-            LogPunchSkip(source, $"trim region does not fit exactly (atlas region {w}x{h} at {srcX},{srcY} " +
-                                 $"in {atlas.width}x{atlas.height}, offset +{dstX},+{dstY} in rect {fullW}x{fullH})");
+            refusal = $"trim region does not fit exactly (atlas region {w}x{h} at {srcX},{srcY} " +
+                      $"in {atlas.width}x{atlas.height}, offset +{dstX},+{dstY} in rect {fullW}x{fullH})";
+            return false;
+        }
+        refusal = null;
+        return true;
+    }
+
+    /// <summary>
+    /// The content identity of a sprite's atlas region — the key <see cref="CardOutline"/>
+    /// caches its derivations (and refusals) under. Geometry only, NO pixel work: the sweep
+    /// resolves this every second, and the pixels are read once per key at most. Null with a
+    /// stated <paramref name="refusal"/> when the region cannot be extracted exactly.
+    /// </summary>
+    internal static string? ContentKeyOf(Sprite source, out string? refusal)
+    {
+        if (!TryGetRegionGeometry(source, out int fullW, out int fullH, out int srcX, out int srcY,
+                out int rw, out int rh, out int dstX, out int dstY, out refusal))
+            return null;
+        Texture2D atlas = source.texture!; // non-null — TryGetRegionGeometry checked
+        return $"{IdentityOf(atlas)}|{srcX},{srcY},{rw}x{rh}|{fullW}x{fullH}|+{dstX},+{dstY}";
+    }
+
+    /// <summary>
+    /// A FRESH full-rect pixel slice of a GAME sprite (row 0 = sprite bottom; trim margins as
+    /// real transparent texels), plus its content identity — the pixel source
+    /// <see cref="CardOutline"/> derives the card's true outline from (round 9). Always a copy:
+    /// the shared atlas readback is never handed out, so no caller can mutate it. Null with a
+    /// stated <paramref name="refusal"/> when the sprite's region cannot be extracted exactly.
+    /// </summary>
+    internal static Color32[]? SlicePixelsFor(Sprite source, out int w, out int h,
+                                              out string? contentKey, out string? refusal)
+    {
+        w = 0;
+        h = 0;
+        contentKey = null;
+        if (!TryGetRegionGeometry(source, out int fullW, out int fullH, out int srcX, out int srcY,
+                out int rw, out int rh, out int dstX, out int dstY, out refusal))
+            return null;
+        Texture2D atlas = source.texture!; // non-null — TryGetRegionGeometry checked
+        Color32[]? atlasPixels = AtlasPixelsFor(atlas);
+        if (atlasPixels == null || atlasPixels.Length != atlas.width * atlas.height)
+        {
+            refusal = "whole-atlas CPU readback failed — no pixel source";
+            return null;
+        }
+        var slice = new Color32[fullW * fullH];
+        for (int row = 0; row < rh; row++)
+        {
+            System.Array.Copy(atlasPixels, (srcY + row) * atlas.width + srcX,
+                slice, (dstY + row) * fullW + dstX, rw);
+        }
+        w = fullW;
+        h = fullH;
+        contentKey = $"{IdentityOf(atlas)}|{srcX},{srcY},{rw}x{rh}|{fullW}x{fullH}|+{dstX},+{dstY}";
+        refusal = null;
+        return slice;
+    }
+
+    /// <summary>Build the punched sprite for <paramref name="source"/> — see the block comment
+    /// above for the derivation. Only exact rect reconstructions are attempted (same contract as
+    /// <see cref="TrimmedReplacementFor"/>); anything else is a logged skip and today's look.
+    /// <para>ROUND 9: this luma-BFS punch is now the FALLBACK, used only when no validated
+    /// <see cref="CardOutline"/> exists for the face's background art (see
+    /// <see cref="OutlinePunchedReplacementFor"/> for the primary mechanism and the 112 evidence
+    /// for why connectivity alone could not finish the job).</para></summary>
+    private static Sprite? MintPunched(Sprite source)
+    {
+        Texture2D? atlas = source.texture;
+        if (!TryGetRegionGeometry(source, out int fullW, out int fullH, out int srcX, out int srcY,
+                out int w, out int h, out int dstX, out int dstY, out string? geomRefusal)
+            || atlas == null)
+        {
+            LogPunchSkip(source, geomRefusal ?? "no texture");
             return null;
         }
 

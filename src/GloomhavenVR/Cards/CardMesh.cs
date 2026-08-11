@@ -1157,8 +1157,20 @@ internal static class CardMesh
     /// stopped painting: the reported band, re-created by the fix itself. Mesh and face must come
     /// from ONE measurement, and for the cached path this bump is what enforces it. Cost: one cold
     /// start per shape, as before.</para>
+    ///
+    /// <para>v4 → v5 (round 9): the punch region is now GEOMETRIC — the card's true outline,
+    /// derived by <c>CardOutline</c> from the background art's bright trim contour — applied to
+    /// every full-span face layer (background AND action halves) AND intersected into the
+    /// footprint after capture (<c>CardFace.TryCapture</c>'s OUTLINE CLIP). A v4 mask was stamped
+    /// from BFS-punched sprites whose erosion the 112 log measured stopping at 24 px with the
+    /// band still painted, so a v4 mask still calls part of the frame "card"; applying it under a
+    /// v5 build would make the MESH paint its dark front exactly where the face now stops —
+    /// the reported band, re-created by the fix. Mesh and face must come from ONE measurement,
+    /// and for the cached path this bump is what enforces it — it has been load-bearing three
+    /// times (v1→v2, v2→v3, v3→v4 all shipped behaviour that a stale file would have silently
+    /// reverted). Cost: one cold start per shape, the documented first-run behaviour.</para>
     /// </summary>
-    private const byte CacheVersion = 4;
+    private const byte CacheVersion = 5;
 
     private static string CacheFilePath(CardBodyKind kind) => System.IO.Path.Combine(
         BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}.bin");

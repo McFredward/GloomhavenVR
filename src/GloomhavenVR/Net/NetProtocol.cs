@@ -416,7 +416,51 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 112;
+    public const ushort ModBuild = 113;
+    // Build 113: the black card border, attempt NINE — the punch region is now GEOMETRY, not luma.
+    // No wire change; the bump is here because 113 goes to the friend.
+    //
+    // WHAT 112'S OWN DIAGNOSTICS ESTABLISHED. The BAND INVENTORY named the culprits outright: the
+    // punched background STILL contributed 102 of 264 near-black band probes (the luma-BFS ate only
+    // 24 px and stopped — the frame is interrupted by brighter decoration), and the two ACTION-HALF
+    // plates contributed 55 of their 72 probes while never being punched at all. The integrator then
+    // profiled the user's screenshot across a card edge and found the structural reason every
+    // luma-threshold approach failed three times: card CONTENT sits at luma 55-65, the frame below
+    // 40, the threshold was 48 — a knife edge — while the card's gold TRIM line sits at ~213, a
+    // robust landmark.
+    //
+    // SO THE DEFINITION FLIPPED: derive the card's TRUE OUTLINE once per kind from the bright trim
+    // contour (first-bright row/column scans, interpolation across AA gaps up to 3 % of an axis,
+    // 5-tap median, central-IQR validation, a 140->110->80 threshold ladder), then erase EVERYTHING
+    // outside it on EVERY layer that maps there. One geometry, three consumers: sprite punch, mesh
+    // footprint (now footprint ∩ outline), and the still-disabled CardShapeMask. Validated against
+    // the screenshot's measured band widths before shipping; a derivation that fails its own gates
+    // REFUSES with a logged line and the behaviour stays exactly ModBuild 112.
+    //
+    // THE DECISIVE DISCOVERY: the action halves were never excluded by the 70 % coverage gate — they
+    // fell one filter EARLIER, at Image.Type.Simple. They are prefab-serialized 9-SLICED Button
+    // plates, and a sliced image does not map its sprite uniformly onto its rect, so the punch now
+    // replicates uGUI's GenerateSlicedSprite mapping (borders, multiplied PPU, clamp-scaled, live
+    // values). First time in nine attempts those two plates are touched at all. Eligibility is a
+    // span gate (a layer spanning >= 90 % of one face axis) rather than "everything": the three
+    // measured contributors all pass, while a centred icon, a gold-edged protrusion or a shared glow
+    // sprite structurally cannot.
+    //
+    // CacheVersion 4 -> 5 (fourth load-bearing bump). Restore audit re-done: both punch flavours
+    // register in s_originalByReplacement, all three restore paths route through RestoreSprites,
+    // shared atlas readbacks are never mutated. Peers ride the shared content-keyed cache — zero
+    // Net/ changes.
+    //
+    // KNOWN RESIDUAL, pre-existing (STATE §5e): a hovered action half renders the game's
+    // Image.overrideSprite state sprite, which no bake has ever covered — the frame can transiently
+    // reappear inside a plate WHILE hovered. Not new to this round.
+    //
+    // IF THIS FAILS: the log separates the failure modes in one read. "CARD OUTLINE refused" =>
+    // derivation refused, behaviour is 112. Outline validated but band survives => BAND INVENTORY
+    // names the painting graphic AND prints the derived per-edge bands beside it: bands disagreeing
+    // with the visible band => the derivation is wrong and its line says so; agreeing => a consumer
+    // escaped and the sweep line counts which.
+    //
     // Build 112: the black card border, attempt EIGHT — the first that edits the layer that
     // actually PAINTS the black. No wire change; the bump is here because 112 goes to the friend.
     //

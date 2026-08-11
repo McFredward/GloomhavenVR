@@ -806,36 +806,62 @@ internal sealed class CardFace
     // ------------------------------------------------- frame punch sweep (round 8) --
 
     /// <summary>
-    /// The face-side driver of the FRAME PUNCH (mechanism and pixel criteria in
-    /// <c>CardFaceMipBake</c>'s frame-punch block; this class only decides WHICH sprites are a
-    /// card face layer and re-points the face's Images at their punched copies).
+    /// The face-side driver of the FRAME PUNCH. ROUND 9: the punch region is GEOMETRIC — the
+    /// card's true outline, derived once per background art by <see cref="CardOutline"/> from the
+    /// bright trim contour — and it is applied to EVERY full-span face layer, not only to the one
+    /// image the old area gate admitted. The 112 log forced both changes: the BFS-punched
+    /// background still painted 102 of 264 near-black band probes (dark pixels the luma
+    /// connectivity could not reach), and the two action-half plates painted 55 of their 72 band
+    /// probes while the "&gt;= 70 % of the face" AREA gate excluded them — yet they are genuine
+    /// face layers spanning the full card width at top and bottom, and the bottom band (the
+    /// thickest, 6.6 % of the card in the screenshot) is largely theirs.
     ///
-    /// <para>THE GATE, stated: an <c>Image</c> qualifies iff it is drawn
-    /// (<c>enabled &amp;&amp; activeSelf</c>), is <c>Image.Type.Simple</c> (only those map their
-    /// sprite 1:1 onto their rect), carries a sprite, and its DRAWN rect
-    /// (<see cref="DrawnLocalRect"/> — the round-7 letterbox correction) spans at least
-    /// <see cref="MinOutlineCoverage"/> of THIS face's rect. That is the same
-    /// "what defines the outline must demonstrably span the card" gate the capture uses, evaluated
-    /// against each face's OWN rect — the item face measures against the item card, the ability
-    /// face against the ability card, no constant shared between them. An icon, a button, a
-    /// portrait can never pass it, so no sub-face sprite is ever eroded.</para>
+    /// <para>THE GATES, restated for round 9 — two of them, with different jobs:
+    /// (1) the OLD coverage gate (<see cref="MinOutlineCoverage"/> of the face) now has exactly
+    /// ONE remaining job: choosing which sprite the OUTLINE is derived from (the full-bleed
+    /// background). It no longer decides what gets punched.
+    /// (2) eligibility for PUNCHING is the SPAN gate (<see cref="SpanAxisFraction"/> on either
+    /// axis of the drawn rect): a face LAYER spans the card on at least one axis (background:
+    /// both; action halves: full width), while a decoration does not. This is what makes the
+    /// punch safe for icons, buttons and portraits BY CONSTRUCTION — a small centred icon never
+    /// spans an axis, so it can never be eroded — and it also protects designed protrusions (the
+    /// class banner at the top, the initiative chip at the bottom) that legitimately poke past
+    /// the background's trim contour: they are narrow, they fail the span gate, and the
+    /// screenshot-derived outline follows their bright edging anyway where they are part of the
+    /// background art. The 112 BAND INVENTORY confirms the closure: exactly three graphics
+    /// contributed dark band pixels, and all three span the full card width.</para>
     ///
-    /// <para>WHEN IT RUNS: from <see cref="Offer"/>, i.e. on adoption, on every 1 s Rescan
-    /// cadence, and — the one that matters — on the ART-ARRIVAL seam, in the same frame the game
-    /// assigns the sprite and before its first rendered frame ("MIP BAKE on arrival" documents the
-    /// seam). So a punched copy is what the face shows from its first pixel; there is no frame to
-    /// persist, because the punch is recomputed from the sprite's own pixels the moment they
-    /// exist, which is also the first moment the face could render them. (The MESH footprint still
-    /// needs its persisted cache — a material exists before any art does; the face does not have
-    /// that problem.)</para>
+    /// <para>THE SIMPLE-ONLY FILTER WAS THE ACTION HALVES' ESCAPE HATCH, and the 112 log proves
+    /// it by arithmetic: the sweep reported "1 image(s) passed … 11 below the gate (largest
+    /// 1 %)", yet the halves draw at ~18 % coverage — they are in NEITHER count, so they fell to
+    /// the <c>img.type != Simple</c> skip. They are the game's prefab-serialized 9-SLICED button
+    /// plates (<c>FullAbilityCardAction.actionButton</c> is a <c>Button</c> with a SpriteSwap
+    /// transition). Round 9 therefore maps Sliced (and full Filled) images through uGUI's own
+    /// 9-slice geometry (<c>CardFaceMipBake.PunchMapping</c>) instead of skipping them; only
+    /// Tiled/partially-filled images remain unmappable, and the sweep line counts them. Known
+    /// residual, pre-existing (STATE §5e): a hovered half renders the game's
+    /// <c>Image.overrideSprite</c> state sprite, which no bake or punch has ever covered — the
+    /// frame can reappear inside the plate WHILE hovered, hover-transient only.</para>
     ///
-    /// <para>DEGRADES TO TODAY: a refused punch (too deep, too large, no frame, unextractable
-    /// region, budget) leaves the unpunched copy in place — the exact ModBuild-111 render — and
-    /// the refusal is logged with its numbers by the bake. The sweep itself logs one latched line
-    /// per card kind naming the gate and its counts.</para>
+    /// <para>WHEN IT RUNS: unchanged — from <see cref="Offer"/>, i.e. on adoption, on the 1 s
+    /// Rescan cadence, and on the ART-ARRIVAL seam in the same frame the game assigns the sprite,
+    /// before its first rendered frame. A punched copy is what the face shows from its first
+    /// pixel.</para>
+    ///
+    /// <para>DEGRADES TO TODAY, in two stages: no validated outline (see CardOutline's gates and
+    /// its refusal line) ⇒ this sweep falls back to the EXACT ModBuild-112 behaviour (luma-BFS
+    /// punch of the coverage-gate layer only); a refused individual punch (unextractable region,
+    /// budget, implausible mapping) ⇒ that sprite keeps its unpunched copy, logged with numbers
+    /// by the bake. Never a guessed shape.</para>
     /// </summary>
     private static class FramePunch
     {
+        /// <summary>A drawn rect spanning at least this fraction of the face on EITHER axis marks
+        /// a face LAYER (eligible for the geometric punch). Backgrounds span both axes, the
+        /// action halves span the full width (their drawn width ≈ 100 % of the face); the largest
+        /// decoration (an action half is a layer, a banner/chip/icon is not) stays well under.</summary>
+        private const float SpanAxisFraction = 0.9f;
+
         private static readonly bool[] s_sweepLogged = new bool[3];
         private static bool s_gateOffLogged;
         private static bool s_errorLogged;
@@ -861,55 +887,190 @@ internal sealed class CardFace
                 if (faceRect.width < 1f || faceRect.height < 1f)
                     return;
 
+                // Pass 1: every drawn sprite Image whose pixel-to-face mapping is derivable —
+                // Simple and full Filled map uniformly, SLICED plates map through the 9-slice
+                // function (the ModBuild-112 action halves: 55 of 72 band probes, and absent from
+                // both sweep counts — they never passed the old Simple-only filter). Tiled and
+                // partially filled images have no derivable static mapping and are counted.
                 Image[] images = faceRoot.GetComponentsInChildren<Image>(includeInactive: true);
-                int spanning = 0, repointed = 0, wearing = 0, refused = 0, belowGate = 0;
-                float largestBelow = 0f;
+                var entries = new List<(Image Img, Sprite Worn, CardFaceMipBake.PunchMapping Map)>(8);
                 var corners = new Vector3[4];
+                Image? outlineImg = null;
+                Rect outlineRect = default;
+                float outlineCoverage = 0f;
+                int unmappable = 0;
                 foreach (Image img in images)
                 {
                     if (img == null || !img.enabled || !img.gameObject.activeSelf)
                         continue;
                     Sprite? worn = img.sprite;
-                    if (worn == null || img.type != Image.Type.Simple)
+                    if (worn == null)
                         continue;
-                    float coverage = DrawnCoverage(img, worn, faceRoot, faceRect, corners);
-                    if (coverage < MinOutlineCoverage)
+                    Image.Type type = img.type;
+                    CardFaceMipBake.PunchMapping map;
+                    if (type == Image.Type.Simple)
                     {
-                        belowGate++;
-                        if (coverage > largestBelow)
-                            largestBelow = coverage;
-                        continue;
+                        // Drawn rect (preserveAspect letterbox corrected — round 7).
+                        Rect norm = FaceNormRectOf(img.rectTransform, DrawnLocalRect(img, worn, out _),
+                            faceRoot, faceRect, corners);
+                        if (norm.width <= 0f || norm.height <= 0f)
+                            continue;
+                        map = new CardFaceMipBake.PunchMapping(norm);
+                        // Gate (1): the outline SOURCE must span the card — same full-bleed
+                        // reading the capture uses, and only a uniformly mapped (Simple) image
+                        // qualifies. Largest qualifying candidate wins (the background).
+                        float coverage = norm.width * norm.height;
+                        if (coverage >= MinOutlineCoverage && coverage > outlineCoverage)
+                        {
+                            outlineImg = img;
+                            outlineRect = norm;
+                            outlineCoverage = coverage;
+                        }
                     }
-                    spanning++;
-                    // The punch is keyed on the GAME's sprite; the Image may already wear one of
-                    // our (unpunched) baked copies, so resolve through the restore map first.
-                    Sprite source = CardFaceMipBake.OriginalOf(worn) ?? worn;
-                    Sprite? punched = CardFaceMipBake.PunchedReplacementFor(source);
-                    if (punched == null)
+                    else if (type == Image.Type.Sliced
+                             || (type == Image.Type.Filled && img.fillAmount >= 0.999f))
                     {
-                        refused++; // reason + numbers already on the record (bake log, latched)
-                        continue;
-                    }
-                    if (!ReferenceEquals(worn, punched))
-                    {
-                        img.sprite = punched;
-                        repointed++;
+                        // Sliced/full-filled draw across their LAYOUT rect (preserveAspect is a
+                        // Simple-only feature in uGUI's OnPopulateMesh).
+                        Rect norm = FaceNormRectOf(img.rectTransform, img.rectTransform.rect,
+                            faceRoot, faceRect, corners);
+                        if (norm.width <= 0f || norm.height <= 0f)
+                            continue;
+                        Vector4 borderPx = worn.border;
+                        if (type != Image.Type.Sliced || borderPx == Vector4.zero)
+                        {
+                            // A sliced image without a border renders exactly like Simple.
+                            map = new CardFaceMipBake.PunchMapping(norm);
+                        }
+                        else
+                        {
+                            // uGUI GenerateSlicedSprite: borders in local units are
+                            // sprite.border / multipliedPixelsPerUnit, clamp-scaled per axis when
+                            // the rect is smaller than the combined borders — replicated from
+                            // live values, then converted into face-normalized units.
+                            float ppm = Mathf.Max(0.01f, img.pixelsPerUnit * img.pixelsPerUnitMultiplier);
+                            Vector4 local = borderPx / ppm;
+                            Rect layout = img.rectTransform.rect;
+                            for (int axis = 0; axis <= 1; axis++)
+                            {
+                                float combined = local[axis] + local[axis + 2];
+                                float size = axis == 0 ? layout.width : layout.height;
+                                if (combined > size && combined > 0f)
+                                {
+                                    float ratio = size / combined;
+                                    local[axis] *= ratio;
+                                    local[axis + 2] *= ratio;
+                                }
+                            }
+                            float sx = norm.width / Mathf.Max(0.01f, layout.width);
+                            float sy = norm.height / Mathf.Max(0.01f, layout.height);
+                            var dest = new Vector4(local.x * sx, local.y * sy, local.z * sx, local.w * sy);
+                            map = new CardFaceMipBake.PunchMapping(norm, borderPx, dest);
+                        }
                     }
                     else
                     {
-                        wearing++;
+                        unmappable++;
+                        continue;
+                    }
+                    entries.Add((img, worn, map));
+                }
+                if (entries.Count == 0)
+                    return;
+
+                CardOutline? outline = null;
+                if (outlineImg != null && outlineImg.sprite != null)
+                {
+                    Sprite outlineSource = CardFaceMipBake.OriginalOf(outlineImg.sprite) ?? outlineImg.sprite;
+                    outline = CardOutline.ForSource(kind, outlineSource, outlineRect);
+                }
+
+                int layers = 0, repointed = 0, wearing = 0, kept = 0, decorations = 0;
+                if (outline != null)
+                {
+                    // GEOMETRIC MODE (round 9): every full-span layer is punched against the one
+                    // derived outline — background AND action halves AND any further layer.
+                    foreach ((Image img, Sprite worn, CardFaceMipBake.PunchMapping map) in entries)
+                    {
+                        Rect norm = map.FaceRect;
+                        bool spans = norm.width >= SpanAxisFraction || norm.height >= SpanAxisFraction;
+                        if (!spans)
+                        {
+                            decorations++;
+                            continue;
+                        }
+                        layers++;
+                        Sprite source = CardFaceMipBake.OriginalOf(worn) ?? worn;
+                        Sprite? punched = CardFaceMipBake.OutlinePunchedReplacementFor(source, map, outline);
+                        if (punched == null)
+                        {
+                            kept++; // clean (nothing outside) or refused — the punch log names which
+                            continue;
+                        }
+                        if (!ReferenceEquals(worn, punched))
+                        {
+                            img.sprite = punched;
+                            repointed++;
+                        }
+                        else
+                        {
+                            wearing++;
+                        }
+                    }
+                    if (layers > 0 && !s_sweepLogged[(int)kind])
+                    {
+                        s_sweepLogged[(int)kind] = true;
+                        VRLog.Info("Cards", $"CARD FRAME PUNCH sweep ({kind}, GEOMETRIC): outline from " +
+                                            $"'{outline.SourceName}' (bands {outline.BandSummary}); eligibility " +
+                                            $"= drawn rect spanning >= {SpanAxisFraction:P0} of the " +
+                                            $"{faceRect.width:F0}x{faceRect.height:F0} px face on either axis. " +
+                                            $"{layers} layer(s) eligible ({repointed} re-pointed to punched " +
+                                            $"copies, {wearing} already wearing one, {kept} kept unpunched — " +
+                                            $"clean or refused, the punch lines name which); {decorations} " +
+                                            $"sprite(s) are decorations/icons and were never touched; " +
+                                            $"{unmappable} tiled/partial-filled image(s) have no derivable " +
+                                            "mapping and were never touched.");
                     }
                 }
-                if (spanning > 0 && !s_sweepLogged[(int)kind])
+                else if (outlineImg != null)
                 {
-                    s_sweepLogged[(int)kind] = true;
-                    VRLog.Info("Cards", $"CARD FRAME PUNCH sweep ({kind}): gate = drawn Simple Image spanning " +
-                                        $">= {MinOutlineCoverage:P0} of the {faceRect.width:F0}x{faceRect.height:F0} px " +
-                                        $"face. {spanning} image(s) passed ({repointed} re-pointed to punched " +
-                                        $"copies, {wearing} already wearing one, {refused} refused by the punch — " +
-                                        $"see its line for the numbers); {belowGate} sprite-bearing image(s) below " +
-                                        $"the gate (largest {largestBelow:P0}) are not face layers and were never " +
-                                        "touched.");
+                    // FALLBACK = the EXACT ModBuild-112 behaviour: luma-BFS punch of the
+                    // coverage-gate layer(s) only. The CardOutline refusal line above this one
+                    // names why the geometric mode is unavailable for this art.
+                    int spanning = 0;
+                    foreach ((Image img, Sprite worn, CardFaceMipBake.PunchMapping map) in entries)
+                    {
+                        Rect norm = map.FaceRect;
+                        if (map.Sliced || norm.width * norm.height < MinOutlineCoverage)
+                            continue; // 112 punched Simple coverage-gate layers only
+                        spanning++;
+                        Sprite source = CardFaceMipBake.OriginalOf(worn) ?? worn;
+                        Sprite? punched = CardFaceMipBake.PunchedReplacementFor(source);
+                        if (punched == null)
+                        {
+                            kept++;
+                            continue;
+                        }
+                        if (!ReferenceEquals(worn, punched))
+                        {
+                            img.sprite = punched;
+                            repointed++;
+                        }
+                        else
+                        {
+                            wearing++;
+                        }
+                    }
+                    if (spanning > 0 && !s_sweepLogged[(int)kind])
+                    {
+                        s_sweepLogged[(int)kind] = true;
+                        VRLog.Info("Cards", $"CARD FRAME PUNCH sweep ({kind}, FALLBACK — no validated " +
+                                            $"outline, see the CARD OUTLINE line): ModBuild-112 luma-BFS punch " +
+                                            $"of {spanning} coverage-gate layer(s) ({repointed} re-pointed, " +
+                                            $"{wearing} wearing, {kept} kept unpunched). The action halves are " +
+                                            "NOT punched in this mode; if the band survives here, the outline " +
+                                            "refusal is the lead.");
+                    }
                 }
             }
             catch (System.Exception ex)
@@ -923,18 +1084,18 @@ internal sealed class CardFace
             }
         }
 
-        /// <summary>Share of the face rect this Image actually DRAWS on (drawn rect, not layout
-        /// rect — the round-7 letterbox correction applies here too).</summary>
-        private static float DrawnCoverage(Image img, Sprite sprite, RectTransform faceRoot,
+        /// <summary>A local rect on <paramref name="irt"/> (drawn or layout, the caller decides —
+        /// the round-7 letterbox correction applies to Simple images only) in face-normalized
+        /// 0..1 coordinates. May extend past 0..1 when the graphic overhangs the face.</summary>
+        private static Rect FaceNormRectOf(RectTransform irt, Rect drawnLocal, RectTransform faceRoot,
                                            Rect faceRect, Vector3[] corners)
         {
-            Rect drawnLocal = DrawnLocalRect(img, sprite, out _);
-            RectTransform irt = img.rectTransform;
             corners[0] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMin, 0f));
             corners[1] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMax, 0f));
             corners[2] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMax, 0f));
             corners[3] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMin, 0f));
-            float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
+            float minNx = float.MaxValue, minNy = float.MaxValue;
+            float maxNx = float.MinValue, maxNy = float.MinValue;
             for (int c = 0; c < 4; c++)
             {
                 Vector3 local = faceRoot.InverseTransformPoint(corners[c]);
@@ -945,8 +1106,7 @@ internal sealed class CardFace
                 if (ny < minNy) minNy = ny;
                 if (ny > maxNy) maxNy = ny;
             }
-            float aw = maxNx - minNx, ah = maxNy - minNy;
-            return aw <= 0f || ah <= 0f ? 0f : aw * ah;
+            return Rect.MinMaxRect(minNx, minNy, maxNx, maxNy);
         }
     }
 
@@ -1047,16 +1207,19 @@ internal sealed class CardFace
 
             SilhouetteState state = s_silhouette[(int)kind];
 
-            // (0) THE FRAME PUNCH, BEFORE EVERYTHING (round 8). The measured black band is opaque
-            // near-black pixels in the card art's OWN pixels (the peel hit its depth cap in two
-            // consecutive hardware runs), so the fix is to erase them from the mod-owned sprite
-            // copies the face renders — see CardFaceMipBake's frame-punch block. It runs before
-            // the capture ON PURPOSE: the capture samples img.sprite, so once the sweep has
-            // re-pointed the outline images at their punched copies, the footprint is stamped
-            // FROM the punched pixels — the mesh clip and the face are one measurement, and the
-            // mesh can never peek out where the face was punched. Runs on every offer (cheap
-            // dictionary hits once warm) so every class and both card kinds are covered, not just
-            // the one class the once-per-session capture happens to see.
+            // (0) THE FRAME PUNCH, BEFORE EVERYTHING (round 8; round 9 made the region GEOMETRIC).
+            // The black band is pixels in the face layers' OWN art outside the card's true
+            // outline — the bright-trim contour CardOutline derives from the background sprite
+            // (the 112 log killed the luma-connectivity definition: BFS stopped at 24 px with
+            // 102 of 264 band probes still dark, and the never-punched action halves painted 55
+            // of 72). The sweep erases every full-span layer outside that outline; see the
+            // FramePunch doc. It runs before the capture ON PURPOSE: the capture samples
+            // img.sprite, so once the sweep has re-pointed the layers at their punched copies,
+            // the footprint is stamped FROM the punched pixels — and TryCapture additionally
+            // intersects the footprint with the same outline, so the mesh clip and the face are
+            // one geometry by construction. Runs on every offer (cheap dictionary hits once
+            // warm) so every class and both card kinds are covered, not just the one class the
+            // once-per-session capture happens to see.
             FramePunch.Sweep(root, kind);
 
             // (1) THE BLACKOUT, AND ALWAYS. Its input is the APPLIED mask, which — from the
@@ -1472,6 +1635,40 @@ internal sealed class CardFace
                                       "what it does buy is a tighter definition of 'outside the card' for the " +
                                       "face blackout below."));
 
+        // OUTLINE INTERSECTION (round 9) — the third consumer of the ONE geometry. The punched
+        // sprites the capture just sampled are already erased outside the outline, so in the
+        // normal case this removes little; its job is the guarantee: whatever any candidate
+        // stamped (a sprite whose individual punch was refused, a peel that fell short), the
+        // footprint the MESH clips to can never extend past the same outline the FACE is punched
+        // to. Mesh, sprite punch and the (disabled) CardShapeMask share one InsideFace answer.
+        CardOutline? kindOutline = CardOutline.ForKind(kind);
+        if (kindOutline != null)
+        {
+            int outlineTrimmed = 0;
+            for (int fy = 0; fy < fh; fy++)
+            {
+                float v = (fy + 0.5f) / fh;
+                int rowBase2 = fy * fw;
+                for (int fx = 0; fx < fw; fx++)
+                {
+                    int i = rowBase2 + fx;
+                    if (alpha[i] == 0)
+                        continue;
+                    if (!kindOutline.InsideFace((fx + 0.5f) / fw, v))
+                    {
+                        alpha[i] = 0;
+                        outlineTrimmed++;
+                    }
+                }
+            }
+            VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) OUTLINE CLIP: footprint intersected with the " +
+                                $"derived card outline (from '{kindOutline.SourceName}', bands " +
+                                $"{kindOutline.BandSummary}) — {outlineTrimmed} texel(s) = " +
+                                $"{(float)outlineTrimmed / alpha.Length:P2} of the face removed. Mesh clip, " +
+                                "sprite punch and the (disabled) shape mask now share ONE geometry; a band " +
+                                "that survives this build is NOT painted inside these bounds.");
+        }
+
         VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) attempt {state.Attempts}: footprint {fw}x{fh} " +
                             $"stamped from {picks.Count - backdrops} of {picks.Count} candidate image(s) " +
                             $"({backdrops} opaque full-bleed backdrop(s) skipped) on a " +
@@ -1786,12 +1983,22 @@ internal sealed class CardFace
                   .Append(sampled ? string.Empty
                       : sprite != null ? " (pixels unreadable — judged by colour)" : " (colour-only quad/text)");
             }
+            // ROUND 9: print the derived outline's per-edge band widths alongside the inventory,
+            // so ONE log line validates the geometry against what the player actually sees — a
+            // visible band that disagrees with these numbers means the DERIVATION is wrong; a
+            // band that agrees with them but still shows means a consumer is not applying it.
+            CardOutline? outline = CardOutline.ForKind(kind);
+            string outlineNote = outline != null
+                ? $" Derived outline (from '{outline.SourceName}', threshold {outline.Threshold}): bands " +
+                  $"{outline.BandSummary}."
+                : " No validated outline for this kind (see the CARD OUTLINE line) — geometric punch " +
+                  "inactive, ModBuild-112 fallback in effect.";
             VRLog.Info("Cards", $"CARD FRAME BAND INVENTORY ({kind}): opaque near-black (alpha >= 0.5, " +
                                 $"luma <= 48/255) contributions to the outer {BandFraction:P0} band of the " +
                                 $"{faceRect.width:F0}x{faceRect.height:F0} px face — " +
                                 $"{(sb.Length > 0 ? sb.ToString() : "NONE")}. {checkedCount} drawn graphic(s) " +
-                                $"checked, {silent} contribute nothing. If the black band survives this build, " +
-                                "the graphic that paints it is named RIGHT HERE.");
+                                $"checked, {silent} contribute nothing.{outlineNote} If the black band survives " +
+                                "this build, the graphic that paints it is named RIGHT HERE.");
         }
         catch (System.Exception ex)
         {
