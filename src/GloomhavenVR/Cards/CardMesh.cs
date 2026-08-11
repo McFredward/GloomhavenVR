@@ -886,6 +886,30 @@ internal static class CardMesh
     /// after changing either (idempotent; re-syncs). No-ops on materials without
     /// <c>_EmissionColor</c> (BoardLit, Sprites/Default, Overlay — the unlit/self-lit families
     /// have no hole to floor). Logs once per material, on first application.
+    ///
+    /// <para>ROUND 16 AUDIT — THIS FLOOR CANNOT DISTURB THE CUTOUT STATE, verified against every
+    /// call path after the 119 paradox (band opaque although the texture is clipped; user
+    /// verbatim: "nicht mehr schwarz sondern bech … aber immer noch nicht transparent"). This
+    /// method writes exactly four things: the <c>_EMISSION</c> keyword, the GI flags,
+    /// <c>_EmissionMap</c> and <c>_EmissionColor</c>. It never touches <c>_ALPHATEST_ON</c>,
+    /// <c>_Mode</c>, the blend ints, <c>_ZWrite</c>, <c>_Cutoff</c>, <c>renderQueue</c> or
+    /// <c>mainTexture</c>. Call orders: (fresh cold-cache) factory → floor (pre-cutout, texture
+    /// still null — that is the "(none → tint only)" first-application log line, harmless and
+    /// re-synced later); (cache-hit and live-capture) … → <see cref="ConfigureCutout"/>, which
+    /// sets the full cutout state and re-runs the floor LAST — so ConfigureCutout is authoritative
+    /// on every path and the floor's re-run touches emission only. The only OTHER writer to the
+    /// shared pair anywhere in the mod is ConfigureCutout itself (grepped: every consumer in
+    /// Cards/, Net/ and WorldUI/ only ASSIGNS the shared materials, never mutates them), and
+    /// <c>_Cutoff</c> is 0.5 — at which a binary 4–6 %-wide zero-alpha edge band on a 224×343
+    /// trilinear texture cannot be resurrected by mip blending at card viewing minification
+    /// (mips 0–2; the band is ≥7 texels wide there and its outside neighbourhood is also 0). So
+    /// the 119 defect is NOT an ordering/keyword/cutoff regression in this file; the differential
+    /// capture and the cutout clip-execution probe (<c>CardBandPixelCapture</c>,
+    /// <c>CardShaderProbe.DescribeCutoutClip</c>) decide between the remaining classes on-rig —
+    /// chief suspect: the game build's Standard shader shipping WITHOUT the cutout variant, in
+    /// which case <c>EnableKeyword("_ALPHATEST_ON")</c> silently selects a variant that never
+    /// clips and the slab paints its full envelope in EdgeColor — which matches the measured band
+    /// (125,97,68) = EdgeColor × (light ≈ 0.16 + emission 1.0) to within 1/255.</para>
     /// </summary>
     internal static void ApplyEmissionFloor(Material? m)
     {

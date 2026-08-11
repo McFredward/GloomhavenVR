@@ -416,7 +416,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 119;
+    public const ushort ModBuild = 120;
+    // Build 120: the border's attempt SIXTEEN — the DIFFERENTIAL. No wire change; pure
+    // instrumentation on the border plus nothing else. 119 was the partial success that proved
+    // the painter chain (band now renders the slab's umber+light instead of unlit black); what
+    // remains is a paradox: the cutout texture's alpha is provably transparent in the bands and
+    // the material state is provably correct, yet the band renders opaque. The code audit
+    // exonerates everything local (ApplyEmissionFloor writes only emission state on every path;
+    // _Cutoff = 0.5; ConfigureCutout is authoritative last everywhere), leaving ONE chief
+    // suspect: the game build's Standard shader may ship WITHOUT the _ALPHATEST_ON variant —
+    // EnableKeyword is only a request, a stripped variant never calls clip(), and the slab then
+    // draws its full envelope in EdgeColor: exactly the measured band. This build decides it:
+    // (1) CARD BAND DIFF — the same probe framing re-rendered once per candidate with exactly
+    // one suppressed (Backing renderer / edge submesh via sharedMaterials swap / SlotSeatLiner /
+    // face canvas), per-strip verdict names the painter; (2) CARD BAND TEX-VS-RENDER — live GPU
+    // texture alpha (Blit readback; the baked texture is non-readable on CPU) RLE'd along the
+    // scan row+column beside at-capture material state of both slots; (3) CUTOUT CLIP PROBE —
+    // the live edge material drawn with UVs pinned to a verified alpha-0 texel vs the opaque
+    // centre over a sentinel: "clip EXECUTES" / "DOES NOT EXECUTE (variant stripped)". If the
+    // probe says DOES NOT EXECUTE, the fix lane is a clip-capable bundled shader (BoardLit +
+    // clip()) or true mesh trimming to the outline — not more texture/keyword work.
+    //
     // Build 119: the border's attempt FIFTEEN — the LIGHTING conviction. No wire change.
     //
     // WHY FOURTEEN COLOR/TEXTURE ROUNDS WERE INVISIBLE: the card slab renders through stock

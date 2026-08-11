@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 119`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 120`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,20 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 120** — border attempt 16: THE DIFFERENTIAL (instrumentation only, deliberately).
+  119's partial success proved the painter chain (band = slab umber+light, opaque). The paradox:
+  cutout texture alpha provably transparent in the bands + material state provably correct, yet
+  the band renders. Code audit exonerates all local writers (emission floor touches only
+  emission; _Cutoff 0.5; ConfigureCutout authoritative last on every path) → chief suspect: the
+  game build's Standard shader may lack the _ALPHATEST_ON variant (EnableKeyword is a request;
+  stripped variant never clips → slab draws its full envelope in EdgeColor = the measured band).
+  Shipped deciders: CARD BAND DIFF (re-render with exactly one candidate suppressed per pass —
+  Backing / edge submesh / liner / face canvas — per-strip verdict names the painter), CARD BAND
+  TEX-VS-RENDER (live GPU texture alpha via Blit readback beside at-capture material state),
+  CUTOUT CLIP PROBE (live edge material, UVs pinned to a verified alpha-0 texel → "clip
+  EXECUTES" / "DOES NOT EXECUTE (variant stripped)"). If DOES NOT EXECUTE: fix lane = bundled
+  clip-capable shader (BoardLit + clip(), bundle rebuild with /home/claw/unity-2021.3.5) or true
+  mesh trimming to the outline. NO other changes in 120.
 - **ModBuild 119** — border attempt 15: THE LIGHTING CONVICTION. Fourteen albedo/texture rounds
   were invisible because the card slab renders through stock 'Standard' in DARK scenes — albedo
   × ~0 light = black regardless of what we painted (karten4 band (4,4,3) ≈ 16 % of even the old

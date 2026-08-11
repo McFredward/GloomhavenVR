@@ -560,8 +560,12 @@ internal static class CardBandPainter
 
         // ROUND 14 — the decisive instrument: after the deduction, the measurement. Same latch/
         // re-arm moments, same band definition; it reads the composed pixels the eye sees and
-        // logs its own CARD BAND PIXELS line. Never throws (own try/catch).
-        CardBandPixelCapture.Capture(context, reason, faceRoot, faceRect, bandL, bandR, bandB, bandT);
+        // logs its own CARD BAND PIXELS line. Never throws (own try/catch). ROUND 16: also gets
+        // the card root (for the Backing renderer / canvas suppression passes) and the owning
+        // slot/fan subtree (for the SlotSeatLiner pass) — see CardBandPixelCapture's DIFF and
+        // TEX-VS-RENDER instruments.
+        CardBandPixelCapture.Capture(context, reason, faceRoot, faceRect, bandL, bandR, bandB, bandT,
+                                     card, contextRoot);
     }
 
     /// <summary>

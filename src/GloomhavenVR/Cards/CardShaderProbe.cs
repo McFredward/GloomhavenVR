@@ -265,6 +265,130 @@ internal static class CardShaderProbe
         }
     }
 
+    // ------------------------------------------------ round 16: cutout EXECUTION probe --
+
+    /// <summary>
+    /// ROUND 16 — DOES THE ALPHA CLIP ACTUALLY EXECUTE AT RENDER TIME? USER VERDICT on ModBuild
+    /// 119, verbatim: "Ein erster teilerfolg: Die Ränder sind jetzt nun nicht mehr schwarz sondern
+    /// bech (siehe karten5.png) aber immer noch nicht transparent wie sie sein sollten."
+    ///
+    /// <para>THE PARADOX THIS SETTLES. The 119 log holds two statements that cannot both describe
+    /// the same GPU state: the painter inventory reads the Backing slab's material as 'Standard'
+    /// CUTOUT-clipped (<c>_ALPHATEST_ON</c> set, the baked Edge footprint as <c>mainTexture</c>,
+    /// <c>_Cutoff</c> 0.5), and the CARD BAND PIXELS strips measure the band OPAQUE umber
+    /// (125,97,68,≈255) — which is EdgeColor (0.42,0.33,0.23) × (light ≈0.16 + emission 1.0) to
+    /// within 1/255, i.e. the slab itself painting where its texture says alpha 0. A material
+    /// KEYWORD is only a request: in a player build Unity ships exactly the shader VARIANTS some
+    /// build-time material referenced, and <c>EnableKeyword("_ALPHATEST_ON")</c> on a shader whose
+    /// cutout variant was stripped silently selects the closest surviving variant — which never
+    /// calls <c>clip()</c>. Then the slab draws its FULL rounded-rect envelope, and since the baked
+    /// Edge texture's RGB is EdgeColor in EVERY texel (transparent ones included — only alpha
+    /// differs), the band renders exactly the measured wood. The emission floor (round 15) already
+    /// documented this same stripping risk for <c>_EMISSION</c>; the 119 log proves THAT variant
+    /// exists (the band brightened to albedo × 1.16 exactly), which makes the cutout variant the
+    /// one still unproven.</para>
+    ///
+    /// <para>THE EXPERIMENT. Draw a unit quad through a CLONE of the LIVE material — the clone
+    /// copies keywords, <c>_Cutoff</c> AND the live <c>mainTexture</c>, so it renders through the
+    /// same variant Unity resolves for the real slab — into a sentinel-cleared offscreen target,
+    /// twice: once with every vertex UV pinned to a texel the CPU footprint says is alpha-0 (the
+    /// band), once pinned to the opaque card centre (the control). Constant UVs mean zero UV
+    /// derivatives, so the sample is mip 0 — no trilinear/aniso ambiguity. If the clip executes,
+    /// the alpha-0 draw is discarded and the sentinel survives; if the variant is stripped, the
+    /// quad paints. Verdict names which, or UNPROVEN when the opaque control fails to paint.</para>
+    ///
+    /// <para>Crash-proof like the other probes: live material never mutated, every temp released,
+    /// a throw returns an UNPROVEN sentence instead of propagating. Caller caches per material.</para>
+    /// </summary>
+    internal static string DescribeCutoutClip(Material? liveMat, Vector2 uvAlpha0, Vector2 uvOpaque)
+    {
+        if (liveMat == null || liveMat.shader == null)
+            return "no material — nothing to probe";
+        Material? clone = null;
+        Mesh? quad = null;
+        RenderTexture? rt = null;
+        Texture2D? readback = null;
+        RenderTexture? prevActive = RenderTexture.active;
+        try
+        {
+            clone = new Material(liveMat) { name = "VRCardCutoutClipProbeMat" };
+            quad = new Mesh { name = "VRCardCutoutClipProbeQuad" };
+            quad.vertices = new[]
+            {
+                new Vector3(0f, 0f, 0f), new Vector3(1f, 0f, 0f),
+                new Vector3(0f, 1f, 0f), new Vector3(1f, 1f, 0f),
+            };
+            quad.normals = new[] { Vector3.back, Vector3.back, Vector3.back, Vector3.back };
+            quad.colors32 = new[]
+            {
+                new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255),
+                new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255),
+            };
+            quad.triangles = new[] { 0, 1, 2, 2, 1, 3 };
+            rt = RenderTexture.GetTemporary(16, 16, 16, RenderTextureFormat.ARGB32);
+            readback = new Texture2D(16, 16, TextureFormat.RGBA32, mipChain: false)
+            {
+                name = "VRCardCutoutClipProbeReadback",
+            };
+            Color32 DrawAt(Vector2 uv)
+            {
+                quad.uv = new[] { uv, uv, uv, uv }; // constant UV → one texel, mip 0, no filtering
+                using (var cmd = new CommandBuffer { name = "VRCardCutoutClipProbe" })
+                {
+                    cmd.SetRenderTarget(rt);
+                    cmd.ClearRenderTarget(clearDepth: true, clearColor: true, backgroundColor: Sentinel);
+                    cmd.SetViewProjectionMatrices(Matrix4x4.identity,
+                                                  Matrix4x4.Ortho(0f, 1f, 0f, 1f, -1f, 1f));
+                    // Pass 0 = the Standard shader's FORWARD base pass — the pass the slab is
+                    // actually seen through; -1 would also splat ShadowCaster/Meta into the target.
+                    cmd.DrawMesh(quad, Matrix4x4.identity, clone, 0, 0);
+                    Graphics.ExecuteCommandBuffer(cmd);
+                }
+                RenderTexture.active = rt;
+                readback.ReadPixels(new Rect(0, 0, 16, 16), 0, 0, recalculateMipMaps: false);
+                return readback.GetPixel(8, 8);
+            }
+            Color32 opaque = DrawAt(uvOpaque);
+            Color32 hole = DrawAt(uvAlpha0);
+            string samples = $"opaque-UV {uvOpaque:F3} → {Fmt(opaque)}, alpha0-UV {uvAlpha0:F3} → {Fmt(hole)}";
+            if (IsSentinel(opaque))
+            {
+                return $"UNPROVEN ({samples}) — even the OPAQUE control UV came back as the " +
+                       "sentinel, so this draw never exercised the shader and the clip question " +
+                       "stays open; judge the differential passes instead";
+            }
+            if (IsSentinel(hole))
+            {
+                return $"clip EXECUTES ({samples}) — a fragment sampling an alpha-0 texel of the " +
+                       "material's OWN cutout texture was discarded on this GPU/build, so the " +
+                       "_ALPHATEST_ON variant is live and the band's opaque wood is NOT this " +
+                       "material clipping wrong: the differential passes name the real painter";
+            }
+            return $"clip DOES NOT EXECUTE ({samples}) — _ALPHATEST_ON is set and _Cutoff is " +
+                   $"{(clone.HasProperty("_Cutoff") ? clone.GetFloat("_Cutoff").ToString("F2") : "n/a")}, " +
+                   "yet a fragment sampling an alpha-0 texel of the material's OWN cutout texture " +
+                   "painted instead of being discarded. The game build's Standard shader is missing " +
+                   "the cutout variant (a keyword is only a request — a stripped variant silently " +
+                   "falls back to one that never calls clip()), so the slab draws its FULL " +
+                   "rounded-rect envelope; the baked Edge texture's RGB is EdgeColor in EVERY texel, " +
+                   "which is exactly the measured umber band. The fix is a clip-capable shader (or " +
+                   "real mesh trimming), not more texture/keyword work";
+        }
+        catch (Exception ex)
+        {
+            return $"probe failed ({ex.GetType().Name}: {ex.Message}) — no clip verdict; judge the " +
+                   "differential passes instead";
+        }
+        finally
+        {
+            RenderTexture.active = prevActive;
+            if (rt != null) RenderTexture.ReleaseTemporary(rt);
+            if (readback != null) UnityEngine.Object.Destroy(readback);
+            if (clone != null) UnityEngine.Object.Destroy(clone);
+            if (quad != null) UnityEngine.Object.Destroy(quad);
+        }
+    }
+
     private static void DrawAndSample(Material mat, Mesh quad, RenderTexture rt,
                                       Texture2D readback, float dissolve,
                                       out Color32 left, out Color32 right)
