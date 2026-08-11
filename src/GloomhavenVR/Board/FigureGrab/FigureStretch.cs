@@ -25,6 +25,35 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// floored (<see cref="MinGestureDistanceRealMeters"/>) so a pinch started ON the mini's centre
 /// cannot divide by a millimetre and explode.</para>
 ///
+/// <para>THE CAPTURE ZONE IS SURFACE-BASED AND SCALES WITH THE FIGURE — hardware test report
+/// (2026-08-11, verbatim): "Groß ziehen kann ich ohne Probleme aber wieder klein ziehen nicht,
+/// weil der punkt der aktzeptiert wird mich mitskalliert. Ich will an jedem Punkt der Figur
+/// greifen können (trigger) um sie größer oder kleine zu ziehen - wenn ich sie schon in der Hand
+/// skalliert habe soll der Punkt ab dem ich ich sie greifen kann mitskallieren!" The first ship
+/// measured capture to the mini's CENTRE, so a mini stretched to 3× had its whole visible body
+/// OUTSIDE the 80 mm zone and shrinking meant reaching inside the model. Now
+/// <see cref="CaptureDistanceReal"/> takes the distance from the pinch point to the NEAREST
+/// point of the mini's visible body — min over its renderers' world AABBs
+/// (<c>Bounds.ClosestPoint</c>, renderers cached per hold by
+/// <see cref="FigureGrabbable.HeldRenderers"/>) — and captures when that is within
+/// [FigureGrab] StretchReachMillimeters. Closest-point-on-bounds rather than
+/// centre-plus-radius-sphere because a mini is tall and thin: a bounding SPHERE of a 3×-stretched
+/// mini would push the zone half a body-height out SIDEWAYS where there is nothing to point at,
+/// while the AABB test keeps the reach a true "distance from the visible surface" everywhere,
+/// which is literally "an jedem Punkt der Figur". Renderer world bounds grow with the applied
+/// stretch, so the zone scales with the figure by construction — no second dial. The distance is
+/// converted to REAL metres exactly like the gesture distances (÷ hand rig scale), so a diorama
+/// zoom cannot widen or starve the zone. IMPORTANT ASYMMETRY, deliberate: only the CAPTURE test
+/// is surface-based; d0/d stay measured to the CENTRE, because a surface point moves with the
+/// scale being written and would feed the output back into the input (see the previous
+/// paragraph). And the capture test is an ENTRY test only — once the trigger latches, the gesture
+/// runs until trigger-up regardless of distance (<see cref="TickActive"/> re-checks nothing but
+/// the hold and the trigger), so leaving the zone outward IS the growing half of the gesture.
+/// Safety: a renderer whose bounds imply a figure radius beyond
+/// <see cref="MaxFigureRadiusRealMeters"/> (broken skinned-mesh bounds, a stray particle system)
+/// is excluded from the test with a warning — a bounds bug must degrade to the old centre test,
+/// never capture the whole room.</para>
+///
 /// <para>CONTINUITY BY CONSTRUCTION, no pops anywhere: at trigger-down d == d0, so the first
 /// frame's target IS the current factor; every later frame moves through a light exponential
 /// smoothing (<see cref="SmoothSharpness"/> — a ~33 ms time constant, insurance against raw
@@ -68,9 +97,18 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// has). Nothing here talks to Net/ directly: the wire samples <see cref="FigureGrabbable.Stretch"/>
 /// on its own cadence, so offline this whole feature is a strict local no-op.</para>
 ///
-/// <para>NO EXTRA FEEDBACK, deliberately: the figure visibly tracking the hand IS the feedback,
-/// the same argument as the held pose itself. A sound or glow would announce a mode where the
-/// player already sees the effect of the mode.</para>
+/// <para>FEEDBACK: no VISUAL feedback, deliberately — the figure visibly tracking the hand IS
+/// the feedback, the same argument as the held pose itself; a glow would announce a mode where
+/// the player already sees the effect of the mode. HAPTICS are a different story, by user ruling
+/// (hardware test report 2026-08-11, verbatim): "ich möchte ein vibrantionsfeedback in der freien
+/// hand um anzuzeigen das sie jetzt genug dran ist zu ziehen. (Das Gleiche Vbrations-Feedback wie
+/// wenn ich eine Figur drüber hovere)." — the pinch point is invisible and "close enough" has no
+/// visual until the trigger is already down, so the zone edge needs announcing. The free hand
+/// gets EXACTLY the figure-hover pulse (<c>HapticPreset.HoverTick</c> via
+/// <c>VRHand.SendHaptic</c>, the same call <c>ProximityGrabber</c> fires when a figure becomes
+/// Highlighted, including its rate limit), EDGE-TRIGGERED on <see cref="HandState.Captured"/>
+/// false→true: once on entering the zone, silent while inside, re-armed by leaving. Refused
+/// captures (full hand, hovered card) never pulse — they never set Captured.</para>
 /// </summary>
 internal static class FigureStretch
 {
@@ -83,6 +121,18 @@ internal static class FigureStretch
     /// below it the ratio d/d0 is tracking noise, and a d0 of near zero would make the first
     /// centimetre of travel a ×10.</summary>
     private const float MinGestureDistanceRealMeters = 0.01f;
+
+    /// <summary>Sanity ceiling on the figure radius the capture bounds test may derive, in REAL
+    /// metres: centre-to-bounds-centre offset plus the bounds half-diagonal. StretchScaleMax on
+    /// the largest boss mini stays well under this; only broken renderer bounds (a skinned mesh
+    /// with an unbaked bounding box, a world-sized particle system) can exceed it. Such a
+    /// renderer is EXCLUDED from the test — with a warning, once per figure — so a bounds bug
+    /// degrades to the centre-distance fallback instead of capturing the entire room.</summary>
+    private const float MaxFigureRadiusRealMeters = 0.5f;
+
+    /// <summary>The figure last warned about by the bounds sanity clamp — the once-per-figure
+    /// throttle for <see cref="CaptureDistanceReal"/>'s warning (the test runs every frame).</summary>
+    private static FigureGrabbable? _boundsWarnTarget;
 
     private sealed class HandState
     {
@@ -124,6 +174,7 @@ internal static class FigureStretch
             Hands[i].Active = false;
             Hands[i].Target = null;
         }
+        _boundsWarnTarget = null; // do not pin a torn-down grabbable just to throttle a warning
     }
 
     /// <summary>Per-frame gesture tick. Called from <c>FigureGrabDriver.Update</c> BEFORE the
@@ -158,6 +209,11 @@ internal static class FigureStretch
         }
 
         // ---- capture (pre-trigger) -----------------------------------------------------------
+        // Last tick's zone membership, read BEFORE the recompute — the edge the haptic pulse
+        // fires on. Note this stays TRUE across a whole gesture (TickActive asserts Captured
+        // every frame), so a trigger-up inside the zone does NOT re-pulse; only a genuine
+        // leave-and-return does.
+        bool wasCaptured = st.Captured;
         st.Captured = false;
         if (hand.Grabber.Held != null)
             return; // a full hand cannot gesture (this also covers "one figure per hand" holds)
@@ -172,11 +228,17 @@ internal static class FigureStretch
         if (target == null || !target.TryGetHeldCenter(out Vector3 center))
             return;
 
-        float distReal = RealDistance(hand, center);
-        if (distReal > FigureGrabConfig.StretchReachRealMeters)
+        // Surface-based, so the zone scales with the applied stretch (class doc, capture-zone
+        // paragraph). The gesture's own d0 below stays CENTRE-based on purpose.
+        if (CaptureDistanceReal(hand, target, center) > FigureGrabConfig.StretchReachRealMeters)
             return;
 
         st.Captured = true;
+
+        // The user's requested "close enough to pull" announcement: the figure-hover pulse, on
+        // the zone-entry edge only (see the class doc's FEEDBACK paragraph).
+        if (!wasCaptured)
+            hand.SendHaptic(HapticPreset.HoverTick);
 
         // Own the trigger inside the zone: clamp the beam to the mini. This raises the SAME
         // fresh-UI-hit signal a fan card raises, so the proximity trigger-grab and the board
@@ -189,7 +251,9 @@ internal static class FigureStretch
         {
             st.Active = true;
             st.Target = target;
-            st.StartDistReal = Mathf.Max(distReal, MinGestureDistanceRealMeters);
+            // d0 is CENTRE distance, NOT the surface distance the capture used — the ratio's
+            // reference must not move with the scale it drives (class doc, mathematics paragraph).
+            st.StartDistReal = Mathf.Max(RealDistance(hand, center), MinGestureDistanceRealMeters);
             st.BaseFactor = target.Stretch;
             VRLog.Info("FigureGrab",
                 $"{hand.Side} STRETCH engaged on {target.Label}: start {st.StartDistReal * 1000f:F0} mm "
@@ -254,14 +318,66 @@ internal static class FigureStretch
             + (target != null ? $"{target.Label} at factor {target.Stretch:0.###}." : "target gone."));
     }
 
+    /// <summary>
+    /// The CAPTURE test's distance, in REAL metres at the hand: from the pinch point to the
+    /// NEAREST point of the held mini's visible body — min over its renderers' world-space AABBs
+    /// (<c>Bounds.ClosestPoint</c>; zero when the pinch is inside a box, so the inside of the
+    /// model always captures). Renderer bounds grow with the applied stretch, which is exactly
+    /// what makes the zone scale with the figure. Renderers whose bounds imply a figure radius
+    /// beyond <see cref="MaxFigureRadiusRealMeters"/> are excluded (warned once per figure);
+    /// disabled renderers do not count as visible body. When no usable renderer remains, falls
+    /// back to the centre distance — the pre-fix behaviour, never a wider zone.
+    /// </summary>
+    private static float CaptureDistanceReal(VRHand hand, FigureGrabbable target, Vector3 centerWorld)
+    {
+        Vector3 pinch = PinchPoint(hand);
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        float best = float.PositiveInfinity;
+        Renderer[]? renderers = target.HeldRenderers();
+        if (renderers != null)
+        {
+            foreach (Renderer r in renderers)
+            {
+                if (r == null || !r.enabled)
+                    continue;
+                Bounds b = r.bounds;
+                float impliedRadiusReal =
+                    (Vector3.Distance(centerWorld, b.center) + b.extents.magnitude) / scale;
+                if (impliedRadiusReal > MaxFigureRadiusRealMeters)
+                {
+                    if (!ReferenceEquals(_boundsWarnTarget, target))
+                    {
+                        _boundsWarnTarget = target;
+                        VRLog.Warn("FigureGrab",
+                            $"STRETCH capture bounds clamped on {target.Label}: renderer "
+                            + $"'{r.name}' implies a figure radius of {impliedRadiusReal:0.##} m "
+                            + $"real (> {MaxFigureRadiusRealMeters:0.##} m sanity ceiling) — "
+                            + "excluded from the capture test so it cannot swallow the room. "
+                            + "Likely broken skinned-mesh bounds or a stray particle system.");
+                    }
+                    continue;
+                }
+                float d = Vector3.Distance(pinch, b.ClosestPoint(pinch)) / scale;
+                if (d < best)
+                    best = d;
+            }
+        }
+        return float.IsPositiveInfinity(best) ? Vector3.Distance(pinch, centerWorld) / scale : best;
+    }
+
     /// <summary>Pinch-point-to-centre distance in REAL metres at the hand (world ÷ rig scale) —
-    /// the same pinch point the pick election measures with, so the two dials read alike.</summary>
+    /// the same pinch point the pick election measures with, so the two dials read alike. This is
+    /// the GESTURE's distance (d0/d); the capture zone uses <see cref="CaptureDistanceReal"/>.</summary>
     private static float RealDistance(VRHand hand, Vector3 centerWorld)
     {
-        Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(FigureGrabConfig.HeldOffsetFor(hand.Side));
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
-        return Vector3.Distance(pinch, centerWorld) / scale;
+        return Vector3.Distance(PinchPoint(hand), centerWorld) / scale;
     }
+
+    /// <summary>The gesture hand's pinch point in WORLD space — the held-offset point under the
+    /// grab anchor, the same point the pick election measures with.</summary>
+    private static Vector3 PinchPoint(VRHand hand)
+        => hand.Rig.GrabAnchor.TransformPoint(FigureGrabConfig.HeldOffsetFor(hand.Side));
 
     private static HandSide Other(HandSide side)
         => side == HandSide.Left ? HandSide.Right : HandSide.Left;

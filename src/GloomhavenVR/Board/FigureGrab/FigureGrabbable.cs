@@ -218,6 +218,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     private Renderer[]? _heldRenderers;
     private Material[][]? _origSharedMats;
 
+    // HELD-FIGURE STRETCH capture bounds — the held visual's renderers, cached per hold for the
+    // stretch gesture's surface-distance capture test (see HeldRenderers()). Reset on grab and
+    // dropped with the material bookkeeping on release, so a rebuilt visual on the NEXT hold is
+    // re-walked.
+    private Renderer[]? _stretchBoundsRenderers;
+
     // TASK #2 (pre-grab highlight) — a subtle warm-gold EMISSIVE glow on the figure's OWN materials,
     // shown while a hand is in proximity reach of the figure it WOULD grab (the offset-anchor winner;
     // see FigureGrabDriver.SelectByOffsetAnchor, which already suppresses every non-winner so this
@@ -479,6 +485,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // what makes a later zoom leave the mini in the hand alone.
         _heldLocalScale = AnchorLocalScale(anchor, _homeWorldScale);
         _stretch = 1f; // the manual stretch is per-hold: every grab starts at the board size
+        _stretchBoundsRenderers = null; // per-hold too: the visual may differ between holds
         _uprightBase = CaptureUprightBase(anchor);
         _attached = true;
 
@@ -627,6 +634,23 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     {
         _stretch = factor;
         ReassertHeldScale();
+    }
+
+    /// <summary>
+    /// The held visual's renderers, for <see cref="FigureStretch"/>'s bounds-based capture test —
+    /// every Renderer under the held root (the same walk the render-on-top path used), fetched
+    /// ONCE per hold on first use and cached, because the capture test runs every frame for a
+    /// free hand and <c>GetComponentsInChildren</c> allocates. Renderer WORLD bounds are read by
+    /// the caller per frame, so the cached array stays correct as the mini stretches — bounds
+    /// grow with the scale on their own. Entries can go Unity-null mid-hold if the game rebuilds
+    /// the visual; the consumer must null-check each. Null when not attached to a hand.
+    /// </summary>
+    internal Renderer[]? HeldRenderers()
+    {
+        GameObject? root = Root;
+        if (!_attached || root == null)
+            return null;
+        return _stretchBoundsRenderers ??= root.GetComponentsInChildren<Renderer>(true);
     }
 
     /// <summary>The held mini's centre in world space (its root position — deliberately NOT a
@@ -782,6 +806,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         }
         _heldRenderers = null;
         _origSharedMats = null;
+        // Piggybacked renderer bookkeeping teardown: the stretch capture cache must not pin a
+        // released figure's renderers (Unity objects) across the rest of the session.
+        _stretchBoundsRenderers = null;
     }
 
     public void OnRelease(VRHand hand, Vector3 velocity)
