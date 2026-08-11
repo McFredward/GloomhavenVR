@@ -470,7 +470,7 @@ internal sealed class PileViewer
             CurrentCounts = null;
             ItemsUsableCueOn = false; // the stack itself is hidden — its cue cannot be on anywhere
             _itemsBrowse.RetirePlacedCardIfAny("the pile stacks are hidden");
-            return; // hidden ([Cards] PileViewer off / no hand) — no counts, no logs
+            return; // hidden (no hand) — no counts, no logs
         }
         // THE NUMBER BECOMES TRUE WHEN THE CARD LANDS, NOT WHEN THE MODEL MOVES IT (user report:
         // "Wenn man gerade eine Karte abgeworfen oder verbrannt hat, sie aber noch auf dem

@@ -268,8 +268,6 @@ internal static partial class Defaults
     internal const bool GameCardParticles = false;                                                    // => [Cards] GameCardParticles
     internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint
-    internal const bool PileViewer = true;                                                            // => [Cards] PileViewer
-    internal const bool ActivePile = true;                                                            // => [Cards] ActivePile
     internal const bool FaceMipBake = true;                                                           // => [Cards] FaceMipBake
     internal const ControlBoard Board = ControlBoard.Oak;                                             // => [Cards] Board
     internal static readonly Vector3 ItemUseSlotOffset_Oak = new Vector3(0f, 0f, 0f);                 // => [Cards] ItemUseSlotOffset_Oak

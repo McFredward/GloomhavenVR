@@ -48,7 +48,6 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.TakeDamagePanelSafety)); // test #23 item 6: burn-two NRE/deadlock guard + MP #10a mandatory-bonus auto-use
         VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeHoverCardBlock)); // MP #10b: no room-sized card on player-entry hover
         VRSession.Harmony?.PatchAll(typeof(Patches.TooltipRaiseGuard)); // 2026-08-09: no head-swept mouse tooltips on world surfaces, none at all while a beam is on a card fan
-        VRSession.Harmony?.PatchAll(typeof(Patches.MouseWorldSurfaceCut)); // 2026-08-11: world-space UI answers ONLY mod pointers — no head-swept mouse hover on floated menus
         Patches.SettingsClickExemption.EnsureRegistered(); // user ruling 2026-08-02: settings menu never input-blocked (tutorial InteractabilityManager veto)
 
         VREvents.UiLockChanged += OnUiLock;
@@ -63,29 +62,12 @@ internal sealed class WorldUIModule : IVRModule
         VRLog.Info(Name, "WorldUI driver installed (virtual mouse, canvas conversion, " +
                          "button cluster, panels, actor bars, wrist HUD, flat screen).");
 
-        LogKillSwitchState("startup");
-        // These two switches blank the ENTIRE VR interface when off (test #11: an
-        // accidentally persisted Master=false read as "menu no longer loads" — the
-        // HMD shows only void + hands). Log every flip loudly and re-warn at startup.
-        WorldUIConfig.Master.SettingChanged += (_, _) => LogKillSwitchState("setting changed");
-        WorldUIConfig.FlatScreen.SettingChanged += (_, _) => LogKillSwitchState("setting changed");
-    }
-
-    private void LogKillSwitchState(string reason)
-    {
-        bool master = WorldUIConfig.Master.Value;
-        bool screen = WorldUIConfig.FlatScreen.Value;
-        if (!master || !screen)
-        {
-            VRLog.Warn(Name, $"UI SHELL DISABLED BY CONFIG ({reason}): [WorldUI] Master={master}, " +
-                             $"FlatScreen={screen} — the HMD will show only the void, hands and lasers. " +
-                             "Fix: set both to true in BepInEx/config/dev.gloomhavenvr.worldui.cfg " +
-                             "(or delete the file to restore defaults).");
-        }
-        else
-        {
-            VRLog.Info(Name, $"UI shell active ({reason}): Master=true, FlatScreen=true.");
-        }
+        // The [WorldUI] Master / FlatScreen kill switches are GONE (user ruling 2026-08-11):
+        // an accidentally persisted false blanked the ENTIRE VR interface (test #11 — the HMD
+        // showed only void + hands). The UI shell is unconditional now, so the loud
+        // kill-switch-state logging that guarded that footgun is gone with them.
+        VRLog.Info(Name, "UI shell active (unconditional — the former Master/FlatScreen kill " +
+                         "switches were removed 2026-08-11).");
     }
 
     public void Shutdown()

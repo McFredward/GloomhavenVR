@@ -32,7 +32,7 @@ internal sealed partial class FlatScreenStereo
     {
         if (s_stereoScreen != null)
             return;
-        ConfigFile file = WorldUIConfig.Master.ConfigFile;
+        ConfigFile file = WorldUIConfig.FileHandle;
         s_stereoScreen = file.Bind("WorldUI", "StereoScreen", Defaults.StereoScreen,
             "Render the floating 2D screen WITH stereo depth (3D-movie/window effect): the " +
             "captured 3D menu content (campaign map, town, slideshow scene) is rendered once " +

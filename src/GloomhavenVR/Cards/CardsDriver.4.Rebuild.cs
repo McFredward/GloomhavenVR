@@ -313,16 +313,9 @@ internal sealed partial class CardsDriver
         _half.DockTo(_tray); // action selection lives on the control board (test #19)
 
         // Pile viewer (test #21): stacks exist whenever an active local hand does.
-        if (CardsConfig.PileViewer.Value)
-        {
-            _piles.EnsureBuilt(_tray);
-            _piles.SetVisible(true);
-        }
-        else
-        {
-            _piles.SetVisible(false);
-            CloseBrowser("[Cards] PileViewer off");
-        }
+        // Always on — user ruling 2026-08-11: essential (the only way to see the piles in VR).
+        _piles.EnsureBuilt(_tray);
+        _piles.SetVisible(true);
 
         CardHandMode mode = CardsGameApi.Mode(hand);
         CardsGameApi.GetCards(hand, _widgetBuffer);

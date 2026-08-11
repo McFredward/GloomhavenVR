@@ -101,7 +101,9 @@ internal static partial class Defaults
     internal const bool MapAlbedoRender = true;            // => [WorldUI] MapAlbedoRender
 
     // ---- WorldUI/WorldUIConfig.cs --------------------------------------------------
-    internal const bool Master = true;                       // => [WorldUI] Master
+    // Master, UseBars, DoomPicker, DistributePanel, FlatScreen, FlatScreenAutoShow,
+    // CatchAllModals, MenuPopupFloat and ManualScreenChord are GONE (user ruling 2026-08-11:
+    // essential — those features are unconditional now; see WorldUIConfig.cs).
     internal const bool ButtonCluster = true;                // => [WorldUI] ButtonCluster
     internal const bool InitiativeTrack = true;              // => [WorldUI] InitiativeTrack
     internal const bool ElementBoard = true;                 // => [WorldUI] ElementBoard
@@ -112,9 +114,6 @@ internal static partial class Defaults
     internal const bool PropInfoCards = true;                // => [WorldUI] PropInfoCards
     internal const bool EnemyReveal = true;                  // => [WorldUI] EnemyReveal
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
-    internal const bool UseBars = true;                      // => [WorldUI] UseBars
-    internal const bool DoomPicker = true;                   // => [WorldUI] DoomPicker
-    internal const bool DistributePanel = true;              // => [WorldUI] DistributePanel
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
     internal const bool ActorBars = true;                    // => [WorldUI] ActorBars
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize
@@ -122,7 +121,6 @@ internal static partial class Defaults
     internal const float BarZoomMinScale = 0.7f;             // => [WorldUI] BarZoomMinScale
     internal const float BarZoomMaxScale = 1.5f;             // => [WorldUI] BarZoomMaxScale
     internal const bool WristHud = true;                     // => [WorldUI] WristHud
-    internal const bool FlatScreen = true;                   // => [WorldUI] FlatScreen
     internal const bool Tooltips = true;                     // => [WorldUI] Tooltips
     internal const bool ActionElementHints = true;           // => [WorldUI] ActionElementHints
     internal const bool PanelMipBake = true;                 // => [WorldUI] PanelMipBake
@@ -131,7 +129,6 @@ internal static partial class Defaults
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale
     internal const float EnemyRevealBoardClearance = 0.10f;  // => [WorldUI] EnemyRevealBoardClearance
-    internal const bool FlatScreenAutoShow = true;           // => [WorldUI] FlatScreenAutoShow
     internal const bool DesktopMirrorLeftEye = true;         // => [WorldUI] DesktopMirrorLeftEye
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth
@@ -157,9 +154,6 @@ internal static partial class Defaults
     internal const float HexHintDrop = 0.12f;                // => [WorldUI] HexHintDrop
     internal const float HexHintSide = 0f;                   // => [WorldUI] HexHintSide
     internal const string ModalStyle = "window";             // => [WorldUI] ModalStyle
-    internal const bool CatchAllModals = true;               // => [WorldUI] CatchAllModals
-    internal const bool MenuPopupFloat = true;               // => [WorldUI] MenuPopupFloat
-    internal const bool ManualScreenChord = true;            // => [WorldUI] ManualScreenChord
     internal const float ManualScreenChordSeconds = 2f;      // => [WorldUI] ManualScreenChordSeconds
     internal const bool DemoteOverlaySolidClears = true;     // => [WorldUI] DemoteOverlaySolidClears
     internal const bool ScreenLayerSplit = true;             // => [WorldUI] ScreenLayerSplit

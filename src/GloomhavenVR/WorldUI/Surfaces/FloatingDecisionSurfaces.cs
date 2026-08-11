@@ -123,7 +123,9 @@ internal abstract class FloatingDecisionSurface : WorldSurface
 internal sealed class DoomPickerSurface : FloatingDecisionSurface
 {
     public override string Name => "DoomPicker";
-    protected override bool ConfigEnabled => WorldUIConfig.DoomPicker.Value;
+    // Always on — user ruling 2026-08-11: essential (off = hard rule-engine deadlock; every
+    // ability Perform() early-returns while the invisible picker waits).
+    protected override bool ConfigEnabled => true;
 
     protected override RectTransform? ShownPanel()
     {
@@ -156,7 +158,9 @@ internal sealed class DoomPickerSurface : FloatingDecisionSurface
 internal sealed class DistributePointsSurface : FloatingDecisionSurface
 {
     public override string Name => "DistributePoints";
-    protected override bool ConfigEnabled => WorldUIConfig.DistributePanel.Value;
+    // Always on — user ruling 2026-08-11: essential (off = the rule engine spin-waits on an
+    // invisible popup; this converted panel is the ONLY input path for both flows).
+    protected override bool ConfigEnabled => true;
 
     /// <summary>The popup currently converted — the select and assign popups are two distinct
     /// scene instances; a switch releases the old conversion so the base re-converts.</summary>

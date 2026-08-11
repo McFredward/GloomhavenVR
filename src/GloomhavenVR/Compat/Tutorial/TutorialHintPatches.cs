@@ -288,19 +288,9 @@ internal static class TutorialHints
         return true;
     }
 
-    /// <summary>Do the VR pile stacks exist right now? Guarded: the config entry is only bound
-    /// once the Cards module has initialised.</summary>
-    private static bool PilesAvailable()
-    {
-        try
-        {
-            return CardsConfig.PileViewer != null && CardsConfig.PileViewer.Value;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
+    /// <summary>Do the VR pile stacks exist? Always on — user ruling 2026-08-11: essential
+    /// (the [Cards] PileViewer dial is gone; the stacks build whenever an active hand exists).</summary>
+    private static bool PilesAvailable() => true;
 
     private static bool Matches(string pinned, string? key, string? controllerKey) =>
         string.Equals(pinned, key, StringComparison.OrdinalIgnoreCase)

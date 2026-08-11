@@ -162,11 +162,11 @@ internal static class CardsConfig
     /// <summary>Animation speed for cards flying between fan/tray/half layout (1/s, exponential smoothing).</summary>
     internal static ConfigEntry<float> CardLerpSpeed = null!;
 
-    /// <summary>Discard/burnt pile stacks on the control board + the browse fan (hardware test #21 wish).</summary>
-    internal static ConfigEntry<bool> PileViewer = null!;
-
-    /// <summary>ACTIVE CARDS area on the control board's right edge (feature 6): the currently-active ability cards, permanently shown + grabbable.</summary>
-    internal static ConfigEntry<bool> ActivePile = null!;
+    // [Cards] PileViewer and [Cards] ActivePile are GONE (user ruling 2026-08-11): the pile
+    // stacks and the active-cards column are the ONLY way to see those piles in VR, so they are
+    // no longer optional — the features are unconditionally on (CardsDriver builds them whenever
+    // an active local hand exists). The keys are not re-bound on purpose: an unbound key is
+    // simply dropped from the user's cfg on the next save.
 
     /// <summary>Aliasing round 3 (T3): runtime MIP BAKE of the game's mipless card-face atlases — adopted card faces sample trilinear/aniso mipmapped copies instead (texture-space shimmer fix).</summary>
     internal static ConfigEntry<bool> FaceMipBake = null!;
@@ -979,21 +979,8 @@ internal static class CardsConfig
             "the round expects a card in; during single-card pick flows (long rest lose-a-card, " +
             "avoid-damage, recover/discard) it marks the left slot. Clears once the requirement is " +
             "met or the flow ends. false = no wanted-slot hint.");
-        PileViewer = _file.Bind("Cards", "PileViewer", Defaults.PileViewer,
-            "Discard/burnt pile stacks on the control board's right edge (hardware test #21 " +
-            "wish): each pile shows as a small physical card stack with a count; poking a " +
-            "stack (finger or board laser) toggles a readable browse fan of that pile's cards " +
-            "(informational — poke again or click away to dismiss; stacks are deliberately " +
-            "not grabbable, so the trigger can never pick a pile up). " +
-            "false = no pile furniture at all.");
-        ActivePile = _file.Bind("Cards", "ActivePile", Defaults.ActivePile,
-            "ACTIVE CARDS area (feature 6): the character's currently-active ability cards " +
-            "(round-long or persistent) shown PERMANENTLY as a small column just to the RIGHT " +
-            "of the discard/burnt pile stacks. The cards read slightly smaller than the hand " +
-            "fan and each stays grabbable so you can pluck one out to read it (it returns to " +
-            "the column on release); the active HALF of each card is highlighted. Purely " +
-            "informational — grabbing an active card never selects or commits it. Empty when " +
-            "no card is active. false = no active-cards area at all.");
+        // Pile stacks + active-cards column: always on — user ruling 2026-08-11: essential
+        // (the only VR surface for the discard/burnt/active piles; see the tombstone above).
         FaceMipBake = _file.Bind("Cards", "FaceMipBake", Defaults.FaceMipBake,
             "Aliasing round 3 (T3): the game ships its card-face sprite atlases WITHOUT mipmaps " +
             "(FACE TEXTURE DIAG: mips=1), so the adopted card faces shimmer under minification " +

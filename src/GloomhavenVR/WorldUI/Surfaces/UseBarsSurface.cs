@@ -1633,7 +1633,10 @@ internal sealed class UseBarsSurface
 
         public override string Name { get; }
 
-        protected override bool ConfigEnabled => WorldUIConfig.UseBars.Value;
+        // Always on — user ruling 2026-08-11: essential (off left mid-scenario decisions,
+        // incl. the end-of-ability infusion pick that never lets the turn end, reachable
+        // only via the rescue chord).
+        protected override bool ConfigEnabled => true;
 
         /// <summary>
         /// Docked only while the bar actually HAS visible slots (empty bars never dock).

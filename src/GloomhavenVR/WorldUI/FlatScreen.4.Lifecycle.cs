@@ -82,7 +82,9 @@ internal sealed partial class FlatScreen
 
     private bool WantVisible()
     {
-        if (!WorldUIConfig.FlatScreen.Value || !WorldUIConfig.ConversionActive)
+        // The [WorldUI] FlatScreen kill switch is gone (always on — user ruling 2026-08-11:
+        // essential; the floating screen is the ONLY VR surface for the game's 2D flows).
+        if (!WorldUIConfig.ConversionActive)
             return false;
 
         // LOADING GATE ("only the spinner on black"): while the VR loading indicator is
@@ -95,7 +97,8 @@ internal sealed partial class FlatScreen
 
         VRMode mode = VRModeStateMachine.CurrentMode;
         if (mode == VRMode.Menu2D)
-            return WorldUIConfig.FlatScreenAutoShow.Value;
+            return true; // always auto-show in Menu2D — user ruling 2026-08-11: the manual chord
+                         // needs a scenario board, so an OFF here left the main menu unreachable.
 
         // P6 self-rescue: the manual chord forces the screen in ANY scenario mode.
         if (_manualShow)
@@ -145,9 +148,8 @@ internal sealed partial class FlatScreen
             _chordFired = false;
             return;
         }
-        if (!WorldUIConfig.ManualScreenChord.Value)
-            return;
-
+        // Chord always armed — user ruling 2026-08-11: the universal rescue must not be
+        // switchable off (only its hold duration is tunable).
         if (NonDominantHold.HeldSeconds <= 0f)
         {
             _chordFired = false;
@@ -194,8 +196,7 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void TickStartingIndicator(bool preMenu)
     {
-        bool want = preMenu && VRSession.IsRunning
-                    && WorldUIConfig.FlatScreen.Value && WorldUIConfig.Master.Value;
+        bool want = preMenu && VRSession.IsRunning; // shell unconditional (user ruling 2026-08-11)
         if (!want)
         {
             if (_indicator != null)

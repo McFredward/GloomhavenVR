@@ -183,9 +183,9 @@ EXEMPT = {
     # ids 231/232 carry it and [RestButtons] Width/Height (parked behind the same branch) ride too.
     ("Cards", "SlotCardInset"): ("PENDING", "how deep a card seats in the recess; NOTHING in Net/ reads it, so a wire field "
                                             "would have no consumer until the recess renderer grows one"),
-    ("Cards", "PileViewer"): ("PENDING", "a feature master switch — treated as 'what THIS client renders' like [WorldUI] Master; "
-                                         "revisit if the ruling is read to cover feature presence"),
-    ("Cards", "ActivePile"): ("PENDING", "as PileViewer"),
+    # ("Cards", "PileViewer") / ("Cards", "ActivePile") are GONE (user ruling 2026-08-11): the
+    # dials were removed outright — both features are unconditional now, so there is no config
+    # entry left to exempt (their PENDING lines retired with them).
     ("Cards", "GameCardParticles"): ("PENDING", "a bool; card smoke is not mirrored at all yet"),
     ("Cards", "CardDust"): ("PENDING", "a bool; the dust burst is not mirrored at all yet"),
     ("Cards", "FanCloseDuration"): ("PENDING", "field id 156 is DECLARED for it, but RemoteHandFan has no collapse "

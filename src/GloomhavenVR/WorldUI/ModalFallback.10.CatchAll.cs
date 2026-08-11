@@ -170,10 +170,13 @@ internal static partial class ModalFallback
         }
         UnknownScratch.Clear();
 
-        // Kill-switch + scenario gate: menus/town keep current behavior (the pre-scenario
-        // Menu2D mode auto-shows the full flat screen anyway). Tracking above stays live
-        // so a window that opened during loading floats the moment the scenario settles.
-        if (!inScenario || !WorldUIConfig.CatchAllModals.Value || !WorldUIConfig.ConversionActive)
+        // Scenario gate: menus/town keep current behavior (the pre-scenario Menu2D mode
+        // auto-shows the full flat screen anyway). Tracking above stays live so a window that
+        // opened during loading floats the moment the scenario settles. The catch-all itself is
+        // always on — user ruling 2026-08-11: essential deadlock insurance (its off state
+        // restored the ItemCardPicker silent-deadlock class; misbehaving window types are
+        // handled by the churn fuse below, not by a global switch).
+        if (!inScenario || !WorldUIConfig.ConversionActive)
             return;
 
         int now = Time.frameCount;
@@ -529,9 +532,10 @@ internal static partial class ModalFallback
         // machinery stands untouched; only this capture-invisible error family floats in menu.
         // Deliberately independent of [WorldUI] ModalStyle: that setting picks between two ways
         // of SHOWING a scenario fallback window, and neither screen path can show this canvas —
-        // floating is the only visibility there is. Kill-switch: [WorldUI] MenuPopupFloat.
+        // floating is the only visibility there is. Always on — user ruling 2026-08-11:
+        // essential (the former [WorldUI] MenuPopupFloat kill switch left a menu-context
+        // hard deadlock when off).
         bool menuFloat = showing && !inScenario
-                         && WorldUIConfig.MenuPopupFloat.Value
                          && VRModeStateMachine.CurrentMode == VRMode.Menu2D;
 
         bool wantFloat = ((ErrorModalOpen && WorldUIConfig.ModalWindowStyle) || menuFloat)

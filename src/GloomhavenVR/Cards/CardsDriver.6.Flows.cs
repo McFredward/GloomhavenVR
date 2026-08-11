@@ -1381,7 +1381,7 @@ internal sealed partial class CardsDriver
         CardsHandUI? gameHand = CurrentHand();
         CardsHandUI? presentedHand = Board.CharacterFocus.PresentedHand(gameHand);
         Transform? anchor = AnchorParent();
-        if (presentedHand == null || anchor == null || !CardsConfig.PileViewer.Value)
+        if (presentedHand == null || anchor == null)
             return;
         CardHandMode mode = CardsGameApi.Mode(presentedHand);
         // Derived here rather than read off CharacterFocus.ReadOnlyView, which is latched by the
@@ -1786,8 +1786,8 @@ internal sealed partial class CardsDriver
     /// active-ability pile (<c>CardPileType.Active</c>) into the permanently-shown column
     /// off the board's right edge. Cards are adopted read-only through the SAME
     /// <see cref="AdoptedCard"/> path as the pile browse; the active HALF/halves of each
-    /// are resolved (<see cref="CardsGameApi.GetActiveHalves"/>) and highlighted. Empty /
-    /// [Cards] ActivePile off → the area shows nothing. The zone-flag loop keeps these
+    /// are resolved (<see cref="CardsGameApi.GetActiveHalves"/>) and highlighted. Empty →
+    /// the area shows nothing (always on — user ruling 2026-08-11). The zone-flag loop keeps these
     /// cards grabbable-to-read and out of the park sweep; their release routes back to the
     /// column (never a game seam). Logs the active count change-deduped.
     /// </summary>
@@ -1798,8 +1798,7 @@ internal sealed partial class CardsDriver
         // otherwise drawn every frame regardless of turn; gate it on this being the local character's own
         // action turn OR the shared card-selection phase (where everyone picks at once). The round/played
         // cards are already gated the same way (IsActionTurn, CardsDriver Rebuild ActionSelection case).
-        if (!CardsConfig.ActivePile.Value
-            || (!CardsGameApi.IsActionTurn(hand) && !CardsGameApi.IsSelectionPhase(hand)))
+        if (!CardsGameApi.IsActionTurn(hand) && !CardsGameApi.IsSelectionPhase(hand))
         {
             _active.SetVisible(false);
             _activeBuffer.Clear();
@@ -1897,10 +1896,10 @@ internal sealed partial class CardsDriver
         }
     }
 
-    /// <summary>Cheap change-gate hash of the active-card set (ids) + round. 0 = none / disabled.</summary>
+    /// <summary>Cheap change-gate hash of the active-card set (ids) + round. 0 = none.</summary>
     private int ActiveSignature(CardsHandUI? hand)
     {
-        if (hand == null || !CardsConfig.ActivePile.Value)
+        if (hand == null)
             return 0;
         CardsGameApi.GetActivePileWidgets(hand, _activeWidgetBuffer);
         int sig = 17;

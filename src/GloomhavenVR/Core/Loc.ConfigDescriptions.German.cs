@@ -885,20 +885,6 @@ internal static partial class Loc
                 + "Rast: Karte verlieren, Schaden vermeiden, wiederherstellen/ablegen) markiert es den linken "
                 + "Slot. Erlischt, sobald die Anforderung erfüllt ist oder der Ablauf endet. false = kein "
                 + "Hinweis auf erwartete Slots.",
-            ["Cards/PileViewer"] =
-                "Ablage-/Verbrennstapel am rechten Rand des Kontrollbretts (Wunsch aus Hardware-Test #21): "
-                + "jeder Stapel erscheint als kleiner physischer Kartenstapel mit Zähler; Antippen oder Greifen "
-                + "per Pinch-Griff hebt einen lesbaren Blätterfächer der Karten dieses Stapels hoch (rein "
-                + "informativ — loslassen/erneut antippen schließt ihn). false = überhaupt keine Stapel auf dem "
-                + "Brett.",
-            ["Cards/ActivePile"] =
-                "Bereich AKTIVE KARTEN (Funktion 6): die aktuell aktiven Fähigkeitskarten des Charakters "
-                + "(rundenlang oder dauerhaft), DAUERHAFT als schmale Spalte direkt RECHTS neben den "
-                + "Ablage-/Verbrennstapeln gezeigt. Die Karten sind etwas kleiner als im Handfächer und bleiben "
-                + "einzeln greifbar, sodass du eine herausziehen und lesen kannst (beim Loslassen kehrt sie in "
-                + "die Spalte zurück); die aktive HÄLFTE jeder Karte ist hervorgehoben. Rein informativ — eine "
-                + "aktive Karte zu greifen wählt oder bestätigt sie nie. Leer, wenn keine Karte aktiv ist. "
-                + "false = überhaupt kein Bereich für aktive Karten.",
             ["Cards/FaceMipBake"] =
                 "Aliasing-Runde 3 (T3): das Spiel liefert seine Kartenbild-Sprite-Atlanten OHNE Mipmaps (FACE "
                 + "TEXTURE DIAG: mips=1), deshalb flimmern übernommene Kartenbilder bei Verkleinerung, egal "
@@ -1485,9 +1471,6 @@ internal static partial class Loc
                 + "und völlig unempfindlich gegen Kopfzittern; höher = der Fächer präsentiert die angeschaute "
                 + "Karte schneller. 8 erreicht ~90 % einer Kopfdrehung in ~0.3 s.",
             // ---- [WorldUI] ----
-            ["WorldUI/Master"] =
-                "Hauptschalter für die gesamte physische Oberfläche (alle Flächen darunter UND die schwebende "
-                + "2D-Leinwand). Aus = die spieleigene 2D-Bildschirmoberfläche bleibt unangetastet.",
             ["WorldUI/ButtonCluster"] = "Physische Knöpfe für Bereit/Rückgängig/Überspringen am Tischrand.",
             ["WorldUI/InitiativeTrack"] = "Initiativleiste als Welt-Tafel über dem Tisch.",
             ["WorldUI/ElementBoard"] =
@@ -1568,9 +1551,6 @@ internal static partial class Loc
             ["WorldUI/WristHud"] =
                 "Kompakter Charakterstatus (LP/EP/Zustände/Gold) am nicht-dominanten Handgelenk, per Hinsehen "
                 + "aktiviert.",
-            ["WorldUI/FlatScreen"] =
-                "Schwebende 2D-Leinwand, die die UICamera für Menüs/Händler/Stufenaufstieg spiegelt, samt "
-                + "Strahl-Zeiger.",
             ["WorldUI/Tooltips"] =
                 "Verankert das Tooltip-Canvas des Spiels neu im 3D-Raum, nahe der antippenden Fingerspitze.",
             ["WorldUI/ActionElementHints"] =
@@ -1627,9 +1607,6 @@ internal static partial class Loc
                 + "größer. 0 = die Oberkante streifen; erhöhe den Wert, wenn die Enthüllung noch zu nah am "
                 + "Brett wirkt. Live änderbar im Debug-Menü (Tafeln -> Initiative); gilt ab der nächsten "
                 + "Enthüllung bzw. dem nächsten trägen Nachführschritt. Bereich 0-0.5.",
-            ["WorldUI/FlatScreenAutoShow"] =
-                "Blendet die schwebende 2D-Leinwand automatisch ein, solange kein Szenario läuft (Hauptmenü, "
-                + "Karte), und in Szenario-Modi wieder aus.",
             ["WorldUI/DesktopMirrorLeftEye"] =
                 "Der flache Monitor spiegelt NUR das LINKE Auge des HMD: setzt XRSettings.gameViewRenderMode "
                 + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "
@@ -1766,35 +1743,6 @@ internal static partial class Loc
                 + "ein Fenster sich nicht umwandeln lässt (Grund wird protokolliert). \"screen\": Verhalten vor "
                 + "P8 — für jedes Rückfallfenster erscheint das komplette 2D-Composite. Die manuelle "
                 + "A/X-Kombination holt davon unabhängig immer die volle Leinwand.",
-            ["WorldUI/CatchAllModals"] =
-                "Deadlock-Versicherung: jedes UNBEKANNTE Spielfenster, das während eines Szenarios aufgeht "
-                + "(eine ID, die der Mod nicht ausdrücklich eingetragen hat — szenen-serialisierte IDs sind im "
-                + "Code unsichtbar, künftige Spiel-Patches können also jederzeit eine hinzufügen), wird nach "
-                + "einer ~2-Tick-Schonfrist als greifbares VR-Fenster mit X-Knopf geschwebt, statt unsichtbar "
-                + "auf dem versteckten 2D-Stapel zu warten, während das Spiel darauf blockiert (die "
-                + "ItemCardPicker-Klasse stiller Deadlocks). Jedes so geschwebte Fenster protokolliert eine "
-                + "Warnung mit seinem Namen, damit es später ausdrücklich eingetragen werden kann. Aus = nur "
-                + "ausdrücklich eingetragene Fenster werden behandelt (Verhalten vor dem Catch-All); die "
-                + "manuelle A/X-Kombination bleibt die universelle Rettung.",
-            ["WorldUI/MenuPopupFloat"] =
-                "MENÜ-Deadlock-Versicherung: schwebt die globale Fehler-/Hinweisbox des Spiels "
-                + "(GlobalErrorMessage — z. B. der Hinweis \"Dieser Spielstand ist für eine "
-                + "Mehrspielerpartie\" beim Laden eines Spielstands, fehlende-DLC-Hinweise, "
-                + "Ladefehler) AUCH außerhalb eines Szenarios vor dem HMD (Hauptmenü, Laden/"
-                + "Speichern, Kampagnenkarte). Diese Box ist kein normales Spielfenster: sie liegt "
-                + "auf einer separaten, dauerhaften Leinwand, die die Kamera-Aufnahme der "
-                + "schwebenden 2D-Leinwand nie zeigen kann — ohne das Schweben blockiert sie das "
-                + "ganze Menü unsichtbar: nichts ist anklickbar und das Spiel wartet endlos. Die "
-                + "2D-Leinwand bleibt hinter der geschwebten Box stehen; nur deren eigene Knöpfe "
-                + "(Antippen + Laser) beantworten sie. Aus = Verhalten vor der Korrektur (die Box "
-                + "bleibt in VR unsichtbar; am Desktop-Monitor beantworten).",
-            ["WorldUI/ManualScreenChord"] =
-                "Selbstrettungs-Tastenkombination: HALTE im Szenario die untere Fronttaste der "
-                + "NICHT-dominanten Hand (A oder X) für ManualScreenChordSeconds, um die schwebende 2D-Leinwand "
-                + "(volle Desktop-Oberfläche + Zeiger) umzuschalten — immer verfügbar, wenn ein 2D-Fenster "
-                + "offen ist, das VR nicht zeigt. Kurzes Halten schaltet weiterhin die Einstellungstafel um; "
-                + "diese Kombination löst beim LOSLASSEN aus (vor der Bildschirm-Schwelle), damit sich die "
-                + "beiden nie in die Quere kommen.",
             ["WorldUI/ManualScreenChordSeconds"] =
                 "Haltedauer (Sekunden) von A/X der nicht-dominanten Hand für das manuelle Umschalten der "
                 + "Leinwand.",

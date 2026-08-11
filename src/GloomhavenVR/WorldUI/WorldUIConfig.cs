@@ -7,17 +7,25 @@ namespace GloomhavenVR.WorldUI;
 /// Phase-3c configuration, bound into the module's own file. P5 (MISSION A.9): now
 /// created through the canonical <see cref="ModuleConfig.Create"/> helper —
 /// <c>BepInEx/config/dev.gloomhavenvr.worldui.cfg</c> (renamed from the pre-P5
-/// <c>worldui.gloomhavenvr.cfg</c>). Every physicalized surface is individually
-/// toggleable (ARCHITECTURE §7) plus a <see cref="Master"/> switch over all of them;
-/// entries are read live, so flips take effect on the next relevant rebuild.
+/// <c>worldui.gloomhavenvr.cfg</c>). Optional surfaces are individually toggleable
+/// (ARCHITECTURE §7); the essential shell and the deadlock-insurance paths are
+/// unconditional (user ruling 2026-08-11). Entries are read live, so flips take
+/// effect on the next relevant rebuild.
 /// </summary>
 internal static class WorldUIConfig
 {
     private static ConfigFile? _file;
 
-    // ---- master ------------------------------------------------------------------------
-    /// <summary>Master switch over ALL WorldUI surfaces (in-VR settings panel binds this).</summary>
-    internal static ConfigEntry<bool> Master = null!;
+    // [WorldUI] Master is GONE (user ruling 2026-08-11): off left the HMD with only void, hands
+    // and lasers (test #11: an accidentally persisted Master=false read as "menu no longer
+    // loads") — not a minimal mode but a wholesale brick, so the shell is unconditional now.
+    // Same ruling, same day, for the other former kill switches: FlatScreen, FlatScreenAutoShow,
+    // ManualScreenChord, CatchAllModals, MenuPopupFloat, UseBars, DoomPicker, DistributePanel —
+    // each OFF path ended in an unreachable modal or a rule-engine deadlock. None is re-bound,
+    // so stale cfg keys are dropped on the next save.
+
+    /// <summary>The module's config file (for late binders like FlatScreenStereo). Valid after <see cref="Bind"/>.</summary>
+    internal static ConfigFile FileHandle => _file!;
 
     // ---- surfaces (each individually toggleable) ---------------------------------------
     internal static ConfigEntry<bool> ButtonCluster = null!;
@@ -30,9 +38,6 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> PropInfoCards = null!;
     internal static ConfigEntry<bool> EnemyReveal = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
-    internal static ConfigEntry<bool> UseBars = null!;
-    internal static ConfigEntry<bool> DoomPicker = null!;
-    internal static ConfigEntry<bool> DistributePanel = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
     internal static ConfigEntry<bool> ActorBars = null!;
 
@@ -65,7 +70,6 @@ internal static class WorldUIConfig
     /// <summary>Upper end of the zoom clamp; see <see cref="BarZoomMinScale"/>.</summary>
     internal static ConfigEntry<float> BarZoomMaxScale = null!;
     internal static ConfigEntry<bool> WristHud = null!;
-    internal static ConfigEntry<bool> FlatScreen = null!;
     internal static ConfigEntry<bool> Tooltips = null!;
 
     /// <summary>User #7c: enable/disable the action-phase element/ability explanation hints
@@ -140,9 +144,6 @@ internal static class WorldUIConfig
     /// spawn/follow by <see cref="Surfaces.EnemyRevealSurface"/>.
     /// </summary>
     internal static ConfigEntry<float> EnemyRevealBoardClearance = null!;
-
-    /// <summary>Auto-show the floating 2D screen while no scenario runs (Menu2D mode).</summary>
-    internal static ConfigEntry<bool> FlatScreenAutoShow = null!;
 
     /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
     internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
@@ -232,10 +233,8 @@ internal static class WorldUIConfig
     /// <summary>Modal fallback style: "window" (float only the dialog window) | "screen" (full flat screen).</summary>
     internal static ConfigEntry<string> ModalStyle = null!;
 
-    /// <summary>Self-rescue: hold the non-dominant A/X in a scenario to toggle the flat screen.</summary>
-    internal static ConfigEntry<bool> ManualScreenChord = null!;
-
-    /// <summary>Hold duration (seconds) for <see cref="ManualScreenChord"/>.</summary>
+    /// <summary>Hold duration (seconds) for the always-on manual screen chord (the self-rescue:
+    /// hold the non-dominant A/X in a scenario to toggle the flat screen).</summary>
     internal static ConfigEntry<float> ManualScreenChordSeconds = null!;
 
     /// <summary>Demote fullscreen SolidColor clears of non-base captured cameras to Depth (test #10).</summary>
@@ -255,30 +254,6 @@ internal static class WorldUIConfig
     /// <summary>True when button state goes through the virtual mouse (ClickMode virtualmouse/both).</summary>
     internal static bool VirtualMouseButtons =>
         !string.Equals(ClickMode.Value, "execute", System.StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Part 10 kill-switch: float UNKNOWN in-scenario windows (IDs not enrolled in
-    /// FallbackIds / the polls / any claim) after a short grace, instead of letting them
-    /// wait invisibly on the hidden 2D stack (the ItemCardPicker silent-deadlock class).
-    /// The explicit enrollments (story/level-message/dialog/reward polls, the
-    /// GlobalErrorMessage poll) are NOT gated by this — they stay on regardless.
-    /// </summary>
-    internal static ConfigEntry<bool> CatchAllModals = null!;
-
-    /// <summary>
-    /// MENU-context deadlock insurance (the "Spielstand ist für eine Mehrspielerpartie" lock):
-    /// float the game's GlobalErrorMessage box in front of the HMD ALSO outside a scenario
-    /// (Menu2D — main menu / save-load / campaign map). The box is NOT a UIWindow: it is
-    /// SetActive-shown on the persistent boot-scene GlobalCanvas (decompiled SceneController
-    /// .cs:620-631), a canvas the Menu2D flat screen's CAMERA capture never carries — so it
-    /// was invisible in VR while it raycast-blocked the whole menu (ErrorMessage full-screen
-    /// panel + MainMenuUIManager.RequestDisableInteraction): a menu-context hard deadlock.
-    /// Every OTHER menu popup (confirmation boxes, EULA, sign-out, lobby prompts) lives in
-    /// the menu canvas hierarchy, IS captured by the flat screen and stays clickable via the
-    /// laser→virtual-mouse path — deliberately NOT floated (the flat screen already owns
-    /// them; floating menu windows is the scenario gate's whole reason to exist).
-    /// </summary>
-    internal static ConfigEntry<bool> MenuPopupFloat = null!;
 
     /// <summary>True when fallback windows float individually ([WorldUI] ModalStyle != "screen").</summary>
     internal static bool ModalWindowStyle =>
@@ -305,9 +280,6 @@ internal static class WorldUIConfig
 
         _file = ModuleConfig.Create("worldui");
 
-        Master = _file.Bind("WorldUI", "Master", Defaults.Master,
-            "Master switch for the whole physicalized interface (all surfaces below AND the " +
-            "floating 2D screen). Off = the game's own 2D screen-space UI stays untouched.");
         ButtonCluster = _file.Bind("WorldUI", "ButtonCluster", Defaults.ButtonCluster,
             "Physical Ready/Undo/Skip buttons at the table edge.");
         InitiativeTrack = _file.Bind("WorldUI", "InitiativeTrack", Defaults.InitiativeTrack,
@@ -339,31 +311,8 @@ internal static class WorldUIConfig
             "of a floating flat window (test #22, generalizes the test-#21 take-damage dock). " +
             "The card fan stays available for follow-up picks (no ModalUI). Off = the generic " +
             "modal fallback floats the whole window as before. (Renamed from 'TakeDamageBoard'.)");
-        UseBars = _file.Bind("WorldUI", "UseBars", Defaults.UseBars,
-            "The game's four in-scenario use-slot bars — active-bonus toggles (UIActiveBonusBar), " +
-            "ability-card element-consume augments (UIUseAugmentationsBar), element-infusion/" +
-            "choose-ability pickers (UIUseAbilitiesBar) and usable items (UIUseItemsBar) — dock " +
-            "their REAL widget rows (incl. the embedded element/option sub-pickers) onto the " +
-            "control board's drawer zone whenever they have slots, so every mid-scenario decision " +
-            "they carry (element potions, worn-item toggles, 'next X attacks' augments, the " +
-            "end-of-ability infusion pick that otherwise never lets the turn end) is reachable " +
-            "in VR. All clicks are the game's own MP-synced paths. Off = the bars stay on the " +
-            "hidden flat HUD (reachable only via the manual 2D screen).");
-        DoomPicker = _file.Bind("WorldUI", "DoomPicker", Defaults.DoomPicker,
-            "Doomstalker doom choices (doom slots full → replace which doom; transfer dooms) — " +
-            "the game's UIAbilityCardPicker panel, a plain-GameObject window invisible to the " +
-            "UIWindow modal machinery and therefore a hard rule-engine deadlock in VR (every " +
-            "ability Perform() early-returns while the choice waits) — floats pokeable in front " +
-            "of the HMD while shown. Commit/Undo/Skip stay the game's own Ready/Undo/Skip " +
-            "buttons (board CONFIRM keycap + ButtonCluster). Off = the panel stays invisible; " +
-            "only the manual A/X screen chord can reach it.");
-        DistributePanel = _file.Bind("WorldUI", "DistributePanel", Defaults.DistributePanel,
-            "Distribute-points decisions ('which hero burns a card to prevent this damage' and " +
-            "redistribute damage/health) — the UIScenarioDistributePointsManager popups, plain-" +
-            "GameObject windows invisible in VR while the rule engine spin-waits — float " +
-            "pokeable in front of the HMD while shown (actor rows with the game's own +/− " +
-            "buttons; host/controller gating is the game's own). Commit stays the game's " +
-            "ReadyButton via the board CONFIRM. Off = only the manual A/X screen chord reaches them.");
+        // UseBars / DoomPicker / DistributePanel: always on — user ruling 2026-08-11: essential
+        // (each OFF path left a rule-engine wait invisible in VR; see the tombstone at the top).
         TrayNativeControls = _file.Bind("WorldUI", "TrayNativeControls", Defaults.TrayNativeControls,
             "Dock the game's REAL Continue/Confirm (ReadyButton), Undo (UndoButton) and short-rest " +
             "(ShortRest) widgets onto the control board — the actual in-game buttons with their native " +
@@ -417,8 +366,6 @@ internal static class WorldUIConfig
                 new AcceptableValueRange<float>(1f, 3f)));
         WristHud = _file.Bind("WorldUI", "WristHud", Defaults.WristHud,
             "Compact character status (HP/XP/conditions/gold) on the non-dominant wrist, look-at activated.");
-        FlatScreen = _file.Bind("WorldUI", "FlatScreen", Defaults.FlatScreen,
-            "Floating 2D screen mirroring the UICamera for menus/merchant/level-up + ray pointer.");
         Tooltips = _file.Bind("WorldUI", "Tooltips", Defaults.Tooltips,
             "Re-anchor the game's tooltip canvas in world space near the poking fingertip.");
         ActionElementHints = _file.Bind("WorldUI", "ActionElementHints", Defaults.ActionElementHints,
@@ -438,26 +385,8 @@ internal static class WorldUIConfig
             "swapped onto the baked copies (originals restored when a surface is released). " +
             "false = the initiative track and tooltip keep sampling the mipless originals.");
 
-        CatchAllModals = _file.Bind("WorldUI", "CatchAllModals", Defaults.CatchAllModals,
-            "Deadlock insurance: any UNKNOWN game window that opens during a scenario (an ID " +
-            "the mod has not enrolled explicitly — scene-serialized IDs are invisible in code, " +
-            "so future game patches can always add one) is floated as a grabbable VR window " +
-            "with an X after a ~2-tick grace, instead of waiting invisibly on the hidden 2D " +
-            "stack while the game blocks on it (the ItemCardPicker silent-deadlock class). " +
-            "Each floated unknown window logs one warning naming it, so it can be enrolled " +
-            "explicitly later. Off = only explicitly enrolled windows are handled (pre-catch-" +
-            "all behavior); the manual A/X screen chord remains the universal rescue.");
-        MenuPopupFloat = _file.Bind("WorldUI", "MenuPopupFloat", Defaults.MenuPopupFloat,
-            "MENU deadlock insurance: float the game's global error/notice box (GlobalError" +
-            "Message — e.g. the 'this save belongs to a multiplayer session' prompt when " +
-            "loading a save, missing-DLC notices, load failures) in front of the HMD ALSO " +
-            "outside a scenario (main menu, save/load, campaign map). This box is not a " +
-            "normal game window: it lives on a separate always-on canvas the floating 2D " +
-            "screen's camera capture can never show, so without the float it blocks the " +
-            "whole menu invisibly — nothing is clickable and the game waits forever. The " +
-            "flat screen stays up behind the floated box; its own buttons (poke + laser) " +
-            "are the only way to answer it. Off = pre-fix behavior (the box stays " +
-            "invisible in VR; answer it on the desktop monitor).");
+        // CatchAllModals / MenuPopupFloat: always on — user ruling 2026-08-11: essential
+        // deadlock insurance (their OFF paths restored the silent-deadlock classes).
         ForceMouseMode = _file.Bind("WorldUI", "ForceMouseMode", Defaults.ForceMouseMode,
             "Keep InputManager in mouse mode while VR runs so the 'Game' (not 'Game_gamepad') " +
             "scene variants load and buttons commit without gamepad long-press flows.");
@@ -498,9 +427,6 @@ internal static class WorldUIConfig
                 "the board. Live-tunable in the debug menu (Panels -> Initiative); applies to the " +
                 "next reveal spawn / lazy-follow step. Range 0-0.5.",
                 new AcceptableValueRange<float>(0f, 0.5f)));
-        FlatScreenAutoShow = _file.Bind("WorldUI", "FlatScreenAutoShow", Defaults.FlatScreenAutoShow,
-            "Automatically show the floating 2D screen while no scenario runs (main menu, map) " +
-            "and hide it in scenario modes.");
         DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", Defaults.DesktopMirrorLeftEye,
             "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
@@ -636,12 +562,8 @@ internal static class WorldUIConfig
             "specific window fails to convert (reason logged). 'screen': pre-P8 " +
             "behavior — the full 2D desktop composite appears for every fallback " +
             "window. The manual A/X chord always summons the full screen regardless.");
-        ManualScreenChord = _file.Bind("WorldUI", "ManualScreenChord", Defaults.ManualScreenChord,
-            "Self-rescue chord: HOLD the NON-dominant lower face button (A or X) for " +
-            "ManualScreenChordSeconds during a scenario to toggle the floating 2D screen " +
-            "(full desktop UI + pointer) — always available when a 2D window is open that " +
-            "VR does not show. Short holds still toggle the settings panel; that chord " +
-            "fires on RELEASE (before the screen threshold) so the two never collide.");
+        // ManualScreenChord: always on — user ruling 2026-08-11: the universal rescue must not
+        // be switchable off; only its hold duration below stays tunable.
         ManualScreenChordSeconds = _file.Bind("WorldUI", "ManualScreenChordSeconds", Defaults.ManualScreenChordSeconds,
             "Hold duration (seconds) of the non-dominant A/X for the manual flat-screen " +
             "toggle.");
@@ -689,7 +611,8 @@ internal static class WorldUIConfig
             "game's 2D panels into world space — the desktop view changes accordingly).");
     }
 
-    /// <summary>True while WorldUI physicalization should be applied to live game UI.</summary>
+    /// <summary>True while WorldUI physicalization should be applied to live game UI.
+    /// (The former [WorldUI] Master factor is gone — always on, user ruling 2026-08-11.)</summary>
     internal static bool ConversionActive =>
-        Master.Value && (VRSession.IsRunning || (Plugin.DevMode.Value && DevForceConvert.Value));
+        VRSession.IsRunning || (Plugin.DevMode.Value && DevForceConvert.Value);
 }
