@@ -124,6 +124,28 @@ internal sealed class CardOutline
     /// mapping between face space and the edge arrays' sprite space.</summary>
     private readonly Rect _drawnFaceRect;
 
+    /// <summary>Contour extent in sprite pixels (first/last row and column with a bright hit) —
+    /// the bounding box of the card's outline INCLUDING designed protrusions (class banner,
+    /// initiative chip). Everything outside it is frame on every card of this art.</summary>
+    private readonly int _rowLo, _rowHi, _colLo, _colHi;
+
+    /// <summary>
+    /// ROUND 10 — the outline's bounding box in FACE-normalized coordinates: the rectangle the
+    /// card actually occupies on the face, protrusions included. This is the CROP TARGET of the
+    /// geometric rect crop (<c>CardFaceCrop</c>): a layer's RectTransform shrunk to (its
+    /// intersection with) this rect stops rasterizing ANY pixel in the frame band, so the band
+    /// disappears under EVERY alpha semantics — including a shader that renders alpha-0 as black.
+    /// Distinct from the per-edge medians (<see cref="BandSummary"/>): where a protrusion pokes
+    /// into a band, this box follows the protrusion's tip (never cutting card), and the sliver
+    /// between tip and trim line stays covered by alpha-0 punched pixels only. The derivation log
+    /// prints both so a surviving residual band names its own cause.
+    /// </summary>
+    internal Rect ExtentFace => Rect.MinMaxRect(
+        _drawnFaceRect.xMin + (float)_colLo / _w * _drawnFaceRect.width,
+        _drawnFaceRect.yMin + (float)_rowLo / _h * _drawnFaceRect.height,
+        _drawnFaceRect.xMin + (_colHi + 1f) / _w * _drawnFaceRect.width,
+        _drawnFaceRect.yMin + (_rowHi + 1f) / _h * _drawnFaceRect.height);
+
     /// <summary>Content identity of the source art — the punch texture cache key component.</summary>
     internal string SourceKey { get; }
 
@@ -145,7 +167,8 @@ internal sealed class CardOutline
 
     private CardOutline(int w, int h, float[] left, float[] right, float[] bottom, float[] top,
                         Rect drawnFaceRect, string sourceKey, string sourceName, int threshold,
-                        float bandLeft, float bandRight, float bandTop, float bandBottom)
+                        float bandLeft, float bandRight, float bandTop, float bandBottom,
+                        int rowLo, int rowHi, int colLo, int colHi)
     {
         _w = w;
         _h = h;
@@ -161,6 +184,10 @@ internal sealed class CardOutline
         BandRight = bandRight;
         BandTop = bandTop;
         BandBottom = bandBottom;
+        _rowLo = rowLo;
+        _rowHi = rowHi;
+        _colLo = colLo;
+        _colHi = colHi;
     }
 
     /// <summary>The current outline for a card kind, or null when none has validated yet.</summary>
@@ -221,11 +248,16 @@ internal sealed class CardOutline
                 return null;
             }
             s_byKind[(int)kind] = made;
+            Rect ext = made.ExtentFace;
             VRLog.Info("Cards", $"CARD OUTLINE ({kind}): derived from '{source.name}' {w}x{h} at bright " +
-                                $"threshold {made.Threshold} — bands {made.BandSummary}. These four numbers " +
-                                "ARE the geometry every consumer now shares (sprite punch, mesh footprint, " +
-                                "disabled shape mask); if a visible band disagrees with them, the derivation " +
-                                "is wrong and THIS is the line that says so.");
+                                $"threshold {made.Threshold} — bands {made.BandSummary}; extent bbox " +
+                                $"(protrusions included) x {ext.xMin:F3}..{ext.xMax:F3}, y {ext.yMin:F3}.." +
+                                $"{ext.yMax:F3} of the face. These numbers ARE the geometry every consumer " +
+                                "now shares (sprite punch, RECT CROP, mesh footprint, disabled shape mask); " +
+                                "if a visible band disagrees with them, the derivation is wrong and THIS is " +
+                                "the line that says so. Where the extent bbox reaches deeper into a band " +
+                                "than that edge's median, a designed protrusion pokes into the band and the " +
+                                "rect crop leaves an alpha-0-only sliver there.");
             return made;
         }
         catch (System.Exception ex)
@@ -396,7 +428,8 @@ internal sealed class CardOutline
         }
 
         var made = new CardOutline(w, h, rowFirst, rowLast, colFirst, colLast, drawnFaceRect,
-            contentKey, sourceName, threshold, bandLeft, bandRight, bandTop, bandBottom);
+            contentKey, sourceName, threshold, bandLeft, bandRight, bandTop, bandBottom,
+            rowLo, rowHi, colLo, colHi);
 
         // Inside-area sanity, sampled on a 48×48 face grid.
         const int probes = 48;

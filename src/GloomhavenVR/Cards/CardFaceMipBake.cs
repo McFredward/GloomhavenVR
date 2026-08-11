@@ -294,7 +294,11 @@ internal static class CardFaceMipBake
                     // face must never keep the framed copy once the frameless one exists. One
                     // dictionary probe in the steady state; the punched sprite is registered in
                     // the same restore map, so RestoreSprites is unaffected.
-                    if (wornOriginal != null
+                    // ROUND 10: a CROP sprite (CardFaceCrop's rect-cropped copy) is exempt — it
+                    // is only ever valid together with the shrunken RectTransform CardFaceCrop
+                    // maintains, and "upgrading" it to the full punched copy would render the
+                    // full-plate art squeezed into the cropped rect.
+                    if (wornOriginal != null && !IsCropSprite(sprite)
                         && s_punchedBySource.TryGetValue(wornOriginal.GetInstanceID(), out Sprite? upgraded)
                         && upgraded != null && !ReferenceEquals(upgraded, sprite))
                     {
@@ -757,36 +761,7 @@ internal static class CardFaceMipBake
                 slice, (dstY + row) * fullW + dstX, w);
         }
 
-        // THE ERASE: a pixel is frame iff its face-space position is outside the outline —
-        // no luma rule, no connectivity, no depth cap. Every consumer (this punch, the mesh
-        // footprint, the disabled shape mask) reads the SAME InsideFace answer. The per-axis
-        // face positions are precomputed once (the 9-slice mapping is piecewise per axis, so
-        // u depends only on x and v only on y).
-        var us = new float[fullW];
-        for (int x = 0; x < fullW; x++)
-            us[x] = mapping.MapU(x + 0.5f, fullW);
-        var vs = new float[fullH];
-        for (int y = 0; y < fullH; y++)
-            vs[y] = mapping.MapV(y + 0.5f, fullH);
-        long opaqueCount = 0;
-        int erased = 0;
-        for (int y = 0; y < fullH; y++)
-        {
-            float v = vs[y];
-            int row = y * fullW;
-            for (int x = 0; x < fullW; x++)
-            {
-                int i = row + x;
-                if (slice[i].a == 0)
-                    continue;
-                opaqueCount++;
-                if (!outline.InsideFace(us[x], v))
-                {
-                    slice[i].a = 0;
-                    erased++;
-                }
-            }
-        }
+        EraseOutsideOutline(slice, fullW, fullH, mapping, outline, out long opaqueCount, out int erased);
         if (erased == 0)
         {
             s_punchedTexByKey[key] = null;
@@ -838,6 +813,316 @@ internal static class CardFaceMipBake
                             "this copy from its first pixel and the silhouette capture samples IT — mesh " +
                             "and face share ONE geometry.");
         return MakePunchedSprite(source, tex, fullW, fullH);
+    }
+
+    /// <summary>THE ERASE, shared by the geometric punch and the rect crop: a pixel is frame iff
+    /// its face-space position is outside the outline — no luma rule, no connectivity, no depth
+    /// cap. Every consumer reads the SAME <c>InsideFace</c> answer. The per-axis face positions
+    /// are precomputed once (the 9-slice mapping is piecewise per axis, so u depends only on x
+    /// and v only on y). Mutates <paramref name="slice"/> (alpha → 0).</summary>
+    private static void EraseOutsideOutline(Color32[] slice, int fullW, int fullH,
+                                            in PunchMapping mapping, CardOutline outline,
+                                            out long opaqueCount, out int erased)
+    {
+        var us = new float[fullW];
+        for (int x = 0; x < fullW; x++)
+            us[x] = mapping.MapU(x + 0.5f, fullW);
+        var vs = new float[fullH];
+        for (int y = 0; y < fullH; y++)
+            vs[y] = mapping.MapV(y + 0.5f, fullH);
+        opaqueCount = 0;
+        erased = 0;
+        for (int y = 0; y < fullH; y++)
+        {
+            float v = vs[y];
+            int row = y * fullW;
+            for (int x = 0; x < fullW; x++)
+            {
+                int i = row + x;
+                if (slice[i].a == 0)
+                    continue;
+                opaqueCount++;
+                if (!outline.InsideFace(us[x], v))
+                {
+                    slice[i].a = 0;
+                    erased++;
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------ geometric rect crop (round 10) --
+    //
+    // ROUND 10 — THE SHADER-AGNOSTIC HALF OF THE FIX. The ModBuild-113 run proved the geometric
+    // punch erased the outside-outline pixels to alpha 0 (its own log line carries the count) and
+    // the user still saw an IDENTICAL band even where only the punched background paints. The one
+    // explanation class left is that erasing to transparent black does not change what his
+    // renderer draws there: CardEffects.Awake gives every card-face Image a CUSTOM material
+    // (image2.material = new Material(image2.material)) and drives _Dissolve/_Burn/_GreyOut on it
+    // — a shader whose blend state cannot be read offline. If that shader outputs opaque
+    // (e.g. a dissolve-clip shader whose clip term ignores texture alpha at _Dissolve = 0),
+    // alpha-0 pixels whose RGB is black render... black. Identical. Which would also explain,
+    // retroactively, why NINE texture-side attempts produced zero visible change while the band
+    // visibly vanishes during the game's own dissolve ANIMATION (the clip path finally runs).
+    //
+    // So this path removes the band GEOMETRICALLY: the punched pixel slice is CROPPED to the
+    // card outline's extent bounding box (CardOutline.ExtentFace — protrusions included, so no
+    // card pixel is ever cut), and CardFaceCrop shrinks/repositions the layer's RectTransform so
+    // its drawn rect equals exactly the face rect the kept pixels cover. Then no rasterized
+    // geometry exists in the band at all and the shader's alpha semantics CANNOT matter.
+    //
+    // EXACTNESS. Uniform (Simple) layers: a uniform map restricted to a pixel sub-block equals
+    // the uniform map of the cropped sprite over the sub-block's face rect — pixel-identical.
+    // Sliced layers: the crop removes x0/y0 pixels from the near edges and shrinks the sprite
+    // borders by the same amounts, so every kept corner pixel keeps its drawn position (corner
+    // spans shorten by exactly the crop) and the center stretch keeps its endpoints. A crop that
+    // eats past a border zeroes it — the center then stretches marginally differently, which is
+    // the sane reading for pixels that were frame anyway.
+    //
+    // SAFETY AUDIT (extends the round-8/9 audit):
+    //   • Pixel source is the same FRESH slice; shared readbacks never mutated.
+    //   • The crop sprite registers in s_originalByReplacement (RestoreSprites hands the game
+    //     its exact original on every existing restore path) but NOT in s_replacementBySource:
+    //     a crop sprite is only valid together with the shrunken rect CardFaceCrop maintains, so
+    //     no generic swap path (Rescan bulk, arrival watch, peer clone) may ever serve it. The
+    //     Rescan upgrade branch additionally skips crop sprites (IsCropSprite).
+    //   • Peers and item faces keep the alpha punch exactly as in ModBuild 113 — the crop rides
+    //     the per-frame Maintain seam only the locally adopted ability face has.
+    //   • Textures are content-keyed like every other bake; class-mates share one crop texture.
+
+    /// <summary>Cached result of one crop bake (per content+outline+mapping identity).</summary>
+    private readonly struct CropBake
+    {
+        internal readonly Texture2D Tex;
+        internal readonly Rect TargetFaceRect;
+        internal readonly Vector4 Border;
+        internal readonly int W;
+        internal readonly int H;
+
+        internal CropBake(Texture2D tex, Rect targetFaceRect, Vector4 border, int w, int h)
+        {
+            Tex = tex;
+            TargetFaceRect = targetFaceRect;
+            Border = border;
+            W = w;
+            H = h;
+        }
+    }
+
+    /// <summary>(content | outline | mapping | "crop") → crop bake (null = refused, latched).</summary>
+    private static readonly Dictionary<string, CropBake?> s_croppedTexByKey = new(8);
+
+    /// <summary>src sprite instance id → crop sprite (null = refused/clean, latched).</summary>
+    private static readonly Dictionary<int, Sprite?> s_croppedBySource = new(8);
+
+    /// <summary>src sprite instance id → the face rect its crop sprite must be drawn in.</summary>
+    private static readonly Dictionary<int, Rect> s_croppedRectBySource = new(8);
+
+    /// <summary>src sprite instance id → latched crop refusal text (for repeat callers).</summary>
+    private static readonly Dictionary<int, string> s_cropRefusalBySource = new(8);
+
+    /// <summary>Instance ids of every crop sprite ever minted — the generic swap paths use this
+    /// to keep their hands off a sprite that is only valid with CardFaceCrop's shrunken rect.</summary>
+    private static readonly HashSet<int> s_cropSpriteIds = new(8);
+
+    /// <summary>Is this one of the rect-crop sprites (valid only with its cropped rect)?</summary>
+    internal static bool IsCropSprite(Sprite? sprite) =>
+        sprite != null && s_cropSpriteIds.Contains(sprite.GetInstanceID());
+
+    /// <summary>
+    /// The CROPPED punched replacement for <paramref name="source"/> (a GAME sprite — resolve
+    /// through <see cref="OriginalOf"/> first): the punched pixel slice cut down to the outline's
+    /// extent bbox, plus the exact face rect (<paramref name="targetFaceRect"/>) the caller must
+    /// shrink the layer's drawn rect to. Null with a stated <paramref name="refusal"/> when the
+    /// layer draws nothing outside the extent bbox (clean — keep the punched copy and today's
+    /// rect) or the crop was refused (latched, logged once with numbers). Never registered as a
+    /// generic replacement — see the round-10 block above.
+    /// </summary>
+    internal static Sprite? OutlineCroppedReplacementFor(Sprite source, in PunchMapping mapping,
+                                                         CardOutline outline, out Rect targetFaceRect,
+                                                         out string? refusal)
+    {
+        targetFaceRect = default;
+        refusal = null;
+        int id = source.GetInstanceID();
+        if (s_croppedBySource.TryGetValue(id, out Sprite? cachedSprite))
+        {
+            if (cachedSprite == null)
+            {
+                refusal = s_cropRefusalBySource.TryGetValue(id, out string r) ? r : "refused earlier";
+                return null;
+            }
+            targetFaceRect = s_croppedRectBySource[id];
+            return cachedSprite;
+        }
+
+        Sprite? made = null;
+        try
+        {
+            made = MintOutlineCropped(source, mapping, outline, out targetFaceRect, out refusal);
+        }
+        catch (System.Exception ex)
+        {
+            refusal = $"crop failed ({ex.GetType().Name}: {ex.Message})";
+            LogPunchSkip(source, refusal);
+        }
+        s_croppedBySource[id] = made;
+        if (made != null)
+        {
+            s_originalByReplacement[made.GetInstanceID()] = source; // full-restore contract
+            s_cropSpriteIds.Add(made.GetInstanceID());
+            s_croppedRectBySource[id] = targetFaceRect;
+        }
+        else
+        {
+            s_cropRefusalBySource[id] = refusal ?? "refused";
+        }
+        return made;
+    }
+
+    /// <summary>Build the cropped punched sprite — see the round-10 block above.</summary>
+    private static Sprite? MintOutlineCropped(Sprite source, in PunchMapping mapping,
+                                              CardOutline outline, out Rect targetFaceRect,
+                                              out string? refusal)
+    {
+        targetFaceRect = default;
+        // Content cache FIRST, on geometry alone — the pixel slice below is a multi-MB copy
+        // that must only ever be paid once per content (class-mates share one crop bake).
+        string? contentKey = ContentKeyOf(source, out refusal);
+        if (contentKey == null)
+            return null;
+        string key = $"{contentKey}|{outline.SourceKey}|{mapping.CacheKey}|crop";
+        if (s_croppedTexByKey.TryGetValue(key, out CropBake? knownBake))
+        {
+            if (knownBake == null)
+            {
+                refusal = s_punchVerdictByKey.TryGetValue(key, out string v) ? v : "refused earlier";
+                return null;
+            }
+            CropBake kb = knownBake.Value;
+            targetFaceRect = kb.TargetFaceRect;
+            return MakeCropSprite(source, kb);
+        }
+
+        Color32[]? slice = SlicePixelsFor(source, out int fullW, out int fullH, out _, out refusal);
+        if (slice == null)
+            return null;
+
+        // Keep range: pixel centers whose face position lies inside the outline's extent bbox,
+        // intersected with the layer's own drawn rect. MapU/MapV are monotone per axis.
+        Rect ext = outline.ExtentFace;
+        int x0 = 0;
+        while (x0 < fullW && mapping.MapU(x0 + 0.5f, fullW) < ext.xMin - 1e-4f)
+            x0++;
+        int x1 = fullW - 1;
+        while (x1 >= 0 && mapping.MapU(x1 + 0.5f, fullW) > ext.xMax + 1e-4f)
+            x1--;
+        int y0 = 0;
+        while (y0 < fullH && mapping.MapV(y0 + 0.5f, fullH) < ext.yMin - 1e-4f)
+            y0++;
+        int y1 = fullH - 1;
+        while (y1 >= 0 && mapping.MapV(y1 + 0.5f, fullH) > ext.yMax + 1e-4f)
+            y1--;
+        if (x1 < x0 || y1 < y0)
+        {
+            refusal = "the layer's drawn rect lies entirely outside the outline extent bbox — " +
+                      "not a face layer under this mapping";
+            s_croppedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = refusal;
+            LogPunchSkip(source, refusal);
+            return null;
+        }
+        int cropW = x1 - x0 + 1;
+        int cropH = y1 - y0 + 1;
+        if (x0 == 0 && y0 == 0 && cropW == fullW && cropH == fullH)
+        {
+            refusal = "draws nothing outside the outline extent bbox (clean — punched copy and " +
+                      "today's rect already suffice)";
+            s_croppedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = refusal;
+            return null;
+        }
+        if ((long)cropW * cropH < (long)fullW * fullH / 2)
+        {
+            refusal = $"implausible crop: only {cropW}x{cropH} of {fullW}x{fullH} px would remain " +
+                      "(under 50 %) — the mapping is wrong for a face layer, not the art";
+            s_croppedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = refusal;
+            LogPunchSkip(source, refusal);
+            return null;
+        }
+
+        long cost = MipChainBytes(cropW, cropH);
+        if (s_spriteBakeCount >= MaxSpriteBakes || !FitsVramBudget(cost, source.name + " (crop)"))
+        {
+            refusal = $"bake budget exhausted (~{s_bakedVramBytes / (1024f * 1024f):F0} MB of " +
+                      $"{MaxBakedVramBytes / (1024f * 1024f):F0} MB VRAM)";
+            s_croppedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = refusal;
+            LogPunchSkip(source, refusal);
+            return null;
+        }
+
+        // Erase outside the outline first (the crop keeps the bbox; inside it the same alpha-0
+        // punch applies), then cut the kept block into its own texture.
+        EraseOutsideOutline(slice, fullW, fullH, mapping, outline, out _, out int erased);
+        var cropped = new Color32[cropW * cropH];
+        for (int row = 0; row < cropH; row++)
+            System.Array.Copy(slice, (y0 + row) * fullW + x0, cropped, row * cropW, cropW);
+
+        // The EXACT face rect the kept pixel block's edges cover — the rect CardFaceCrop must
+        // shrink the layer to. Pixel EDGES, not centers: MapU(x0) is the left edge of pixel x0.
+        targetFaceRect = Rect.MinMaxRect(
+            mapping.MapU(x0, fullW), mapping.MapV(y0, fullH),
+            mapping.MapU(x1 + 1f, fullW), mapping.MapV(y1 + 1f, fullH));
+
+        // Sliced layers: shrink the borders by exactly what the crop removed, so every kept
+        // corner pixel keeps its drawn position. Zero borders stay zero.
+        Vector4 srcBorder = source.border;
+        var border = new Vector4(
+            Mathf.Max(0f, srcBorder.x - x0),
+            Mathf.Max(0f, srcBorder.y - y0),
+            Mathf.Max(0f, srcBorder.z - (fullW - 1 - x1)),
+            Mathf.Max(0f, srcBorder.w - (fullH - 1 - y1)));
+        if (border.x + border.z > cropW)
+            border.x = border.z = 0f;
+        if (border.y + border.w > cropH)
+            border.y = border.w = 0f;
+
+        var tex = new Texture2D(cropW, cropH, TextureFormat.RGBA32, mipChain: true, linear: false)
+        {
+            name = source.name + " (VR-mip-crop)",
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = BakedAnisoLevel,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        tex.SetPixels32(cropped);
+        tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+        s_spriteBakeCount++;
+        s_bakedVramBytes += cost;
+        var bake = new CropBake(tex, targetFaceRect, border, cropW, cropH);
+        s_croppedTexByKey[key] = bake;
+        VRLog.Info("Cards", $"CARD FRAME CROP bake: '{source.name}' {fullW}x{fullH} → {cropW}x{cropH} px " +
+                            $"(cut {x0}/{fullW - 1 - x1} px left/right, {y0}/{fullH - 1 - y1} px " +
+                            $"bottom/top; {erased} px inside the kept block additionally punched to " +
+                            $"alpha 0). Target drawn rect x {targetFaceRect.xMin:F3}..{targetFaceRect.xMax:F3}, " +
+                            $"y {targetFaceRect.yMin:F3}..{targetFaceRect.yMax:F3} of the face " +
+                            $"({(mapping.Sliced ? $"sliced, borders {srcBorder} → {border}" : "uniform")}). " +
+                            $"~{cost / (1024f * 1024f):F1} MB VRAM; budget {BudgetSummary}. Once the rect " +
+                            "shrinks to this target, NO rasterized geometry exists in the frame band — the " +
+                            "band is gone regardless of the card shader's alpha semantics.");
+        return MakeCropSprite(source, bake);
+    }
+
+    /// <summary>Sprite on a crop bake. ppu preserved (the sliced dest-border arithmetic depends
+    /// on it); pivot centered — uGUI's Simple/Sliced rendering never reads the sprite pivot, and
+    /// CardFaceCrop places the rect explicitly.</summary>
+    private static Sprite MakeCropSprite(Sprite source, in CropBake bake)
+    {
+        Sprite made = Sprite.Create(bake.Tex, new Rect(0f, 0f, bake.W, bake.H),
+            new Vector2(0.5f, 0.5f), source.pixelsPerUnit, 0, SpriteMeshType.FullRect, bake.Border);
+        made.name = source.name + " (VR-mip-cropped)";
+        return made;
     }
 
     /// <summary>
