@@ -7,10 +7,22 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <summary>
 /// BACKSTOP for the ModBuild 107 turn deadlock — the belt to <see cref="FigureBusy"/>'s braces.
 ///
-/// <para><see cref="FigureBusy"/> PREVENTS the hang (no figure can be held while the game is in a
-/// wait whose exit depends on a bar coroutine). This class REPAIRS one if it ever happens anyway,
-/// because the user's ruling is "sowas darf unter keinen Umständen passieren" and a defect that
-/// costs a whole session — everyone's session, in multiplayer — earns a second line of defence.</para>
+/// <para><see cref="FigureBusy"/> PREVENTS the hang: no figure can be PICKED UP while the game is
+/// in a wait whose exit depends on a bar coroutine (the grab gate, global clause included), and a
+/// figure already in the hand is returned through the normal release the moment the game depends
+/// on IT (the per-figure hold gate — since the 2026-08-11 hold ruling an idle held figure
+/// deliberately STAYS in the hand while other figures act, which is safe because the
+/// coroutine-killing deactivation edge only exists at grab time; see FigureBusy's deadlock-safety
+/// notes). This class REPAIRS a hang if it ever happens anyway, because the user's ruling is
+/// "sowas darf unter keinen Umständen passieren" and a defect that costs a whole session —
+/// everyone's session, in multiplayer — earns a second line of defence.</para>
+///
+/// <para>NOTE since the hold ruling: the "a figure was held during this wait" arming condition is
+/// now routinely true in healthy play (holding an idle mini through someone else's attack is the
+/// POINT of the change), so the effective trigger is the other half — a bar still latching
+/// FlowControlActive after 8 s of one stalled wait state. That combination still cannot occur in
+/// a healthy game (§"why it cannot misfire" below holds unchanged), it just means the arming
+/// condition is no longer rare on its own.</para>
 ///
 /// <para>WHAT IT WATCHES. The two choreographer states with no timeout (see
 /// <see cref="FigureBusy"/> for why only these two can hang):

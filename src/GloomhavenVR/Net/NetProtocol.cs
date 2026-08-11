@@ -416,7 +416,34 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 122;
+    public const ushort ModBuild = 123;
+    // Build 123: the seven-item hardware round after the border victory. No wire change.
+    //
+    // (1) MOUSE DEAD, HEAD CANNOT HOVER: the game's EventSystem pointer swept world-space UI
+    // with the head (parked virtual-mouse pixel through a moving head camera = a world ray);
+    // MouseWorldSurfaceCut postfixes EventSystem.RaycastAll and strips every game-pointer hit
+    // on world-space root canvases — only mod pointer ids (laser/poke/flat-screen) pass.
+    // (2) GRIP FALLS THROUGH a trigger-only highlight to the nearest GrabWithGrip target — the
+    // tray bar is grabbable beside a highlighted card (grip=bar, trigger=card).
+    // (3) MP SETTINGS consolidated in Avatar & Mehrspieler (SyncPeerFades moved).
+    // (4) SLIDER ROWS show the live formatted value (the '50/50' was the donor volume row's
+    // baked caption on a label whose rebind target died in a deferred Destroy).
+    // (5) DEPENDENT OPTIONS fold out under their parent (VROptionsTab.8.Dependencies —
+    // TurnMode/Flight/WorldGrab chains, BoardMoveMode=LimitedPitch -> tilt limits,
+    // RevealMode=tilt -> angles, StretchLimits -> Min/Max, Net/Enabled -> MP rows, section
+    // masters). (6) ELEVEN DIALS whose OFF breaks/deadlocks/blinds the game are REMOVED,
+    // features always on (PileViewer, ActivePile, WorldUI Master, FlatScreen(+AutoShow),
+    // UseBars, DoomPicker, DistributePanel, CatchAllModals, MenuPopupFloat, ManualScreenChord;
+    // the Seconds dial survives). None rode the wire.
+    // (7) HELD-FIGURE PERSISTENCE: the auto-release is PER-FIGURE now — a held idle figure
+    // stays in the hand whatever animates elsewhere ("egal was passiert"); it returns to the
+    // board only when ITS OWN bar/flow/wait/animator leaves idle — and via the normal 0.28 s
+    // release glide, never a snap (the instant-when-busy branch is gone; authoritative-move
+    // release stays instant by design). Grab gate unchanged (idle-only pickup); the skeleton
+    // deadlock cannot recur: the deactivation edge exists only at grab time, a flow cannot
+    // latch on a hidden bar, WaitingForPlayerIdle names its actor and releases that frame,
+    // and the 8 s watchdog stays as the last-resort net.
+    //
     // Build 122: the border saga CLOSED — bottom-edge fix, the great cleanup, tab wrapping.
     // No wire change.
     //

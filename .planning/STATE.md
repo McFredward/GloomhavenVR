@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 122`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 123`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,21 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 123** — the seven-item round after the border victory. MOUSE DEAD: game EventSystem
+  pointer swept world UI with the head; MouseWorldSurfaceCut strips game-pointer hits on
+  world-space root canvases at the shared source (EventSystem.RaycastAll postfix; mod pointer
+  ids pass). GRIP FALL-THROUGH: trigger-only highlight no longer eats the grip — nearest
+  GrabWithGrip target re-elected (tray bar beside a highlighted card). MENU: sliders show live
+  values (donor caption + deferred-Destroy rebind bug), dependency layer folds children under
+  parents (VROptionsTab.8), SyncPeerFades → Avatar & Mehrspieler. ELEVEN always-on dials removed
+  (danger audit: PileViewer, ActivePile, Master, FlatScreen+AutoShow, UseBars, DoomPicker,
+  DistributePanel, CatchAllModals, MenuPopupFloat, ManualScreenChord); three borderline
+  questions queued for the user (ForceMouseMode, ClickLatch, the two map-fix diagnostics).
+  HELD FIGURE: auto-release is PER-FIGURE (own bar/named wait/own turn/own animator leaves
+  idle — Choreographer.IdleStates vocabulary, same predicate as the grab gate), global flows no
+  longer end a hold, and every forced release takes the normal 0.28 s glide (instant-when-busy
+  branch removed; authoritative-move release stays instant). Deadlock-safety argument in
+  FigureBusy docs; watchdog stays.
 - **ModBuild 122** — the border saga CLOSED (user on 121: "Großer Erfolg!"). Bottom fix: the
   contour derived from the v5 footprint (punched pixels ∩ frame-era CardOutline bands) — body
   stopped higher than the stock art draws. Capture now stamps the STOCK art's own alpha only

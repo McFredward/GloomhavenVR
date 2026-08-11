@@ -314,25 +314,33 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 continue;
             if (grabbable.AuthoritativeCellChanged())
             {
+                // Deliberately INSTANT (no glide): the game already moved the figure to a NEW
+                // cell, and the glide's landing pose is the grab-time home — easing to a stale
+                // cell and snapping from there would be worse than the one-frame hand-off.
                 grabbable.Restore();
                 continue;
             }
 
-            // TURN-DEADLOCK GATE, second belt. FigureGrabbable.AllowsHand already refuses a busy
-            // figure, which makes ProximityGrabber.HealDeadHeld force-release it through the normal
-            // path — that is the primary route and it also cleans up the hand's grab state. This is
-            // here because the suppression the game hangs on lives in HeldFigures, not in the
-            // grabber: if the grabber ever fails to tick (mode policy, interactor disabled, a hand
-            // going untracked in the same frame) the actor must STILL leave HeldFigures, or
-            // ActorBars keeps its bar host deactivated and the choreographer's untimed wait keeps
-            // waiting. Restore() is idempotent, so the two paths cannot fight.
-            if (FigureBusy.IsBusy(grabbable.Actor, out string why))
-            {
-                grabbable.Restore();
-                VRLog.Info("FigureGrab",
-                    $"AUTO-RELEASE (turn-deadlock gate): handed a held figure back to the game — {why}. "
-                    + "Nothing of the mod's is holding its bar down any more.");
-            }
+            // HOLD GATE (user ruling 2026-08-11), second belt — PER-FIGURE, not global. The old
+            // code asked the grab-gate FigureBusy.IsBusy here, whose global unbounded-wait clause
+            // dumped a held idle figure the moment ANY attack resolved anywhere (every
+            // "AUTO-RELEASE (turn-deadlock gate)" line in the hardware log carries that global
+            // why-string). HoldMustEnd fires only when the game depends on THIS figure or the
+            // figure itself leaves idle — "Solange diese eine figure idle its soll sie auch in
+            // der Hand bleiben können, egal was passiert."
+            //
+            // FigureGrabbable.AllowsHand already refuses the holder on the same predicate, which
+            // makes ProximityGrabber.HealDeadHeld force-release it through the normal OnRelease
+            // path — that is the parallel route and it also cleans up the hand's grab state. This
+            // belt stays because the suppression the game could hang on lives in HeldFigures, not
+            // in the grabber: if the grabber ever fails to tick (mode policy, interactor disabled,
+            // a hand going untracked in the same frame) the actor must STILL leave HeldFigures —
+            // via the glide's landing now, 0.28 s, which is safe (no deactivation edge; see
+            // FigureBusy's deadlock-safety notes) — or ActorBars keeps its bar host deactivated.
+            // Both routes are glide-guarded and idempotent, so they cannot fight (OnRelease
+            // absorbs a release for a figure already gliding).
+            if (FigureBusy.HoldMustEnd(grabbable.Actor, out string why))
+                grabbable.AutoReleaseToBoard(why);
         }
     }
 
@@ -800,5 +808,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // Every hold just ended, so no stretch gesture can be live either — clear its state so a
         // re-enable (or the next scenario) starts with no captured hand.
         FigureStretch.Clear();
+        // The hold-gate's per-actor animator cache is a shortcut over these same adoptions —
+        // dropped with them, exactly like _figureInteractables above.
+        FigureBusy.ClearCache();
     }
 }

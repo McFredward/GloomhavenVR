@@ -369,19 +369,26 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// <c>FigureGrabDriver.ApplySuppression</c>). The far laser grab is untouched: it clears its
     /// own target's veto at the moment of the pluck.
     ///
-    /// <para>IT IS ALSO THE AUTO-RELEASE FOR THE TURN-DEADLOCK GATE. A figure that was picked up
-    /// while the game was idle can still BECOME load-bearing under the hand (an attack starts and
-    /// targets it). Refusing the holder here is not a new mechanism: <c>ProximityGrabber.HealDeadHeld</c>
-    /// already force-releases any hold whose target stops allowing its hand, through the normal
-    /// <see cref="OnRelease"/> path and with a Warn line. So the mini leaves the hand the same frame
-    /// the game starts depending on it, which is what stops <c>ActorBars</c>' host hide from killing
-    /// the bar coroutine that the choreographer's untimed wait is blocked on. See
-    /// <see cref="FigureBusy"/>.</para>
+    /// <para>IT IS ALSO THE AUTO-RELEASE FOR THE HOLD GATE — but with the PER-FIGURE predicate,
+    /// not the grab gate's. For the hand that currently HOLDS this figure the answer is
+    /// <c>!FigureBusy.HoldMustEnd</c>: the hold survives other figures' turns and attacks (user
+    /// ruling 2026-08-11, "Solange diese eine figure idle its soll sie auch in der Hand bleiben
+    /// können, egal was passiert") and is refused only when the game depends on THIS figure or the
+    /// figure itself leaves idle. Asking the grab-gate <see cref="FigureBusy.IsBusy"/> here — as
+    /// this method originally did — is exactly what dumped a held idle mini out of the hand the
+    /// moment any attack resolved anywhere: <c>ProximityGrabber.HealDeadHeld</c> force-releases any
+    /// hold whose target stops allowing its hand, through the normal <see cref="OnRelease"/> path.
+    /// That heal mechanism is unchanged and is precisely how the per-figure release reaches the
+    /// normal glide the ruling asks for. See <see cref="FigureBusy"/> for the predicate split.</para>
     /// </summary>
     public bool AllowsHand(VRHand hand)
-        => !NetHeldFigures.Owns(_actor)
-           && !FigureBusy.IsBusy(_actor)
-           && !(hand.Side == HandSide.Left ? _suppressLeft : _suppressRight);
+    {
+        if (_holder != null && ReferenceEquals(_holder, hand))
+            return !FigureBusy.HoldMustEnd(_actor);
+        return !NetHeldFigures.Owns(_actor)
+               && !FigureBusy.IsBusy(_actor)
+               && !(hand.Side == HandSide.Left ? _suppressLeft : _suppressRight);
+    }
 
     /// <summary>Driver hook: mark this figure suppressed (proximity loser) for a hand, or clear it.</summary>
     internal void SetProximitySuppressed(HandSide side, bool suppressed)
@@ -922,32 +929,46 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
-        // TURN-DEADLOCK GATE — a release forced because the game started depending on this figure
-        // does NOT glide. The glide deliberately keeps the actor in HeldFigures until it lands
-        // (that is what keeps the ghost and the net stream alive), and HeldFigures membership is
-        // exactly what makes ActorBars hide the actor's bar host — so a 0.28 s glide would leave
-        // 0.28 s in which the bar coroutine the choreographer is blocked on can still be killed.
-        // The instant path hands the actor back on THIS frame. It is the same instant restore the
-        // authoritative-cell auto-release already uses (FigureGrabDriver.AutoReleaseMovedFigures)
-        // and it is not the "popping" the project forbids: that rule governs what the mod ANIMATES,
-        // and this is a safety release whose whole value is that it takes no time. See FigureBusy.
-        if (FigureBusy.IsBusy(_actor, out string busyWhy))
-        {
-            Restore();
-            VRLog.Info("FigureGrab",
-                $"{hand.Side} released figure ({Describe()}) INSTANTLY (no glide) — {busyWhy}. "
-                + "The game regains this actor on this frame so nothing of the mod's can be holding "
-                + "its bar down while the choreographer waits on it.");
+        // The release may already have happened this frame: the driver's hold-gate auto-release
+        // (AutoReleaseToBoard) begins the glide, and ProximityGrabber.HealDeadHeld then delivers
+        // its own OnRelease for the same figure when it notices AllowsHand refusing. A gliding
+        // figure is already on its way home — nothing left to do, and falling through to the
+        // Restore below would CANCEL the glide into an instant snap.
+        if (_glideActive)
             return;
-        }
 
-        // GLIDE-BACK: instead of the instant restore, ease the mini from the hand back to its
-        // home pose (~0.28 s, ease-out). Falls back to the exact old instant path whenever a
-        // safe glide is impossible (dead root/parent, teardown mid-hold).
+        // Stale-hand hardening: an auto-release clears _holder, and the ex-holder's grabber may
+        // still deliver a trigger-up OnRelease afterwards — after the OTHER hand legitimately
+        // re-grabbed the mini. Acting on that stale release would tear down the new hand's hold.
+        // A release is only honoured from the hand that owns the hold (or when no hand does —
+        // the belt-path cleanups pass through Restore's idempotence below).
+        if (_holder != null && !ReferenceEquals(_holder, hand))
+            return;
+
+        // HOLD GATE (user ruling 2026-08-11): a release forced because the game started depending
+        // on this figure takes the SAME glide as a user release — "soll sie zurück aufs Feld
+        // gehen, aber auch mit der üblichen Animation als hätte der User sie losgelassen". This
+        // REPLACES the old instant-when-busy branch. Why the glide's 0.28 s of continued bar-hide
+        // is safe where the old comment feared it was not: the coroutine kill needs a
+        // DEACTIVATION EDGE, and the glide has none — the bar host has been inactive since the
+        // grab and stays inactive until the glide lands (SetActive(false) on an inactive host is
+        // a no-op), then is re-ACTIVATED, which kills nothing. A flow cannot be alive on the
+        // hidden host either (StartCoroutine refuses inactive hosts, so IsFlowActive cannot even
+        // latch — see the FigureBusy class doc, deadlock-safety §2). The only path that still
+        // restores instantly is the authoritative-cell release (the game already moved the figure
+        // elsewhere; gliding to the STALE home pose would be wrong) and the teardown/fallback
+        // paths below.
+        bool forced = FigureBusy.HoldMustEnd(_actor, out string forcedWhy);
+
+        // GLIDE-BACK: ease the mini from the hand back to its home pose (~0.28 s, ease-out).
+        // Falls back to the exact old instant path whenever a safe glide is impossible (dead
+        // root/parent, teardown mid-hold).
         if (TryBeginGlide())
         {
-            VRLog.Info("FigureGrab",
-                $"{hand.Side} released figure ({Describe()}) — gliding home ({GlideDurationSeconds:0.00}s).");
+            VRLog.Info("FigureGrab", forced
+                ? $"{hand.Side} released figure ({Describe()}) — game-forced ({forcedWhy}) — "
+                  + $"gliding home ({GlideDurationSeconds:0.00}s), the usual release glide."
+                : $"{hand.Side} released figure ({Describe()}) — gliding home ({GlideDurationSeconds:0.00}s).");
             return;
         }
         Restore();
@@ -1124,9 +1145,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
                 // board moved or rescaled during the hold — same reasoning as the glide's landing.
                 // This path changes the size in one frame, which is deliberate and is NOT the
                 // "popping" the project forbids: it is reached only by a SAFETY release whose whole
-                // value is that it takes no time (turn-deadlock gate, authoritative cell moved,
-                // teardown, config gate) or as TryBeginGlide's fallback when a glide is impossible
-                // at all (dead root/parent). The ordinary player release glides. See OnRelease.
+                // value is that it takes no time (authoritative cell moved, teardown, config gate)
+                // or as TryBeginGlide's fallback when a glide is impossible at all (dead
+                // root/parent). The ordinary player release glides, and since the 2026-08-11 hold
+                // ruling the game-forced hold-gate release glides too. See OnRelease.
                 t.localScale = _origLocalScale;
             }
             _attached = false;
@@ -1142,6 +1164,38 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             StatPanelSurface.ClearHeldFigure(_holder.Side, Character);
             _holder = null;
         }
+    }
+
+    /// <summary>
+    /// HOLD-GATE auto-release (user ruling 2026-08-11): send the held mini home because the game
+    /// now depends on it — its own animation started, a choreographer wait names it, or its own
+    /// action is being resolved (<see cref="FigureBusy.HoldMustEnd"/>). Takes the NORMAL release
+    /// glide ("mit der üblichen Animation als hätte der User sie losgelassen") via
+    /// <see cref="TryBeginGlide"/>, which also frees the hand and undocks the stat panel exactly
+    /// like a trigger-up release; falls back to the instant <see cref="Restore"/> only when a
+    /// glide is impossible at all (dead root/parent, teardown mid-hold). Called by
+    /// <c>FigureGrabDriver.AutoReleaseMovedFigures</c>; the ex-holder's ProximityGrabber notices
+    /// the ended hold on its next tick (AllowsHand/heal) and its follow-up OnRelease is absorbed
+    /// by the glide guard there. MULTIPLAYER: nothing new on the wire — the glide keeps the actor
+    /// in <see cref="HeldFigures"/> until it lands, so peers stream the same glide and the
+    /// held-slot clears on arrival, exactly as for a user release (their receive side then runs
+    /// its normal release path, RestoreHomeScale included).
+    /// </summary>
+    internal void AutoReleaseToBoard(string why)
+    {
+        HandSide? side = _holder != null ? _holder.Side : (HandSide?)null;
+        if (TryBeginGlide())
+        {
+            VRLog.Info("FigureGrab",
+                $"AUTO-RELEASE (hold gate{(side != null ? $", {side}" : string.Empty)}): {Describe()} "
+                + $"returned to the board — {why}. Gliding home ({GlideDurationSeconds:0.00}s), the "
+                + "usual release glide, as if the user had let go.");
+            return;
+        }
+        Restore();
+        VRLog.Info("FigureGrab",
+            $"AUTO-RELEASE (hold gate{(side != null ? $", {side}" : string.Empty)}): {Describe()} "
+            + $"returned to the board INSTANTLY (glide impossible — dead root/parent or teardown) — {why}.");
     }
 
     /// <summary>
