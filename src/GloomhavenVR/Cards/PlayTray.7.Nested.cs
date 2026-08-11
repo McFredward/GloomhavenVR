@@ -673,6 +673,7 @@ internal sealed partial class PlayTray
                     if (fb != null)
                     {
                         capMaterial = new Material(fb) { color = DisabledColor };
+                        CardMesh.ApplyEmissionFloor(capMaterial); // round 15: Standard is black in the dark scenes
                         capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                     }
                 }
@@ -755,6 +756,7 @@ internal sealed partial class PlayTray
                     if (shader != null)
                     {
                         capMaterial = new Material(shader) { color = DisabledColor };
+                        CardMesh.ApplyEmissionFloor(capMaterial); // round 15: Standard is black in the dark scenes
                         capCube.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                     }
                     capMeshRenderer = capCube.GetComponent<MeshRenderer>();
@@ -1146,6 +1148,11 @@ internal sealed partial class PlayTray
             if (_capWallMaterial != null)
                 _capWallMaterial.color = WorldUI.ButtonTuning.AssemblyColor(WallTint(top),
                     WorldUI.ButtonTuning.AssemblyPhase(k, WorldUI.ButtonTuning.CapPart.Wall));
+            // Round 15: keep the Standard-fallback emission floor tracking the animated tints
+            // (per-frame during the short assembly only; no-op on BoardLit — no _EmissionColor).
+            CardMesh.ApplyEmissionFloor(_capMaterial);
+            CardMesh.ApplyEmissionFloor(_capBevelMaterial);
+            CardMesh.ApplyEmissionFloor(_capWallMaterial);
         }
 
         /// <summary>
@@ -1235,19 +1242,31 @@ internal sealed partial class PlayTray
         /// </summary>
         private void SetCapColor(Color top)
         {
+            // Round 15: on the Standard-fallback cap (bundle without BoardLit) the emission floor
+            // is derived from the albedo tint, so every change-gated tint write re-syncs it
+            // (no-op on BoardLit, which has no _EmissionColor — see CardMesh.EmissionFloorFactor).
             if (_capMaterial != null && _capMaterial.color != top)
+            {
                 _capMaterial.color = top;
+                CardMesh.ApplyEmissionFloor(_capMaterial);
+            }
             if (_capBevelMaterial != null)
             {
                 Color bevel = BevelTint(top);
                 if (_capBevelMaterial.color != bevel)
+                {
                     _capBevelMaterial.color = bevel;
+                    CardMesh.ApplyEmissionFloor(_capBevelMaterial);
+                }
             }
             if (_capWallMaterial != null)
             {
                 Color wall = WallTint(top);
                 if (_capWallMaterial.color != wall)
+                {
                     _capWallMaterial.color = wall;
+                    CardMesh.ApplyEmissionFloor(_capWallMaterial);
+                }
             }
         }
 

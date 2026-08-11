@@ -572,13 +572,27 @@ internal sealed partial class PlayTray
         // Items 5/6: board-docked HUD widgets (round-readout plate, gear/follow-toggle
         // bodies) route to the bundled GloomhavenVR/Overlay shader, the ONLY one that
         // exposes _ZTest — so RenderOnTop's SetInt("_ZTest", Always) actually takes and
-        // the widget draws over the now-OPAQUE board. Everything else keeps Standard so it
-        // stays normally depth-tested. Overlay missing (bundle not updated) → fall back to
-        // Standard (widget may be occluded until the new bundle ships).
-        Shader? shader = overlay ? OverlayShader() : null;
+        // the widget draws over the now-OPAQUE board. Overlay missing (bundle not updated)
+        // → fall back to Standard (widget may be occluded until the new bundle ships).
+        //
+        // Round 15 (the LIGHTING hole, see CardMesh.EmissionFloorFactor): everything else
+        // now prefers the bundled BoardLit — these are the procedural fallback board's
+        // opaque quads/cubes (TrayBoard, TrayLip, the slot 'Frame'/'FrameInner' plates
+        // directly behind the seated cards, RestZone), and on the old Standard path they
+        // rendered albedo × light ≈ BLACK in the game's dark scenes, exactly like the card
+        // slab. BoardLit is the shader the real tray uses for precisely this reason (baked
+        // studio rig + ambient floor, no scene light needed) and these surfaces need no
+        // alpha clip, so option 1 of the round-15 fix applies cleanly. When BoardLit is
+        // absent the Standard fallback gets the same emission floor as the card slab
+        // (ApplyEmissionFloor no-ops on Overlay/Sprites, which are already unlit).
+        Shader? shader = overlay ? OverlayShader() : BoardLitShader();
         shader ??= Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse") ?? Shader.Find("Sprites/Default");
         if (shader != null)
-            renderer.sharedMaterial = new Material(shader) { color = color };
+        {
+            var m = new Material(shader) { color = color };
+            CardMesh.ApplyEmissionFloor(m);
+            renderer.sharedMaterial = m;
+        }
     }
 
     // ---- Overlay shader (items 5/6) --------------------------------------------------
@@ -749,6 +763,10 @@ internal sealed partial class PlayTray
             if (m.HasProperty("_MainTex")) m.SetTexture("_MainTex", _grainAlbedo);
             if (_grainNormal != null && m.HasProperty("_BumpMap")) m.SetTexture("_BumpMap", _grainNormal);
         }
+        // Round 15: when the bundle lacks BoardLit this material is the STANDARD fallback, which
+        // renders albedo × light ≈ black in the dark VR scenes — give it the same self-illumination
+        // floor as the card slab (no-op on BoardLit itself; see CardMesh.EmissionFloorFactor).
+        CardMesh.ApplyEmissionFloor(m);
         return m;
     }
 

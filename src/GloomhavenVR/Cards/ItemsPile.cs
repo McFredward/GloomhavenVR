@@ -4794,8 +4794,15 @@ internal sealed class ItemsPile
                 cube.transform.localPosition = new Vector3(0f, 0f, 0.0012f); // behind the face (+Z away from viewer)
                 Shader? backShader = Shader.Find("Standard") ?? Shader.Find("Sprites/Default");
                 if (backShader != null)
-                    cube.GetComponent<MeshRenderer>().sharedMaterial = new Material(backShader)
+                {
+                    var slabMat = new Material(backShader)
                         { color = realCard ? new Color(0.10f, 0.09f, 0.08f) : FaceColor(state) };
+                    // Round 15: Standard renders albedo × light and the VR scenes are dark, so
+                    // without a self-illumination floor this slab reads pure black regardless of
+                    // its tint (see CardMesh.EmissionFloorFactor). No-op on Sprites/Default.
+                    CardMesh.ApplyEmissionFloor(slabMat);
+                    cube.GetComponent<MeshRenderer>().sharedMaterial = slabMat;
+                }
                 Core.VRLayers.Apply(cube); // mod-owned backing on the mod layer (recursion-safe: no children)
             }
             if (!realCard)

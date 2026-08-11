@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 118`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 119`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,19 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 119** — border attempt 15: THE LIGHTING CONVICTION. Fourteen albedo/texture rounds
+  were invisible because the card slab renders through stock 'Standard' in DARK scenes — albedo
+  × ~0 light = black regardless of what we painted (karten4 band (4,4,3) ≈ 16 % of even the old
+  EdgeColor's lit value). BoardLit (the board's own ambient-floored shader) provably cannot clip
+  (bundle source: alpha hard-coded 1.0, no clip()) → fix is an EMISSION FLOOR
+  (CardMesh.ApplyEmissionFloor: _EmissionMap = own albedo, tint × 1.0) on the shared card-body
+  pairs + baked cutout textures; Net mirrors borrow the same instances → peers fixed free. Same
+  floor on every Standard near-card surface (fallback board BoardLit-first, ItemsPile slab,
+  PileViewer slabs, fallback caps). The 118 capture was BLIND (mask copied from game
+  ScenarioCamera which excludes mod layer 27) → now HeadCamera mask ∪ card-subtree layers,
+  centre-canary retry ~0, honest INSTRUMENT FAILURE verdict, and a mid-height RLE SCAN line
+  (width + face-x + RGB per run) in every CARD BAND PIXELS log. Known caveat: a stripped
+  _EMISSION shader variant would silently no-op — the scan line is the arbiter next run.
 - **ModBuild 118** — border attempt 14 (two convictions + the pixel instrument), mirror ghost
   hands, trigger-only cards. THE BORDER: 117's liner was RIGHT in kind, WRONG in units — sized
   off the BASE card box while the seated card renders at the live SlotOverlayScale dial (~1.7 on

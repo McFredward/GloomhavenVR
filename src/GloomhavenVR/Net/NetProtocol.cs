@@ -416,7 +416,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 118;
+    public const ushort ModBuild = 119;
+    // Build 119: the border's attempt FIFTEEN — the LIGHTING conviction. No wire change.
+    //
+    // WHY FOURTEEN COLOR/TEXTURE ROUNDS WERE INVISIBLE: the card slab renders through stock
+    // 'Standard', which multiplies albedo by incoming light — and the VR scenes are dark. The
+    // karten4 band measured (4,4,3), ~16 % of even the OLD near-black EdgeColor's lit value:
+    // every albedo change was multiplied by ~0 before reaching the eye. The board never had
+    // this problem because it ships its own 'GloomhavenVR/BoardLit' (ambient-floored) — but
+    // BoardLit hard-codes alpha 1.0 and has no clip(), so it cannot carry the silhouette
+    // cutout (bundle source read to prove it; a shader edit needs a bundle rebuild — declined
+    // scope). Fix: CardMesh.ApplyEmissionFloor — _EMISSION on, _EmissionMap = own albedo,
+    // _EmissionColor = tint x 1.0 (factor documented against BoardLit's ambient math) on the
+    // shared Ability/Item/Neutral pairs and both baked cutout textures; every Net mirror
+    // borrows these exact instances, so peers are fixed for free. Same floor applied to every
+    // other Standard-shaded near-card surface (procedural fallback board now BoardLit-first,
+    // ItemsPile fallback slab, PileViewer stack slabs, fallback button caps with tint
+    // re-syncs). AND THE INSTRUMENT IS HEALED: the 118 capture was blind because it copied
+    // Camera.main's mask (game ScenarioCamera, 0x700FFF17) which excludes the mod layer (27) —
+    // now the mod HeadCamera's mask unioned with the card subtree's actual layers,
+    // centre-as-canary retry with ~0, honest INSTRUMENT FAILURE verdict, plus a full
+    // mid-height RLE SCAN line (width + face-x + mean RGB per run) — the analysis that
+    // convicted the recess floor from screenshots, now automatic in every log. Caveat named
+    // in code: a stripped _EMISSION variant would no-op silently — the scan is the arbiter.
+    //
     // Build 118: the border's attempt FOURTEEN (two unit/color convictions + the pixel
     // instrument), the per-side mirror ghost hands, and trigger-only cards. No wire change.
     //

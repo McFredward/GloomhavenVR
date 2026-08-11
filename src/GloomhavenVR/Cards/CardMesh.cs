@@ -829,6 +829,90 @@ internal static class CardMesh
     private static readonly Color EdgeColor = new(0.42f, 0.33f, 0.23f);
 
     /// <summary>
+    /// ROUND 15 — THE LIGHTING FIX. USER VERDICT ON ModBuild 118, verbatim: "Immer noch die
+    /// schwarzen Kartenränder statt das outline der Karten selber als mesh grenze. Logs liegen."
+    ///
+    /// <para>WHY FOURTEEN ALBEDO ROUNDS CHANGED NOTHING. The slab pair renders through the stock
+    /// <c>Standard</c> shader (the 118 inventory logs the Backing at q2450 CUTOUT under shader
+    /// 'Standard'), and Standard's output is albedo × incoming light. The game's VR scenes are
+    /// dark / stripped of lighting — karten4.png (the 117 state) measures the band between fan
+    /// cards at (4,4,3), i.e. ~16 % of what even the OLD near-black EdgeColor (0.10,0.09,0.08 ≈
+    /// (26,23,20)) would read under ordinary light. A Standard surface with no light reaching it
+    /// renders near-black REGARDLESS of its albedo, so every albedo/texture change on the slab —
+    /// including 118's warm-umber retint — was multiplied by ~0 before it reached the eye. The
+    /// mod already solved this exact hole for the board furniture with the bundled
+    /// <c>GloomhavenVR/BoardLit</c> shader (baked studio rig + ambient floor, "works in the
+    /// unlit scenes"), which is why the tray/liner/keycaps render visibly warm in the very same
+    /// scenes the card edge went black in.</para>
+    ///
+    /// <para>WHY NOT SIMPLY MOVE THE SLAB TO BoardLit. The silhouette clip NEEDS alpha-cutout,
+    /// and BoardLit cannot clip: its source (unity/.../Table/BoardLit.shader) has no
+    /// <c>_Cutoff</c>, no <c>clip()</c>, and hard-codes its output alpha to 1.0. Changing the
+    /// bundled shader means a bundle rebuild, which is out of scope for this lane. So the slab
+    /// KEEPS Standard/Cutout (the clip machinery is untouched) and gets a SELF-ILLUMINATION
+    /// FLOOR instead: <c>_EmissionMap</c> = the material's own albedo texture and
+    /// <c>_EmissionColor</c> = the albedo tint × this factor, so the fragment output is
+    /// albedo × light + albedo × factor — in a black scene the surface reads exactly its
+    /// authored albedo × factor, and the alpha clip still discards outside the outline
+    /// (emission is a shading term of SURVIVING fragments only).</para>
+    ///
+    /// <para>FACTOR CHOICE = 1.0, calibrated against the BoardLit tray the cards sit on. BoardLit
+    /// shades a viewer-facing surface at <c>_Ambient</c> (0.5) + key/fill ≈ 1.0..1.4 × albedo, so
+    /// the tray liner (0.46,0.37,0.26, luma 0.38) reads at roughly its authored luma — the
+    /// "keycap grain ≈ luma 0.38 visible" reference brightness. Factor 1.0 puts the card edge
+    /// (EdgeColor luma 0.35) in exactly that family. The only over-brightness risk is a scene
+    /// with REAL light adding on top; karten4 measures that residual at ≈ 0.16 × albedo, so the
+    /// worst case is ≈ 1.16 × authored albedo — still wood, nowhere near blown out.</para>
+    ///
+    /// <para>REACH. Applied inside the shared-material factories and re-synced in
+    /// <see cref="ConfigureCutout"/>, so it covers by construction: the Ability/Item pairs (fan,
+    /// tray, held, piles), the Neutral legacy pair (peer mirrors <c>Net/RemoteHandFan</c>,
+    /// <c>RemoteItemFan</c>, <c>RemoteBrowserFan</c>, <c>RemoteCardFx</c>, <c>RemoteAvatar</c>,
+    /// the avatar mirror, the burn-fallback slab — all of which borrow THESE material instances),
+    /// and both baked Edge/Back cutout textures the moment a silhouette lands.
+    /// <c>Net/RemoteBoardCard</c> needs nothing: its quad is <c>Sprites/Default</c> (unlit by
+    /// construction, no hole). KNOWN RESIDUAL RISK, stated rather than hidden: if the game build
+    /// stripped the Standard shader's <c>_EMISSION</c> variant, EnableKeyword silently falls back
+    /// to the emission-less variant and the edge stays lighting-dependent — the CARD BAND PIXELS
+    /// scan line (round 15's other half) measures the composed result either way, so the next log
+    /// decides that instead of another deduction.</para>
+    /// </summary>
+    private const float EmissionFloorFactor = 1.0f;
+
+    /// <summary>
+    /// Give a Standard-shaded material the self-illumination floor described at
+    /// <see cref="EmissionFloorFactor"/>: emission = current albedo (texture × tint) × factor,
+    /// derived from the material's CURRENT <c>mainTexture</c>/<c>color</c> — so call it again
+    /// after changing either (idempotent; re-syncs). No-ops on materials without
+    /// <c>_EmissionColor</c> (BoardLit, Sprites/Default, Overlay — the unlit/self-lit families
+    /// have no hole to floor). Logs once per material, on first application.
+    /// </summary>
+    internal static void ApplyEmissionFloor(Material? m)
+    {
+        if (m == null || m.shader == null || !m.HasProperty("_EmissionColor"))
+            return;
+        bool first = !m.IsKeywordEnabled("_EMISSION");
+        m.EnableKeyword("_EMISSION");
+        // Pure realtime shading term: no GI participation (and never EmissiveIsBlack, which is
+        // the flag Unity's material editor uses to mean "treat emission as absent").
+        m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+        if (m.HasProperty("_EmissionMap"))
+            m.SetTexture("_EmissionMap", m.mainTexture); // null → white → emission = tint alone
+        Color tint = m.HasProperty("_Color") ? m.color : Color.white;
+        m.SetColor("_EmissionColor", tint * EmissionFloorFactor);
+        if (first)
+        {
+            VRLog.Info("Cards", $"CARD EMISSION FLOOR: '{m.name}' (shader '{m.shader.name}') now " +
+                                $"self-illuminates at albedo × {EmissionFloorFactor:F2} (_EmissionMap = its own " +
+                                $"albedo texture{(m.mainTexture != null ? $" '{m.mainTexture.name}'" : " (none → tint only)")}, " +
+                                $"_EmissionColor {tint * EmissionFloorFactor}) — Standard renders albedo × light and " +
+                                "the VR scenes are dark, which is why 14 rounds of albedo changes on this surface " +
+                                "were invisible (karten4: band (4,4,3) ≈ unlit). If this build's Standard lacks the " +
+                                "_EMISSION variant this is a silent no-op — the CARD BAND PIXELS scan decides.");
+        }
+    }
+
+    /// <summary>
     /// Dark neutral for the front (hidden behind the live face) and the rim edge, for the
     /// LEGACY <see cref="CardBodyKind.Neutral"/> pair — never alpha-clipped. Every call
     /// site that existed before the two-shape silhouette work still lands here and is
@@ -851,6 +935,7 @@ internal static class CardMesh
             m = NewMaterial();
             m.color = EdgeColor;
             m.name = $"GloomhavenVR.CardEdge.{kind}";
+            ApplyEmissionFloor(m); // round 15: dark scenes — see EmissionFloorFactor
             _edgeMaterials[i] = m;
         }
         // THE FIRST DRAWN PIXEL IS ALREADY RIGHT (2026-08-11: "Der Prozess der 'Ausblendung' soll
@@ -880,6 +965,7 @@ internal static class CardMesh
             m.color = Color.white;
             m.mainTexture = GetBackTexture();
             m.name = $"GloomhavenVR.CardBack.{kind}";
+            ApplyEmissionFloor(m); // round 15: dark scenes — see EmissionFloorFactor
             _backMaterials[i] = m;
         }
         EnsureSilhouetteCacheLoaded(kind); // see CreateEdgeMaterial — same choke point, same reason
@@ -1415,6 +1501,10 @@ internal static class CardMesh
         m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
         m.SetFloat("_Cutoff", 0.5f);
         m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
+        // Round 15: mainTexture and color just changed, so re-derive the self-illumination
+        // floor from them — the baked cutout texture's RGB is what must read in the dark
+        // scenes (see EmissionFloorFactor; surviving fragments only, the clip is unaffected).
+        ApplyEmissionFloor(m);
     }
 
     private static Material NewMaterial()

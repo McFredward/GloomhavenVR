@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -52,6 +53,32 @@ namespace GloomhavenVR.Cards;
 /// change-gated re-arms, ≤ 10 per session in total). Full try/catch/finally: the temporary RT is
 /// released, the readback texture and camera destroyed, on every path. No live material, layer
 /// or renderer is touched — the scene renders once more from one extra viewpoint, that is all.</para>
+///
+/// <para>ROUND 15 — THE INSTRUMENT WAS BLIND, AND SAID SO IN THE WRONG SENTENCE. User verdict on
+/// ModBuild 118, verbatim: "Immer noch die schwarzen Kartenränder statt das outline der Karten
+/// selber als mesh grenze. Logs liegen." In that log EVERY sample of EVERY capture — including
+/// the card centre — hit the clear sentinel: the probe rendered nothing at all. Root cause, read
+/// straight from the line itself: <c>cull = 'ScenarioCamera' mask 0x700FFF17</c>. The mask was
+/// copied from <c>Camera.main</c> (the GAME's scenario camera), but the cards are mod-owned
+/// visuals on the mod layer (that run: layer 27, mask 0x08000000 — "Mod layer resolved: 27"),
+/// which is NOT in 0x700FFF17; the mod's own <c>GloomhavenVR.HeadCamera</c> is the camera that
+/// actually renders them (it ORs <c>VRLayers.ModLayerMask</c> into its mask). So the probe
+/// culled the card, the slab, the liner AND the backdrop, cleared to magenta, and then the
+/// verdict path still printed "centre is bright art as expected" — a self-contradiction on a
+/// sentinel centre. Three fixes, all here:</para>
+/// <list type="number">
+/// <item>MASK: taken from <c>Rig.VRRigDriver.HeadCamera</c> (the camera that provably renders
+///   the cards), UNIONED with every layer actually present under the card's own subtree (walked,
+///   not assumed) — so neither a future layer policy change nor an adopted game canvas on a
+///   game layer can blind the probe again.</item>
+/// <item>RETRY + LOUD FAILURE: if the centre still reads the sentinel after the first render,
+///   one retry with <c>cullingMask = ~0</c>; if STILL sentinel, a Warn with the camera's
+///   position/rotation/mask/planes and a census of every layer under the card root — and the
+///   verdict states the instrument failed instead of acquitting the scene.</item>
+/// <item>SCAN LINE: one horizontal scan across the full framed width at card mid-height,
+///   run-length-encoded into quantized colour bands (max ~15 runs) — the exact analysis that
+///   cracked the karten screenshots offline (colour runs with widths), now in every log.</item>
+/// </list>
 /// </summary>
 internal static class CardBandPixelCapture
 {
@@ -100,8 +127,22 @@ internal static class CardBandPixelCapture
 
             // The module convention is +Z away from the viewer, so the viewer side is −forward.
             Vector3 normal = faceRoot.forward;
-            Camera? eye = Camera.main;
-            int cullingMask = eye != null ? eye.cullingMask : ~0;
+
+            // ROUND 15 MASK FIX (see the class header): the mod's OWN head camera is the one that
+            // renders the cards — Camera.main is the game's ScenarioCamera, whose mask excludes
+            // the mod layer and blinded every 118 capture. Belt and braces: union the head mask
+            // with every layer actually present under the card's own subtree, so the probe sees
+            // whatever the card is made of even if a layer policy changes underneath it.
+            Camera? eye = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
+            Transform subtreeRoot = faceRoot;
+            for (int up = 0; up < 3 && subtreeRoot.parent != null; up++)
+                subtreeRoot = subtreeRoot.parent;
+            var layerCensus = new Dictionary<int, int>();
+            CountLayers(subtreeRoot, layerCensus);
+            int subtreeMask = 0;
+            foreach (KeyValuePair<int, int> kv in layerCensus)
+                subtreeMask |= 1 << kv.Key;
+            int cullingMask = (eye != null ? eye.cullingMask : ~0) | subtreeMask;
 
             camGo = new GameObject("GloomhavenVR.CardBandPixelProbe");
             var cam = camGo.AddComponent<Camera>();
@@ -122,17 +163,26 @@ internal static class CardBandPixelCapture
 
             int rtWidth = Mathf.Clamp(Mathf.RoundToInt(RtHeight * (faceWWorld / faceHWorld)), 32, 512);
             rt = RenderTexture.GetTemporary(rtWidth, RtHeight, 24, RenderTextureFormat.ARGB32);
+            // Target BEFORE Render() (XR discipline — stereoTargetEye is already None above, so
+            // this manual Render() is a plain mono offscreen pass regardless of the HMD state).
             cam.targetTexture = rt;
-            cam.Render();
-
-            prevActive = RenderTexture.active;
-            RenderTexture.active = rt;
             readback = new Texture2D(rtWidth, RtHeight, TextureFormat.RGBA32, mipChain: false);
-            readback.ReadPixels(new Rect(0, 0, rtWidth, RtHeight), 0, 0, recalculateMipMaps: false);
-            readback.Apply(updateMipmaps: false);
-            RenderTexture.active = prevActive;
-            prevActive = null;
-            Color32[] pixels = readback.GetPixels32();
+            RenderTexture rtLocal = rt;       // non-nullable views for the local function below
+            Texture2D readbackLocal = readback;
+
+            Color32[] RenderAndRead()
+            {
+                cam.Render();
+                prevActive = RenderTexture.active;
+                RenderTexture.active = rtLocal;
+                readbackLocal.ReadPixels(new Rect(0, 0, rtWidth, RtHeight), 0, 0, recalculateMipMaps: false);
+                readbackLocal.Apply(updateMipmaps: false);
+                RenderTexture.active = prevActive;
+                prevActive = null;
+                return readbackLocal.GetPixels32();
+            }
+
+            Color32[] pixels = RenderAndRead();
 
             // ---- sample the strips and controls -------------------------------------------
             // Face-normalized (nx, ny) → world → probe screen px, via the camera itself so no
@@ -171,13 +221,47 @@ internal static class CardBandPixelCapture
                 return pts;
             }
 
+            // ROUND 15 HARDENING: the centre is the canary — a card face is ALWAYS rendered
+            // geometry, so a sentinel centre means the INSTRUMENT failed, not the scene. Retry
+            // once with an everything mask; if still blind, log the full camera state + layer
+            // census loudly and let the verdict say "instrument", never "scene".
+            Vector4 centre = MeanOf(new[] { (0.5f, 0.5f) });
+            bool retriedWideOpen = false;
+            bool centreSentinel = IsSentinel(centre);
+            if (centreSentinel)
+            {
+                retriedWideOpen = true;
+                cam.cullingMask = ~0;
+                pixels = RenderAndRead();
+                centre = MeanOf(new[] { (0.5f, 0.5f) });
+                centreSentinel = IsSentinel(centre);
+                if (centreSentinel)
+                {
+                    VRLog.Warn("Cards", $"CARD BAND PIXELS ({context}): PROBE BLIND — the card centre still " +
+                                        "reads the clear sentinel even with cullingMask ~0 (retry). Camera state: " +
+                                        $"pos {cam.transform.position}, rot {cam.transform.rotation.eulerAngles}, " +
+                                        $"ortho size {cam.orthographicSize:F4}, near {cam.nearClipPlane:F3}, far " +
+                                        $"{cam.farClipPlane:F3}, first-pass mask 0x{cullingMask:X8} (head " +
+                                        $"'{(eye != null ? eye.name : "none")}'), RT {rtWidth}x{RtHeight}. Layers " +
+                                        $"under card root '{subtreeRoot.name}': {CensusText(layerCensus)}. The " +
+                                        "failure is in the instrument (camera pose/planes or an XR render-path " +
+                                        "interaction), NOT evidence about the band.");
+                }
+            }
+
             Vector4 top = MeanOf(Strip(horizontal: true, at: 1f - bandT * 0.5f));
             Vector4 bottom = MeanOf(Strip(horizontal: true, at: bandB * 0.5f));
             Vector4 left = MeanOf(Strip(horizontal: false, at: bandL * 0.5f));
             Vector4 right = MeanOf(Strip(horizontal: false, at: 1f - bandR * 0.5f));
-            Vector4 centre = MeanOf(new[] { (0.5f, 0.5f) });
             Vector4 outsideLeft = MeanOf(new[] { (-0.15f, 0.5f) });
             Vector4 outsideBelow = MeanOf(new[] { (0.5f, -0.15f) });
+
+            // ROUND 15 SCAN LINE: the full framed width at card mid-height, RLE'd into quantized
+            // colour bands — the offline PIL analysis of the karten screenshots, reproduced in-log.
+            Vector3 midWorld = faceRoot.TransformPoint(
+                new Vector3(faceRect.center.x, faceRect.center.y, 0f));
+            int scanRow = Mathf.Clamp(Mathf.RoundToInt(cam.WorldToScreenPoint(midWorld).y), 0, RtHeight - 1);
+            string scan = ScanLine(pixels, scanRow, rtWidth);
 
             // ---- classify and log ----------------------------------------------------------
             var sb = new StringBuilder(768);
@@ -195,7 +279,7 @@ internal static class CardBandPixelCapture
             Append("outside-left(+15 %)", outsideLeft);
             Append("outside-below(+15 %)", outsideBelow);
 
-            string verdict = Verdict(top, bottom, left, right, centre);
+            string verdict = Verdict(top, bottom, left, right, centre, centreSentinel);
             string limitation = sawSentinel
                 ? " LIMITATION: at least one sample hit the probe's clear sentinel — nothing in the "
                   + "scene renders there. Under MR passthrough the compositor backs such pixels with "
@@ -205,9 +289,13 @@ internal static class CardBandPixelCapture
             VRLog.Info("Cards", $"CARD BAND PIXELS ({context}, {reason}): in-situ readback from a probe " +
                                 $"camera {ProbeDistance:F2} m out on the face normal (ortho, frame = face " +
                                 $"+{Margin:P0}/side, RT {rtWidth}x{RtHeight}, cull = " +
-                                (eye != null ? $"'{eye.name}' mask 0x{cullingMask:X}" : "everything") +
+                                (eye != null ? $"head '{eye.name}' mask ∪ card-subtree layers = 0x{cullingMask:X8}"
+                                             : $"everything ∪ card-subtree layers = 0x{cullingMask:X8}") +
+                                $", card-subtree layers {CensusText(layerCensus)}" +
+                                (retriedWideOpen ? ", RETRIED wide-open ~0 after a sentinel centre" : string.Empty) +
                                 "). Mean RGBA per mid-band strip and control — " + sb +
-                                $"VERDICT: {verdict}.{limitation}");
+                                $"SCAN mid-height (row {scanRow}, {rtWidth} px, L→R across frame incl. " +
+                                $"±{Margin:P0} margins): {scan}. VERDICT: {verdict}.{limitation}");
         }
         catch (System.Exception ex)
         {
@@ -236,6 +324,82 @@ internal static class CardBandPixelCapture
         }
     }
 
+    /// <summary>Is this mean the probe's own clear colour, i.e. "nothing rendered here"?</summary>
+    private static bool IsSentinel(Vector4 mean) => mean.x > 235f && mean.z > 235f && mean.y < 24f;
+
+    /// <summary>Count renderer layers in a subtree (transform count per layer, root included).</summary>
+    private static void CountLayers(Transform root, Dictionary<int, int> census)
+    {
+        census.TryGetValue(root.gameObject.layer, out int n);
+        census[root.gameObject.layer] = n + 1;
+        for (int i = 0; i < root.childCount; i++)
+            CountLayers(root.GetChild(i), census);
+    }
+
+    /// <summary>Human-readable layer census: "27 'ModLayer'×42, 5 'UI'×12".</summary>
+    private static string CensusText(Dictionary<int, int> census)
+    {
+        var sb = new StringBuilder(96);
+        foreach (KeyValuePair<int, int> kv in census)
+        {
+            if (sb.Length > 0)
+                sb.Append(", ");
+            string name = LayerMask.LayerToName(kv.Key);
+            sb.Append(kv.Key).Append(string.IsNullOrEmpty(name) ? "" : $" '{name}'").Append('x').Append(kv.Value);
+        }
+        return sb.Length > 0 ? sb.ToString() : "none";
+    }
+
+    /// <summary>
+    /// ROUND 15: run-length-encode one RT row into quantized colour bands — "colour runs with
+    /// widths", the offline screenshot analysis that actually cracked the band, reproduced
+    /// in-log. Quantization starts at ±16 per channel and coarsens (32, 64, 128) until the row
+    /// fits in <= 15 runs; a row that still exceeds that is truncated with an explicit "+N more".
+    /// Each run logs its pixel width, its start position in FACE-normalized x (0 = card left
+    /// edge, 1 = card right edge — the frame extends −0.25..1.25), and its mean RGB.
+    /// </summary>
+    private static string ScanLine(Color32[] pixels, int row, int rtWidth)
+    {
+        List<(int Start, int Len, long R, long G, long B)> runs = null!;
+        for (int quant = 16; ; quant <<= 1)
+        {
+            runs = new List<(int, int, long, long, long)>();
+            int keyR = -1, keyG = -1, keyB = -1;
+            for (int x = 0; x < rtWidth; x++)
+            {
+                Color32 c = pixels[row * rtWidth + x];
+                int qr = c.r / quant, qg = c.g / quant, qb = c.b / quant;
+                if (runs.Count > 0 && qr == keyR && qg == keyG && qb == keyB)
+                {
+                    (int s, int len, long r, long g, long b) = runs[runs.Count - 1];
+                    runs[runs.Count - 1] = (s, len + 1, r + c.r, g + c.g, b + c.b);
+                }
+                else
+                {
+                    runs.Add((x, 1, c.r, c.g, c.b));
+                    keyR = qr; keyG = qg; keyB = qb;
+                }
+            }
+            if (runs.Count <= 15 || quant >= 128)
+                break;
+        }
+        var sb = new StringBuilder(512);
+        int shown = Mathf.Min(runs.Count, 15);
+        for (int i = 0; i < shown; i++)
+        {
+            (int start, int len, long r, long g, long b) = runs[i];
+            // px → face-normalized x: the RT spans −Margin .. 1+Margin of the face.
+            float nx = (float)start / rtWidth * (1f + 2f * Margin) - Margin;
+            if (i > 0)
+                sb.Append(" | ");
+            sb.Append(len).Append("px@x").Append(nx.ToString("F2"))
+              .Append('(').Append(r / len).Append(',').Append(g / len).Append(',').Append(b / len).Append(')');
+        }
+        if (runs.Count > shown)
+            sb.Append(" | +").Append(runs.Count - shown).Append(" more runs");
+        return sb.ToString();
+    }
+
     /// <summary>One sample mean against the known band signatures (RGBA in 0..255).</summary>
     private static string Classify(Vector4 mean, ref bool sawSentinel)
     {
@@ -260,13 +424,30 @@ internal static class CardBandPixelCapture
         return "BRIGHT — card art";
     }
 
-    /// <summary>The verdict clause: which strips are dark, and what family that convicts.</summary>
+    /// <summary>
+    /// The verdict clause: which strips are dark, and what family that convicts. ROUND 15: a
+    /// sentinel centre now voids the whole verdict — the 118 log shipped "centre is bright art
+    /// as expected" over a magenta centre, which is the one sentence an instrument must never
+    /// say about its own failure.
+    /// </summary>
     private static string Verdict(Vector4 top, Vector4 bottom, Vector4 left, Vector4 right,
-                                  Vector4 centre)
+                                  Vector4 centre, bool centreSentinel)
     {
+        if (centreSentinel)
+        {
+            return "INSTRUMENT FAILURE — the card centre hit the clear sentinel even after the " +
+                   "wide-open retry, so this capture rendered nothing and proves nothing about " +
+                   "the band; see the PROBE BLIND warning above for the camera state";
+        }
         var dark = new StringBuilder(128);
+        int sentinelStrips = 0;
         void Check(string name, Vector4 mean)
         {
+            if (IsSentinel(mean))
+            {
+                sentinelStrips++;
+                return; // a sentinel strip is "nothing rendered", not a dark painter
+            }
             float luma = mean.x * 0.299f + mean.y * 0.587f + mean.z * 0.114f;
             if (luma > 48f)
                 return;
@@ -282,8 +463,13 @@ internal static class CardBandPixelCapture
         string centreNote = centreLuma > 96f
             ? "centre is bright art as expected"
             : $"centre is DARK too (luma {centreLuma:F0}) — the whole face is dark, judge the art first";
+        if (sentinelStrips == 4)
+            return $"all four band strips hit the clear sentinel — nothing renders in the band " +
+                   $"region from this viewpoint (MR passthrough shows the room there); {centreNote}";
         if (dark.Length == 0)
-            return $"no near-black band strip in the probe's view; {centreNote}";
+            return $"no near-black band strip in the probe's view" +
+                   (sentinelStrips > 0 ? $" ({sentinelStrips} strip(s) sentinel — unrendered)" : string.Empty) +
+                   $"; {centreNote}";
         return $"NEAR-BLACK band strip(s): {dark} — a COOL strip is the PRINT (an unpunched or " +
                "incompletely punched face layer; since round 14 the slab rim is warm umber and can " +
                "no longer read near-black), a WARM strip is the recess floor showing through " +

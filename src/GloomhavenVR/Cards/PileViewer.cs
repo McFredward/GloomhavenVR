@@ -759,6 +759,10 @@ internal sealed class PileViewer
                     {
                         color = top ? color : Color.Lerp(color, Color.black, 0.45f),
                     };
+                    // Round 15: pile slabs are Standard-shaded card-adjacent surfaces, so in
+                    // the dark VR scenes they rendered albedo × light ≈ black regardless of
+                    // tint (see CardMesh.EmissionFloorFactor). No-op on Sprites/Default.
+                    CardMesh.ApplyEmissionFloor(material);
                     renderer.sharedMaterial = material;
                     if (top)
                         topMaterial = material;
@@ -828,7 +832,12 @@ internal sealed class PileViewer
             {
                 Color color = _hasCards ? _baseColor : Color.Lerp(_baseColor, Color.gray, 0.7f);
                 if (_topMaterial.color != color)
+                {
                     _topMaterial.color = color;
+                    // Round 15: the emission floor is derived from the albedo tint, so a tint
+                    // change must re-sync it (change-gated with the color write; idempotent).
+                    CardMesh.ApplyEmissionFloor(_topMaterial);
+                }
             }
         }
 
