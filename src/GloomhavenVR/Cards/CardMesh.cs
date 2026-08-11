@@ -1147,8 +1147,18 @@ internal static class CardMesh
     /// mid-session (that re-shape IS the visible transition the user rejected), so a stale v2 file
     /// would have shipped round six's behaviour under a round-seven build. Cost: exactly one cold
     /// start per shape, which is the documented first-run behaviour.</para>
+    ///
+    /// <para>v3 → v4 (round 8): the face's art is now frame-PUNCHED before the capture samples it
+    /// (<c>CardFaceMipBake</c>'s frame punch erases the printed near-black frame from the mod-owned
+    /// sprite copies, and <c>CardFace</c> stamps the footprint FROM those punched sprites), so a v4
+    /// mask is transparent under the frame band. A v3 mask still calls that band "card" — its peel
+    /// hit its depth cap in both measured runs, so the band is only partially out — and applying it
+    /// under a punching build would make the MESH paint its dark front exactly where the face just
+    /// stopped painting: the reported band, re-created by the fix itself. Mesh and face must come
+    /// from ONE measurement, and for the cached path this bump is what enforces it. Cost: one cold
+    /// start per shape, as before.</para>
     /// </summary>
-    private const byte CacheVersion = 3;
+    private const byte CacheVersion = 4;
 
     private static string CacheFilePath(CardBodyKind kind) => System.IO.Path.Combine(
         BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}.bin");

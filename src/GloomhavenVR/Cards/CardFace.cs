@@ -645,6 +645,16 @@ internal sealed class CardFace
     // clip has bounded whatever else was painting it; clip REFUSED means the face cannot be
     // stencilled from above its own Canvas on this build and says so in one line rather than
     // pretending.
+    //
+    // ROUND 8: THE FRAME IS NOW REMOVED UPSTREAM. The peel twice measured the ring AT ITS CAP
+    // (ModBuild 110: depth 11 of 11; ModBuild 111: depth 18 of 18, mean luma 22) — proof the frame
+    // is real and thicker than every guessed cap. The cure moved to the SOURCE: CardFaceMipBake's
+    // FRAME PUNCH erases those pixels from the mod-owned sprite copies the face renders, with a
+    // LEARNED depth, and the capture samples the punched sprites — so this peel now runs on art
+    // that should already be frameless. It stays as the backstop and the falsifier: "0 texel(s)"
+    // here together with a successful CARD FRAME PUNCH line means the punch removed the frame and
+    // the footprint agrees with it; a large peel here means a face-spanning sprite ESCAPED the
+    // punch (its gate/refusal line says why).
 
     /// <summary>
     /// Maximum Rec.601 luminance (0..255) an OPAQUE boundary texel may have and still be peeled as
@@ -793,6 +803,153 @@ internal sealed class CardFace
         return peeled.Count;
     }
 
+    // ------------------------------------------------- frame punch sweep (round 8) --
+
+    /// <summary>
+    /// The face-side driver of the FRAME PUNCH (mechanism and pixel criteria in
+    /// <c>CardFaceMipBake</c>'s frame-punch block; this class only decides WHICH sprites are a
+    /// card face layer and re-points the face's Images at their punched copies).
+    ///
+    /// <para>THE GATE, stated: an <c>Image</c> qualifies iff it is drawn
+    /// (<c>enabled &amp;&amp; activeSelf</c>), is <c>Image.Type.Simple</c> (only those map their
+    /// sprite 1:1 onto their rect), carries a sprite, and its DRAWN rect
+    /// (<see cref="DrawnLocalRect"/> — the round-7 letterbox correction) spans at least
+    /// <see cref="MinOutlineCoverage"/> of THIS face's rect. That is the same
+    /// "what defines the outline must demonstrably span the card" gate the capture uses, evaluated
+    /// against each face's OWN rect — the item face measures against the item card, the ability
+    /// face against the ability card, no constant shared between them. An icon, a button, a
+    /// portrait can never pass it, so no sub-face sprite is ever eroded.</para>
+    ///
+    /// <para>WHEN IT RUNS: from <see cref="Offer"/>, i.e. on adoption, on every 1 s Rescan
+    /// cadence, and — the one that matters — on the ART-ARRIVAL seam, in the same frame the game
+    /// assigns the sprite and before its first rendered frame ("MIP BAKE on arrival" documents the
+    /// seam). So a punched copy is what the face shows from its first pixel; there is no frame to
+    /// persist, because the punch is recomputed from the sprite's own pixels the moment they
+    /// exist, which is also the first moment the face could render them. (The MESH footprint still
+    /// needs its persisted cache — a material exists before any art does; the face does not have
+    /// that problem.)</para>
+    ///
+    /// <para>DEGRADES TO TODAY: a refused punch (too deep, too large, no frame, unextractable
+    /// region, budget) leaves the unpunched copy in place — the exact ModBuild-111 render — and
+    /// the refusal is logged with its numbers by the bake. The sweep itself logs one latched line
+    /// per card kind naming the gate and its counts.</para>
+    /// </summary>
+    private static class FramePunch
+    {
+        private static readonly bool[] s_sweepLogged = new bool[3];
+        private static bool s_gateOffLogged;
+        private static bool s_errorLogged;
+
+        internal static void Sweep(RectTransform faceRoot, CardBodyKind kind)
+        {
+            try
+            {
+                if (CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+                {
+                    // The punch lives on the mip-baked copies; with the bake dial off there are no
+                    // copies to punch and the face renders the game's originals — frame included.
+                    if (!s_gateOffLogged)
+                    {
+                        s_gateOffLogged = true;
+                        VRLog.Info("Cards", "CARD FRAME PUNCH inactive: [Cards] FaceMipBake is OFF, so no " +
+                                            "mod-owned sprite copies exist to erase the printed frame from. " +
+                                            "Cards keep the game's own art, black frame included.");
+                    }
+                    return;
+                }
+                Rect faceRect = faceRoot.rect;
+                if (faceRect.width < 1f || faceRect.height < 1f)
+                    return;
+
+                Image[] images = faceRoot.GetComponentsInChildren<Image>(includeInactive: true);
+                int spanning = 0, repointed = 0, wearing = 0, refused = 0, belowGate = 0;
+                float largestBelow = 0f;
+                var corners = new Vector3[4];
+                foreach (Image img in images)
+                {
+                    if (img == null || !img.enabled || !img.gameObject.activeSelf)
+                        continue;
+                    Sprite? worn = img.sprite;
+                    if (worn == null || img.type != Image.Type.Simple)
+                        continue;
+                    float coverage = DrawnCoverage(img, worn, faceRoot, faceRect, corners);
+                    if (coverage < MinOutlineCoverage)
+                    {
+                        belowGate++;
+                        if (coverage > largestBelow)
+                            largestBelow = coverage;
+                        continue;
+                    }
+                    spanning++;
+                    // The punch is keyed on the GAME's sprite; the Image may already wear one of
+                    // our (unpunched) baked copies, so resolve through the restore map first.
+                    Sprite source = CardFaceMipBake.OriginalOf(worn) ?? worn;
+                    Sprite? punched = CardFaceMipBake.PunchedReplacementFor(source);
+                    if (punched == null)
+                    {
+                        refused++; // reason + numbers already on the record (bake log, latched)
+                        continue;
+                    }
+                    if (!ReferenceEquals(worn, punched))
+                    {
+                        img.sprite = punched;
+                        repointed++;
+                    }
+                    else
+                    {
+                        wearing++;
+                    }
+                }
+                if (spanning > 0 && !s_sweepLogged[(int)kind])
+                {
+                    s_sweepLogged[(int)kind] = true;
+                    VRLog.Info("Cards", $"CARD FRAME PUNCH sweep ({kind}): gate = drawn Simple Image spanning " +
+                                        $">= {MinOutlineCoverage:P0} of the {faceRect.width:F0}x{faceRect.height:F0} px " +
+                                        $"face. {spanning} image(s) passed ({repointed} re-pointed to punched " +
+                                        $"copies, {wearing} already wearing one, {refused} refused by the punch — " +
+                                        $"see its line for the numbers); {belowGate} sprite-bearing image(s) below " +
+                                        $"the gate (largest {largestBelow:P0}) are not face layers and were never " +
+                                        "touched.");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                if (!s_errorLogged)
+                {
+                    s_errorLogged = true;
+                    VRLog.Warn("Cards", $"CARD FRAME PUNCH sweep failed ({ex.GetType().Name}: {ex.Message}) — " +
+                                        "faces keep their unpunched copies (today's look).");
+                }
+            }
+        }
+
+        /// <summary>Share of the face rect this Image actually DRAWS on (drawn rect, not layout
+        /// rect — the round-7 letterbox correction applies here too).</summary>
+        private static float DrawnCoverage(Image img, Sprite sprite, RectTransform faceRoot,
+                                           Rect faceRect, Vector3[] corners)
+        {
+            Rect drawnLocal = DrawnLocalRect(img, sprite, out _);
+            RectTransform irt = img.rectTransform;
+            corners[0] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMin, 0f));
+            corners[1] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMax, 0f));
+            corners[2] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMax, 0f));
+            corners[3] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMin, 0f));
+            float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
+            for (int c = 0; c < 4; c++)
+            {
+                Vector3 local = faceRoot.InverseTransformPoint(corners[c]);
+                float nx = (local.x - faceRect.xMin) / faceRect.width;
+                float ny = (local.y - faceRect.yMin) / faceRect.height;
+                if (nx < minNx) minNx = nx;
+                if (nx > maxNx) maxNx = nx;
+                if (ny < minNy) minNy = ny;
+                if (ny > maxNy) maxNy = ny;
+            }
+            float aw = maxNx - minNx, ah = maxNy - minNy;
+            return aw <= 0f || ah <= 0f ? 0f : aw * ah;
+        }
+    }
+
     /// <summary>
     /// Offer a live card face to the silhouette capture AND to the face blackout. Cheap and safe
     /// to call every frame: the capture skips its readback entirely while the face's qualifying
@@ -890,7 +1047,19 @@ internal sealed class CardFace
 
             SilhouetteState state = s_silhouette[(int)kind];
 
-            // (1) THE BLACKOUT FIRST, AND ALWAYS. Its input is the APPLIED mask, which — from the
+            // (0) THE FRAME PUNCH, BEFORE EVERYTHING (round 8). The measured black band is opaque
+            // near-black pixels in the card art's OWN pixels (the peel hit its depth cap in two
+            // consecutive hardware runs), so the fix is to erase them from the mod-owned sprite
+            // copies the face renders — see CardFaceMipBake's frame-punch block. It runs before
+            // the capture ON PURPOSE: the capture samples img.sprite, so once the sweep has
+            // re-pointed the outline images at their punched copies, the footprint is stamped
+            // FROM the punched pixels — the mesh clip and the face are one measurement, and the
+            // mesh can never peek out where the face was punched. Runs on every offer (cheap
+            // dictionary hits once warm) so every class and both card kinds are covered, not just
+            // the one class the once-per-session capture happens to see.
+            FramePunch.Sweep(root, kind);
+
+            // (1) THE BLACKOUT, AND ALWAYS. Its input is the APPLIED mask, which — from the
             // second launch onward — CardMesh loaded from the persisted cache before the first card
             // body's material existed. So on the arrival seam this runs with a mask already in hand
             // and the face is muted before its first rendered frame. Deliberately not gated on
@@ -1019,8 +1188,6 @@ internal sealed class CardFace
             // inside that rect. Stamping the sprite across the layout rect would place the card's
             // own outline where the art is not, which is the whole defect.
             Rect drawnLocal = DrawnLocalRect(img, sprite, out float aspectShrink);
-            if (aspectShrink < 0.999f)
-                aspectCorrected++;
             RectTransform irt = img.rectTransform;
             corners[0] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMin, 0f));
             corners[1] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMax, 0f));
@@ -1045,6 +1212,13 @@ internal sealed class CardFace
             }
 
             picks.Add((img, new Rect(minNx, minNy, aw, ah)));
+            // Counted HERE, not where the shrink is computed: the ART RECT line reports
+            // "{aspectCorrected} of {picks.Count} candidate(s)", so only images that actually
+            // BECOME candidates may count. The ModBuild-111 log's impossible "2 of 1" was a
+            // letterboxed image that the size gate then rejected — measured, counted, never a
+            // candidate. Diagnostics are load-bearing in this project; the numbers must be true.
+            if (aspectShrink < 0.999f)
+                aspectCorrected++;
             float area = aw * ah;
             if (area > largestPick)
                 largestPick = area;
@@ -1331,6 +1505,10 @@ internal sealed class CardFace
                             "means this round's cause is absent on this art and the DARK BORDER PEEL line " +
                             "above carries the other candidate.");
 
+        // ATTEMPT-EIGHT FALLBACK DIAGNOSTIC: if the band survives THIS build too, the next log
+        // must name the culprit graphic outright instead of costing a ninth round of inference.
+        LogFrameBandInventory(faceRoot, kind, faceRect);
+
         // ALREADY APPLIED (normally: from the persisted cache, before this session drew a card).
         // Do NOT re-apply — a mid-session re-shape is exactly the visible transition the user
         // rejected — only confirm or refresh the FILE for the next launch.
@@ -1451,6 +1629,181 @@ internal sealed class CardFace
         if (layoutArea > 0f)
             shrink = Mathf.Clamp01(r.width * r.height / layoutArea);
         return r;
+    }
+
+    // ------------------------------------------- frame band inventory (round 8 diag) --
+
+    /// <summary>Latch: one FRAME BAND INVENTORY line per card kind per session.</summary>
+    private static readonly bool[] s_bandInventoryLogged = new bool[3];
+
+    /// <summary>The outer band of the face the inventory samples, as a fraction of each axis.
+    /// 8 % comfortably contains the measured band (4.76 % of the card height).</summary>
+    private const float BandFraction = 0.08f;
+
+    /// <summary>
+    /// ATTEMPT-EIGHT DIAGNOSTIC (runs once per kind, on capture): name EVERY drawn graphic that
+    /// contributes opaque near-black pixels to the outer <see cref="BandFraction"/> band of the
+    /// face, with counts — so if the black band survives this build too, the next hardware log
+    /// names the culprit graphic outright and ends the guessing. Sprite-bearing Images are sampled
+    /// at their real pixels (GPU readback, trim-correct, drawn-rect mapping); sprite-less quads
+    /// and other Graphic types are judged by their colour (stated in the line, so the method is on
+    /// the record with the number). Failure here only costs the line, never the capture.
+    /// </summary>
+    private static void LogFrameBandInventory(RectTransform faceRoot, CardBodyKind kind, Rect faceRect)
+    {
+        if (s_bandInventoryLogged[(int)kind])
+            return;
+        s_bandInventoryLogged[(int)kind] = true;
+        var readbacks = new List<Texture2D>(4);
+        try
+        {
+            const int probeX = 24, probeY = 36;
+            const float lumaMax = 48f / 255f;
+            Graphic[] graphics = faceRoot.GetComponentsInChildren<Graphic>(includeInactive: true);
+            var sb = new System.Text.StringBuilder(192);
+            int checkedCount = 0, silent = 0;
+            var corners = new Vector3[4];
+            var regionCache = new Dictionary<int, Texture2D?>();
+            foreach (Graphic g in graphics)
+            {
+                if (g == null || !g.enabled || !g.gameObject.activeSelf)
+                    continue;
+                checkedCount++;
+
+                Image? gImg = g as Image;
+                Sprite? sprite = gImg != null ? gImg.sprite : null;
+                // Where does this graphic DRAW? Sprite Images: the letterbox-corrected drawn rect;
+                // everything else: its layout rect (a quad/text fills it).
+                Rect local = gImg != null && sprite != null
+                    ? DrawnLocalRect(gImg, sprite, out _)
+                    : ((RectTransform)g.transform).rect;
+                RectTransform grt = (RectTransform)g.transform;
+                corners[0] = grt.TransformPoint(new Vector3(local.xMin, local.yMin, 0f));
+                corners[1] = grt.TransformPoint(new Vector3(local.xMin, local.yMax, 0f));
+                corners[2] = grt.TransformPoint(new Vector3(local.xMax, local.yMax, 0f));
+                corners[3] = grt.TransformPoint(new Vector3(local.xMax, local.yMin, 0f));
+                float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
+                for (int c = 0; c < 4; c++)
+                {
+                    Vector3 p = faceRoot.InverseTransformPoint(corners[c]);
+                    float nx = (p.x - faceRect.xMin) / faceRect.width;
+                    float ny = (p.y - faceRect.yMin) / faceRect.height;
+                    if (nx < minNx) minNx = nx;
+                    if (nx > maxNx) maxNx = nx;
+                    if (ny < minNy) minNy = ny;
+                    if (ny > maxNy) maxNy = ny;
+                }
+                float aw = maxNx - minNx, ah = maxNy - minNy;
+                if (aw <= 0f || ah <= 0f)
+                    continue;
+
+                // Sprite pixel source, once per sprite (null = unreadable → colour-only verdict).
+                Texture2D? region = null;
+                float srcW = 0f, srcH = 0f, trW = 0f, trH = 0f;
+                Vector2 trimOff = Vector2.zero;
+                bool sampled = false;
+                if (sprite != null && sprite.texture != null)
+                {
+                    int sid = sprite.GetInstanceID();
+                    if (!regionCache.TryGetValue(sid, out region))
+                    {
+                        try
+                        {
+                            Rect tr = sprite.textureRect;
+                            region = tr.width >= 2f && tr.height >= 2f
+                                ? ReadSpriteRegion(sprite.texture, tr)
+                                : null;
+                            if (region != null)
+                                readbacks.Add(region);
+                        }
+                        catch (System.Exception)
+                        {
+                            region = null; // tight-packed: textureRect throws — colour-only below
+                        }
+                        regionCache[sid] = region;
+                    }
+                    if (region != null)
+                    {
+                        Rect tr = sprite.textureRect;
+                        srcW = Mathf.Max(1f, sprite.rect.width);
+                        srcH = Mathf.Max(1f, sprite.rect.height);
+                        trW = tr.width;
+                        trH = tr.height;
+                        trimOff = sprite.textureRectOffset;
+                        sampled = true;
+                    }
+                }
+
+                Color col = g.color;
+                float colLuma = col.r * 0.299f + col.g * 0.587f + col.b * 0.114f;
+                int dark = 0, band = 0;
+                for (int py = 0; py < probeY; py++)
+                {
+                    float lv = (py + 0.5f) / probeY;
+                    float v = minNy + ah * lv;
+                    if (v < 0f || v > 1f)
+                        continue;
+                    for (int px = 0; px < probeX; px++)
+                    {
+                        float lu = (px + 0.5f) / probeX;
+                        float u = minNx + aw * lu;
+                        if (u < 0f || u > 1f)
+                            continue;
+                        if (Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v)) > BandFraction)
+                            continue; // not in the outer band
+                        band++;
+                        float a, luma;
+                        if (sampled)
+                        {
+                            float pxf = lu * srcW - trimOff.x;
+                            float pyf = lv * srcH - trimOff.y;
+                            if (pxf < 0f || pxf > trW || pyf < 0f || pyf > trH)
+                                continue; // trimmed-away margin: transparent
+                            Color s = region!.GetPixelBilinear(pxf / trW, pyf / trH);
+                            a = s.a * col.a;
+                            luma = s.r * col.r * 0.299f + s.g * col.g * 0.587f + s.b * col.b * 0.114f;
+                        }
+                        else
+                        {
+                            a = col.a;
+                            luma = colLuma;
+                        }
+                        if (a >= 0.5f && luma <= lumaMax)
+                            dark++;
+                    }
+                }
+                if (dark == 0)
+                {
+                    silent++;
+                    continue;
+                }
+                if (sb.Length > 0)
+                    sb.Append("; ");
+                sb.Append('\'').Append(g.name).Append('\'');
+                if (sprite != null)
+                    sb.Append("/'").Append(sprite.name).Append('\'');
+                sb.Append(' ').Append(dark).Append(" of ").Append(band).Append(" band probe(s)")
+                  .Append(sampled ? string.Empty
+                      : sprite != null ? " (pixels unreadable — judged by colour)" : " (colour-only quad/text)");
+            }
+            VRLog.Info("Cards", $"CARD FRAME BAND INVENTORY ({kind}): opaque near-black (alpha >= 0.5, " +
+                                $"luma <= 48/255) contributions to the outer {BandFraction:P0} band of the " +
+                                $"{faceRect.width:F0}x{faceRect.height:F0} px face — " +
+                                $"{(sb.Length > 0 ? sb.ToString() : "NONE")}. {checkedCount} drawn graphic(s) " +
+                                $"checked, {silent} contribute nothing. If the black band survives this build, " +
+                                "the graphic that paints it is named RIGHT HERE.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", $"CARD FRAME BAND INVENTORY ({kind}) skipped ({ex.GetType().Name}: " +
+                                $"{ex.Message}) — the capture itself is unaffected.");
+        }
+        finally
+        {
+            foreach (Texture2D t in readbacks)
+                if (t != null)
+                    Object.Destroy(t);
+        }
     }
 
     /// <summary>Is this sprite region opaque at every probe point? A 16x16 grid including the

@@ -180,6 +180,18 @@ internal static class CardFaceMipBake
     /// <summary>replacement sprite instance id → its original, for <see cref="RestoreSprites"/>.</summary>
     private static readonly Dictionary<int, Sprite> s_originalByReplacement = new(64);
 
+    /// <summary>src sprite instance id → PUNCHED replacement (frame-erased copy; null = refused or
+    /// no frame, latched). See <see cref="PunchedReplacementFor"/>.</summary>
+    private static readonly Dictionary<int, Sprite?> s_punchedBySource = new(8);
+
+    /// <summary>(atlas identity | region geometry | "punch") → punched region texture (null =
+    /// refused/no-frame, cached so class-mates and peer clones share one verdict and one
+    /// texture).</summary>
+    private static readonly Dictionary<string, Texture2D?> s_punchedTexByKey = new(8);
+
+    /// <summary>Punch verdict text per content key, for the cached-refusal debug line.</summary>
+    private static readonly Dictionary<string, string> s_punchVerdictByKey = new(8);
+
     private static int s_bakeCount;
     private static int s_spriteBakeCount;
     private static bool s_swapLogged;
@@ -275,8 +287,22 @@ internal static class CardFaceMipBake
                 Sprite? sprite = img.sprite;
                 if (sprite == null)
                     continue;
-                if (s_originalByReplacement.ContainsKey(sprite.GetInstanceID()))
-                    continue; // already sampling a baked copy
+                if (s_originalByReplacement.TryGetValue(sprite.GetInstanceID(), out Sprite wornOriginal))
+                {
+                    // Already sampling one of OUR baked copies — but if its original has since
+                    // gained a PUNCHED variant (the printed frame erased, round 8), upgrade: a
+                    // face must never keep the framed copy once the frameless one exists. One
+                    // dictionary probe in the steady state; the punched sprite is registered in
+                    // the same restore map, so RestoreSprites is unaffected.
+                    if (wornOriginal != null
+                        && s_punchedBySource.TryGetValue(wornOriginal.GetInstanceID(), out Sprite? upgraded)
+                        && upgraded != null && !ReferenceEquals(upgraded, sprite))
+                    {
+                        img.sprite = upgraded;
+                        swapped++;
+                    }
+                    continue;
+                }
                 Sprite? replacement = ReplacementFor(sprite);
                 if (replacement != null)
                 {
@@ -403,6 +429,356 @@ internal static class CardFaceMipBake
 
         s_replacementBySource[id] = made;
         return made;
+    }
+
+    // ------------------------------------------------------- frame punch (round 8) --
+    //
+    // THE BLACK BAND IS IN THE ART'S OWN PIXELS. Two hardware runs measured it with the capture's
+    // dark-border peel: ModBuild 110 "945 texel(s) … max depth 11 of 11", ModBuild 111 "1263
+    // texel(s) = 1.64 % of the face … max depth 18 of 18 texels; mean luma of what went = 22". An
+    // opaque, near-black, boundary-connected ring, thicker than every guessed cap. Everything the
+    // seven previous rounds built either shaped the MESH (which sits BEHIND opaque art — invisible)
+    // or clipped the face to an outline that INCLUDES the frame (round 5's verified stencil clip —
+    // border unchanged). The only mechanism that can remove those pixels from the picture is to
+    // remove them from what the face RENDERS — and the face already renders mod-owned copies: this
+    // class swaps every card-face sprite onto per-sprite mip-baked replacements. So the punch is
+    // pixel surgery on OUR OWN copies: alpha → 0 on the frame pixels, uGUI's default UI shader
+    // alpha-blends, and behind them the mesh is clipped by the same measurement (CardFace samples
+    // the PUNCHED sprites when it stamps the footprint), so nothing paints there and the board
+    // shows through.
+    //
+    // WHAT MAY BE PUNCHED is decided by the CALLER (CardFace.FramePunch), which has the face
+    // context: only a sprite whose drawn rect spans >= CardFace.MinOutlineCoverage of a card face
+    // — the same "what defines the outline must span the card" gate the silhouette capture uses.
+    // An icon, a button, a portrait never reaches this code. WHICH PIXELS are frame is decided
+    // here, per sprite, in the sprite's own pixel space: opaque (a >= 128), near-black
+    // (luma <= PunchLumaMax — the measured ring's mean luma was 22), connected to the sprite's own
+    // boundary (BFS seeded only from border/transparent-adjacent texels, so a dark ornament in the
+    // middle is unreachable), and the depth is LEARNED, not guessed — two guessed caps in a row
+    // were too small. The erosion runs until the luma condition stops it; a hard sanity ceiling
+    // (PunchDepthCeilingFraction of the short side) and an area cap trigger the all-or-nothing
+    // discard, because a dark CARD is not a dark FRAME and the standing rule is to degrade to
+    // today's look, never to a guessed one.
+    //
+    // SAFETY AUDIT (the round-4 objection, answered rather than avoided):
+    //   • The pixel source is a FRESH row-slice copy of the cached whole-atlas readback
+    //     (AtlasPixelsFor) — the shared atlas readback and the shared whole-atlas bake are NEVER
+    //     mutated, so no other sprite slicing from them can be affected.
+    //   • The punched sprite is registered in s_originalByReplacement exactly like every other
+    //     replacement, so RestoreSprites hands the game back its ORIGINAL sprite on every existing
+    //     restore path (CardFace.Restore, ItemsPile's pool recycle, PanelMipBake.Restore) with
+    //     zero changes there.
+    //   • s_replacementBySource is re-pointed at the punched copy, so every later swap — the
+    //     Rescan bulk pass, CardArtWatch's arrival seam, and both of those on a PEER's clone
+    //     (Net/RemoteCardArt drives the same two seams on the same shared cache) — serves the
+    //     punched copy with no further coordination.
+    //   • Textures are content-keyed (atlas identity + region + "punch"), so every card of a class
+    //     and every peer clone share one punched texture and one budget charge.
+
+    /// <summary>Maximum Rec.601 luminance (0..255) a punched frame texel may have — the same
+    /// "der schwarze Rand" definition the capture's peel uses (its measured ring: mean luma 22).</summary>
+    private const byte PunchLumaMax = 48;
+
+    /// <summary>Sanity ceiling on the LEARNED erosion depth, as a fraction of the sprite's short
+    /// side. The measured band is ~4.8 % of the card height (~8 % of the background sprite's short
+    /// side); 15 % is comfortably above any frame and comfortably below hollowing a card out.
+    /// Deeper than this ⇒ the whole punch is discarded (all-or-nothing), never partially applied.</summary>
+    private const float PunchDepthCeilingFraction = 0.15f;
+
+    /// <summary>Hard ceiling on what the punch may take, as a fraction of the sprite's opaque
+    /// area. The measured frame (two long-edge bands plus thin sides) is ~14 %; a full ring at the
+    /// depth ceiling would be ~44 % and is discarded — a dark CARD is not a dark FRAME.</summary>
+    private const float PunchMaxAreaFraction = 0.30f;
+
+    /// <summary>The ORIGINAL game sprite behind one of our baked replacements, or null when
+    /// <paramref name="sprite"/> is not ours. Lets a caller holding a face Image resolve the punch
+    /// key regardless of whether the swap already happened.</summary>
+    internal static Sprite? OriginalOf(Sprite? sprite)
+    {
+        if (sprite == null)
+            return null;
+        return s_originalByReplacement.TryGetValue(sprite.GetInstanceID(), out Sprite orig) ? orig : null;
+    }
+
+    /// <summary>
+    /// The frame-punched replacement for <paramref name="source"/> (a GAME sprite, never one of our
+    /// replacements — resolve through <see cref="OriginalOf"/> first), minted and cached on first
+    /// sight; null when the sprite carries no printed frame or the punch was refused (latched, one
+    /// log line per content). On success <see cref="ReplacementFor"/> is re-pointed at the punched
+    /// copy, so every subsequent swap on any face — local, item, peer clone — serves it.
+    /// </summary>
+    internal static Sprite? PunchedReplacementFor(Sprite source)
+    {
+        int id = source.GetInstanceID();
+        if (s_punchedBySource.TryGetValue(id, out Sprite? cached))
+            return cached;
+
+        Sprite? made = null;
+        try
+        {
+            made = MintPunched(source);
+        }
+        catch (System.Exception ex)
+        {
+            LogPunchSkip(source, $"punch failed ({ex.GetType().Name}: {ex.Message})");
+        }
+        if (made != null)
+        {
+            s_originalByReplacement[made.GetInstanceID()] = source; // full-restore contract
+            s_replacementBySource[id] = made;                        // all future swaps serve the punched copy
+        }
+        s_punchedBySource[id] = made;
+        return made;
+    }
+
+    /// <summary>Build the punched sprite for <paramref name="source"/> — see the block comment
+    /// above for the derivation. Only exact rect reconstructions are attempted (same contract as
+    /// <see cref="TrimmedReplacementFor"/>); anything else is a logged skip and today's look.</summary>
+    private static Sprite? MintPunched(Sprite source)
+    {
+        Texture2D? atlas = source.texture;
+        if (atlas == null)
+        {
+            LogPunchSkip(source, "no texture");
+            return null;
+        }
+        if (IsRotatedPacked(source) || IsTightPacked(source))
+        {
+            LogPunchSkip(source, "rotated/tight atlas packing — its region cannot be extracted as a rect");
+            return null;
+        }
+        Rect tr;
+        Vector2 off;
+        try
+        {
+            tr = source.textureRect;
+            off = source.textureRectOffset;
+        }
+        catch (System.Exception)
+        {
+            LogPunchSkip(source, "textureRect unavailable (tight-packed mesh geometry)");
+            return null;
+        }
+        int fullW = Mathf.RoundToInt(source.rect.width);
+        int fullH = Mathf.RoundToInt(source.rect.height);
+        int srcX = Mathf.RoundToInt(tr.x);
+        int srcY = Mathf.RoundToInt(tr.y);
+        int w = Mathf.RoundToInt(tr.width);
+        int h = Mathf.RoundToInt(tr.height);
+        int dstX = Mathf.RoundToInt(off.x);
+        int dstY = Mathf.RoundToInt(off.y);
+        if (fullW < 32 || fullH < 32 || w < 1 || h < 1)
+        {
+            LogPunchSkip(source, $"degenerate/too-small geometry (rect {fullW}x{fullH}, textureRect {w}x{h}) " +
+                                 "— a card face layer is never this small");
+            return null;
+        }
+        if (fullW > MaxSpriteDim || fullH > MaxSpriteDim)
+        {
+            LogPunchSkip(source, $"logical rect {fullW}x{fullH} exceeds the {MaxSpriteDim} per-sprite cap");
+            return null;
+        }
+        if (srcX < 0 || srcY < 0 || srcX + w > atlas.width || srcY + h > atlas.height
+            || dstX < 0 || dstY < 0 || dstX + w > fullW || dstY + h > fullH)
+        {
+            LogPunchSkip(source, $"trim region does not fit exactly (atlas region {w}x{h} at {srcX},{srcY} " +
+                                 $"in {atlas.width}x{atlas.height}, offset +{dstX},+{dstY} in rect {fullW}x{fullH})");
+            return null;
+        }
+
+        string key = $"{IdentityOf(atlas)}|{srcX},{srcY},{w}x{h}|{fullW}x{fullH}|+{dstX},+{dstY}|punch";
+        if (s_punchedTexByKey.TryGetValue(key, out Texture2D? punchedTex))
+        {
+            if (punchedTex == null)
+            {
+                VRLog.Debug("Cards", $"CARD FRAME PUNCH: '{source.name}' shares an earlier verdict — " +
+                                     $"{(s_punchVerdictByKey.TryGetValue(key, out string v) ? v : "refused")}.");
+                return null;
+            }
+            return MakePunchedSprite(source, punchedTex, fullW, fullH);
+        }
+
+        long cost = MipChainBytes(fullW, fullH);
+        if (s_spriteBakeCount >= MaxSpriteBakes || !FitsVramBudget(cost, source.name + " (punch)"))
+        {
+            s_punchedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = "bake budget exhausted";
+            LogPunchSkip(source, $"bake budget exhausted (~{s_bakedVramBytes / (1024f * 1024f):F0} MB of " +
+                                 $"{MaxBakedVramBytes / (1024f * 1024f):F0} MB VRAM)");
+            return null;
+        }
+        Color32[]? atlasPixels = AtlasPixelsFor(atlas);
+        if (atlasPixels == null || atlasPixels.Length != atlas.width * atlas.height)
+        {
+            s_punchedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = "atlas readback unavailable";
+            LogPunchSkip(source, "whole-atlas CPU readback failed — no pixel source to erode");
+            return null;
+        }
+        // FRESH copy — the cached atlas readback is shared by every per-sprite bake and is never
+        // mutated. Default Color32 = transparent trim margins, exactly like TrimmedReplacementFor.
+        var slice = new Color32[fullW * fullH];
+        for (int row = 0; row < h; row++)
+        {
+            System.Array.Copy(atlasPixels, (srcY + row) * atlas.width + srcX,
+                slice, (dstY + row) * fullW + dstX, w);
+        }
+
+        string? refusal = ErodeDarkFrame(slice, fullW, fullH,
+            out int peeled, out int maxDepth, out int ceiling, out int meanLuma);
+        if (refusal == null && peeled == 0)
+            refusal = "no opaque near-black boundary-connected band — this art carries no printed frame";
+        if (refusal != null)
+        {
+            s_punchedTexByKey[key] = null;
+            s_punchVerdictByKey[key] = refusal;
+            VRLog.Info("Cards", $"CARD FRAME PUNCH refused: '{source.name}' {fullW}x{fullH} — {refusal} " +
+                                $"(qualify: alpha >= 128, luma <= {PunchLumaMax}; measured depth {maxDepth}px, " +
+                                $"ceiling {ceiling}px, mean luma {meanLuma}). This sprite keeps its unpunched " +
+                                "copy and renders exactly as today.");
+            return null;
+        }
+
+        var tex = new Texture2D(fullW, fullH, TextureFormat.RGBA32, mipChain: true, linear: false)
+        {
+            name = source.name + " (VR-mip-punch)",
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = BakedAnisoLevel,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        tex.SetPixels32(slice);
+        tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+        s_spriteBakeCount++;
+        s_bakedVramBytes += cost;
+        s_punchedTexByKey[key] = tex;
+        // THE MEASURED FRAME DEPTH, on the record — the number two rounds of capped peels could
+        // not report. The next reader learns the frame's true thickness from this line alone.
+        VRLog.Info("Cards", $"CARD FRAME PUNCH: '{source.name}' {fullW}x{fullH} — {peeled} px = " +
+                            $"{(float)peeled / ((long)fullW * fullH):P2} of the sprite erased as a printed " +
+                            $"frame (opaque, luma <= {PunchLumaMax}, boundary-connected; mean luma {meanLuma}). " +
+                            $"MEASURED depth {maxDepth}px = {(float)maxDepth / Mathf.Min(fullW, fullH):P1} of " +
+                            $"the short side (learned, sanity ceiling {ceiling}px = " +
+                            $"{PunchDepthCeilingFraction:P0}). ~{cost / (1024f * 1024f):F1} MB VRAM; budget " +
+                            $"{BudgetSummary}. The face now renders this copy from its first pixel, and the " +
+                            "silhouette capture samples IT — mesh and face share one measurement.");
+        return MakePunchedSprite(source, tex, fullW, fullH);
+    }
+
+    /// <summary>Equivalent FullRect sprite on a punched texture (geometry identical to the
+    /// unpunched replacement, so layout/pivot/border reproduce exactly).</summary>
+    private static Sprite MakePunchedSprite(Sprite source, Texture2D tex, int fullW, int fullH)
+    {
+        Sprite made = Sprite.Create(tex, new Rect(0f, 0f, fullW, fullH), NormalizedPivot(source),
+            source.pixelsPerUnit, 0, SpriteMeshType.FullRect, source.border);
+        made.name = source.name + " (VR-mip-punched)";
+        return made;
+    }
+
+    /// <summary>
+    /// The erosion (see the frame-punch block): BFS from the sprite's own boundary over opaque
+    /// near-black texels, depth LEARNED rather than capped, all-or-nothing above the sanity
+    /// ceiling or the area cap. Mutates <paramref name="px"/> (alpha → 0) ONLY on success; returns
+    /// null with <paramref name="peeled"/> = 0 when nothing qualifies, a refusal reason otherwise.
+    /// </summary>
+    private static string? ErodeDarkFrame(Color32[] px, int w, int h,
+                                          out int peeled, out int maxDepth, out int ceiling, out int meanLuma)
+    {
+        peeled = 0;
+        maxDepth = 0;
+        meanLuma = 0;
+        ceiling = Mathf.Max(1, Mathf.RoundToInt(Mathf.Min(w, h) * PunchDepthCeilingFraction));
+
+        long opaque = 0;
+        for (int i = 0; i < px.Length; i++)
+            if (px[i].a >= 128)
+                opaque++;
+        if (opaque == 0)
+            return "sprite has no opaque pixels";
+
+        bool Qualifies(int i)
+        {
+            Color32 c = px[i];
+            if (c.a < 128)
+                return false;
+            int y601 = (c.r * 299 + c.g * 587 + c.b * 114) / 1000;
+            return y601 <= PunchLumaMax;
+        }
+
+        var depth = new ushort[px.Length];
+        var queue = new Queue<int>(1024);
+        var taken = new List<int>(1024);
+        long lumaSum = 0;
+        void Seed(int i)
+        {
+            if (depth[i] != 0 || !Qualifies(i))
+                return;
+            depth[i] = 1;
+            queue.Enqueue(i);
+            taken.Add(i);
+            lumaSum += (px[i].r * 299 + px[i].g * 587 + px[i].b * 114) / 1000;
+        }
+        // Seeds: every qualifying texel on the image border, plus every qualifying texel adjacent
+        // to a transparent one — "connected to the sprite's own boundary" by construction.
+        for (int y = 0; y < h; y++)
+        {
+            int row = y * w;
+            for (int x = 0; x < w; x++)
+            {
+                int i = row + x;
+                if (px[i].a >= 128)
+                {
+                    if (x == 0 || y == 0 || x == w - 1 || y == h - 1)
+                        Seed(i);
+                    continue;
+                }
+                if (x > 0) Seed(i - 1);
+                if (x < w - 1) Seed(i + 1);
+                if (y > 0) Seed(i - w);
+                if (y < h - 1) Seed(i + w);
+            }
+        }
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue();
+            int d = depth[i];
+            if (d > maxDepth)
+                maxDepth = d;
+            int x = i % w, y = i / w;
+            void Step(int n)
+            {
+                if (depth[n] != 0 || !Qualifies(n))
+                    return;
+                depth[n] = (ushort)(d + 1);
+                queue.Enqueue(n);
+                taken.Add(n);
+                lumaSum += (px[n].r * 299 + px[n].g * 587 + px[n].b * 114) / 1000;
+            }
+            if (x > 0) Step(i - 1);
+            if (x < w - 1) Step(i + 1);
+            if (y > 0) Step(i - w);
+            if (y < h - 1) Step(i + w);
+        }
+        if (taken.Count == 0)
+            return null; // peeled stays 0 — the caller words it as "no printed frame"
+        meanLuma = (int)(lumaSum / taken.Count);
+        if (maxDepth > ceiling)
+            return $"erosion reached depth {maxDepth}px > the {ceiling}px sanity ceiling " +
+                   $"({PunchDepthCeilingFraction:P0} of the short side) — this is dark ART, not a frame";
+        if (taken.Count > opaque * PunchMaxAreaFraction)
+            return $"{taken.Count}px = {(float)taken.Count / opaque:P0} of the opaque area exceeds the " +
+                   $"{PunchMaxAreaFraction:P0} cap — a dark CARD is not a dark FRAME";
+        for (int p = 0; p < taken.Count; p++)
+            px[taken[p]].a = 0;
+        peeled = taken.Count;
+        return null;
+    }
+
+    /// <summary>One log line per refused punch (latched by the per-sprite verdict cache).</summary>
+    private static void LogPunchSkip(Sprite source, string reason)
+    {
+        Texture2D? tex = source.texture;
+        VRLog.Info("Cards", $"CARD FRAME PUNCH skip: sprite '{source.name}' on " +
+                            $"'{(tex != null ? tex.name : "?")}' keeps its unpunched copy — {reason}.");
     }
 
     /// <summary>Pivot in normalized rect space, as Sprite.Create wants it.</summary>

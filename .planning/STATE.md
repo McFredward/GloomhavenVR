@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 111`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 112`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,17 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 112** — the border, attempt EIGHT: round 7's falsifier fired (ART RECT 100 % x
+  100 % — no letterbox on his art), leaving the series' one POSITIVE measurement standing: the
+  PEEL hit its depth cap twice (11/11, then 18/18 texels, mean luma 22). The band is a PRINTED
+  near-black frame in the art's own opaque pixels — which is why mesh work was invisible (behind
+  opaque art) and the verified stencil clip changed nothing (an opacity-captured outline INCLUDES
+  the frame). Fix: pixel surgery on the mod-owned 'VR-mip' sprite copies the bake already swaps in
+  — boundary-seeded BFS erosion with LEARNED depth (two guessed caps were both too small), alpha 0
+  on the frame, gates logged. Punch runs BEFORE capture so the footprint is stamped from punched
+  pixels — mesh and face agree by construction. CacheVersion 3→4 (third load-bearing bump). Round
+  4 had declined exactly this as risky-against-speculation; the peel's measurements re-weighed it.
+  **If it fails: grep CARD FRAME BAND INVENTORY — the culprit graphic is named, not guessed.**
 - **ModBuild 111** — the black card border, attempt SEVEN, and **the lesson is about method, not
   about cards**. Six rounds reasoned about art that could not be read offline; the user supplied a
   SCREENSHOT and pixel measurement settled it in one pass. The band is TOP/BOTTOM (4.76 % / 6.6 %

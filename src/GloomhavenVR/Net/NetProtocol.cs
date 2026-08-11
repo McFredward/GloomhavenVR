@@ -416,7 +416,50 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 111;
+    public const ushort ModBuild = 112;
+    // Build 112: the black card border, attempt EIGHT — the first that edits the layer that
+    // actually PAINTS the black. No wire change; the bump is here because 112 goes to the friend.
+    //
+    // HOW THE SEARCH SPACE CLOSED. Round 7's falsifier fired on the 111 run: ART RECT reports the
+    // art drawing on 100.0 % x 100.0 % of the face rect — no preserveAspect letterbox exists on his
+    // art, so that cause is absent. What remained is the one POSITIVE measurement of the series,
+    // now confirmed twice: the dark-border PEEL hit its depth cap in both runs (110: 11 of 11
+    // texels; 111: 18 of 18, mean luma 22). There is an opaque, near-black, boundary-connected ring
+    // IN THE ART'S OWN PIXELS, at least ~5 mm deep — a PRINTED frame. Every prior mechanism either
+    // manipulated the mesh (invisible behind opaque art) or clipped the face to an outline captured
+    // BY OPACITY, which includes the printed frame by definition (why round 5's verified stencil
+    // clip changed nothing).
+    //
+    // THE FIX: the mod already owns the textures the face renders — CardFaceMipBake swaps every
+    // card-face sprite onto mod-owned per-sprite mip-baked copies (the 'VR-mip' names in the log).
+    // PunchedReplacementFor mints frame-erased copies: BFS erosion seeded from the sprite's own
+    // border and transparent-adjacent texels, eroding opaque (a >= 128) near-black (luma <= 48)
+    // pixels, with the depth LEARNED rather than guessed (two guessed caps in a row were too
+    // small) — sanity ceiling 15 % of the sprite's short side, all-or-nothing discard above 30 % of
+    // the opaque area ("dark CARD, not dark FRAME"). Eroded pixels get alpha 0; uGUI alpha-blends;
+    // behind them the mesh is clipped by the same measurement, so the board shows through. Only
+    // sprites whose DRAWN rect spans >= 70 % of their own face may be punched — icons, buttons and
+    // portraits can never pass. Every refusal logs its gate and numbers.
+    //
+    // MESH/FACE AGREEMENT BY CONSTRUCTION: the punch sweep runs BEFORE the capture inside Offer, so
+    // the footprint is stamped FROM the punched sprites — the punched texture is the footprint's
+    // pixel source, and the mesh cannot peek out where the face stopped painting. CacheVersion
+    // 3 -> 4 (a v3 mask still calls the frame band "card"; third time this bump has been
+    // load-bearing). Restore audit: punched copies register in s_originalByReplacement like every
+    // replacement, so all existing restore paths hand the game its originals unchanged; the shared
+    // atlas readbacks are never mutated (fresh row-slices only). Peers get the punched copies for
+    // free through the shared bake cache (RemoteCardArt drives Rescan + Offer on its clones).
+    //
+    // Round 4 had considered exactly this and declined it as "pixel surgery … unjustified against a
+    // speculative cause". The cause stopped being speculative when the peel measured the ring —
+    // twice. The record is the lesson: a mechanism rejected on risk grounds becomes the right
+    // mechanism when the evidence arrives; re-weigh parked options when new measurements land.
+    //
+    // IF THIS FAILS TOO: the black is painted by a face graphic that escaped the punch gate or
+    // carries the band outside its sprite pixels — and the new CARD FRAME BAND INVENTORY line names
+    // every drawn graphic contributing opaque near-black probes to the outer 8 % band, with counts.
+    // Grep CARD FRAME BAND INVENTORY: the culprit is named, not guessed.
+    //
     // Build 111: the black card border, attempt SEVEN — and the first one that MEASURED instead of
     // inferring. No wire change; the bump is here because 111 is what goes to the friend.
     //
