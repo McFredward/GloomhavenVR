@@ -112,7 +112,8 @@ internal sealed class CardShapeMask : MonoBehaviour
     /// and — before <c>CardEffects.Awake</c> has run for the new binding — a <c>_PosAndBounds</c>
     /// that does not describe this card. The snapshot freezes exactly that. The face therefore
     /// paints nothing usable and what the player sees is the mod's own card BODY, whose front is
-    /// <c>CardMesh.EdgeColor</c> = rgb(0.10, 0.09, 0.08) — a black card. The window closes when the
+    /// <c>CardMesh.EdgeColor</c> — near-black rgb(0.10, 0.09, 0.08) when this was written, warm
+    /// umber since round 14 — an art-less card slab. The window closes when the
     /// art finishes loading, because the elements the loader activates go through
     /// <c>MaskableGraphic.OnEnable/OnDisable</c>, which calls <c>StencilMaterial.Remove</c>, drops
     /// the entry and re-snapshots from a material the game has meanwhile restored. That is

@@ -795,9 +795,38 @@ internal static class CardMesh
 
     // ------------------------------------------------------------------ materials --
 
-    /// <summary>Dark front/rim colour (hidden behind the live face; the thin rounded
-    /// front reads as the card's border — see CardFace inset).</summary>
-    private static readonly Color EdgeColor = new(0.10f, 0.09f, 0.08f);
+    /// <summary>
+    /// Front/rim colour of the slab — the card's visible physical EDGE (mostly hidden behind the
+    /// live face; the thin rounded front and the 1.5 mm rim read at the card boundary, plus every
+    /// face pixel the punch/crop machinery makes transparent INSIDE the outline shows this colour
+    /// directly behind it at z ≈ 6.5 face units).
+    ///
+    /// <para>ROUND 14 — RETINTED FROM NEAR-BLACK TO WARM UMBER. It shipped as (0.10, 0.09, 0.08),
+    /// "deliberately near-black" from the era when the slab was meant to vanish behind the art —
+    /// but the silhouette bake writes THIS RGB into every surviving texel of the Edge cutout
+    /// texture (see <c>SetSilhouette</c>: <c>edgeRgb = (Color32)EdgeColor</c>), so every slab
+    /// fragment that survives the alpha clip rendered near-black. karten4.png measures exactly
+    /// that ring on the hand fan: the outermost 1–2 px of every fan card read neutral near-black
+    /// — (9,9,7) at the left edge, (4,4,3) at the top — which is (26,23,20) = this colour under
+    /// the scene's lighting, i.e. the rim/front ring itself, NOT a face sprite (the printed-frame
+    /// maroon further in is warm-red (27,1,3) and a different painter). The user's standing
+    /// ruling is proportions stay, black goes ("Ich möchte gerne an den aktuellen Proportionen
+    /// festehalten... nur eben ohne die schwarzen Ränder"), and the rim is a design element whose
+    /// COLOUR was the defect — so the geometry, the clip and the bake are untouched and only the
+    /// tint changes: warm umber (0.42, 0.33, 0.23), luma ≈ 0.35, r−b strongly warm. That lands
+    /// the visible edge in the same warm-wood family as the tray liner/keycaps
+    /// (<c>PlayTray.SlotLinerColor</c> (0.46,0.37,0.26), luma 0.38) — on the tray the ring blends
+    /// into the liner beneath it, in the hand it reads as a warm card edge, and in the CARD BAND
+    /// PIXELS capture it is separable from every dark signature (recess floor ≈(25,21,18)
+    /// near-black warm; frame print cool &lt;40; green-screen backdrop).</para>
+    ///
+    /// <para>Reaches ALL THREE wearers by construction, no other edit needed: the baked
+    /// Ability/Item Edge textures (rebuilt from the cached alpha footprint every session — the
+    /// cache stores alpha only, so no cache version bump), the unclipped material colour before a
+    /// footprint lands (cold cache), and the Neutral legacy pair (peer mirrors/avatar mirror/burn
+    /// fallback — same colour-only change, same direction, zero geometry).</para>
+    /// </summary>
+    private static readonly Color EdgeColor = new(0.42f, 0.33f, 0.23f);
 
     /// <summary>
     /// Dark neutral for the front (hidden behind the live face) and the rim edge, for the

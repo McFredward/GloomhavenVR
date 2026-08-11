@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 117`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 118`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,20 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 118** — border attempt 14 (two convictions + the pixel instrument), mirror ghost
+  hands, trigger-only cards. THE BORDER: 117's liner was RIGHT in kind, WRONG in units — sized
+  off the BASE card box while the seated card renders at the live SlotOverlayScale dial (~1.7 on
+  his rig): ~1.10× coverage vs a ~1.30–1.40× well → "unverändert". Now seated-card ×
+  SlotLinerSeatRatio (1.45) from the same dial, z from the tuning chain, on BOTH wire sides
+  (RemoteBoardFurniture takes field 171 into the product; SlotLinerScale const deleted). Second
+  conviction: the thin NEUTRAL near-black fan ring is CardMesh.EdgeColor (0.10,0.09,0.08) baked
+  into every silhouette-surviving Edge texel → retinted warm umber. CardBandPixelCapture (new)
+  renders the real card in situ at latch/re-arm and classifies band-strip means against known
+  signatures — the remaining maroon PRINT band (91/264 punched-header + 27–28/36 unpunched
+  action-default probes in the 117 log) gets convicted per placement in the next log. MIRROR:
+  AvatarMirror read legacy single-side HandGhosts.LocalSide → now LocalLeft/Right per side
+  (peers were already correct). TRIGGER-ONLY: grip proximity fallback removed for cards+figures
+  (named throttled refusal); [Cards] GrabButton now INERT — retirement candidate next purge.
 - **ModBuild 117** — the border SOLVED (attempt 13), the dead-dial purge, the menu restructure.
   THE BORDER: 116's CARD BAND PAINTER acquitted every card layer on the user's own rig while his
   screenshot showed the band — so the reach was wrong. Convicted: **the bundled tray's authored

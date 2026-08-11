@@ -416,7 +416,35 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 117;
+    public const ushort ModBuild = 118;
+    // Build 118: the border's attempt FOURTEEN (two unit/color convictions + the pixel
+    // instrument), the per-side mirror ghost hands, and trigger-only cards. No wire change.
+    //
+    // (1) THE BORDER, ATTEMPT FOURTEEN. The 117 run proved the liner idea right but the liner
+    // WRONG-SIZED: it was a factor of the BASE card box while the seated card renders at the
+    // live [Cards] SlotOverlayScale dial (~1.7 on his rig) — coverage ~1.10x of the seated card
+    // vs a ~1.30-1.40x well, so the floor stayed visible all round ("unverändert"). Now sized
+    // seated-card x SlotLinerSeatRatio (1.45) off the SAME dial, z re-derived from the tuning
+    // chain, on both sides of the wire (RemoteBoardFurniture takes tuning field 171 into the
+    // product; the superseded SlotLinerScale const is deleted). SECOND CONVICTION: the thin
+    // NEUTRAL near-black ring on fan cards is the mod's own slab — CardMesh.EdgeColor
+    // (0.10,0.09,0.08) is baked as the RGB of every silhouette-surviving Edge texel; retinted
+    // to warm umber (0.42,0.33,0.23), no geometry/clip change. Verdict logic tightened (a
+    // candidate must touch the actual band ring — no more rest-button convictions). And the
+    // guessing-ender ships: CardBandPixelCapture renders the REAL card in situ from a probe
+    // camera at latch/re-arm and logs mean RGBA per band strip classified against known
+    // signatures (recess floor / liner wood / frame print / green screen) — the maroon print
+    // band the 117 log still showed (91/264 punched-header, 27-28/36 unpunched action-default
+    // probes) gets convicted per placement in the next log instead of re-deduced.
+    //
+    // (2) MIRROR GHOST HANDS: AvatarMirror drove its per-side HandGhost pair from the legacy
+    // single-side HandGhosts.LocalSide (fan-side preferred) — taking a card from the fan
+    // ghosted both real hands but only one in the glass. Now driven from LocalLeft/LocalRight
+    // (the wire-mask truth; peers were already correct). (3) TRIGGER-ONLY CARDS (user: "Die
+    // Karten sollen nur mit dem trigger nehmbar sein"): the grip proximity fallback is removed —
+    // cards and figures grab on trigger only, grip keeps panels/tray/world-drag and logs a named
+    // throttled refusal near a card. [Cards] GrabButton is now inert — retirement candidate.
+    //
     // Build 117: FOUR lanes — the border SOLVED (attempt 13: it was the board, not the card),
     // the dead-dial purge, the full VR options menu restructure, and the stretch/info settings
     // from 116 (already noted below). No wire change.

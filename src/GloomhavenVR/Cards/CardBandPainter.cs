@@ -472,7 +472,19 @@ internal static class CardBandPainter
                   .Append($"') x {rect.xMin:F2}..{rect.xMax:F2} y {rect.yMin:F2}..{rect.yMax:F2} " +
                           $"z {minZ:F1}..{maxZ:F1}")
                   .Append(tightRect ? string.Empty : " [world-AABB — no mesh, tilt-inflated]");
-                DescribeMaterials(sb, r, active: true, coversBand: true, painters, ancestor: true);
+                // ROUND 14 — a subtree candidate must actually overlap the BAND REGION (the outer
+                // band ring of the face rect) to be convicted. The round-13 pass hardcoded
+                // coversBand: true for every listed neighbour, so the ModBuild-117 verdict named
+                // the rest-button 'Base' plates at x −1.08..−0.35 — entirely LEFT of the card
+                // (face x 0..1) — as the painters. Listing stays generous (face±50 %, the
+                // backdrop question needs it); CONVICTION requires touching the ring: the rect
+                // intersects the face rect AND is not wholly inside the inner (band-free) rect.
+                bool overlapsFace = rect.xMax > 0f && rect.xMin < 1f
+                                 && rect.yMax > 0f && rect.yMin < 1f;
+                bool insideInner = rect.xMin >= bandL && rect.xMax <= 1f - bandR
+                                && rect.yMin >= bandB && rect.yMax <= 1f - bandT;
+                DescribeMaterials(sb, r, active: true, coversBand: overlapsFace && !insideInner,
+                                  painters, ancestor: true);
                 // A textured board/tray mesh cannot be judged by material color — its darkness
                 // lives in the texture. If it stands BEHIND the face and spans it, it is the
                 // backdrop every erased card pixel reads against.
@@ -545,6 +557,11 @@ internal static class CardBandPainter
                             $"adopted ability card ('{card.name}' under {chain}, face " +
                             $"{faceRect.width:F0}x{faceRect.height:F0} px, {bandNote}). " +
                             $"{sb}VERDICT: {verdictLine}.");
+
+        // ROUND 14 — the decisive instrument: after the deduction, the measurement. Same latch/
+        // re-arm moments, same band definition; it reads the composed pixels the eye sees and
+        // logs its own CARD BAND PIXELS line. Never throws (own try/catch).
+        CardBandPixelCapture.Capture(context, reason, faceRoot, faceRect, bandL, bandR, bandB, bandT);
     }
 
     /// <summary>

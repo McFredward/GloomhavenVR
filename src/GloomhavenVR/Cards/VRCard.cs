@@ -1615,8 +1615,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     // DustSettleScale (0.82) — it never shrinks the slab away the way the original scale-to-zero
     // disappear did (the stale claim this comment block replaces).
     //
-    //   1. BLACK SLAB. CardMesh's front/rim material is EdgeColor (0.10, 0.09, 0.08) — deliberately
-    //      near-black because it normally sits entirely BEHIND the card art (the backing is fitted to
+    //   1. BLACK SLAB. CardMesh's front/rim material is EdgeColor — near-black (0.10, 0.09, 0.08)
+    //      when this was diagnosed, warm umber since round 14 — because it normally sits entirely
+    //      BEHIND the card art (the backing is fitted to
     //      VisibleFaceFraction, inside CardFace's border inset). As the art fades toward 0 that
     //      near-black front face is progressively UNCOVERED, so the last ~two thirds of the vanish is
     //      a black card-shaped slab sitting in the freshly lit teal overlay. That is the "schwarz"

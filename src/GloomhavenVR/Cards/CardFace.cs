@@ -287,7 +287,8 @@ internal sealed class CardFace
     ///
     /// WHAT THE BLACK BORDER IS — established, not assumed. The card ART carries its own
     /// non-rectangular silhouette in its ALPHA channel; the mod's body is a rounded RECTANGLE
-    /// whose near-black front (<c>CardMesh.EdgeColor</c> 0.10/0.09/0.08) sits directly behind
+    /// whose front (<c>CardMesh.EdgeColor</c> — near-black 0.10/0.09/0.08 when this was written,
+    /// warm umber since round 14) sits directly behind
     /// it. Where the art is transparent, that front is what the player sees. It is NOT an inset
     /// or a letterbox: <c>VRCard.SetCanvasSize</c> scales the backing to facePixels × fit ×
     /// VisibleFaceFraction (0.94) and <see cref="BorderFraction"/> insets the art by exactly the
