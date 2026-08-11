@@ -466,20 +466,24 @@ internal sealed class HandGhost
 /// sync and closing the fan — for ANY reason, including a teardown — releases the ghost on the
 /// next tick.
 ///
-/// <see cref="LocalSide"/> is the single source of truth the other two renderings of this same
-/// player read: <see cref="WorldUI.AvatarMirror"/> ghosts the mirrored hand from it, and
-/// <see cref="Net.NetAvatarDriver"/> stamps it (plus <see cref="Strength"/>) onto the extras
-/// packet so peers fade the matching hand of our remote avatar. Everything is config-guarded:
-/// with the toggle off nothing is ever scanned, cloned or transmitted.
+/// <see cref="LocalLeft"/>/<see cref="LocalRight"/> are the single source of truth the other
+/// two renderings of this same player read: <see cref="WorldUI.AvatarMirror"/> ghosts the
+/// mirrored hands from them per side, and <see cref="Net.NetAvatarDriver"/> stamps their mask
+/// (plus <see cref="Strength"/>) onto the extras packet so peers fade the matching hands of our
+/// remote avatar. Everything is config-guarded: with the toggle off nothing is ever scanned,
+/// cloned or transmitted.
 /// </summary>
 internal static class HandGhosts
 {
     private static readonly HandGhost LeftGhost = new("local Left");
     private static readonly HandGhost RightGhost = new("local Right");
 
-    /// <summary>Which hand is ghosted right now (null = none). LEGACY single-side view — kept for
-    /// the wire's original ghost flag and the mirror; when both hands are ghosted it names the fan
-    /// side. The full truth is <see cref="LocalSidesMask"/>.</summary>
+    /// <summary>Which hand is ghosted right now (null = none). LEGACY single-side view — kept
+    /// ONLY for the wire's original ghost flag (<c>extras.GhostHand</c>); when both hands are
+    /// ghosted it names the fan side. The full truth is <see cref="LocalLeft"/>/<see
+    /// cref="LocalRight"/> (mask form: <see cref="LocalSidesMask"/>) — the mirror used to read
+    /// THIS and therefore could never ghost a second (held-card) hand; see the 2026-08-11 note
+    /// in <see cref="WorldUI.AvatarMirror"/>.Tick.</summary>
     internal static HandSide? LocalSide { get; private set; }
 
     internal static bool LocalLeft { get; private set; }

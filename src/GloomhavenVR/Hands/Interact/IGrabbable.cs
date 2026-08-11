@@ -25,9 +25,12 @@ internal interface IGrabbable
     /// True: this grabbable is ALWAYS taken with the GRIP button, ignoring the
     /// <c>[Cards] GrabButton</c> config (hardware test #27: boards/world panels grip-
     /// grab, more intuitive than the Demeo trigger). False: obey the config — Trigger
-    /// (Demeo default) or Grip — like cards do. net472 has no default-interface-method
-    /// support, so every <see cref="IGrabbable"/> implementer states this explicitly
-    /// (the <see cref="GrabbableBehaviour"/> base defaults it to false for cards).
+    /// (Demeo default) or Grip — UNLESS the target is trigger-only: cards (typed into
+    /// <c>ProximityGrabber.IsTriggerOnly</c>, user 2026-08-11) and
+    /// <see cref="ITriggerOnlyGrabbable"/> markers take the trigger whatever the config
+    /// says. net472 has no default-interface-method support, so every
+    /// <see cref="IGrabbable"/> implementer states this explicitly (the
+    /// <see cref="GrabbableBehaviour"/> base defaults it to false for cards).
     /// </summary>
     bool GrabWithGrip { get; }
 
@@ -68,9 +71,13 @@ internal interface IGrabbableHandFilter
 /// <see cref="ProximityGrabber"/> withholds its universal "a closing fist (grip) always grabs
 /// the highlighted candidate" fallback for it, so a grip squeeze near the target — the most
 /// common accidental gesture over a crowded board — never starts a hold. Board figures
-/// (<c>Board.FigureGrab.FigureGrabbable</c>) carry it; cards deliberately do NOT (the grip
-/// fallback exists for them — the un-grabbable placed pick card of 2026-08-04). Meaningless on
-/// a <see cref="IGrabbable.GrabWithGrip"/> target (that branch never consults it).
+/// (<c>Board.FigureGrab.FigureGrabbable</c>) carry it. CARDS are trigger-only too (user
+/// 2026-08-11: "Die Karten sollen nur mit dem trigger nehmbar sein") but do not carry the
+/// marker — they live in Cards/ and are named by TYPE in
+/// <c>ProximityGrabber.IsTriggerOnly</c> instead (the grip fallback they once had — the
+/// un-grabbable placed pick card of 2026-08-04 — became obsolete when the pick take-back was
+/// fixed structurally; see that method's doc). Meaningless on a
+/// <see cref="IGrabbable.GrabWithGrip"/> target (that branch never consults it).
 /// </summary>
 internal interface ITriggerOnlyGrabbable
 {

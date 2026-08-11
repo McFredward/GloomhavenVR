@@ -85,9 +85,11 @@ internal sealed class AvatarMirror
     private FingerCurler? _leftCurler;
     private FingerCurler? _rightCurler;
 
-    // Ghost hand ([Hands] GhostHandOnFan): the mirror must show the SAME hand faded as the real
-    // rig does — otherwise the self-preview lies about what the ghost looks like (and about what
-    // peers see). One HandGhost per side, driven from HandGhosts.LocalSide in Tick; they own
+    // Ghost hand ([Hands] GhostHandOnFan / GhostHandOnHeldCard): the mirror must show the SAME
+    // hands faded as the real rig does — otherwise the self-preview lies about what the ghost
+    // looks like (and about what peers see). One HandGhost per side, driven per-side from
+    // HandGhosts.LocalLeft/LocalRight in Tick (NOT the legacy single-side LocalSide — see the
+    // 2026-08-11 note there and in Tick: a held card ghosts a second hand); they own
     // private material copies of the MIRROR's own hand renderers, so mirror and real hand never
     // share ghost state (that is exactly why this cannot be done by tinting a shared material).
     private readonly HandGhost _leftGhost = new("mirror Left");
@@ -242,14 +244,23 @@ internal sealed class AvatarMirror
         UpdateHand(_leftHolder, _leftCurler, VRHands.Left, planePoint, fwd);
         UpdateHand(_rightHolder, _rightCurler, VRHands.Right, planePoint, fwd);
 
-        // Ghost hand: fade the SAME side the real rig is fading (HandGhosts.LocalSide is the one
-        // source of truth for the local hands, the mirror and the multiplayer wire). Apply() is a
-        // no-op once engaged, restores on its own when the side goes away, and re-scans by itself
-        // after BuildHands hands us a brand-new HandRig instance.
-        HandSide? ghostSide = HandGhosts.LocalSide;
+        // Ghost hand: fade EXACTLY the hands the real rig is fading, per side. ROOT CAUSE of the
+        // hardware report 2026-08-11 ("Wenn man den Spiegel an hat und eine Karte in die Hand
+        // nimmt, wird die Hand im SPiegel mit der entsprechenden Karte nicht zur Geisterhand -
+        // das es ja 1:1 spiegeln soll, soll es auch die Geisterhand spiegeln"): this drive used
+        // the LEGACY single-side view (HandGhosts.LocalSide), which can only ever name ONE hand
+        // and prefers the fan side — but the real rig ghosts per side (HandGhosts.LocalLeft/
+        // LocalRight): the fan hand AND every hand holding a card ([Hands] GhostHandOnHeldCard).
+        // Take a card out of the open fan — the everyday flow — and the card lands in the OTHER
+        // hand: the real rig fades both, LocalSide still says "fan side", and the mirrored
+        // card-holding hand stayed solid. Driving from the per-side truth (the same values
+        // NetAvatarDriver stamps onto the wire's GhostSidesMask, which is why peers never had
+        // this gap) makes the glass 1:1 again. Apply() is a no-op once engaged, restores on its
+        // own when the side goes away, and re-scans by itself after BuildHands hands us a
+        // brand-new HandRig instance.
         float ghostAlpha = HandGhosts.Alpha;
-        _leftGhost.Apply(ghostSide == HandSide.Left ? _leftRig : null, ghostAlpha);
-        _rightGhost.Apply(ghostSide == HandSide.Right ? _rightRig : null, ghostAlpha);
+        _leftGhost.Apply(HandGhosts.LocalLeft ? _leftRig : null, ghostAlpha);
+        _rightGhost.Apply(HandGhosts.LocalRight ? _rightRig : null, ghostAlpha);
 
         // Held interactables: what the player is HOLDING shows up in the glass too — the held
         // figure, a grip-held card per hand, and the open ABILITY hand fan. The ITEM fan
@@ -487,7 +498,7 @@ internal sealed class AvatarMirror
         // (TryMirrorThroughHand / MirrorHandFan), so the whole glass is one consistent reflection.
         //
         // The holders keep their names/roles: Hand_Left is still driven by VRHands.Left, still
-        // ghosted by HandGhosts.LocalSide == Left. Only the MESH (and the FingerCurler's per-side
+        // ghosted by HandGhosts.LocalLeft. Only the MESH (and the FingerCurler's per-side
         // glove spread sign, which must match the mesh it curls) takes the opposite side.
         _leftRig = HandVisuals.Build(leftVisual, HandSide.Right);
         _leftCurler = _leftRig != null ? new FingerCurler(_leftRig, HandSide.Right) : null;

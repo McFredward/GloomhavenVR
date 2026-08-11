@@ -182,9 +182,11 @@ internal abstract class GrabbableBehaviour : MonoBehaviour, IGrabbable
     public virtual bool CanGrab => !_attached;
 
     /// <summary>
-    /// Cards obey the <c>[Cards] GrabButton</c> config (Trigger by default) — see
-    /// <see cref="IGrabbable.GrabWithGrip"/>. Grip-only grabbables (world panels/boards)
-    /// override this to true instead.
+    /// False = not a grip-only grabbable — see <see cref="IGrabbable.GrabWithGrip"/>. For the
+    /// card types this base serves that means TRIGGER-ONLY acquisition
+    /// (<c>ProximityGrabber.IsTriggerOnly</c>, user 2026-08-11: "Die Karten sollen nur mit dem
+    /// trigger nehmbar sein"). Grip-only grabbables (world panels/boards) override this to
+    /// true instead.
     /// </summary>
     public virtual bool GrabWithGrip => false;
 

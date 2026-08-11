@@ -9,11 +9,17 @@ namespace GloomhavenVR.Hands.Interact;
 /// collider-on-hand. The nearest registered <see cref="IGrabbable"/> with
 /// <c>CanGrab</c> within palm reach becomes the highlighted candidate
 /// (<see cref="IGrabHighlight"/> hook + <see cref="HighlightChanged"/> event for
-/// emissive pulses); pressing the grab button ([Cards] GrabButton — Trigger like
-/// Demeo by default, or Grip) grabs it, releasing that button releases it with the
-/// measured palm velocity — deterministic and MP-safe. The Trigger path defers to
-/// any ray/UI click via <see cref="RayInteractor.HasFreshUiHit"/> (see Tick), and
-/// shares the trigger-up release edge with the laser pluck (<see cref="ForceGrab"/>).
+/// emissive pulses); pressing the grab button grabs it, releasing that button
+/// releases it with the measured palm velocity — deterministic and MP-safe.
+/// WHICH button: CARDS and board figures are TRIGGER-ONLY (see
+/// <see cref="IsTriggerOnly"/> — user 2026-08-11: "Die Karten sollen nur mit dem
+/// trigger nehmbar sein"), panels/tray bars are grip-only
+/// (<see cref="IGrabbable.GrabWithGrip"/>), and only a future grabbable in neither
+/// class would obey [Cards] GrabButton. The Trigger path defers to any ray/UI click
+/// via <see cref="RayInteractor.HasFreshUiHit"/> (see Tick), and shares the
+/// trigger-up release edge with the laser pluck (<see cref="ForceGrab"/>). While a
+/// trigger-taken card is held, the grip is ignored for it entirely — the hold loop
+/// reads only the button that grabbed.
 /// </summary>
 internal sealed class ProximityGrabber
 {
@@ -133,77 +139,92 @@ internal sealed class ProximityGrabber
             return;
         }
 
-        // G3 (test-#22 Demeo parity): the grab edge is the button selected by
-        // [Cards] GrabButton — Trigger (Demeo default) or Grip (legacy). CardsConfig
-        // may be unbound before the Cards module inits, but Highlighted is non-null
-        // only when a grabbable is registered (today: cards), so it is bound here;
-        // fall back to the Trigger default defensively.
-        bool useTrigger = CardsConfig.GrabButton == null
-            || CardsConfig.GrabButton.Value == CardGrabButton.Trigger;
-
-        if (useTrigger)
+        // TRIGGER-ONLY targets: board figures (ITriggerOnlyGrabbable, hardware MP test
+        // 2026-08 requirement (b)) and — since the 2026-08-11 hardware report — CARDS
+        // (see IsTriggerOnly). Their one and only entry is the trigger edge below, with
+        // its UI/laser arbitration; a grip squeeze near them never starts a hold,
+        // whatever [Cards] GrabButton says. A grip-intent edge is NAMED (throttled) so
+        // the next hardware log explains "I squeezed and nothing happened" instead of
+        // reading as a dead controller.
+        //
+        // ARBITRATION (blueprint critical guard): the trigger is ALSO the uGUI/
+        // laser/board "click". Only claim it for a proximity grab when the ray is
+        // NOT clamped to a UI/interactive surface this frame. Ray.HasFreshUiHit is
+        // the single unified signal every trigger-click path already raises — game
+        // UI panels (RayUguiDriver), fan/board cards (CardsDriver fan/board laser),
+        // and the flat screen (FlatScreen) all set Ray.UiHitOverride, and the board
+        // far-click uses the same flag to skip the trigger. So we DEFER to the laser
+        // rather than fight it: a laser-pluck / UI click always wins the trigger, and
+        // a trigger pull with an empty hand (Highlighted == null) or near no card
+        // falls straight through to the UI/board click exactly as before. When the
+        // laser-pluck and a proximity highlight coincide, whichever grabs first sets
+        // Held and the other early-outs on Held != null — no double grab.
+        if (IsTriggerOnly(Highlighted))
         {
-            // ARBITRATION (blueprint critical guard): the trigger is ALSO the uGUI/
-            // laser/board "click". Only claim it for a proximity grab when the ray is
-            // NOT clamped to a UI/interactive surface this frame. Ray.HasFreshUiHit is
-            // the single unified signal every trigger-click path already raises — game
-            // UI panels (RayUguiDriver), fan/board cards (CardsDriver fan/board laser),
-            // and the flat screen (FlatScreen) all set Ray.UiHitOverride, and the board
-            // far-click uses the same flag to skip the trigger. So we DEFER to the laser
-            // rather than fight it: a laser-pluck / UI click always wins the trigger, and
-            // a trigger pull with an empty hand (Highlighted == null) or near no card
-            // falls straight through to the UI/board click exactly as before. When the
-            // laser-pluck and a proximity highlight coincide, whichever grabs first sets
-            // Held and the other early-outs on Held != null — no double grab.
             if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
             {
                 BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
             }
-            // GRIP is ALWAYS a valid proximity-grab edge, even in Trigger mode (user report
-            // 2026-08-04, the un-grabbable placed pick card). ROOT CAUSE: the pick take-back
-            // guard of b7bfb38 told the player to "grip it to swap" — but in Trigger mode a
-            // grip pull on a highlighted card fell through HERE and did nothing, so the
-            // promised deliberate grab route never existed. The grip is never a UI/laser
-            // click (no HasFreshUiHit arbitration needed), the world drag lives on the
-            // stick click (WorldGrab), grip-only grabbables (tray bar, panels) took the
-            // GrabWithGrip branch above, and BoardPick's grip-gated hex touch only runs in
-            // BoardTargeting where this interactor is policy-disabled — the edge was simply
-            // dropped. A highlighted (visibly lifted) card now honours a closing fist from
-            // EITHER hand regardless of the configured grab button.
-            //
-            // EXCEPT trigger-only targets (hardware MP test 2026-08, requirement (b)):
-            // board FIGURES must engage on the TRIGGER exactly like cards — grab, hold,
-            // release — and a closing fist over the board is the canonical ACCIDENTAL
-            // gesture there (it is also the grip half of the fingertip-ping chord). The
-            // ITriggerOnlyGrabbable marker withholds this fist fallback for them; the
-            // trigger path above (with its UI/laser arbitration) is their only entry.
-            else if (_hand.GripDown && Highlighted is not ITriggerOnlyGrabbable)
+            else if (_hand.GripDown)
             {
-                BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
+                LogRefusal($"'{DescribeGrabbable(Highlighted)}' is trigger-only (cards and " +
+                           "figures grab with the TRIGGER; user 2026-08-11: \"Die Karten " +
+                           "sollen nur mit dem trigger nehmbar sein\") — grip ignored");
             }
+            return;
+        }
+
+        // Anything left obeys [Cards] GrabButton (G3, test-#22 Demeo parity) — Trigger
+        // (Demeo default, same arbitration as above) or Grip (legacy). NOTE: with cards
+        // now trigger-only, NO registered grabbable reaches this today (cards + figures
+        // take the trigger-only branch, panels/tray bars the GrabWithGrip branch, pile
+        // stacks refuse CanGrab) — it is the documented contract for a FUTURE
+        // config-obeying grabbable, kept so IGrabbable.GrabWithGrip=false still means
+        // what its doc says. CardsConfig may be unbound before the Cards module inits;
+        // fall back to the Trigger default defensively.
+        bool useTrigger = CardsConfig.GrabButton == null
+            || CardsConfig.GrabButton.Value == CardGrabButton.Trigger;
+        if (useTrigger)
+        {
+            if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
+                BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
         }
         else if (_hand.GripDown)
         {
-            // Legacy [Cards] GrabButton = Grip mode. A trigger-only target (figures) keeps its
-            // trigger semantics even here — the whole point of the marker is that a grip can
-            // never START a figure hold, whatever the card button preference says.
-            if (Highlighted is ITriggerOnlyGrabbable)
-            {
-                LogRefusal($"'{DescribeGrabbable(Highlighted)}' is trigger-only (figures grab " +
-                           "with the TRIGGER, like cards) — grip ignored");
-                return;
-            }
             BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
         }
-        else if (_hand.TriggerDown && Highlighted is ITriggerOnlyGrabbable
-                 && !_hand.Ray.HasFreshUiHit)
-        {
-            // Legacy Grip mode, trigger pulled over a trigger-only target: honour it — the
-            // target's contract is "trigger grabs, trigger-up releases" regardless of the
-            // configured card button. Same UI/laser arbitration as the Trigger-mode path.
-            BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
-        }
     }
+
+    /// <summary>
+    /// Is this target picked up by the TRIGGER edge only? True for the
+    /// <see cref="ITriggerOnlyGrabbable"/> marker (board figures) and for CARDS — the two card
+    /// grabbables named by type, the same explicit-inventory pattern as
+    /// <see cref="HandGhosts"/>.IsHeldCard: exactly two card grabbables exist
+    /// (<see cref="Cards.VRCard"/> = ability card, <see cref="Cards.ItemsPile.ItemChip"/> = item
+    /// card), each is listed on purpose, and a NEW grabbable can never become trigger-only by
+    /// accident (it opts in via the marker instead).
+    ///
+    /// WHY cards are trigger-only (hardware test 2026-08-11, verbatim): "Die Karten sollen nur
+    /// mit dem trigger nehmbar sein, aktuell ist es greiftaste UND trigger". Until then a
+    /// closing fist grip-grabbed a highlighted card too — a fallback added for the un-grabbable
+    /// placed pick card of 2026-08-04, whose guard message promised "grip it to swap" while no
+    /// grip route existed. That promise is GONE: the pick flow was fixed STRUCTURALLY
+    /// (CardsDriver.3.Laser "TAKE-BACK RESTORED" — the dock no longer offers the cancel option,
+    /// and the lift-priority accept/fallback trigger-grabs the lifted pick card via ForceGrab,
+    /// which does not run this gate), so removing the grip edge cannot resurrect that bug. The
+    /// fist near a card is now what it is near a figure: the canonical ACCIDENTAL gesture (and
+    /// the grip half of the fingertip-ping chord).
+    ///
+    /// Scope: ACQUISITION only. Grip keeps every other role (GrabWithGrip panels/tray bars,
+    /// world drag, gestures), and holding is untouched: a card taken by trigger is held while
+    /// the TRIGGER stays pressed (releaseOnTriggerUp) — pressing or releasing the GRIP while a
+    /// card is held does nothing to the card (the hold loop in <see cref="Tick"/> only reads
+    /// the button that grabbed). [Cards] GrabButton no longer affects cards either way — the
+    /// user's request carries no config qualifier, and their figure requirement already read
+    /// "Figuren sollen — wie die Karten — nur mit dem Trigger aufgenommen werden können".
+    /// </summary>
+    private static bool IsTriggerOnly(IGrabbable target) =>
+        target is ITriggerOnlyGrabbable or Cards.VRCard or Cards.ItemsPile.ItemChip;
 
     /// <summary>Shared grab entry (proximity Tick paths); ForceGrab is the laser variant.</summary>
     private void BeginGrab(IGrabbable target, bool releaseOnTriggerUp, string button, string source)
