@@ -259,6 +259,11 @@ internal static class RenderQuality
             + "is why the mod does. Re-asserted per frame like MsaaLevel, because the game rewrites "
             + "QualitySettings on every quality-level swap.",
             new AcceptableValueRange<int>(-1, 8)));
+
+        // The SKY dial ([Sky] Style) RIDES this module's file — the FlatScreenStereo-on-worldui
+        // pattern: the catalog's force-bind of RenderQuality surfaces it, module "rig" files it
+        // under the Visual topic, and the runtime stays where it belongs (Core/SkyAlternative.cs).
+        SkyAlternative.BindConfig(_file);
     }
 
     /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>

@@ -670,20 +670,30 @@ internal static partial class MixedReality
         {
             if (_active)
                 RestoreAll();
-            // MR OFF: the sky STAYS. It is made a pure NON-OCCLUDING backdrop by SkyBackdrop
+            // MR OFF: the player's SKY CHOICE applies ([Sky] Style — SkyAlternative). Default:
+            // the game's sky STAYS and is made a pure NON-OCCLUDING backdrop by SkyBackdrop
             // (ZWrite-off, or — when the shader hard-codes ZWrite On — the sky is left drawing
             // its own colour at Background and a real mod-layer depth-reset renderer at queue 1001
             // overwrites depth to ~far after it, an ordinary tiled-GPU-safe draw with NO renderer
             // suppression and NO mid-pass depth clear) so floated menus, the moved board and the
             // laser in front of it are never clipped — the fix lives on the SPHERE side, not on
-            // the menus (WorldUI.CanvasConversion no longer forces menus on top).
-            SkyBackdrop.Tick(mrHidingSky: false);
+            // the menus (WorldUI.CanvasConversion no longer forces menus on top). A non-Default
+            // choice: SkyAlternative hides the sphere and shows its own panorama backdrop
+            // (non-occluding by construction), and SkyBackdrop stands down for it exactly as it
+            // does for MR.
+            bool altSkyShown = SkyAlternative.Tick();
+            SkyBackdrop.Tick(skyOwnedElsewhere: altSkyShown);
             return;
         }
 
+        // MR ON ⇒ the sky is ALWAYS off (the user's rule), whatever [Sky] Style says: the
+        // alternative-sky backdrop stands down FIRST and re-enables the game sphere, so the
+        // HideSkyGeometry sweep below records and disables a clean renderer for the chroma key.
+        SkyAlternative.StandDown();
+
         // MR ON: SkyBackdrop stands down so MR's HideSkyMeshes owns the sphere for the chroma key
         // (restores the renderer/material first, so HideSkyGeometry disables a clean renderer).
-        SkyBackdrop.Tick(mrHidingSky: true);
+        SkyBackdrop.Tick(skyOwnedElsewhere: true);
 
         Color key = KeyColor.Value;
         key.a = 1f; // the sky clear must be fully opaque for a clean chroma key

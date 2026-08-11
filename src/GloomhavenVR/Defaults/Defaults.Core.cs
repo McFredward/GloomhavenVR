@@ -72,6 +72,9 @@ internal static partial class Defaults
     internal const string HeadCullingMaskDrop = "";          // => [Optimize] HeadCullingMaskDrop
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera
 
+    // ---- Core/SkyAlternative.cs ----------------------------------------------------
+    internal const SkyStyle SkyStyle = Core.SkyStyle.Default;  // => [Sky] Style  (the game's own sky — a fresh install looks exactly like today; Night/Sunset/Cellar swap in a bundled CC0 Poly Haven panorama, and mixed reality always overrides every sky to OFF)
+
     // ---- Core/StereoModeConfig.cs --------------------------------------------------
     internal const string RenderMode = nameof(StereoModeConfig.Mode.MultiPass);  // => [Stereo] RenderMode
 

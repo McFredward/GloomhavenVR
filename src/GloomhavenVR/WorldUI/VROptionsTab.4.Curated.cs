@@ -241,6 +241,13 @@ internal static partial class VROptionsTab
                         new("Compat", "DisablePostProcessing", "disable_post"),
                         new("Compat", "DisableVolumetricFog", "vr_o_fog"),
                         new("Compat", "WallFade", "wall_see_through"),
+                        // The sky choice (user 2026-08-11: three bundled alternatives for the
+                        // game's default sky) — a special row (TryBuildSpecialRow) so the
+                        // dropdown reads localized ("Sternenhimmel") instead of the raw enum
+                        // members; its hint states the user's own MR rule ("Bei Mixed Reality
+                        // ist der Himmel immer aus."). No dependency-layer entry: a choice row
+                        // has no children.
+                        new("Sky", "Style", "vr_o_sky"),
                         new("Rig", "ForwardRendering", "vr_o_forward"),
                         new("Rig", "MenuRig", "vr_o_menurig"),
                     },
@@ -574,7 +581,9 @@ internal static partial class VROptionsTab
         || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
             && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Net", StringComparison.Ordinal)
-            && string.Equals(item.Key, "MaskId", StringComparison.Ordinal));
+            && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "Sky", StringComparison.Ordinal)
+            && string.Equals(item.Key, "Style", StringComparison.Ordinal));
 
     private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
                                            string? hintKey)
@@ -598,6 +607,26 @@ internal static partial class VROptionsTab
             BuildPresetRow(parent, item, caption, hintKey, modeNames,
                            (int)Cards.CardsConfig.BoardMoveMode.Value,
                            index => Cards.CardsConfig.BoardMoveMode.Value = (Cards.BoardMoveMode)index);
+            return true;
+        }
+
+        // The SKY is a user-facing CHOICE like the board movement scheme above: the dropdown
+        // must read in the player's language ("Sternenhimmel"), not the raw enum members
+        // (Default/Night/Sunset/Cellar stay the config/log identity). Index maps 1:1 onto the
+        // enum values (Default=0/Night=1/Sunset=2/Cellar=3, documented at Core.SkyStyle).
+        // Reaching this branch means the catalog produced the bound [Sky] Style entry.
+        if (string.Equals(item.Section, "Sky", StringComparison.Ordinal))
+        {
+            string[] skyNames =
+            {
+                Loc.Mod("sky_default"),
+                Loc.Mod("sky_night"),
+                Loc.Mod("sky_sunset"),
+                Loc.Mod("sky_cellar"),
+            };
+            BuildPresetRow(parent, item, caption, hintKey, skyNames,
+                           (int)SkyAlternative.Style.Value,
+                           index => SkyAlternative.Style.Value = (SkyStyle)index); // BepInEx persists on set
             return true;
         }
 

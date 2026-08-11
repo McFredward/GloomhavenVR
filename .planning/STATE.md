@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 123`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 124`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,15 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 124** — SKY ALTERNATIVES. [Sky] Style (Default/Night/Sunset/Cellar; DE Standard/
+  Sternenhimmel/Abendrot/Gewölbekeller), curated in Grafik ▸ Darstellung, localized dropdown,
+  live-switchable. Three CC0 Poly Haven panoramas (4096x2048) + GloomhavenVR/SkyPanoramic
+  (view-direction equirect, non-occluding by construction) in the REBUILT 39 MB bundle
+  (unity-2021.3.5; prebuilt/ updated — 124 NEEDS this bundle, old one = one-shot warn + game
+  sky untouched). Runtime: SkyAlternative hides GH_SkySphere (renderer.enabled=false, the safe
+  half of SkyBackdrop's trap), shows a mod-layer head-following inverted sphere; lazy bundle
+  load, session-kept textures. MR precedence hard-wired: MR on stands the alternative down
+  before the chroma sweep; dial re-applies on MR off. Local-only, nothing on the wire.
 - **ModBuild 123** — the seven-item round after the border victory. MOUSE DEAD: game EventSystem
   pointer swept world UI with the head; MouseWorldSurfaceCut strips game-pointer hits on
   world-space root canvases at the shared source (EventSystem.RaycastAll postfix; mod pointer

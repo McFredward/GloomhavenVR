@@ -637,6 +637,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // Do not alphabetise or "group the restores"; this pair is an ordering, not a list.
         // (INVARIANTS-Net-Rig.md "MixedReality.RestoreAll runs BEFORE VRCameraPolicy.RestoreAll",
         //  established by 5c881e7.)
+        // SkyAlternative before MixedReality: it re-enables the game sphere it hid, and it does
+        // not touch cameras — order against the pair below is free, but it must run (its own
+        // per-frame self-gate stops firing the moment this driver stops ticking).
+        SkyAlternative.RestoreAll();
         MixedReality.RestoreAll();
         VRCameraPolicy.RestoreAll();
         if (Instance == this)

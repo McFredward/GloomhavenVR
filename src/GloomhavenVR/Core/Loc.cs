@@ -564,6 +564,16 @@ internal static partial class Loc
         ["h_vr_o_aniso"] = Pair("Sharpens textures seen at an angle — card faces, board art. Nearly free.", "Schärft schräg gesehene Texturen — Kartenbilder, Brett-Kunst. Kostet fast nichts."),
         ["vr_o_pixellights"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
         ["h_vr_o_pixellights"] = Pair("How many lights are rendered in full quality. Fewer = faster, flatter. -1 keeps the game's own setting.", "Wie viele Lichter in voller Qualität gerechnet werden. Weniger = schneller, flacher. -1 lässt die Spieleinstellung."),
+        // Grafik ▸ Darstellung: the sky dial (user 2026-08-11 — three bundled alternatives for
+        // the game's default sky; MR precedence is the user's own rule, so the hint states it).
+        ["vr_o_sky"] = Pair("Sky", "Himmel"),
+        ["h_vr_o_sky"] = Pair("Swaps the sky around the table for a bundled panorama — starry night, sunset or cellar vault. With mixed reality the sky is always off.", "Tauscht den Himmel um den Tisch gegen ein Panorama — Sternenhimmel, Abendrot oder Gewölbekeller. Bei Mixed Reality ist der Himmel immer aus."),
+        // The four dropdown choices, shown instead of the raw enum members (Default/Night/
+        // Sunset/Cellar stay the config/log identity, like the board-movement labels above).
+        ["sky_default"] = Pair("Default", "Standard"),
+        ["sky_night"] = Pair("Starry night", "Sternenhimmel"),
+        ["sky_sunset"] = Pair("Sunset", "Abendrot"),
+        ["sky_cellar"] = Pair("Cellar", "Gewölbekeller"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),

@@ -199,11 +199,14 @@ internal static class SkyBackdrop
 
     /// <summary>
     /// Per-frame driver, called from <see cref="MixedReality.Tick"/>.
-    /// <paramref name="mrHidingSky"/> is true while MR owns the sphere (chroma key) — we then
-    /// stand down completely so MR can hide it. Otherwise the backdrop fix is applied/held.
+    /// <paramref name="skyOwnedElsewhere"/> is true while another seam owns the sphere and this
+    /// class must stand down: MR (chroma key — it hides the sphere via HideSkyMeshes) or
+    /// <see cref="SkyAlternative"/> (a non-Default sky — it hides the sphere and shows its own
+    /// panorama backdrop, which is non-occluding by construction, so a hidden sphere needs no
+    /// treatment from here). Otherwise the backdrop fix is applied/held.
     /// Self-gates on <see cref="VRSession.IsRunning"/>: tears everything down when VR stops.
     /// </summary>
-    internal static void Tick(bool mrHidingSky)
+    internal static void Tick(bool skyOwnedElsewhere)
     {
         if (!VRSession.IsRunning)
         {
@@ -212,10 +215,11 @@ internal static class SkyBackdrop
             return;
         }
 
-        if (mrHidingSky)
+        if (skyOwnedElsewhere)
         {
-            // MR hides the sphere for the chroma key — restore it to vanilla first so its
-            // HideSkyMeshes path records/disables a clean renderer. Keep the decision cached.
+            // MR hides the sphere for the chroma key (and SkyAlternative hides it for its own
+            // panorama) — restore it to vanilla first so the owner records/disables a clean
+            // renderer. Keep the decision cached.
             if (_applied)
                 RemoveEffects();
             return;
@@ -257,7 +261,10 @@ internal static class SkyBackdrop
         }
     }
 
-    private static Renderer? FindSky()
+    /// <summary>The scenario sky sphere by the shared name/shader hints, or null. Internal so
+    /// <see cref="SkyAlternative"/> hides the SAME renderer this class treats — one set of hints,
+    /// no second definition of "the sky" to drift.</summary>
+    internal static Renderer? FindSky()
     {
         Renderer[] all = UnityEngine.Object.FindObjectsOfType<Renderer>();
         for (int i = 0; i < all.Length; i++)

@@ -416,7 +416,26 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 123;
+    public const ushort ModBuild = 124;
+    // Build 124: SKY ALTERNATIVES. No wire change (sky is local presentation).
+    //
+    // User request: three alternatives beside the game's own (mod-defanged) sky, selectable
+    // when MR is off; MR on = sky always off. Shipped: [Sky] Style (Default / Night / Sunset /
+    // Cellar — DE: Standard / Sternenhimmel / Abendrot / Gewölbekeller), curated in Grafik ▸
+    // Darstellung with a localized dropdown, live-switchable. Assets: three CC0 Poly Haven
+    // panoramas (dikhololo_night, kloppenheim_06, drachenfels_cellar) at 4096x2048 in the
+    // rebuilt 39 MB bundle, plus GloomhavenVR/SkyPanoramic — an equirect shader sampling the
+    // VIEW DIRECTION (mesh-UV-independent, Cull Front, ZWrite Off, Queue Background): a
+    // non-occluding backdrop by construction, the same contract SkyBackdrop enforces on the
+    // game sphere. Runtime (Core/SkyAlternative.cs): non-Default hides GH_SkySphere
+    // (renderer.enabled=false — the safe half of SkyBackdrop's documented trap) and shows a
+    // mod-layer inverted sphere that center-follows the head (rotation fixed, radius 0.9x
+    // farClip); lazy bundle load on first selection, textures kept for the session (~5 MB
+    // DXT1 each). MR precedence: MR-on stands the alternative down BEFORE the chroma sweep so
+    // MR records a clean sphere; the dial re-applies on MR-off. Teardown restores everything.
+    // BUNDLE NOTE: 124 requires the NEW bundle (39,284,602 bytes) — an old 29 MB bundle logs
+    // a one-shot warn and leaves the game sky untouched.
+    //
     // Build 123: the seven-item hardware round after the border victory. No wire change.
     //
     // (1) MOUSE DEAD, HEAD CANNOT HOVER: the game's EventSystem pointer swept world-space UI
