@@ -203,9 +203,51 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // onto the board — the glide simply starts from the stretched in-hand size (_glideFromScale is
     // read off the transform) and eases home like any other release.
     //
-    // Written by FigureStretch (the two-handed gesture driver), clamped THERE against
-    // [FigureGrab] StretchScaleMin/Max before it ever reaches this field.
+    // Written by FigureStretch (the two-handed gesture driver), clamped THERE against the
+    // per-hold factor bounds this class derives from [FigureGrab] StretchScaleMin/Max
+    // (GetStretchFactorBounds) before it ever reaches this field.
     private float _stretch = 1f;
+
+    // STRETCH BOUNDS, TOTAL-BASED — the zoom ratio the latch stands at, taken (and possibly
+    // clamped) once per hold.
+    //
+    // USER REQUEST (hardware report 2026-08-11, verbatim): "lass mich die mindestgröße und
+    // maximalgröße einer Figur im Debugmenu einstellen. Wenn ich so nah in der Welt reingezommed
+    // habe, dass dei figur größer als die maximalgröße ist und ich sie in die Hand nehme solle
+    // sie die Maximalgrößer in der Hand haben (selbes Prinzip für die Minimalgröße."
+    //
+    // WHAT THE NUMBER IS. The latch above freezes the mini's size RELATIVE TO THE HAND at
+    // whatever the diorama zoom was at the grab — that is the whole point of the latch, and it is
+    // also exactly how a deep zoom-in puts an oversized mini into the hand. This field is the
+    // latch's size expressed against the one zoom-independent yardstick available: the size the
+    // mini would show next to the hand at the DEFAULT diorama zoom (RigTarget.BaseScale), i.e.
+    //     _latchTotalRatio = BaseScale / anchorLossyAtGrab   (…after the grab-time clamp, below).
+    // 1.0 for a grab at the default zoom; 4.0 for a grab zoomed in 4× ("die figur größer als die
+    // maximalgröße"). The figure's TOTAL held size in those units is _latchTotalRatio × _stretch,
+    // and [FigureGrab] StretchScaleMin/Max bound THAT product — the user's words are the
+    // Mindest-/Maximalgröße of the FIGURE, not of the gesture, so the bound must catch a size
+    // that arrived via zoom exactly as one dragged there.
+    //
+    // TWO ENFORCEMENT POINTS, both pop-free by placement:
+    //   (1) the GRAB (ApplyGrabTimeStretchClamp, called from OnGrab between the latch and the
+    //       first ApplyHeldPose): a ratio outside Min/Max scales the latch so the mini ENTERS the
+    //       hand at exactly the bound — before the first held frame renders, so nothing on screen
+    //       ever jumps;
+    //   (2) the GESTURE (GetStretchFactorBounds): the total bounds converted to per-hold factor
+    //       bounds at latch time — Min/ratio .. Max/ratio — so a figure grabbed at 2× total with
+    //       Max 3 can only be stretched to factor 1.5, never to the 6× total the old
+    //       factor-in-isolation clamp allowed.
+    // A mid-hold ZOOM is deliberately NOT re-clamped: the latch is zoom-independent by design
+    // (the report above this one), and re-clamping a standing size is a pop. Likewise a mid-hold
+    // dial change (Min/Max/StretchLimits) affects the next gesture frame and the next grab only.
+    //
+    // MULTIPLAYER: invisible on the wire by construction. Only _stretch is sampled (StretchOf);
+    // the latch clamp changes _heldLocalScale, which never leaves this machine — a peer keeps
+    // reconstructing boardSize × (their observed zoom ratio) × factor, unclamped by OUR local
+    // bounds, per the standing "bounds are a local presentation choice" ruling. The one residue:
+    // while OUR latch was clamped, the peer's picture differs from ours by exactly the clamp —
+    // same class of accepted divergence as a mid-hold zoom itself, and it heals on release.
+    private float _latchTotalRatio = 1f;
 
     // Issue B — render-on-top state so a mini held in FRONT of the opaque control board (PlayTray)
     // is not painted over by the board's on-top HUD widgets (queue 4000, ZTest Always, ZWrite off).
@@ -485,6 +527,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // what makes a later zoom leave the mini in the hand alone.
         _heldLocalScale = AnchorLocalScale(anchor, _homeWorldScale);
         _stretch = 1f; // the manual stretch is per-hold: every grab starts at the board size
+        ApplyGrabTimeStretchClamp(anchor); // …then the TOTAL size bound may trim the latch itself
         _stretchBoundsRenderers = null; // per-hold too: the visual may differ between holds
         _uprightBase = CaptureUprightBase(anchor);
         _attached = true;
@@ -523,10 +566,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // the LIVE diorama scale; heldLocal is the frozen latch. From here on the two are allowed to
         // disagree: heldLocal stays put while anchorScale follows every pinch-zoom, and that is the
         // fix, not a drift. heldWorld is therefore boardWorld × (anchorScale / anchorScale-at-grab)
-        // — equal to boardWorld on this frame by construction.
+        // — equal to boardWorld on this frame by construction, UNLESS the grab-time size clamp
+        // trimmed the latch (its own [Size] CLAMP line directly above says so when it did).
+        // latchRatio is the total held size in default-zoom units — the number the bounds govern.
         VRLog.Info("FigureGrab",
             $"[Size] {Describe()} boardWorld={_homeWorldScale.x:0.####} heldWorld={t.lossyScale.x:0.####} " +
-            $"anchorScale={anchor.lossyScale.x:0.###} heldLocal={_heldLocalScale.x:0.######} — size LATCHED "
+            $"anchorScale={anchor.lossyScale.x:0.###} heldLocal={_heldLocalScale.x:0.######} " +
+            $"latchRatio={_latchTotalRatio:0.###} — size LATCHED "
             + "at the grab and fixed in the hand from now on; a zoom mid-hold no longer resizes it, and "
             + "the release glide eases it back to the board's live size.");
     }
@@ -623,6 +669,68 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// <summary>The manual in-hand stretch factor of this hold (1 = untouched). Read by
     /// <c>Net.NetFigures</c> as the wire sample for <c>NetProtocol.ExtIdHeldStretch</c>.</summary>
     internal float Stretch => _stretch;
+
+    /// <summary>
+    /// GRAB-TIME half of the total size bound (see <see cref="_latchTotalRatio"/> for the request
+    /// and the semantics). Computes the zoom ratio the fresh latch stands at — the mini's held
+    /// size relative to its board-home size at the DEFAULT diorama zoom — and, while
+    /// [FigureGrab] StretchLimits is on, scales the latch so that ratio lands exactly ON the
+    /// violated bound ("solle sie die Maximalgrößer in der Hand haben"). Runs BEFORE the first
+    /// <see cref="ApplyHeldPose"/> of the hold, so the clamped size is the first held frame ever
+    /// rendered — no pop, only a grab transition the player asked for. Degenerate inputs (dead
+    /// rig, zero anchor scale, non-finite ratio) leave the latch alone: a bounds feature must
+    /// never be the thing that breaks a grab.
+    /// </summary>
+    private void ApplyGrabTimeStretchClamp(Transform anchor)
+    {
+        _latchTotalRatio = 1f;
+        float baseScale = Rig.RigTarget.BaseScale;
+        float anchorScale = anchor.lossyScale.x;
+        if (baseScale <= 1e-6f || anchorScale <= 1e-6f)
+            return;
+        float ratio = baseScale / anchorScale;
+        if (float.IsNaN(ratio) || float.IsInfinity(ratio) || ratio <= 0f)
+            return;
+        _latchTotalRatio = ratio;
+
+        if (!FigureGrabConfig.StretchLimitsEnabled)
+            return; // limits off: the latch keeps the true grab-zoom size, whatever it is
+        float min = FigureGrabConfig.StretchScaleMinValue;
+        float max = FigureGrabConfig.StretchScaleMaxValue;
+        float clamped = Mathf.Clamp(ratio, min, max);
+        if (Mathf.Approximately(clamped, ratio))
+            return;
+        _heldLocalScale *= clamped / ratio; // uniform trim — the latch's own frame, no reparent
+        _latchTotalRatio = clamped;
+        VRLog.Info("FigureGrab",
+            $"[Size] {Describe()} grab-time size CLAMP: the zoom at grab implies "
+            + $"{ratio:0.###}× of the figure's default-zoom size, outside the total bound "
+            + $"[{min:0.##} .. {max:0.##}] — latch trimmed so it enters the hand at exactly "
+            + $"{clamped:0.###}× ([FigureGrab] StretchScaleMin/Max; StretchLimits=false disables "
+            + "this). Peers keep their own unclamped reconstruction — local presentation only.");
+    }
+
+    /// <summary>
+    /// The GESTURE half of the total size bound: the per-hold factor envelope
+    /// <see cref="FigureStretch"/> must clamp into, derived by converting the TOTAL bounds
+    /// ([FigureGrab] StretchScaleMin/Max) at the latch's own ratio — total = ratio × factor, so
+    /// factor ∈ [Min/ratio .. Max/ratio]. Recomputed per call, so a live dial change (Min, Max,
+    /// or the StretchLimits switch itself) governs the very next gesture frame. With limits OFF
+    /// only the technical floor remains (<see cref="FigureGrabConfig.StretchHardFloor"/> — the
+    /// scale must stay positive and finite, nothing else).
+    /// </summary>
+    internal void GetStretchFactorBounds(out float min, out float max)
+    {
+        if (!FigureGrabConfig.StretchLimitsEnabled)
+        {
+            min = FigureGrabConfig.StretchHardFloor;
+            max = float.MaxValue;
+            return;
+        }
+        float ratio = Mathf.Max(_latchTotalRatio, 1e-6f);
+        min = FigureGrabConfig.StretchScaleMinValue / ratio;
+        max = FigureGrabConfig.StretchScaleMaxValue / ratio;
+    }
 
     /// <summary>
     /// Write the manual stretch factor and re-assert the rendered size in the same call, so the

@@ -15,15 +15,28 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <para>THE MATHEMATICS ARE RATIO-BASED, NOT INCREMENTAL. At trigger-down the distance from the
 /// gesture hand's pinch point to the held mini's CENTRE is latched (d0), together with the hold's
 /// current stretch factor (s0); every frame the trigger stays held the target factor is
-/// s0 × (d / d0), clamped to [FigureGrab] StretchScaleMin/Max. A ratio makes the gesture
-/// reversible inside one hold (slide back in and the figure is exactly where it started) and
-/// proportional at every size — the same hand travel always multiplies by the same amount, which
-/// an additive mapping cannot do. Distances are measured in REAL metres at the hand
+/// s0 × (d / d0), clamped into the hold's factor envelope (next paragraph). A ratio makes the
+/// gesture reversible inside one hold (slide back in and the figure is exactly where it started)
+/// and proportional at every size — the same hand travel always multiplies by the same amount,
+/// which an additive mapping cannot do. Distances are measured in REAL metres at the hand
 /// (world ÷ rig scale), so a diorama zoom mid-gesture cannot masquerade as hand motion, and to
 /// the mini's TRANSFORM position rather than its collider surface — a surface point moves WITH
 /// the scale being written and would feed the output back into the input. Both d and d0 are
 /// floored (<see cref="MinGestureDistanceRealMeters"/>) so a pinch started ON the mini's centre
 /// cannot divide by a millimetre and explode.</para>
+///
+/// <para>THE CLAMP IS TOTAL-BASED, NOT A BARE FACTOR CLAMP (2026-08-11 size-bounds round).
+/// [FigureGrab] StretchScaleMin/Max bound the figure's TOTAL held size relative to its
+/// board-home size at the DEFAULT diorama zoom, and the grab-time latch already carries the zoom
+/// the player grabbed at — so clamping the per-hold factor against Min/Max in isolation let a
+/// figure grabbed at 2× total reach 6× total. The gesture's ratio mathematics are untouched;
+/// only the clamp bounds changed: <c>FigureGrabbable.GetStretchFactorBounds</c> converts the
+/// total bounds to this hold's factor envelope (Min/latchRatio .. Max/latchRatio), re-read every
+/// frame so a live dial edit governs the next frame. With [FigureGrab] StretchLimits OFF the
+/// envelope collapses to the technical floor alone (<c>FigureGrabConfig.StretchHardFloor</c> —
+/// positive-and-finite, no size opinion), which is the user's requested "Ober und Untergrenzen
+/// ganz abschalten". The grab-time half of the same bound (an over/under-sized latch entering
+/// the hand AT the bound) lives in <c>FigureGrabbable.ApplyGrabTimeStretchClamp</c>.</para>
 ///
 /// <para>THE CAPTURE ZONE IS SURFACE-BASED AND SCALES WITH THE FIGURE — hardware test report
 /// (2026-08-11, verbatim): "Groß ziehen kann ich ohne Probleme aber wieder klein ziehen nicht,
@@ -255,11 +268,17 @@ internal static class FigureStretch
             // reference must not move with the scale it drives (class doc, mathematics paragraph).
             st.StartDistReal = Mathf.Max(RealDistance(hand, center), MinGestureDistanceRealMeters);
             st.BaseFactor = target.Stretch;
+            target.GetStretchFactorBounds(out float fMin, out float fMax);
+            string clampText = FigureGrabConfig.StretchLimitsEnabled
+                ? $"factor clamp [{fMin:0.###} .. {fMax:0.###}] (total bound "
+                  + $"[{FigureGrabConfig.StretchScaleMinValue:0.##} "
+                  + $".. {FigureGrabConfig.StretchScaleMaxValue:0.##}]× of default-zoom size, "
+                  + "rebased to this hold's latch)"
+                : $"NO clamp (StretchLimits off; technical floor {fMin:0.##}× only)";
             VRLog.Info("FigureGrab",
                 $"{hand.Side} STRETCH engaged on {target.Label}: start {st.StartDistReal * 1000f:F0} mm "
                 + $"real from the mini's centre, base factor {st.BaseFactor:0.###} — outward grows, "
-                + $"inward shrinks, clamp [{FigureGrabConfig.StretchScaleMinValue:0.##} "
-                + $".. {FigureGrabConfig.StretchScaleMaxValue:0.##}]. Committed at trigger-up; "
+                + $"inward shrinks, {clampText}. Committed at trigger-up; "
                 + "this hold only, release still glides home to board size.");
         }
     }
@@ -295,8 +314,12 @@ internal static class FigureStretch
         st.Captured = true;
 
         float distReal = Mathf.Max(RealDistance(hand, center), MinGestureDistanceRealMeters);
-        float min = FigureGrabConfig.StretchScaleMinValue;
-        float max = FigureGrabConfig.StretchScaleMaxValue;
+        // Per-hold factor bounds, TOTAL-based (see the class doc's mathematics paragraph and
+        // FigureGrabbable._latchTotalRatio): the hold converts [FigureGrab] StretchScaleMin/Max
+        // from total-size bounds into the factor envelope of THIS latch, and answers "floor
+        // only" while StretchLimits is off. Asked per frame on purpose — a live dial change
+        // governs the very next frame, without ever re-clamping a resting size.
+        target.GetStretchFactorBounds(out float min, out float max);
         float raw = st.BaseFactor * (distReal / st.StartDistReal);
         float clamped = Mathf.Clamp(raw, min, max);
 

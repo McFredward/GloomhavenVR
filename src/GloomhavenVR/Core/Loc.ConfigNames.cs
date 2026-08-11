@@ -178,6 +178,14 @@ internal static partial class Loc
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
             ["FigureGrab/PickRadiusMillimeters"] =
                 Pair("Figure: grab range at the hand (mm)", "Figur: Greifradius an der Hand (mm)"),
+            ["FigureGrab/StretchScaleMin"] =
+                Pair("Figure: min size in hand", "Figur: Mindestgröße in Hand"),
+            ["FigureGrab/StretchScaleMax"] =
+                Pair("Figure: max size in hand", "Figur: Maximalgröße in Hand"),
+            ["FigureGrab/StretchLimits"] =
+                Pair("Figure: size limits on/off", "Figur: Größen-Grenzen an/aus"),
+            ["FigureGrab/HeldFigureInfo"] =
+                Pair("Figure: info on pickup", "Figur: Info beim Aufnehmen"),
             ["FigureGrab/HeldUprightAtGrab"] = Pair("Figure: upright on grab", "Figur: aufrecht greifen"),
             ["FigureGrab/HeldUpright"] = Pair("Figure: hold upright", "Figur: aufrecht halten"),
             ["FigureGrab/*HeldOffsetSide"] = Pair("Figure: sideways (m)", "Figur: seitlich (m)"),

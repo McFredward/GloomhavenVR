@@ -48,6 +48,8 @@ internal static partial class Defaults
     internal const float StretchReachMillimeters = 80f;     // => [FigureGrab] StretchReachMillimeters
     internal const float StretchScaleMin = 0.5f;            // => [FigureGrab] StretchScaleMin
     internal const float StretchScaleMax = 3f;              // => [FigureGrab] StretchScaleMax
+    internal const bool StretchLimits = true;               // => [FigureGrab] StretchLimits
+    internal const bool HeldFigureInfo = true;              // => [FigureGrab] HeldFigureInfo
     internal const float HeldScale = 1.5f;                  // => [FigureGrab] HeldScale  (legacy: read once as the seed for its successor)
     internal const float HeldOffsetForward = 0.05f;         // => [FigureGrab] HeldOffsetForward  (legacy: read once as the seed for its successor)
     internal const float HeldOffsetUp = 0.01f;              // => [FigureGrab] HeldOffsetUp  (legacy: read once as the seed for its successor)

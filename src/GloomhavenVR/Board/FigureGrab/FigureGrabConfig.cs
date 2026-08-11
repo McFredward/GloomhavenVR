@@ -84,15 +84,80 @@ internal static class FigureGrabConfig
     /// come to the mini in the OTHER hand before trigger starts the resize, real mm at the hand.</summary>
     public static ConfigEntry<float> StretchReachMillimeters = null!;
 
-    /// <summary>Smallest total stretch factor the gesture can reach (relative to the grab size).</summary>
+    /// <summary>Smallest TOTAL held size a figure may have in the hand, relative to its own
+    /// board-home size as it appears at the DEFAULT diorama zoom (see the semantics note on
+    /// <see cref="StretchLimits"/>).</summary>
     public static ConfigEntry<float> StretchScaleMin = null!;
 
-    /// <summary>Largest total stretch factor the gesture can reach (relative to the grab size).</summary>
+    /// <summary>Largest TOTAL held size a figure may have in the hand (same reference as
+    /// <see cref="StretchScaleMin"/>).</summary>
     public static ConfigEntry<float> StretchScaleMax = null!;
+
+    /// <summary>
+    /// Master switch for the two size bounds above — the requested off switch.
+    ///
+    /// <para>USER REQUEST (hardware report 2026-08-11, verbatim): "lass mich die mindestgröße und
+    /// maximalgröße einer Figur im Debugmenu einstellen. Wenn ich so nah in der Welt reingezommed
+    /// habe, dass dei figur größer als die maximalgröße ist und ich sie in die Hand nehme solle
+    /// sie die Maximalgrößer in der Hand haben (selbes Prinzip für die Minimalgröße. Ich will
+    /// Optional auch die Ober und und Untergrenzen ganz abschalten können im Debug Menu."</para>
+    ///
+    /// <para>SEMANTICS OF THE BOUNDS (integrator ruling, this round): Min/Max bound the figure's
+    /// TOTAL held size relative to its own board-home size — the size the mini would show next to
+    /// the hand at the DEFAULT diorama zoom. That total is (zoom-ratio-at-grab × stretch factor):
+    /// the grab-time size latch inherits the zoom the player stood at when grabbing
+    /// (<c>FigureGrabbable._heldLocalScale</c>), and the two-hand gesture multiplies on top. The
+    /// user's words are "Mindestgröße/Maximalgröße einer FIGUR" and his scenario is zoom-driven,
+    /// so the bound must catch the size HOWEVER it arose — a deep zoom-in at grab time exactly as
+    /// much as an outward drag. Two consequences, both implemented at the only pop-free moments:
+    /// the GRAB clamps the latch itself (the mini enters the hand at exactly the bound — "solle
+    /// sie die Maximalgrößer in der Hand haben"), and the GESTURE's clamp is expressed in the
+    /// same total (converted to per-hold factor bounds at latch time,
+    /// <c>FigureGrabbable.GetStretchFactorBounds</c>). A grab at the default zoom keeps the exact
+    /// pre-this-round behaviour: ratio 1, factor bounds = Min..Max verbatim.</para>
+    ///
+    /// <para>WHEN FALSE: no grab-time clamp and no gesture clamp — only the technical floor
+    /// <see cref="StretchHardFloor"/> keeps the scale positive and finite. LIVE, but latch-scoped:
+    /// flipping it mid-hold changes what the NEXT gesture frame / NEXT grab may do; the standing
+    /// held size is never re-clamped in place, because re-clamping a size the player is looking at
+    /// would be a pop. MULTIPLAYER: the bounds are a LOCAL presentation choice — only the gesture
+    /// factor rides the wire (record 30) and <c>NetProtocol.EncodeHeldStretch</c> clamps the
+    /// outgoing value into the wire's own sane envelope (0.10×..8.0×, NaN→neutral), so a
+    /// limits-off factor beyond 8× reaches peers as 8× and can never be rejected by their
+    /// fail-closed decode.</para>
+    /// </summary>
+    public static ConfigEntry<bool> StretchLimits = null!;
+
+    /// <summary>
+    /// Show the docked actor info panel when a figure is picked up (default: yes — the behaviour
+    /// every build so far shipped). USER REQUEST (2026-08-11, verbatim): "Beim Figur aufnehmen
+    /// kommt ja die Gegnerinfo (was gewollt ist) mach diese aber auch optional in dem VR
+    /// Einstellungen deaktivierbar." Consumed by <c>WorldUI.Surfaces.StatPanelSurface.ShowHeldFigure</c>
+    /// (the single registration seam every pickup goes through); the SettingChanged hook in
+    /// <see cref="Bind"/> closes an already-open held panel when the dial is flipped OFF
+    /// mid-hold. Flipping it ON mid-hold shows nothing until the next pickup — registration
+    /// happens only at the grab.
+    /// </summary>
+    public static ConfigEntry<bool> HeldFigureInfo = null!;
+
+    /// <summary>Technical floor on the stretch factor while <see cref="StretchLimits"/> is OFF —
+    /// not a size opinion, only "the scale must stay positive and finite" (a zero or negative
+    /// scale breaks renderer bounds and the release glide's lerp).</summary>
+    internal const float StretchHardFloor = 0.01f;
+
+    /// <summary>Bounds enabled? Null-guarded like every accessor here (pre-Bind → default).</summary>
+    internal static bool StretchLimitsEnabled => StretchLimits == null || StretchLimits.Value;
+
+    /// <summary>Info panel on pickup enabled? (null-guarded; pre-Bind → default).</summary>
+    internal static bool HeldFigureInfoEnabled => HeldFigureInfo == null || HeldFigureInfo.Value;
 
     /// <summary>Bind-range floor/ceiling of the two stretch clamps. Deliberately INSIDE the wire's
     /// sane envelope (<c>NetProtocol.HeldStretchCodeMin/Max</c>, 0.10×..8.0×), so no legitimately
-    /// tuned factor can ever be rejected by a peer's fail-closed decode.</summary>
+    /// tuned factor can ever be rejected by a peer's fail-closed decode. Since the bounds went
+    /// TOTAL-based (and got an off switch, <see cref="StretchLimits"/>) the per-hold FACTOR can
+    /// legitimately leave that envelope; the guarantee is now carried by the encoder instead —
+    /// <c>NetProtocol.EncodeHeldStretch</c> clamps every outgoing factor into the envelope before
+    /// quantizing, so the wire never carries a rejectable code either way.</summary>
     internal const float StretchScaleFloor = 0.1f;
     internal const float StretchScaleCeiling = 8f;
 
@@ -376,17 +441,38 @@ internal static class FigureGrabConfig
         StretchScaleMin = config.Bind(
             "FigureGrab", "StretchScaleMin", Defaults.StretchScaleMin,
             new ConfigDescription(
-                "Smallest size the stretch gesture can shrink a held figure to, as a factor of the " +
-                "size it was grabbed at (0.5 = half). The gesture is a ratio — slide back out and " +
-                "the figure returns through every size — so this is a clamp, not a step.",
+                "Smallest TOTAL size a figure may have in your hand, as a factor of the size it " +
+                "shows at the DEFAULT table zoom (0.5 = half). It bounds the size however it " +
+                "arose: a figure grabbed while zoomed far out enters the hand at exactly this " +
+                "size instead of tinier, and the two-hand stretch gesture cannot shrink it below " +
+                "it either. The gesture is a ratio — slide back out and the figure returns " +
+                "through every size — so this is a clamp, not a step. Ignored while " +
+                "StretchLimits is off.",
                 new AcceptableValueRange<float>(StretchScaleFloor, 1f)));
         StretchScaleMax = config.Bind(
             "FigureGrab", "StretchScaleMax", Defaults.StretchScaleMax,
             new ConfigDescription(
-                "Largest size the stretch gesture can grow a held figure to, as a factor of the " +
-                "size it was grabbed at (3 = three times). Applies to this hold only: releasing " +
-                "always glides the figure back to its true board size.",
+                "Largest TOTAL size a figure may have in your hand, as a factor of the size it " +
+                "shows at the DEFAULT table zoom (3 = three times). It bounds the size however " +
+                "it arose: a figure grabbed while zoomed in so deep that it would be bigger than " +
+                "this enters the hand at exactly this size, and the two-hand stretch gesture " +
+                "cannot grow it past it either. Applies to the hold only: releasing always " +
+                "glides the figure back to its true board size. Ignored while StretchLimits is " +
+                "off.",
                 new AcceptableValueRange<float>(1f, StretchScaleCeiling)));
+        StretchLimits = config.Bind(
+            "FigureGrab", "StretchLimits", Defaults.StretchLimits,
+            "Enforce the min/max held-figure size (StretchScaleMin/Max) at all. Off = a figure " +
+            "in the hand may take any size the grab zoom and the stretch gesture produce, with " +
+            "only a tiny technical floor keeping the scale positive. Live: the next grab and " +
+            "the next gesture frame honour the new setting; a figure already in the hand keeps " +
+            "its current size until you act on it (re-clamping it in place would make it pop).");
+        HeldFigureInfo = config.Bind(
+            "FigureGrab", "HeldFigureInfo", Defaults.HeldFigureInfo,
+            "Show the actor info panel docked next to a figure when you pick it up (the same " +
+            "stat card the game shows on mouse-over). Off = picking a figure up shows no panel. " +
+            "Live: turning it off closes an open held-figure panel immediately; turning it on " +
+            "takes effect on the next pickup.");
         // The six entries below are LEGACY (see the per-STYLE block further down, which
         // superseded them): each is read exactly once, as the bind DEFAULT that seeds its
         // three per-style successors the first time this cfg file is written, and never
@@ -548,5 +634,19 @@ internal static class FigureGrabConfig
         // right away (the Active* accessors read the new style on the next call).
         if (Plugin.HandStyle != null)
             Plugin.HandStyle.SettingChanged += Reapply;
+
+        // HeldFigureInfo flipped OFF while a figure is held: the open panel must close NOW, not
+        // linger until release ("mach diese aber auch optional … deaktivierbar" — an off switch
+        // that leaves the panel standing is not off). ClearHeldFigure with a null actor clears
+        // whatever that hand registered and is a no-op for an empty hand, so this is safe to fire
+        // regardless of hold state. Flipping ON registers nothing retroactively — the seam is the
+        // pickup (StatPanelSurface.ShowHeldFigure), so the panel returns on the next grab.
+        HeldFigureInfo.SettingChanged += (_, _) =>
+        {
+            if (HeldFigureInfo.Value)
+                return;
+            WorldUI.Surfaces.StatPanelSurface.ClearHeldFigure(HandSide.Left, null);
+            WorldUI.Surfaces.StatPanelSurface.ClearHeldFigure(HandSide.Right, null);
+        };
     }
 }

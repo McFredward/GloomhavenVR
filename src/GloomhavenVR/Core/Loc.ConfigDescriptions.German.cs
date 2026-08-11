@@ -2351,6 +2351,33 @@ internal static partial class Loc
                 + "Gemessen wird bis zur Oberfläche der Figur, große Figuren bleiben also leicht zu "
                 + "erwischen. Kleiner stellen, falls du weiterhin versehentlich Figuren aufnimmst; 130 ist "
                 + "die alte handbreite Reichweite, bei der Schweben irgendwo über einer Figur genügte.",
+            ["FigureGrab/StretchScaleMin"] =
+                "Kleinste GESAMTGRÖSSE, die eine Figur in deiner Hand haben darf, als Faktor der Größe, die "
+                + "sie beim STANDARD-Tischzoom zeigt (0,5 = halb so groß). Die Grenze greift, egal wie die "
+                + "Größe zustande kam: eine Figur, die du weit herausgezoomt greifst, kommt genau in dieser "
+                + "Größe in die Hand statt noch winziger, und auch die Zwei-Hand-Ziehgeste kann sie nicht "
+                + "darunter schrumpfen. Die Geste ist ein Verhältnis — ziehst du zurück nach außen, läuft die "
+                + "Figur durch jede Größe zurück — das hier ist also eine Klemme, keine Stufe. Ohne Wirkung, "
+                + "solange StretchLimits aus ist.",
+            ["FigureGrab/StretchScaleMax"] =
+                "Größte GESAMTGRÖSSE, die eine Figur in deiner Hand haben darf, als Faktor der Größe, die "
+                + "sie beim STANDARD-Tischzoom zeigt (3 = dreifach). Die Grenze greift, egal wie die Größe "
+                + "zustande kam: eine Figur, die du so tief hereingezoomt greifst, dass sie größer wäre, "
+                + "kommt genau in dieser Größe in die Hand, und auch die Zwei-Hand-Ziehgeste kann sie nicht "
+                + "darüber hinaus vergrößern. Gilt nur für das Halten: Loslassen gleitet die Figur immer auf "
+                + "ihre echte Brettgröße zurück. Ohne Wirkung, solange StretchLimits aus ist.",
+            ["FigureGrab/StretchLimits"] =
+                "Ober- und Untergrenze der Figurengröße in der Hand (StretchScaleMin/Max) überhaupt "
+                + "durchsetzen. Aus = eine Figur in der Hand darf jede Größe annehmen, die Greif-Zoom und "
+                + "Ziehgeste ergeben; nur eine winzige technische Untergrenze hält die Größe positiv. Live: "
+                + "der nächste Griff und der nächste Gesten-Frame folgen der neuen Einstellung; eine bereits "
+                + "gehaltene Figur behält ihre Größe, bis du etwas tust (sie an Ort und Stelle umzuklemmen "
+                + "wäre ein sichtbarer Sprung).",
+            ["FigureGrab/HeldFigureInfo"] =
+                "Zeigt beim Aufnehmen einer Figur die neben ihr angedockte Info-Tafel (dieselbe "
+                + "Werte-Karte, die das Spiel beim Daraufzeigen zeigt). Aus = beim Aufnehmen erscheint "
+                + "keine Tafel. Live: Ausschalten schließt eine offene Tafel sofort; Einschalten wirkt ab "
+                + "dem nächsten Aufnehmen.",
             ["FigureGrab/HeldScale"] =
                 "VERALTET — ohne Wirkung, ersetzt durch [FigureGrab] Glove/Plate/ArcaneHeldScale. Dieser "
                 + "Eintrag wird genau einmal gelesen, als Startwert für jene Pro-Stil-Schlüssel beim ersten "

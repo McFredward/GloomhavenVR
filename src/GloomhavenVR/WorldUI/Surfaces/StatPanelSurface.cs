@@ -216,10 +216,25 @@ internal sealed class StatPanelSurface
     /// that hand. The FIRST-held hand takes the game's real ActorStatPanel; a SECOND-held hand takes
     /// a static snapshot copy. <see cref="Reconcile"/> then (re)binds both panels. Replaces the old
     /// single static held anchor.
+    ///
+    /// <para>OPTIONAL SINCE 2026-08-11 (user, verbatim: "Beim Figur aufnehmen kommt ja die
+    /// Gegnerinfo (was gewollt ist) mach diese aber auch optional in dem VR Einstellungen
+    /// deaktivierbar.") — gated on [FigureGrab] HeldFigureInfo HERE, at the registration seam,
+    /// rather than at the FigureGrabbable call site: every pickup path funnels through this one
+    /// method, and with no registration made there is nothing to orphan — release still calls
+    /// <see cref="ClearHeldFigure"/>, which is a no-op for a hand that never registered, and the
+    /// game's own hover panel is untouched (this gate sits nowhere near TargetingUx's DoShow
+    /// suppression, whose held exemption keeps working off HeldFigures membership, not off this
+    /// registration — so declining the panel can never suppress anything forever). Mid-hold flip
+    /// OFF: the config's SettingChanged hook (FigureGrabConfig.Bind) clears both hands' held
+    /// registrations, closing an open panel immediately. Mid-hold flip ON: nothing re-registers
+    /// until the next pickup — deliberate, the grab is the event the panel belongs to.</para>
     /// </summary>
     internal static void ShowHeldFigure(Transform anchor, ScenarioRuleLibrary.CActor? actor,
         GloomhavenVR.Hands.HandSide holdingHand)
     {
+        if (!Board.FigureGrab.FigureGrabConfig.HeldFigureInfoEnabled)
+            return; // user switched the pickup info panel off — no registration, nothing shows
         if (actor == null || anchor == null)
             return;
         _reg[(int)holdingHand] = new HeldReg(anchor, actor, holdingHand, ++_seqCounter);
