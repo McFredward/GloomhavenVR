@@ -63,7 +63,6 @@ internal sealed class RemoteCardFx
     }
 
     private readonly List<Flight> _flights = new(MaxFlights);
-    private Mesh? _mesh;
     private GameObject? _root;
     private int _played;   // diagnostics: how many flights this avatar has played
 
@@ -223,14 +222,21 @@ internal sealed class RemoteCardFx
 
         EnsureRoot();
         var f = new Flight();
-        if (_root != null && _mesh != null)
+        if (_root != null)
         {
             var go = new GameObject($"CardFx{_flights.Count}");
             go.transform.SetParent(_root.transform, worldPositionStays: false);
             var mf = go.AddComponent<MeshFilter>();
-            mf.sharedMesh = _mesh;
+            // Round 17 (1:1 board rule): a flying card adopts the owner's punched-out ABILITY body
+            // via CardMesh.AttachBody (shared cached mesh, never ours to destroy; upgraded in
+            // place when the contour is learned). Pooled flights register once each at creation.
+            CardMesh.AttachBody(mf, CardBodyKind.Ability,
+                RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
             var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // SHARED cache — never ours to destroy
+            // Two submeshes (front+rim | back), both wearing the SHARED back material (never ours
+            // to destroy): a flight deliberately shows the BACK on both faces, like the old slab.
+            Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability);
+            mr.sharedMaterials = new[] { back, back };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             go.SetActive(false);
@@ -249,16 +255,13 @@ internal sealed class RemoteCardFx
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
         _root.transform.localScale = Vector3.one;
-        _mesh = RemoteHandFan.BuildBackSlab(RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
         VRLayers.Apply(_root);
     }
 
     public void Destroy()
     {
         _flights.Clear();
-        if (_mesh != null)
-            Object.Destroy(_mesh); // asset — not freed with the GameObject tree
-        _mesh = null;
+        // Round 17: the body mesh is CardMesh's SHARED cache (AttachBody) — never ours to destroy.
         if (_root != null)
         {
             Object.Destroy(_root);

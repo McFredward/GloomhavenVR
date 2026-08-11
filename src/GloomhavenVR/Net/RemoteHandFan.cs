@@ -1437,7 +1437,6 @@ internal sealed class RemoteHandFan
         _frontsShown = false;
         ClearPops(); // a rebuilt fan must never open with a stale card already lifted
 
-        Mesh mesh = SharedCardMesh;
         // Ability KIND so a peer's card backs take the same silhouette clip the owner's do — the MP
         // 1:1 rule applies to the card's SHAPE as much as to its content.
         Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // shared: back texture on a Standard material
@@ -1446,13 +1445,20 @@ internal sealed class RemoteHandFan
         {
             var card = new GameObject($"Card{i}");
             card.transform.SetParent(_root!.transform, worldPositionStays: false);
-            // The slab MESH is the shared default-sized one; the owner's own CardWidth arrives as
+            // The body MESH is the shared default-sized one; the owner's own CardWidth arrives as
             // a uniform scale (record 28), so their ghost cards read the size they see.
             card.transform.localScale = Vector3.one * (_cardWidth / DefaultCardWidth);
             var mf = card.AddComponent<MeshFilter>();
-            mf.sharedMesh = mesh;
+            // Round 17 (1:1 board rule): the ghost card adopts the owner's PUNCHED-OUT body via
+            // CardMesh.AttachBody — the shared materials lost their alpha cutout, so a hand-built
+            // rectangle here would read as the pre-silhouette full rectangle. AttachBody registers
+            // the filter and upgrades it in place the moment the Ability contour is learned.
+            CardMesh.AttachBody(mf, CardBodyKind.Ability, DefaultCardWidth, DefaultCardHeight);
             var mr = card.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = back;
+            // The body mesh carries TWO submeshes (front+rim | back). This fan deliberately shows
+            // the BACK texture on both faces — hidden information — so the shared back material
+            // wears both slots instead of the owner's [edge, back] pair.
+            mr.sharedMaterials = new[] { back, back };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             _cards.Add(card);
@@ -1514,63 +1520,13 @@ internal sealed class RemoteHandFan
         _builtCount = -1;
     }
 
-    // ------------------------------------------------------------------ card-back slab mesh --
-
-    private static Mesh? _sharedCardMesh;
-
-    /// <summary>A thin card-back slab whose BOTH faces show the mod's card-back texture: a front
-    /// quad (-Z, normal back) and a back quad (+Z, normal forward), each a hair off centre so it
-    /// reads as a solid card from either side. Built once and shared by every ghost card.</summary>
-    /// <summary>Built at the DEFAULT card size and shared by every peer's fan; a peer whose own
-    /// [Cards] CardWidth differs gets that size through the slab's localScale instead, so one tuned
-    /// player cannot resize everybody else's cards through a shared mesh.</summary>
-    private static Mesh SharedCardMesh => _sharedCardMesh != null ? _sharedCardMesh : (_sharedCardMesh = BuildBackSlab(DefaultCardWidth, DefaultCardHeight));
-
-    /// <summary>Also consumed by <see cref="WorldUI.AvatarMirror"/> (mirrored local card fan):
-    /// a thin both-faces-back card slab mesh. Caller owns the returned mesh.</summary>
-    internal static Mesh BuildBackSlab(float w, float h)
-    {
-        float hw = w * 0.5f, hh = h * 0.5f, t = CardMesh.Thickness * 0.5f;
-
-        // 8 verts: front face (z = -t, faces the viewer/owner at -Z) and back face (z = +t).
-        var vertices = new[]
-        {
-            // front (-Z)
-            new Vector3(-hw, -hh, -t), new Vector3(-hw, hh, -t), new Vector3(hw, hh, -t), new Vector3(hw, -hh, -t),
-            // back (+Z)
-            new Vector3(-hw, -hh, t), new Vector3(-hw, hh, t), new Vector3(hw, hh, t), new Vector3(hw, -hh, t),
-        };
-        var normals = new[]
-        {
-            Vector3.back, Vector3.back, Vector3.back, Vector3.back,
-            Vector3.forward, Vector3.forward, Vector3.forward, Vector3.forward,
-        };
-        // Planar card-space UVs, mirrored X on BOTH quads (2026-08-11). It used to be the back copy
-        // only, "so the (symmetric) lattice lines up" — true and sufficient while the material was
-        // just a back texture. It stopped being sufficient when that material gained an ALPHA CLIP:
-        // CardMesh bakes the cutout in the BACK copy's mirrored orientation, so a front quad on
-        // un-mirrored UVs would clip the silhouette mirror-flipped. Invisible for a left-right
-        // symmetric card outline — which is what ships, so this change is a no-op today by the same
-        // argument the old comment made — and wrong the moment an outline is not symmetric.
-        var uv = new[]
-        {
-            new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, 0f),
-            new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, 0f),
-        };
-        // Winding chosen (verified via right-hand normal) so the front is visible from -Z and the
-        // back from +Z — matching CardMesh's convention (+Z points away from the viewer).
-        var tris = new[]
-        {
-            0, 1, 2, 0, 2, 3,       // front: RH normal -> -Z
-            4, 6, 5, 4, 7, 6,       // back:  RH normal -> +Z
-        };
-
-        var mesh = new Mesh { name = "GloomhavenVR.RemoteCardBack" };
-        mesh.vertices = vertices;
-        mesh.normals = normals;
-        mesh.uv = uv;
-        mesh.triangles = tris;
-        mesh.RecalculateBounds();
-        return mesh;
-    }
+    // ------------------------------------------------------------------ card-back body mesh --
+    //
+    // Round 17: the hand-built two-quad back slab (BuildBackSlab) is GONE. Every ghost-card body
+    // — this fan's, RemoteItemFan's, RemoteBrowserFan's, RemoteCardFx's, RemoteAvatar's held
+    // slabs and WorldUI.AvatarMirror's pooled slabs — now goes through CardMesh.AttachBody, so
+    // peers see the same punched-out card outline the owner sees (the 1:1 board rule). The shared
+    // materials no longer carry the alpha cutout, so a rectangle here would have rendered as the
+    // pre-silhouette full rectangle. AttachBody's meshes are SHARED caches — never destroyed by
+    // the consumers that wear them.
 }

@@ -90,11 +90,11 @@ internal sealed class RemoteAvatar
     private bool _loggedPinned;          // ditto for the received FOLLOW/PIN state (first packet + changes)
     private bool _loggedSlots;           // ditto for the received card-slot occupancy nibble
 
-    // Held-card slab (additive FlagHeldCard wire field): one both-faces-back card slab eased
+    // Held-card slab (additive FlagHeldCard wire field): one both-faces-back card body eased
     // toward the sender's held-card pose — a card in a peer's HAND, distinct from their fan.
     // Backs only, mirroring the fan's anti-cheat stance (no card identity is ever on the wire).
+    // Round 17: the body mesh comes from CardMesh.AttachBody (shared cache) — no per-slab mesh.
     private Transform? _heldCardHolder;
-    private Mesh? _heldCardMesh;
     private bool _heldCardBillboardLogged; // one-line confirm the receiver-side billboard fired
 
     // SECOND held-card slab (extras extension record NetProtocol.ExtIdSecondHeldCard): the card
@@ -104,7 +104,6 @@ internal sealed class RemoteAvatar
     // whole root (both slabs) is destroyed; no state survives a scenario load because the avatar
     // itself does not.
     private Transform? _secondCardHolder;
-    private Mesh? _secondCardMesh;
     private bool _hasSecondHeldCard;
     private RigPose _secondHeldCardPose;
 
@@ -1386,7 +1385,7 @@ internal sealed class RemoteAvatar
         // ticks OUTSIDE the rig-target guard — the record can legitimately arrive before the first
         // rig packet, and the slab must not wait for one. Same machinery as the first slab; the
         // head billboard inside simply keeps the transmitted rotation until a synced head exists.
-        UpdateCardSlab(ref _secondCardHolder, ref _secondCardMesh, "HeldCard2",
+        UpdateCardSlab(ref _secondCardHolder, "HeldCard2",
                        _hasSecondHeldCard, in _secondHeldCardPose, k);
 
         // Ghost hands: fade exactly the hands the sender says are faded. The extension mask is
@@ -1521,7 +1520,7 @@ internal sealed class RemoteAvatar
     /// the lag this removes.
     /// </summary>
     private void UpdateHeldCard(float k)
-        => UpdateCardSlab(ref _heldCardHolder, ref _heldCardMesh, "HeldCard",
+        => UpdateCardSlab(ref _heldCardHolder, "HeldCard",
                           _target.HasHeldCard, in _target.HeldCardPose, k);
 
     /// <summary>
@@ -1551,14 +1550,14 @@ internal sealed class RemoteAvatar
     /// extra slerp rides on top: the billboard derives from an already-eased position and an
     /// already-eased head, so it inherits their smoothing.
     /// </summary>
-    private void UpdateCardSlab(ref Transform? holder, ref Mesh? mesh, string name,
+    private void UpdateCardSlab(ref Transform? holder, string name,
                                 bool held, in RigPose pose, float k)
     {
         if (holder == null)
         {
             if (!held)
                 return; // never held anything yet — build nothing
-            holder = BuildCardSlab(name, out mesh);
+            holder = BuildCardSlab(name);
         }
         UpdatePart(holder, held, in pose, k);
         if (!held || !holder.gameObject.activeSelf)
@@ -1566,7 +1565,7 @@ internal sealed class RemoteAvatar
         if (!_hasTarget || !_target.HeadValid || !_headHolder.gameObject.activeSelf)
             return; // no synced head this frame — keep the transmitted rotation
 
-        // Card +Z points AWAY from its reader (CardMesh / BuildBackSlab convention), so the look
+        // Card +Z points AWAY from its reader (CardMesh's body convention), so the look
         // direction is head → card: the owner sees the face, everyone else sees the back.
         Vector3 away = holder.position - _headHolder.position;
         if (away.sqrMagnitude < 1e-6f)
@@ -1586,27 +1585,29 @@ internal sealed class RemoteAvatar
         }
     }
 
-    private Transform BuildCardSlab(string name, out Mesh? mesh)
+    private Transform BuildCardSlab(string name)
     {
         var holder = new GameObject(name).transform;
         holder.SetParent(_root.transform, worldPositionStays: false);
         holder.localScale = Vector3.one * AppliedScale;
         holder.gameObject.SetActive(false);
 
-        // Own mesh (freed in Destroy); SHARED back material (CardMesh caches it — never ours
-        // to destroy). Sized to the same defaults the remote fan slabs use.
-        mesh = RemoteHandFan.BuildBackSlab(
-            RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
+        // Round 17 (1:1 board rule): the peer's held card adopts the owner's punched-out ABILITY
+        // body via CardMesh.AttachBody — a SHARED cached mesh (never ours to destroy), registered
+        // for the in-place swap the moment the contour is learned. Sized to the same defaults the
+        // remote fan slabs use.
         var mf = holder.gameObject.AddComponent<MeshFilter>();
-        mf.sharedMesh = mesh;
+        Cards.CardMesh.AttachBody(mf, Cards.CardBodyKind.Ability,
+            RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
         var mr = holder.gameObject.AddComponent<MeshRenderer>();
         // Ability KIND, not the never-clipped Neutral pair (2026-08-11). This is the peer's HELD
         // card slab, and it was the one mirror site the previous round's five opt-ins missed — a
         // peer holding a card would still have shown the black rectangle every other surface had
-        // lost. Safe by construction: the mesh is RemoteHandFan.BuildBackSlab, whose planar
-        // card-space UVs are exactly what the footprint is authored against, and which mirrors X on
-        // both quads for precisely this reason.
-        mr.sharedMaterial = Cards.CardMesh.CreateBackMaterial(Cards.CardBodyKind.Ability);
+        // lost. The body mesh carries TWO submeshes (front+rim | back); both wear the SHARED back
+        // material — the slab deliberately shows the BACK on both faces (no card identity is ever
+        // on the wire), exactly like the old two-quad slab.
+        Material back = Cards.CardMesh.CreateBackMaterial(Cards.CardBodyKind.Ability);
+        mr.sharedMaterials = new[] { back, back };
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         mr.receiveShadows = false;
         VRLayers.Apply(holder.gameObject);
@@ -1625,13 +1626,9 @@ internal sealed class RemoteAvatar
         _cardFx.Destroy();
         _browserFan.Destroy();
         _nameTag.Destroy();
-        if (_heldCardMesh != null)
-            Object.Destroy(_heldCardMesh); // asset — not freed with the GameObject tree
-        _heldCardMesh = null;
+        // Round 17: the held-card body meshes are CardMesh's SHARED cache (AttachBody) — never
+        // ours to destroy; the holders die with _root below.
         _heldCardHolder = null;
-        if (_secondCardMesh != null)
-            Object.Destroy(_secondCardMesh); // same asset rule as the first slab's mesh
-        _secondCardMesh = null;
         _secondCardHolder = null;
         if (_root != null)
             Object.Destroy(_root);

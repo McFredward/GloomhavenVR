@@ -416,7 +416,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 120;
+    public const ushort ModBuild = 121;
+    // Build 121: the border's attempt SEVENTEEN — the user's own design, implemented literally.
+    // No wire change. His ruling (verbatim in CardContour/CardFaceMipBake docs): the card FACE
+    // must render completely correct again, and the card MESH must be punched out to the
+    // surface's outline. (Note: his "120" log was actually a 119 run — the 120 deciders never
+    // executed; geometry makes the open shader-variant question moot anyway.)
+    //
+    // ORDER A — face restored: punched/cropped sprite serving retired at the mint
+    // (PunchServingEnabled=false, CardFaceCrop.Enabled=false, live state restored through the
+    // existing contracts). Every face everywhere — local, item, peer — draws its stock
+    // mip-baked art again, incl. the designed printed frame; the broken card bottom dies with
+    // its cause. The FramePunch sweep lives on solely to DERIVE the outline; the footprint
+    // capture's OUTLINE CLIP is now load-bearing.
+    //
+    // ORDER B — body truly punched out: CardContour (new) extracts the outline contour from the
+    // cached footprint (marching squares 0.5 iso, closed-loop DP <= 120 verts, ear-clip front,
+    // mirrored back, extruded rim, bounds pinned to the full card box) and CardMesh.AttachBody
+    // serves the shaped mesh to every registered body the moment a kind's contour is known
+    // (rounded slab until then; one-step ReshapeBodies swap; warm cache = shaped from first
+    // draw). Geometry needs no shader cooperation: cutout baking retired
+    // (CutoutMaterialsEnabled=false); Standard + umber EdgeColor + emission floor stay. All
+    // metrics consumers verified to read the full card box, never the mesh. ALL SIX card-body
+    // mirrors adopted AttachBody in the same build (RemoteHandFan/ItemFan/BrowserFan/CardFx/
+    // Avatar + WorldUI AvatarMirror; submesh count 2 -> back material listed twice; shared
+    // cached meshes are never Object.Destroy'd by mirrors anymore) — peers see the same
+    // punched-out bodies, per the 1:1 ruling.
+    //
     // Build 120: the border's attempt SIXTEEN — the DIFFERENTIAL. No wire change; pure
     // instrumentation on the border plus nothing else. 119 was the partial success that proved
     // the painter chain (band now renders the slab's umber+light instead of unlit black); what

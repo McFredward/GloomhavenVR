@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 120`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 121`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,20 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 121** — border attempt 17: THE USER'S OWN DESIGN. His ruling: face must render
+  completely correct again; the MESH must be punched out to the surface outline. (His "120" log
+  was really a 119 run — the 120 deciders never executed; geometry moots the shader question.)
+  ORDER A: punched/cropped sprite serving retired at the mint (PunchServingEnabled=false,
+  CardFaceCrop.Enabled=false, restores via existing contracts) — stock art everywhere incl. the
+  designed printed frame; the broken bottom dies with its cause; FramePunch sweep = outline
+  derivation only; capture's OUTLINE CLIP now load-bearing. ORDER B: CardContour (marching
+  squares 0.5 iso → closed-loop DP ≤120 verts → ear-clip front / mirrored back / extruded rim,
+  bounds pinned to full box) + CardMesh.AttachBody serving shaped meshes to every registered
+  body on contour-learn (rounded until then; warm cache = shaped from first draw); cutout
+  baking retired (CutoutMaterialsEnabled=false); metrics consumers verified box-only. ALL SIX
+  mirrors adopted AttachBody same build (RemoteHandFan/ItemFan/BrowserFan/CardFx/Avatar +
+  AvatarMirror; two submeshes → back material twice; mirrors never destroy the shared cached
+  meshes). If a band still shows on a seated tray card it can only be the deliberate LINER wood.
 - **ModBuild 120** — border attempt 16: THE DIFFERENTIAL (instrumentation only, deliberately).
   119's partial success proved the painter chain (band = slab umber+light, opaque). The paradox:
   cutout texture alpha provably transparent in the bands + material state provably correct, yet

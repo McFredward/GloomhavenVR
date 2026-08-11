@@ -90,7 +90,6 @@ internal sealed class RemoteItemFan
     /// inventory. Owned here, destroyed with the fan.</summary>
     private readonly RemotePileFronts _fronts;
 
-    private Mesh? _mesh;
     private int _builtCount = -1;
     private bool _poseInit;
     private int _loggedCount = -1;
@@ -1258,7 +1257,6 @@ internal sealed class RemoteItemFan
         // Sized by the sender's rig scale so the fan reads the same physical size as their hands.
         _root.transform.localScale = Vector3.one * _owner.AppliedScale;
         _root.SetActive(false);
-        _mesh = RemoteHandFan.BuildBackSlab(CardW, CardH);
         VRLayers.Apply(_root);
     }
 
@@ -1307,9 +1305,14 @@ internal sealed class RemoteItemFan
             var card = new GameObject($"Item{i}");
             card.transform.SetParent(_root!.transform, worldPositionStays: false);
             var mf = card.AddComponent<MeshFilter>();
-            mf.sharedMesh = _mesh;
+            // Round 17 (1:1 board rule): ITEM kind — this fan mirrors the owner's item chips, so
+            // the chip adopts the same punched-out Item body via CardMesh.AttachBody (shared cached
+            // mesh, never ours to destroy; upgraded in place when the Item contour is learned).
+            CardMesh.AttachBody(mf, CardBodyKind.Item, CardW, CardH);
             var mr = card.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = back;
+            // Two submeshes (front+rim | back), both wearing the shared Item back material: the
+            // arc deliberately shows the BACK on both faces, exactly like the old two-quad slab.
+            mr.sharedMaterials = new[] { back, back };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             _cards.Add(card);
@@ -1396,9 +1399,7 @@ internal sealed class RemoteItemFan
         _cards.Clear();
         ClearCollapseCapture();
         _builtCount = -1;
-        if (_mesh != null)
-            Object.Destroy(_mesh); // asset — not freed with the GameObject tree
-        _mesh = null;
+        // Round 17: the body mesh is CardMesh's SHARED cache (AttachBody) — never ours to destroy.
         if (_root != null)
         {
             Object.Destroy(_root);

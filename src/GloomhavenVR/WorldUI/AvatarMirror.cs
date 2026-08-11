@@ -142,9 +142,10 @@ internal sealed class AvatarMirror
     /// ITEM fan is deliberately not mirrored (report 1), so it claims no slabs.</summary>
     private const int MaxCardSlabs = MaxMirrorFanCards + 2;
     private readonly List<GameObject> _cardSlabs = new(MaxCardSlabs);
-    private Mesh? _cardSlabMesh;
+    // Round 17: the slab MESH comes from CardMesh.AttachBody (shared cache, never ours to
+    // destroy) — only the size it was asked for and the shared back material are held here.
     private Material? _cardBackMat;
-    private float _slabW;               // the mesh's built-in width/height (ability-card aspect) —
+    private float _slabW;               // the body's built-in width/height (ability-card aspect) —
     private float _slabH;               // any other card shape is reached by scaling the slab.
 
     // Neutral tint for the placeholder head (until the real masks ship in the bundle).
@@ -745,10 +746,11 @@ internal sealed class AvatarMirror
     /// Mirror every card the player is holding: the open ABILITY hand fan
     /// (<see cref="MirrorHandFan"/>) plus the single card physically GRIP-held in each hand —
     /// ability (<see cref="VRCard"/>) or item (<see cref="ItemsPile.ItemChip"/>), grabbed out of a
-    /// fan or plucked with the board laser. Every one of them is one both-faces-BACK slab
-    /// (<see cref="RemoteHandFan.BuildBackSlab"/>): backs are exactly what a real mirror shows of a
-    /// card whose face points at the player — and they cost nothing (no card art cloning). Slabs
-    /// are pooled; inactive when nothing is held.
+    /// fan or plucked with the board laser. Every one of them is one both-faces-BACK card body
+    /// (<see cref="CardMesh.AttachBody"/>, round 17 — the punched-out outline the player's own
+    /// cards wear): backs are exactly what a real mirror shows of a card whose face points at the
+    /// player — and they cost nothing (no card art cloning). Slabs are pooled; inactive when
+    /// nothing is held.
     ///
     /// The ITEM fan (<see cref="ItemsPile.Current"/>) is NOT walked here (report 1). The mirror is
     /// an explicit proxy builder, so "not mirrored" is simply "no proxy built": no item fan state
@@ -1069,7 +1071,7 @@ internal sealed class AvatarMirror
         rot = Quaternion.identity;
         if (_headHolder == null)
             return false;
-        // Card +Z points AWAY from the viewer (CardMesh / BuildBackSlab convention), so the
+        // Card +Z points AWAY from the viewer (CardMesh's body convention), so the
         // look direction is head → card, matching TickHeldPose's `away` vector verbatim.
         Vector3 away = slabPos - _headHolder.position;
         if (away.sqrMagnitude < 1e-6f)
@@ -1107,7 +1109,7 @@ internal sealed class AvatarMirror
     {
         while (_cardSlabs.Count <= index)
         {
-            if (_cardSlabMesh == null)
+            if (_cardBackMat == null)
             {
                 float w, h;
                 try
@@ -1122,15 +1124,20 @@ internal sealed class AvatarMirror
                 }
                 _slabW = w;
                 _slabH = h;
-                _cardSlabMesh = RemoteHandFan.BuildBackSlab(w, h);
                 _cardBackMat = CardMesh.CreateBackMaterial(CardBodyKind.Ability);
             }
             var slab = new GameObject($"MirrorCard{_cardSlabs.Count}");
             slab.transform.SetParent(_root!.transform, worldPositionStays: false);
             var mf = slab.AddComponent<MeshFilter>();
-            mf.sharedMesh = _cardSlabMesh;
+            // Round 17 (1:1 board rule): the mirrored card adopts the local player's punched-out
+            // ABILITY body via CardMesh.AttachBody (shared cached mesh, registered for the
+            // learn-time swap; pooled slabs register once each at creation). Ability aspect —
+            // an item chip is still reached by scaling, exactly like the old rectangular slab.
+            CardMesh.AttachBody(mf, CardBodyKind.Ability, _slabW, _slabH);
             var mr = slab.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = _cardBackMat;
+            // Two submeshes (front+rim | back), both wearing the shared back material: a mirror
+            // shows the BACK of the mirrored hand's cards, exactly like the old two-quad slab.
+            mr.sharedMaterials = new[] { _cardBackMat, _cardBackMat };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             slab.SetActive(false);
@@ -1156,11 +1163,10 @@ internal sealed class AvatarMirror
 
     private void Teardown()
     {
-        // The figure clone + card slabs are children of _root (destroyed with it); the slab
-        // MESH is ours (Unity never destroys assets with a GameObject) — free it. The back
-        // MATERIAL is NOT ours: CardMesh.CreateBackMaterial returns the cached material
-        // shared by every live card (and RemoteHandFan), so destroying it here would turn
-        // all card backs pink after the mirror closes — just drop the reference.
+        // The figure clone + card slabs are children of _root (destroyed with it). The slab
+        // MESH (CardMesh.AttachBody, round 17) and the back MATERIAL are both CardMesh's shared
+        // caches, used by every live card (and RemoteHandFan) — destroying either here would
+        // break all card bodies after the mirror closes; just drop the references.
         _figureClone = null;
         _cloneAnimated = null;
         _figureSource = null;
@@ -1173,9 +1179,8 @@ internal sealed class AvatarMirror
         _leftGhost.Release();
         _rightGhost.Release();
         _cardSlabs.Clear();
-        if (_cardSlabMesh != null)
-            Object.Destroy(_cardSlabMesh);
-        _cardSlabMesh = null;
+        // Round 17: the slab body mesh is CardMesh's SHARED cache (AttachBody) — never ours to
+        // destroy; the slab objects themselves die with _root below.
         _cardBackMat = null;
         _slabW = 0f;
         _slabH = 0f;
