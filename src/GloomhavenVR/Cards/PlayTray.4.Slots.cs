@@ -10,7 +10,7 @@ namespace GloomhavenVR.Cards;
 
 // PlayTray part 4 of 7 (see PlayTray.1.Core.cs for the split map and its rules).
 // Regions: slots, pick field (REMOVED — the note is the record, see Batch D), highlight
-// incl. the steady "wanted slot" hint, item-use slot.
+// incl. the steady "wanted slot" hint, recess seat liner (round 13), item-use slot.
 
 internal sealed partial class PlayTray
 {
@@ -411,6 +411,113 @@ internal sealed partial class PlayTray
             quad.SetActive(false);
             _wantedHighlights[i] = quad;
         }
+    }
+
+    // ------------------------------------------------------------------ recess seat liner --
+
+    /// <summary>
+    /// Size of the recess SEAT LINER as a factor of the card box — the same metric as
+    /// <see cref="SlotCardScale"/> (the quad is CardWidth × factor, under the slot's inherited
+    /// 1.3× SlotScale), so the two numbers are directly comparable: the card seats at 1.45, the
+    /// bundled Oak recess measures ≈1.20× the seated card on the 2026-08-10 screenshots
+    /// (karten2.png: well 357 px across against a 295 px card), i.e. ≈1.74 in this metric. 1.78
+    /// covers the floor to the base of the recess walls with a small margin. Steel/Bronze ship
+    /// the same factor until measured on hardware.
+    /// </summary>
+    /// <remarks>Internal, not private, for the same reason as <see cref="SnapGlowRatio"/>:
+    /// <c>Net.RemoteBoardFurniture</c> must reproduce the liner on a peer's mirror of this board
+    /// (the 1:1 board rule) and a second literal over there is exactly how values drift. The Net
+    /// side does not build it yet — see the ModBuild-117 report.</remarks>
+    internal const float SlotLinerScale = 1.78f;
+
+    /// <summary>Liner tint under the keycap grain texture (BoardLit: alb = tex × color). Chosen
+    /// against the karten2/karten3 measurements: the tray's lit mid-wood reads ≈(42,33,23)/255
+    /// and the recess floor ≈(25,21,18) — this lands the liner near the MID-WOOD, clearly not
+    /// black, without a bright pad that would fight the keycap cream (1, 0.92, 0.72).</summary>
+    internal static readonly Color SlotLinerColor = new(0.46f, 0.37f, 0.26f);
+
+    /// <summary>Liner front-face local Z: a hair proud of the recess floor (slot origin, z 0),
+    /// well behind the seated card's back face (card front −SlotCardInset 0.004, back ≈ −0.0018
+    /// at the shipped 1.45 scale × 1.5 mm slab).</summary>
+    private const float SlotLinerZ = -0.0008f;
+
+    /// <summary>The two seat liners (defensive rebuild guard, same shape as the glow arrays).</summary>
+    private readonly GameObject?[] _slotLiners = new GameObject?[2];
+
+    /// <summary>
+    /// ROUND 13 (2026-08-10, karten2.png/karten3.png) — the black rim was NEVER the card.
+    ///
+    /// <para>USER REPORT, verbatim: "Leider sind die Hintergrund Probleme nach wie vor da. Die
+    /// Unterseite der Karten ist immer noch kaputt, wenn auch besser geworden nach deinem letzten
+    /// fix." The ModBuild-116 CARD BAND PAINTER inventory ran on his rig and returned "no active
+    /// dark band painter" for the very state the photos show — and both were RIGHT. Measured on
+    /// the screenshots: the black rim around a seated tray card is ≈15–20 % of the card width per
+    /// side (well ≈1.20× the card), far beyond the printed-frame bands (1.4–5.3 %), beyond the
+    /// backing slab (0.94 of the face) and beyond every uGUI layer (all ≤ 1.06 of the face). Its
+    /// pixels are WARM (r−b ≈ +7..+21, matching the tray wood's +19) while every card layer is
+    /// COOL (−11..−18): the "border" is the bundled tray's own AUTHORED RECESS FLOOR — dark
+    /// AO-baked wood, an ANCESTOR mesh no under-the-card inventory could ever reach.</para>
+    ///
+    /// <para>THE REFRAME THAT FOLLOWS: the punch/crop/silhouette machinery has been WORKING for
+    /// rounds. Every pixel it erases is genuinely transparent — and renders in the tone of
+    /// whatever stands behind it, which in a recess is near-black floor. So the erased frame band
+    /// read as an unchanged black rim, and the crop's bottom notch plus the kept bright bottom
+    /// ornaments (designed protrusions, correctly inside the outline's extent) read as "Unterseite
+    /// kaputt" — silver flourishes floating in blackness. Eleven texture rounds could not have
+    /// fixed this from inside the card.</para>
+    ///
+    /// <para>THE FIX IS THE BACKDROP: a card-shaped SEAT LINER on the recess floor — the rounded
+    /// CardMesh slab at <see cref="SlotLinerScale"/>, wearing the keycaps' carved-grain BoardLit
+    /// wood (<see cref="NewKeycapMaterial"/>) so it reads as part of the board's furniture, not a
+    /// sticker. Opaque, depth-written, always on (no state machinery, no pops, nothing per
+    /// frame). With it, every punched/cropped pixel and the floor margin around the card render
+    /// as warm board wood: the black rim and the "broken" bottom band disappear without touching
+    /// the card, its proportions ("Ich möchte gerne an den aktuellen Proportionen festehalten...
+    /// nur eben ohne die schwarzen Ränder") or any of the punch/crop/silhouette machinery.</para>
+    ///
+    /// <para>BUNDLED BOARDS ONLY: the procedural fallback board's recess visuals (Frame 1.12 +
+    /// FrameInner 1.04) are both SMALLER than the seated card (1.45) and therefore fully covered
+    /// by it — that board never had this defect, and a 1.78 liner would bury its authored frame
+    /// quads instead.</para>
+    /// </summary>
+    private void BuildSlotLiners()
+    {
+        if (_visual == null)
+            return; // procedural fallback board — see the class doc above
+        float w = CardsConfig.CardWidth.Value;
+        float h = CardsConfig.CardHeight;
+        Shader? shader = BoxCapShader();
+        if (shader == null)
+            return; // no drawable shader at all — keep today's look rather than a magenta plate
+        Material liner = NewKeycapMaterial(shader, SlotLinerColor);
+        for (int i = 0; i < 2; i++)
+        {
+            Transform? slot = _slots[i];
+            if (slot == null || _slotLiners[i] != null)
+                continue;
+            Vector3 ov = CardsConfig.SlotOverlayOffset(CardsConfig.CurrentBoard).Value;
+            float xSpread = (i == 0 ? -0.5f : 0.5f) * CardsConfig.SlotOverlaySpacing(CardsConfig.CurrentBoard).Value;
+            var go = new GameObject("SlotSeatLiner");
+            go.transform.SetParent(slot, worldPositionStays: false);
+            // The card's seat center exactly (SlotHomeOffsetFor's X/Y), floor-proud Z: the liner
+            // must sit UNDER the card wherever the Overlays element moves the pair.
+            go.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, SlotLinerZ + ov.z);
+            go.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(w * SlotLinerScale, h * SlotLinerScale);
+            var renderer = go.AddComponent<MeshRenderer>();
+            // Same material asset on both submeshes (front+rim / back): the liner is one solid
+            // piece of board wood. NEVER the shared CardBodyKind pairs — those are silhouette-
+            // clipped to the card art and this must stay a full rounded rectangle.
+            renderer.sharedMaterials = new[] { liner, liner };
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            // Opaque and depth-written like the round-readout plate — no furniture order group
+            // needed ("the opaque plate needs nothing"); the transparent glows draw over it by
+            // queue, the card by depth.
+            _slotLiners[i] = go;
+        }
+        VRLog.Info("Cards", $"Board: SLOT SEAT LINERS built ({SlotLinerScale:F2}× card box, grain wood " +
+                            $"rgba({SlotLinerColor.r:F2},{SlotLinerColor.g:F2},{SlotLinerColor.b:F2})) — the " +
+                            "bundled recess floor no longer backs a seated card with near-black; every " +
+                            "punched/cropped card pixel now reads as board wood (round 13, karten2/karten3).");
     }
 
     // ------------------------------------------------------------------ item-use slot --

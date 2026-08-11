@@ -565,6 +565,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                 slot.localScale *= SlotScale;
         }
 
+        BuildSlotLiners(); // round 13: cover the authored near-black recess floor BEFORE the glows
         BuildSlotHighlights();
         BuildWantedHighlights();
         BuildButtons(confirmAnchor, undoAnchor);
