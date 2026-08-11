@@ -548,10 +548,12 @@ internal static partial class VROptionsTab
             if (tabLabel != null)
             {
                 tabLabel.text = caption;
-                tabLabel.enableWordWrapping = false;
-                tabLabel.enableAutoSizing = true;
-                tabLabel.fontSizeMin = 9f;
-                tabLabel.overflowMode = TextOverflowModes.Overflow;
+                // Same fit as the sub-tab column (FitTabCaption): these rows are the same tab
+                // clone with the same donor label rect, so a topic name the rect cannot hold
+                // single-line ("Messung & Diagnose") shrank here exactly as the category names
+                // did there. In the wide content pane the wrap simply never triggers as long as
+                // the line fits; a name too long for its rect breaks instead of going tiny.
+                FitTabCaption(tabLabel);
             }
 
             Toggle? tabToggle = row.GetComponentInChildren<Toggle>(true);
@@ -685,6 +687,45 @@ internal static partial class VROptionsTab
             VRLog.Warn("WorldUI", $"VR options tab: could not reset a link row's visuals ({e.Message}) — "
                                   + "it may look faint until hovered.");
         }
+    }
+
+    /// <summary>
+    /// Fit a tab-clone's caption by WRAPPING it rather than only shrinking it.
+    ///
+    /// <para>SHRINK-ONLY WAS NOT ENOUGH (user report 2026-08: "die Tab Namen sind unter Umständen
+    /// sehr lang und der Text wird damit sehr klein"). The donor caption is authored for a
+    /// one-word tab ("Video", "Audio"); the mod's names are two and three words, and the
+    /// single-line auto-shrink drove "Avatar & Mehrspieler" toward the 9pt floor. With wrapping
+    /// on, a long name breaks onto a second line — at the explicit break the Loc string carries,
+    /// or at a space — and the fitter only has to fit the longest LINE, which is roughly half the
+    /// name and therefore roughly twice the font.</para>
+    ///
+    /// <para>THE LABEL RECT IS GIVEN THE WIDGET'S HEIGHT FIRST. The donor rect is one line tall,
+    /// and TMP's auto-size fits BOTH axes of the rect: wrapped into a one-line-tall rect, a
+    /// two-line caption would come out SMALLER than the single-line fit, not larger. Only the
+    /// vertical anchors are touched — the horizontal extent is the donor's, and it is what the
+    /// single-line fit already wrapped and shrank against. Two lines is also the practical cap:
+    /// the auto-size floor keeps a third line from ever paying, and no curated name has one.</para>
+    /// </summary>
+    private static void FitTabCaption(TMP_Text label)
+    {
+        var rect = (RectTransform)label.transform;
+        rect.anchorMin = new Vector2(rect.anchorMin.x, 0f);
+        rect.anchorMax = new Vector2(rect.anchorMax.x, 1f);
+        rect.offsetMin = new Vector2(rect.offsetMin.x, 2f);
+        rect.offsetMax = new Vector2(rect.offsetMax.x, -2f);
+
+        label.enableWordWrapping = true;
+        // A one-line caption sat centred in the one-line donor rect; keep it centred in the
+        // stretched one instead of letting a prefab top/bottom alignment pin it to an edge.
+        label.verticalAlignment = VerticalAlignmentOptions.Middle;
+        // Never LARGER than the donor's caption — autosizing in a stretched rect would otherwise
+        // happily inflate a short name past the tab style it is supposed to match. Read before
+        // enableAutoSizing so the cap is the donor's authored size, never an autosized one.
+        label.fontSizeMax = label.fontSize;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 9f;
+        label.overflowMode = TextOverflowModes.Overflow;
     }
 
     /// <summary>

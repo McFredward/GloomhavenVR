@@ -371,16 +371,14 @@ internal static partial class VROptionsTab
         if (label != null)
         {
             label.text = caption;
-            label.enableWordWrapping = false;
 
-            // SHRINK RATHER THAN TRUNCATE. The donor caption is sized for a one-word tab
-            // ("Grafik", "Ton"); the mod's topics are two and three words, and ellipsis turned
-            // them into "Messung...", "Bild&D...", "Bewegun..." — captions that no longer say
-            // which category they are, which is the entire job of this column.
-            label.enableAutoSizing = true;
-            label.fontSizeMax = label.fontSize;
-            label.fontSizeMin = 9f;
-            label.overflowMode = TextOverflowModes.Overflow;
+            // WRAP, THEN SHRINK, RATHER THAN TRUNCATE. Ellipsis turned the captions into
+            // "Messung...", "Bild&D..." — names that no longer say which category they are,
+            // which is the entire job of this column. Shrink-only fixed that but drove the
+            // two-word names ("Avatar & Mehrspieler") toward the 9pt floor, so the fit is now
+            // against the wrapped text: the long names carry an explicit break in their Loc
+            // strings (cat_boardcards, cat_avatar_mp) and get the font of their longest line.
+            FitTabCaption(label);
         }
 
         Toggle? toggle = go.GetComponentInChildren<Toggle>(true);

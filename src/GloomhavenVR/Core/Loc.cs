@@ -434,8 +434,17 @@ internal static partial class Loc
         // The two tabs the overhaul created: the play surface's own tab (audit 05 S6 — card
         // and board rows do not belong under "Tafeln") and the merged social tab (audit 05 S5 —
         // two mini-tabs glued together by a duplicated mask pair).
-        ["cat_boardcards"] = Pair("Board & cards", "Brett & Karten"),
-        ["cat_avatar_mp"] = Pair("Avatar & multiplayer", "Avatar & Mehrspieler"),
+        //
+        // EXPLICIT LINE BREAKS (user report 2026-08: "die Tab Namen sind unter Umständen sehr
+        // lang und der Text wird damit sehr klein"): the 210 px sub-tab column fits its captions
+        // by shrinking, and these two names shrank to the floor. Broken at the "&", the fitter
+        // only has to fit the longest LINE, so the caption keeps a readable size. The break is
+        // authored here rather than left to auto-wrap because the wrap point matters: "Avatar &" /
+        // "Mehrspieler" reads as one name; "Avatar" / "& Mehrspieler" reads as two. One-word tab
+        // names stay single-line. These keys caption ONLY the sub-tab column (VROptionsTab
+        // .BuildCategoryButton) — nothing else renders them, so the break leaks nowhere.
+        ["cat_boardcards"] = Pair("Board &\ncards", "Brett &\nKarten"),
+        ["cat_avatar_mp"] = Pair("Avatar &\nmultiplayer", "Avatar &\nMehrspieler"),
         // The caption of the mod's tab in the GAME's own options window. Two words here, unlike the
         // one-word sidebar tabs above: this row is the game's full-width option list, not the
         // mod's pinned 132 px column, so it has the room the others did not.
