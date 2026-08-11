@@ -85,6 +85,22 @@ internal sealed class CardFaceCrop
         AccessTools.Field(typeof(FullAbilityCardAction), "defaultActionButton");
 
     /// <summary>
+    /// ROUND 12 — THE WIDGET'S SECOND FULL-CARD LAYER, the user's own "Rückseite" suspect made
+    /// concrete: <c>FullAbilityCard.ShowCard</c> loads the SAME background sprite into
+    /// <c>headerImage</c> AND <c>unfocusedMask</c> (decompiled FullAbilityCard.cs:442-443). The
+    /// mask is a full-card dimming copy drawn OVER the front at its own, slightly different rect
+    /// (the ModBuild-115 two-placement warning measured it: y offset 0.02, height 0.97) and is
+    /// toggled by <c>SetUnfocused</c> — active in multiplayer whenever the presented character is
+    /// not under the local player's control (CardsHandUI.cs:1615), which is exactly the standing
+    /// scope ruling's territory ("UND auch alle Karten genauso die remote angezeigt werden im
+    /// Multiplayer"). Un-cut it re-paints the printed frame the header rounds erased; named here
+    /// so the punch AND the crop treat it like every other plate, each against ITS OWN drawn rect
+    /// (the per-placement copies shipped in <c>CardFaceMipBake</c> this round).
+    /// </summary>
+    private static readonly FieldInfo? s_feUnfocusedMask =
+        AccessTools.Field(typeof(FullAbilityCard), "unfocusedMask");
+
+    /// <summary>
     /// Resolve the named plate Images of one <paramref name="ability"/> face. Appends one entry
     /// per field, null Image included — the punch sweep's named-identity log states which fields
     /// resolved and which did not, so a game update renaming a field is one log line, not a
@@ -128,6 +144,13 @@ internal sealed class CardFaceCrop
             into.Add(("_bottomAction", bottomAction));
             into.Add(("_topDefAction", topDef));
             into.Add(("_botDefAction", botDef));
+            // Round 12: the widget's SECOND background copy (see s_feUnfocusedMask above). It is
+            // usually inactive in local play — the sweep and the crop both skip inactive images,
+            // so naming it costs nothing until the game actually draws it (multiplayer unfocus),
+            // and from that moment it is punched/cropped against ITS OWN rect like every plate.
+            into.Add(("unfocusedMask", s_feUnfocusedMask != null
+                ? s_feUnfocusedMask.GetValue(ability) as Image
+                : null));
         }
         catch (System.Exception ex)
         {

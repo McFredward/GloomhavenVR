@@ -416,7 +416,39 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 115;
+    public const ushort ModBuild = 116;
+    // Build 116: THREE lanes — the border's attempt TWELVE (the second full-card layer), the
+    // stretch size-bounds settings, and the held-info toggle. No wire change.
+    //
+    // (1) THE BORDER, ATTEMPT TWELVE. The 115 probe EXONERATED the card shader (verdict (a):
+    // alpha honored at rest — the punched pixels were genuinely invisible), which convicts a
+    // layer no inventory ever named. Found in source: FullAbilityCard.unfocusedMask — ShowCard
+    // loads the SAME background sprite into headerImage AND this full-card dimming copy, drawn
+    // over the front at its own slightly different rect (the 115 two-placement warning measured
+    // it: y offset 0.02, height 0.97), toggled by SetUnfocused and ACTIVE IN MULTIPLAYER for
+    // every presented character not under local control (CardsHandUI.cs:1615) — the 115 session
+    // was online. Un-cut, it repaints the printed frame the header rounds erased; served the
+    // header-rect punch copy (the 115 serving), it erases ~2 % into the card BOTTOM at its own
+    // rect — the mechanical explanation for "der untere Teil der Karten ist der Rand nun etwas
+    // kaputt". Shipped: the mask is a SIXTH named plate (punched AND rect-cropped against ITS
+    // OWN drawn rect); CardFaceMipBake mints PER-PLACEMENT punch copies keyed (source, mapping)
+    // so a second materially different rect can never wear the wrong copy again; the dissolve
+    // floor defaults to 0 (probe says it cures nothing, and _Dissolve_VerticalGradient=0.2 means
+    // even an epsilon discards bottom-first on never-punched art — the other bottom suspect);
+    // and CardBandPainter latches a full painter inventory (every Graphic AND every Renderer
+    // under a tray card and a fan card, material identity, cull state, a rest-output GPU probe
+    // per custom shader — the CardEffects fgFx 'UIFX_Overlay' spans 120 % of the face and was
+    // never probed). If the band survives 116: read CARD BAND PAINTER — it names the painter.
+    //
+    // (2) STRETCH SIZE BOUNDS (report items 2+3, quotes in FigureGrabbable/StatPanelSurface):
+    // StretchScaleMin/Max now bound the TOTAL held size relative to the default-zoom board size;
+    // a deep-zoom grab enters the hand clamped AT the bound; the gesture envelope is rebased per
+    // hold (Min/ratio .. Max/ratio). New [FigureGrab] StretchLimits master switch (off = only a
+    // 0.01x technical floor; the wire already clamps outgoing factors to [0.10 .. 8.0] so
+    // limits-off cannot trip the fail-closed decode). New [FigureGrab] HeldFigureInfo gates the
+    // pickup-docked ActorStatPanel at the registration seam; mid-hold flip closes an open panel.
+    // All four dials in the VR settings (Hands topic), localized DE/EN.
+    //
     // Build 115: TWO lanes again — the border's attempt ELEVEN (the first SHADER-side one) and the
     // stretch gesture's hardware-test fixes. No wire change; the bump is here because 115 ships.
     //

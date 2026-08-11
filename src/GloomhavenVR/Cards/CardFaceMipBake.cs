@@ -298,7 +298,12 @@ internal static class CardFaceMipBake
                     // is only ever valid together with the shrunken RectTransform CardFaceCrop
                     // maintains, and "upgrading" it to the full punched copy would render the
                     // full-plate art squeezed into the cropped rect.
+                    // ROUND 12: a PER-PLACEMENT punched copy (s_punchAltIds) is equally exempt —
+                    // it was punched for THAT image's own drawn rect, and "upgrading" it to the
+                    // primary would re-introduce the wrong-rect overcut the round-12 routing
+                    // exists to remove (and ping-pong with the sweep every cadence).
                     if (wornOriginal != null && !IsCropSprite(sprite)
+                        && !s_punchAltIds.Contains(sprite.GetInstanceID())
                         && s_punchedBySource.TryGetValue(wornOriginal.GetInstanceID(), out Sprite? upgraded)
                         && upgraded != null && !ReferenceEquals(upgraded, sprite))
                     {
@@ -655,11 +660,30 @@ internal static class CardFaceMipBake
         private static string V(Vector4 v) => $"{v.x:F3},{v.y:F3},{v.z:F3},{v.w:F3}";
     }
 
-    /// <summary>Face-normalized drawn rect each geometrically punched source was minted for. A
-    /// SECOND materially different rect for the same sprite instance would need a different
-    /// punched copy — it is refused with one log line instead of served a wrong one (never
-    /// observed: the face layers are one Image each; this is the guard, not the expectation).</summary>
+    /// <summary>Face-normalized drawn rect the PRIMARY punched copy of each source was minted
+    /// for (the first placement seen — the header's full face rect in practice). A second,
+    /// materially different rect routes to <see cref="s_punchedBySourceRect"/> instead.</summary>
     private static readonly Dictionary<int, Rect> s_punchRectBySource = new(8);
+
+    /// <summary>
+    /// ROUND 12 — PER-PLACEMENT punched copies. The ModBuild-115 run proved the "never observed"
+    /// assumption behind serving one copy per sprite wrong: <c>FullAbilityCard.ShowCard</c> loads
+    /// the SAME background sprite into <c>headerImage</c> AND <c>unfocusedMask</c>, and the mask
+    /// draws at its own rect (y offset 0.02, height 0.97 — the two-placement warning). Serving
+    /// the FIRST placement's copy there erases pixels that at the second placement sit INSIDE
+    /// the card (bottom band offset ≈ 2 % of the face — the "der untere Teil der Karten ist der
+    /// Rand nun etwas kaputt" notch of the 115 report). Each materially different drawn rect now
+    /// gets its OWN copy, punched for exactly that mapping — the texture bake was mapping-keyed
+    /// all along (<c>MintOutlinePunched</c>'s cache key contains <c>mapping.CacheKey</c>), so
+    /// this only adds the sprite-level routing. Key: (source instance id, mapping cache key);
+    /// null = that placement's mint refused/clean (latched, the punch lines name why).
+    /// </summary>
+    private static readonly Dictionary<(int, string), Sprite?> s_punchedBySourceRect = new(4);
+
+    /// <summary>Instance ids of the per-placement (alternate-rect) punched sprites — the generic
+    /// swap paths must not "upgrade" one of these to the primary copy (the primary is punched
+    /// for a DIFFERENT rect; see the round-12 block above).</summary>
+    private static readonly HashSet<int> s_punchAltIds = new(4);
 
     private static bool s_punchRectMismatchLogged;
 
@@ -679,13 +703,48 @@ internal static class CardFaceMipBake
         if (s_punchedBySource.TryGetValue(id, out Sprite? cached))
         {
             if (cached != null && s_punchRectBySource.TryGetValue(id, out Rect usedRect)
-                && RectsDiffer(usedRect, mapping.FaceRect) && !s_punchRectMismatchLogged)
+                && RectsDiffer(usedRect, mapping.FaceRect))
             {
-                s_punchRectMismatchLogged = true;
-                VRLog.Warn("Cards", $"CARD FRAME PUNCH: sprite '{source.name}' is drawn at two different " +
-                                    $"face rects ({usedRect} vs {mapping.FaceRect}) — serving the copy " +
-                                    "punched for the FIRST; if a band survives on one placement only, this " +
-                                    "line is the reason.");
+                // ROUND 12: a SECOND placement of the same sprite (FullAbilityCard's
+                // unfocusedMask draws the header's background sprite at its own rect). Serving
+                // the first placement's copy here put punched pixels in the wrong band — the
+                // ModBuild-115 bottom notch. This placement gets its OWN copy, punched for
+                // exactly this mapping; the texture bake is mapping-keyed, so class-mates and
+                // peer clones drawing at the same rect share it.
+                var altKey = (id, mapping.CacheKey);
+                if (!s_punchedBySourceRect.TryGetValue(altKey, out Sprite? alt))
+                {
+                    try
+                    {
+                        alt = MintOutlinePunched(source, mapping, outline);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        LogPunchSkip(source, $"per-placement punch failed ({ex.GetType().Name}: {ex.Message})");
+                        alt = null;
+                    }
+                    if (alt != null)
+                    {
+                        s_originalByReplacement[alt.GetInstanceID()] = source; // full-restore contract
+                        s_punchAltIds.Add(alt.GetInstanceID()); // generic upgrade keeps its hands off
+                    }
+                    s_punchedBySourceRect[altKey] = alt;
+                    if (!s_punchRectMismatchLogged)
+                    {
+                        s_punchRectMismatchLogged = true;
+                        VRLog.Info("Cards", $"CARD FRAME PUNCH: sprite '{source.name}' is drawn at two " +
+                                            $"different face rects ({usedRect} vs {mapping.FaceRect}) — " +
+                                            "round 12: the second placement now receives its OWN copy " +
+                                            "punched for ITS rect (ModBuild 115 served the first's copy " +
+                                            "here, which cut ~2 % into the card bottom — the 'unterer " +
+                                            "Teil etwas kaputt' report). A refused/clean mint falls back " +
+                                            "to the first's copy (the 115 behaviour, never worse); the " +
+                                            "punch lines name the verdict.");
+                    }
+                }
+                // Fallback ONLY when this placement's own mint refused: the first-rect copy —
+                // exactly the pre-round-12 serving, so a refusal can never regress below 115.
+                return alt ?? cached;
             }
             return cached;
         }
@@ -912,14 +971,18 @@ internal static class CardFaceMipBake
     /// <summary>(content | outline | mapping | "crop") → crop bake (null = refused, latched).</summary>
     private static readonly Dictionary<string, CropBake?> s_croppedTexByKey = new(8);
 
-    /// <summary>src sprite instance id → crop sprite (null = refused/clean, latched).</summary>
-    private static readonly Dictionary<int, Sprite?> s_croppedBySource = new(8);
+    /// <summary>(src sprite instance id, mapping cache key) → crop sprite (null = refused/clean,
+    /// latched). ROUND 12: keyed per PLACEMENT, not per sprite — <c>FullAbilityCard</c> draws the
+    /// background sprite twice (headerImage AND unfocusedMask, at different rects), and a crop cut
+    /// for one placement drawn at the other's rect would shift the kept pixels by the rect
+    /// difference. The texture bake was mapping-keyed all along; this aligns the sprite cache.</summary>
+    private static readonly Dictionary<(int, string), Sprite?> s_croppedBySource = new(8);
 
-    /// <summary>src sprite instance id → the face rect its crop sprite must be drawn in.</summary>
-    private static readonly Dictionary<int, Rect> s_croppedRectBySource = new(8);
+    /// <summary>(src id, mapping key) → the face rect that crop sprite must be drawn in.</summary>
+    private static readonly Dictionary<(int, string), Rect> s_croppedRectBySource = new(8);
 
-    /// <summary>src sprite instance id → latched crop refusal text (for repeat callers).</summary>
-    private static readonly Dictionary<int, string> s_cropRefusalBySource = new(8);
+    /// <summary>(src id, mapping key) → latched crop refusal text (for repeat callers).</summary>
+    private static readonly Dictionary<(int, string), string> s_cropRefusalBySource = new(8);
 
     /// <summary>Instance ids of every crop sprite ever minted — the generic swap paths use this
     /// to keep their hands off a sprite that is only valid with CardFaceCrop's shrunken rect.</summary>
@@ -944,15 +1007,17 @@ internal static class CardFaceMipBake
     {
         targetFaceRect = default;
         refusal = null;
-        int id = source.GetInstanceID();
-        if (s_croppedBySource.TryGetValue(id, out Sprite? cachedSprite))
+        // Round 12: per-PLACEMENT key — the same sprite drawn at two rects (headerImage +
+        // unfocusedMask) needs two crops, each valid only with its own drawn rect.
+        var key = (source.GetInstanceID(), mapping.CacheKey);
+        if (s_croppedBySource.TryGetValue(key, out Sprite? cachedSprite))
         {
             if (cachedSprite == null)
             {
-                refusal = s_cropRefusalBySource.TryGetValue(id, out string r) ? r : "refused earlier";
+                refusal = s_cropRefusalBySource.TryGetValue(key, out string r) ? r : "refused earlier";
                 return null;
             }
-            targetFaceRect = s_croppedRectBySource[id];
+            targetFaceRect = s_croppedRectBySource[key];
             return cachedSprite;
         }
 
@@ -966,16 +1031,16 @@ internal static class CardFaceMipBake
             refusal = $"crop failed ({ex.GetType().Name}: {ex.Message})";
             LogPunchSkip(source, refusal);
         }
-        s_croppedBySource[id] = made;
+        s_croppedBySource[key] = made;
         if (made != null)
         {
             s_originalByReplacement[made.GetInstanceID()] = source; // full-restore contract
             s_cropSpriteIds.Add(made.GetInstanceID());
-            s_croppedRectBySource[id] = targetFaceRect;
+            s_croppedRectBySource[key] = targetFaceRect;
         }
         else
         {
-            s_cropRefusalBySource[id] = refusal ?? "refused";
+            s_cropRefusalBySource[key] = refusal ?? "refused";
         }
         return made;
     }

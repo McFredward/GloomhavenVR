@@ -1233,8 +1233,19 @@ internal sealed class CardFace
                 }
                 else if (!img.enabled || !img.gameObject.activeSelf)
                 {
-                    s = "not drawn yet";
-                    complete = false;
+                    // Round 12: the unfocusedMask is INACTIVE by design in local play
+                    // (SetUnfocused(false)) — that is a final state, not "art still loading",
+                    // and treating it as pending would keep this line from ever printing.
+                    if (field == "unfocusedMask")
+                    {
+                        s = "inactive (SetUnfocused(false) — draws nothing now; punched/cropped " +
+                            "against its own rect the moment the game activates it)";
+                    }
+                    else
+                    {
+                        s = "not drawn yet";
+                        complete = false;
+                    }
                 }
                 else if (img.sprite == null)
                 {
@@ -1253,11 +1264,12 @@ internal sealed class CardFace
             if (!complete)
                 return; // art still arriving — try again on a later sweep
             s_namedLogged[(int)kind] = true;
-            VRLog.Info("Cards", $"CARD FRAME PUNCH named identity ({kind}): the background and the action " +
-                                "plates are punched BY IDENTITY (CardEffects' serialized Image fields, " +
-                                "FullAbilityCardAction.actionButton/defaultActionButton as fallback) — no " +
-                                $"heuristic gate in their path. {sb}. An UNRESOLVED entry rides the generic " +
-                                "span gate only and this line is the lead if its band survives.");
+            VRLog.Info("Cards", $"CARD FRAME PUNCH named identity ({kind}): the background, the action " +
+                                "plates AND (round 12) the widget's second background copy are punched BY " +
+                                "IDENTITY (CardEffects' serialized Image fields, FullAbilityCardAction." +
+                                "actionButton/defaultActionButton as fallback, FullAbilityCard.unfocusedMask) " +
+                                $"— no heuristic gate in their path. {sb}. An UNRESOLVED entry rides the " +
+                                "generic span gate only and this line is the lead if its band survives.");
         }
     }
 
@@ -2918,6 +2930,12 @@ internal sealed class CardFace
         // job is to re-assert the cropped sprite+rect pairs over whatever the game (or the
         // passes above) rewrote. Cheap in the steady state: a handful of rect compares.
         _crop.Maintain(_owner!.fullAbilityCard, _face);
+        // ROUND 12 — the painter inventory (one latched CARD BAND PAINTER line per context:
+        // tray slot and hand fan). The round-11 probe exonerated the face Images' shader
+        // (alpha honored at rest), so the band's painter is something no Image inventory can
+        // see; this names it. One static bool read per frame once both contexts latched.
+        if (CardBandPainter.Pending)
+            CardBandPainter.MaybeReport(_face, _host, _owner);
     }
 
     /// <summary>

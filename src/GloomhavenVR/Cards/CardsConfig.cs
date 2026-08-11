@@ -171,7 +171,7 @@ internal static class CardsConfig
     /// <summary>Aliasing round 3 (T3): runtime MIP BAKE of the game's mipless card-face atlases — adopted card faces sample trilinear/aniso mipmapped copies instead (texture-space shimmer fix).</summary>
     internal static ConfigEntry<bool> FaceMipBake = null!;
 
-    /// <summary>Black-frame round 11: rest-state <c>_Dissolve</c> floor held on every card-FX material the mod manages (ability, item AND remote card faces) so the punched alpha-0 frame pixels are actually DISCARDED by the card shader's dissolve clip — see <c>CardDissolveFloor</c>. 0 = off.</summary>
+    /// <summary>Black-frame round 11: rest-state <c>_Dissolve</c> floor held on every card-FX material the mod manages (ability, item AND remote card faces) so the punched alpha-0 frame pixels are actually DISCARDED by the card shader's dissolve clip — see <c>CardDissolveFloor</c>. 0 = off. ROUND 12: default 0 — the ModBuild-115 probe proved alpha is honored at rest (the floor cures nothing) and implicated the floor's vertical-gradient discard in the "unterer Teil etwas kaputt" bottom regression; the dial stays for a rig whose probe verdict differs.</summary>
     internal static ConfigEntry<float> DissolveFloorFraction = null!;
 
     /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>

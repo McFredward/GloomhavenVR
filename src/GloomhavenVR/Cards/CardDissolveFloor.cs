@@ -8,6 +8,20 @@ namespace GloomhavenVR.Cards;
 /// <summary>
 /// ROUND 11 (b) — THE DISSOLVE EPSILON FLOOR: the shader-side fix for the black card frame.
 ///
+/// <para>ROUND 12 — RETIRED TO DEFAULT 0, BY ITS OWN PROBE'S VERDICT. The ModBuild-115 hardware
+/// run's CARD SHADER PROBE returned verdict (a): alpha HONORED at rest — the alpha-0 half showed
+/// the magenta sentinel at <c>_Dissolve=0</c> AND at 0.004. Under that verdict the floor cures
+/// NOTHING (the punched pixels were already invisible without it), and it is the prime suspect
+/// for the regression the same run shipped (user, verbatim: "der untere Teil der Karten ist der
+/// Rand nun etwas kaputt"): the floor raised <c>_Dissolve</c> on EVERY card-FX material —
+/// including faces whose art was never punched and carries genuine low-alpha fringes — and the
+/// shader's dissolve clip is vertically weighted (<c>_Dissolve_VerticalGradient=0.2</c> in the
+/// probe's property table), so even an epsilon discards the lowest-alpha pixels BOTTOM-FIRST.
+/// A broken bottom edge on otherwise intact cards is exactly that signature.
+/// <c>Defaults.DissolveFloorFraction</c> is therefore 0; the machinery and the dial stay for the
+/// one scenario the probe cannot exclude (a driver/platform where the verdict differs — the
+/// probe line in any log says which world that log comes from).</para>
+///
 /// <para>WHY A FLOOR, AFTER TEN TEXTURE-SIDE ROUNDS. Nine rounds punched the printed frame to
 /// alpha 0 on mod-owned sprite copies and the user saw an identical band every time; the tenth
 /// (ModBuild 114) provably shrank the face rects and the report was still "unverändert". The one

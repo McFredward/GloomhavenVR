@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 115`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 116`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,24 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 116** — three lanes. BORDER ATTEMPT TWELVE: the 115 probe EXONERATED the card shader
+  (verdict (a): alpha honored at rest) — eleven rounds edited layers that could not be painting the
+  band. Convicted in source instead: **`FullAbilityCard.unfocusedMask`** — ShowCard loads the SAME
+  background sprite into headerImage AND this full-card dimming copy at its own slightly different
+  rect (the 115 two-placement warning), toggled by SetUnfocused, ACTIVE IN MULTIPLAYER for every
+  presented character not under local control — and served the header-rect punch copy it erased
+  ~2 % into the card bottom (the 115 "unterer Teil kaputt" regression). Fix: the mask is a sixth
+  named plate (punched + cropped against ITS OWN rect); per-placement punch copies keyed
+  (source, mapping); dissolve floor default 0 (probe: cures nothing; _Dissolve_VerticalGradient
+  discards bottom-first — the other bottom suspect); NEW CardBandPainter latches a complete painter
+  inventory (Graphics + Renderers + rest-output GPU probe per custom shader, incl. the never-probed
+  120 %-of-face CardEffects fgFx 'UIFX_Overlay'). If the band survives 116: **read CARD BAND
+  PAINTER — it names the painter.** STRETCH BOUNDS + INFO TOGGLE (items 2+3): total-based
+  Min/Max with grab-time clamp, [FigureGrab] StretchLimits off-switch, [FigureGrab] HeldFigureInfo
+  gating StatPanelSurface.ShowHeldFigure at the registration seam; all in VR settings, DE/EN.
+  ALSO RUNNING: the VR options menu overhaul audit — five parallel read-only auditors writing
+  `.planning/menu-audit/0*.md` (dead dials, NORMAL vs POWER audience, structure proposal); the
+  synthesis + user decision list is the next deliverable after this round's report.
 - **ModBuild 115** — two lanes. BORDER ATTEMPT ELEVEN, the first SHADER-side one: 114's log closed
   the texture-side case — the rect crop provably applied (294x450→291x436) and the user still saw
   an identical band, while CARD SHADER IDENTITY named the painter ('GUI/AbilityCard_Shd', a per-

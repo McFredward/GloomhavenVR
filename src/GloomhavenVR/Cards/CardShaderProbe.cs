@@ -172,6 +172,99 @@ internal static class CardShaderProbe
     /// that fragment.</summary>
     private static readonly Color Sentinel = new(1f, 0f, 1f, 1f);
 
+    // ------------------------------------------------------------ round 12: generic rest probe --
+
+    /// <summary>
+    /// ROUND 12 — THE "WHO PAINTS WHEN GIVEN NOTHING DARK" PROBE, for materials the round-11
+    /// experiment never looked at. The round-11 verdict (a) exonerated the card-FX shader
+    /// ('GUI/AbilityCard_Shd' honors alpha at rest), which means the band the user sees has
+    /// ANOTHER painter — and the face carries graphics the band inventory can only judge by
+    /// their <c>Image.color</c>: a sprite-less Image renders uGUI's built-in WHITE texture
+    /// through whatever material the prefab assigned it (the burn/FX overlay 'UIFX_Overlay'
+    /// spans 120 % of the face through its own custom material, <c>CardEffects.fgFx</c>), and
+    /// what such a shader OUTPUTS at rest is invisible to any inventory that reads colors.
+    ///
+    /// This renders a CLONE of <paramref name="liveMat"/> — live property values as-is, i.e.
+    /// the material's CURRENT rest state — over the same CanvasRenderer-style unit quad as the
+    /// round-11 probe, feeding it exactly what uGUI feeds a sprite-less Image (the opaque white
+    /// texture, white vertex color), against the magenta sentinel. One sentence comes back:
+    /// paints NOTHING (sentinel survived), paints DARK OPAQUE (a band painter, convicted by its
+    /// own output), or paints its input (bright — dark can then only come from a dark input).
+    /// Crash-proof and allocation-bounded like the round-11 probe; the live material is never
+    /// mutated. Called once per distinct shader by <see cref="CardBandPainter"/>.
+    /// </summary>
+    internal static string DescribeRestOutput(Material? liveMat)
+    {
+        if (liveMat == null || liveMat.shader == null)
+            return "no material — nothing to probe";
+        Material? clone = null;
+        Mesh? quad = null;
+        RenderTexture? rt = null;
+        Texture2D? readback = null;
+        RenderTexture? prevActive = RenderTexture.active;
+        try
+        {
+            clone = new Material(liveMat) { name = "VRCardBandPainterProbeMat" };
+            if (clone.HasProperty(MainTexId))
+                clone.SetTexture(MainTexId, Texture2D.whiteTexture);
+            quad = new Mesh { name = "VRCardBandPainterProbeQuad" };
+            quad.vertices = new[]
+            {
+                new Vector3(0f, 0f, 0f), new Vector3(1f, 0f, 0f),
+                new Vector3(0f, 1f, 0f), new Vector3(1f, 1f, 0f),
+            };
+            quad.uv = new[]
+            {
+                new Vector2(0f, 0f), new Vector2(1f, 0f),
+                new Vector2(0f, 1f), new Vector2(1f, 1f),
+            };
+            quad.colors32 = new[]
+            {
+                new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255),
+                new Color32(255, 255, 255, 255), new Color32(255, 255, 255, 255),
+            };
+            quad.triangles = new[] { 0, 1, 2, 2, 1, 3 };
+            rt = RenderTexture.GetTemporary(16, 16, 0, RenderTextureFormat.ARGB32);
+            readback = new Texture2D(16, 16, TextureFormat.RGBA32, mipChain: false)
+            {
+                name = "VRCardBandPainterProbeReadback",
+            };
+            using (var cmd = new CommandBuffer { name = "VRCardBandPainterProbe" })
+            {
+                cmd.SetRenderTarget(rt);
+                cmd.ClearRenderTarget(clearDepth: true, clearColor: true, backgroundColor: Sentinel);
+                cmd.SetViewProjectionMatrices(Matrix4x4.identity,
+                                              Matrix4x4.Ortho(0f, 1f, 0f, 1f, -1f, 1f));
+                cmd.DrawMesh(quad, Matrix4x4.identity, clone, 0, -1);
+                Graphics.ExecuteCommandBuffer(cmd);
+            }
+            RenderTexture.active = rt;
+            readback.ReadPixels(new Rect(0, 0, 16, 16), 0, 0, recalculateMipMaps: false);
+            Color32 c = readback.GetPixel(8, 8);
+            if (IsSentinel(c))
+                return "paints NOTHING at rest on a white input (sentinel survived) — this material " +
+                       "cannot be the band painter in its current state";
+            if (IsDark(c))
+                return $"paints DARK OPAQUE {Fmt(c)} at rest on an all-WHITE input — this material " +
+                       "darkens/replaces whatever uGUI feeds it, and a graphic wearing it over the " +
+                       "frame band IS a band painter regardless of any sprite punch";
+            return $"paints {Fmt(c)} at rest on a white input (its input shows through) — a dark band " +
+                   "under it can only come from dark INPUT pixels, not from the shader itself";
+        }
+        catch (Exception ex)
+        {
+            return $"probe failed ({ex.GetType().Name}: {ex.Message}) — no verdict for this material";
+        }
+        finally
+        {
+            RenderTexture.active = prevActive;
+            if (rt != null) RenderTexture.ReleaseTemporary(rt);
+            if (readback != null) UnityEngine.Object.Destroy(readback);
+            if (clone != null) UnityEngine.Object.Destroy(clone);
+            if (quad != null) UnityEngine.Object.Destroy(quad);
+        }
+    }
+
     private static void DrawAndSample(Material mat, Mesh quad, RenderTexture rt,
                                       Texture2D readback, float dissolve,
                                       out Color32 left, out Color32 right)
