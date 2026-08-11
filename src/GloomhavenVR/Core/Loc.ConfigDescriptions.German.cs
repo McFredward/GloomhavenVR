@@ -541,13 +541,6 @@ internal static partial class Loc
                 + "Grafikgerät, bevor xrCreateSession funktioniert. 0 (Standard) = sofortige Initialisierung im "
                 + "Awake des Plugins.",
             // ---- [Rig] ----
-            ["Rig/WorldScale"] =
-                "ALT — ohne Wirkung (Einstellung 2026-08 auf Nutzerwunsch entfernt: sie doppelte die "
-                + "eigentliche Tischgrößen-Steuerung und verwirrte sie nur). Der Basismaßstab des Dioramas "
-                + "wird jetzt immer automatisch aus der Hexfeld-Größe abgeleitet; die Tischgröße stellst du "
-                + "mit der Zwei-Hand-Zoom-Geste ein (gespeichert als [Comfort] SavedScaleMultiplier). Bleibt "
-                + "gebunden, damit bestehende Konfigurationsdateien unverändert laden; nichts liest diesen "
-                + "Wert mehr.",
             ["Rig/MenuRig"] =
                 "Koppelt die Menükamera des Spiels an die Kopfbewegung, solange kein Szenario läuft "
                 + "(Hauptmenü, Guildmaster-Karte), damit die schwebende 2D-Leinwand und die Hände auch "
@@ -637,64 +630,6 @@ internal static partial class Loc
                 + "VR-Spieler deine gewählten Hände an deinem Avatar sehen. Fällt auf Glove zurück, wenn das "
                 + "Prefab des Stils in einem älteren Asset-Bundle fehlt, und ohne Bundle auf die prozedurale "
                 + "Hand.",
-            ["Hands/GripPitchOffsetDegrees"] =
-                "VERALTET — ohne Wirkung, ersetzt durch [Hands] Glove/Plate/ArcaneGripPitchDegrees in "
-                + "dev.gloomhavenvr.hands.cfg. Änderungen hier bewirken nichts; der Wert wird genau einmal "
-                + "gelesen, als Startwert für jene Schlüssel pro Stil bei deren erster Erzeugung, danach nie "
-                + "wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien weiter laden. Historische "
-                + "Bedeutung: Neigungsversatz (Grad) zwischen der getrackten OpenXR-Grip-Pose und dem "
-                + "sichtbaren Handmodell, um die X-Achse des Controllers. NEGATIV kippt die Fingerspitzen NACH "
-                + "UNTEN gegenüber der Vorwärtsrichtung der Grip-Pose. Die OpenXR-Grip-Pose zeigt am "
-                + "Controller-Griff entlang nach oben, nicht dorthin, wohin eine entspannte Hand zeigt. "
-                + "Zusammen mit HandLateralOffset / HandVerticalOffset / HandForwardOffset setzt dies die "
-                + "sichtbare Hand AUF den physischen Controller; Position 0/0/0 mit Neigung 0 legt die Hand "
-                + "GENAU auf die getrackte Grip-Pose. Standard -30 hält die Handfläche um einen GEHALTENEN "
-                + "Controller gelegt (eine stärkere Abwärtsneigung wirkt wie eine entspannte Hand und hebt die "
-                + "Handfläche vom Gerät ab — Hardware-Test #27). Hot-Reload-fähig: im laufenden Spiel "
-                + "bearbeiten, die Hände posieren sich im nächsten Frame neu. Justierhilfe: docs/TESTING-P2.md.",
-            ["Hands/HandLateralOffset"] =
-                "VERALTET — ohne Wirkung, ersetzt durch [Hands] Glove/Plate/ArcaneLateralOffset in "
-                + "dev.gloomhavenvr.hands.cfg. Änderungen hier bewirken nichts; der Wert wird genau einmal "
-                + "gelesen, als Startwert für jene Schlüssel pro Stil bei deren erster Erzeugung, danach nie "
-                + "wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien weiter laden. Historische "
-                + "Bedeutung: seitlicher Versatz (Meter) des sichtbaren Handmodells gegenüber der getrackten "
-                + "OpenXR-Grip-Pose, entlang der lokalen X-Achse des Controllers. POSITIV verschiebt die Hand "
-                + "zur Daumenseite (Geräteraum; das Vorzeichen wird pro Hand durch die Rig-Geometrie "
-                + "gespiegelt). Eine der vier [Hands]-Sitz-Einstellungen (HandLateralOffset / "
-                + "HandVerticalOffset / HandForwardOffset / GripPitchOffsetDegrees) — zusammen setzen sie die "
-                + "sichtbare Hand AUF den physischen Controller, und Position 0/0/0 mit Neigung 0 legt die Hand "
-                + "GENAU auf die getrackte Grip-Pose. Standard 0 hält die Hand mittig auf dem Controller-Griff. "
-                + "Hot-Reload-fähig: im laufenden Spiel bearbeiten, die Hände setzen sich im nächsten Frame "
-                + "neu.",
-            ["Hands/HandVerticalOffset"] =
-                "VERALTET — ohne Wirkung, ersetzt durch [Hands] Glove/Plate/ArcaneVerticalOffset in "
-                + "dev.gloomhavenvr.hands.cfg. Änderungen hier bewirken nichts; der Wert wird genau einmal "
-                + "gelesen, als Startwert für jene Schlüssel pro Stil bei deren erster Erzeugung, danach nie "
-                + "wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien weiter laden. Historische "
-                + "Bedeutung: senkrechter Versatz (Meter) des sichtbaren Handmodells gegenüber der getrackten "
-                + "OpenXR-Grip-Pose, entlang der lokalen Hoch-Achse (Y) des Controllers. POSITIV hebt die Hand "
-                + "an. Eine der vier [Hands]-Sitz-Einstellungen (HandLateralOffset / HandVerticalOffset / "
-                + "HandForwardOffset / GripPitchOffsetDegrees) — zusammen setzen sie die sichtbare Hand AUF den "
-                + "physischen Controller, und Position 0/0/0 mit Neigung 0 legt die Hand GENAU auf die "
-                + "getrackte Grip-Pose. Standard 0 setzt die Handfläche auf die Grip-Pose: die maßvolle Neigung "
-                + "von -30 lässt die Handfläche nicht mehr so absacken wie die alten -60, deshalb ist zu Beginn "
-                + "kein Anheben nötig — erhöhe den Wert, wenn die Handfläche auf deinem Controller noch zu tief "
-                + "wirkt (Hardware-Tests #24/#27). Hot-Reload-fähig: im laufenden Spiel bearbeiten, die Hände "
-                + "setzen sich im nächsten Frame neu.",
-            ["Hands/HandForwardOffset"] =
-                "VERALTET — ohne Wirkung, ersetzt durch [Hands] Glove/Plate/ArcaneForwardOffset in "
-                + "dev.gloomhavenvr.hands.cfg. Änderungen hier bewirken nichts; der Wert wird genau einmal "
-                + "gelesen, als Startwert für jene Schlüssel pro Stil bei deren erster Erzeugung, danach nie "
-                + "wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien weiter laden. Historische "
-                + "Bedeutung: Vorwärts-/Tiefenversatz (Meter) des sichtbaren Handmodells gegenüber der "
-                + "getrackten OpenXR-Grip-Pose, entlang der lokalen Vorwärts-Achse (Z) des Controllers. POSITIV "
-                + "schiebt die Hand zu den Fingerspitzen hin; NEGATIV setzt das Handgelenk hinter den "
-                + "Grip-Ursprung. Eine der vier [Hands]-Sitz-Einstellungen (HandLateralOffset / "
-                + "HandVerticalOffset / HandForwardOffset / GripPitchOffsetDegrees) — zusammen setzen sie die "
-                + "sichtbare Hand AUF den physischen Controller, und Position 0/0/0 mit Neigung 0 legt die Hand "
-                + "GENAU auf die getrackte Grip-Pose. Standard -0.06 setzt das Handgelenk knapp hinter den "
-                + "Grip-Ursprung, sodass die Handfläche den Controller-Griff umschließt. Hot-Reload-fähig: im "
-                + "laufenden Spiel bearbeiten, die Hände setzen sich im nächsten Frame neu.",
             ["General/LogLevel"] =
                 "Wie viel der Mod in die LogOutput.log schreibt. Aus = still. Errors = nur was "
                 + "fehlgeschlagen ist. Warnings = zusätzlich, was still degradiert ist (ein fehlendes "
@@ -741,14 +676,6 @@ internal static partial class Loc
                 + "Tiefenpuffer die Wände behält und Transparente korrekt verdeckt werden. NUR abschalten, wenn "
                 + "die Forward-Beleuchtung falsch aussieht (Deferred verarbeitet viele dynamische Lichter pro "
                 + "Pixel; Forward hat ein Lichter-Limit pro Objekt).",
-            // ---- [Hands] ----
-            ["Hands/RayAlwaysOn"] =
-                "Hält den Laser-/Strahl-Interactor in jedem VR-Modus aktiv statt nur in Kontexten mit "
-                + "Fern-Interaktion.",
-            ["Hands/ModalRayConeDegrees"] =
-                "Solange ein modaler Dialog offen ist (Modus ModalUI), bleibt der Strahl nutzbar, sein Laser "
-                + "wird aber nur angezeigt, wenn er innerhalb dieser Gradzahl auf eine UI-Fläche zeigt "
-                + "(Weltdialog, flacher Bildschirm). 0 = den Laser in ModalUI immer anzeigen.",
             // ---- [Dev] ----
             ["Dev/Enabled"] =
                 "Entwicklermodus: verbindet den VR-Eventbus und die Handsimulation auch ohne Headset und "
@@ -769,35 +696,6 @@ internal static partial class Loc
                 + "der realen Handgröße des Lederhandschuhs entspricht. Wirkt live (kein Neuaufbau); gegriffene "
                 + "Objekte, der Kartenfächer und das Handgelenk-HUD behalten ihre eigene Größe (die "
                 + "Rig-Sockets, an denen sie hängen, sind größenkompensiert).",
-            ["Hands/*PitchTrimDegrees"] =
-                "VERALTET — ohne Wirkung, ersetzt durch den Schlüssel GripPitchDegrees dieses Handstils unter "
-                + "[Hands] in dev.gloomhavenvr.hands.cfg, der ein ABSOLUTER Wert pro Stil ist und kein "
-                + "Trimmwert. Dieser Eintrag wird genau einmal gelesen, als Teil des Startwerts für jenen "
-                + "Schlüssel bei dessen erster Erzeugung, danach nie wieder. Bleibt gebunden, damit bestehende "
-                + "Konfigurationsdateien weiter laden. Historische Bedeutung: zusätzliche Neigung (Grad), die "
-                + "zu GripPitchOffsetDegrees ADDIERT wird, solange dieser Handstil getragen wird.",
-            ["Hands/*LateralTrim"] =
-                "VERALTET — ohne Wirkung, ersetzt durch den Schlüssel LateralOffset dieses Handstils unter "
-                + "[Hands] in dev.gloomhavenvr.hands.cfg, der ein ABSOLUTER Wert pro Stil ist und kein "
-                + "Trimmwert. Dieser Eintrag wird genau einmal gelesen, als Teil des Startwerts für jenen "
-                + "Schlüssel bei dessen erster Erzeugung, danach nie wieder. Bleibt gebunden, damit bestehende "
-                + "Konfigurationsdateien weiter laden. Historische Bedeutung: zusätzlicher seitlicher Versatz "
-                + "(X) in Metern, der zu HandLateralOffset ADDIERT wird, solange dieser Handstil getragen wird.",
-            ["Hands/*VerticalTrim"] =
-                "VERALTET — ohne Wirkung, ersetzt durch den Schlüssel VerticalOffset dieses Handstils unter "
-                + "[Hands] in dev.gloomhavenvr.hands.cfg, der ein ABSOLUTER Wert pro Stil ist und kein "
-                + "Trimmwert. Dieser Eintrag wird genau einmal gelesen, als Teil des Startwerts für jenen "
-                + "Schlüssel bei dessen erster Erzeugung, danach nie wieder. Bleibt gebunden, damit bestehende "
-                + "Konfigurationsdateien weiter laden. Historische Bedeutung: zusätzlicher senkrechter Versatz "
-                + "(Y) in Metern, der zu HandVerticalOffset ADDIERT wird, solange dieser Handstil getragen "
-                + "wird.",
-            ["Hands/*ForwardTrim"] =
-                "VERALTET — ohne Wirkung, ersetzt durch den Schlüssel ForwardOffset dieses Handstils unter "
-                + "[Hands] in dev.gloomhavenvr.hands.cfg, der ein ABSOLUTER Wert pro Stil ist und kein "
-                + "Trimmwert. Dieser Eintrag wird genau einmal gelesen, als Teil des Startwerts für jenen "
-                + "Schlüssel bei dessen erster Erzeugung, danach nie wieder. Bleibt gebunden, damit bestehende "
-                + "Konfigurationsdateien weiter laden. Historische Bedeutung: zusätzlicher Vorwärts-Versatz (Z) "
-                + "in Metern, der zu HandForwardOffset ADDIERT wird, solange dieser Handstil getragen wird.",
             // ---- [Cards] ----
             ["Cards/DevFakeHand"] =
                 "Erzeugt so viele Dummy-VR-Karten (prozedurale Platzhalter-Kartenbilder), dass sich Fächer, "
@@ -855,7 +753,7 @@ internal static partial class Loc
                 "Gehaltene Karte lesbar (Test #13): Neigung der KARTENSEITE in Grad aus \"flach auf der "
                 + "Handfläche\" (0 = alte Pose, Seite entlang der Handflächen-Normale — nur per "
                 + "Handgelenksdrehung lesbar) zurück zu Handgelenk/Unterarm. Im lockeren Controller-Griff "
-                + "(geneigte Griffpose, siehe [Hands] GripPitchOffsetDegrees) zeigen die Finger vorwärts und "
+                + "(geneigte Griffpose, siehe die Handsitz-Neigung pro Stil unter [Hands]) zeigen die Finger vorwärts und "
                 + "leicht abwärts, bei ~65 also die Seite hoch/zurück zu deinen Augen — wie bei einer echten "
                 + "Spielkarte. Die Oberkante zeigt zur Daumenseite (im lockeren Griff Welt-Oben; links "
                 + "automatisch gespiegelt). Folgt weiter 1:1 dem Handgelenk — fester Versatz, KEINE Ausrichtung "
@@ -2308,11 +2206,6 @@ internal static partial class Loc
             ["SquareCaps/Depth"] = "veraltet",
             ["SquareCaps/Travel"] = "veraltet",
             // ---- [Board] ----
-            ["Board/ForceFarMode"] =
-                "Hauptschalter dagegen: die Fingerspitze zeigt und klickt nie auf dem Spielbrett, es gilt "
-                + "immer der Fernstrahl. Schaltet damit auch TouchTilesWithFingertip ab. Nützlich für "
-                + "Desktop-/Entwicklertests ([Dev] SimulateHands), bei denen die Fake-Hände das Spielbrett "
-                + "nie erreichen.",
             ["Board/TouchTilesWithFingertip"] =
                 "Tippe ein hervorgehobenes Feld direkt mit der Zeigefingerspitze an — das löst genau die "
                 + "Aktion aus, die auch ein Klick mit dem Laser auf dieses Feld auslöst. Es passiert nur, "
@@ -2378,13 +2271,6 @@ internal static partial class Loc
                 + "Werte-Karte, die das Spiel beim Daraufzeigen zeigt). Aus = beim Aufnehmen erscheint "
                 + "keine Tafel. Live: Ausschalten schließt eine offene Tafel sofort; Einschalten wirkt ab "
                 + "dem nächsten Aufnehmen.",
-            ["FigureGrab/HeldScale"] =
-                "VERALTET — ohne Wirkung, ersetzt durch [FigureGrab] Glove/Plate/ArcaneHeldScale. Dieser "
-                + "Eintrag wird genau einmal gelesen, als Startwert für jene Pro-Stil-Schlüssel beim ersten "
-                + "Anlegen, danach nie wieder. Bleibt gebunden, damit bestehende Konfigurationsdateien "
-                + "weiterhin laden. Historische Bedeutung: Betrachtungs-Zoom zusätzlich zur Weltgröße der Figur "
-                + "auf dem Spielbrett, während sie gehalten wird (1 = Brettgröße in deiner Hand; höher "
-                + "vergrößert sie).",
             ["FigureGrab/HeldOffsetForward"] =
                 "VERALTET — ohne Wirkung, ersetzt durch [FigureGrab] Glove/Plate/ArcaneHeldOffsetForward. "
                 + "Dieser Eintrag wird genau einmal gelesen, als Startwert für jene Pro-Stil-Schlüssel beim "
@@ -2473,11 +2359,6 @@ internal static partial class Loc
                 + "dreht. PRO STIL geltender absoluter Wert, solange dieser Handstil getragen wird (ersetzt den "
                 + "gemeinsamen alten Eintrag, aus dem er beim ersten Lauf befüllt wurde). Live änderbar — eine "
                 + "gehaltene Figur wird sofort neu ausgerichtet.",
-            ["FigureGrab/*HeldScale"] =
-                "Betrachtungs-Zoom zusätzlich zur Weltgröße der Figur auf dem Spielbrett, während sie "
-                + "gehalten wird. PRO STIL geltender absoluter Wert, solange dieser Handstil getragen wird "
-                + "(ersetzt den gemeinsamen alten Eintrag, aus dem er beim ersten Lauf befüllt wurde). Live "
-                + "änderbar — eine gehaltene Figur wird sofort neu ausgerichtet.",
             // ---- [HexHighlight] ----
             ["HexHighlight/SwapStableShader"] =
                 "Ersetzt den OmniDecal_Shd der Feld-Hervorhebung durch den stereostabilen "
@@ -2598,10 +2479,13 @@ internal static partial class Loc
                 + "stärker werden — Diorama hinter Glas statt flaches Foto. 1 = strenge Fenstergeometrie; auf "
                 + "1-60 begrenzt.",
             ["WorldUI/ScreenLeftMirrorFallback"] =
-                "VERALTET — ohne Wirkung, und hatte auch nie eine: dieser Schlüssel wird nirgends im Mod "
-                + "gelesen. Er gab sich als Hauptschalter für die Rettung der schwarzen Karte aus; der "
-                + "tatsächliche Schalter ist MapAlbedoRender. Bleibt gebunden, damit bestehende .cfg-Dateien "
-                + "unverändert laden.",
+                "Sicherheitsschalter für die Rettung der Kampagnenkarte (Standard AN — anlassen): solange "
+                + "die Kartenszene läuft, erlaubt er die Schwarzbild-Prüfung und das schnelle Einrasten der "
+                + "Kartenkorrektur (FlatScreenStereo.3.Map, TickBlackProbe / TickFastMapEngage), die die "
+                + "schwarze Kampagnenkarte erkennen und die Leinwand auf das MapAlbedoRender-Neurendering "
+                + "umschalten. AUS schaltet diese Erkennung komplett ab — die Kampagnenkarte bleibt dann "
+                + "auch mit eingeschaltetem MapAlbedoRender ein schwarzer Bildschirm. Nur zum Diagnostizieren "
+                + "der Prüfung selbst abschalten.",
             ["WorldUI/MapAlbedoRender"] =
                 "DIE KARTEN-KORREKTUR (Standard AN): rendert das Pergament der Kampagnenkarte UNBELEUCHTET "
                 + "über eine modeigene FORWARD-Kamera in eine PRIVATE RenderTexture, die das Leinwand-Quad dann "
@@ -2614,76 +2498,5 @@ internal static partial class Loc
                 + "Rendering eingesetzt und im selben Frame wiederhergestellt (rein darstellend, "
                 + "mehrspielersicher). Eine von oben gemalte Karte wirkt unbeleuchtet korrekt. Aus = die "
                 + "schwarze Karte wird erkannt, aber die Basis-RT bleibt, wie sie ist (schwarz).",
-            ["WorldUI/MapAlbedoOriginalMaterial"] =
-                "VERALTET — ohne Wirkung. Der Schlüssel wählte zwischen dem Rendern der Karte mit dem "
-                + "spieleigenen Amplify-Material und einem Override-Material; die Karte wird jetzt immer mit "
-                + "GloomhavenVR/MapUnlit gezeichnet, und beide von ihm benannten Alternativen gibt es nicht "
-                + "mehr. Bleibt gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapAlbedoAmbient"] =
-                "VERALTET — ohne Wirkung. Der Schlüssel erzwang ein helles Umgebungslicht während des "
-                + "Forward-Renderings der Karte, damals, als dieses Rendering noch BELEUCHTET war. MapUnlit ist "
-                + "unbeleuchtet, also kann kein Umgebungslicht-Wert die Karte verändern; der Code, der diesen "
-                + "Schlüssel las, wurde entfernt. (Solange er lief, wurde gemessen: ein Umgebungslicht von 4 "
-                + "machte aus einem flachen dunklen Pergament nur ein flaches helleres.) Bleibt gebunden, damit "
-                + "bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapAlbedoLight"] =
-                "VERALTET — ohne Wirkung. Der Schlüssel fügte während des Forward-Renderings der Karte ein "
-                + "Richtungslicht des Mods hinzu, für den Fall, dass die Kartendetails ein per Normal Map "
-                + "erzeugtes Relief wären. MapUnlit ist unbeleuchtet, also kann ein Licht sie nicht "
-                + "beeinflussen; der Code, der diesen Schlüssel las, wurde entfernt. Bleibt gebunden, damit "
-                + "bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapCaptureMode"] =
-                "VERALTET — ohne Wirkung. Die Kampagnenkarte wird immer von der Forward-Albedo-Kamera des "
-                + "Mods in eine private RenderTexture gerendert. Die hiermit gewählte Strategie "
-                + "\"passive-deferred\" (1) wurde widerlegt — die Deferred-Kartenkamera des Spiels rendert in "
-                + "jede RenderTexture, die uns gehört, nur Schwarz, woran kein Entfernen von Image Effects "
-                + "etwas ändern kann — und die Strategie \"texture blit\" (2) wurde nie umgesetzt. Beide "
-                + "Codepfade wurden entfernt. Bleibt gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapStripBeautify"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 1, entfernt). Bleibt gebunden, damit "
-                + "bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapStripVolumetricFog"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 1, entfernt). Bleibt gebunden, damit "
-                + "bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapStripSSAO"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 1, entfernt). Bleibt gebunden, damit "
-                + "bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapStripPostProcess"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 1, entfernt). Bleibt gebunden, damit "
-                + "bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapTexFlipX"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 2, das nie umgesetzt wurde). Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapTexFlipY"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 2, das nie umgesetzt wurde). Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapTexSwapDiag"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 2, das nie umgesetzt wurde). Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapStripAllImageEffects"] =
-                "VERALTET — ohne Wirkung (gehörte zu MapCaptureMode 1, entfernt). Bleibt gebunden, damit "
-                + "bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapUvSource"] =
-                "VERALTET — ohne Wirkung. Die UV der Karte wird von GloomhavenVR/MapUnlit auf der GPU aus dem "
-                + "mesheigenen TexCoord0 gesampelt; der hiermit konfigurierte CPU-Pfad zum Neuaufbau von uv0 "
-                + "wurde entfernt. (Das Mesh wurde offline extrahiert und mit seiner eigenen UV0 rasterisiert: "
-                + "es ergibt die vollständige, korrekte Karte, es gibt also nichts zu korrigieren.) Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapUvSwapUV"] =
-                "VERALTET — ohne Wirkung (gehörte zum entfernten CPU-Pfad für den uv0-Neuaufbau). Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapUvFlipU"] =
-                "VERALTET — ohne Wirkung (gehörte zum entfernten CPU-Pfad für den uv0-Neuaufbau). Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapUvFlipV"] =
-                "VERALTET — ohne Wirkung (gehörte zum entfernten CPU-Pfad für den uv0-Neuaufbau). Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapUvChannel"] =
-                "VERALTET — ohne Wirkung und bewusst nicht gelesen: der UV-Kanal des Shaders ist fest auf 0 "
-                + "verdrahtet, damit ein veralteter gespeicherter Wert die Karte nicht zerstören kann. Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
-            ["WorldUI/MapUvComponent"] =
-                "VERALTET — ohne Wirkung (gehörte zum entfernten CPU-Pfad für den uv0-Neuaufbau). Bleibt "
-                + "gebunden, damit bestehende .cfg-Dateien unverändert laden.",
         };
 }

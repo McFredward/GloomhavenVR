@@ -11,9 +11,6 @@ namespace GloomhavenVR.Board;
 /// </summary>
 internal static class BoardConfig
 {
-    /// <summary>Disable fingertip near-touch picking; always use the far ray (desktop/dev testing).</summary>
-    public static ConfigEntry<bool> ForceFarMode = null!;
-
     /// <summary>
     /// Grip-gated direct fingertip touch on board hexes (the gesture the tutorial teaches):
     /// hold the GRIP, put the index fingertip on a hex, and the game receives the SAME click
@@ -44,21 +41,11 @@ internal static class BoardConfig
             return;
         ConfigFile config = _file = ModuleConfig.Create("board");
 
-        // RETIRED 2026-08-02 (hardware: the fingertip feature shipped DEAD for the user).
-        // This entry predates the GRIP gate: back when the near pick existed unconditionally,
-        // an accidental brush across the diorama stole the pick from the laser, so "far only"
-        // was the sane shipped state and every tuned cfg on disk carries `true`. A cfg value
-        // ALWAYS beats a changed default, so flipping Defaults.ForceFarMode could never reach
-        // an existing installation — the feature stayed off with no way for the player to know
-        // why. Since TouchTilesWithFingertip the near pick only exists while the grip is held,
-        // which is exactly what made the old override unnecessary. The bind stays (so the key
-        // is still documented and the config browser does not show an orphan) but it is a
-        // LEGACY NO-OP: nothing reads it any more; TouchTilesWithFingertip is the single switch.
-        ForceFarMode = config.Bind(
-            "Board", "ForceFarMode", Defaults.ForceFarMode,
-            "LEGACY — no longer used. Superseded by TouchTilesWithFingertip: the fingertip only " +
-            "picks while the GRIP button is held, so the old 'laser only' override is obsolete. " +
-            "Set TouchTilesWithFingertip = false for laser-only board input.");
+        // The old [Board] ForceFarMode override is DELETED (2026-08 dead-settings sweep). It
+        // predated the GRIP gate — back when the near pick existed unconditionally, "far only"
+        // was the sane shipped state and every tuned cfg on disk carried `true`, which silently
+        // kept the fingertip feature dead. Since TouchTilesWithFingertip the near pick only
+        // exists while the grip is held; that single switch replaced the override for good.
         TouchTilesWithFingertip = config.Bind(
             "Board", "TouchTilesWithFingertip", Defaults.TouchTilesWithFingertip,
             "Touch a highlighted hex directly with your index fingertip to commit the same " +

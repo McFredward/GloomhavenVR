@@ -137,9 +137,8 @@ internal static class ConfigStepVectors
         t.Case("configsteps/angle-is-not-a-pose");
         Unit(t, "FanArcSweepDegrees", 1d, ConfigSteps.UnitScope.Value);
         Unit(t, "RevealEnterDegrees", 1d, ConfigSteps.UnitScope.Value);
-        Unit(t, "ModalRayConeDegrees", 1d, ConfigSteps.UnitScope.Value);
         // …but a named euler axis is.
-        Unit(t, "WristHudPitch", 1d, ConfigSteps.UnitScope.Component);
+        Unit(t, "GlovePalmPitch", 1d, ConfigSteps.UnitScope.Component);
         Unit(t, "GloveGripRollDegrees", 1d, ConfigSteps.UnitScope.Component);
         Unit(t, "HeldFaceYawDegrees", 1d, ConfigSteps.UnitScope.Component);
 
@@ -153,7 +152,6 @@ internal static class ConfigStepVectors
         NoUnit(t, "HexHintSide");                   // "Side" with nothing behind it
         NoUnit(t, "StableDepthBias");               // the table refuses "Bias" on purpose
         NoUnit(t, "HeldFaceBias");
-        NoUnit(t, "MapUvComponent");
         NoUnit(t, "FanSideDepthCurve");             // a curve, not a depth
         NoUnit(t, "TouchRange");
         NoUnit(t, "CurlInputFullAt");
@@ -196,9 +194,10 @@ internal static class ConfigStepVectors
     /// `internal const float X = 1f;   // =&gt; [Section] Key` — the annotation that
     /// scripts/rebase-defaults.py already treats as machine-readable, plus the declared TYPE.
     ///
-    /// <para>The type is not decoration. Only a NUMBER gets a stepper, and the config is full of
-    /// keys that look like coordinates and are not: `[WorldUI] MapTexFlipX` / `MapTexFlipY` are
-    /// bools that mirror the map texture. Sweeping them would demand a step for a toggle.</para>
+    /// <para>The type is not decoration. Only a NUMBER gets a stepper, and the config has keys
+    /// that look like coordinates and are not: `[Cards] DecisionOffsetYRebased` is a bool
+    /// one-shot marker with an axis letter mid-key. Sweeping it would demand a step for a
+    /// toggle.</para>
     /// </summary>
     private static readonly Regex Annotated =
         new(@"(?:const|static\s+readonly)\s+(?<type>[A-Za-z0-9_.]+)\s+[A-Za-z0-9_]+\s*=.*?"
@@ -249,10 +248,13 @@ internal static class ConfigStepVectors
         // WristHud*` twins — i.e. seven axis-suffixed keys legitimately stopped existing. That is
         // the guard doing its job, not a false alarm: it noticed the annotation set move on the
         // first run after the merge, which is exactly the failure it was built to catch, and the
-        // only correct response was to look at WHY the count fell and confirm each loss. Re-based
-        // to 8 against the 10 that remain, so a silent loss of the sweep still fails loudly.
-        t.True(axisKeys >= 8,
-               $"the sweep found only {axisKeys} axis-suffixed keys; it used to find 10, so either "
+        // only correct response was to look at WHY the count fell and confirm each loss. It fell
+        // again to 7 in the 2026-08 dead-settings sweep, which DELETED the retired
+        // `WristHudOffsetX/Y/Z` binds (and their Defaults annotations) outright — another
+        // confirmed, legitimate loss. Re-based to 5 against the 7 that remain, so a silent loss
+        // of the sweep still fails loudly.
+        t.True(axisKeys >= 5,
+               $"the sweep found only {axisKeys} axis-suffixed keys; it used to find 7, so either "
                + "the Defaults annotations moved or this guard has stopped reading them");
 
         // (b) TWO DIALS OF ONE VECTOR MUST STEP ALIKE. That invariant is what the user notices when

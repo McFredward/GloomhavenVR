@@ -516,8 +516,6 @@ internal static class ButtonTuning
     /// <summary>[BoardButtons] press travel (Confirm/Undo keycaps ONLY).</summary>
     internal static float BoardCapTravel => Clamped(BoardTravel, DefaultBoardTravel, 0.002f, 0.02f);
 
-    /// <summary>[BoardDashboard] settings-gear plate width (gear ONLY).</summary>
-
     /// <summary>[BoardDashboard] follow/pin ('Fixiert') plate width (that toggle ONLY).</summary>
     internal static float DashboardPinWidth => Clamped(DashPinWidth, DefaultPinWidth, 0.02f, 0.20f);
 

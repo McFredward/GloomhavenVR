@@ -22,11 +22,11 @@ namespace GloomhavenVR.Core;
 /// <see cref="ConfigDescription"/>, whose miss returns <c>null</c> and lets the caller keep the
 /// original.</para>
 ///
-/// <para>FAMILIES. Twenty-one settings are bound once PER HAND STYLE (<c>GloveHeldScale</c>,
-/// <c>PlateHeldScale</c>, …) and thirty-seven once PER CONTROL BOARD (<c>BoardTilt_Oak</c>,
-/// <c>BoardTilt_Steel</c>, …) — 495 bound entries from 379 written descriptions, whose text differs
-/// only in the style/board it names. Those share ONE table entry under a wildcard key
-/// (<c>Hands/*HeldScale</c>, <c>Cards/BoardTilt_*</c>); the exact key is always tried first, so a
+/// <para>FAMILIES. A batch of settings is bound once PER HAND STYLE (<c>GloveHeldRotPitch</c>,
+/// <c>PlateHeldRotPitch</c>, …) and thirty-seven once PER CONTROL BOARD (<c>BoardTilt_Oak</c>,
+/// <c>BoardTilt_Steel</c>, …) — several hundred bound entries from far fewer written descriptions,
+/// whose text differs only in the style/board it names. Those share ONE table entry under a wildcard
+/// key (<c>FigureGrab/*HeldRotPitch</c>, <c>Cards/BoardTilt_*</c>); the exact key is always tried first, so a
 /// real setting that merely happens to start with a style name (<c>Hands/GlovePinkyCounterAbduction</c>)
 /// is never confused for a family member. The wildcard German text drops the style/board tag the
 /// English one carries — the tooltip's first line already reads "[Cards] BoardTilt_Steel".</para>

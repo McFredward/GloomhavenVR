@@ -31,7 +31,7 @@ namespace GloomhavenVR.WorldUI;
 /// handful of per-key overrides, so it costs one table line per module, not one per entry.</item>
 /// <item>GROUP (<see cref="ConfigGroup"/>) — inside a topic, the section when the section is small
 /// enough to read in one go, otherwise the key's own leading word (<c>FanArcSweepDegrees</c> →
-/// "Fan", <c>WristHudPitch</c> → "Wrist"). That second rule is what keeps a 90-entry section
+/// "Fan", <c>BarZoomMinScale</c> → "Bar"). That second rule is what keeps a 90-entry section
 /// navigable without anyone naming the clusters by hand.</item>
 /// </list>
 ///
@@ -410,14 +410,14 @@ internal static class ConfigCatalog
             return null;
 
         // A SETTING THAT DOES NOTHING IS WORSE THAN A MISSING ONE: the player turns the dial,
-        // nothing happens, and they are left doubting the mod rather than the row. Roughly
-        // eighty entries are in this state — the four shared hand-seat keys and their twelve
-        // per-style trims (superseded by absolute per-style keys), six FigureGrab and seven
-        // Cards constants, one reserved placeholder, the ~20 DEPRECATED map-capture knobs, the
-        // per-board AssetRotation trio, and the 2026-08 additions: [Rig] WorldScale (setting
-        // removed by user ruling) and the parked world tilt ([Rig] WorldTiltDegrees + the three
-        // MaskedReaim* companions). They stay BOUND so existing config files keep loading; they
-        // simply stop being offered.
+        // nothing happens, and they are left doubting the mod rather than the row. The plainly
+        // dead entries (WristHud twins, shared hand seats + trims, map-capture knobs, WorldScale,
+        // HeldScale family, ForceFarMode, …) were DELETED outright in the 2026-08 dead-settings
+        // sweep; what remains marked retired is the deliberate residue: LEGACY-SEED entries that
+        // feed one-time migrations, the reserved [Rig] Experimental3DMap placeholder, and the
+        // parked world tilt ([Rig] WorldTiltDegrees + the three MaskedReaim* companions, kept for
+        // the documented revival). Those stay BOUND so the seeds and the parked tuning survive;
+        // they simply stop being offered.
         if (IsRetired(entry))
         {
             RetiredEntries++;
@@ -1075,7 +1075,7 @@ internal static class ConfigCatalog
 
     /// <summary>
     /// The key's leading word — the automatic cluster name inside an oversized section
-    /// ("FanArcSweepDegrees" → "Fan", "WristHudPitch" → "Wrist", "VRSettingsOffset" → "VR").
+    /// ("FanArcSweepDegrees" → "Fan", "BarZoomMinScale" → "Bar", "VRSettingsOffset" → "VR").
     /// Bounded by the key length; never returns empty for a non-empty key.
     /// </summary>
     /// <summary>

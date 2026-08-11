@@ -16,8 +16,8 @@ namespace GloomhavenVR.WorldUI;
 /// <para>THE UNIT IS THE ANSWER, NOT THE MAGNITUDE. What a sensible step is follows from what the
 /// number MEANS — degrees step in degrees, metres in centimetres, a scale factor in percent — and
 /// the meaning is not in the value. It is in the name: this project spells its units out
-/// (<c>WorldTiltDegrees</c>, <c>RecenterHoldSeconds</c>, <c>HandForwardOffset</c>), so the name is
-/// the most reliable thing available short of writing every entry down.</para>
+/// (<c>WorldTiltDegrees</c>, <c>RecenterHoldSeconds</c>, <c>LaserFingerOffsetMeters</c>), so the
+/// name is the most reliable thing available short of writing every entry down.</para>
 ///
 /// <para>SO: written down where it is a judgement, derived where it is a pattern. Every row of the
 /// curated everyday tabs is in <see cref="Explicit"/>, chosen one at a time — those are the ones a
@@ -49,7 +49,8 @@ internal static class ConfigSteps
         ["Comfort/RecenterHoldSeconds"] = 0.1d,  // a tenth of a second is the felt unit
 
         // ---- Komfort ▸ Hände & Zielen -----------------------------------------------------
-        ["Hands/ModalRayConeDegrees"] = 5d,      // an aiming cone, 0..~45
+        // Hands/ModalRayConeDegrees is GONE (2026-08 dead-settings sweep: the cone gate was
+        // retired — VisualsAllowed is unconditionally true — and the key was deleted).
 
         // ---- Tafeln ▸ Karten & Brett ------------------------------------------------------
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size

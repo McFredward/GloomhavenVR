@@ -148,14 +148,11 @@ internal static class HandsConfig
     // The user's request: EVERY hand-tuning value in the debug menu is per selected hand
     // style, not just the scale. These four arrays (indexed by (int)HandStyle: Glove/
     // Plate/Arcane) are the ABSOLUTE per-style replacements for the old shared [Hands]
-    // seat controls in the main plugin cfg (GripPitchOffsetDegrees / HandLateralOffset /
-    // HandVerticalOffset / HandForwardOffset) + the additive per-style trims
-    // (HandStyle*Trim). On FIRST bind each style is SEEDED with the old effective value
-    // (global + that style's trim), so a tuned seat carries over to all three styles
-    // instead of resetting; afterwards the saved per-style value always wins. The old
-    // global/trim entries stay bound in Plugin (harmless orphans — nothing reads them
-    // once these exist). VRHand.SyncVisualOffset re-reads the ACTIVE style's entries
-    // every frame, so edits AND style switches live-apply without a rebuild.
+    // seat controls in the main plugin cfg (GripPitchOffsetDegrees etc.) + the additive
+    // per-style trims — both since deleted from Plugin entirely (2026-08 dead-settings
+    // sweep; values in old .cfg files survive as harmless BepInEx orphans).
+    // VRHand.SyncVisualOffset re-reads the ACTIVE style's entries every frame, so edits
+    // AND style switches live-apply without a rebuild.
 
     /// <summary>Per-style pitch (degrees) between the OpenXR grip pose and the visual hand (negative = fingers down).</summary>
     public static ConfigEntry<float>[]? StyleSeatPitch;
@@ -203,12 +200,11 @@ internal static class HandsConfig
 
     // ---- shipped per-style seat, indexed by (int)HandStyle: Glove, Plate, Arcane ------------
     // THESE ARE MEASURED, NOT DERIVED. They used to be seeded at runtime from the old shared
-    // [Hands] GripPitchOffsetDegrees / HandLateralOffset / HandVerticalOffset / HandForwardOffset
-    // plus a per-style trim — six entries that have since been retired ("LEGACY — no effect") and
-    // are no longer offered anywhere, so a fresh install's hands were seated by keys nobody could
-    // see or edit. The values below are the ones actually dialled in on hardware, one hand style
-    // at a time, and they are now the shipped defaults outright. Existing configs are untouched:
-    // BepInEx returns a saved value over a changed default.
+    // [Hands] seat keys (GripPitchOffsetDegrees etc.) plus a per-style trim — entries that were
+    // retired and have since been deleted from Plugin, so a fresh install's hands were seated by
+    // keys nobody could see or edit. The values below are the ones actually dialled in on
+    // hardware, one hand style at a time, and they are now the shipped defaults outright.
+    // Existing configs are untouched: BepInEx returns a saved value over a changed default.
     private static readonly float[] DefaultSeatPitch = { Defaults.GloveGripPitchDegrees, Defaults.PlateGripPitchDegrees, Defaults.ArcaneGripPitchDegrees };
     private static readonly float[] DefaultSeatLateral = { Defaults.GloveLateralOffset, Defaults.PlateLateralOffset, Defaults.ArcaneLateralOffset };
     private static readonly float[] DefaultSeatVertical = { Defaults.GloveVerticalOffset, Defaults.PlateVerticalOffset, Defaults.ArcaneVerticalOffset };

@@ -37,7 +37,7 @@ namespace GloomhavenVR.Hands.Interact;
 /// MEASURED FRAME (v4): the VISUAL hand frame — <c>HandRig.Root</c> (+Z along the
 /// fingers, +Y out of the BACK of the hand, both hands; HandRig doc) — which hangs
 /// below the offset HandRoot and therefore INCLUDES the debug-menu seat offsets
-/// ([Hands] GripPitchOffsetDegrees + the per-style trims applied by
+/// (the per-style [Hands] seat pose applied by
 /// <see cref="VRHand.SyncVisualOffset"/>). The user tunes those trims to make the
 /// visual hand sit right; the gate must agree with what they SEE, not with the raw
 /// device grip pose — which is what v3 read, and why v3 failed at hand poses the user

@@ -152,7 +152,6 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Hands", "PrimaryHand", "vr_o_primaryhand"),
-                        new("Hands", "RayAlwaysOn", "vr_o_rayalways"),
                         // The grip-gated fingertip hex touch — an INPUT decision the tutorial
                         // teaches by name, so it belongs on the everyday list next to the laser
                         // rows rather than only under "Erweitert" ([Board] section, not [Hands]:
@@ -160,7 +159,6 @@ internal static partial class VROptionsTab
                         new("Board", "TouchTilesWithFingertip", "vr_o_fingertiptouch"),
                         new("Hands", "ScrollWithStickOnly", "vr_o_stickscroll"),
                         new("Hands", "LaserFingerOrigin", "vr_o_laserorigin"),
-                        new("Hands", "ModalRayConeDegrees", "vr_o_raycone"),
                     },
                 },
             },

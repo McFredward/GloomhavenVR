@@ -247,16 +247,16 @@ namespace GloomhavenVR.WorldUI;
 /// backbuffer grab reads pure black under active MULTIPASS XR. The albedo render
 /// sidesteps all of that by never relying on the map's own lighting.
 ///
-/// ALSO DISPROVEN AND REMOVED (their config keys stay bound, marked DEPRECATED, so
-/// existing .cfg files keep loading): rendering the map into the SHARED base RT instead
-/// of the private one; cloning the game MapCamera's transform/projection; the
-/// <c>Sprites/Default</c> + CPU uv0-REBUILD path (<c>MapUv*</c> keys — the mesh's own
-/// TexCoord0 is correct and the shader samples it directly); the "keep the deferred
+/// ALSO DISPROVEN AND REMOVED (code AND config keys — the 18 DEPRECATED map knobs were
+/// deleted in the 2026-08 dead-settings sweep): rendering the map into the SHARED base RT
+/// instead of the private one; cloning the game MapCamera's transform/projection; the
+/// <c>Sprites/Default</c> + CPU uv0-REBUILD path (the old <c>MapUv*</c> keys — the mesh's
+/// own TexCoord0 is correct and the shader samples it directly); the "keep the deferred
 /// render, strip its image effects" strategy (<c>MapCaptureMode</c> 1 + the
 /// <c>MapStrip*</c> keys); the never-implemented texture-blit strategy
 /// (<c>MapCaptureMode</c> 2 + the <c>MapTex*</c> keys); and boosting ambient / adding a
 /// light for the render (<c>MapAlbedoAmbient</c>, <c>MapAlbedoLight</c> — MapUnlit is
-/// unlit, so lighting cannot affect it). Their code was deleted; do not re-add it.
+/// unlit, so lighting cannot affect it). Do not re-add any of it.
 ///
 /// Detection is a throttled, 8x8-downsampled, ASYNC non-black probe of the base RT
 /// (<see cref="AsyncGPUReadback"/> — no GPU stall) requiring several consecutive black
@@ -264,8 +264,7 @@ namespace GloomhavenVR.WorldUI;
 /// renders fine) is ever switched. Engagement is sticky for the scene (the game base RT
 /// stays black) and re-arms on the next captured-stack release.
 /// [WorldUI] MapAlbedoRender off = detect but do not render (base RT left as-is).
-/// ([WorldUI] ScreenLeftMirrorFallback is DEPRECATED — it is bound so old .cfg files load,
-/// but it has no reader at all and never selected anything.)
+/// [WorldUI] ScreenLeftMirrorFallback off = do not even detect (probe + fast engage gated).
 /// </summary>
 internal sealed partial class FlatScreenStereo
 {
@@ -306,42 +305,10 @@ internal sealed partial class FlatScreenStereo
     private static ConfigEntry<float>? s_parallaxScale;
     private static ConfigEntry<bool>? s_videoDepthLayer;
     private static ConfigEntry<float>? s_videoDepth;
-    /// <summary>DEPRECATED, no reader anywhere — see its Bind description. Kept bound only so existing .cfg files load unchanged.</summary>
+    /// <summary>Gates the black-map probe + fast map engage (FlatScreenStereo.3.Map) — the detection half of the map rescue. Default on.</summary>
     private static ConfigEntry<bool>? s_leftMirrorFallback;
     /// <summary>MAP ALBEDO RENDER (default ON, LIVE): render the campaign map parchment unlit via a mod forward camera into a private RT (see the MapAlbedoRender config text and the class doc MAP ALBEDO RENDER).</summary>
     private static ConfigEntry<bool>? s_mapAlbedoRender;
-
-    // ---- DEPRECATED map config entries -----------------------------------------------------
-    // Every entry below is bound, has NO reader, and describes a design that was disproven and
-    // removed (see each Bind description, and the class doc's "ALSO DISPROVEN AND REMOVED" list).
-    // They stay bound because charter §5 treats an unread key as a user's persisted setting.
-    /// <summary>DEPRECATED, no reader: chose between the game's Amplify material and an override; the map is always drawn with GloomhavenVR/MapUnlit now.</summary>
-    private static ConfigEntry<bool>? s_mapAlbedoOriginalMat;
-    /// <summary>DEPRECATED, no reader: ambient boost for a LIT map render; MapUnlit is unlit.</summary>
-    private static ConfigEntry<float>? s_mapAlbedoAmbient;
-    /// <summary>DEPRECATED, no reader: mod key light for a LIT map render; MapUnlit is unlit.</summary>
-    private static ConfigEntry<bool>? s_mapAlbedoLight;
-    /// <summary>DEPRECATED, no reader: orientation knobs for the 2x2 texture blit (MapCaptureMode 2), which was never implemented.</summary>
-    private static ConfigEntry<bool>? s_mapTexFlipX;
-    private static ConfigEntry<bool>? s_mapTexFlipY;
-    private static ConfigEntry<bool>? s_mapTexSwapDiag;
-
-    /// <summary>DEPRECATED, no reader: selected the capture strategy. Only the albedo camera ever ran; modes 1 and 2 are gone.</summary>
-    private static ConfigEntry<int>? s_mapCaptureMode;
-    /// <summary>DEPRECATED, no reader: image-effect strip for the removed passive-deferred mode (MapCaptureMode 1).</summary>
-    private static ConfigEntry<bool>? s_mapStripBeautify;
-    private static ConfigEntry<bool>? s_mapStripVolumetricFog;
-    private static ConfigEntry<bool>? s_mapStripSSAO;
-    private static ConfigEntry<bool>? s_mapStripPostProcess;
-    private static ConfigEntry<bool>? s_mapStripAllImageEffects;
-
-    /// <summary>DEPRECATED, no reader: configured the removed CPU uv0-rebuild path. MapUnlit samples the mesh's own TexCoord0 on the GPU.</summary>
-    private static ConfigEntry<int>? s_mapUvSource;
-    private static ConfigEntry<bool>? s_mapUvSwapUV;
-    private static ConfigEntry<bool>? s_mapUvFlipU;
-    private static ConfigEntry<bool>? s_mapUvFlipV;
-    private static ConfigEntry<int>? s_mapUvChannel;
-    private static ConfigEntry<int>? s_mapUvComponent;
     // ---- map base capture (class doc MAP ALBEDO RENDER) ------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
     private const int BlackProbeSize = 8;

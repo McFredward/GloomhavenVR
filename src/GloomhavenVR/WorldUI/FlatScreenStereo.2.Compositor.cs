@@ -67,20 +67,19 @@ internal sealed partial class FlatScreenStereo
             "comfortable while depth differences inside the captured scene grow this many " +
             "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
             "geometry; clamped to 1-60.");
-        // ---- DEPRECATED map keys -------------------------------------------------------------
-        // Every map key from here to the end of this method has NO effect — EXCEPT MapAlbedoRender,
-        // which is live and stays where it is (bind order is not reshuffled to group them). Each of
-        // the other 19 configured a map-capture design that was disproven on hardware and whose code
-        // has been removed. They stay BOUND on purpose —
-        // charter §5: an unread config key is still a user's persisted setting, and unbinding it
-        // drops the line from their .cfg on the next write. Each description now says plainly that
-        // it does nothing and what superseded it, so a knob that lies becomes a knob that admits it.
-        // (Precedent for the wording: [Cards] HeldTiltDegrees, "LEGACY — no longer used ... kept
-        // only so existing config files load cleanly".)
+        // The 18 DEPRECATED map-capture keys that used to be bound from here (MapAlbedoOriginalMaterial,
+        // MapAlbedoAmbient/Light, MapCaptureMode, the MapStrip* image-effect strips, the MapTex*
+        // blit-orientation knobs and the MapUv* CPU-rebuild knobs) are DELETED (2026-08 dead-settings
+        // sweep): each configured a map-capture design disproven on hardware whose code was already
+        // removed, and none had a reader left. Values in old .cfg files survive as harmless BepInEx
+        // orphans. The live map fix is MapAlbedoRender below, gated by ScreenLeftMirrorFallback.
         s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", Defaults.ScreenLeftMirrorFallback,
-            "DEPRECATED — no effect, and it never had one: this key has no reader anywhere in the " +
-            "mod. It presented itself as the master switch for the black-map rescue; the actual " +
-            "switch is MapAlbedoRender. Kept bound so existing .cfg files load unchanged.");
+            "Safety gate for the campaign-map rescue (default ON — leave it on): while the map " +
+            "scene runs, this allows the black-frame probe and the fast map engage " +
+            "(FlatScreenStereo.3.Map, TickBlackProbe / TickFastMapEngage) that detect the black " +
+            "campaign map and switch the screen to the MapAlbedoRender re-render. OFF disables " +
+            "that detection entirely, so the campaign map stays a black screen even with " +
+            "MapAlbedoRender on. Turn it off only to diagnose the probe itself.");
         s_mapAlbedoRender = file.Bind("WorldUI", "MapAlbedoRender", Defaults.MapAlbedoRender,
             "THE MAP FIX (default ON): render the campaign map's parchment UNLIT via a mod-owned " +
             "FORWARD camera into a PRIVATE RenderTexture, which the screen quad then shows. The map " +
@@ -92,82 +91,6 @@ internal sealed partial class FlatScreenStereo
             "TexCoord0), swapped on only for our render and restored the same frame (rendering-only, " +
             "multiplayer-safe). A top-down painted map reads correct unlit. Off = detect the black " +
             "map but leave the base RT as-is (black).");
-        s_mapAlbedoOriginalMat = file.Bind("WorldUI", "MapAlbedoOriginalMaterial", Defaults.MapAlbedoOriginalMaterial,
-            "DEPRECATED — no effect. It chose between rendering the map with the game's own Amplify " +
-            "material and an override material; the map is now always drawn with GloomhavenVR/" +
-            "MapUnlit, and both alternatives it named are gone. Kept bound so existing .cfg files " +
-            "load unchanged.");
-        s_mapAlbedoAmbient = file.Bind("WorldUI", "MapAlbedoAmbient", Defaults.MapAlbedoAmbient,
-            "DEPRECATED — no effect. It forced a bright ambient during the map's forward render, " +
-            "back when that render was LIT. MapUnlit is unlit, so no ambient value can change the " +
-            "map; the code that read this key was removed. (When it did run it was measured: an " +
-            "ambient of 4 only turned a flat dark parchment into a flat brighter one.) Kept bound so " +
-            "existing .cfg files load unchanged.");
-        s_mapAlbedoLight = file.Bind("WorldUI", "MapAlbedoLight", Defaults.MapAlbedoLight,
-            "DEPRECATED — no effect. It added a mod directional light during the map's forward " +
-            "render, in case the map detail was normal-mapped relief. MapUnlit is unlit, so a light " +
-            "cannot affect it; the code that read this key was removed. Kept bound so existing .cfg " +
-            "files load unchanged.");
-
-        s_mapCaptureMode = file.Bind("WorldUI", "MapCaptureMode", Defaults.MapCaptureMode,
-            "DEPRECATED — no effect. The campaign map is always rendered by the mod's forward albedo " +
-            "camera into a private RenderTexture. The 'passive-deferred' strategy (1) this selected " +
-            "was disproven — the game's deferred map camera renders black into any RenderTexture we " +
-            "own, which no image-effect stripping can change — and the 'texture blit' strategy (2) " +
-            "was never implemented at all. Both code paths were removed. Kept bound so existing .cfg " +
-            "files load unchanged.");
-        s_mapStripBeautify = file.Bind("WorldUI", "MapStripBeautify", Defaults.MapStripBeautify,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
-            ".cfg files load unchanged.");
-        s_mapStripVolumetricFog = file.Bind("WorldUI", "MapStripVolumetricFog", Defaults.MapStripVolumetricFog,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
-            ".cfg files load unchanged.");
-        s_mapStripSSAO = file.Bind("WorldUI", "MapStripSSAO", Defaults.MapStripSSAO,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
-            ".cfg files load unchanged.");
-        s_mapStripPostProcess = file.Bind("WorldUI", "MapStripPostProcess", Defaults.MapStripPostProcess,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
-            ".cfg files load unchanged.");
-        s_mapTexFlipX = file.Bind("WorldUI", "MapTexFlipX", Defaults.MapTexFlipX,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
-            "Kept bound so existing .cfg files load unchanged.");
-        s_mapTexFlipY = file.Bind("WorldUI", "MapTexFlipY", Defaults.MapTexFlipY,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
-            "Kept bound so existing .cfg files load unchanged.");
-        s_mapTexSwapDiag = file.Bind("WorldUI", "MapTexSwapDiag", Defaults.MapTexSwapDiag,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 2, which was never implemented). " +
-            "Kept bound so existing .cfg files load unchanged.");
-        s_mapStripAllImageEffects = file.Bind("WorldUI", "MapStripAllImageEffects", Defaults.MapStripAllImageEffects,
-            "DEPRECATED — no effect (belonged to MapCaptureMode 1, removed). Kept bound so existing " +
-            ".cfg files load unchanged.");
-
-        // Map UV correction knobs — DEPRECATED, no reader. They configured the CPU uv0-rebuild path
-        // (a mod-owned corrected mesh copy + Sprites/Default), which was removed once the mesh was
-        // proven to carry a correct TexCoord0 that GloomhavenVR/MapUnlit samples on the GPU
-        // (53af144). Kept BOUND so existing .cfg files keep loading unchanged; see charter §5.
-        s_mapUvSource = file.Bind("WorldUI", "MapUvSource", Defaults.MapUvSource,
-            "DEPRECATED — no effect. The map's UV is sampled on the GPU from the mesh's own " +
-            "TexCoord0 by GloomhavenVR/MapUnlit; the CPU uv0-rebuild path this configured was " +
-            "removed. (The mesh was extracted offline and rasterized with its own UV0: it produces " +
-            "the complete correct map, so there is nothing to correct.) Kept bound so existing .cfg " +
-            "files load unchanged.");
-        s_mapUvSwapUV = file.Bind("WorldUI", "MapUvSwapUV", Defaults.MapUvSwapUV,
-            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
-            "existing .cfg files load unchanged.");
-        s_mapUvFlipU = file.Bind("WorldUI", "MapUvFlipU", Defaults.MapUvFlipU,
-            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
-            "existing .cfg files load unchanged.");
-        s_mapUvFlipV = file.Bind("WorldUI", "MapUvFlipV", Defaults.MapUvFlipV,
-            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
-            "existing .cfg files load unchanged.");
-        s_mapUvChannel = file.Bind("WorldUI", "MapUvChannel", Defaults.MapUvChannel,
-            "DEPRECATED — no effect, and deliberately not read: the shader's UV channel is " +
-            "hard-coded to 0 so a stale persisted value cannot break the map. Kept bound so existing " +
-            ".cfg files load unchanged.");
-        s_mapUvComponent = file.Bind("WorldUI", "MapUvComponent", Defaults.MapUvComponent,
-            "DEPRECATED — no effect (belonged to the removed CPU uv0-rebuild path). Kept bound so " +
-            "existing .cfg files load unchanged.");
-
     }
 
     /// <summary>[WorldUI] MapAlbedoRender — render the map parchment unlit via a mod forward camera (class doc MAP ALBEDO RENDER).</summary>

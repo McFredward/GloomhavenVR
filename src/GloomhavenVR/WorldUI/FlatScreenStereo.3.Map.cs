@@ -689,8 +689,8 @@ internal sealed partial class FlatScreenStereo
     private Texture2D? _uvDebugTex;
     // Which mesh UV channel the MapUnlit GPU shader samples the albedo from (0=TexCoord0 default,
     // 1/2 fallback). The mesh carries TexCoord0/1/2 (dim2) — TexCoord0 is the standard albedo channel.
-    // HARD-CODED (not the persisted MapUvChannel config, which may hold a stale value) and drives
-    // MapUnlit's _UvChannel, so trying another channel is a one-line change, no bundle rebuild.
+    // HARD-CODED deliberately (the old MapUvChannel config key, deleted, could hold a stale value)
+    // and drives MapUnlit's _UvChannel, so trying another channel is a one-line change, no bundle rebuild.
     private const float MapUnlitUvChannel = 0f;
     /// <summary>One-shot guard for the MAP MESH layout / material-ST dump.</summary>
     private bool _meshLayoutLogged;

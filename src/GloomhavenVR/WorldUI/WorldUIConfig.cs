@@ -147,16 +147,6 @@ internal static class WorldUIConfig
     /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
     internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
 
-    /// <summary>RETIRED (2026-08-09) — the wrist HUD's pose is per hand style, in
-    /// <c>[WristHud] {Style}Palm*</c>. Bound only so an existing cfg still loads; read by
-    /// nothing. See the retirement block in <see cref="Bind"/>.</summary>
-    internal static ConfigEntry<float> WristHudPitch = null!;
-    internal static ConfigEntry<float> WristHudYaw = null!;
-    internal static ConfigEntry<float> WristHudRoll = null!;
-    internal static ConfigEntry<float> WristHudOffsetX = null!;
-    internal static ConfigEntry<float> WristHudOffsetY = null!;
-    internal static ConfigEntry<float> WristHudOffsetZ = null!;
-
     /// <summary>Show the intro (pre-menu scenes) on the floating screen in VR too.</summary>
     internal static ConfigEntry<bool> ShowIntro = null!;
 
@@ -517,36 +507,6 @@ internal static class WorldUIConfig
             "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
             "uncontrolled default XR mirror otherwise).");
         // ---- RETIRED 2026-08-09: the wrist HUD's SECOND set of pose dials -------------------
-        // These six were the original global wrist-HUD pose. Since the per-style rework they
-        // have been superseded by [WristHud] {Glove|Plate|Arcane}Palm* — WristHud reads the
-        // active style's row and only fell back to these if the per-style array were unbound,
-        // which cannot happen (HandsConfig.Bind binds it, and it is HandsConfig that calls this
-        // very method). So they were six settings the player could move with nothing to show
-        // for it, each carrying the SAME localized caption as the live row beside it
-        // ("Arm-HUD: X (m)"), which is how "Der X-Offset beim Arm-HUD hat keinen Einfluss"
-        // could be true of one axis and not the others: whichever of the two rows you reached
-        // for, one of them was a decoy.
-        //
-        // They stay BOUND so an old cfg still loads without BepInEx dropping the section, and
-        // the "LEGACY — no effect" prefix is the project's own retirement marker: ConfigCatalog
-        // reads it off the ENGLISH bound description and leaves the entry out of the menu
-        // entirely (ConfigCatalog.RetiredMarkers), so the duplicate rows are gone.
-        const string wristRetired =
-            "LEGACY — no effect. The wrist HUD's pose is PER HAND STYLE and lives in " +
-            "[WristHud] {Glove|Plate|Arcane}Palm* (dev.gloomhavenvr.hands.cfg). This entry is " +
-            "kept only so an existing config file still loads; changing it does nothing. ";
-        WristHudPitch = _file.Bind("WorldUI", "WristHudPitch", Defaults.WristHudPitch,
-            wristRetired + "Was: wrist HUD pitch (degrees).");
-        WristHudYaw = _file.Bind("WorldUI", "WristHudYaw", Defaults.WristHudYaw,
-            wristRetired + "Was: wrist HUD yaw (degrees).");
-        WristHudRoll = _file.Bind("WorldUI", "WristHudRoll", Defaults.WristHudRoll,
-            wristRetired + "Was: wrist HUD roll (degrees).");
-        WristHudOffsetX = _file.Bind("WorldUI", "WristHudOffsetX", Defaults.WristHudOffsetX,
-            wristRetired + "Was: wrist HUD offset along wrist X, real meters.");
-        WristHudOffsetY = _file.Bind("WorldUI", "WristHudOffsetY", Defaults.WristHudOffsetY,
-            wristRetired + "Was: wrist HUD offset along wrist Y, real meters.");
-        WristHudOffsetZ = _file.Bind("WorldUI", "WristHudOffsetZ", Defaults.WristHudOffsetZ,
-            wristRetired + "Was: wrist HUD offset along wrist Z, real meters.");
         ShowIntro = _file.Bind("WorldUI", "ShowIntro", Defaults.ShowIntro,
             "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +
             "too. Off = old behavior: intro plays on the desktop only and the HMD shows a " +
@@ -728,9 +688,6 @@ internal static class WorldUIConfig
             "DEV: apply the real canvas conversions in dev mode without an HMD (this moves the " +
             "game's 2D panels into world space — the desktop view changes accordingly).");
     }
-
-    /// <summary>User #7c: whether the world-space action-element hint presentation is enabled (read live).</summary>
-    internal static bool ActionElementHintsEnabled => ActionElementHints.Value;
 
     /// <summary>True while WorldUI physicalization should be applied to live game UI.</summary>
     internal static bool ConversionActive =>

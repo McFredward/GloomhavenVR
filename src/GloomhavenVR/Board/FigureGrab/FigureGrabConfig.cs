@@ -198,12 +198,6 @@ internal static class FigureGrabConfig
         }
     }
 
-    /// <summary>
-    /// Inspection zoom applied ON TOP of the figure's preserved board world-scale while
-    /// held (1 = same size it is on the board, just in your hand; &gt;1 enlarges it).
-    /// </summary>
-    public static ConfigEntry<float> HeldScale = null!;
-
     /// <summary>Held offset toward the fingertips (GrabAnchor-local Z).</summary>
     public static ConfigEntry<float> HeldOffsetForward = null!;
 
@@ -251,9 +245,6 @@ internal static class FigureGrabConfig
     /// <summary>Per-style upright-mode face yaw (degrees).</summary>
     public static ConfigEntry<float>[]? StyleHeldFaceYawDegrees;
 
-    /// <summary>Per-style inspection zoom on top of the board world-scale.</summary>
-    public static ConfigEntry<float>[]? StyleHeldScale;
-
     /// <summary>Per-style held ROLL (degrees) — superseded by <see cref="StyleHeldRotRoll"/>.</summary>
     public static ConfigEntry<float>[]? StyleHeldRollDegrees;
 
@@ -293,30 +284,23 @@ internal static class FigureGrabConfig
     internal static float ActiveHeldFaceYaw => StyleOr(StyleHeldRotYaw, null, StyleOr(StyleHeldFaceYawDegrees, HeldFaceYawDegrees, 0f));
     internal static float ActiveHeldRoll => StyleOr(StyleHeldRotRoll, null, StyleOr(StyleHeldRollDegrees, null, 0f));
 
-    /// <summary>
-    /// RETIRED — the active-style inspection zoom, no longer read by anything.
-    ///
-    /// <para>Deliberately kept as a named accessor rather than deleted: it is the one place that
-    /// says WHY there is no held zoom any more, next to the entries that still exist for it. A
-    /// held mini enters the hand at exactly its BOARD size and then KEEPS that size
-    /// (FigureGrabbable.HeldLocalScale, latched at the grab) — user ruling after the 2026-08 MP
-    /// hardware test, "Die Figuren-Größen ändern sich wenn man sie in die Hand nimmt. Das soll
-    /// nicht sein." Any multiplier here is also a MULTIPLAYER defect and not merely a taste one:
-    /// the held figure's wire record carries pose only, so a peer renders the mini at its own
-    /// board scale — a zoom applied on the holder's side alone (and bound PER HAND STYLE, so not
-    /// even the same number on two machines) is exactly the "ich sehe beim Remote-Spieler eine
-    /// andere Größe als er selbst" half of the report. Putting it back therefore needs a scale on
-    /// the wire, not a call site.</para>
-    ///
-    /// <para>2026-08-11 follow-up, so this note is not read as forbidding the current behaviour:
-    /// the hold now FREEZES the size at the grab instead of re-deriving the board size every frame
-    /// ("die Größe soll nur abhängig sein wann sie greift und dann fix in der Hand sein - auch wenn
-    /// man dabei zoomed"). That is not a multiplier — the size still comes from the board and from
-    /// nowhere else — but it does mean holder and peer can differ by the zoom the holder applied
-    /// SINCE the grab. The peer-side reconstruction for that is described in
-    /// FigureGrabbable._heldLocalScale and needs no dial here.</para>
-    /// </summary>
-    internal static float ActiveHeldScale => StyleOr(StyleHeldScale, HeldScale, 1.5f);
+    // WHY THERE IS NO HELD-ZOOM DIAL (the old [FigureGrab] HeldScale + {Style}HeldScale family
+    // is DELETED — 2026-08 dead-settings sweep): a held mini enters the hand at exactly its
+    // BOARD size and then KEEPS that size (FigureGrabbable.HeldLocalScale, latched at the grab)
+    // — user ruling after the 2026-08 MP hardware test, "Die Figuren-Größen ändern sich wenn man
+    // sie in die Hand nimmt. Das soll nicht sein." Any multiplier is also a MULTIPLAYER defect
+    // and not merely a taste one: the held figure's wire record carries pose only, so a peer
+    // renders the mini at its own board scale — a zoom applied on the holder's side alone (and
+    // bound PER HAND STYLE, so not even the same number on two machines) is exactly the "ich
+    // sehe beim Remote-Spieler eine andere Größe als er selbst" half of the report. Putting a
+    // held zoom back therefore needs a scale on the wire, not a dial here.
+    //
+    // 2026-08-11 follow-up, so this note is not read as forbidding the current behaviour: the
+    // hold FREEZES the size at the grab instead of re-deriving the board size every frame ("die
+    // Größe soll nur abhängig sein wann sie greift und dann fix in der Hand sein - auch wenn man
+    // dabei zoomed"). That is not a multiplier — the size still comes from the board and from
+    // nowhere else. The peer-side reconstruction for that is described in
+    // FigureGrabbable._heldLocalScale and needs no dial here.
 
     /// <summary>
     /// GrabAnchor-local held position for the RIGHT hand — the canonical pose the debug
@@ -473,7 +457,7 @@ internal static class FigureGrabConfig
             "stat card the game shows on mouse-over). Off = picking a figure up shows no panel. " +
             "Live: turning it off closes an open held-figure panel immediately; turning it on " +
             "takes effect on the next pickup.");
-        // The six entries below are LEGACY (see the per-STYLE block further down, which
+        // The five entries below are LEGACY (see the per-STYLE block further down, which
         // superseded them): each is read exactly once, as the bind DEFAULT that seeds its
         // three per-style successors the first time this cfg file is written, and never
         // again — StyleOr() prefers the per-style array whenever it exists, which is always
@@ -484,12 +468,6 @@ internal static class FigureGrabConfig
             "This entry is read once, as the seed for those per-style keys the first time they " +
             "are created, and never again. Kept bound so existing config files keep loading. " +
             "Historical meaning: ";
-        HeldScale = config.Bind(
-            "FigureGrab", "HeldScale", Defaults.HeldScale,
-            "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldScale. " +
-            legacyTail +
-            "inspection zoom applied on top of the figure's board world-scale while held " +
-            "(1 = board size in your hand; higher enlarges it).");
         HeldOffsetForward = config.Bind(
             "FigureGrab", "HeldOffsetForward", Defaults.HeldOffsetForward,
             "LEGACY — no effect, superseded by [FigureGrab] Glove/Plate/ArcaneHeldOffsetForward. " +
@@ -545,7 +523,6 @@ internal static class FigureGrabConfig
         StyleHeldOffsetForward = new ConfigEntry<float>[HandStyles.Count];
         StyleHeldTiltDegrees = new ConfigEntry<float>[HandStyles.Count];
         StyleHeldFaceYawDegrees = new ConfigEntry<float>[HandStyles.Count];
-        StyleHeldScale = new ConfigEntry<float>[HandStyles.Count];
         StyleHeldRollDegrees = new ConfigEntry<float>[HandStyles.Count];
         StyleHeldRotPitch = new ConfigEntry<float>[HandStyles.Count];
         StyleHeldRotYaw = new ConfigEntry<float>[HandStyles.Count];
@@ -573,14 +550,6 @@ internal static class FigureGrabConfig
                 "FigureGrab", $"{s}HeldFaceYawDegrees", HeldFaceYawDegrees.Value,
                 "LEGACY — no effect, superseded by [FigureGrab] " + s + "HeldRotYaw. Read once, as " +
                 "the seed for its successor.");
-            StyleHeldScale[i] = config.Bind(
-                "FigureGrab", $"{s}HeldScale", HeldScale.Value,
-                "LEGACY — no effect. A held figure now keeps EXACTLY its board size: picking a mini " +
-                "up must not resize it, and because only its POSE rides the wire, any zoom applied " +
-                "on the holder's side alone also made the mini look different in the holder's own " +
-                "hand than it did to everyone else. Kept bound so existing config files keep loading. " +
-                "Historical meaning: inspection zoom applied on top of the figure's board world-scale " +
-                "while held (1 = board size in your hand; higher enlarged it).");
             StyleHeldRollDegrees[i] = config.Bind(
                 "FigureGrab", $"{s}HeldRollDegrees", Defaults.HeldRollDegrees_ByStyle[i],
                 "LEGACY — no effect, superseded by [FigureGrab] " + s + "HeldRotRoll. Read once, as " +
@@ -609,7 +578,6 @@ internal static class FigureGrabConfig
         // every write to dev.gloomhavenvr.figuregrab.cfg. The legacy globals keep their hooks
         // (harmless — unread once the per-style entries exist).
         void Reapply(object sender, EventArgs e) => FigureGrabbable.ReapplyAll();
-        HeldScale.SettingChanged += Reapply;
         HeldOffsetForward.SettingChanged += Reapply;
         HeldOffsetUp.SettingChanged += Reapply;
         HeldOffsetSide.SettingChanged += Reapply;
@@ -624,7 +592,6 @@ internal static class FigureGrabConfig
             StyleHeldOffsetForward[i].SettingChanged += Reapply;
             StyleHeldTiltDegrees[i].SettingChanged += Reapply;
             StyleHeldFaceYawDegrees[i].SettingChanged += Reapply;
-            StyleHeldScale[i].SettingChanged += Reapply;
             StyleHeldRollDegrees[i].SettingChanged += Reapply;
             StyleHeldRotPitch[i].SettingChanged += Reapply;
             StyleHeldRotYaw[i].SettingChanged += Reapply;

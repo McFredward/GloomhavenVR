@@ -116,8 +116,6 @@ internal static partial class Loc
             ["Hands/LaserFingerOrigin"] = Pair("Laser from fingertip", "Laser ab Fingerspitze"),
             ["Hands/ScrollWithStickOnly"] = Pair("Scroll with stick only", "Nur per Stick scrollen"),
             ["Hands/LaserFingerOffsetMeters"] = Pair("Laser start offset (m)", "Laser-Startversatz (m)"),
-            ["Hands/RayAlwaysOn"] = Pair("Laser always on", "Laser immer an"),
-            ["Hands/ModalRayConeDegrees"] = Pair("Laser cone (°)", "Laser-Kegel (°)"),
             ["Hands/GlovePinkyCounterAbduction"] = Pair("Glove: pinky angle (°)", "Kleinfinger-Winkel (°)"),
             ["Hands/GhostHandOnFan"] = Pair("Ghost hand on open fan", "Geisterhand bei Fächer"),
             ["Hands/GhostHandOnHeldCard"] = Pair("Ghost hand on held card", "Geisterhand bei Karte"),
@@ -139,10 +137,10 @@ internal static partial class Loc
 
             // ---- [WristHud] — the wrist HUD's per-style palm pose ---------------------------
             // The six [WorldUI] WristHud{Pitch..OffsetZ} twins that used to be named here are
-            // gone: they were retired in 2026-08-09 ("LEGACY — no effect" at their bind site),
-            // and a retired entry never reaches the UI. Naming them was in fact the thing that
-            // made the duplication invisible — the dead row and the live row rendered under the
-            // SAME caption, so which of the two a player reached for was luck.
+            // gone (retired 2026-08-09, deleted in the 2026-08 dead-settings sweep). Naming
+            // them was in fact the thing that made the duplication invisible — the dead row and
+            // the live row rendered under the SAME caption, so which of the two a player
+            // reached for was luck.
             //
             // The three offsets are named for the DIRECTION they move the plate, not for their
             // axis letter — in the KEY as well as here. "X/Y/Z" is the same programmer's name the
@@ -157,7 +155,6 @@ internal static partial class Loc
             ["WristHud/*PalmLiftOffset"] = Pair("Wrist HUD: off palm (m)", "Arm-HUD: Abstand Hand (m)"),
 
             // ---- [Board] / [HexHighlight] / [SelectionReady] — board & targeting ------------
-            ["Board/ForceFarMode"] = Pair("Far-ray picking only", "Nur Fernstrahl-Auswahl"),
             ["Board/TouchTilesWithFingertip"] = Pair("Touch hexes: fingertip", "Feld mit Finger antippen"),
             ["Board/TouchRange"] = Pair("Fingertip pick range (m)", "Fingerreichweite (m)"),
             ["Board/SnapToHexCenter"] = Pair("Snap to hex centre", "Auf Hexmitte einrasten"),
@@ -191,7 +188,6 @@ internal static partial class Loc
             ["FigureGrab/*HeldOffsetSide"] = Pair("Figure: sideways (m)", "Figur: seitlich (m)"),
             ["FigureGrab/*HeldOffsetUp"] = Pair("Figure: height (m)", "Figur: Höhe (m)"),
             ["FigureGrab/*HeldOffsetForward"] = Pair("Figure: forward (m)", "Figur: vor/zurück (m)"),
-            ["FigureGrab/*HeldScale"] = Pair("Figure: zoom in hand", "Figur: Zoom in Hand"),
             ["FigureGrab/*HeldRotPitch"] = Pair("Figure: pitch (°)", "Figur: Neigung (°)"),
             ["FigureGrab/*HeldRotYaw"] = Pair("Figure: yaw (°)", "Figur: Drehung (°)"),
             ["FigureGrab/*HeldRotRoll"] = Pair("Figure: roll (°)", "Figur: Rollen (°)"),

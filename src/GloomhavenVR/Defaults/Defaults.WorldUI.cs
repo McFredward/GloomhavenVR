@@ -99,24 +99,6 @@ internal static partial class Defaults
     internal const float ScreenParallaxScale = 6.0f;       // => [WorldUI] ScreenParallaxScale
     internal const bool ScreenLeftMirrorFallback = true;   // => [WorldUI] ScreenLeftMirrorFallback
     internal const bool MapAlbedoRender = true;            // => [WorldUI] MapAlbedoRender
-    internal const bool MapAlbedoOriginalMaterial = true;  // => [WorldUI] MapAlbedoOriginalMaterial
-    internal const float MapAlbedoAmbient = 4.0f;          // => [WorldUI] MapAlbedoAmbient
-    internal const bool MapAlbedoLight = true;             // => [WorldUI] MapAlbedoLight
-    internal const int MapCaptureMode = 1;                 // => [WorldUI] MapCaptureMode
-    internal const bool MapStripBeautify = true;           // => [WorldUI] MapStripBeautify
-    internal const bool MapStripVolumetricFog = true;      // => [WorldUI] MapStripVolumetricFog
-    internal const bool MapStripSSAO = true;               // => [WorldUI] MapStripSSAO
-    internal const bool MapStripPostProcess = true;        // => [WorldUI] MapStripPostProcess
-    internal const bool MapTexFlipX = false;               // => [WorldUI] MapTexFlipX
-    internal const bool MapTexFlipY = true;                // => [WorldUI] MapTexFlipY
-    internal const bool MapTexSwapDiag = false;            // => [WorldUI] MapTexSwapDiag
-    internal const bool MapStripAllImageEffects = false;   // => [WorldUI] MapStripAllImageEffects
-    internal const int MapUvSource = 0;                    // => [WorldUI] MapUvSource
-    internal const bool MapUvSwapUV = false;               // => [WorldUI] MapUvSwapUV
-    internal const bool MapUvFlipU = false;                // => [WorldUI] MapUvFlipU
-    internal const bool MapUvFlipV = false;                // => [WorldUI] MapUvFlipV
-    internal const int MapUvChannel = 0;                   // => [WorldUI] MapUvChannel
-    internal const int MapUvComponent = 0;                 // => [WorldUI] MapUvComponent
 
     // ---- WorldUI/WorldUIConfig.cs --------------------------------------------------
     internal const bool Master = true;                       // => [WorldUI] Master
@@ -151,12 +133,6 @@ internal static partial class Defaults
     internal const float EnemyRevealBoardClearance = 0.10f;  // => [WorldUI] EnemyRevealBoardClearance
     internal const bool FlatScreenAutoShow = true;           // => [WorldUI] FlatScreenAutoShow
     internal const bool DesktopMirrorLeftEye = true;         // => [WorldUI] DesktopMirrorLeftEye
-    internal const float WristHudPitch = -102f;              // => [WorldUI] WristHudPitch
-    internal const float WristHudYaw = -180f;                // => [WorldUI] WristHudYaw
-    internal const float WristHudRoll = 0f;                  // => [WorldUI] WristHudRoll
-    internal const float WristHudOffsetX = 0.02f;            // => [WorldUI] WristHudOffsetX
-    internal const float WristHudOffsetY = -0.143f;          // => [WorldUI] WristHudOffsetY
-    internal const float WristHudOffsetZ = 0.05f;            // => [WorldUI] WristHudOffsetZ
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth
     internal const float ScreenDistance = 1.6f;              // => [WorldUI] ScreenDistance

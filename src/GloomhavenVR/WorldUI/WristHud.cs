@@ -113,8 +113,8 @@ internal sealed class WristHud
     // Tick), so those six were unreachable — six dials in the settings menu, each carrying the
     // SAME localized caption as the live one ("Arm-HUD: X (m)"), every one of them dead. That
     // is the exact disease the reparented cluster dial and the consumer-less wire field were:
-    // a control the player can move with nothing to show for it. They are gone from here and
-    // marked LEGACY at their bind site (WorldUIConfig), which drops them from the menu.
+    // a control the player can move with nothing to show for it. They were first marked LEGACY
+    // at their bind site (WorldUIConfig) and then DELETED outright (2026-08 dead-settings sweep).
     //
     // (The X dial's OWN failure was a STEP, not an owner, and the two are worth telling apart —
     // see the block above the arrays in HandsConfig: the key ended in "X", so ConfigSteps' unit

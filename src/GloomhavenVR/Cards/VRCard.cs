@@ -1221,8 +1221,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// Rotation (test #13, readable-at-rest): the old Euler(90°,0,0) laid the card
     /// flat on the palm plane — readable only after a hard supination. Now the FACE
     /// NORMAL is the palm normal (+Y) leaned [Cards] HeldFaceBias° back toward the
-    /// wrist (−Z): in a relaxed grip (grip pose ~60° pitched, [Hands]
-    /// GripPitchOffsetDegrees frame) the fingers point forward/slightly down, so
+    /// wrist (−Z): in a relaxed grip (grip pose ~60° pitched, the per-style [Hands]
+    /// seat-pitch frame) the fingers point forward/slightly down, so
     /// −Z runs back and UP toward the head — at the ~65° default the face points
     /// at your eyes without any wrist twist. The card TOP points to the thumb side
     /// (±X, mirrored per hand), which is world-up in a relaxed grip — the card

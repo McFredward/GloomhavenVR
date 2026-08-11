@@ -56,15 +56,6 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Escape hatch: delay mod init (and thus VR init) by N rendered frames.</summary>
     internal static ConfigEntry<int> InitDelayFrames = null!;
 
-    /// <summary>
-    /// LEGACY — no effect (user ruling 2026-08: "Tischgröße" removed). The base diorama scale
-    /// is now ALWAYS derived from the hex tile size (UnityGameEditorRuntime.s_TileSize, see
-    /// VRRigDriver.ResolveWorldScale); the table size a player actually tunes is the two-hand
-    /// pinch gesture, persisted as [Comfort] SavedScaleMultiplier. Stays bound so existing
-    /// .cfg files keep loading; nothing reads <c>.Value</c> any more.
-    /// </summary>
-    internal static ConfigEntry<float> WorldScale = null!;
-
     /// <summary>Head-track the menu camera outside scenarios (menu rig, P5). Off = static menu view.</summary>
     internal static ConfigEntry<bool> MenuRig = null!;
 
@@ -142,44 +133,24 @@ public class Plugin : BaseUnityPlugin
     /// (HandsDriver) and is synced to other VR players (Net.AvatarState.HandStyle).</summary>
     internal static ConfigEntry<Hands.HandStyle> HandStyle = null!;
 
-    /// <summary>Pitch between the OpenXR grip pose and the visual hand model (degrees; negative = fingers down). One of the four [Hands] seat controls.</summary>
-    internal static ConfigEntry<float> GripPitchOffsetDegrees = null!;
-
-    /// <summary>Lateral offset (meters, device-space X) of the visual hand from the grip pose (positive = toward the thumb side). One of the four [Hands] seat controls.</summary>
-    internal static ConfigEntry<float> HandLateralOffset = null!;
-
-    /// <summary>Vertical offset (meters, device-space Y) of the visual hand from the grip pose so its palm sits on the controller (positive = up). One of the four [Hands] seat controls.</summary>
-    internal static ConfigEntry<float> HandVerticalOffset = null!;
-
-    /// <summary>Forward offset (meters, device-space Z) of the visual hand from the grip pose (positive = toward the fingertips). One of the four [Hands] seat controls.</summary>
-    internal static ConfigEntry<float> HandForwardOffset = null!;
-
     // ---- per-STYLE hand tunables (indexed by (int)Hands.HandStyle: Glove/Plate/Arcane) ----
     // The three hand models differ hugely in raw bulk (measured on the prepped meshes,
     // all normalized to the same 0.19 m wrist->middle-tip length): knuckle-region width
     // glove 0.123 m vs plate 0.198 m, palm thickness glove 0.042 m vs plate 0.084 m /
     // arcane 0.072 m, four-finger MCP span glove 0.074 m vs plate 0.101 m / arcane
     // 0.113 m — the armored styles read 1.5-2x too big at scale 1. These entries scale
-    // and trim each style independently; the shared [Hands] seat controls above stay
-    // the device-space baseline for all styles.
+    // each style independently; the seat pose itself is per style too, in HandsConfig
+    // ([Hands] {Style}GripPitchDegrees / {Style}LateralOffset / …, measured defaults).
 
     /// <summary>Uniform visual scale per style (1 = author size). Applied live by VRHand.SyncVisualOffset.</summary>
     internal static ConfigEntry<float>[] HandStyleScale = null!;
 
-    /// <summary>Per-style pitch trim (degrees), ADDED to GripPitchOffsetDegrees while that style is worn.</summary>
-    internal static ConfigEntry<float>[] HandStylePitchTrim = null!;
-
-    /// <summary>Per-style lateral (X) trim (meters), ADDED to HandLateralOffset while that style is worn.</summary>
-    internal static ConfigEntry<float>[] HandStyleLateralTrim = null!;
-
-    /// <summary>Per-style vertical (Y) trim (meters), ADDED to HandVerticalOffset while that style is worn.</summary>
-    internal static ConfigEntry<float>[] HandStyleVerticalTrim = null!;
-
-    /// <summary>Per-style forward (Z) trim (meters), ADDED to HandForwardOffset while that style is worn.</summary>
-    internal static ConfigEntry<float>[] HandStyleForwardTrim = null!;
-
     /// <summary>Visible laser starts at the index fingertip instead of the aim pose (test #6).</summary>
     internal static ConfigEntry<bool> LaserFingerOrigin = null!;
+
+    /// <summary>Scroll lists with the stick only — a press whose sole drag target is the scroll
+    /// view stays a clean click (UguiPointer.Press). NOTE (2026-08 dead-settings sweep): the
+    /// audit called this dead; it is NOT — the reader is live and load-bearing.</summary>
     internal static ConfigEntry<bool> ScrollWithStickOnly = null!;
 
     /// <summary>Fine-tune: beam start offset (meters, along the beam) from the index fingertip.</summary>
@@ -198,12 +169,6 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Clear color of the owned head camera (the void around menus). Default black.</summary>
     internal static ConfigEntry<UnityEngine.Color> VoidColor = null!;
     internal static ConfigEntry<bool> ForwardRendering = null!;
-
-    /// <summary>Force the ray interactor on in every VR mode (accessibility/preference).</summary>
-    internal static ConfigEntry<bool> RayAlwaysOn = null!;
-
-    /// <summary>ModalUI: ray visuals only show within this cone of a UI surface (0 = always show). P5.</summary>
-    internal static ConfigEntry<float> ModalRayConeDegrees = null!;
 
     /// <summary>Master dev switch: event bus + hands run without an HMD, dev console installed.</summary>
     internal static ConfigEntry<bool> DevMode = null!;
@@ -323,13 +288,6 @@ public class Plugin : BaseUnityPlugin
             "Escape hatch: delay mod initialization (including OpenXR init) by this many rendered " +
             "frames. Some runtime/GPU combos need the graphics device fully up before " +
             "xrCreateSession works. 0 (default) = initialize immediately in plugin Awake.");
-        WorldScale = Config.Bind(
-            "Rig", "WorldScale", Defaults.WorldScale,
-            "LEGACY — no effect (setting removed 2026-08 by user ruling: it duplicated the real " +
-            "table-size control and confused it). The base diorama scale is always derived " +
-            "automatically from the hex tile size now; resize the table with the two-hand pinch " +
-            "gesture instead (persisted as [Comfort] SavedScaleMultiplier). Kept bound so " +
-            "existing config files load unchanged; nothing reads this value.");
         MenuRig = Config.Bind(
             "Rig", "MenuRig", Defaults.MenuRig,
             "Head-track the game's menu camera while no scenario runs (main menu, guildmaster " +
@@ -432,68 +390,6 @@ public class Plugin : BaseUnityPlugin
             "chosen hands on your avatar. Falls back to Glove when the styled prefab is " +
             "missing from an older asset bundle, and to the procedural hand without any " +
             "bundle.");
-        GripPitchOffsetDegrees = Config.Bind(
-            "Hands", "GripPitchOffsetDegrees", Defaults.GripPitchOffsetDegrees,
-            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneGripPitchDegrees in " +
-            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
-            "seed for those per-style keys the first time they are created, and never again. " +
-            "Kept bound so existing config files keep loading. Historical meaning: " +
-            "pitch offset (degrees) between the tracked OpenXR grip pose and the visual hand " +
-            "model, around the controller's X axis. NEGATIVE tilts the fingertips DOWN from " +
-            "the grip-pose forward. The OpenXR grip pose points up along the controller " +
-            "handle, not where a relaxed hand points. Together with HandLateralOffset / " +
-            "HandVerticalOffset / HandForwardOffset this seats the visual hand ON the " +
-            "physical controller; position 0/0/0 with pitch 0 places the hand EXACTLY at " +
-            "the tracked grip pose. Default -30 keeps the palm wrapped on a HELD controller " +
-            "(a stronger down-pitch reads as a relaxed hand and floats the palm off the " +
-            "device — hardware test #27). Hot-reloadable: edit while the game runs and the " +
-            "hands re-pose on the next frame. Tuning guide: docs/TESTING-P2.md.");
-        HandLateralOffset = Config.Bind(
-            "Hands", "HandLateralOffset", Defaults.HandLateralOffset,
-            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneLateralOffset in " +
-            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
-            "seed for those per-style keys the first time they are created, and never again. " +
-            "Kept bound so existing config files keep loading. Historical meaning: " +
-            "lateral offset (meters) of the visual hand model from the tracked OpenXR grip " +
-            "pose, along the controller's local X axis. POSITIVE shifts the hand toward the " +
-            "thumb side (device-space; the sign is mirrored per hand by the rig geometry). " +
-            "One of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
-            "HandForwardOffset / GripPitchOffsetDegrees) — together they place the visual " +
-            "hand ON the physical controller, and position 0/0/0 with pitch 0 puts the hand " +
-            "EXACTLY at the tracked grip pose. Default 0 keeps the hand centred on the " +
-            "controller handle. Hot-reloadable: edit while the game runs and the hands " +
-            "re-seat on the next frame.");
-        HandVerticalOffset = Config.Bind(
-            "Hands", "HandVerticalOffset", Defaults.HandVerticalOffset,
-            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneVerticalOffset in " +
-            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
-            "seed for those per-style keys the first time they are created, and never again. " +
-            "Kept bound so existing config files keep loading. Historical meaning: " +
-            "vertical offset (meters) of the visual hand model from the tracked OpenXR grip " +
-            "pose, along the controller's local up (Y) axis. POSITIVE raises the hand. One " +
-            "of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
-            "HandForwardOffset / GripPitchOffsetDegrees) — together they place the visual " +
-            "hand ON the physical controller, and position 0/0/0 with pitch 0 puts the hand " +
-            "EXACTLY at the tracked grip pose. Default 0 seats the palm at the grip pose: " +
-            "the modest -30 pitch no longer drops the palm the way the old -60 did, so no " +
-            "vertical lift is needed to start — raise it if the palm still reads low on your " +
-            "controller (hardware tests #24/#27). Hot-reloadable: edit while the game runs " +
-            "and the hands re-seat on the next frame.");
-        HandForwardOffset = Config.Bind(
-            "Hands", "HandForwardOffset", Defaults.HandForwardOffset,
-            "LEGACY — no effect, superseded by [Hands] Glove/Plate/ArcaneForwardOffset in " +
-            "dev.gloomhavenvr.hands.cfg. Editing this changes nothing; it is read once, as the " +
-            "seed for those per-style keys the first time they are created, and never again. " +
-            "Kept bound so existing config files keep loading. Historical meaning: " +
-            "forward/depth offset (meters) of the visual hand model from the tracked OpenXR " +
-            "grip pose, along the controller's local forward (Z) axis. POSITIVE pushes the " +
-            "hand toward the fingertips; NEGATIVE sits the wrist behind the grip origin. One " +
-            "of the four [Hands] seat controls (HandLateralOffset / HandVerticalOffset / " +
-            "HandForwardOffset / GripPitchOffsetDegrees) — together they place the visual " +
-            "hand ON the physical controller, and position 0/0/0 with pitch 0 puts the hand " +
-            "EXACTLY at the tracked grip pose. Default -0.06 sits the wrist just behind the " +
-            "grip origin so the palm wraps the controller handle. Hot-reloadable: edit while " +
-            "the game runs and the hands re-seat on the next frame.");
         BindHandStyleEntries();
         LaserFingerOrigin = Config.Bind(
             "Hands", "LaserFingerOrigin", Defaults.LaserFingerOrigin,
@@ -535,15 +431,6 @@ public class Plugin : BaseUnityPlugin
             "walls 2000, walls overwrite it), so the depth buffer keeps the walls and transparents " +
             "occlude correctly. Disable ONLY if forward lighting looks wrong (deferred handles many " +
             "dynamic lights per pixel; forward has a per-object light limit).");
-        RayAlwaysOn = Config.Bind(
-            "Hands", "RayAlwaysOn", Defaults.RayAlwaysOn,
-            "Keep the laser/ray interactor enabled in every VR mode instead of only in " +
-            "far-interaction contexts.");
-        ModalRayConeDegrees = Config.Bind(
-            "Hands", "ModalRayConeDegrees", Defaults.ModalRayConeDegrees,
-            "While a modal dialog is up (ModalUI mode) the ray stays usable but its laser " +
-            "only shows when pointing within this many degrees of a UI surface (world dialog, " +
-            "flat screen). 0 = always show the laser in ModalUI.");
         DevMode = Config.Bind(
             "Dev", "Enabled", Defaults.Dev_Enabled,
             "Developer mode: wires the VR event bus and hand simulation even without an HMD " +
@@ -614,10 +501,6 @@ public class Plugin : BaseUnityPlugin
         float[] scaleDefaults = { Defaults.GloveScale, Defaults.PlateScale, Defaults.ArcaneScale };
         int n = styles.Length;
         HandStyleScale = new ConfigEntry<float>[n];
-        HandStylePitchTrim = new ConfigEntry<float>[n];
-        HandStyleLateralTrim = new ConfigEntry<float>[n];
-        HandStyleVerticalTrim = new ConfigEntry<float>[n];
-        HandStyleForwardTrim = new ConfigEntry<float>[n];
         for (int i = 0; i < n; i++)
         {
             string s = styles[i];
@@ -629,38 +512,6 @@ public class Plugin : BaseUnityPlugin
                 "matches the leather glove's real-world hand size. Applies live " +
                 "(no rebuild); grabbed objects, the card fan and the wrist HUD keep " +
                 "their own size (the rig sockets they attach to are scale-compensated).");
-            HandStylePitchTrim[i] = Config.Bind(
-                "Hands", $"{s}PitchTrimDegrees", Defaults.PitchTrimDegrees_ByStyle[i],
-                $"LEGACY — no effect, superseded by [Hands] {s}GripPitchDegrees in " +
-                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
-                "a trim. This entry is read once, as part of the seed for that key the first " +
-                "time it is created, and never again. Kept bound so existing config files keep " +
-                $"loading. Historical meaning: extra pitch (degrees) ADDED to " +
-                $"GripPitchOffsetDegrees while the {s} style is worn.");
-            HandStyleLateralTrim[i] = Config.Bind(
-                "Hands", $"{s}LateralTrim", Defaults.LateralTrim_ByStyle[i],
-                $"LEGACY — no effect, superseded by [Hands] {s}LateralOffset in " +
-                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
-                "a trim. This entry is read once, as part of the seed for that key the first " +
-                "time it is created, and never again. Kept bound so existing config files keep " +
-                $"loading. Historical meaning: extra lateral (X) offset (meters) ADDED to " +
-                $"HandLateralOffset while the {s} style is worn.");
-            HandStyleVerticalTrim[i] = Config.Bind(
-                "Hands", $"{s}VerticalTrim", Defaults.VerticalTrim_ByStyle[i],
-                $"LEGACY — no effect, superseded by [Hands] {s}VerticalOffset in " +
-                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
-                "a trim. This entry is read once, as part of the seed for that key the first " +
-                "time it is created, and never again. Kept bound so existing config files keep " +
-                $"loading. Historical meaning: extra vertical (Y) offset (meters) ADDED to " +
-                $"HandVerticalOffset while the {s} style is worn.");
-            HandStyleForwardTrim[i] = Config.Bind(
-                "Hands", $"{s}ForwardTrim", Defaults.ForwardTrim_ByStyle[i],
-                $"LEGACY — no effect, superseded by [Hands] {s}ForwardOffset in " +
-                "dev.gloomhavenvr.hands.cfg, which is an ABSOLUTE per-style value rather than " +
-                "a trim. This entry is read once, as part of the seed for that key the first " +
-                "time it is created, and never again. Kept bound so existing config files keep " +
-                $"loading. Historical meaning: extra forward (Z) offset (meters) ADDED to " +
-                $"HandForwardOffset while the {s} style is worn.");
         }
     }
 

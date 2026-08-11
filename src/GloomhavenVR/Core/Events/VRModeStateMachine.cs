@@ -242,14 +242,14 @@ internal static class VRModeStateMachine
     }
 
     /// <summary>
-    /// Effective interactor set for a mode, both-hands view (honors the RayAlwaysOn
-    /// config override). Where per-hand overrides exist this is their UNION — prefer
-    /// <see cref="InteractorsFor(VRMode, HandRole)"/> for anything hand-specific.
+    /// Effective interactor set for a mode, both-hands view. Where per-hand overrides
+    /// exist this is their UNION — prefer <see cref="InteractorsFor(VRMode, HandRole)"/>
+    /// for anything hand-specific.
     /// </summary>
     public static Interactors InteractorsFor(VRMode mode) =>
         InteractorsFor(mode, HandRole.Dominant) | InteractorsFor(mode, HandRole.NonDominant);
 
-    /// <summary>Effective interactor set for one hand role in a mode (P5). Honors RayAlwaysOn.</summary>
+    /// <summary>Effective interactor set for one hand role in a mode (P5).</summary>
     public static Interactors InteractorsFor(VRMode mode, HandRole role)
     {
         Interactors set = HandPolicy.TryGetValue((mode, role), out Interactors overrideSet)
@@ -267,15 +267,14 @@ internal static class VRModeStateMachine
         // never via this mask.
         if (role == HandRole.Dominant)
             set |= Interactors.Ray;
-        if (Plugin.RayAlwaysOn.Value && role == HandRole.Dominant)
-            set |= Interactors.Ray;
         // ONE LASER, AND IT BELONGS TO THE ACTIVE HAND (user ruling 2026-08-03: "Aktuell habe ich
         // immer zwei Laser aus beiden Händen! Das will ich nicht. Nur die aktive Hand (rechts oder
         // Linkshänder-Modus) soll einen Laser haben."). Three separate paths used to hand the OFF
-        // hand a ray — the Menu2D and ModalUI mode rows list Ray for both hands, and RayAlwaysOn
-        // was applied regardless of role — so this is enforced HERE, once, after everything else
-        // has had its say. The tables above keep their meaning for the dominant hand; for the
-        // non-dominant one the ray is simply not on offer, in any mode, under any config.
+        // hand a ray — the Menu2D and ModalUI mode rows list Ray for both hands, and the old
+        // [Hands] RayAlwaysOn override (since deleted as a provable no-op) was applied regardless
+        // of role — so this is enforced HERE, once, after everything else has had its say. The
+        // tables above keep their meaning for the dominant hand; for the non-dominant one the ray
+        // is simply not on offer, in any mode, under any config.
         if (role == HandRole.NonDominant)
             set &= ~Interactors.Ray;
         return set;

@@ -132,8 +132,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // WHAT THE OLD BEHAVIOUR WAS FOR (do not simply revert it): it was the fix for the earlier MP
     // defect "Die Figuren-Größen ändern sich wenn man sie in die Hand nimmt … so sehe ich beim
     // Remote-Spieler eine andere Größe der Figur in der Hand als er selbst" — the hold used to
-    // multiply by [FigureGrab] ActiveHeldScale (1.5x, bound per hand style) while the wire carries
-    // POSE ONLY, so no two clients could agree. That multiplier stays gone and stays LEGACY. What
+    // multiply by the old [FigureGrab] HeldScale family (1.5x, bound per hand style) while the
+    // wire carries POSE ONLY, so no two clients could agree. That multiplier stays gone (its
+    // config family has since been deleted — see the note in FigureGrabConfig). What
     // this change touches is only the SECOND half of that fix — "pin the world size" — which is a
     // stronger statement than "start from the board size" and is the half the user is reporting.
     // At the instant of the grab the two are identical, so the mini still ENTERS the hand at

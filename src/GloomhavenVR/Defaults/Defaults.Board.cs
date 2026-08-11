@@ -34,7 +34,6 @@ namespace GloomhavenVR;
 internal static partial class Defaults
 {
     // ---- Board/BoardConfig.cs ------------------------------------------------------
-    internal const bool ForceFarMode = false;        // => [Board] ForceFarMode  (pinned: the tuned cfg's `true` predates the GRIP gate — the fingertip used to steal the pick from the laser on any accidental brush, so far-only was the only safe shipped setting. Since TouchTilesWithFingertip the near pick exists ONLY while the grip is held, which is what makes the feature safe to ship on; keeping the far-only override at `true` would ship it dead.)
     internal const bool TouchTilesWithFingertip = true;  // => [Board] TouchTilesWithFingertip
     internal const float TouchRange = 0.10f;         // => [Board] TouchRange
     internal const bool SnapToHexCenter = false;     // => [Board] SnapToHexCenter
@@ -50,7 +49,6 @@ internal static partial class Defaults
     internal const float StretchScaleMax = 3f;              // => [FigureGrab] StretchScaleMax
     internal const bool StretchLimits = true;               // => [FigureGrab] StretchLimits
     internal const bool HeldFigureInfo = true;              // => [FigureGrab] HeldFigureInfo
-    internal const float HeldScale = 1.5f;                  // => [FigureGrab] HeldScale  (legacy: read once as the seed for its successor)
     internal const float HeldOffsetForward = 0.05f;         // => [FigureGrab] HeldOffsetForward  (legacy: read once as the seed for its successor)
     internal const float HeldOffsetUp = 0.01f;              // => [FigureGrab] HeldOffsetUp  (legacy: read once as the seed for its successor)
     internal const float HeldOffsetSide = 0.03f;            // => [FigureGrab] HeldOffsetSide  (legacy: read once as the seed for its successor)

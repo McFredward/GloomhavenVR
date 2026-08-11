@@ -452,11 +452,9 @@ internal static partial class Loc
         // curated row" — an unused Loc key costs nothing and cannot mislabel anything.
         ["vr_o_worldtilt"] = Pair("World tilt", "Weltneigung"),
         ["vr_o_primaryhand"] = Pair("Dominant hand", "Dominante Hand"),
-        ["vr_o_rayalways"] = Pair("Laser always on", "Laser immer an"),
         ["vr_var_copy"] = Pair("Take all settings from {0}", "Alle Einstellungen von {0} übernehmen"),
         ["vr_o_stickscroll"] = Pair("Scroll with the stick only", "Nur mit dem Stick scrollen"),
         ["vr_o_laserorigin"] = Pair("Laser origin", "Laser-Ursprung"),
-        ["vr_o_raycone"] = Pair("Laser cone", "Laser-Kegel"),
         ["vr_o_fingertiptouch"] = Pair("Touch hexes with fingertip", "Feld mit Finger antippen"),
         ["vr_o_fog"] = Pair("Volumetric fog off", "Volumennebel aus"),
         ["vr_o_forward"] = Pair("Forward rendering", "Forward-Rendering"),
@@ -531,10 +529,8 @@ internal static partial class Loc
         // removed "Tischhöhe" row ([Comfort] TableHeightOffset, user ruling 2026-08).
         ["h_vr_o_worldtilt"] = Pair("Tips the table towards you so far edges are easier to see.", "Neigt den Tisch zu dir, damit ferne Ränder besser zu sehen sind."),
         ["h_vr_o_primaryhand"] = Pair("Which hand holds the laser and plays cards.", "Welche Hand den Laser führt und Karten spielt."),
-        ["h_vr_o_rayalways"] = Pair("Keep the laser visible instead of only when aiming.", "Laser dauerhaft zeigen statt nur beim Zielen."),
         ["h_vr_o_stickscroll"] = Pair("Stops a trigger press from panning the list under it, so options are easier to hit.", "Verhindert, dass ein Trigger-Druck die Liste darunter verschiebt — Optionen lassen sich leichter treffen."),
         ["h_vr_o_laserorigin"] = Pair("Whether the laser leaves from the fingertip or the controller.", "Ob der Laser an der Fingerspitze oder am Controller ansetzt."),
-        ["h_vr_o_raycone"] = Pair("How forgiving the laser is when aiming at menus.", "Wie großzügig der Laser Menüs trifft."),
         ["h_vr_o_fingertiptouch"] = Pair("Hold the grip and touch a hex to select it — like the laser click.", "Griff halten und ein Feld antippen — wie ein Klick mit dem Laser."),
         ["h_disable_post"] = Pair("Turns off the game's screen effects. Sharper, and cheaper.", "Schaltet die Bildschirmeffekte des Spiels ab. Schärfer und günstiger."),
         ["h_vr_o_fog"] = Pair("Removes the haze in rooms. Clearer view, less atmosphere.", "Entfernt den Dunst in Räumen. Klarere Sicht, weniger Stimmung."),

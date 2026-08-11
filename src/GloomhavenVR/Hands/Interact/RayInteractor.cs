@@ -625,9 +625,10 @@ internal sealed class RayInteractor : IPickProvider
     /// so the laser would not sweep the room while a dialog was up) — and exactly that gate
     /// was the tutorial's "no laser at all on the playfield while the instruction box is
     /// open". The ruling overrules the sweep-the-room concern outright: the beam renders
-    /// wherever the hand points, in every phase. [Hands] RayAlwaysOn / ModalRayConeDegrees
-    /// are inert now (kept so existing configs load cleanly); UiTargets/RegisterUiTarget
-    /// stay registered by FlatScreen for reversibility, they are just no longer consulted.
+    /// wherever the hand points, in every phase. The [Hands] RayAlwaysOn /
+    /// ModalRayConeDegrees entries that once configured the gate are deleted (2026-08
+    /// dead-settings sweep); UiTargets/RegisterUiTarget stay registered by FlatScreen for
+    /// reversibility, they are just no longer consulted.
     /// The signature is kept so a future policy change slots back in at this one seam.
     /// </summary>
     private bool VisualsAllowed(Vector3 origin, Vector3 direction) => true;

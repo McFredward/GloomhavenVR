@@ -52,7 +52,7 @@ namespace GloomhavenVR.Board;
 /// Patches.Placement_UpdateGate_Diagnostics (the gate-chain evidence ladder).
 ///
 /// Active when VR runs, and in Dev mode ([Dev] Enabled) so the whole pick/click
-/// pipeline is exercisable flat via [Dev] SimulateHands (+ [Board] ForceFarMode).
+/// pipeline is exercisable flat via [Dev] SimulateHands.
 /// </summary>
 internal sealed class BoardModule : IVRModule
 {
@@ -157,7 +157,7 @@ internal sealed class BoardModule : IVRModule
               $"the same click the laser trigger commits (range {BoardConfig.TouchRange.Value:0.00} m real, " +
               "one commit per hex entry, laser cannot double-commit while the finger owns the pick)."
             : "FINGERTIP TILE TOUCH off ([Board] TouchTilesWithFingertip=false) — board commits come " +
-              "from the laser trigger only. ([Board] ForceFarMode is retired and no longer read.)");
+              "from the laser trigger only.");
     }
 
     public void Shutdown()
