@@ -421,12 +421,15 @@ internal sealed class CardFace
     /// VERIFIABILITY rather than about the idea. Each one, and what answers it:
     /// <list type="number">
     /// <item>PRECEDENT — <c>VRCard.SetRenderOnTop</c> is a permanent no-op-forward because
-    ///   per-instance material copies on the face's TMP text "swallowed all card TEXT". Different
-    ///   mechanism: that was per-renderer material INSTANCES plus a render-queue bump. A mask uses
-    ///   uGUI's own <c>StencilMaterial</c> cache, whose variants are keyed on
-    ///   (base material, stencil state) and therefore SHARED by every card at the same depth — no
-    ///   instance per graphic, no queue change, and TMP resolves masking through its own
-    ///   <c>IMaterialModifier</c> path.</item>
+    ///   per-instance material copies on the face's TMP text "swallowed all card TEXT". Round 5
+    ///   answered: different mechanism, because <c>StencilMaterial</c>'s variants are keyed on
+    ///   (base material, stencil state) and therefore SHARED by every card at the same depth.
+    ///   <b>THAT ANSWER WAS WRONG AND IT IS WHAT SANK THE ROUND</b> — the objection was never about
+    ///   sharing, it was about the COPY, and a mask makes one too
+    ///   (<c>StencilMaterial.Add</c> → <c>new Material(baseMat)</c>). <c>CardEffects</c> gives every
+    ///   card image a base material of its own and then drives the card through it every frame, so
+    ///   the variants are per-image-per-card AND frozen. The precedent held exactly as stated. See
+    ///   <c>CardShapeMask.Enabled</c> for the full derivation and the user report it cost.</item>
     /// <item>IT MUST SIT ON AN ANCESTOR — so it does: a mod-owned wrapper inserted between the host
     ///   and the face, never a Graphic added to the game's own <c>FullAbilityCard</c> GameObject
     ///   (<c>Graphic</c> is <c>[DisallowMultipleComponent]</c> and that GO may already own one).
@@ -465,10 +468,23 @@ internal sealed class CardFace
     ///   the FACE paints over the body's whole footprint, and the reason round 5 clips the face
     ///   itself (<see cref="CardShapeMask"/>) rather than scheduling it as a next round.</item>
     /// </list>
-    /// Three mechanisms therefore ship together, and they are not alternatives: the FACE CLIP bounds
-    /// whatever paints; the DARK BORDER PEEL takes a printed black frame out of the shape both the
-    /// clip and the mesh use; the widened BLACKOUT still mutes provably shape-less dark quads and
-    /// prints the full face inventory so the next reader sees what was actually there.
+    /// Three mechanisms shipped together in ModBuild 110, and they are not alternatives: the FACE
+    /// CLIP bounds whatever paints; the DARK BORDER PEEL takes a printed black frame out of the
+    /// shape both the clip and the mesh use; the widened BLACKOUT still mutes provably shape-less
+    /// dark quads and prints the full face inventory so the next reader sees what was actually
+    /// there.
+    ///
+    /// <para>ROUND 6 TURNED THE FIRST OF THE THREE OFF (<c>CardShapeMask.Enabled = false</c>) and
+    /// left the other two running. The clip made a shipped build flash every card fully black on a
+    /// character switch, for a reason that is structural rather than tunable: masking a uGUI graphic
+    /// makes it render a frozen COPY of its material, and these graphics' materials are the channel
+    /// the game animates them through. The border is therefore back to its pre-110 state and is NOT
+    /// closed. What round 6 does hand forward is a strictly narrower search space — the log line
+    /// above is still printed, so the FULL FACE INVENTORY is still evidence, and it says that on a
+    /// Berserker ability face nothing dark paints outside the outline at all: the darkest element
+    /// listed is luma 0.54 and everything with any coverage outside the card ('Header' 11 %,
+    /// 'UIFX_Overlay' 18 %) is WHITE. Whatever the black rim is, the inventory has now twice failed
+    /// to find a face graphic that could be painting it.</para>
     /// </summary>
     private sealed class SilhouetteState
     {

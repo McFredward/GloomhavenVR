@@ -66,9 +66,105 @@ namespace GloomhavenVR.Cards;
 /// material factory, before any renderer has a material), so the wrapper exists before the face's
 /// first drawn frame. On a cold cache there is no wrapper until the capture lands — deliberately
 /// today's look, never a guessed shape.
+///
+/// <para>═══════════════════════════════════════════════════════════════════════════════════════
+/// ROUND 6 — EVERYTHING ABOVE IS THE ROUND-5 ARGUMENT AND IT IS STILL ACCURATE ABOUT STENCILS AND
+/// ABOUT INPUT. IT IS WRONG ABOUT MATERIALS, THE MECHANISM IS OFF BY DEFAULT, AND
+/// <see cref="Enabled"/> IS WHERE THAT IS DECIDED. READ THAT FIELD BEFORE TOUCHING ANYTHING HERE.
+/// ═══════════════════════════════════════════════════════════════════════════════════════</para>
 /// </summary>
 internal sealed class CardShapeMask : MonoBehaviour
 {
+    /// <summary>
+    /// THE FACE CLIP IS OFF. Flip this to <c>true</c> to put ModBuild 110's stencil clip back, and
+    /// read the whole block first — it ships off because it is BROKEN, not because it is unfinished.
+    ///
+    /// <para>THE REGRESSION IT CAUSED. User, after ModBuild 110 (verbatim): "Immer noch exakt das
+    /// selbe Fehlerbild - sogar schlimmer geworden: Wenn man zu einem neuen Character wechselt sind
+    /// alle Karten kurz ganz schwarz bis sie nachgeladen haben (nur einen ganz kleinen Moment, aber
+    /// merkbar)." Before 110 that same window looked right. The border was unchanged, so 110 bought
+    /// nothing and cost a visible black flash in a shipped build.</para>
+    ///
+    /// <para>THE MECHANISM, READ FROM BOTH SOURCES RATHER THAN INFERRED FROM THE SYMPTOM. A uGUI
+    /// mask does not clip a child by re-rendering it — it makes the child render through a
+    /// DIFFERENT MATERIAL, and that material is a one-time COPY:
+    /// <list type="number">
+    /// <item><c>MaskableGraphic.GetModifiedMaterial</c> (MaskableGraphic.cs:122-128) hands the
+    ///   child's own material to <c>StencilMaterial.Add</c> as soon as its stencil depth is &gt; 0;</item>
+    /// <item><c>StencilMaterial.Add</c> (StencilMaterial.cs) answers
+    ///   <c>newEnt.customMat = new Material(baseMat)</c> — A SNAPSHOT — and caches it keyed on the
+    ///   BASE MATERIAL INSTANCE, returning that same frozen copy to every later caller;</item>
+    /// <item>the game drives its card faces by writing shader properties ON THAT BASE MATERIAL, per
+    ///   card and per frame. <c>CardEffects.Awake</c> gives every card face image its OWN material
+    ///   (<c>image2.material = new Material(image2.material)</c>, CardEffects.cs:336/340) and then
+    ///   writes <c>_PosAndBounds</c> into it (:347); <c>CardEffects.RestoreCard</c> — the call that
+    ///   makes a card look NORMAL again — writes <c>_GreyOut</c>, <c>_Flow</c>, <c>_Dissolve</c> and
+    ///   <c>_Burn</c> back to 0 on it (:478-484); the burn and ghost-out timelines drive the same
+    ///   properties every frame (:544-561, :658-675).</item>
+    /// </list>
+    /// So while the mask is installed the screen shows a material the game can no longer reach. Not
+    /// "sometimes" and not "during the load" — ALWAYS, until something drops the StencilMaterial
+    /// refcount to zero (an enable/disable cycle on the graphic) and a fresh snapshot is taken.</para>
+    ///
+    /// <para>WHY THAT IS BLACK, AND WHY IT ENDS WHEN THE ART ARRIVES. Card widgets are POOLED, so a
+    /// character switch re-initialises widgets whose materials still carry the previous card's FX
+    /// state (a full <c>_Dissolve</c>/<c>_Burn</c>, or <c>_GreyOut</c> from the discard/lost path),
+    /// and — before <c>CardEffects.Awake</c> has run for the new binding — a <c>_PosAndBounds</c>
+    /// that does not describe this card. The snapshot freezes exactly that. The face therefore
+    /// paints nothing usable and what the player sees is the mod's own card BODY, whose front is
+    /// <c>CardMesh.EdgeColor</c> = rgb(0.10, 0.09, 0.08) — a black card. The window closes when the
+    /// art finishes loading, because the elements the loader activates go through
+    /// <c>MaskableGraphic.OnEnable/OnDisable</c>, which calls <c>StencilMaterial.Remove</c>, drops
+    /// the entry and re-snapshots from a material the game has meanwhile restored. That is
+    /// "kurz ganz schwarz bis sie nachgeladen haben", end to end.</para>
+    ///
+    /// <para>THIS PROJECT HAD ALREADY PAID FOR THIS EXACT CLASS ONCE, and round 5 waved the
+    /// precedent away with an argument that does not hold: <c>VRCard.SetRenderOnTop</c> is a
+    /// permanent no-op-forward because per-instance material copies on the face's TMP text
+    /// "swallowed all card TEXT". Round 5 answered that a mask is different because
+    /// <c>StencilMaterial</c>'s variants are SHARED. They are shared per BASE MATERIAL — and
+    /// <c>CardEffects</c> gives every card image a base material of its own, so the variants are
+    /// per-image-per-card after all. The sharing was never the property that mattered anyway: the
+    /// COPY is, and a copy is what both mechanisms make. <c>CardFace</c>'s own doc block already
+    /// recorded the neighbouring symptom for the same reason — a card whose canvas-sorting prep is
+    /// skipped "resolves to DEEP BLACK".</para>
+    ///
+    /// <para>WHAT IS NOT WRONG WITH IT, so round 6 does not re-litigate settled ground: the stencil
+    /// really does resolve (the hardware log says INSTALLED and VERIFIED, probe 'Header', root sort
+    /// canvas 'FaceCanvas', depth 1); input really is untouched
+    /// (<c>Mask.IsRaycastLocationValid</c> filters by RECT); the canvas neutralisation really is
+    /// exact and restored. NONE of that is the problem. The problem is that clipping a uGUI graphic
+    /// costs you the graphic's live material, and these graphics' materials are the game's animation
+    /// channel.</para>
+    ///
+    /// <para>WHAT WOULD ACTUALLY HAVE TO CHANGE for a face clip to ship. Not a threshold and not a
+    /// placement — the clip has to stop travelling through the material. Copying the base material's
+    /// properties into the stencil variant every frame was considered and rejected: ~10 driven
+    /// images per card × the whole hand × 90 Hz of <c>CopyPropertiesFromMaterial</c>, in an 11.1 ms
+    /// budget, to fight the engine. <c>RectMask2D</c> clips without a material copy but is a
+    /// RECTANGLE, which is the one shape that cannot help here. That leaves clipping something that
+    /// is NOT the game's own graphic — which is what the card BODY clip already is, and it stays on.
+    /// </para>
+    ///
+    /// <para>WHAT STAYS ON with this false: the body silhouette (<c>CardMesh.SetSilhouette</c>), the
+    /// footprint capture and its cache, the dark-border peel, and the shape-less-quad blackout. Only
+    /// the wrapper is refused, at <see cref="Wrap"/>, which is the single door every caller —
+    /// <c>CardFace</c>, <c>ItemsPile</c> and <c>Net/RemoteCardArt</c> — comes through. It answers
+    /// null exactly as it does when no footprint has been captured yet, a case every call site
+    /// already handles, so no other file needs to change and <c>Release</c> stays a safe no-op.</para>
+    ///
+    /// <para><c>static readonly</c> rather than <c>const</c> on purpose: a false <c>const</c> makes
+    /// the compiler declare the whole mechanism below it unreachable (CS0162), and the gate is
+    /// "exactly the six pre-existing nullability warnings". Suppressing a warning to keep a keyword
+    /// is the wrong trade — this way the code still compiles as live code and flipping the flag is a
+    /// one-word edit with nothing else to undo.</para>
+    /// </summary>
+    internal static readonly bool Enabled = false;
+
+    /// <summary>One line per session saying the clip is off and why, so a hardware log can never be
+    /// read as "the clip was live and the border survived it".</summary>
+    private static bool s_loggedDisabled;
+
     /// <summary>Name of the wrapper GameObject — one grep away in a hierarchy dump.</summary>
     private const string WrapperName = "GVR_CardShape";
 
@@ -137,6 +233,32 @@ internal sealed class CardShapeMask : MonoBehaviour
     /// </summary>
     internal static CardShapeMask? Wrap(RectTransform? face, CardBodyKind kind)
     {
+        // ROUND 6: the single door. Off by default — see the Enabled block for the proof that a uGUI
+        // mask makes the card face render a FROZEN COPY of a material the game writes to every
+        // frame, and for the black flash that bought. Answering null here is the same answer this
+        // method already gives when no footprint has been captured, so every call site's existing
+        // handling covers it and nothing else in the mod has to know.
+        if (!Enabled)
+        {
+            if (!s_loggedDisabled)
+            {
+                s_loggedDisabled = true;
+                VRLog.Info("Cards", "CARD FACE CLIP: DISABLED (round 6). ModBuild 110's stencil clip " +
+                                    "is not installed on any card face — local, item or peer. It is off " +
+                                    "because it made every card paint a FROZEN COPY of its material: uGUI " +
+                                    "masks a child by swapping in StencilMaterial.Add's 'new Material(base)' " +
+                                    "snapshot, while CardEffects drives the card's shader by writing " +
+                                    "_PosAndBounds / _GreyOut / _Flow / _Dissolve / _Burn on the BASE " +
+                                    "material (CardEffects.cs:336-347, :478-484). On a character switch a " +
+                                    "pooled widget is snapshotted mid-restore, the face paints nothing " +
+                                    "usable, and the card body behind it (rgb 0.10/0.09/0.08) is what the " +
+                                    "player sees — the 'alle Karten kurz ganz schwarz' of the ModBuild-110 " +
+                                    "report. The card BODY silhouette, the footprint cache, the dark-border " +
+                                    "peel and the face blackout are all UNAFFECTED and still running. Any " +
+                                    "border report on this run is therefore about the pre-110 look.");
+            }
+            return null;
+        }
         if (face == null || kind == CardBodyKind.Neutral || s_refused[(int)kind])
             return null;
         // Footprint first: this is an array read, and it is the branch taken every frame on a cold
