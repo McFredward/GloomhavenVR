@@ -323,7 +323,6 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Cards", "RevealMode", "vr_o_revealmode"),
-                        new("Cards", "GrabButton", "vr_o_grabbutton"),
                         new("Cards", "InspectScale", "vr_o_inspectscale"),
                         // THE card size — 49 read sites, the single most player-visible size
                         // dial in the whole [Cards] section (audit 01 NORMAL).

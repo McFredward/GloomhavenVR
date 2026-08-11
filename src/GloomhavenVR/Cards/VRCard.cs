@@ -1627,8 +1627,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     //      the user sees. Identical defect on the APPEAR side: PlayAppear seeds alpha 0 with the slab
     //      still opaque, so an incoming card starts as a black slab and fades its art in over itself.
     //
-    //   2. Z-FIGHT WEDGES. The slab is opaque and ZWRITES (Standard opaque, or Cutout/AlphaTest once
-    //      CardMesh.SetSilhouette clipped it to the art outline). The overlay quad is the bundled
+    //   2. Z-FIGHT WEDGES. The slab is opaque and ZWRITES (Standard opaque; the punched-out
+    //      contour body writes depth the same way). The overlay quad is the bundled
     //      GloomhavenVR/Overlay shader — additive, ZWrite Off, ZTest LEqual, Queue Transparent — so
     //      it depth-tests against whatever the slab wrote. Card and overlay are effectively coplanar
     //      in the slot (both are slot children a few millimetres off the recess floor), so the test

@@ -2,13 +2,6 @@ using UnityEngine;
 
 namespace GloomhavenVR.Cards;
 
-/// <summary>Which controller button grabs a card (Demeo grabs with the index/trigger; test-#22 Demeo-parity pass).</summary>
-internal enum CardGrabButton
-{
-    Grip,
-    Trigger,
-}
-
 /// <summary>
 /// Which control-board (PlayTray) prefab is loaded from the asset bundle. Switchable
 /// live from the VR settings panel; the bundle asset paths are mapped in

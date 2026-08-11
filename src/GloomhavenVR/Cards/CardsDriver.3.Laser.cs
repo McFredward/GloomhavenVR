@@ -1422,7 +1422,7 @@ internal sealed partial class CardsDriver
                     // SuppressFarClick() above raises Ray.HasFreshUiHit, which ALSO makes
                     // ProximityGrabber's trigger path defer (ProximityGrabber.Tick,
                     // "!Ray.HasFreshUiHit"), and the promised "grip it to swap" alternative did
-                    // not exist with [Cards] GrabButton=Trigger — so while the dialog was open
+                    // not exist with the trigger grab — so while the dialog was open
                     // there was NO working grab route at all unless the beam happened to lie
                     // exactly on the card rect (hardware log 2026-08-04: five "FALLBACK grab
                     // SUPPRESSED" lines, zero successful grabs). The deadlock the guard fixed

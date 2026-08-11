@@ -60,11 +60,6 @@ internal sealed class CardFace
     private bool _origActive;
     private bool _origLock;
 
-    /// <summary>The card-shaped stencil wrapper this face is currently inside, if any. Null while
-    /// no footprint exists (first run before the capture lands) or while the wrap was refused —
-    /// both of which are exactly today's look. See <see cref="EnsureShapeMask"/>.</summary>
-    private CardShapeMask? _shape;
-
     private float _fitScale = 1f;
     // Host size the fit scale was last computed against — the host canvas is resized
     // to the real face pixels AFTER Adopt (VRCard.SetCanvasSize), so the fit must be
@@ -177,15 +172,6 @@ internal sealed class CardFace
     private readonly CardArtWatch _artWatch = new();
 
     /// <summary>
-    /// ROUND 10 — the geometric rect crop for THIS adopted face (see <see cref="CardFaceCrop"/>).
-    /// Instance-scoped on purpose: the crop edits live RectTransforms and must ride a per-frame
-    /// maintain seam with a guaranteed restore, and only the locally adopted ability face has
-    /// both (this class). Peer clones and item faces keep the alpha punch — exactly ModBuild 113
-    /// — because no per-frame seam owns their rects.
-    /// </summary>
-    private readonly CardFaceCrop _crop = new();
-
-    /// <summary>
     /// ZERO-ALIASED-FRAME SWAP, run from <c>VRCard.LateUpdate</c> once per frame per adopted card.
     /// LateUpdate on purpose: the loader's continuations run inside the Update phase and uGUI
     /// builds the canvas after LateUpdate, so a swap issued here is always in place before the
@@ -205,10 +191,6 @@ internal sealed class CardFace
             // rendered frame — including after a CHARACTER SWITCH, where the same pooled card gets
             // new art — and, on a cold cache only, the one live capture that learns the shape.
             Offer(_owner.fullAbilityCard, artJustArrived: true);
-            // Round 10: the sweep above may have re-pointed a freshly assigned sprite at its
-            // punched copy; re-assert the rect crop in the SAME LateUpdate so the cropped layers
-            // never render one frame with a full-size sprite in a cropped rect (or vice versa).
-            _crop.Maintain(_owner.fullAbilityCard, _face);
         }
     }
 
@@ -279,246 +261,49 @@ internal sealed class CardFace
     // ------------------------------------------------------- silhouette capture --
 
     /// <summary>
-    /// USER REPORT, verbatim (2026-08-11, hardware, ModBuild 107, b765a5b):
-    /// "Die Karten im Spiel haben eine eigene Form die nicht Rechteckig ist - aktuell sind die
-    /// Karten Rechtecke und der Rand der Karten ist daher schwarz. Ich möchte dass die Karten
-    /// (alle Karten, auch die Itemkarten), keinen schwarzen Rand mehr haben sondern die meshes
-    /// genau die Ränder der Karten selber haben."
+    /// SILHOUETTE CAPTURE — the one measurement the whole card-shape pipeline runs on.
     ///
-    /// WHAT THE BLACK BORDER IS — established, not assumed. The card ART carries its own
-    /// non-rectangular silhouette in its ALPHA channel; the mod's body is a rounded RECTANGLE
-    /// whose front (<c>CardMesh.EdgeColor</c> — near-black 0.10/0.09/0.08 when this was written,
-    /// warm umber since round 14) sits directly behind
-    /// it. Where the art is transparent, that front is what the player sees. It is NOT an inset
-    /// or a letterbox: <c>VRCard.SetCanvasSize</c> scales the backing to facePixels × fit ×
-    /// VisibleFaceFraction (0.94) and <see cref="BorderFraction"/> insets the art by exactly the
-    /// same 6 %, so slab edge and art edge already coincide — the only dark pixels left are the
-    /// ones INSIDE the art rect where the art itself is see-through. That is why shrinking the
-    /// margin further (test #24) never removed it and never could.
+    /// The card ART carries the card's real, non-rectangular outline in its ALPHA channel
+    /// (the class background sprite, e.g. 'AC_Berserker_Background', is authored with the
+    /// ornate silhouette; everything outside it is transparent). The capture stamps that
+    /// alpha — the STOCK art's designed alpha, nothing else — into a card-space footprint,
+    /// <c>CardMesh.SetSilhouette</c> persists it (see <c>CardMesh.CacheVersion</c>) and
+    /// derives from it the contour the card BODY mesh is punched out to
+    /// (<c>CardContour</c>/<c>CardMesh.AttachBody</c>). Body and face therefore end on the
+    /// same line BY CONSTRUCTION: the face renders the stock art, the body backs exactly the
+    /// pixels the art draws at alpha >= 0.5 — including the printed frame and the
+    /// initiative-chip protrusion at the card's bottom edge.
     ///
-    /// WHY IT WAS STILL THERE THOUGH THE CURE ALREADY SHIPPED. The alpha-clip cure (test #25)
-    /// has been in the build since 6d7f1bb and HAS NEVER ONCE RUN. Evidence, ModBuild 107 log
-    /// (3.9 MB, b765a5b — the exact commit of the report): zero <c>CardMesh.SetSilhouette</c>
-    /// lines, zero "captured the card-art silhouette", zero "failed the silhouette sanity
-    /// guard", zero "capture skipped" — while <c>FACE TEXTURE DIAG</c> (line 748) DOES list five
-    /// live sprite textures for the very first adopted card. Both walk the same face with the
-    /// same <c>GetComponentsInChildren&lt;Image&gt;</c> call in the same method invocation; the
-    /// ONLY difference between them is that the capture additionally demanded
-    /// <c>img.isActiveAndEnabled</c>. And that is always false at that moment:
-    /// <c>VRCardFactory.CreateBlank</c> parents each new card under <c>PoolRoot</c>, which is
-    /// created <c>SetActive(false)</c> ("parked cards are invisible/inactive",
-    /// VRCardFactory.cs:54), and <c>AttachGameCard</c> → <see cref="Adopt"/> runs while the card
-    /// is still parked there. <c>isActiveAndEnabled</c> consults <c>activeInHierarchy</c>, so
-    /// every candidate image was rejected, nothing was stamped, and the pass returned through a
-    /// branch that logs NOTHING. The retry budget (16 adoptions) was then burnt by the first 16
-    /// pooled cards inside the first few frames — a fan adopts up to 24 at once — and latched
-    /// the feature off for the session before any art had loaded.
+    /// HISTORY, in one line: 17 rounds of material clips, sprite punches, face crops and
+    /// shader probes tried to shape the card before the geometric answer landed — see the
+    /// NetProtocol build notes for ModBuild 105-121. Two rules survived them all:
+    ///  • DEGRADE TO THE RECTANGLE, never to a wrong shape — every gate that refuses keeps
+    ///    the rounded-rect slab and names itself in the log;
+    ///  • NO VISIBLE TRANSITION — the footprint is persisted and re-applied inside the card
+    ///    body's material factory, before the first card of a launch draws
+    ///    (<c>CardMesh.EnsureSilhouetteCacheLoaded</c>); only the very first launch learns
+    ///    the shape live.
     ///
-    /// THE FIX, in three parts.
-    /// 1. ACTIVE-STATE INDEPENDENCE. A footprint needs sprite pixels and rect geometry; neither
-    ///    requires the object to be live. The walk is <c>includeInactive: true</c> and the test
-    ///    is <c>img.enabled &amp;&amp; img.gameObject.activeSelf</c> — "the game intends this
-    ///    image to be drawn" — which is true in the pool and true in the fan.
-    /// 2. RETRY DRIVEN BY ART, NOT BY ADOPTION COUNT. Card art loads async
-    ///    (<c>ImageAddressableLoader.LoadAsync</c>), so the useful moment is when the sprite set
-    ///    CHANGES, not when the n-th card is adopted. Each attempt hashes the qualifying images'
-    ///    (instance id, sprite id) pairs; an unchanged hash is skipped for free, so the expensive
-    ///    readback only runs when there is genuinely something new to look at.
-    /// 3. NOTHING FAILS SILENTLY. Every rejection path names itself and its numbers, deduped by
-    ///    reason so a fan of 24 cards cannot spam the log.
-    ///
-    /// TWO SHAPES, ONE MECHANISM (his "auch die Itemkarten"). Ability cards are poker-aspect,
-    /// item cards near-square; a single footprint cannot serve both, so the capture is keyed by
-    /// <see cref="CardBodyKind"/> and each kind clips its own material pair. The entry point is
-    /// <see cref="Offer"/>, called from <c>CardFaceMipBake.Rescan</c> — the one per-face pump
-    /// BOTH kinds already run (this file on adoption + a 1 s cadence, <c>ItemsPile</c> on host +
-    /// a per-frame art poll for ~2 s + a 1 s cadence). No new update loop, and the item path
-    /// needs no change in a file this change does not own.
-    ///
-    /// REJECTED ALTERNATIVES.
-    /// • Remeshing the body to a traced contour. It would have to trace the SAME runtime alpha
-    ///   (the art is not readable offline — <c>ressources/</c> is Managed DLLs only), then
-    ///   triangulate it, for two shapes, and every consumer of the card's bounds — the dock grab
-    ///   apron, the neighbour-separation clamp, the laser hit test, <c>VRCard.WorldWidth</c> and
-    ///   the record-11 mirror width — measures the rectangle. Alpha-clip changes zero vertices
-    ///   and zero bounds and is exact at any distance; contour tracing would be an approximation
-    ///   that also moves the collider.
-    /// • Hand-authored profile constants. Cannot be measured from the assets, would have to be
-    ///   guessed per card kind, and would drift the moment the game re-skins a class.
-    /// • Clipping the LEGACY shared material pair (what the old code did). It is shared with the
-    ///   peer mirrors and the avatar mirror; see <see cref="CardBodyKind"/>.
-    /// </summary>
-    /// <summary>
-    /// ROUND 2 — USER REPORT, verbatim (2026-08-11, hardware, ModBuild 108, 9cbc918):
-    /// "Der schwarze Rand in den Handkarten ist immer noch vollständig da (Handfächer) - Beim
-    /// Charactertausch sehe ich kurz das der Schwarze Rand transparent ist und sehr schnell
-    /// dannach ist das schwarz wieder da, auch auf dem Controllboard selber."
-    ///
-    /// THE SECOND SENTENCE IS THE PROOF, AND IT ACQUITS THE MESH. Read against the log of that
-    /// exact build the capture ran, succeeded once and was applied:
-    /// <code>
-    /// CARD SILHOUETTE (Ability) attempt 1: footprint 224x343 stamped from 1 of 1 candidate
-    ///   image(s) (0 opaque full-bleed backdrop(s) skipped) on a 294x450 px face
-    /// CardMesh.SetSilhouette(Ability): footprint 224x343, opaque frac=0.888, centerOpaque=True
-    /// CardMesh.SetSilhouette(Ability): APPLIED — shared front/rim + back materials → Cutout
-    /// </code>
-    /// 224x343 is NOT a sub-rect of the face — it is the footprint's RESOLUTION, and it spans the
-    /// WHOLE face: <c>fh = round(224 * 450 / 294) = 343</c>, i.e. exactly the 294x450 face aspect.
-    /// Its 0..1 square maps onto the body's planar card-space UVs, and the body is scaled to
-    /// facePixels x fit x 0.94 while the face art is scaled by CardFace's own 1-0.06 — the same
-    /// number — so footprint texel (u,v) sits on the card pixel it was sampled from. The mask is
-    /// neither offset nor stretched.
-    ///
-    /// The single candidate is identified in the same log: one line earlier, in the SAME frame,
-    /// <c>MIP BAKE atlas readback cached: 'AC_Berserker_Background' 1254x1916 … textureRect
-    /// 1245x1863 at (2,35)</c>. 1254:1916 = 0.6545 against the face's 294:450 = 0.6533 — that IS
-    /// the card's own full-bleed background art, i.e. the RIGHT source for an outer outline, and
-    /// it escaped the full-bleed-backdrop skip precisely because it is trimmed. So the mesh was
-    /// clipped to the real card art's alpha.
-    ///
-    /// And that is exactly what he saw: DURING the character switch the game's addressable loader
-    /// takes the face's art down (the log's own words for the arrival path: "while the loader
-    /// still had the Image disabled"), nothing paints there for a moment — and the black rim is
-    /// GONE, because the mesh behind it is already clipped away. The instant the face paints
-    /// again, the black is back. A clipped mesh cannot come back. **Therefore the remaining black
-    /// rim is painted by the adopted uGUI FACE, not by the mod's card body.** The alpha clip
-    /// shipped, works, and clips the wrong layer.
-    ///
-    /// WHAT THE FACE CAN PAINT THERE — and the reason we do not have to guess between them,
-    /// because both are neutralised below:
-    /// • A DRAWN <c>Image</c> WITH NO SPRITE. uGUI renders those as a solid quad in
-    ///   <c>Image.color</c>; the very capture log counts <b>22 of them enabled on one card face</b>
-    ///   ("22 without a sprite" are images that passed <c>enabled &amp;&amp; activeSelf</c>). A
-    ///   card-sized dark one is a black RECTANGLE behind ornate art — which is precisely the
-    ///   original report, "aktuell sind die Karten Rechtecke und der Rand der Karten ist daher
-    ///   schwarz". It has no sprite, therefore it cannot carry a card shape, therefore it is never
-    ///   legitimate outside the silhouette. <see cref="FaceBlackout"/> mutes exactly that.
-    /// • A DARK SOFT FRINGE inside the background art's own alpha (a baked drop shadow reads as
-    ///   alpha ≈ 0.5-0.9 dark pixels). Those count as "card" under a plain ≥ 0.5 test, so the mesh
-    ///   is NOT clipped under them and the art paints them. <see cref="ShadowLumaMax"/> /
-    ///   <see cref="ShadowAlphaCeil"/> take them out of the footprint, and the log prints how many
-    ///   pixels that removed — zero says the case does not exist on this art.
-    ///
-    /// TWO MORE THINGS THE SAME LOG SHOWS, both addressed here.
-    /// • "1 OF 1 CANDIDATE" LOOKS FRAGILE AND WAS NOT — but only by luck of timing. The one
-    ///   candidate WAS the right source; the capture just happened to run in the frame the
-    ///   background arrived. One frame earlier only an inner panel would have qualified, an inner
-    ///   panel's rect is not the card's outer outline, and the one-shot would have latched onto it
-    ///   for the session. NOTE also that unioning MORE art is not the cure some would reach for:
-    ///   the action halves are large OPAQUE rectangles inside the card, so unioning them can only
-    ///   push the footprint TOWARD a rectangle. The gate is therefore not "wait longer" or "union
-    ///   more" but "what defines the outline must demonstrably SPAN the card" (code
-    ///   <c>no-full-bleed</c>) — satisfied either by one candidate covering
-    ///   <see cref="MinOutlineCoverage"/> of the face (the ability card) or by the candidates'
-    ///   union bounding box doing so (a face whose background is several Images). Both readings are
-    ///   timing-independent, which is the whole point: nothing here may depend on WHEN the loader
-    ///   returns. A face that satisfies neither keeps the rounded rect — the shipped look — rather
-    ///   than latching a guess. The sources are named in the log so this is never guesswork.
-    /// • NOTHING COULD TELL A RECTANGLE FROM AN OUTLINE. frac 0.888 passes the 0.12..0.985 gate
-    ///   whether it is an ornate curve or a plain inset box. <c>CardMesh.SetSilhouette</c> now
-    ///   measures and logs the footprint's bounding box FILL, so the log states which one it got.
-    ///
-    /// THE TRANSITION ITSELF (2026-08-11, narrowed: "Der Prozess der 'Ausblendung' soll auch nicht
-    /// sichtbar sein, sondern direkt die richtigen meshes sichtbar sein"). A mask captured from LIVE
-    /// art cannot exist before that art loads, so inside ONE session the window is unavoidable. It
-    /// is closed by not learning it in that session: <c>CardMesh</c> persists the footprint to
-    /// BepInEx's cache directory and re-applies it from inside the card body's own material factory,
-    /// i.e. before any renderer that will draw it has a material. First launch after installing:
-    /// today's opaque rounded rect until the first card art loads, then one step. Every launch
-    /// after that: correct from the first drawn pixel, on every construction path, because they all
-    /// pass through that one factory.
-    ///
-    /// THE uGUI <c>Mask</c> ON THE FACE — built, in <see cref="CardShapeMask"/>. It bounds
-    /// EVERYTHING the face draws by the card outline regardless of which component paints it, which
-    /// is the only answer that does not first require naming the culprit. It was declined earlier in
-    /// round 5 and then built, because the objections turned out to be about PLACEMENT and
-    /// VERIFIABILITY rather than about the idea. Each one, and what answers it:
-    /// <list type="number">
-    /// <item>PRECEDENT — <c>VRCard.SetRenderOnTop</c> is a permanent no-op-forward because
-    ///   per-instance material copies on the face's TMP text "swallowed all card TEXT". Round 5
-    ///   answered: different mechanism, because <c>StencilMaterial</c>'s variants are keyed on
-    ///   (base material, stencil state) and therefore SHARED by every card at the same depth.
-    ///   <b>THAT ANSWER WAS WRONG AND IT IS WHAT SANK THE ROUND</b> — the objection was never about
-    ///   sharing, it was about the COPY, and a mask makes one too
-    ///   (<c>StencilMaterial.Add</c> → <c>new Material(baseMat)</c>). <c>CardEffects</c> gives every
-    ///   card image a base material of its own and then drives the card through it every frame, so
-    ///   the variants are per-image-per-card AND frozen. The precedent held exactly as stated. See
-    ///   <c>CardShapeMask.Enabled</c> for the full derivation and the user report it cost.</item>
-    /// <item>IT MUST SIT ON AN ANCESTOR — so it does: a mod-owned wrapper inserted between the host
-    ///   and the face, never a Graphic added to the game's own <c>FullAbilityCard</c> GameObject
-    ///   (<c>Graphic</c> is <c>[DisallowMultipleComponent]</c> and that GO may already own one).
-    ///   <see cref="Maintain"/>'s per-frame parent assertion learns the extra level through
-    ///   <see cref="IsOurParent"/> rather than fighting it.</item>
-    /// <item>IT REACHES ONLY OUR HOSTS — <c>CardShapeMask.Wrap</c> takes a face rect and inserts the
-    ///   wrapper into whatever parent that face already has, so the peer mirror
-    ///   (<c>Net/RemoteCardArt</c>) is one call away from the identical outline. That call is not
-    ///   made from here; the file is not this work's to edit.</item>
-    /// <item>IT CAN SILENTLY DO NOTHING, WHICH IS THIS DEFECT'S SIGNATURE FAILURE (attempt 1 shipped
-    ///   a clip that never executed). <c>MaskUtilities.FindRootSortOverrideCanvas</c> stops at the
-    ///   first ancestor Canvas with <c>overrideSorting</c>, and <c>FullAbilityCard</c> carries its
-    ///   own Canvas whose sorting the game toggles
-    ///   (<c>CardsHandUI.ToggleFullCardCanvasSorting</c>). So the wrapper forces
-    ///   <c>overrideSorting</c> false on every Canvas inside the face while we own it (recorded,
-    ///   re-asserted per frame, restored exactly on release) AND then asks uGUI's own resolver
-    ///   whether the stencil actually resolves for a graphic under the face. Depth 0 → the wrapper
-    ///   removes itself, the face goes back exactly as found, and one log line says so. It cannot
-    ///   claim a success it did not have.</item>
-    /// </list>
-    /// The shape-less-quad MUTING below stays alongside it: it is cheaper, it names what it found,
-    /// and it still works on the one build where the stencil is refused.
-    ///
-    /// WHAT ROUND 5 ESTABLISHED, so round 6 starts from facts instead of re-deriving them:
-    /// <list type="bullet">
-    /// <item>The mask's 0..1 and the card body's 0..1 are the SAME rectangle — the "0.94 mismatch"
-    ///   is refuted by arithmetic, see the note in <c>CardMesh.SetSilhouette</c>.</item>
-    /// <item>Therefore, once the clip is applied, the card's visible extent equals the ART's opaque
-    ///   extent: the slab is fitted to the rendered art rect and clipped by the art's own alpha, so
-    ///   it can paint nothing the art does not also cover. Any black the player still sees is drawn
-    ///   BY THE FACE — either inside the art's own opaque pixels or by a face graphic the blackout
-    ///   was structurally unable to see.</item>
-    /// <item>And the captured outline is NOT a rectangle: bounding box 95.5 % of the face, filled
-    ///   0.928. If the body defined the card's visible edge, the card would have stopped looking
-    ///   rectangular the moment attempt 2 landed. It did not — which is the positive evidence that
-    ///   the FACE paints over the body's whole footprint, and the reason round 5 clips the face
-    ///   itself (<see cref="CardShapeMask"/>) rather than scheduling it as a next round.</item>
-    /// </list>
-    /// Three mechanisms shipped together in ModBuild 110, and they are not alternatives: the FACE
-    /// CLIP bounds whatever paints; the DARK BORDER PEEL takes a printed black frame out of the
-    /// shape both the clip and the mesh use; the widened BLACKOUT still mutes provably shape-less
-    /// dark quads and prints the full face inventory so the next reader sees what was actually
-    /// there.
-    ///
-    /// <para>ROUND 6 TURNED THE FIRST OF THE THREE OFF (<c>CardShapeMask.Enabled = false</c>) and
-    /// left the other two running. The clip made a shipped build flash every card fully black on a
-    /// character switch, for a reason that is structural rather than tunable: masking a uGUI graphic
-    /// makes it render a frozen COPY of its material, and these graphics' materials are the channel
-    /// the game animates them through. The border is therefore back to its pre-110 state and is NOT
-    /// closed. What round 6 does hand forward is a strictly narrower search space — the log line
-    /// above is still printed, so the FULL FACE INVENTORY is still evidence, and it says that on a
-    /// Berserker ability face nothing dark paints outside the outline at all: the darkest element
-    /// listed is luma 0.54 and everything with any coverage outside the card ('Header' 11 %,
-    /// 'UIFX_Overlay' 18 %) is WHITE. Whatever the black rim is, the inventory has now twice failed
-    /// to find a face graphic that could be painting it.</para>
-    ///
-    /// <para>ROUND 7 CLOSED IT, AND THE THING THAT BROKE THE DEADLOCK WAS A SCREENSHOT
-    /// (<c>.planning/debug/karten.png</c>). Six rounds argued about WHICH LAYER paints the black
-    /// while nobody had measured WHERE it is. It is not a ring: on the board card the band is 18 px
-    /// at the top and 25 px at the bottom of a 378 px card, against 2 px and 6 px at the sides of a
-    /// 254 px card. A band on the short axis only is a LETTERBOX, and the letterbox is arithmetic
-    /// anyone could have done from the log's own "294x450 px face": the card body is fitted to that
-    /// rect (aspect 0.6533) and the ability card's art inside it is poker-shaped (0.7216), so
-    /// <c>Image.preserveAspect</c> draws the art at 90.54 % of the rect's height and leaves 4.73 %
-    /// dead top and bottom. Measured: 4.76 %. The capture normalised its candidates by their LAYOUT
-    /// rect, so the mask was stretched +10.4 % vertically and declared the body "card" in exactly
-    /// those two bands — every clip since ModBuild 108 was correct and aimed 10 % away from the edge
-    /// it was meant to find. The whole cure is <see cref="DrawnLocalRect"/>: stamp into the rect the
-    /// art is actually drawn in. Read that method before touching anything here. Nothing about the
-    /// card's size, proportions or behaviour changes — the user ruled those fixed ("Ich möchte gerne
-    /// an den aktuellen Proportionen festhalten … nur eben ohne die schwarzen Ränder") and this is a
-    /// coordinate correction on the MASK alone. The other candidate (a printed black frame inside
-    /// the art) is neutralised in the same build rather than left for an eighth run: see
-    /// <see cref="DarkBorderMaxDepthFraction"/>, whose cap the ModBuild-110 log reported as
-    /// REACHED.</para>
+    /// MECHANICS that are load-bearing today:
+    ///  • ACTIVE-STATE INDEPENDENCE: candidates are tested with
+    ///    <c>img.enabled &amp;&amp; img.gameObject.activeSelf</c>, never
+    ///    <c>isActiveAndEnabled</c> — the first adoption happens while the card is parked
+    ///    under the INACTIVE <c>VRCardFactory.PoolRoot</c>, whose images are perfectly
+    ///    readable.
+    ///  • RETRY DRIVEN BY ART, NOT ADOPTION COUNT: card art loads async; each offer hashes
+    ///    the qualifying (image, sprite) set and only a CHANGED set costs a GPU readback.
+    ///  • THE DRAWN RECT, NOT THE LAYOUT RECT (<see cref="DrawnLocalRect"/>):
+    ///    <c>Image.preserveAspect</c> letterboxes the sprite inside its rect; stamping
+    ///    across the layout rect once mis-aimed the mask by ~10 % on the short axis.
+    ///  • THE FULL-BLEED GATE (<see cref="MinOutlineCoverage"/>): what defines the outline
+    ///    must demonstrably SPAN the card — one candidate or the candidates' union — so the
+    ///    capture can never latch an inner panel, whatever the loader's timing.
+    ///  • TWO SHAPES, ONE MECHANISM: keyed by <see cref="CardBodyKind"/> (poker-aspect
+    ///    ability cards, near-square item cards); the entry point <see cref="Offer"/> rides
+    ///    <c>CardFaceMipBake.Rescan</c>, the one per-face pump both kinds already run.
+    ///  • Interior designed holes cannot pierce the body: <c>CardContour.Extract</c> keeps
+    ///    the LARGEST closed loop of the 0.5 iso, and semi-transparent fringes fall on the
+    ///    right side of the same 0.5 threshold.
     /// </summary>
     private sealed class SilhouetteState
     {
@@ -602,793 +387,6 @@ internal sealed class CardFace
     /// would name the number.</para>
     /// </summary>
     private const float MinOutlineCoverage = 0.7f;
-
-    /// <summary>
-    /// Pixels at or above this alpha are card no matter how dark — a genuinely dark PRINTED card
-    /// border is opaque, and must survive. Only the band BELOW it can be a soft shadow.
-    /// </summary>
-    private const byte ShadowAlphaCeil = 230;
-
-    /// <summary>
-    /// Below this luminance (0..255) a semi-transparent pixel is treated as a baked DROP SHADOW
-    /// rather than card, and taken out of the footprint. A shadow is dark by definition; card art
-    /// that happens to be semi-transparent (the anti-aliased edge of a bright ornament) is not.
-    /// Only ever makes the mesh clip TIGHTER, and the mesh sits BEHIND the art — so an over-eager
-    /// trim removes nothing the player can see, while an under-eager one leaves today's look.
-    /// </summary>
-    private const byte ShadowLumaMax = 56;
-
-    // ------------------------------------------------- dark border peel (round 5) --
-    //
-    // "STOP TREATING OPAQUE AS CARD."  The drop-shadow trim above only reaches SEMI-transparent
-    // dark pixels.  A PRINTED black frame — a dark band that is fully opaque and sits on the
-    // outside of the art — is therefore card by the capture's own definition, is unioned into the
-    // footprint, and no alpha clip built from that footprint can ever remove it.  If the black
-    // rectangle the user still reports is that band, every previous round was arithmetically
-    // correct and visually a no-op, which is exactly what he described ("Exakt gleiches Fehlerbild
-    // wie zuvor.  Hat sich an den Kartenrändern nichts geändert.", ModBuild 109).
-    //
-    // The peel below erodes inward from the silhouette's OUTER boundary for as long as the texels
-    // it meets are opaque AND near-black, up to a hard depth cap.  It is a boundary band by
-    // construction (the flood is seeded only from texels that are already outside, plus the
-    // footprint's own image border), so a dark ornament in the middle of the card is unreachable.
-    //
-    // THE PEEL AND THE FACE CLIP ARE ONE MECHANISM — READ THEM TOGETHER.  On its own the peel would
-    // be cosmetically inert: the footprint drives the MESH, the mesh sits BEHIND the art, and
-    // shrinking it under an OPAQUE art pixel changes nothing the player can see.  That was the
-    // licence the drop-shadow trim above rests on, and it is exactly why a mesh-side answer alone
-    // could never close this defect.  <see cref="CardShapeMask"/> now clips the FACE to this same
-    // footprint, so what the peel removes is genuinely removed from the picture: peel the printed
-    // black frame out of the mask, and the face clip stops the art drawing it.
-    //
-    // THAT INVERTS THE SAFETY ARGUMENT, so the guards are the safety now, not the invisibility:
-    //   • DARK.  Only near-black texels qualify (<see cref="DarkBorderLumaMax"/>) — "der schwarze
-    //     Rand", not a merely dark ornament.
-    //   • THIN.  <see cref="DarkBorderMaxDepthFraction"/> caps how far in it can reach; a frame is a
-    //     few millimetres, and nothing deeper is a frame.
-    //   • BOUNDED.  Past <see cref="DarkBorderMaxAreaFraction"/> of the opaque area the whole peel is
-    //     DISCARDED rather than partially applied — a dark CARD is not a dark FRAME, and the
-    //     standing rule is to degrade to the shape we already had, never to a guessed one.
-    //   • BOUNDARY-ONLY BY CONSTRUCTION.  The flood is seeded solely from texels that are already
-    //     outside (plus the footprint's own image border), so a black ornament in the middle of the
-    //     card is unreachable at any threshold.
-    //
-    // AND IT IS THE ROUND'S FALSIFIER.  The log line always prints, peel or no peel.  Read it
-    // together with the CARD FACE CLIP line: peel > 0 and clip VERIFIED means the printed frame was
-    // there and is now gone; peel ~0 and clip VERIFIED means the black was never in the art and the
-    // clip has bounded whatever else was painting it; clip REFUSED means the face cannot be
-    // stencilled from above its own Canvas on this build and says so in one line rather than
-    // pretending.
-    //
-    // ROUND 8: THE FRAME IS NOW REMOVED UPSTREAM. The peel twice measured the ring AT ITS CAP
-    // (ModBuild 110: depth 11 of 11; ModBuild 111: depth 18 of 18, mean luma 22) — proof the frame
-    // is real and thicker than every guessed cap. The cure moved to the SOURCE: CardFaceMipBake's
-    // FRAME PUNCH erases those pixels from the mod-owned sprite copies the face renders, with a
-    // LEARNED depth, and the capture samples the punched sprites — so this peel now runs on art
-    // that should already be frameless. It stays as the backstop and the falsifier: "0 texel(s)"
-    // here together with a successful CARD FRAME PUNCH line means the punch removed the frame and
-    // the footprint agrees with it; a large peel here means a face-spanning sprite ESCAPED the
-    // punch (its gate/refusal line says why).
-
-    /// <summary>
-    /// Maximum Rec.601 luminance (0..255) an OPAQUE boundary texel may have and still be peeled as
-    /// "printed black frame" rather than card. 48 is the deliberate compromise: the mod's own card
-    /// edge is 0.10/0.09/0.08 → luma 24, a printed ink frame the player calls "schwarz" sits under
-    /// ~50, and card ART — parchment, illustration, the coloured action halves — is far brighter.
-    ///
-    /// <para>It is NOT set generously, because the face clip makes an over-eager peel VISIBLE: it
-    /// would cut real art off the card rather than merely shrinking a hidden mesh. If a future
-    /// report says a dark-but-not-black frame survived, this number is the turn to make — a
-    /// threshold change, not a redesign.</para>
-    /// </summary>
-    private const byte DarkBorderLumaMax = 48;
-
-    /// <summary>
-    /// How deep the peel may reach, as a fraction of the footprint's SHORT side.
-    ///
-    /// <para>ROUND 7 RAISED THIS FROM 0.05 TO 0.08, and the reason is a measurement, not a hunch.
-    /// The ModBuild-110 log reports the peel <b>at its cap</b>: "945 texel(s) = 1.23 % of the face
-    /// … max depth 11 of 11 texels". 11 texels is 0.05 × min(224, 343) ≈ 3.1 mm on a 63.5 mm card.
-    /// The band the user's screenshot actually shows is 4.76 % of the card's height — 21.4 face px,
-    /// i.e. ≈ 16 texels ≈ 4.6 mm — so the old cap could not have reached it at any luma threshold.
-    /// 0.08 gives 18 texels ≈ 5.1 mm: enough for that band with a texel to spare, still nowhere near
-    /// hollowing a card out.</para>
-    ///
-    /// <para>AND THE SAFETY ARGUMENT HAS INVERTED BACK. Round 5 tightened this deliberately because
-    /// <c>CardShapeMask</c> clipped the FACE to the same footprint, which made an over-eager peel
-    /// VISIBLE (it would have cut real art away). <c>dfe54e0</c> turned that clip off and it stays
-    /// off, so the footprint drives the MESH only — and the mesh sits BEHIND the art. A peel that
-    /// takes one texel too many now hides mesh under opaque art and changes nothing the player can
-    /// see; a peel that takes one texel too few leaves the reported black band. The asymmetry runs
-    /// the other way than it did in round 5, so the number does too.</para>
-    /// </summary>
-    private const float DarkBorderMaxDepthFraction = 0.08f;
-
-    /// <summary>
-    /// Hard ceiling on what the peel may take, as a fraction of the OPAQUE area it started
-    /// from. Past this the footprint is a dark card, not a dark frame, and the whole peel is
-    /// discarded (logged) rather than partially applied — degrade to the shape we already had,
-    /// never to a guessed one.
-    ///
-    /// <para>ROUND 7 RAISED THIS FROM 0.12 TO 0.20 so the deeper cap above is reachable instead of
-    /// self-cancelling. The band this has to be able to take is the two LONG edges only:
-    /// 2 × 224 × 16 = 7168 texels = 10.7 % of the 0.874 opaque area the ModBuild-110 log measured —
-    /// which sat directly on the old 12 % ceiling, so a slightly thicker frame would have tripped
-    /// the all-or-nothing discard and shipped round six's look with a log line claiming a peel was
-    /// considered. 0.20 clears it with margin. The guard keeps doing its actual job: a full ring at
-    /// the new depth cap would be ≈ 30 % and is still discarded, i.e. a dark CARD is still not a
-    /// dark FRAME.</para>
-    /// </summary>
-    private const float DarkBorderMaxAreaFraction = 0.20f;
-
-    /// <summary>
-    /// Erode the opaque, near-black band on the OUTSIDE of a captured footprint (see the block
-    /// above). Mutates <paramref name="alpha"/> in place and returns how many texels went; returns
-    /// 0 and leaves the mask untouched when nothing qualifies or the caps are exceeded.
-    /// </summary>
-    private static int PeelDarkBorder(byte[] alpha, byte[] luma, int fw, int fh,
-                                      out int maxDepthReached, out int meanLuma, out bool capped)
-    {
-        maxDepthReached = 0;
-        meanLuma = 0;
-        capped = false;
-        int maxDepth = Mathf.Max(1, Mathf.RoundToInt(Mathf.Min(fw, fh) * DarkBorderMaxDepthFraction));
-
-        long opaqueBefore = 0;
-        for (int i = 0; i < alpha.Length; i++)
-            if (alpha[i] >= 128)
-                opaqueBefore++;
-        if (opaqueBefore <= 0)
-            return 0;
-
-        // depth[i] == 0 -> unvisited; >0 -> peel distance from the outside.
-        var depth = new ushort[alpha.Length];
-        var queue = new Queue<int>(1024);
-        var peeled = new List<int>(1024);
-        long lumaSum = 0;
-
-        void Seed(int idx)
-        {
-            if (depth[idx] != 0 || alpha[idx] < 128 || luma[idx] > DarkBorderLumaMax)
-                return;
-            depth[idx] = 1;
-            queue.Enqueue(idx);
-            peeled.Add(idx);
-            lumaSum += luma[idx];
-        }
-
-        // Seeds: every opaque near-black texel that touches a TRANSPARENT texel, plus the
-        // footprint's own image border (a card whose art runs to the very edge of the face rect
-        // has no transparent neighbour there, and its frame must still be reachable).
-        for (int y = 0; y < fh; y++)
-        {
-            int row = y * fw;
-            for (int x = 0; x < fw; x++)
-            {
-                int i = row + x;
-                if (alpha[i] >= 128)
-                {
-                    if (x == 0 || y == 0 || x == fw - 1 || y == fh - 1)
-                        Seed(i);
-                    continue;
-                }
-                // transparent: its opaque 4-neighbours are on the outer boundary
-                if (x > 0) Seed(i - 1);
-                if (x < fw - 1) Seed(i + 1);
-                if (y > 0) Seed(i - fw);
-                if (y < fh - 1) Seed(i + fw);
-            }
-        }
-
-        while (queue.Count > 0)
-        {
-            int i = queue.Dequeue();
-            int d = depth[i];
-            if (d > maxDepthReached)
-                maxDepthReached = d;
-            if (d >= maxDepth)
-                continue;
-            int x = i % fw, y = i / fw;
-            void Step(int n)
-            {
-                if (depth[n] != 0 || alpha[n] < 128 || luma[n] > DarkBorderLumaMax)
-                    return;
-                depth[n] = (ushort)(d + 1);
-                queue.Enqueue(n);
-                peeled.Add(n);
-                lumaSum += luma[n];
-            }
-            if (x > 0) Step(i - 1);
-            if (x < fw - 1) Step(i + 1);
-            if (y > 0) Step(i - fw);
-            if (y < fh - 1) Step(i + fw);
-        }
-
-        if (peeled.Count == 0)
-            return 0;
-        meanLuma = (int)(lumaSum / peeled.Count);
-        if (peeled.Count > opaqueBefore * DarkBorderMaxAreaFraction)
-        {
-            capped = true;
-            return 0; // nothing applied — this is a dark CARD, not a dark FRAME
-        }
-        for (int p = 0; p < peeled.Count; p++)
-            alpha[peeled[p]] = 0;
-        return peeled.Count;
-    }
-
-    // ------------------------------------------------- frame punch sweep (round 8) --
-
-    /// <summary>
-    /// The face-side driver of the FRAME PUNCH. ROUND 9: the punch region is GEOMETRIC — the
-    /// card's true outline, derived once per background art by <see cref="CardOutline"/> from the
-    /// bright trim contour — and it is applied to EVERY full-span face layer, not only to the one
-    /// image the old area gate admitted. The 112 log forced both changes: the BFS-punched
-    /// background still painted 102 of 264 near-black band probes (dark pixels the luma
-    /// connectivity could not reach), and the two action-half plates painted 55 of their 72 band
-    /// probes while the "&gt;= 70 % of the face" AREA gate excluded them — yet they are genuine
-    /// face layers spanning the full card width at top and bottom, and the bottom band (the
-    /// thickest, 6.6 % of the card in the screenshot) is largely theirs.
-    ///
-    /// <para>THE GATES, restated for round 9 — two of them, with different jobs:
-    /// (1) the OLD coverage gate (<see cref="MinOutlineCoverage"/> of the face) now has exactly
-    /// ONE remaining job: choosing which sprite the OUTLINE is derived from (the full-bleed
-    /// background). It no longer decides what gets punched.
-    /// (2) eligibility for PUNCHING is the SPAN gate (<see cref="SpanAxisFraction"/> on either
-    /// axis of the drawn rect): a face LAYER spans the card on at least one axis (background:
-    /// both; action halves: full width), while a decoration does not. This is what makes the
-    /// punch safe for icons, buttons and portraits BY CONSTRUCTION — a small centred icon never
-    /// spans an axis, so it can never be eroded — and it also protects designed protrusions (the
-    /// class banner at the top, the initiative chip at the bottom) that legitimately poke past
-    /// the background's trim contour: they are narrow, they fail the span gate, and the
-    /// screenshot-derived outline follows their bright edging anyway where they are part of the
-    /// background art. The 112 BAND INVENTORY confirms the closure: exactly three graphics
-    /// contributed dark band pixels, and all three span the full card width.</para>
-    ///
-    /// <para>THE SIMPLE-ONLY FILTER WAS THE ACTION HALVES' ESCAPE HATCH, and the 112 log proves
-    /// it by arithmetic: the sweep reported "1 image(s) passed … 11 below the gate (largest
-    /// 1 %)", yet the halves draw at ~18 % coverage — they are in NEITHER count, so they fell to
-    /// the <c>img.type != Simple</c> skip. They are the game's prefab-serialized 9-SLICED button
-    /// plates (<c>FullAbilityCardAction.actionButton</c> is a <c>Button</c> with a SpriteSwap
-    /// transition). Round 9 therefore maps Sliced (and full Filled) images through uGUI's own
-    /// 9-slice geometry (<c>CardFaceMipBake.PunchMapping</c>) instead of skipping them; only
-    /// Tiled/partially-filled images remain unmappable, and the sweep line counts them. Known
-    /// residual, pre-existing (STATE §5e): a hovered half renders the game's
-    /// <c>Image.overrideSprite</c> state sprite, which no bake or punch has ever covered — the
-    /// frame can reappear inside the plate WHILE hovered, hover-transient only.</para>
-    ///
-    /// <para>WHEN IT RUNS: unchanged — from <see cref="Offer"/>, i.e. on adoption, on the 1 s
-    /// Rescan cadence, and on the ART-ARRIVAL seam in the same frame the game assigns the sprite,
-    /// before its first rendered frame. A punched copy is what the face shows from its first
-    /// pixel.</para>
-    ///
-    /// <para>DEGRADES TO TODAY, in two stages: no validated outline (see CardOutline's gates and
-    /// its refusal line) ⇒ this sweep falls back to the EXACT ModBuild-112 behaviour (luma-BFS
-    /// punch of the coverage-gate layer only); a refused individual punch (unextractable region,
-    /// budget, implausible mapping) ⇒ that sprite keeps its unpunched copy, logged with numbers
-    /// by the bake. Never a guessed shape.</para>
-    /// </summary>
-    /// <summary>
-    /// ROUND 17 NOTE, READ FIRST — THE SWEEP NO LONGER CHANGES WHAT RENDERS. USER RULING
-    /// (2026-08-11, verbatim, binding): "Kümmer dich auch wieder darum dass die Karte wieder
-    /// vollständig richtig angezeigt wird - die Änderungen die dazu geführt haben waren
-    /// offensichtlich nicht die Lösung des Problems." The punched-copy factories this sweep
-    /// serves through are gated off at the mint (<c>CardFaceMipBake.PunchServingEnabled</c> =
-    /// false), so every <c>OutlinePunchedReplacementFor</c>/<c>PunchedReplacementFor</c> call
-    /// below answers null, every layer takes the "kept unpunched" branch, and no Image is ever
-    /// re-pointed: the face renders its complete stock art, printed frame included.
-    ///
-    /// <para>THE SWEEP ITSELF STAYS LIVE ON PURPOSE: it is where <c>CardOutline.ForSource</c>
-    /// derives the card's bright-trim outline from the background sprite, and that geometry is
-    /// load-bearing for round 17's BODY punch — <c>TryCapture</c> intersects the mesh footprint
-    /// with it (the OUTLINE CLIP), which is what keeps the printed frame OUTSIDE the contour
-    /// <c>CardContour</c> punches the mesh out to, now that the capture samples unpunched
-    /// pixels. Retiring the sweep would silently regrow the footprint into the frame band.</para>
-    /// </summary>
-    private static class FramePunch
-    {
-        /// <summary>A drawn rect spanning at least this fraction of the face on EITHER axis marks
-        /// a face LAYER (eligible for the geometric punch). Backgrounds span both axes, the
-        /// action halves span the full width (their drawn width ≈ 100 % of the face); the largest
-        /// decoration (an action half is a layer, a banner/chip/icon is not) stays well under.</summary>
-        private const float SpanAxisFraction = 0.9f;
-
-        private static readonly bool[] s_sweepLogged = new bool[3];
-        private static bool s_gateOffLogged;
-        private static bool s_errorLogged;
-
-        /// <summary>One "named identity" line per kind — printed only once every resolved plate
-        /// has reached a verdict (art loads async; an early latch would freeze "no sprite yet").</summary>
-        private static readonly bool[] s_namedLogged = new bool[3];
-
-        private static readonly List<(string Field, Image? Img)> s_namedScratch = new(6);
-        private static readonly Dictionary<int, string> s_namedIdScratch = new(8);
-
-        internal static void Sweep(RectTransform faceRoot, CardBodyKind kind, FullAbilityCard? ability)
-        {
-            try
-            {
-                if (CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
-                {
-                    // The punch lives on the mip-baked copies; with the bake dial off there are no
-                    // copies to punch and the face renders the game's originals — frame included.
-                    if (!s_gateOffLogged)
-                    {
-                        s_gateOffLogged = true;
-                        VRLog.Info("Cards", "CARD FRAME PUNCH inactive: [Cards] FaceMipBake is OFF, so no " +
-                                            "mod-owned sprite copies exist to erase the printed frame from. " +
-                                            "Cards keep the game's own art, black frame included.");
-                    }
-                    return;
-                }
-                Rect faceRect = faceRoot.rect;
-                if (faceRect.width < 1f || faceRect.height < 1f)
-                    return;
-
-                // NAMED IDENTITY (round 10). The two action plates escaped a heuristic
-                // eligibility gate for the SECOND consecutive round (round 8: the Simple-only
-                // filter; round 9: the >= 90 % span gate — the 113 log's "1 layer(s) eligible"
-                // is the proof). Heuristics are done: the plates are resolved BY NAME from the
-                // game's own components (CardEffects' serialized Image fields, with
-                // FullAbilityCardAction.actionButton/defaultActionButton as the fallback) and
-                // handed to the punch regardless of any gate. The span-gated sweep stays as the
-                // generic net for layers nobody named.
-                Dictionary<int, string>? namedById = null;
-                List<(string Field, Image? Img)>? named = null;
-                if (ability != null)
-                {
-                    named = s_namedScratch;
-                    named.Clear();
-                    CardFaceCrop.ResolveNamedPlates(ability, named);
-                    namedById = s_namedIdScratch;
-                    namedById.Clear();
-                    foreach ((string field, Image? img) in named)
-                    {
-                        if (img != null)
-                            namedById[img.GetInstanceID()] = field;
-                    }
-                }
-                Dictionary<int, string>? namedStatus = named != null && !s_namedLogged[(int)kind]
-                    ? new Dictionary<int, string>(8)
-                    : null;
-
-                // Pass 1: every drawn sprite Image whose pixel-to-face mapping is derivable —
-                // Simple and full Filled map uniformly, SLICED plates map through the 9-slice
-                // function (the ModBuild-112 action halves: 55 of 72 band probes, and absent from
-                // both sweep counts — they never passed the old Simple-only filter). Tiled and
-                // partially filled images have no derivable static mapping and are counted.
-                // The mapping construction itself is shared with CardFaceCrop
-                // (TryBuildPunchMapping) so the crop and the punch can never disagree.
-                Image[] images = faceRoot.GetComponentsInChildren<Image>(includeInactive: true);
-                var entries = new List<(Image Img, Sprite Worn, CardFaceMipBake.PunchMapping Map)>(8);
-                var corners = new Vector3[4];
-                Image? outlineImg = null;
-                Rect outlineRect = default;
-                float outlineCoverage = 0f;
-                int unmappable = 0, cropMaintained = 0;
-                foreach (Image img in images)
-                {
-                    if (img == null || !img.enabled || !img.gameObject.activeSelf)
-                        continue;
-                    Sprite? worn = img.sprite;
-                    if (worn == null)
-                        continue;
-                    if (!TryBuildPunchMapping(img, worn, faceRoot, faceRect, corners,
-                            out CardFaceMipBake.PunchMapping map, out bool uniformSimple))
-                    {
-                        unmappable++;
-                        if (namedStatus != null && namedById != null
-                            && namedById.ContainsKey(img.GetInstanceID()))
-                        {
-                            namedStatus[img.GetInstanceID()] = $"unmappable (Image.Type {img.type})";
-                        }
-                        continue;
-                    }
-                    if (uniformSimple)
-                    {
-                        // Gate (1): the outline SOURCE must span the card — same full-bleed
-                        // reading the capture uses, and only a uniformly mapped (Simple) image
-                        // qualifies. Largest qualifying candidate wins (the background). A
-                        // crop-maintained background still qualifies: ForSource resolves its
-                        // ORIGINAL through OriginalOf and the outline cache is keyed on content,
-                        // so the cropped drawn rect is never used for a fresh derivation.
-                        float coverage = map.FaceRect.width * map.FaceRect.height;
-                        if (coverage >= MinOutlineCoverage && coverage > outlineCoverage)
-                        {
-                            outlineImg = img;
-                            outlineRect = map.FaceRect;
-                            outlineCoverage = coverage;
-                        }
-                    }
-                    if (CardFaceMipBake.IsCropSprite(worn))
-                    {
-                        // CardFaceCrop's business: a crop sprite is only valid together with the
-                        // shrunken rect that class maintains — no generic path may re-point it.
-                        cropMaintained++;
-                        if (namedStatus != null && namedById != null
-                            && namedById.ContainsKey(img.GetInstanceID()))
-                        {
-                            namedStatus[img.GetInstanceID()] =
-                                "crop-maintained (geometry owned by CardFaceCrop)";
-                        }
-                        continue;
-                    }
-                    entries.Add((img, worn, map));
-                }
-                if (entries.Count == 0 && outlineImg == null)
-                    return;
-
-                CardOutline? outline = null;
-                if (outlineImg != null && outlineImg.sprite != null)
-                {
-                    Sprite outlineSource = CardFaceMipBake.OriginalOf(outlineImg.sprite) ?? outlineImg.sprite;
-                    outline = CardOutline.ForSource(kind, outlineSource, outlineRect);
-                }
-
-                int layers = 0, repointed = 0, wearing = 0, kept = 0, decorations = 0, namedCount = 0;
-                if (outline != null)
-                {
-                    // GEOMETRIC MODE (round 9; round 10 adds identity): every full-span layer AND
-                    // every NAMED plate is punched against the one derived outline. The named set
-                    // does not depend on the span gate — that gate has now lost twice on the same
-                    // two sprites (round 8: Simple-only; round 9: "1 layer(s) eligible").
-                    foreach ((Image img, Sprite worn, CardFaceMipBake.PunchMapping map) in entries)
-                    {
-                        Rect norm = map.FaceRect;
-                        bool spans = norm.width >= SpanAxisFraction || norm.height >= SpanAxisFraction;
-                        bool namedPlate = namedById != null && namedById.ContainsKey(img.GetInstanceID());
-                        if (!spans && !namedPlate)
-                        {
-                            decorations++;
-                            continue;
-                        }
-                        layers++;
-                        if (namedPlate)
-                            namedCount++;
-                        // Round 10 (a): the shader-identity line — one per distinct shader. This
-                        // is the line that decides whether alpha-0 pixels can even BE invisible
-                        // on this layer, regardless of everything else in this build.
-                        LogShaderIdentity(img);
-                        Sprite source = CardFaceMipBake.OriginalOf(worn) ?? worn;
-                        Sprite? punched = CardFaceMipBake.OutlinePunchedReplacementFor(source, map, outline);
-                        string status;
-                        if (punched == null)
-                        {
-                            kept++; // clean (nothing outside) or refused — the punch log names which
-                            status = "kept unpunched (clean or refused — the punch lines name which)";
-                        }
-                        else if (!ReferenceEquals(worn, punched))
-                        {
-                            img.sprite = punched;
-                            repointed++;
-                            status = "re-pointed to its punched copy";
-                        }
-                        else
-                        {
-                            wearing++;
-                            status = "already wearing its punched copy";
-                        }
-                        if (namedStatus != null && namedPlate)
-                            namedStatus[img.GetInstanceID()] = status;
-                    }
-                    if (layers > 0 && !s_sweepLogged[(int)kind])
-                    {
-                        s_sweepLogged[(int)kind] = true;
-                        VRLog.Info("Cards", $"CARD FRAME PUNCH sweep ({kind}, GEOMETRIC): outline from " +
-                                            $"'{outline.SourceName}' (bands {outline.BandSummary}); eligibility " +
-                                            $"= drawn rect spanning >= {SpanAxisFraction:P0} of the " +
-                                            $"{faceRect.width:F0}x{faceRect.height:F0} px face on either axis " +
-                                            $"OR named identity ({namedCount} named plate(s) in this pass). " +
-                                            $"{layers} layer(s) eligible ({repointed} re-pointed to punched " +
-                                            $"copies, {wearing} already wearing one, {kept} kept unpunched — " +
-                                            $"clean or refused, the punch lines name which); {decorations} " +
-                                            $"sprite(s) are decorations/icons and were never touched; " +
-                                            $"{unmappable} tiled/partial-filled image(s) have no derivable " +
-                                            $"mapping and were never touched; {cropMaintained} crop-maintained " +
-                                            "layer(s) left to CardFaceCrop.");
-                    }
-                    LogNamedIdentity(kind, named, namedStatus);
-                }
-                else if (outlineImg != null)
-                {
-                    // FALLBACK = the EXACT ModBuild-112 behaviour: luma-BFS punch of the
-                    // coverage-gate layer(s) only. The CardOutline refusal line above this one
-                    // names why the geometric mode is unavailable for this art.
-                    int spanning = 0;
-                    foreach ((Image img, Sprite worn, CardFaceMipBake.PunchMapping map) in entries)
-                    {
-                        Rect norm = map.FaceRect;
-                        if (map.Sliced || norm.width * norm.height < MinOutlineCoverage)
-                            continue; // 112 punched Simple coverage-gate layers only
-                        spanning++;
-                        LogShaderIdentity(img);
-                        Sprite source = CardFaceMipBake.OriginalOf(worn) ?? worn;
-                        Sprite? punched = CardFaceMipBake.PunchedReplacementFor(source);
-                        if (punched == null)
-                        {
-                            kept++;
-                            continue;
-                        }
-                        if (!ReferenceEquals(worn, punched))
-                        {
-                            img.sprite = punched;
-                            repointed++;
-                        }
-                        else
-                        {
-                            wearing++;
-                        }
-                    }
-                    if (spanning > 0 && !s_sweepLogged[(int)kind])
-                    {
-                        s_sweepLogged[(int)kind] = true;
-                        VRLog.Info("Cards", $"CARD FRAME PUNCH sweep ({kind}, FALLBACK — no validated " +
-                                            $"outline, see the CARD OUTLINE line): ModBuild-112 luma-BFS punch " +
-                                            $"of {spanning} coverage-gate layer(s) ({repointed} re-pointed, " +
-                                            $"{wearing} wearing, {kept} kept unpunched). The action halves are " +
-                                            "NOT punched in this mode; if the band survives here, the outline " +
-                                            "refusal is the lead.");
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                if (!s_errorLogged)
-                {
-                    s_errorLogged = true;
-                    VRLog.Warn("Cards", $"CARD FRAME PUNCH sweep failed ({ex.GetType().Name}: {ex.Message}) — " +
-                                        "faces keep their unpunched copies (today's look).");
-                }
-            }
-        }
-
-        /// <summary>Shaders already reported by <see cref="LogShaderIdentity"/>.</summary>
-        private static readonly HashSet<string> s_shaderLogged = new(4);
-
-        /// <summary>
-        /// ROUND 10 (a) — THE LINE THAT DECIDES THE SHADER THEORY. The 113 run proved the punch
-        /// erased the outside-outline pixels to alpha 0 and the user saw an identical band even
-        /// where only the punched background paints. That admits one explanation class: erasing
-        /// to transparent black does not change what his renderer draws there. The suspect is the
-        /// CUSTOM material <c>CardEffects.Awake</c> assigns every card-face Image
-        /// (<c>image2.material = new Material(image2.material)</c>) and animates
-        /// (<c>_Dissolve</c>/<c>_Burn</c>/<c>_GreyOut</c>): its shader is an asset we cannot read
-        /// offline. So this prints, once per distinct shader, everything the live material
-        /// exposes about its alpha handling. Read the VERDICT clause: it states what each outcome
-        /// means, so the next log settles the theory regardless of what else happens.
-        /// </summary>
-        private static void LogShaderIdentity(Image img)
-        {
-            try
-            {
-                Material? mat = img.material;
-                if (mat == null || mat.shader == null)
-                    return;
-                // ROUND 11 — the GPU experiment, at the same "first card material seen" moment
-                // this identity line latches on: MaybeRun self-gates to once per session and to
-                // the card-FX family (_Dissolve + _PosAndBounds), renders the punch's exact
-                // alpha-0 pixels through a CLONE of this material at _Dissolve = 0 and at the
-                // floor's epsilon, and logs the CARD SHADER PROBE verdict that decides between
-                // "alpha honored", "epsilon discards (floor proven)" and "shader replacement is
-                // the only road". See CardShaderProbe.
-                CardShaderProbe.MaybeRun(mat);
-                string shaderName = mat.shader.name;
-                if (!s_shaderLogged.Add(shaderName))
-                    return;
-                bool isDefaultMat = mat == img.defaultMaterial;
-                Material? rendered = img.materialForRendering;
-                var props = new System.Text.StringBuilder(96);
-                void Prop(string p)
-                {
-                    if (mat.HasProperty(p))
-                        props.Append(p).Append('=').Append(mat.GetFloat(p).ToString("0.###")).Append(' ');
-                }
-                Prop("_SrcBlend");
-                Prop("_DstBlend");
-                Prop("_BlendOp");
-                Prop("_ZWrite");
-                Prop("_Cutoff");
-                Prop("_Dissolve");
-                Prop("_GreyOut");
-                Prop("_Burn");
-                Prop("_Flow");
-                if (mat.HasProperty("_PosAndBounds"))
-                    props.Append("_PosAndBounds=present ");
-                if (props.Length == 0)
-                    props.Append("none of the probed properties exist ");
-                bool declaresAlphaBlend = mat.HasProperty("_SrcBlend") && mat.HasProperty("_DstBlend")
-                    && (int)mat.GetFloat("_SrcBlend") == 5   // BlendMode.SrcAlpha
-                    && (int)mat.GetFloat("_DstBlend") == 10; // BlendMode.OneMinusSrcAlpha
-                string verdict = shaderName == "UI/Default" || isDefaultMat
-                    ? "this layer renders through uGUI's DEFAULT UI material — it alpha-blends " +
-                      "(SrcAlpha/OneMinusSrcAlpha), so alpha-0 pixels are genuinely invisible and a " +
-                      "band surviving on this layer is NOT an alpha-semantics failure"
-                    : declaresAlphaBlend
-                        ? "a CUSTOM material that DECLARES standard alpha blending via " +
-                          "_SrcBlend/_DstBlend — the 113 punch should have been visible on it; if the " +
-                          "band survived anyway, the declaration is not the whole story and the rect " +
-                          "crop shipped in this build is what settles the band"
-                        : "a CUSTOM card-FX material with NO readable blend state — whether alpha-0 " +
-                          "pixels leave opaque black behind cannot be proven from here. This is the " +
-                          "prime suspect for nine invisible texture-side rounds (a dissolve-clip " +
-                          "shader discards nothing at _Dissolve=0 and would draw punched pixels as " +
-                          "opaque black — which also explains the band vanishing during the game's " +
-                          "own dissolve animation). The rect crop shipped in this build removes the " +
-                          "band under EVERY reading";
-                VRLog.Info("Cards", $"CARD SHADER IDENTITY: Image '{img.name}' renders through material " +
-                                    $"'{mat.name}' / shader '{shaderName}' " +
-                                    $"({(isDefaultMat ? "the default uGUI material" : "a CUSTOM instance — CardEffects.Awake clones one per image")}, " +
-                                    $"renderQueue {mat.renderQueue}" +
-                                    $"{(rendered != null && !ReferenceEquals(rendered, mat) ? $", materialForRendering '{rendered.shader.name}'" : string.Empty)}) — " +
-                                    $"props: {props}keywords [{string.Join(" ", mat.shaderKeywords)}]. " +
-                                    $"VERDICT: {verdict}.");
-            }
-            catch (System.Exception ex)
-            {
-                if (s_shaderLogged.Add("!error"))
-                    VRLog.Warn("Cards", $"CARD SHADER IDENTITY probe failed ({ex.GetType().Name}: {ex.Message}).");
-            }
-        }
-
-        /// <summary>
-        /// The round-10 named-identity report: which of the game's own plate fields resolved, and
-        /// what happened to each. Printed once per kind, only when every resolved plate has
-        /// reached a verdict (art loads async — an early latch would freeze "no sprite yet").
-        /// </summary>
-        private static void LogNamedIdentity(CardBodyKind kind, List<(string Field, Image? Img)>? named,
-                                             Dictionary<int, string>? status)
-        {
-            if (named == null || status == null || s_namedLogged[(int)kind])
-                return;
-            var sb = new System.Text.StringBuilder(192);
-            bool complete = true;
-            foreach ((string field, Image? img) in named)
-            {
-                string s;
-                if (img == null)
-                {
-                    s = "UNRESOLVED — the field or its component is null on this build";
-                }
-                else if (!img.enabled || !img.gameObject.activeSelf)
-                {
-                    // Round 12: the unfocusedMask is INACTIVE by design in local play
-                    // (SetUnfocused(false)) — that is a final state, not "art still loading",
-                    // and treating it as pending would keep this line from ever printing.
-                    if (field == "unfocusedMask")
-                    {
-                        s = "inactive (SetUnfocused(false) — draws nothing now; punched/cropped " +
-                            "against its own rect the moment the game activates it)";
-                    }
-                    else
-                    {
-                        s = "not drawn yet";
-                        complete = false;
-                    }
-                }
-                else if (img.sprite == null)
-                {
-                    s = "no sprite yet (art loading)";
-                    complete = false;
-                }
-                else if (!status.TryGetValue(img.GetInstanceID(), out s))
-                {
-                    s = "no verdict this pass";
-                    complete = false;
-                }
-                if (sb.Length > 0)
-                    sb.Append("; ");
-                sb.Append(field).Append("→'").Append(img != null ? img.name : "-").Append("' ").Append(s);
-            }
-            if (!complete)
-                return; // art still arriving — try again on a later sweep
-            s_namedLogged[(int)kind] = true;
-            VRLog.Info("Cards", $"CARD FRAME PUNCH named identity ({kind}): the background, the action " +
-                                "plates AND (round 12) the widget's second background copy are punched BY " +
-                                "IDENTITY (CardEffects' serialized Image fields, FullAbilityCardAction." +
-                                "actionButton/defaultActionButton as fallback, FullAbilityCard.unfocusedMask) " +
-                                $"— no heuristic gate in their path. {sb}. An UNRESOLVED entry rides the " +
-                                "generic span gate only and this line is the lead if its band survives.");
-        }
-    }
-
-    /// <summary>
-    /// ROUND 10 — THE ONE MAPPING BUILDER. How an Image's sprite pixels map into face-normalized
-    /// space: Simple images through their letterbox-corrected drawn rect (round 7), Sliced and
-    /// fully Filled images through uGUI's own 9-slice geometry replicated from live values
-    /// (round 9). Factored out of the punch sweep so the sweep and <see cref="CardFaceCrop"/>
-    /// build IDENTICAL mappings and can never disagree about where a pixel draws. False =
-    /// no derivable static mapping (Tiled, partially Filled, degenerate rect).
-    /// <paramref name="uniformSimple"/> is true only for the Simple branch — the outline-source
-    /// gate accepts only those.
-    /// </summary>
-    internal static bool TryBuildPunchMapping(Image img, Sprite worn, RectTransform faceRoot,
-                                              Rect faceRect, Vector3[] corners,
-                                              out CardFaceMipBake.PunchMapping map,
-                                              out bool uniformSimple)
-    {
-        map = default;
-        uniformSimple = false;
-        Image.Type type = img.type;
-        if (type == Image.Type.Simple)
-        {
-            // Drawn rect (preserveAspect letterbox corrected — round 7).
-            Rect norm = FaceNormRectOf(img.rectTransform, DrawnLocalRect(img, worn, out _),
-                faceRoot, faceRect, corners);
-            if (norm.width <= 0f || norm.height <= 0f)
-                return false;
-            map = new CardFaceMipBake.PunchMapping(norm);
-            uniformSimple = true;
-            return true;
-        }
-        if (type == Image.Type.Sliced
-            || (type == Image.Type.Filled && img.fillAmount >= 0.999f))
-        {
-            // Sliced/full-filled draw across their LAYOUT rect (preserveAspect is a
-            // Simple-only feature in uGUI's OnPopulateMesh).
-            Rect norm = FaceNormRectOf(img.rectTransform, img.rectTransform.rect,
-                faceRoot, faceRect, corners);
-            if (norm.width <= 0f || norm.height <= 0f)
-                return false;
-            Vector4 borderPx = worn.border;
-            if (type != Image.Type.Sliced || borderPx == Vector4.zero)
-            {
-                // A sliced image without a border renders exactly like Simple.
-                map = new CardFaceMipBake.PunchMapping(norm);
-            }
-            else
-            {
-                // uGUI GenerateSlicedSprite: borders in local units are
-                // sprite.border / multipliedPixelsPerUnit, clamp-scaled per axis when
-                // the rect is smaller than the combined borders — replicated from
-                // live values, then converted into face-normalized units.
-                float ppm = Mathf.Max(0.01f, img.pixelsPerUnit * img.pixelsPerUnitMultiplier);
-                Vector4 local = borderPx / ppm;
-                Rect layout = img.rectTransform.rect;
-                for (int axis = 0; axis <= 1; axis++)
-                {
-                    float combined = local[axis] + local[axis + 2];
-                    float size = axis == 0 ? layout.width : layout.height;
-                    if (combined > size && combined > 0f)
-                    {
-                        float ratio = size / combined;
-                        local[axis] *= ratio;
-                        local[axis + 2] *= ratio;
-                    }
-                }
-                float sx = norm.width / Mathf.Max(0.01f, layout.width);
-                float sy = norm.height / Mathf.Max(0.01f, layout.height);
-                var dest = new Vector4(local.x * sx, local.y * sy, local.z * sx, local.w * sy);
-                map = new CardFaceMipBake.PunchMapping(norm, borderPx, dest);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    /// <summary>A local rect on <paramref name="irt"/> (drawn or layout, the caller decides —
-    /// the round-7 letterbox correction applies to Simple images only) in face-normalized
-    /// 0..1 coordinates. May extend past 0..1 when the graphic overhangs the face.</summary>
-    internal static Rect FaceNormRectOf(RectTransform irt, Rect drawnLocal, RectTransform faceRoot,
-                                        Rect faceRect, Vector3[] corners)
-    {
-        corners[0] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMin, 0f));
-        corners[1] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMax, 0f));
-        corners[2] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMax, 0f));
-        corners[3] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMin, 0f));
-        float minNx = float.MaxValue, minNy = float.MaxValue;
-        float maxNx = float.MinValue, maxNy = float.MinValue;
-        for (int c = 0; c < 4; c++)
-        {
-            Vector3 local = faceRoot.InverseTransformPoint(corners[c]);
-            float nx = (local.x - faceRect.xMin) / faceRect.width;
-            float ny = (local.y - faceRect.yMin) / faceRect.height;
-            if (nx < minNx) minNx = nx;
-            if (nx > maxNx) maxNx = nx;
-            if (ny < minNy) minNy = ny;
-            if (ny > maxNy) maxNy = ny;
-        }
-        return Rect.MinMaxRect(minNx, minNy, maxNx, maxNy);
-    }
 
     /// <summary>
     /// Offer a live card face to the silhouette capture AND to the face blackout. Cheap and safe
@@ -1486,17 +484,6 @@ internal sealed class CardFace
             }
 
             SilhouetteState state = s_silhouette[(int)kind];
-
-            // (0) THE OUTLINE SWEEP, BEFORE EVERYTHING (round 8 punch; round 9 geometric;
-            // ROUND 17: the punch SERVING inside it is retired — see the FramePunch class doc —
-            // so the sweep changes nothing the face renders; the art stays complete, printed
-            // frame included). It still runs before the capture ON PURPOSE: it is where
-            // CardOutline derives the card's bright-trim outline, and TryCapture's OUTLINE CLIP
-            // intersects the footprint with that geometry — the one mechanism that now keeps the
-            // printed frame OUTSIDE the contour the BODY mesh is punched out to (CardContour),
-            // given that the capture samples the unpunched stock pixels. Runs on every offer
-            // (cheap dictionary hits once warm) so every class and both card kinds are covered.
-            FramePunch.Sweep(root, kind, ability);
 
             // (1) THE BLACKOUT, AND ALWAYS. Its input is the APPLIED mask, which — from the
             // second launch onward — CardMesh loaded from the persisted cache before the first card
@@ -1749,9 +736,6 @@ internal sealed class CardFace
         int fw = FootprintWidth;
         int fh = Mathf.Clamp(Mathf.RoundToInt(fw * faceRect.height / faceRect.width), 64, 512);
         var alpha = new byte[fw * fh];
-        // Luminance of whichever sample WON each texel's alpha max — the only extra state the
-        // drop-shadow rule needs (see ShadowLumaMax). One byte per texel, thrown away below.
-        var luma = new byte[fw * fh];
         var readbacks = new List<Texture2D>(picks.Count);
         int stamped = 0, backdrops = 0;
         // THE ART RECT: the union of the DRAWN rects that actually contributed, in face-normalized
@@ -1849,11 +833,6 @@ internal sealed class CardFace
                         if (b > alpha[idx])
                         {
                             alpha[idx] = b;
-                            // Rec.601 on the image's own tint-modulated colour.
-                            float y601 = (src.r * img.color.r * 0.299f
-                                        + src.g * img.color.g * 0.587f
-                                        + src.b * img.color.b * 0.114f) * 255f;
-                            luma[idx] = (byte)Mathf.Clamp(Mathf.RoundToInt(y601), 0, 255);
                             stamped++;
                         }
                     }
@@ -1875,98 +854,21 @@ internal sealed class CardFace
             return;
         }
 
-        // DROP-SHADOW TRIM (see ShadowLumaMax). A baked shadow around the card frame lands in the
-        // 0.5..0.9 alpha band and is dark; under a plain ">= 0.5 is card" test it would hold the
-        // mesh out to a soft rectangle. Opaque dark pixels (a PRINTED dark border) are untouched.
-        int shadowTrimmed = 0;
-        for (int i = 0; i < alpha.Length; i++)
-        {
-            if (alpha[i] >= 128 && alpha[i] < ShadowAlphaCeil && luma[i] <= ShadowLumaMax)
-            {
-                alpha[i] = 0;
-                shadowTrimmed++;
-            }
-        }
-
-        // DARK BORDER PEEL (round 5) — see the block above PeelDarkBorder for the derivation and
-        // for why this line is the round's falsifier. Runs on every capture, logs either way.
-        int peeled = PeelDarkBorder(alpha, luma, fw, fh, out int peelDepth, out int peelLuma,
-                                    out bool peelCapped);
-        VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) DARK BORDER PEEL: {peeled} texel(s) = " +
-                            $"{(float)peeled / alpha.Length:P2} of the face removed as a printed black " +
-                            $"frame (opaque, luma <= {DarkBorderLumaMax}, reachable from outside, max depth " +
-                            $"{peelDepth} of {Mathf.Max(1, Mathf.RoundToInt(Mathf.Min(fw, fh) * DarkBorderMaxDepthFraction))} " +
-                            $"texels; mean luma of what went = {peelLuma})" +
-                            (peelCapped
-                                ? " — DISCARDED: the band exceeded " +
-                                  $"{DarkBorderMaxAreaFraction:P0} of the opaque area, so this is a dark CARD, " +
-                                  "not a dark FRAME. Footprint kept exactly as captured."
-                                : peeled == 0
-                                    ? " — the card art carries NO opaque black band on its outside, so the " +
-                                      "black border the user reports is not printed into the art: it is drawn " +
-                                      "by something on the FACE (see the blackout line) or by a body this " +
-                                      "clip does not reach."
-                                    : " — the mask now describes the card WITHOUT its printed frame. The mesh " +
-                                      "sits BEHIND the art, so this alone cannot uncover a band the ART paints; " +
-                                      "what it does buy is a tighter definition of 'outside the card' for the " +
-                                      "face blackout below."));
-
-        // OUTLINE INTERSECTION (round 9) — the third consumer of the ONE geometry.
-        // ROUND 17: THIS BLOCK IS NOW LOAD-BEARING, NOT A BACKSTOP. With punched-copy serving
-        // retired (CardFaceMipBake.PunchServingEnabled = false), the capture above sampled the
-        // UNPUNCHED stock art — printed frame included, opaque — so without this intersection
-        // the footprint would extend into the frame band and the punched-out BODY mesh
-        // (CardContour) would carry the frame's rectangle-ish bulge. The CardOutline-derived
-        // band geometry here is the explicit, deliberate mechanism that keeps the printed frame
-        // OUTSIDE the contour: same InsideFace answer the punch used to bake into pixels, now
-        // applied to the footprint alone, so the mask (and the v5 cache semantics) stay
-        // byte-equivalent while the face renders complete.
-        CardOutline? kindOutline = CardOutline.ForKind(kind);
-        if (kindOutline != null)
-        {
-            int outlineTrimmed = 0;
-            for (int fy = 0; fy < fh; fy++)
-            {
-                float v = (fy + 0.5f) / fh;
-                int rowBase2 = fy * fw;
-                for (int fx = 0; fx < fw; fx++)
-                {
-                    int i = rowBase2 + fx;
-                    if (alpha[i] == 0)
-                        continue;
-                    if (!kindOutline.InsideFace((fx + 0.5f) / fw, v))
-                    {
-                        alpha[i] = 0;
-                        outlineTrimmed++;
-                    }
-                }
-            }
-            VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) OUTLINE CLIP: footprint intersected with the " +
-                                $"derived card outline (from '{kindOutline.SourceName}', bands " +
-                                $"{kindOutline.BandSummary}) — {outlineTrimmed} texel(s) = " +
-                                $"{(float)outlineTrimmed / alpha.Length:P2} of the face removed. Mesh clip, " +
-                                "sprite punch and the (disabled) shape mask now share ONE geometry; a band " +
-                                "that survives this build is NOT painted inside these bounds.");
-        }
-
         VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) attempt {state.Attempts}: footprint {fw}x{fh} " +
                             $"stamped from {picks.Count - backdrops} of {picks.Count} candidate image(s) " +
                             $"({backdrops} opaque full-bleed backdrop(s) skipped) on a " +
                             $"{faceRect.width:F0}x{faceRect.height:F0} px face — sources: " +
-                            $"{(sources.Length > 0 ? sources.ToString() : "none")}. Drop-shadow trim " +
-                            $"(dark pixels under alpha {ShadowAlphaCeil}/255, luma <= {ShadowLumaMax}) " +
-                            $"removed {shadowTrimmed} texel(s) = {(float)shadowTrimmed / alpha.Length:P1} " +
-                            "of the face; 0 means this art carries no soft dark fringe. Handing it to " +
-                            "CardMesh.");
+                            $"{(sources.Length > 0 ? sources.ToString() : "none")}. STOCK-ALPHA footprint: " +
+                            "the art's own designed alpha at the 0.5 iso — no shadow trim, no frame punch, " +
+                            "no outline clip — so the body backs exactly what the face draws, bottom edge " +
+                            "included. Handing it to CardMesh.");
         string sourceName = sources.Length > 0 ? sources.ToString() : "unnamed";
 
-        // THE ROUND-7 FALSIFIER. This line always prints and it says, in one number, whether the
-        // defect this round diagnosed exists on the user's art: how much of the face rect the card
-        // art actually DRAWS on. 100 % on both axes means uGUI is stretching the sprite to the whole
-        // rect after all, the letterbox theory is wrong for this card, and the remaining black has
-        // to be inside the art itself (read the DARK BORDER PEEL line above — that is the other
-        // candidate and it is neutralised in the same build). Anything below 100 % on an axis is a
-        // band the BODY used to paint and no longer does.
+        // THE ART RECT LINE: how much of the face rect the card art actually DRAWS on
+        // (preserveAspect letterboxes the poker-shaped art inside the taller face rect). The
+        // footprint spans the FULL face rect — that is the space the card body samples it in —
+        // and this sub-rect is what ExportTexture crops to for consumers that have no face rect
+        // (the peer board-recess quads, Net/RemoteBoardCard).
         Rect artRect = (artMaxX > artMinX && artMaxY > artMinY)
             ? Rect.MinMaxRect(Mathf.Clamp01(artMinX), Mathf.Clamp01(artMinY),
                               Mathf.Clamp01(artMaxX), Mathf.Clamp01(artMaxY))
@@ -1976,15 +878,8 @@ internal sealed class CardFace
                             $"{faceRect.height:F0} px face rect (x {artRect.xMin:F3}..{artRect.xMax:F3}, " +
                             $"y {artRect.yMin:F3}..{artRect.yMax:F3}); {aspectCorrected} of {picks.Count} " +
                             "candidate(s) are preserveAspect and were letterboxed inside their own layout " +
-                            "rect. The card BODY is fitted to the FULL face rect (VRCard.SetCanvasSize), so " +
-                            "any axis below 100 % here is exactly the black band of the 2026-08-11 report: " +
-                            "the mask is now transparent there and the slab stops painting it. 100 % x 100 % " +
-                            "means this round's cause is absent on this art and the DARK BORDER PEEL line " +
-                            "above carries the other candidate.");
-
-        // ATTEMPT-EIGHT FALLBACK DIAGNOSTIC: if the band survives THIS build too, the next log
-        // must name the culprit graphic outright instead of costing a ninth round of inference.
-        LogFrameBandInventory(faceRoot, kind, faceRect);
+                            "rect. The footprint spans the full face rect; this sub-rect only drives " +
+                            "CardMesh.ExportTexture's crop for the peer-quad consumers.");
 
         // ALREADY APPLIED (normally: from the persisted cache, before this session drew a card).
         // Do NOT re-apply — a mid-session re-shape is exactly the visible transition the user
@@ -2008,11 +903,11 @@ internal sealed class CardFace
             // never runs: the mask arrives from the cache before the first card body exists.
             FaceBlackout.InvalidateRateLimits();
             VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}): APPLIED — every body of this shape is now " +
-                                "alpha-clipped to the card art's own outline, so the dark front only shows " +
-                                "where the card itself is solid. This is the 2026-08-11 report " +
-                                "('keinen schwarzen Rand … die meshes genau die Ränder der Karten'). This " +
-                                "session is the FIRST for this shape, so the change was visible once; it is " +
-                                "now cached and every later launch has it before the first card is drawn.");
+                                "punched out to the card art's own outline (CardContour mesh), so the " +
+                                "umber front only exists where the card itself is solid ('die meshes genau " +
+                                "die Ränder der Karten'). This session is the FIRST for this shape, so the " +
+                                "change was visible once; it is now cached and every later launch has it " +
+                                "before the first card is drawn.");
         }
         else
         {
@@ -2106,191 +1001,6 @@ internal sealed class CardFace
         if (layoutArea > 0f)
             shrink = Mathf.Clamp01(r.width * r.height / layoutArea);
         return r;
-    }
-
-    // ------------------------------------------- frame band inventory (round 8 diag) --
-
-    /// <summary>Latch: one FRAME BAND INVENTORY line per card kind per session.</summary>
-    private static readonly bool[] s_bandInventoryLogged = new bool[3];
-
-    /// <summary>The outer band of the face the inventory samples, as a fraction of each axis.
-    /// 8 % comfortably contains the measured band (4.76 % of the card height).</summary>
-    private const float BandFraction = 0.08f;
-
-    /// <summary>
-    /// ATTEMPT-EIGHT DIAGNOSTIC (runs once per kind, on capture): name EVERY drawn graphic that
-    /// contributes opaque near-black pixels to the outer <see cref="BandFraction"/> band of the
-    /// face, with counts — so if the black band survives this build too, the next hardware log
-    /// names the culprit graphic outright and ends the guessing. Sprite-bearing Images are sampled
-    /// at their real pixels (GPU readback, trim-correct, drawn-rect mapping); sprite-less quads
-    /// and other Graphic types are judged by their colour (stated in the line, so the method is on
-    /// the record with the number). Failure here only costs the line, never the capture.
-    /// </summary>
-    private static void LogFrameBandInventory(RectTransform faceRoot, CardBodyKind kind, Rect faceRect)
-    {
-        if (s_bandInventoryLogged[(int)kind])
-            return;
-        s_bandInventoryLogged[(int)kind] = true;
-        var readbacks = new List<Texture2D>(4);
-        try
-        {
-            const int probeX = 24, probeY = 36;
-            const float lumaMax = 48f / 255f;
-            Graphic[] graphics = faceRoot.GetComponentsInChildren<Graphic>(includeInactive: true);
-            var sb = new System.Text.StringBuilder(192);
-            int checkedCount = 0, silent = 0;
-            var corners = new Vector3[4];
-            var regionCache = new Dictionary<int, Texture2D?>();
-            foreach (Graphic g in graphics)
-            {
-                if (g == null || !g.enabled || !g.gameObject.activeSelf)
-                    continue;
-                checkedCount++;
-
-                Image? gImg = g as Image;
-                Sprite? sprite = gImg != null ? gImg.sprite : null;
-                // Where does this graphic DRAW? Sprite Images: the letterbox-corrected drawn rect;
-                // everything else: its layout rect (a quad/text fills it).
-                Rect local = gImg != null && sprite != null
-                    ? DrawnLocalRect(gImg, sprite, out _)
-                    : ((RectTransform)g.transform).rect;
-                RectTransform grt = (RectTransform)g.transform;
-                corners[0] = grt.TransformPoint(new Vector3(local.xMin, local.yMin, 0f));
-                corners[1] = grt.TransformPoint(new Vector3(local.xMin, local.yMax, 0f));
-                corners[2] = grt.TransformPoint(new Vector3(local.xMax, local.yMax, 0f));
-                corners[3] = grt.TransformPoint(new Vector3(local.xMax, local.yMin, 0f));
-                float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
-                for (int c = 0; c < 4; c++)
-                {
-                    Vector3 p = faceRoot.InverseTransformPoint(corners[c]);
-                    float nx = (p.x - faceRect.xMin) / faceRect.width;
-                    float ny = (p.y - faceRect.yMin) / faceRect.height;
-                    if (nx < minNx) minNx = nx;
-                    if (nx > maxNx) maxNx = nx;
-                    if (ny < minNy) minNy = ny;
-                    if (ny > maxNy) maxNy = ny;
-                }
-                float aw = maxNx - minNx, ah = maxNy - minNy;
-                if (aw <= 0f || ah <= 0f)
-                    continue;
-
-                // Sprite pixel source, once per sprite (null = unreadable → colour-only verdict).
-                Texture2D? region = null;
-                float srcW = 0f, srcH = 0f, trW = 0f, trH = 0f;
-                Vector2 trimOff = Vector2.zero;
-                bool sampled = false;
-                if (sprite != null && sprite.texture != null)
-                {
-                    int sid = sprite.GetInstanceID();
-                    if (!regionCache.TryGetValue(sid, out region))
-                    {
-                        try
-                        {
-                            Rect tr = sprite.textureRect;
-                            region = tr.width >= 2f && tr.height >= 2f
-                                ? ReadSpriteRegion(sprite.texture, tr)
-                                : null;
-                            if (region != null)
-                                readbacks.Add(region);
-                        }
-                        catch (System.Exception)
-                        {
-                            region = null; // tight-packed: textureRect throws — colour-only below
-                        }
-                        regionCache[sid] = region;
-                    }
-                    if (region != null)
-                    {
-                        Rect tr = sprite.textureRect;
-                        srcW = Mathf.Max(1f, sprite.rect.width);
-                        srcH = Mathf.Max(1f, sprite.rect.height);
-                        trW = tr.width;
-                        trH = tr.height;
-                        trimOff = sprite.textureRectOffset;
-                        sampled = true;
-                    }
-                }
-
-                Color col = g.color;
-                float colLuma = col.r * 0.299f + col.g * 0.587f + col.b * 0.114f;
-                int dark = 0, band = 0;
-                for (int py = 0; py < probeY; py++)
-                {
-                    float lv = (py + 0.5f) / probeY;
-                    float v = minNy + ah * lv;
-                    if (v < 0f || v > 1f)
-                        continue;
-                    for (int px = 0; px < probeX; px++)
-                    {
-                        float lu = (px + 0.5f) / probeX;
-                        float u = minNx + aw * lu;
-                        if (u < 0f || u > 1f)
-                            continue;
-                        if (Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v)) > BandFraction)
-                            continue; // not in the outer band
-                        band++;
-                        float a, luma;
-                        if (sampled)
-                        {
-                            float pxf = lu * srcW - trimOff.x;
-                            float pyf = lv * srcH - trimOff.y;
-                            if (pxf < 0f || pxf > trW || pyf < 0f || pyf > trH)
-                                continue; // trimmed-away margin: transparent
-                            Color s = region!.GetPixelBilinear(pxf / trW, pyf / trH);
-                            a = s.a * col.a;
-                            luma = s.r * col.r * 0.299f + s.g * col.g * 0.587f + s.b * col.b * 0.114f;
-                        }
-                        else
-                        {
-                            a = col.a;
-                            luma = colLuma;
-                        }
-                        if (a >= 0.5f && luma <= lumaMax)
-                            dark++;
-                    }
-                }
-                if (dark == 0)
-                {
-                    silent++;
-                    continue;
-                }
-                if (sb.Length > 0)
-                    sb.Append("; ");
-                sb.Append('\'').Append(g.name).Append('\'');
-                if (sprite != null)
-                    sb.Append("/'").Append(sprite.name).Append('\'');
-                sb.Append(' ').Append(dark).Append(" of ").Append(band).Append(" band probe(s)")
-                  .Append(sampled ? string.Empty
-                      : sprite != null ? " (pixels unreadable — judged by colour)" : " (colour-only quad/text)");
-            }
-            // ROUND 9: print the derived outline's per-edge band widths alongside the inventory,
-            // so ONE log line validates the geometry against what the player actually sees — a
-            // visible band that disagrees with these numbers means the DERIVATION is wrong; a
-            // band that agrees with them but still shows means a consumer is not applying it.
-            CardOutline? outline = CardOutline.ForKind(kind);
-            string outlineNote = outline != null
-                ? $" Derived outline (from '{outline.SourceName}', threshold {outline.Threshold}): bands " +
-                  $"{outline.BandSummary}."
-                : " No validated outline for this kind (see the CARD OUTLINE line) — geometric punch " +
-                  "inactive, ModBuild-112 fallback in effect.";
-            VRLog.Info("Cards", $"CARD FRAME BAND INVENTORY ({kind}): opaque near-black (alpha >= 0.5, " +
-                                $"luma <= 48/255) contributions to the outer {BandFraction:P0} band of the " +
-                                $"{faceRect.width:F0}x{faceRect.height:F0} px face — " +
-                                $"{(sb.Length > 0 ? sb.ToString() : "NONE")}. {checkedCount} drawn graphic(s) " +
-                                $"checked, {silent} contribute nothing.{outlineNote} If the black band survives " +
-                                "this build, the graphic that paints it is named RIGHT HERE.");
-        }
-        catch (System.Exception ex)
-        {
-            VRLog.Warn("Cards", $"CARD FRAME BAND INVENTORY ({kind}) skipped ({ex.GetType().Name}: " +
-                                $"{ex.Message}) — the capture itself is unaffected.");
-        }
-        finally
-        {
-            foreach (Texture2D t in readbacks)
-                if (t != null)
-                    Object.Destroy(t);
-        }
     }
 
     /// <summary>Is this sprite region opaque at every probe point? A 16x16 grid including the
@@ -2787,10 +1497,6 @@ internal sealed class CardFace
         if (_face == null || _host == null)
             return;
         RefreshFitScale();
-        // Drop any stale wrapper first: this method exists to re-assert the pose after somebody
-        // moved the face, and a wrapper left behind would be an empty shell under the host.
-        Cards.CardShapeMask.Release(_face);
-        _shape = null;
         _face.SetParent(_host, worldPositionStays: false);
         _face.anchorMin = CenterAnchor;
         _face.anchorMax = CenterAnchor;
@@ -2800,23 +1506,6 @@ internal sealed class CardFace
         _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
         if (!_face.gameObject.activeSelf)
             _face.gameObject.SetActive(true);
-        EnsureShapeMask();
-    }
-
-    /// <summary>
-    /// THE FACE CLIP. Wrap the adopted face in the card-shaped stencil mask
-    /// (<see cref="CardShapeMask"/>) as soon as a footprint exists. Two entry points on purpose:
-    /// here, so a warm cache has the mask in place BEFORE the face's first drawn frame (the
-    /// footprint is loaded inside the card body's material factory, i.e. before this card's shell
-    /// finished building), and from <see cref="Maintain"/>, so the FIRST run — where the shape is
-    /// only learned once the art loads — picks it up the moment it lands instead of at the next
-    /// re-adoption. Cheap: one field test in the steady state.
-    /// </summary>
-    private void EnsureShapeMask()
-    {
-        if (_face == null || _shape != null)
-            return;
-        _shape = Cards.CardShapeMask.Wrap(_face, CardBodyKind.Ability);
     }
 
     /// <summary>
@@ -2829,20 +1518,14 @@ internal sealed class CardFace
             return;
         if (_owner == null || _owner.fullAbilityCard == null)
         {
-            // Widget died under us (scene teardown) — drop references (the crop's restore is
-            // Unity-null guarded, so this only touches whatever actually survived).
-            _crop.Restore();
+            // Widget died under us (scene teardown) — drop references.
             _face = null;
             _owner = null;
             _artWatch.Clear();
             return;
         }
 
-        // OURS = directly under the host, or one level down inside our own card-shape stencil
-        // wrapper (CardShapeMask). Without the second reading every wrapped card would look to
-        // this test like a face a game dialog had stolen, and Maintain would fight its own wrapper
-        // every frame.
-        if (!IsOurParent(_face.parent))
+        if (!ReferenceEquals(_face.parent, _host))
         {
             // Who moved it? A hand-layout refresh re-parents the face back under its
             // own AbilityCardUI (reclaim it). A game DIALOG (burn/redraw popups take
@@ -2936,24 +1619,6 @@ internal sealed class CardFace
         float scale = _face.localScale.x;
         if (!Mathf.Approximately(scale, _fitScale))
             _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
-        // FIRST RUN ONLY in practice: with a warm cache the wrapper was built during Adopt. On a
-        // cold cache the shape is learned mid-session, and this is what puts the clip on every face
-        // already on screen in the frame the footprint lands. In the steady state it is one field
-        // test; once wrapped it only re-fits the wrapper to the face's rendered rect.
-        EnsureShapeMask();
-        if (_shape != null)
-            _shape.RefreshRect();
-        // ROUND 10 — the geometric rect crop, LAST in the pass on purpose: everything above may
-        // rewrite face state (pose re-assert, mip rescan, art guard), and the crop's per-frame
-        // job is to re-assert the cropped sprite+rect pairs over whatever the game (or the
-        // passes above) rewrote. Cheap in the steady state: a handful of rect compares.
-        _crop.Maintain(_owner!.fullAbilityCard, _face);
-        // ROUND 12 — the painter inventory (one latched CARD BAND PAINTER line per context:
-        // tray slot and hand fan). The round-11 probe exonerated the face Images' shader
-        // (alpha honored at rest), so the band's painter is something no Image inventory can
-        // see; this names it. One static bool read per frame once both contexts latched.
-        if (CardBandPainter.Pending)
-            CardBandPainter.MaybeReport(_face, _host, _owner);
     }
 
     /// <summary>
@@ -2964,17 +1629,6 @@ internal sealed class CardFace
     /// <c>FullCardHandViewer.CardContainer</c> instead — and is short-circuited here
     /// anyway by <c>LockFullCard</c> — so this never mis-fires on a preview.
     /// </summary>
-    /// <summary>Is <paramref name="parent"/> the host, or our own stencil wrapper sitting directly
-    /// under it? See the call site in <see cref="Maintain"/>.</summary>
-    private bool IsOurParent(Transform? parent)
-    {
-        if (parent == null || _host == null)
-            return false;
-        if (ReferenceEquals(parent, _host))
-            return true;
-        return CardShapeMask.IsWrapper(parent) && ReferenceEquals(parent.parent, _host);
-    }
-
     private static bool IsDialogContent(Transform? parent) =>
         parent != null && parent.GetComponentInParent<DialogPopup>() != null;
 
@@ -2986,16 +1640,9 @@ internal sealed class CardFace
     {
         _reclaimedFromDialog = false;
         _artWatch.Clear();
-        // The face stops being ours — FIRST hand back the cropped rects and sprites (a dialog
-        // that takes this face must see the game's own geometry; round 10)...
-        _crop.Restore();
-        // ...then every quad the blackout muted (full-restore contract; a dialog that shows
-        // this face must see the game's own colours)...
+        // The face stops being ours — hand back every quad the blackout muted (full-restore
+        // contract; a dialog that shows this face must see the game's own colours).
         FaceBlackout.Restore(_face);
-        // ...and drop the stencil wrapper, which also puts every neutralised Canvas' overrideSorting
-        // back. A dialog that shows this face must get the game's own hierarchy, not ours.
-        CardShapeMask.Release(_face);
-        _shape = null;
         if (_owner != null)
         {
             CardArtGuard.NoteReleased(_owner.fullAbilityCard);
@@ -3014,27 +1661,15 @@ internal sealed class CardFace
         _face = null;
         _host = null;
         _owner = null;
-        _shape = null;
         _reclaimedFromDialog = false;
         _artWatch.Clear();
 
         if (face == null)
             return;
 
-        // FULL-RESTORE CONTRACT, and it must run BEFORE the transform is put back: the wrapper lifts
-        // the face out of itself and restores every Canvas.overrideSorting it neutralised. A widget
-        // must never return to the game's pool inside a mod GameObject or with a game canvas still
-        // holding a value we wrote.
-        CardShapeMask.Release(face);
-
         // The face stops being ours here — the guard must not keep suppressing/healing a
         // widget the game owns again (owner may already be gone during scene teardown).
         CardArtGuard.NoteReleased(owner != null ? owner.fullAbilityCard : face.GetComponent<FullAbilityCard>());
-
-        // ROUND 10: the rect crop hands back the exact original sizeDelta/localPosition/
-        // preserveAspect and the original game sprites BEFORE the generic sprite restore walks
-        // the face — a widget must never return to the game's pool with a shrunken rect.
-        _crop.Restore();
 
         // T3 mip bake: hand the ORIGINAL sprites back before the widget returns to the
         // game's pool (full-restore contract; guarded inside).

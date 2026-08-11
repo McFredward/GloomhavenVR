@@ -271,14 +271,6 @@ internal static partial class Defaults
     internal const bool PileViewer = true;                                                            // => [Cards] PileViewer
     internal const bool ActivePile = true;                                                            // => [Cards] ActivePile
     internal const bool FaceMipBake = true;                                                           // => [Cards] FaceMipBake
-    // Round 12: 0 by default. The ModBuild-115 CARD SHADER PROBE returned verdict (a) — alpha
-    // HONORED at rest — so the floor cures nothing (the punched alpha-0 pixels were already
-    // invisible), and it is the prime suspect for the 115 bottom regression ("der untere Teil
-    // der Karten ist der Rand nun etwas kaputt"): the card shader's dissolve clip carries a
-    // vertical gradient (_Dissolve_VerticalGradient=0.2, probe property table), so even a tiny
-    // rest-state epsilon starts discarding the lowest-alpha pixels BOTTOM-FIRST — including the
-    // soft fringe of never-punched dark art. Machinery and dial stay (see CardDissolveFloor).
-    internal const float DissolveFloorFraction = 0f;                                                  // => [Cards] DissolveFloorFraction
     internal const ControlBoard Board = ControlBoard.Oak;                                             // => [Cards] Board
     internal static readonly Vector3 ItemUseSlotOffset_Oak = new Vector3(0f, 0f, 0f);                 // => [Cards] ItemUseSlotOffset_Oak
     internal static readonly Vector3 ItemUseSlotOffset_Steel = new Vector3(0f, 0f, 0f);               // => [Cards] ItemUseSlotOffset_Steel
@@ -348,7 +340,6 @@ internal static partial class Defaults
     internal const float FanSplitMultiplier = 0.02f;                                                  // => [Cards] FanSplitMultiplier
     internal const float FanSplitFalloff = 1.6f;                                                      // => [Cards] FanSplitFalloff
     internal const float FanSelectedPopForward = 0.035f;                                              // => [Cards] FanSelectedPopForward
-    internal const CardGrabButton GrabButton = CardGrabButton.Trigger;                                // => [Cards] GrabButton
     internal const float FanFollowSmoothing = 16f;                                                    // => [Cards] FanFollowSmoothing
     internal const float FanFollowDeadzone = 0.004f;                                                  // => [Cards] FanFollowDeadzone
     internal const bool RevealIgnoreWhenGrabbing = true;                                              // => [Cards] RevealIgnoreWhenGrabbing

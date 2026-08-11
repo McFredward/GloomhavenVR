@@ -400,7 +400,6 @@ internal static partial class VROptionsTab
                 {
                     Entries = new[]
                     {
-                        new BoardRef("Cards", "GrabButton", perBoard: false),
                         new BoardRef("Cards", "InspectScale", perBoard: false),
                         new BoardRef("Cards", "HeldFaceBias", perBoard: false),
                         new BoardRef("Cards", "HeldPinchOffset", perBoard: false),

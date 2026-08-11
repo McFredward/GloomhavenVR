@@ -416,7 +416,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 121;
+    public const ushort ModBuild = 122;
+    // Build 122: the border saga CLOSED — bottom-edge fix, the great cleanup, tab wrapping.
+    // No wire change.
+    //
+    // (1) BOTTOM EDGE ("Der untere Rand von allen Karten ist teilweise transparent"): the
+    // contour still derived from the v5 footprint, learned from PUNCHED pixels intersected
+    // with the frame-era CardOutline bands — the body stopped higher than the stock art draws.
+    // Now the capture stamps the STOCK art's own designed alpha and nothing else (drop-shadow
+    // trim, dark-border peel and OUTLINE CLIP deleted); CacheVersion 5 -> 6 forces a relearn,
+    // after which body and face coincide by construction (largest-closed-loop rule keeps
+    // interior holes from piercing the body — "nicht transparent innerhalb des outlines").
+    //
+    // (2) THE GREAT CLEANUP (user: "räum den code auf ... der durch die vielen Versuche
+    // entstanden ist"): net -7,200 LOC. Deleted: CardShapeMask (incl. the Net no-op call
+    // sites), CardDissolveFloor + its dial, CardShaderProbe, CardBandPainter,
+    // CardBandPixelCapture, CardFaceCrop, CardOutline, all punched/cropped mint factories and
+    // per-placement machinery in CardFaceMipBake, the FramePunch sweep + band diagnostics in
+    // CardFace, the cutout material bake in CardMesh, and the inert [Cards] GrabButton dial
+    // (with its dead ProximityGrabber branch and menu rows). KEPT: CardContour + AttachBody
+    // (the solution), stock-alpha silhouette capture v6, mip bake, emission floor, umber
+    // EdgeColor, SlotSeatLiner + Net mirror, FaceBlackout (serves the stock path). The full
+    // 17-round history lives in these build notes (105-121) and git.
+    //
+    // (3) TAB CAPTIONS wrap instead of shrinking (FitTabCaption: rect over the widget height,
+    // word wrap, fontSizeMax capped at donor size; explicit breaks at '&' for 'Brett &
+    // Karten' / 'Avatar & Mehrspieler', DE+EN; same treatment for the Erweitert chooser).
+    //
     // Build 121: the border's attempt SEVENTEEN — the user's own design, implemented literally.
     // No wire change. His ruling (verbatim in CardContour/CardFaceMipBake docs): the card FACE
     // must render completely correct again, and the card MESH must be punched out to the

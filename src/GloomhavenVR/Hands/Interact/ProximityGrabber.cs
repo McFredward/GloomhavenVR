@@ -14,8 +14,8 @@ namespace GloomhavenVR.Hands.Interact;
 /// WHICH button: CARDS and board figures are TRIGGER-ONLY (see
 /// <see cref="IsTriggerOnly"/> — user 2026-08-11: "Die Karten sollen nur mit dem
 /// trigger nehmbar sein"), panels/tray bars are grip-only
-/// (<see cref="IGrabbable.GrabWithGrip"/>), and only a future grabbable in neither
-/// class would obey [Cards] GrabButton. The Trigger path defers to any ray/UI click
+/// (<see cref="IGrabbable.GrabWithGrip"/>), and a future grabbable in neither class
+/// grabs with the trigger too. The Trigger path defers to any ray/UI click
 /// via <see cref="RayInteractor.HasFreshUiHit"/> (see Tick), and shares the
 /// trigger-up release edge with the laser pluck (<see cref="ForceGrab"/>). While a
 /// trigger-taken card is held, the grip is ignored for it entirely — the hold loop
@@ -102,7 +102,7 @@ internal sealed class ProximityGrabber
         if (Held != null)
         {
             // Hold button released (grip — or trigger for trigger-grabbed / laser-
-            // plucked objects, see ForceGrab / GrabButton) → release with palm velocity.
+            // plucked objects, see ForceGrab) → release with palm velocity.
             // Trigger-grab and laser-pluck SHARE the trigger-up release edge, so a card
             // grabbed either way can never get stuck held.
             bool stillHeld = _releaseOnTriggerUp ? _hand.TriggerPressed : _hand.GripPressed;
@@ -130,8 +130,8 @@ internal sealed class ProximityGrabber
         }
 
         // Test #27: grip-only grabbables (world panels/boards) always take the GRIP
-        // button regardless of [Cards] GrabButton — the tester found grip more
-        // intuitive for moving boards, while cards keep the Demeo trigger grab.
+        // button — the tester found grip more intuitive for moving boards, while cards
+        // keep the Demeo trigger grab.
         if (Highlighted.GrabWithGrip)
         {
             if (_hand.GripDown)
@@ -142,8 +142,8 @@ internal sealed class ProximityGrabber
         // TRIGGER-ONLY targets: board figures (ITriggerOnlyGrabbable, hardware MP test
         // 2026-08 requirement (b)) and — since the 2026-08-11 hardware report — CARDS
         // (see IsTriggerOnly). Their one and only entry is the trigger edge below, with
-        // its UI/laser arbitration; a grip squeeze near them never starts a hold,
-        // whatever [Cards] GrabButton says. A grip-intent edge is NAMED (throttled) so
+        // its UI/laser arbitration; a grip squeeze near them never starts a hold.
+        // A grip-intent edge is NAMED (throttled) so
         // the next hardware log explains "I squeezed and nothing happened" instead of
         // reading as a dead controller.
         //
@@ -174,25 +174,14 @@ internal sealed class ProximityGrabber
             return;
         }
 
-        // Anything left obeys [Cards] GrabButton (G3, test-#22 Demeo parity) — Trigger
-        // (Demeo default, same arbitration as above) or Grip (legacy). NOTE: with cards
-        // now trigger-only, NO registered grabbable reaches this today (cards + figures
-        // take the trigger-only branch, panels/tray bars the GrabWithGrip branch, pile
-        // stacks refuse CanGrab) — it is the documented contract for a FUTURE
-        // config-obeying grabbable, kept so IGrabbable.GrabWithGrip=false still means
-        // what its doc says. CardsConfig may be unbound before the Cards module inits;
-        // fall back to the Trigger default defensively.
-        bool useTrigger = CardsConfig.GrabButton == null
-            || CardsConfig.GrabButton.Value == CardGrabButton.Trigger;
-        if (useTrigger)
-        {
-            if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
-                BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
-        }
-        else if (_hand.GripDown)
-        {
-            BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
-        }
+        // Anything left grabs with the TRIGGER (same UI/laser arbitration as above). The
+        // [Cards] GrabButton dial that used to switch this branch is retired: no registered
+        // grabbable ever reached it (cards + figures take the trigger-only branch, panels/
+        // tray bars the GrabWithGrip branch, pile stacks refuse CanGrab), so the dial
+        // switched nothing. Trigger is the Demeo default a future grabbable in neither
+        // class inherits.
+        if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
+            BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
     }
 
     /// <summary>
@@ -219,9 +208,9 @@ internal sealed class ProximityGrabber
     /// world drag, gestures), and holding is untouched: a card taken by trigger is held while
     /// the TRIGGER stays pressed (releaseOnTriggerUp) — pressing or releasing the GRIP while a
     /// card is held does nothing to the card (the hold loop in <see cref="Tick"/> only reads
-    /// the button that grabbed). [Cards] GrabButton no longer affects cards either way — the
-    /// user's request carries no config qualifier, and their figure requirement already read
-    /// "Figuren sollen — wie die Karten — nur mit dem Trigger aufgenommen werden können".
+    /// the button that grabbed). The retired [Cards] GrabButton dial never affected cards —
+    /// the user's request carried no config qualifier, and their figure requirement already
+    /// read "Figuren sollen — wie die Karten — nur mit dem Trigger aufgenommen werden können".
     /// </summary>
     private static bool IsTriggerOnly(IGrabbable target) =>
         target is ITriggerOnlyGrabbable or Cards.VRCard or Cards.ItemsPile.ItemChip;

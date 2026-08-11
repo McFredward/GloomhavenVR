@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 121`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 122`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,18 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 122** — the border saga CLOSED (user on 121: "Großer Erfolg!"). Bottom fix: the
+  contour derived from the v5 footprint (punched pixels ∩ frame-era CardOutline bands) — body
+  stopped higher than the stock art draws. Capture now stamps the STOCK art's own alpha only
+  (shadow trim / dark-border peel / OUTLINE CLIP deleted); CacheVersion 5→6 relearn; body and
+  face coincide by construction. THE GREAT CLEANUP: net −7,200 LOC — deleted CardShapeMask (incl.
+  Net call sites), CardDissolveFloor+dial, CardShaderProbe, CardBandPainter, CardBandPixelCapture,
+  CardFaceCrop, CardOutline, punch/crop factories in CardFaceMipBake, FramePunch sweep + band
+  diagnostics, cutout material bake, inert [Cards] GrabButton (+ dead ProximityGrabber branch +
+  menu rows). KEPT: CardContour+AttachBody, stock-alpha capture v6, mip bake, emission floor,
+  umber EdgeColor, SlotSeatLiner+mirror, FaceBlackout (stock-path). Tab captions wrap (explicit
+  '&' breaks DE/EN; Erweitert chooser same). Saga history: build notes 105-121 + git. MP test of
+  the shaped bodies still outstanding.
 - **ModBuild 121** — border attempt 17: THE USER'S OWN DESIGN. His ruling: face must render
   completely correct again; the MESH must be punched out to the surface outline. (His "120" log
   was really a 119 run — the 120 deciders never executed; geometry moots the shader question.)

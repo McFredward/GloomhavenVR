@@ -236,7 +236,6 @@ internal static partial class Loc
             ["Cards/ActivePile"] = Pair("Active-cards column", "Aktive-Karten-Spalte"),
             ["Cards/FaceMipBake"] = Pair("Smooth card textures", "Kartentexturen glätten"),
             ["Cards/Board"] = Pair("Control board", "Kontrollbrett"),
-            ["Cards/GrabButton"] = Pair("Grab button", "Greif-Taste"),
             ["Cards/BoardScaleDefault04Applied"] = Pair("Internal marker", "Interne Marke"),
             ["Cards/DecisionOffsetYRebased"] = Pair("Internal marker", "Interne Marke"),
             // Fan behaviour & shape.

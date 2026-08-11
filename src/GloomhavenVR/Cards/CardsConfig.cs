@@ -171,9 +171,6 @@ internal static class CardsConfig
     /// <summary>Aliasing round 3 (T3): runtime MIP BAKE of the game's mipless card-face atlases — adopted card faces sample trilinear/aniso mipmapped copies instead (texture-space shimmer fix).</summary>
     internal static ConfigEntry<bool> FaceMipBake = null!;
 
-    /// <summary>Black-frame round 11: rest-state <c>_Dissolve</c> floor held on every card-FX material the mod manages (ability, item AND remote card faces) so the punched alpha-0 frame pixels are actually DISCARDED by the card shader's dissolve clip — see <c>CardDissolveFloor</c>. 0 = off. ROUND 12: default 0 — the ModBuild-115 probe proved alpha is honored at rest (the floor cures nothing) and implicated the floor's vertical-gradient discard in the "unterer Teil etwas kaputt" bottom regression; the dial stays for a rig whose probe verdict differs.</summary>
-    internal static ConfigEntry<float> DissolveFloorFraction = null!;
-
     /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>
     internal static ConfigEntry<ControlBoard> Board = null!;
 
@@ -306,9 +303,6 @@ internal static class CardsConfig
 
     /// <summary>G2: forward pop (real meters, along -face-normal toward the viewer) of the hovered/selected card.</summary>
     internal static ConfigEntry<float> FanSelectedPopForward = null!;
-
-    /// <summary>G3: which controller button grabs a card. Demeo = Trigger (index); our legacy = Grip.</summary>
-    internal static ConfigEntry<CardGrabButton> GrabButton = null!;
 
     /// <summary>G4: eased dead-zoned fan follow rate (1/s exponential). 0 = rigidly parented to the palm (pre-Demeo). >0 = Demeo-style eased follow.</summary>
     internal static ConfigEntry<float> FanFollowSmoothing = null!;
@@ -1008,17 +1002,6 @@ internal static class CardsConfig
             "-> mip chain) and the face Images' sprites are swapped to equivalent sprites on the " +
             "baked copy (rect/pivot/border/PPU preserved; originals restored when a face is " +
             "returned to the game). false = leave the game's mipless atlases untouched.");
-        DissolveFloorFraction = _file.Bind("Cards", "DissolveFloorFraction", Defaults.DissolveFloorFraction,
-            "Black-frame round 11 (the shader-side fix): the card shader 'GUI/AbilityCard_Shd' " +
-            "clips against _Dissolve and discards NOTHING at its rest value 0, so the frame " +
-            "pixels nine earlier rounds punched to alpha 0 still render as opaque black (they " +
-            "briefly turn transparent during the game's own dissolve animation — the tell). The " +
-            "mod therefore holds _Dissolve at this tiny rest-state floor, every frame, on every " +
-            "card-FX material it manages — the ability faces, the hosted item cards and the " +
-            "remote peers' card fronts alike. A game FX writing a real dissolve is never " +
-            "lowered; the punched pixels are BINARY alpha (0 or ~1), so a floor this small " +
-            "cannot cut visible fringes into opaque art. 0 = off (the game's own rest state, " +
-            "black frame included).");
         Board = _file.Bind("Cards", "Board", Defaults.Board,
             "Which control-board (PlayTray) model to load from the asset bundle — switchable " +
             "live from the VR settings panel. Oak = the original bundled board (default); Steel " +
@@ -1357,10 +1340,6 @@ internal static class CardsConfig
         FanSelectedPopForward = _file.Bind("Cards", "FanSelectedPopForward", Defaults.FanSelectedPopForward,
             "Demeo parity (G2): how far (real meters) the hovered/selected card pops toward the " +
             "viewer (along -face normal). Demeo uses ~0.25 scene units; 0.035 m matches our scale.");
-        GrabButton = _file.Bind("Cards", "GrabButton", Defaults.GrabButton,
-            "Demeo parity (G3): which controller button grabs a card by proximity. Trigger = " +
-            "Demeo (index-finger pinch, matches our laser pluck so a card grabbed either way " +
-            "releases on trigger-up). Grip = the pre-Demeo behavior.");
         FanFollowSmoothing = _file.Bind("Cards", "FanFollowSmoothing", Defaults.FanFollowSmoothing,
             "Demeo parity (G4): eased fan-follow rate (1/s exponential smoothing). The fan chases " +
             "the palm with a soft ease instead of being rigidly welded to it (Demeo ViewHelper). " +

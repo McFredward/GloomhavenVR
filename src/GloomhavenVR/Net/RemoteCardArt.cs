@@ -215,7 +215,6 @@ internal sealed class RemoteCardArt
             // clip. Here rather than only on art arrival, because FitClone has just written
             // the final pose and scale — the wrapper fits the face's RENDERED rect, so this
             // is the first moment that rect is correct. A no-op with no footprint yet.
-            Cards.CardShapeMask.Wrap(clone.transform as RectTransform, Cards.CardBodyKind.Ability);
 
             _shownSourceId = key;
             return true;
@@ -257,7 +256,6 @@ internal sealed class RemoteCardArt
             // …and install the shape clip if the footprint only became available after this
             // clone was built (cold cache). Wrap is idempotent, so the warm-cache case that
             // already clipped at the build seam costs one early-out.
-            Cards.CardShapeMask.Wrap(_clone.transform as RectTransform, Cards.CardBodyKind.Ability);
             _nextMipRescan = Time.unscaledTime + MipRescanInterval;
         }
         if (Time.unscaledTime < _nextMipRescan)
@@ -445,10 +443,6 @@ internal sealed class RemoteCardArt
     {
         if (_clone != null)
         {
-            // REQUIRED, not tidiness: CardShapeMask makes its wrapper the clone's PARENT, so
-            // destroying only the clone would leave an orphan wrapper under _host, one per
-            // card swap, for the life of the board.
-            Cards.CardShapeMask.Release(_clone.transform as RectTransform);
             Object.Destroy(_clone);
             _clone = null;
         }

@@ -53,7 +53,6 @@ internal static class ConfigStepVectors
         // The dissolve floor (black-frame round 11, 2026-08-11): a 0..1 proportion whose shipped
         // default is a deliberately tiny 0.004 — exactly the shape whose magnitude fallback would
         // produce a step nobody can feel. "Fraction" is the unit word that keeps it steppable.
-        Unit(t, "DissolveFloorFraction", 0.05d, ConfigSteps.UnitScope.Value);
 
         // ---- MILLIMETRES ARE NOT METRES, and the suffix test cannot tell them apart on its own --
         // "Millimeters" ENDS IN "Meters", so with the two entries in the wrong order a 40 mm dial

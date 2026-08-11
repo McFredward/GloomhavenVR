@@ -1195,10 +1195,6 @@ internal static partial class Loc
                 "Demeo-Parität (G2): wie weit (echte Meter) die überfahrene/ausgewählte Karte zum Betrachter "
                 + "hin herausspringt (entlang der negativen Flächennormale). Demeo nutzt ~0.25 Szeneneinheiten; "
                 + "0.035 m passt zu unserem Maßstab.",
-            ["Cards/GrabButton"] =
-                "Demeo-Parität (G3): welcher Controller-Knopf eine Karte per Nähe greift. Trigger = Demeo "
-                + "(Zeigefinger-Pinch, passt zu unserem Laser-Zupfen, sodass eine auf beide Arten gegriffene "
-                + "Karte beim Loslassen des Triggers freigegeben wird). Grip = das Verhalten von vor Demeo.",
             ["Cards/FanFollowSmoothing"] =
                 "Demeo-Parität (G4): Rate der geglätteten Fächer-Nachführung (exponentielle Glättung, 1/s). "
                 + "Der Fächer folgt der Handfläche weich nachgezogen, statt starr mit ihr verschweißt zu sein "

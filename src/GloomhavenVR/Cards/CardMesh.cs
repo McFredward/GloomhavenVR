@@ -9,24 +9,19 @@ namespace GloomhavenVR.Cards;
 /// applied per (2026-08-11 report: "alle Karten, auch die Itemkarten").
 ///
 /// The mod draws two physically different cards: the tall poker-aspect ABILITY card and the
-/// near-square ITEM card. They do NOT share an outline, so they cannot share one alpha-clip
+/// near-square ITEM card. They do NOT share an outline, so they cannot share one shape
 /// footprint: the ability outline stretched onto a square item body would nibble the item
 /// card's own corners away. One mechanism, two footprints, keyed by this.
 ///
-/// <see cref="Neutral"/> is the LEGACY pair every pre-existing caller still gets from the
+/// <see cref="Neutral"/> is the LEGACY shape every pre-existing caller still gets from the
 /// parameterless <see cref="CardMesh.CreateEdgeMaterial()"/> /
-/// <see cref="CardMesh.CreateBackMaterial()"/>. It is NEVER clipped. That is deliberate:
-/// those materials are shared with call sites this change did not audit at runtime — the
-/// peer mirrors (<c>Net/RemoteHandFan</c>, <c>RemoteItemFan</c>, <c>RemoteBrowserFan</c>,
-/// <c>RemoteCardFx</c>, <c>RemoteAvatar</c>, <c>RemoteBoardCard</c>), the desktop
-/// <c>WorldUI/AvatarMirror</c> and the burn-fallback slab in <c>CardsDriver.4.Rebuild</c> —
-/// and an alpha clip against a mesh whose UVs are not planar 0..1 would punch holes in
-/// somebody else's card rather than shape it. Opting a call site in is a one-word edit
-/// (pass the kind); opting it in by accident is a defect, so the default stays opaque.
+/// <see cref="CardMesh.CreateBackMaterial()"/> and from <see cref="CardMesh.Get"/>. It is
+/// NEVER re-shaped: opting a call site into a card shape is a one-word edit (pass the kind);
+/// opting it in by accident is a defect, so the default stays the plain rounded rect.
 /// </summary>
 internal enum CardBodyKind
 {
-    /// <summary>Legacy shared pair — opaque, never alpha-clipped.</summary>
+    /// <summary>Legacy shared shape — the plain rounded rect, never re-shaped.</summary>
     Neutral = 0,
 
     /// <summary>The tall poker-aspect ability card (hand fan, tray slots, piles).</summary>
@@ -52,39 +47,22 @@ internal enum CardBodyKind
 /// z = 0 to z = +thickness, i.e. entirely behind the face — matching the README
 /// contract "front face area flush around z ≈ 0..+0.001".
 ///
-/// Silhouette (hardware test #25): the game's ability cards are NOT plain rectangles —
-/// the card art has an artistic, non-rectangular outline (transparent decorative
-/// edges), and the rounded-rect slab's dark front/rim used to show as a rectangular
-/// border AROUND that art. <see cref="SetSilhouette"/> switches the front/rim + back
-/// materials OF ONE <see cref="CardBodyKind"/> to alpha-CLIP (stock Standard shader,
-/// Cutout mode) against a card-space alpha footprint captured from the LIVE card art at
-/// runtime (see <see cref="CardFace"/>), so the visible 3D silhouette (front border
-/// ring, thin rim, decorative back) follows the card's ACTUAL outline instead of a
-/// rectangle. The mesh GEOMETRY is unchanged (the full-envelope rounded slab, same
-/// pivot/size → grab collider, fan layout, dock apron and <c>VRCard.WorldWidth</c> all
-/// unaffected — nothing that measures a card measures the clip); only the fragments
-/// inside the art outline survive. Every vertex — front, back AND rim — carries
-/// card-space planar UVs so the single footprint texture maps onto every face; the rim
-/// samples a hair INSIDE its outline point so the thin edge survives the clip along the
-/// solid silhouette. If no footprint is ever supplied (or it fails the sanity guard) the
-/// materials stay opaque — exactly the round-24 rounded-rect look, so this can only ever
-/// add the ornate outline, never regress.
-///
-/// USER REPORT, verbatim (2026-08-11, hardware, ModBuild 107, b765a5b):
-/// "Die Karten im Spiel haben eine eigene Form die nicht Rechteckig ist - aktuell sind
-/// die Karten Rechtecke und der Rand der Karten ist daher schwarz. Ich möchte dass die
-/// Karten (alle Karten, auch die Itemkarten), keinen schwarzen Rand mehr haben sondern
-/// die meshes genau die Ränder der Karten selber haben."
-///
-/// WHY HE STILL SAW A BLACK RECTANGLE THOUGH ALL OF THE ABOVE ALREADY SHIPPED: the
-/// capture never once ran. Root cause and evidence in <see cref="CardFace"/>'s
-/// silhouette section — the short version is that the footprint pass required every
-/// candidate <c>Image</c> to be <c>isActiveAndEnabled</c>, and a freshly built VR card
-/// lives under <c>VRCardFactory.PoolRoot</c>, which is <c>SetActive(false)</c>, so the
-/// test was false for every image on every card and the pass returned SILENTLY. Its
-/// 16-adoption retry budget was then spent on 16 such no-ops and latched off for the
-/// session. Two shapes now, both driven by the same capture, and every rejection is
-/// logged with its numbers.
+/// Silhouette (user, verbatim: "Die Karten im Spiel haben eine eigene Form die nicht
+/// Rechteckig ist … die meshes genau die Ränder der Karten selber haben"): the game's
+/// cards are NOT plain rectangles — the card art carries an artistic, non-rectangular
+/// outline in its alpha. <see cref="SetSilhouette"/> takes a card-space alpha footprint
+/// captured from the LIVE stock card art (see <see cref="CardFace"/>'s silhouette
+/// section), persists it, and drives the GEOMETRIC answer: the card BODY of that
+/// <see cref="CardBodyKind"/> is punched out to the footprint's contour
+/// (<c>CardContour</c>, served through <see cref="AttachBody"/>), so the body's
+/// BOUNDARY is the card outline — no shader variant can paint outside it. The
+/// full-envelope rounded slab (<see cref="Get"/>) remains the cold-start/refusal
+/// fallback and the Neutral legacy shape; nothing that measures a card (grab collider,
+/// fan layout, dock apron, <c>VRCard.WorldWidth</c>) changes either way, because the
+/// shaped mesh's bounds stay pinned to the full card box. If no footprint is ever
+/// supplied (or it fails the sanity guard) cards keep the opaque rounded rect — degrade
+/// to the rectangle, never to a wrong shape. 17 rounds of material/texture clips
+/// preceded this; geometry won — see the NetProtocol build notes for ModBuild 105-121.
 /// </summary>
 internal static class CardMesh
 {
@@ -218,14 +196,14 @@ internal static class CardMesh
     /// USER REQUIREMENT (2026-08-11, verbatim): "UND auch alle Karten genauso die remote angezeigt
     /// werden im Multiplayer bei anderen Spielern."
     ///
-    /// THE PROBLEM THIS EXISTS FOR. Five of the six peer mirrors draw a card as a MESH wearing this
-    /// class's own shared <see cref="CardBodyKind"/> material pair, so the alpha clip reaches them
-    /// for free. <c>Net/RemoteBoardCard</c> is the one that does not: a peer's board recess is a
-    /// flat <c>BoardVisual.Quad</c> whose material is minted locally on <c>Sprites/Default</c> —
-    /// it only borrows this class's back TEXTURE off <c>CreateBackMaterial().mainTexture</c> and
-    /// re-wraps it, which drops the alpha channel the clip lives in. Under the requirement above
-    /// that is a black rectangle on every peer's control board, i.e. exactly the reported defect
-    /// seen from the other side.
+    /// THE PROBLEM THIS EXISTS FOR. Five of the six peer mirrors draw a card as a MESH, and since
+    /// they adopted <see cref="AttachBody"/> the punched-out card shape reaches them for free.
+    /// <c>Net/RemoteBoardCard</c> is the one that does not: a peer's board recess is a flat
+    /// <c>BoardVisual.Quad</c> whose material is minted locally on <c>Sprites/Default</c> — it
+    /// only borrows this class's back TEXTURE off <c>CreateBackMaterial().mainTexture</c> and
+    /// re-wraps it, which carries no card shape at all. Under the requirement above that is a
+    /// black rectangle on every peer's control board, i.e. exactly the reported defect seen from
+    /// the other side.
     ///
     /// WHY A BINDING AND NOT A GETTER. A getter would be read once, in that quad's constructor,
     /// which on a cold cache runs before any footprint exists — and the peer's board would then
@@ -284,42 +262,28 @@ internal static class CardMesh
         {
             VRLog.Info("Cards", $"CardMesh.BindSilhouette({kind}): re-painted {repainted} foreign " +
                                 "material(s) with the card outline — the flat quads that draw a PEER's " +
-                                "board recess cannot wear the Cutout mesh material, so they carry the " +
+                                "board recess cannot wear the shaped body mesh, so they carry the " +
                                 "same footprint as an alpha channel instead (2026-08-11: 'UND auch alle " +
                                 "Karten genauso die remote angezeigt werden im Multiplayer').");
         }
     }
 
     /// <summary>
-    /// The footprint as a blendable RGBA texture for a caller that cannot use the Cutout material
+    /// The footprint as a blendable RGBA texture for a caller that cannot use the shaped body mesh
     /// (built once per kind+layer, cached). Null while that kind is still the plain rounded rect.
     ///
-    /// <para>ORIENTATION: FRONT, i.e. un-mirrored — deliberately NOT the mesh back material's
-    /// mirrored bake. The mesh's back submesh is drawn through mirrored UVs (see <see cref="Build"/>)
-    /// and its texture is baked to match; a plain <c>BoardVisual.Quad</c> has ordinary 0..1 UVs and
-    /// would show that bake flipped. Invisible on a left-right symmetric outline — which is what
-    /// ships — and wrong the moment one is not, so it is stated rather than left to luck. Same
-    /// reasoning as <c>Net/RemoteHandFan.BuildBackSlab</c>'s mirrored-UV note, opposite conclusion,
-    /// because that mesh mirrors its UVs and this quad does not.</para>
+    /// <para>ORIENTATION: FRONT, i.e. un-mirrored — a plain <c>BoardVisual.Quad</c> has ordinary
+    /// 0..1 UVs (unlike the body mesh's mirrored-UV back submesh, see <see cref="Build"/>).
+    /// Invisible on a left-right symmetric outline — which is what ships — and wrong the moment
+    /// one is not, so it is stated rather than left to luck.</para>
     ///
-    /// <para>EXTENT (round 7): the export is CROPPED to <see cref="_footArt"/>, the sub-rect the
-    /// card art actually draws on, and it is the one place that crop happens. The reason is that
-    /// the two families live in different spaces and always have:
-    /// <list type="bullet">
-    /// <item>the MESH pair is worn by a body that <c>VRCard.SetCanvasSize</c> fits to the whole
-    ///   FACE RECT, so it needs the mask over the whole face rect — uncropped, unchanged;</item>
-    /// <item>a peer's slab has no face rect at all. <c>Net/RemoteHandFan.BuildBackSlab</c> builds a
-    ///   plain quad at <c>DefaultCardWidth × DefaultCardWidth·88/63.5</c> — the POKER card — with
-    ///   planar 0..1 UVs, and <c>Net/RemoteBoardCard</c> does the same at its recess size. Their
-    ///   0..1 is the CARD.</item>
-    /// </list>
-    /// Handing them the face-rect mask stretched it ~10 % vertically over their own card; that is a
-    /// pre-existing error which was invisible only because the uncorrected footprint was very nearly
-    /// a rectangle, and it would have become visible the moment this round made the mask honest.
-    /// Cropping to the art rect makes both families right at once and — deliberately — needs no edit
-    /// in <c>Net/**</c>: every consumer already maps 0..1 onto its own card, which is exactly what
-    /// the cropped texture now is. With no letterbox the crop is the whole footprint and this is a
-    /// byte-for-byte no-op.</para>
+    /// <para>EXTENT: the export is CROPPED to <see cref="_footArt"/>, the sub-rect the card art
+    /// actually draws on, and it is the one place that crop happens. The two families live in
+    /// different spaces: the MESH bodies are fitted to the whole FACE RECT
+    /// (<c>VRCard.SetCanvasSize</c>), so the raw footprint spans that rect; a peer's flat quad
+    /// (<c>Net/RemoteBoardCard</c>'s board-recess card front) has no face rect at all — its 0..1
+    /// IS the card — so it gets the art-rect crop. With no letterbox the crop is the whole
+    /// footprint and this is a byte-for-byte no-op.</para>
     /// </summary>
     private static Texture2D? ExportTexture(CardBodyKind kind, SilhouetteLayer layer)
     {
@@ -945,64 +909,31 @@ internal static class CardMesh
 
     /// <summary>
     /// Front/rim colour of the slab — the card's visible physical EDGE (mostly hidden behind the
-    /// live face; the thin rounded front and the 1.5 mm rim read at the card boundary, plus every
-    /// face pixel the punch/crop machinery makes transparent INSIDE the outline shows this colour
-    /// directly behind it at z ≈ 6.5 face units).
+    /// live face; the thin rounded front and the 1.5 mm rim read at the card boundary).
     ///
-    /// <para>ROUND 14 — RETINTED FROM NEAR-BLACK TO WARM UMBER. It shipped as (0.10, 0.09, 0.08),
-    /// "deliberately near-black" from the era when the slab was meant to vanish behind the art —
-    /// but the silhouette bake writes THIS RGB into every surviving texel of the Edge cutout
-    /// texture (see <c>SetSilhouette</c>: <c>edgeRgb = (Color32)EdgeColor</c>), so every slab
-    /// fragment that survives the alpha clip rendered near-black. karten4.png measures exactly
-    /// that ring on the hand fan: the outermost 1–2 px of every fan card read neutral near-black
-    /// — (9,9,7) at the left edge, (4,4,3) at the top — which is (26,23,20) = this colour under
-    /// the scene's lighting, i.e. the rim/front ring itself, NOT a face sprite (the printed-frame
-    /// maroon further in is warm-red (27,1,3) and a different painter). The user's standing
-    /// ruling is proportions stay, black goes ("Ich möchte gerne an den aktuellen Proportionen
-    /// festehalten... nur eben ohne die schwarzen Ränder"), and the rim is a design element whose
-    /// COLOUR was the defect — so the geometry, the clip and the bake are untouched and only the
-    /// tint changes: warm umber (0.42, 0.33, 0.23), luma ≈ 0.35, r−b strongly warm. That lands
-    /// the visible edge in the same warm-wood family as the tray liner/keycaps
-    /// (<c>PlayTray.SlotLinerColor</c> (0.46,0.37,0.26), luma 0.38) — on the tray the ring blends
-    /// into the liner beneath it, in the hand it reads as a warm card edge, and in the CARD BAND
-    /// PIXELS capture it is separable from every dark signature (recess floor ≈(25,21,18)
-    /// near-black warm; frame print cool &lt;40; green-screen backdrop).</para>
-    ///
-    /// <para>Reaches ALL THREE wearers by construction, no other edit needed: the baked
-    /// Ability/Item Edge textures (rebuilt from the cached alpha footprint every session — the
-    /// cache stores alpha only, so no cache version bump), the unclipped material colour before a
-    /// footprint lands (cold cache), and the Neutral legacy pair (peer mirrors/avatar mirror/burn
-    /// fallback — same colour-only change, same direction, zero geometry).</para>
+    /// <para>WARM UMBER, not near-black (border round 14; user ruling "Ich möchte gerne an den
+    /// aktuellen Proportionen festhalten... nur eben ohne die schwarzen Ränder"): the rim is a
+    /// design element whose COLOUR was the defect. (0.42, 0.33, 0.23), luma ≈ 0.35, lands the
+    /// visible edge in the same warm-wood family as the tray liner/keycaps
+    /// (<c>PlayTray.SlotLinerColor</c> (0.46,0.37,0.26), luma 0.38) — on the tray the ring
+    /// blends into the liner beneath it, in the hand it reads as a warm card edge. Reaches all
+    /// wearers by construction: the Ability/Item pairs and the Neutral legacy pair all take
+    /// their colour from here.</para>
     /// </summary>
     private static readonly Color EdgeColor = new(0.42f, 0.33f, 0.23f);
 
     /// <summary>
-    /// ROUND 15 — THE LIGHTING FIX. USER VERDICT ON ModBuild 118, verbatim: "Immer noch die
-    /// schwarzen Kartenränder statt das outline der Karten selber als mesh grenze. Logs liegen."
-    ///
-    /// <para>WHY FOURTEEN ALBEDO ROUNDS CHANGED NOTHING. The slab pair renders through the stock
-    /// <c>Standard</c> shader (the 118 inventory logs the Backing at q2450 CUTOUT under shader
-    /// 'Standard'), and Standard's output is albedo × incoming light. The game's VR scenes are
-    /// dark / stripped of lighting — karten4.png (the 117 state) measures the band between fan
-    /// cards at (4,4,3), i.e. ~16 % of what even the OLD near-black EdgeColor (0.10,0.09,0.08 ≈
-    /// (26,23,20)) would read under ordinary light. A Standard surface with no light reaching it
-    /// renders near-black REGARDLESS of its albedo, so every albedo/texture change on the slab —
-    /// including 118's warm-umber retint — was multiplied by ~0 before it reached the eye. The
-    /// mod already solved this exact hole for the board furniture with the bundled
-    /// <c>GloomhavenVR/BoardLit</c> shader (baked studio rig + ambient floor, "works in the
-    /// unlit scenes"), which is why the tray/liner/keycaps render visibly warm in the very same
-    /// scenes the card edge went black in.</para>
-    ///
-    /// <para>WHY NOT SIMPLY MOVE THE SLAB TO BoardLit. The silhouette clip NEEDS alpha-cutout,
-    /// and BoardLit cannot clip: its source (unity/.../Table/BoardLit.shader) has no
-    /// <c>_Cutoff</c>, no <c>clip()</c>, and hard-codes its output alpha to 1.0. Changing the
-    /// bundled shader means a bundle rebuild, which is out of scope for this lane. So the slab
-    /// KEEPS Standard/Cutout (the clip machinery is untouched) and gets a SELF-ILLUMINATION
-    /// FLOOR instead: <c>_EmissionMap</c> = the material's own albedo texture and
-    /// <c>_EmissionColor</c> = the albedo tint × this factor, so the fragment output is
+    /// THE LIGHTING FIX (border round 15). The slab pair renders through the stock
+    /// <c>Standard</c> shader, whose output is albedo × incoming light — and the game's VR
+    /// scenes are dark / stripped of lighting, so a Standard surface renders near-black
+    /// REGARDLESS of its albedo (karten4.png measured the card edge at (4,4,3), ~16 % of what
+    /// the authored EdgeColor would read under ordinary light). The mod solved this exact hole
+    /// for the board furniture with the bundled <c>GloomhavenVR/BoardLit</c> shader, but moving
+    /// the slab there would need a bundle rebuild — so the slab keeps Standard and gets a
+    /// SELF-ILLUMINATION FLOOR instead: <c>_EmissionMap</c> = the material's own albedo texture
+    /// and <c>_EmissionColor</c> = the albedo tint × this factor, so the fragment output is
     /// albedo × light + albedo × factor — in a black scene the surface reads exactly its
-    /// authored albedo × factor, and the alpha clip still discards outside the outline
-    /// (emission is a shading term of SURVIVING fragments only).</para>
+    /// authored albedo × factor.
     ///
     /// <para>FACTOR CHOICE = 1.0, calibrated against the BoardLit tray the cards sit on. BoardLit
     /// shades a viewer-facing surface at <c>_Ambient</c> (0.5) + key/fill ≈ 1.0..1.4 × albedo, so
@@ -1012,59 +943,16 @@ internal static class CardMesh
     /// with REAL light adding on top; karten4 measures that residual at ≈ 0.16 × albedo, so the
     /// worst case is ≈ 1.16 × authored albedo — still wood, nowhere near blown out.</para>
     ///
-    /// <para>REACH. Applied inside the shared-material factories and re-synced in
-    /// <see cref="ConfigureCutout"/>, so it covers by construction: the Ability/Item pairs (fan,
-    /// tray, held, piles), the Neutral legacy pair (peer mirrors <c>Net/RemoteHandFan</c>,
-    /// <c>RemoteItemFan</c>, <c>RemoteBrowserFan</c>, <c>RemoteCardFx</c>, <c>RemoteAvatar</c>,
-    /// the avatar mirror, the burn-fallback slab — all of which borrow THESE material instances),
-    /// and both baked Edge/Back cutout textures the moment a silhouette lands.
-    /// <c>Net/RemoteBoardCard</c> needs nothing: its quad is <c>Sprites/Default</c> (unlit by
-    /// construction, no hole). KNOWN RESIDUAL RISK, stated rather than hidden: if the game build
-    /// stripped the Standard shader's <c>_EMISSION</c> variant, EnableKeyword silently falls back
-    /// to the emission-less variant and the edge stays lighting-dependent — the CARD BAND PIXELS
-    /// scan line (round 15's other half) measures the composed result either way, so the next log
-    /// decides that instead of another deduction.</para>
+    /// <para>REACH. Applied inside the shared-material factories, so it covers by construction:
+    /// the Ability/Item pairs (fan, tray, held, piles) and the Neutral legacy pair (the peer
+    /// mirrors and the avatar mirror borrow THESE material instances via
+    /// <c>CreateEdgeMaterial()</c>/<c>CreateBackMaterial()</c>). <c>Net/RemoteBoardCard</c> needs
+    /// nothing: its quad is <c>Sprites/Default</c> (unlit by construction, no hole). KNOWN
+    /// RESIDUAL RISK, stated rather than hidden: if the game build stripped the Standard shader's
+    /// <c>_EMISSION</c> variant, EnableKeyword silently falls back to the emission-less variant
+    /// and the edge stays lighting-dependent.</para>
     /// </summary>
     private const float EmissionFloorFactor = 1.0f;
-
-    /// <summary>
-    /// ROUND 17 — THE MATERIAL ALPHA-CLIP IS RETIRED; THE OUTLINE IS GEOMETRY NOW.
-    ///
-    /// USER RULING (2026-08-11, verbatim, binding): "Die Aufgabe ist doch eher das mesh der Karte
-    /// auf das outline der Kartenoberfläche 'auszustanzen'."
-    ///
-    /// <para>WHY OFF. Rounds 1–16 shaped the slab by flipping the shared materials to Standard's
-    /// Cutout mode and baking the footprint alpha into their textures. Round 16 left one suspect
-    /// standing that no amount of material state can defend against: the game build's Standard
-    /// shader may ship WITHOUT the <c>_ALPHATEST_ON</c> variant, in which case
-    /// <c>EnableKeyword</c> silently selects a variant that never clips and the slab paints its
-    /// full rectangular envelope in EdgeColor — which matches the ModBuild-119 measured band
-    /// (125,97,68) = EdgeColor × (light ≈ 0.16 + emission 1.0) to within 1/255. The body is now
-    /// PUNCHED OUT geometrically (<see cref="AttachBody"/>/<c>CardContour</c>): there is no
-    /// fragment outside the outline for any shader variant to draw, so the clip is not needed —
-    /// and keeping it would double-cut the shaped mesh's own boundary (mip-blended alpha dipping
-    /// under <c>_Cutoff</c> just inside the contour would speckle the punched edge).</para>
-    ///
-    /// <para>WHAT THE MATERIALS KEEP: Standard shading, the warm umber <see cref="EdgeColor"/>
-    /// front/rim, the procedural back lattice, and the round-15 emission floor — so the shaped
-    /// body stays visible in the dark VR scenes exactly as calibrated.</para>
-    ///
-    /// <para>KNOWN, ACCEPTED CONSEQUENCE: the Net mirrors that borrow these SHARED materials on
-    /// their own rectangular slabs (<c>Net/RemoteHandFan.BuildBackSlab</c>,
-    /// <c>RemoteItemFan</c>, <c>RemoteBrowserFan</c>, <c>RemoteCardFx</c>, <c>RemoteAvatar</c>,
-    /// <c>WorldUI/AvatarMirror</c>) lose the baked alpha outline and read as full rounded-rect
-    /// slabs again — the pre-silhouette look, ruled acceptable for this round ("mirrors that
-    /// build their own rounded slabs keep rectangles for now"); reusing the shaped mesh there is
-    /// a stop-reported Net/ follow-up. <c>Net/RemoteBoardCard</c>'s flat quads are UNAFFECTED —
-    /// they ride <see cref="BindSilhouette"/>/<see cref="ExportTexture"/>, which read the raw
-    /// footprint and never these materials' cutout state.</para>
-    ///
-    /// <para><c>static readonly</c> rather than <c>const</c> on purpose (the CardShapeMask
-    /// precedent): a false <c>const</c> would make the compiler flag the gated blocks unreachable
-    /// (CS0162) and the build gate is "exactly the six pre-existing warnings". Flipping this back
-    /// to <c>true</c> restores the round-16 cutout baking verbatim.</para>
-    /// </summary>
-    private static readonly bool CutoutMaterialsEnabled = false;
 
     /// <summary>
     /// Give a Standard-shaded material the self-illumination floor described at
@@ -1072,31 +960,9 @@ internal static class CardMesh
     /// derived from the material's CURRENT <c>mainTexture</c>/<c>color</c> — so call it again
     /// after changing either (idempotent; re-syncs). No-ops on materials without
     /// <c>_EmissionColor</c> (BoardLit, Sprites/Default, Overlay — the unlit/self-lit families
-    /// have no hole to floor). Logs once per material, on first application.
-    ///
-    /// <para>ROUND 16 AUDIT — THIS FLOOR CANNOT DISTURB THE CUTOUT STATE, verified against every
-    /// call path after the 119 paradox (band opaque although the texture is clipped; user
-    /// verbatim: "nicht mehr schwarz sondern bech … aber immer noch nicht transparent"). This
-    /// method writes exactly four things: the <c>_EMISSION</c> keyword, the GI flags,
-    /// <c>_EmissionMap</c> and <c>_EmissionColor</c>. It never touches <c>_ALPHATEST_ON</c>,
-    /// <c>_Mode</c>, the blend ints, <c>_ZWrite</c>, <c>_Cutoff</c>, <c>renderQueue</c> or
-    /// <c>mainTexture</c>. Call orders: (fresh cold-cache) factory → floor (pre-cutout, texture
-    /// still null — that is the "(none → tint only)" first-application log line, harmless and
-    /// re-synced later); (cache-hit and live-capture) … → <see cref="ConfigureCutout"/>, which
-    /// sets the full cutout state and re-runs the floor LAST — so ConfigureCutout is authoritative
-    /// on every path and the floor's re-run touches emission only. The only OTHER writer to the
-    /// shared pair anywhere in the mod is ConfigureCutout itself (grepped: every consumer in
-    /// Cards/, Net/ and WorldUI/ only ASSIGNS the shared materials, never mutates them), and
-    /// <c>_Cutoff</c> is 0.5 — at which a binary 4–6 %-wide zero-alpha edge band on a 224×343
-    /// trilinear texture cannot be resurrected by mip blending at card viewing minification
-    /// (mips 0–2; the band is ≥7 texels wide there and its outside neighbourhood is also 0). So
-    /// the 119 defect is NOT an ordering/keyword/cutoff regression in this file; the differential
-    /// capture and the cutout clip-execution probe (<c>CardBandPixelCapture</c>,
-    /// <c>CardShaderProbe.DescribeCutoutClip</c>) decide between the remaining classes on-rig —
-    /// chief suspect: the game build's Standard shader shipping WITHOUT the cutout variant, in
-    /// which case <c>EnableKeyword("_ALPHATEST_ON")</c> silently selects a variant that never
-    /// clips and the slab paints its full envelope in EdgeColor — which matches the measured band
-    /// (125,97,68) = EdgeColor × (light ≈ 0.16 + emission 1.0) to within 1/255.</para>
+    /// have no hole to floor). Logs once per material, on first application. Writes exactly four
+    /// things — the <c>_EMISSION</c> keyword, the GI flags, <c>_EmissionMap</c> and
+    /// <c>_EmissionColor</c> — and nothing else about the material's state.
     /// </summary>
     internal static void ApplyEmissionFloor(Material? m)
     {
@@ -1188,83 +1054,42 @@ internal static class CardMesh
     internal static bool SilhouetteApplied(CardBodyKind kind) => _silhouetteApplied[(int)kind];
 
     /// <summary>
-    /// Re-shape the 3D card body of ONE <paramref name="kind"/> to that shape's real card
-    /// silhouette (hardware test #25; 2026-08-11 "auch die Itemkarten"). Once per kind per
-    /// session: <paramref name="alpha"/> is a card-space opacity footprint of the LIVE card
-    /// art (row-major, <c>alpha[y*w + x]</c>, x → right, y → up, normalized over the card
-    /// face rect) captured by <see cref="CardFace"/>. Its alpha is baked into that kind's
-    /// shared front/rim and back materials, which flip to the stock Standard shader's
-    /// Cutout (alpha-test) mode — so every body of that kind is clipped to the art's
-    /// outline: the dark front now reads as an ORNATE border ring, the rim follows the
-    /// curve, the back carries the same shape.
-    ///
-    /// The footprint's 0..1 square maps onto the mesh's planar card-space UVs, and the
-    /// backing transform is scaled to exactly the RENDERED art rect on both card kinds
+    /// Accept the card-shape footprint for ONE <paramref name="kind"/> ("auch die Itemkarten").
+    /// Once per kind per session: <paramref name="alpha"/> is a card-space opacity footprint of
+    /// the LIVE stock card art (row-major, <c>alpha[y*w + x]</c>, x → right, y → up, normalized
+    /// over the card face rect) captured by <see cref="CardFace"/>. On acceptance the footprint
+    /// drives the PUNCHED-OUT body geometry: <see cref="ReshapeBodies"/> derives the contour
+    /// (<c>CardContour</c>, 0.5 iso, largest closed loop) and swaps every live body of the kind
+    /// onto the shaped mesh; later <see cref="AttachBody"/> calls are born shaped. The footprint's
+    /// 0..1 square is the FACE RECT — the body is fitted to exactly that rect on both card kinds
     /// (<c>VRCard.SetCanvasSize</c> — facePixels × fit × VisibleFaceFraction, which equals
-    /// CardFace's own 1−BorderFraction inset; <c>ItemsPile</c> — native × fit). So footprint
+    /// CardFace's own 1−BorderFraction inset; <c>ItemsPile</c> — native × fit), so footprint
     /// texel (u,v) sits on the card pixel it was sampled from, at every card scale.
     ///
-    /// <para>THE 0.94 COORDINATE-MISMATCH HYPOTHESIS IS REFUTED — DO NOT RE-TEST IT (round 5,
-    /// checked against the ModBuild-109 log, `738bc15`). The suspicion was that the mask spans the
-    /// FULL face while the body spans only <c>VisibleFaceFraction</c> of it, so the body's rim would
-    /// sample the mask at ~0.94 — still opaque, since the footprint's opaque bounding box reaches
-    /// 0.955 of the face — and nothing would ever be clipped at the edge. The arithmetic says
-    /// otherwise, and both halves carry the SAME 0.94:
-    /// <list type="bullet">
-    /// <item>the host canvas is <c>sizeDelta = FaceSize</c> = the game face's own rect (294×450 px,
-    ///   logged), so <c>CardFace.ComputeFitScale(hostSize, FaceSize)</c> = 1 and the adopted face is
-    ///   drawn at <c>_fitScale</c> = 1 − BorderFraction = 0.94 → a rendered art rect of
-    ///   276.4 × 423 canvas px;</item>
-    /// <item>the slab is <c>facePixels × fit × VisibleFaceFraction</c> = the same 294 × 0.94 by
-    ///   450 × 0.94 → 276.4 × 423 canvas px, concentric with it (canvas at local z −0.0012, both
-    ///   centred, <c>_visualRoot</c> is unit-scaled and never rescaled).</item>
-    /// </list>
-    /// Slab and rendered art rect are therefore the SAME rectangle, and UV 0..1 on the body
-    /// corresponds to the FULL 294×450 face — the footprint's own space. The mask lands exactly
-    /// where it was authored. Whatever the user still sees, it is not this.</para>
-    ///
-    /// <para>ROUND 7 — THAT REFUTATION STILL STANDS, AND IT IS ALSO WHY THE BAND EXISTED. Read the
-    /// two bullets above again: the slab is the FACE RECT, exactly. What neither bullet says is what
-    /// the game draws INSIDE that rect. The face rect is 294×450 (aspect 0.6533); the ability card's
-    /// art is poker-shaped (0.7216) and <c>Image.preserveAspect</c> letterboxes it to 90.54 % of the
-    /// rect's height, leaving 4.73 % dead at the top and at the bottom. The user's screenshot
-    /// measures 4.76 % at the top and ~0.8 % at the left — a band on the SHORT axis only, which is
-    /// the signature of a letterbox and not of a ring. The slab was never mis-mapped onto the face
-    /// rect; the MASK was mis-mapped onto the ART, because <c>CardFace</c> stamped the sprite across
-    /// the layout rect instead of the drawn rect. Fixed in <c>CardFace.DrawnLocalRect</c>; the
-    /// footprint's meaning here — 0..1 = the face rect — is deliberately unchanged, so this method,
-    /// the mesh, the collider and every card metric are untouched. See <see cref="_footArt"/> for
-    /// the one consumer that needs the other rectangle.</para>
+    /// <para><paramref name="artRect"/> is the sub-rect of the footprint the card ART actually
+    /// draws on, in the footprint's own 0..1 — see <see cref="_footArt"/> and
+    /// <see cref="ExportTexture"/>. Pass the full 0..1 when it is not known; the footprint itself
+    /// is unaffected either way. <paramref name="source"/> names the sprite the mask came from
+    /// (cache provenance); <paramref name="fromCache"/> suppresses the write-back so loading never
+    /// rewrites what it just read.</para>
     ///
     /// Robust by design: returns without applying (cards stay the opaque rounded-rect)
     /// if the footprint is malformed, degenerate (mostly empty or a solid rectangle —
-    /// the latter would be pointless AND is the signature of a bad capture), hollow in
-    /// the centre, or if the Standard shader (hence Cutout) is unavailable. It therefore
-    /// can never make a card invisible. Returns whether the silhouette was applied.
-    /// </summary>
-    internal static bool SetSilhouette(CardBodyKind kind, byte[]? alpha, int w, int h)
-        => SetSilhouette(kind, alpha, w, h, new Rect(0f, 0f, 1f, 1f), source: null, fromCache: false);
-
-    /// <summary>
-    /// <inheritdoc cref="SetSilhouette(CardBodyKind, byte[], int, int)"/>
-    /// <para><paramref name="artRect"/> is the sub-rect of the footprint the card ART actually
-    /// draws on, in the footprint's own 0..1 — see <see cref="_footArt"/> and
-    /// <see cref="ExportTexture"/>. Pass the full 0..1 when it is not known; the footprint itself is
-    /// unaffected either way. <paramref name="source"/> names the sprite the mask came from (cache
-    /// provenance); <paramref name="fromCache"/> suppresses the write-back so loading never rewrites
-    /// what it just read.</para>
+    /// the latter would be pointless AND is the signature of a bad capture) or hollow in
+    /// the centre. It therefore can never make a card invisible. Returns whether the
+    /// silhouette was applied.
     /// </summary>
     internal static bool SetSilhouette(CardBodyKind kind, byte[]? alpha, int w, int h,
                                        Rect artRect, string? source, bool fromCache)
     {
         if (kind == CardBodyKind.Neutral)
         {
-            // The legacy pair is shared with call sites this change never audited at runtime
+            // The legacy shape is shared with call sites this change never audited at runtime
             // (see CardBodyKind). Refusing here rather than at the caller keeps that promise
             // in ONE place.
             VRLog.Warn("Cards", "CardMesh.SetSilhouette: refused for the Neutral (legacy shared) " +
-                                "material pair — a clip there would reach the peer mirrors and the " +
-                                "avatar mirror, whose meshes this was never verified against.");
+                                "shape — a re-shape there would reach consumers this was never " +
+                                "verified against.");
             return false;
         }
         if (_silhouetteApplied[(int)kind])
@@ -1273,19 +1098,6 @@ internal static class CardMesh
         {
             VRLog.Warn("Cards", $"CardMesh.SetSilhouette({kind}): malformed footprint " +
                                 $"(alpha={(alpha == null ? "null" : alpha.Length.ToString())}, {w}x{h}) — kept rounded-rect.");
-            return false;
-        }
-
-        // Round 17: the shaped mesh needs no shader at all to hold its outline, so the Standard
-        // requirement only applies while the CUTOUT material path is enabled (it needs Standard's
-        // alpha-test mode; without it a fallback shader would only alpha-blend — unlit, sorting
-        // hazards — not worth the risk).
-        Material edge = CreateEdgeMaterial(kind);
-        Material back = CreateBackMaterial(kind);
-        if (CutoutMaterialsEnabled && (edge.shader == null || edge.shader.name != "Standard"))
-        {
-            VRLog.Warn("Cards", $"CardMesh.SetSilhouette({kind}): Standard shader unavailable " +
-                                $"(edge shader='{edge.shader?.name ?? "null"}') — kept rounded-rect (no Cutout clip).");
             return false;
         }
 
@@ -1324,13 +1136,12 @@ internal static class CardMesh
                             $"the face, filled {bboxFill:F3} (1.000 = a plain rectangle, so the clip only " +
                             "narrows the slab; below ~0.97 = a genuinely non-rectangular outline).");
 
-        // A footprint that is the FULL face AND solid to its own bounding box is a no-op clip: it
-        // would flip the materials to Cutout, cost a keyword and buy nothing. Refuse it rather than
-        // burn the one shot, so a later, better footprint can still land.
+        // A footprint that is the FULL face AND solid to its own bounding box is a no-op shape.
+        // Refuse it rather than burn the one shot, so a later, better footprint can still land.
         if (bboxFill >= 0.995f && bboxCoverage >= 0.99f)
         {
             VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): the footprint is the full face and solid " +
-                                "to its own bounding box — a clip here removes nothing. Kept rounded-rect; " +
+                                "to its own bounding box — a re-shape here changes nothing. Kept rounded-rect; " +
                                 "the one shot stays available for a later footprint.");
             return false;
         }
@@ -1351,36 +1162,6 @@ internal static class CardMesh
             return false;
         }
 
-        // --- bake the footprint alpha into both materials' textures -----------------
-        // ROUND 17: RETIRED BEHIND CutoutMaterialsEnabled (see that field). The body's outline is
-        // now GEOMETRY (the punched-out mesh below); the shared materials keep their plain umber
-        // EdgeColor / lattice look with the emission floor, and no alpha-clip state is written.
-        if (CutoutMaterialsEnabled)
-        {
-            Texture2D backPattern = GetBackTexture();
-            var edgePixels = new Color32[alpha.Length];
-            var backPixels = new Color32[alpha.Length];
-            var edgeRgb = (Color32)EdgeColor;
-            for (int y = 0; y < h; y++)
-            {
-                for (int x = 0; x < w; x++)
-                {
-                    int i = y * w + x;
-                    byte a = alpha[i];
-                    edgePixels[i] = new Color32(edgeRgb.r, edgeRgb.g, edgeRgb.b, a);
-                    // Card back is drawn through MIRRORED UVs (see Build): mirror the alpha
-                    // so the back outline lines up with the front. The lattice RGB is
-                    // left-right symmetric, so its own mirroring is invisible.
-                    Color rgb = backPattern.GetPixelBilinear((x + 0.5f) / w, (y + 0.5f) / h);
-                    byte am = alpha[y * w + (w - 1 - x)];
-                    backPixels[i] = new Color32(
-                        (byte)(rgb.r * 255f), (byte)(rgb.g * 255f), (byte)(rgb.b * 255f), am);
-                }
-            }
-
-            ConfigureCutout(edge, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Edge", edgePixels, w, h));
-            ConfigureCutout(back, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Back", backPixels, w, h));
-        }
         _silhouetteApplied[(int)kind] = true;
         _footprints[(int)kind] = alpha;
         _footW[(int)kind] = w;
@@ -1393,17 +1174,15 @@ internal static class CardMesh
             : new Rect(0f, 0f, 1f, 1f);
         VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): APPLIED from {(fromCache ? "the PERSISTED CACHE " +
                             "(before this session drew a single card — no visible transition)" : "a live capture")} " +
-                            $"[source '{source ?? "n/a"}'] — round 17: the footprint now drives the PUNCHED-OUT " +
-                            "body GEOMETRY (CardContour), not a material alpha clip; the shared front/rim + back " +
-                            "materials keep their plain umber/lattice look and every body of this kind gets a mesh " +
-                            "whose boundary IS the card outline.");
-        // ROUND 17: derive the outline contour and swap every live body to the punched-out mesh.
-        // On the cache path this runs before any body exists (nothing to swap — later AttachBody
-        // calls are born shaped); on a cold-start live capture it is the one visible step, exactly
-        // the moment the material clip used to land.
+                            $"[source '{source ?? "n/a"}'] — the footprint drives the PUNCHED-OUT body GEOMETRY " +
+                            "(CardContour); the shared front/rim + back materials keep their plain umber/lattice " +
+                            "look and every body of this kind gets a mesh whose boundary IS the card outline.");
+        // Derive the outline contour and swap every live body to the punched-out mesh. On the
+        // cache path this runs before any body exists (nothing to swap — later AttachBody calls
+        // are born shaped); on a cold-start live capture it is the one visible step.
         ReshapeBodies(kind);
-        // FOREIGN CONSUMERS LAST, and only now that _footprints holds the mask: the flat quads that
-        // draw a PEER's board recess cannot wear a Cutout mesh material, so they carry the same
+        // FOREIGN CONSUMERS LAST, and only now that _footprints holds the mask: the flat quads
+        // that draw a PEER's board recess cannot wear the shaped mesh, so they carry the same
         // footprint as an alpha channel. See BindSilhouette for why this is a binding, not a getter.
         ApplyBindings(kind);
         if (!fromCache)
@@ -1462,54 +1241,29 @@ internal static class CardMesh
     /// <summary>
     /// Bump this whenever the MEANING of a stored mask changes, not just its layout — a file whose
     /// bytes still parse but no longer mean what this build thinks they mean is worse than no file.
+    /// <see cref="EnsureSilhouetteCacheLoaded"/> applies the file before the first card body exists
+    /// and <see cref="RefreshSilhouetteCache"/> deliberately refuses to re-apply mid-session (that
+    /// re-shape IS the visible transition the user rejected), so a stale file would silently ship
+    /// the PREVIOUS build's shape — the bump is what forces the relearn. Cost: exactly one cold
+    /// start per shape, the documented first-run behaviour, never a wrong shape.
     ///
-    /// <para>v1 → v2 (round 5): the capture now peels the opaque, near-black band off the OUTSIDE of
-    /// the footprint (<c>CardFace.PeelDarkBorder</c>), so a v2 mask describes the card WITHOUT its
-    /// printed frame while a v1 mask describes it WITH one. This matters concretely rather than
-    /// academically: the ModBuild-109 run WROTE a v1 file, and <see cref="EnsureSilhouetteCacheLoaded"/>
-    /// applies the cache before the first card body exists while
-    /// <see cref="RefreshSilhouetteCache"/> deliberately refuses to re-apply mid-session (that
-    /// re-shape IS the visible transition the user rejected). Left at v1 the next launch would
-    /// therefore apply the OLD mask, the peel would only reach the FILE, and the change would not be
-    /// visible until the launch after that — i.e. the user would test round 5 and see round 4. The
-    /// bump costs exactly one cold start for this shape, which is the documented and accepted
-    /// first-run behaviour, and never a wrong shape.</para>
+    /// <para>CURRENT MEANING (v6): the footprint is the STOCK card art's own designed alpha at
+    /// the 0.5 iso, stamped into the art's drawn rect — no drop-shadow trim, no dark-border peel,
+    /// no frame punch, no outline clip. The file also carries the art rect (since v3). Body and
+    /// face coincide by construction: the contour derived from this mask reaches everything the
+    /// art draws, printed frame and bottom protrusion included.</para>
     ///
-    /// <para>v2 → v3 (round 7): the mask is now stamped into the rectangle the card art actually
-    /// DRAWS on rather than into the image's layout rect (<c>CardFace.DrawnLocalRect</c>), so a v3
-    /// mask is transparent in the letterbox bands a v2 mask called card — and the file additionally
-    /// carries that art rect. This bump is load-bearing for the same reason the last one was, and
-    /// the last one PROVED it: the ModBuild-110 log opens with "header mismatch … version 1 want 2 …
-    /// this session re-learns it", i.e. the v1 → v2 bump is the only reason that run tested round
-    /// five instead of round four. <see cref="EnsureSilhouetteCacheLoaded"/> applies the file before
-    /// the first card body exists and <see cref="RefreshSilhouetteCache"/> refuses to re-apply
-    /// mid-session (that re-shape IS the visible transition the user rejected), so a stale v2 file
-    /// would have shipped round six's behaviour under a round-seven build. Cost: exactly one cold
-    /// start per shape, which is the documented first-run behaviour.</para>
-    ///
-    /// <para>v3 → v4 (round 8): the face's art is now frame-PUNCHED before the capture samples it
-    /// (<c>CardFaceMipBake</c>'s frame punch erases the printed near-black frame from the mod-owned
-    /// sprite copies, and <c>CardFace</c> stamps the footprint FROM those punched sprites), so a v4
-    /// mask is transparent under the frame band. A v3 mask still calls that band "card" — its peel
-    /// hit its depth cap in both measured runs, so the band is only partially out — and applying it
-    /// under a punching build would make the MESH paint its dark front exactly where the face just
-    /// stopped painting: the reported band, re-created by the fix itself. Mesh and face must come
-    /// from ONE measurement, and for the cached path this bump is what enforces it. Cost: one cold
-    /// start per shape, as before.</para>
-    ///
-    /// <para>v4 → v5 (round 9): the punch region is now GEOMETRIC — the card's true outline,
-    /// derived by <c>CardOutline</c> from the background art's bright trim contour — applied to
-    /// every full-span face layer (background AND action halves) AND intersected into the
-    /// footprint after capture (<c>CardFace.TryCapture</c>'s OUTLINE CLIP). A v4 mask was stamped
-    /// from BFS-punched sprites whose erosion the 112 log measured stopping at 24 px with the
-    /// band still painted, so a v4 mask still calls part of the frame "card"; applying it under a
-    /// v5 build would make the MESH paint its dark front exactly where the face now stops —
-    /// the reported band, re-created by the fix. Mesh and face must come from ONE measurement,
-    /// and for the cached path this bump is what enforces it — it has been load-bearing three
-    /// times (v1→v2, v2→v3, v3→v4 all shipped behaviour that a stale file would have silently
-    /// reverted). Cost: one cold start per shape, the documented first-run behaviour.</para>
+    /// <para>v5 → v6 IS LOAD-BEARING (the ModBuild-121 bottom-edge fix): every v5 file on a
+    /// player's rig was learned from PUNCHED pixels additionally clipped by the CardOutline band
+    /// geometry — its bottom band (~5.3 % of the face) was a frame-era estimate that provably
+    /// disagreed with the art's true bottom edge, so the v5 body stopped HIGHER than the stock
+    /// art draws and the unbacked strip read as a transparent card bottom ("Der untere Rand von
+    /// allen Karten ist teilweise transparent", karten6.png). A v6 build must not apply that
+    /// mask. Earlier bumps (v1→v2 peel, v2→v3 drawn rect + art rect, v3→v4 punched source,
+    /// v4→v5 outline clip) were each load-bearing the same way; their machinery is deleted —
+    /// 17 rounds, geometry won; see the NetProtocol build notes for ModBuild 105-121.</para>
     /// </summary>
-    private const byte CacheVersion = 5;
+    private const byte CacheVersion = 6;
 
     private static string CacheFilePath(CardBodyKind kind) => System.IO.Path.Combine(
         BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}.bin");
@@ -1707,28 +1461,6 @@ internal static class CardMesh
         VRLog.Info("Cards", $"CARD TEX: '{name}' {w}x{h} RGBA32 mips {tex.mipmapCount} " +
                             $"{tex.filterMode} aniso {tex.anisoLevel} — card cutout footprint.");
         return tex;
-    }
-
-    /// <summary>Flip a shared Standard material into opaque alpha-test (Cutout) mode with
-    /// the given footprint texture (RGB = look, A = card outline).</summary>
-    private static void ConfigureCutout(Material m, Texture2D tex)
-    {
-        m.mainTexture = tex;
-        m.color = Color.white;
-        m.SetFloat("_Mode", 1f); // Cutout
-        m.SetOverrideTag("RenderType", "TransparentCutout");
-        m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
-        m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
-        m.SetInt("_ZWrite", 1);
-        m.EnableKeyword("_ALPHATEST_ON");
-        m.DisableKeyword("_ALPHABLEND_ON");
-        m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        m.SetFloat("_Cutoff", 0.5f);
-        m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.AlphaTest;
-        // Round 15: mainTexture and color just changed, so re-derive the self-illumination
-        // floor from them — the baked cutout texture's RGB is what must read in the dark
-        // scenes (see EmissionFloorFactor; surviving fragments only, the clip is unaffected).
-        ApplyEmissionFloor(m);
     }
 
     private static Material NewMaterial()

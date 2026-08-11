@@ -65,22 +65,6 @@ internal sealed class CardArtWatch
     /// <see cref="_images"/>.</summary>
     private Sprite?[]? _sprites;
 
-    /// <summary>
-    /// ROUND 11 — the DISSOLVE EPSILON FLOOR rides this watch, and the placement is the point:
-    /// this class is the ONE per-frame, per-face seam that BOTH the locally adopted ability faces
-    /// (<c>CardFace.MaintainArtArrival</c> polls from <c>VRCard.LateUpdate</c>) and every remote
-    /// peer front (<c>Net.RemoteCardArt.MaintainMipBake</c> polls each frame a front is shown —
-    /// hand fan, board slots, active column, pile/item fans) already run, with the face's
-    /// <c>Image</c> array in hand. Riding it covers the user's full scope ("… UND auch alle
-    /// Karten genauso die remote angezeigt werden im Multiplayer") without a single Net/** edit;
-    /// the hosted ITEM cards, which have no art watch, carry their own instance in
-    /// <c>ItemsPile.ItemChip</c>. Captured with the watch arrays, ticked at the TOP of
-    /// <see cref="Poll"/> — deliberately BEFORE the [Cards] FaceMipBake gate, because the floor
-    /// is a shader-state fix and must not vanish with a texture-quality dial — and released in
-    /// <see cref="Clear"/> (the same full-restore moment the sprites use).
-    /// </summary>
-    private readonly CardDissolveFloor _dissolveFloor = new();
-
     /// <summary>Running VRAM total at the last logged line — see <see cref="LogStepBytes"/>.</summary>
     private static long s_lastBudgetLoggedBytes = -1;
 
@@ -115,9 +99,6 @@ internal sealed class CardArtWatch
                 sprites[i] = images[i] != null ? images[i].sprite : null;
             _images = images;
             _sprites = sprites;
-            // Round 11: (re)collect the card-FX material clones from the same array — the floor's
-            // only allocating step shares this walk instead of adding one.
-            _dissolveFloor.Capture(images);
         }
         catch (System.Exception ex)
         {
@@ -131,8 +112,6 @@ internal sealed class CardArtWatch
     {
         _images = null;
         _sprites = null;
-        // Full-restore contract: hand the game back its own rest-state dissolve.
-        _dissolveFloor.Release();
     }
 
     /// <summary>
@@ -143,10 +122,6 @@ internal sealed class CardArtWatch
     /// </summary>
     internal int Poll(string what)
     {
-        // Round 11: the dissolve floor ticks FIRST, before the mip-bake gate below — it is a
-        // shader-state fix (the black frame band), not a texture-quality one, and must keep
-        // running when [Cards] FaceMipBake is off.
-        _dissolveFloor.Tick();
         if (CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
             return 0;
         Image[]? images = _images;
