@@ -1182,6 +1182,7 @@ internal sealed class RemoteBoardFurniture
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
             _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, wantedScale * Cards.PlayTray.SnapGlowRatio, -0.005f,
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
+            BuildSlotLiner(i, card);
         }
 
         ApplyLabels();
@@ -2843,6 +2844,39 @@ internal sealed class RemoteBoardFurniture
             }
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The peer-side mirror of the local board's <c>SlotSeatLiner</c> (round 13, 1:1 board rule):
+    /// the bundled tray's authored recess floor is near-black, so a mirrored card's punched
+    /// transparent frame pixels — and the floor margin around the card — read as a black band on
+    /// the peer's board exactly as they did on the owner's. Same cure, same numbers: an opaque
+    /// rounded <c>CardMesh</c> slab at <c>PlayTray.SlotLinerScale</c> (1.78×) of the remote card
+    /// box, wearing the keycaps' carved-grain wood (<c>PlayTray.NewKeycapMaterial</c>,
+    /// <c>PlayTray.SlotLinerColor</c>) — deliberately NEVER the shared CardBodyKind pairs, which
+    /// are silhouette-clipped to the card art while this must stay a full rounded rectangle. Front
+    /// face 3.2 mm behind the card plane (the local liner's own card-to-liner gap: card front
+    /// −0.004, liner −0.0008), always on — the liner is furniture, not state, so there is nothing
+    /// to sync beyond its existence. Sized from <c>_slotFrameW/H</c> (the OWNER's card metric via
+    /// record 11), so a peer who tuned the slot sees liner and card in register, exactly like the
+    /// glows above.
+    /// </summary>
+    private void BuildSlotLiner(int index, Vector3 cardLocal)
+    {
+        Shader? shader = Cards.PlayTray.BoardLitShader()
+            ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse")
+            ?? Shader.Find("Sprites/Default");
+        if (shader == null)
+            return; // nothing drawable — keep the recess look rather than a magenta plate
+        Material liner = Cards.PlayTray.NewKeycapMaterial(shader, Cards.PlayTray.SlotLinerColor);
+        var go = new GameObject($"SlotSeatLiner{index}");
+        go.transform.SetParent(_root, worldPositionStays: false);
+        go.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z + 0.0032f);
+        go.AddComponent<MeshFilter>().sharedMesh = Cards.CardMesh.Get(
+            _slotFrameW * Cards.PlayTray.SlotLinerScale, _slotFrameH * Cards.PlayTray.SlotLinerScale);
+        var renderer = go.AddComponent<MeshRenderer>();
+        renderer.sharedMaterials = new[] { liner, liner }; // one solid piece of board wood
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
     }
 
     /// <summary>A collider-free glow rim behind a round-card slot (the teal "wanted" pulse and the
