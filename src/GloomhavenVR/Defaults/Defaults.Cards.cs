@@ -271,6 +271,7 @@ internal static partial class Defaults
     internal const bool PileViewer = true;                                                            // => [Cards] PileViewer
     internal const bool ActivePile = true;                                                            // => [Cards] ActivePile
     internal const bool FaceMipBake = true;                                                           // => [Cards] FaceMipBake
+    internal const float DissolveFloorFraction = 0.004f;                                              // => [Cards] DissolveFloorFraction
     internal const ControlBoard Board = ControlBoard.Oak;                                             // => [Cards] Board
     internal static readonly Vector3 ItemUseSlotOffset_Oak = new Vector3(0f, 0f, 0f);                 // => [Cards] ItemUseSlotOffset_Oak
     internal static readonly Vector3 ItemUseSlotOffset_Steel = new Vector3(0f, 0f, 0f);               // => [Cards] ItemUseSlotOffset_Steel

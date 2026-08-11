@@ -145,6 +145,9 @@ EXEMPT = {
     ("Cards", "CardPlaceSound"): ("COMFORT", "as FanRevealSound"),
     ("Cards", "CardTakeBackSound"): ("COMFORT", "as FanRevealSound"),
     ("Cards", "FaceMipBake"): ("COMFORT", "texture quality of THEIR rendering; no geometry, no layout"),
+    ("Cards", "DissolveFloorFraction"): ("COMFORT", "shader rest-state epsilon of THEIR rendering; every client "
+                                                    "floors every card face it draws itself, remote fronts "
+                                                    "included — no geometry, no layout"),
     ("Cards", "DevFakeHand"): ("COMFORT", "a debug toggle; never on a shipped player's board"),
 
     # ---- NO-OP: nothing renders from it, even locally ------------------------------------------

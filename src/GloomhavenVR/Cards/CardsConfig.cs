@@ -171,6 +171,9 @@ internal static class CardsConfig
     /// <summary>Aliasing round 3 (T3): runtime MIP BAKE of the game's mipless card-face atlases — adopted card faces sample trilinear/aniso mipmapped copies instead (texture-space shimmer fix).</summary>
     internal static ConfigEntry<bool> FaceMipBake = null!;
 
+    /// <summary>Black-frame round 11: rest-state <c>_Dissolve</c> floor held on every card-FX material the mod manages (ability, item AND remote card faces) so the punched alpha-0 frame pixels are actually DISCARDED by the card shader's dissolve clip — see <c>CardDissolveFloor</c>. 0 = off.</summary>
+    internal static ConfigEntry<float> DissolveFloorFraction = null!;
+
     /// <summary>Which control-board prefab is loaded (Oak = the original bundled board; Steel/Bronze are new). Switchable live.</summary>
     internal static ConfigEntry<ControlBoard> Board = null!;
 
@@ -995,6 +998,17 @@ internal static class CardsConfig
             "-> mip chain) and the face Images' sprites are swapped to equivalent sprites on the " +
             "baked copy (rect/pivot/border/PPU preserved; originals restored when a face is " +
             "returned to the game). false = leave the game's mipless atlases untouched.");
+        DissolveFloorFraction = _file.Bind("Cards", "DissolveFloorFraction", Defaults.DissolveFloorFraction,
+            "Black-frame round 11 (the shader-side fix): the card shader 'GUI/AbilityCard_Shd' " +
+            "clips against _Dissolve and discards NOTHING at its rest value 0, so the frame " +
+            "pixels nine earlier rounds punched to alpha 0 still render as opaque black (they " +
+            "briefly turn transparent during the game's own dissolve animation — the tell). The " +
+            "mod therefore holds _Dissolve at this tiny rest-state floor, every frame, on every " +
+            "card-FX material it manages — the ability faces, the hosted item cards and the " +
+            "remote peers' card fronts alike. A game FX writing a real dissolve is never " +
+            "lowered; the punched pixels are BINARY alpha (0 or ~1), so a floor this small " +
+            "cannot cut visible fringes into opaque art. 0 = off (the game's own rest state, " +
+            "black frame included).");
         Board = _file.Bind("Cards", "Board", Defaults.Board,
             "Which control-board (PlayTray) model to load from the asset bundle — switchable " +
             "live from the VR settings panel. Oak = the original bundled board (default); Steel " +

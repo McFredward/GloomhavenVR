@@ -1146,6 +1146,14 @@ internal sealed class CardFace
                 Material? mat = img.material;
                 if (mat == null || mat.shader == null)
                     return;
+                // ROUND 11 — the GPU experiment, at the same "first card material seen" moment
+                // this identity line latches on: MaybeRun self-gates to once per session and to
+                // the card-FX family (_Dissolve + _PosAndBounds), renders the punch's exact
+                // alpha-0 pixels through a CLONE of this material at _Dissolve = 0 and at the
+                // floor's epsilon, and logs the CARD SHADER PROBE verdict that decides between
+                // "alpha honored", "epsilon discards (floor proven)" and "shader replacement is
+                // the only road". See CardShaderProbe.
+                CardShaderProbe.MaybeRun(mat);
                 string shaderName = mat.shader.name;
                 if (!s_shaderLogged.Add(shaderName))
                     return;

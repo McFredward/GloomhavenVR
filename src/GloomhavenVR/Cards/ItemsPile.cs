@@ -4623,6 +4623,13 @@ internal sealed class ItemsPile
         private float _tightArtPollUntil;
         private bool _artBaked;
 
+        // Round 11 — the ITEM half of the DISSOLVE EPSILON FLOOR (see CardDissolveFloor for the
+        // whole mechanism). The ability faces and remote fronts ride CardArtWatch, which the item
+        // chip does not have; this instance is captured on the host/arrival/backstop seams above
+        // and ticked from TickFaceMaintenance, then released before the widget is recycled so the
+        // pooled card is handed back with the game's own rest-state dissolve.
+        private readonly CardDissolveFloor _dissolveFloor = new();
+
         // USABLE HIGHLIGHT (replaces the former de-emphasis dim — see ROOT CAUSE below).
         //
         // WHAT CHANGED AND WHY: the first two attempts at this cue worked the NEGATIVE way round —
@@ -5113,6 +5120,11 @@ internal sealed class ItemsPile
                 _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                 _tightArtPollUntil = Time.unscaledTime + TightArtPollSeconds;
                 _artBaked = false;
+
+                // Round 11 — DISSOLVE EPSILON FLOOR: collect the widget's ItemCardEffects
+                // material clones on host, so the floor covers the pre-art window too (the
+                // arrival and 1 s seams in TickFaceMaintenance re-capture afterwards).
+                _dissolveFloor.Capture(cardUI);
 
                 _cardGo = cardGo;
                 _cardUI = cardUI;
@@ -6058,6 +6070,10 @@ internal sealed class ItemsPile
                     // CardShapeMask.Wrap returns null with no side effects — so this can only ever
                     // start working, never break the item chips as they are today.
                     CardShapeMask.Wrap(_cardUI.transform as RectTransform, CardBodyKind.Item);
+                    // Round 11: the ITEM half of the DISSOLVE EPSILON FLOOR's scope ("Weiterhin
+                    // sollien Item-Karten genauso betroffen sein") — (re)collect the hosted
+                    // widget's ItemCardEffects material clones on the same arrival seam.
+                    _dissolveFloor.Capture(_cardUI);
                     _nextMipRescan = Time.unscaledTime + MipRescanInterval;
                     if (!s_loggedArtBaked)
                     {
@@ -6078,7 +6094,17 @@ internal sealed class ItemsPile
                 // and this is what puts it on a chip that was already hosted. Idempotent (an already
                 // wrapped face just re-fits its wrapper).
                 CardShapeMask.Wrap(_cardUI.transform as RectTransform, CardBodyKind.Item);
+                // Round 11: re-capture the dissolve floor's material set on the same backstop —
+                // Images the widget grew after the arrival capture join the floor here.
+                _dissolveFloor.Capture(_cardUI);
             }
+
+            // Round 11 — DISSOLVE EPSILON FLOOR, every frame (see CardDissolveFloor): hold the
+            // hosted item widget's card-FX materials at the rest-state epsilon so the punched
+            // frame pixels stay discarded. The ability cards and remote fronts ride
+            // CardArtWatch.Poll for the same tick; the item chip has no art watch, so it ticks
+            // its own instance here. Allocation-free (indexed loop over cached materials).
+            _dissolveFloor.Tick();
 
             // USABLE HIGHLIGHT (live) — light the soft gold FRAME when this card CAN be played RIGHT NOW.
             // Turn-aware: the owner gates on IsActionTurn AND IsActivatable, so off-turn nothing glows
@@ -6704,6 +6730,11 @@ internal sealed class ItemsPile
                     // it neutralised. The pool must never receive a widget parented inside a mod
                     // GameObject or holding a value we wrote. No-op if it was never wrapped.
                     CardShapeMask.Release(_cardUI.transform as RectTransform);
+                    // Round 11 — the DISSOLVE EPSILON FLOOR's half of the same contract: put the
+                    // rest-state _Dissolve = 0 back on the widget's ItemCardEffects material
+                    // clones (only where the current value IS our floor — an in-flight game FX
+                    // is never touched) before the pool takes the card back.
+                    _dissolveFloor.Release();
                     ObjectPool.RecycleCard(_cardUI.CardID, ObjectPool.ECardType.Item, _cardGo);
                 }
                 catch (System.Exception e)

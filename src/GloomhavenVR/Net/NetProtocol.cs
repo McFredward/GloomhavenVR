@@ -416,7 +416,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 114;
+    public const ushort ModBuild = 115;
+    // Build 115: TWO lanes again — the border's attempt ELEVEN (the first SHADER-side one) and the
+    // stretch gesture's hardware-test fixes. No wire change; the bump is here because 115 ships.
+    //
+    // (1) THE BORDER, ATTEMPT ELEVEN. The 114 log closed the case file on the texture side: the
+    // rect crop provably applied (294x450 -> 291x436) and the user still saw an identical band,
+    // and the CARD SHADER IDENTITY line named the painter — every face Image renders through a
+    // per-image clone of 'GUI_CardEffect_Mat' / 'GUI/AbilityCard_Shd' with no readable blend
+    // state. The user's own report is the tell: the band turns TRANSPARENT during the game's
+    // dissolve animation, i.e. a clip of the shape clip(f(tex.a) - _Dissolve*..) that discards
+    // nothing at the rest value 0 and paints alpha-0 pixels opaque black — which retroactively
+    // explains all nine texture rounds at once. Two pieces ship: CardShaderProbe (once per
+    // session, renders the punch's exact alpha-0 pixels through a CLONE of the live material at
+    // _Dissolve 0 and 0.004 into an RT and reads the pixels back — the CARD SHADER PROBE line's
+    // verdict PROVES or REFUTES the mechanism in the same log the user drops) and
+    // CardDissolveFloor (the fix: hold _Dissolve at [Cards] DissolveFloorFraction = 0.004 at
+    // rest, never lowering an animated value, on every card-FX material the mod manages —
+    // ability faces via CardArtWatch, hosted ITEM cards via ItemsPile.ItemChip, and remote peer
+    // fronts for free because RemoteCardArt already rides CardArtWatch; selection by material
+    // signature (_Dissolve + _PosAndBounds), full-restore on yield/recycle). Harmless under every
+    // probe verdict, decisive under the suspected one. Punch/crop machinery unchanged — the floor
+    // needs the punched alpha-0 pixels to discard.
+    //
+    // (2) STRETCH FIXES from the 114 hardware test (verbatim quotes in FigureStretch.cs): the
+    // capture zone was a fixed 80 mm sphere around the mini's CENTRE, so a stretched mini could
+    // not be shrunk — its body sat outside its own zone. Capture is now surface-based (min
+    // closest-point over the held visual's renderer AABBs, cached per hold, sanity-clamped at
+    // 0.5 m real with centre-distance fallback) and therefore scales with the figure by
+    // construction; d0/d deliberately stay centre-based. Plus the requested zone-entry haptic:
+    // the figure-hover pulse (HapticPreset.HoverTick, same rate limit), edge-triggered on
+    // entering, silent inside, re-armed by leaving. No wire impact; record 30 unchanged.
+    //
     // Build 114: TWO lanes — the border's attempt TEN, and a new feature, the held-figure stretch.
     // WIRE CHANGE: extension record 30 (ExtIdHeldStretch) — additive TLV, old readers skip by
     // length, absence means neutral, an unstretched player is byte-identical to 113.

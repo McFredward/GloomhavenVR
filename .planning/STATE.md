@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 114`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 115`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,28 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 115** — two lanes. BORDER ATTEMPT ELEVEN, the first SHADER-side one: 114's log closed
+  the texture-side case — the rect crop provably applied (294x450→291x436) and the user still saw
+  an identical band, while CARD SHADER IDENTITY named the painter ('GUI/AbilityCard_Shd', a per-
+  image material clone, no readable blend state). The user's own report is the tell: **the band
+  turns transparent during the game's dissolve animation**, i.e. a clip of the shape
+  clip(f(tex.a) − _Dissolve·..) that discards nothing at rest 0 and paints alpha-0 pixels opaque
+  black — one mechanism explaining all nine texture rounds at once. Shipped: `CardShaderProbe`
+  (once per session, renders the punch's exact alpha-0 pixels through a CLONE of the live material
+  at _Dissolve 0 and 0.004 into an RT, reads pixels back, logs a CARD SHADER PROBE verdict:
+  (a) alpha honored → another painter exists, (b) epsilon discards → floor proven by that log,
+  (c) neither → shader replacement is the only road, (d) unproven; plus the full shader property
+  table) and `CardDissolveFloor` (the fix: [Cards] DissolveFloorFraction = 0.004 held at rest,
+  never lowering an animated value, on every card-FX material by SIGNATURE match _Dissolve +
+  _PosAndBounds — ability faces via CardArtWatch, item cards via ItemsPile.ItemChip, remote fronts
+  free because RemoteCardArt already rides CardArtWatch; full restore on yield/recycle). STRETCH
+  FIXES from the 114 test: capture was a fixed 80 mm sphere around the mini's CENTRE, so a
+  stretched mini sat outside its own zone and could not be shrunk — capture is now min
+  closest-point over the held visual's renderer AABBs (cached per hold, 0.5 m sanity clamp,
+  centre fallback), scaling with the figure by construction; d0/d stay centre-based on purpose.
+  Plus the requested zone-entry haptic (HapticPreset.HoverTick, edge-triggered). If the border
+  survives 115: **read CARD SHADER PROBE first** — verdict (a) means hunt the other painter,
+  (c) means build a replacement shader; either way the guessing era is over. Wire tests 1529.
 - **ModBuild 114** — two lanes. BORDER ATTEMPT TEN: heuristics retired after losing twice on the
   same two sprites — the five face layers resolve BY IDENTITY from CardEffects' serialized fields;
   a CARD SHADER IDENTITY line settles whether the custom card shader ignores alpha (the only
