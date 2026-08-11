@@ -53,7 +53,6 @@ internal static partial class VROptionsTab
                     LocKey = "vr_pt_sw_show",
                     Entries = new[]
                     {
-                        new BoardRef("WorldUI", "Master", perBoard: false),
                         new BoardRef("WorldUI", "InitiativeTrack", perBoard: false),
                         new BoardRef("WorldUI", "ElementBoard", perBoard: false),
                         new BoardRef("WorldUI", "Objectives", perBoard: false),
@@ -62,9 +61,6 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "EnemyReveal", perBoard: false),
                         new BoardRef("WorldUI", "Dialogs", perBoard: false),
                         new BoardRef("WorldUI", "DecisionDock", perBoard: false),
-                        new BoardRef("WorldUI", "UseBars", perBoard: false),
-                        new BoardRef("WorldUI", "DoomPicker", perBoard: false),
-                        new BoardRef("WorldUI", "DistributePanel", perBoard: false),
                         new BoardRef("WorldUI", "TrayNativeControls", perBoard: false),
                         new BoardRef("WorldUI", "ButtonCluster", perBoard: false),
                         new BoardRef("WorldUI", "WristHud", perBoard: false),
@@ -137,8 +133,6 @@ internal static partial class VROptionsTab
                     LocKey = "vr_pt_screen_basic",
                     Entries = new[]
                     {
-                        new BoardRef("WorldUI", "FlatScreen", perBoard: false),
-                        new BoardRef("WorldUI", "FlatScreenAutoShow", perBoard: false),
                         new BoardRef("WorldUI", "ShowIntro", perBoard: false),
                         new BoardRef("WorldUI", "ScreenWidth", perBoard: false),
                         new BoardRef("WorldUI", "ScreenDistance", perBoard: false),
@@ -161,12 +155,15 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // Gate before gated (VROptionsTab.8.Dependencies.cs): the probe gate allows
+                    // the map re-render, the re-render owns the clouds dial — each folds out
+                    // under the row above it.
                     LocKey = "vr_pt_screen_map",
                     Entries = new[]
                     {
+                        new BoardRef("WorldUI", "ScreenLeftMirrorFallback", perBoard: false),
                         new BoardRef("WorldUI", "MapAlbedoRender", perBoard: false),
                         new BoardRef("WorldUI", "MapWindOpacity", perBoard: false),
-                        new BoardRef("WorldUI", "ScreenLeftMirrorFallback", perBoard: false),
                     },
                 },
             },
@@ -220,9 +217,6 @@ internal static partial class VROptionsTab
                     Entries = new[]
                     {
                         new BoardRef("WorldUI", "ModalStyle", perBoard: false),
-                        new BoardRef("WorldUI", "CatchAllModals", perBoard: false),
-                        new BoardRef("WorldUI", "MenuPopupFloat", perBoard: false),
-                        new BoardRef("WorldUI", "ManualScreenChord", perBoard: false),
                         new BoardRef("WorldUI", "ManualScreenChordSeconds", perBoard: false),
                     },
                 },
@@ -423,8 +417,6 @@ internal static partial class VROptionsTab
                 {
                     Entries = new[]
                     {
-                        new BoardRef("Cards", "PileViewer", perBoard: false),
-                        new BoardRef("Cards", "ActivePile", perBoard: false),
                         new BoardRef("Cards", "FanRadius", perBoard: false),
                         new BoardRef("Cards", "BrowseFanOffset", perBoard: false),
                         new BoardRef("Cards", "FanStepDegrees_Items", perBoard: false),
@@ -535,7 +527,7 @@ internal static partial class VROptionsTab
                 subItems[s] = new List<ConfigCatalog.ConfigItem>(resolved.Count);
                 for (int i = 0; i < resolved.Count; i++)
                 {
-                    if (!IsShownForCurrentVariant(resolved[i]))
+                    if (!IsRowVisible(resolved[i]))
                         continue;
                     subItems[s].Add(resolved[i]);
                     visibleInTop++;
@@ -566,7 +558,7 @@ internal static partial class VROptionsTab
         for (int i = 0; i < all.Count; i++)
         {
             ConfigCatalog.ConfigItem item = all[i];
-            if (placed.Contains(item) || !IsShownForCurrentVariant(item))
+            if (placed.Contains(item) || !IsRowVisible(item))
                 continue;
             if (!miscHeaded)
             {

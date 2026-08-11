@@ -287,6 +287,24 @@ internal static partial class VROptionsTab
     /// sampled style size).</summary>
     private const float CaptionMinScale = 0.78f;
 
+    /// <summary>Left shift of a dependent row's caption, in the menu canvas's units.</summary>
+    private const float DependentIndent = 18f;
+
+    /// <summary>
+    /// Nudge a DEPENDENT row's caption right so it visibly hangs under the parent that folds it
+    /// out (VROptionsTab.8.Dependencies.cs — user item 4). Only the Title rect moves: the control
+    /// column stays aligned with every other row, which keeps the list readable while still
+    /// saying "this one belongs to the row above". Applied after the caption style, before the
+    /// fit probe, so the probe measures the narrowed budget the caption actually has.
+    /// </summary>
+    private static void IndentDependent(TMP_Text? title, ConfigCatalog.ConfigItem item)
+    {
+        if (title == null || !HasDependency(item))
+            return;
+        var rect = (RectTransform)title.transform;
+        rect.offsetMin = new Vector2(rect.offsetMin.x + DependentIndent, rect.offsetMin.y);
+    }
+
     /// <summary>Config keys already reported as not fitting — one line per name, not per frame.</summary>
     private static readonly System.Collections.Generic.HashSet<string> ReportedLongCaptions = new();
 
@@ -359,6 +377,17 @@ internal static partial class VROptionsTab
     /// <summary>
     /// Put a harvested control into a row's own Option holder, filling it. The holder's existing
     /// contents (the toggle row's switch) go first — a row shows one control.
+    ///
+    /// <para>THE OLD CONTENTS GO IMMEDIATELY, not at end of frame, and that is the fix for the
+    /// "50/50" report (user, 2026-08-11: "alle Optionen die mit einer verschiebaren Leiste
+    /// angezeigt werden [haben] einen '50/50' Text darin"). <c>Destroy</c> defers to end of frame,
+    /// so while the row was still being built the DOOMED toggle switch — state label included —
+    /// was still the first thing <see cref="ExistingValueLabel"/> found. The slider rows bound
+    /// their value readout to that dying label (gone one frame later, value with it) while the
+    /// slider clone's OWN label kept the donor's baked caption: the volume row's literal "50/50",
+    /// authored there and stripped of the game's UISliderController that used to drive it.
+    /// Clearing immediately means the first non-title label really is the placed control's own,
+    /// and the rebind lands where the readout is visible.</para>
     /// </summary>
     private static T? PlaceControl<T>(Transform? option, GameObject? control) where T : Component
     {
@@ -367,7 +396,7 @@ internal static partial class VROptionsTab
 
         option.gameObject.SetActive(true);
         for (int i = option.childCount - 1; i >= 0; i--)
-            UnityEngine.Object.Destroy(option.GetChild(i).gameObject);
+            UnityEngine.Object.DestroyImmediate(option.GetChild(i).gameObject);
 
         GameObject placed = UnityEngine.Object.Instantiate(control, option);
         placed.SetActive(true);
@@ -744,6 +773,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            IndentDependent(title, item);
             ProbeCaptionFit(title, item.Key);
         }
 
@@ -803,6 +833,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            IndentDependent(title, item);
             ProbeCaptionFit(title, item.Key);
         }
 
@@ -844,6 +875,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            IndentDependent(title, item);
             ProbeCaptionFit(title, item.Key);
         }
 
@@ -891,6 +923,7 @@ internal static partial class VROptionsTab
         {
             title.text = Caption(item, caption);
             ApplyOptionCaption(title);
+            IndentDependent(title, item);
             ProbeCaptionFit(title, item.Key);
         }
 
@@ -904,7 +937,12 @@ internal static partial class VROptionsTab
         // The bar alone does not say what the value IS, and several of these settings are only
         // meaningful as a number (turn degrees, hold seconds). The donor row ALREADY has a label
         // for exactly that — the volume row's "50/50" — so it is rebound rather than joined by a
-        // second one. Adding one left the donor's stale text sitting next to ours.
+        // second one. Adding one left the donor's stale text sitting next to ours — and finding
+        // the RIGHT one depends on PlaceControl clearing the old option contents IMMEDIATELY:
+        // with the deferred clear, this rebind landed on the dying toggle label and every bar
+        // showed the donor's literal "50/50" (user report 2026-08-11, item 3). The readout uses
+        // the same formatter as the stepper rows (ConfigCatalog.ValueText) and repaints on every
+        // slider tick through Apply, so it follows the drag live.
         TMP_Text value = ExistingValueLabel(row, title) ?? BuildValueLabel(row.transform);
         value.text = ConfigCatalog.ValueText(item, 0);
         ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, 0)));
@@ -927,6 +965,7 @@ internal static partial class VROptionsTab
                 ? $"{Caption(item, caption)} · {ConfigCatalog.ComponentLabel(item, component)}"
                 : Caption(item, caption);
             ApplyOptionCaption(title);
+            IndentDependent(title, item);
             ProbeCaptionFit(title, item.Key);
         }
 
@@ -1009,10 +1048,12 @@ internal static partial class VROptionsTab
             }
         }
 
-        // CHOOSING A BOARD OR A HAND STYLE CHANGES WHICH ROWS EXIST. Per-variant entries are
-        // filtered down to the selected one, so the switch has to rebuild the list — repainting the
-        // labels of rows belonging to the variant you just left would leave you editing the wrong one.
-        if (SelectsAVariant(item))
+        // CHOOSING A BOARD OR A HAND STYLE CHANGES WHICH ROWS EXIST — and so does flipping a
+        // setting other rows DEPEND on (VROptionsTab.8.Dependencies.cs): per-variant entries are
+        // filtered down to the selected one and dependent rows fold under their parent, so either
+        // kind of edit has to rebuild the list. Repainting alone would leave you editing rows that
+        // should no longer be there.
+        if (SelectsAVariant(item) || IsDependencyParent(item))
             TickGuard.Run("VROptionsTab.RebuildAfterEdit", Rebuild, "WorldUI");
     }
 

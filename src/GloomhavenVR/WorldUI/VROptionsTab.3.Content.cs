@@ -136,7 +136,7 @@ internal static partial class VROptionsTab
             {
                 CuratedEntry entry = section.Entries[i];
                 ConfigCatalog.ConfigItem? item = Lookup(entry.Section, entry.Key);
-                if (item == null || !IsShownForCurrentVariant(item))
+                if (item == null || !IsRowVisible(item))
                     continue;
                 _sectionItems.Add(item);
                 _sectionEntries.Add(entry);
@@ -269,12 +269,12 @@ internal static partial class VROptionsTab
                 continue;
 
             // COUNT BEFORE HEADING. Filtering per-variant entries down to the selected board or hand
-            // style can empty a group completely, and a heading over nothing reads as a setting that
-            // failed to load.
+            // style — or dependent rows down to satisfied parents — can empty a group completely,
+            // and a heading over nothing reads as a setting that failed to load.
             int visible = 0;
             for (int i = 0; i < group.Items.Count; i++)
             {
-                if (IsShownForCurrentVariant(group.Items[i]))
+                if (IsRowVisible(group.Items[i]))
                     visible++;
             }
             if (visible == 0)
@@ -291,7 +291,7 @@ internal static partial class VROptionsTab
             for (int i = 0; i < group.Items.Count; i++)
             {
                 ConfigCatalog.ConfigItem entry = group.Items[i];
-                if (!IsShownForCurrentVariant(entry))
+                if (!IsRowVisible(entry))
                     continue;
                 rows += BuildItem(entry, VariantFreeCaption(entry));
             }

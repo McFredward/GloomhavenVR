@@ -345,7 +345,7 @@ internal static partial class VROptionsTab
                 subItems[s] = new List<ConfigCatalog.ConfigItem>(resolved.Count);
                 for (int i = 0; i < resolved.Count; i++)
                 {
-                    if (!IsShownForCurrentVariant(resolved[i]))
+                    if (!IsRowVisible(resolved[i]))
                         continue;
                     subItems[s].Add(resolved[i]);
                     visibleInTop++;
@@ -377,7 +377,7 @@ internal static partial class VROptionsTab
         for (int i = 0; i < all.Count; i++)
         {
             ConfigCatalog.ConfigItem item = all[i];
-            if (placed.Contains(item) || !IsShownForCurrentVariant(item))
+            if (placed.Contains(item) || !IsRowVisible(item))
                 continue;
             if (!miscHeaded)
             {

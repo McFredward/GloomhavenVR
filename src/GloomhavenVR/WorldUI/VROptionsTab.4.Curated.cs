@@ -185,11 +185,14 @@ internal static partial class VROptionsTab
                     {
                         new("Compat", "WallFade", "wall_see_through"),
                         // Fort superstructures fade with the walls — ruling 18 put the switch
-                        // directly beside the walls-transparent toggle it extends.
+                        // directly beside the walls-transparent toggle it extends. Folds under
+                        // WallFade (VROptionsTab.8.Dependencies.cs).
                         new("WallFade", "StackedShellFade", "vr_o_stackedfade"),
-                        // MP wall-fade sync (wire record 17): receiver-side toggle — it must
-                        // be reachable in-headset next to the feature it extends.
-                        new("WallFade", "SyncPeerFades", "wallfade_sync"),
+                        // [WallFade] SyncPeerFades MOVED to Avatar & Mehrspieler ▸ Zusammen
+                        // spielen (user item 2, 2026-08-11: "Mach alle Einstellungen die mit dem
+                        // Multiplayer zu tun haben … auch in den Multiplayer Tab. zB. 'Wände mit
+                        // Spielern synchronisieren' sollte genau da verortet sein.") — moved, not
+                        // duplicated.
                     },
                 },
                 new()
@@ -339,8 +342,6 @@ internal static partial class VROptionsTab
                     LocKey = "vr_sec_piles_hints",
                     Entries = new CuratedEntry[]
                     {
-                        new("Cards", "PileViewer", "vr_o_pileviewer"),
-                        new("Cards", "ActivePile", "vr_o_activepile"),
                         new("Cards", "WantedSlotHint", "vr_o_slothint"),
                         // The selection-ready pulse is board-flavoured (it reminds you the
                         // board is waiting on your card pick), so it lives with the board
@@ -481,13 +482,23 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // EVERYTHING THAT IS ABOUT PLAYING WITH OTHERS LIVES HERE (user item 2,
+                    // 2026-08-11: "Mach alle Einstellungen die mit dem Multiplayer zu tun haben
+                    // (unjd nicht in Erweitert gehören) auch in den Multiplayer Tab. zB. 'Wände
+                    // mit Spielern synchronisieren' sollte genau da verortet sein."). The three
+                    // [Net] rows that depend on the sync being on sit DIRECTLY under its switch
+                    // (they fold with it — VROptionsTab.8.Dependencies.cs); SpawnInCircle closes
+                    // the block because it seats you with or without the embodiment sync.
                     LocKey = "vr_sec_mp_presence",
                     Entries = new CuratedEntry[]
                     {
                         new("Net", "Enabled", "vr_o_netenabled"),
-                        new("Rig", "SpawnInCircle", "vr_o_circle"),
                         new("Net", "RemoteBoards", "remote_boards"),
                         new("Net", "NameTags", "vr_o_nametags"),
+                        // MOVED here from Komfort ▸ Sichtbarkeit (item 2's own example): the
+                        // receiver-side MP wall-fade sync is a together-play setting first.
+                        new("WallFade", "SyncPeerFades", "wallfade_sync"),
+                        new("Rig", "SpawnInCircle", "vr_o_circle"),
                         // NOT here: [Net] VersionGuard (ruling 14) — disabling the version
                         // handshake is an expert escape hatch, it stays under Erweitert.
                     },
