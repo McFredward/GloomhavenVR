@@ -491,6 +491,67 @@ internal static class CardFaceMipBake
     //   • Textures are content-keyed (atlas identity + region + "punch"), so every card of a class
     //     and every peer clone share one punched texture and one budget charge.
 
+    /// <summary>
+    /// ROUND 17 — PUNCHED/CROPPED SPRITE SERVING IS RETIRED FROM THE RENDER PATH.
+    ///
+    /// USER RULING (2026-08-11, verbatim, binding): "Kümmer dich auch wieder darum dass die Karte
+    /// wieder vollständig richtig angezeigt wird - die Änderungen die dazu geführt haben waren
+    /// offensichtlich nicht die Lösung des Problems."
+    ///
+    /// <para>WHAT THIS GATES. All three punched/cropped replacement factories —
+    /// <see cref="PunchedReplacementFor"/> (round-8 luma-BFS), <see cref="OutlinePunchedReplacementFor"/>
+    /// (round-9 geometric, incl. the round-12 per-placement copies) and
+    /// <see cref="OutlineCroppedReplacementFor"/> (round-10 rect crop) — answer null while this is
+    /// false, so NO face anywhere (local ability, item, peer clone via <c>Net/RemoteCardArt</c>)
+    /// is ever re-pointed at a frame-erased copy: every Image keeps its plain mip-baked "(VR-mip)"
+    /// copy (texture quality, <see cref="ReplacementFor"/> — deliberately kept) or the game's own
+    /// sprite. The card face therefore shows the game's COMPLETE art, designed printed frame
+    /// included, exactly like an unmodded flat client. The punched copies were what mutilated the
+    /// visible art (the reported broken card bottom).</para>
+    ///
+    /// <para>WHY THE MACHINERY STAYS COMPILED. The whole pipeline below is measurement-grade code
+    /// with three shipped post-mortems in its doc blocks; the retirement is a verdict on SERVING
+    /// it to the renderer, not on the analysis. The card-outline geometry the punch pioneered
+    /// lives on: <c>CardOutline</c> still derives the bright-trim contour every sweep, and
+    /// <c>CardFace.TryCapture</c> still intersects the mesh footprint with it — that intersection
+    /// (not punched pixels) is what keeps the printed frame OUTSIDE the body contour that
+    /// round 17 punches the MESH out to (<c>CardContour</c>).</para>
+    ///
+    /// <para>RESTORE CONTRACT: unchanged and covered. Nothing mints a punched/cropped sprite while
+    /// this is false, so no pooled widget can be holding one; the "(VR-mip)" copies remain in
+    /// <c>s_originalByReplacement</c> and <see cref="RestoreSprites"/> hands the game its original
+    /// sprites on every existing release path, exactly as before.</para>
+    ///
+    /// <para><c>static readonly</c> rather than <c>const</c> (CardShapeMask precedent): a false
+    /// <c>const</c> would flag the gated bodies unreachable (CS0162) against the exactly-six-
+    /// warnings build gate. Flipping to <c>true</c> restores round-16 serving verbatim.</para>
+    /// </summary>
+    internal static readonly bool PunchServingEnabled = false;
+
+    /// <summary>One line per session naming the retirement, so a hardware log can never be read
+    /// as "the punch ran and the frame survived it".</summary>
+    private static bool s_punchRetiredLogged;
+
+    /// <summary>Latched round-17 retirement notice; true = the caller must treat the punch/crop
+    /// as unavailable (null replacement). Shared by all three gated factories.</summary>
+    private static bool PunchServingRetired()
+    {
+        if (PunchServingEnabled)
+            return false;
+        if (!s_punchRetiredLogged)
+        {
+            s_punchRetiredLogged = true;
+            VRLog.Info("Cards", "CARD FRAME PUNCH/CROP retired (round 17): no punched or cropped " +
+                                "sprite copy is minted or served — every face renders its complete " +
+                                "stock art (mip-baked '(VR-mip)' copies stay for texture quality), " +
+                                "printed frame included ('dass die Karte wieder vollständig richtig " +
+                                "angezeigt wird'). The card outline geometry still derives every sweep " +
+                                "and clips the BODY footprint; the body itself is now punched out as a " +
+                                "MESH (CardContour).");
+        }
+        return true;
+    }
+
     /// <summary>Maximum Rec.601 luminance (0..255) a punched frame texel may have — the same
     /// "der schwarze Rand" definition the capture's peel uses (its measured ring: mean luma 22).</summary>
     private const byte PunchLumaMax = 48;
@@ -525,6 +586,8 @@ internal static class CardFaceMipBake
     /// </summary>
     internal static Sprite? PunchedReplacementFor(Sprite source)
     {
+        if (PunchServingRetired()) // round 17 — see PunchServingEnabled
+            return null;
         int id = source.GetInstanceID();
         if (s_punchedBySource.TryGetValue(id, out Sprite? cached))
             return cached;
@@ -699,6 +762,8 @@ internal static class CardFaceMipBake
     internal static Sprite? OutlinePunchedReplacementFor(Sprite source, in PunchMapping mapping,
                                                          CardOutline outline)
     {
+        if (PunchServingRetired()) // round 17 — see PunchServingEnabled
+            return null;
         int id = source.GetInstanceID();
         if (s_punchedBySource.TryGetValue(id, out Sprite? cached))
         {
@@ -1007,6 +1072,11 @@ internal static class CardFaceMipBake
     {
         targetFaceRect = default;
         refusal = null;
+        if (PunchServingRetired()) // round 17 — see PunchServingEnabled
+        {
+            refusal = "punch/crop serving retired (round 17) — the face renders its complete stock art";
+            return null;
+        }
         // Round 12: per-PLACEMENT key — the same sprite drawn at two rects (headerImage +
         // unfocusedMask) needs two crops, each valid only with its own drawn rect.
         var key = (source.GetInstanceID(), mapping.CacheKey);

@@ -783,10 +783,11 @@ internal static class CardBandPixelCapture
             return $"no near-black band strip in the probe's view" +
                    (sentinelStrips > 0 ? $" ({sentinelStrips} strip(s) sentinel — unrendered)" : string.Empty) +
                    $"; {centreNote}";
-        return $"NEAR-BLACK band strip(s): {dark} — a COOL strip is the PRINT (an unpunched or " +
-               "incompletely punched face layer; since round 14 the slab rim is warm umber and can " +
-               "no longer read near-black), a WARM strip is the recess floor showing through " +
-               $"(liner missing, undersized or behind the floor there); {centreNote}";
+        return $"NEAR-BLACK band strip(s): {dark} — a COOL strip is the PRINT, which since round 17 " +
+               "is DELIBERATE (the face renders the game's complete art, printed frame included, and " +
+               "the body mesh is punched out behind it — not a defect); a WARM strip is the recess " +
+               "floor showing through (liner missing, undersized or behind the floor there — a " +
+               $"wood-toned band around a seated tray card can only be the LINER, deliberate); {centreNote}";
     }
 
     // ================================================= round 16: helpers (see class header) --
@@ -964,7 +965,15 @@ internal static class CardBandPixelCapture
                 : ReferenceEquals(edgeMat, CardMesh.CreateEdgeMaterial(CardBodyKind.Item)) ? CardBodyKind.Item
                 : CardBodyKind.Neutral;
             byte[]? mask = kind == CardBodyKind.Neutral ? null : CardMesh.Footprint(kind, out _, out _);
-            if (mask == null)
+            if (!edgeMat.IsKeywordEnabled("_ALPHATEST_ON"))
+            {
+                // Round 17: expected state — the outline moved into the body GEOMETRY (the
+                // punched-out mesh), so the shared materials deliberately carry no cutout and
+                // clip non-execution can no longer produce a rectangular band.
+                clip = "not a cutout material (round 17: the body mesh is punched out to the card " +
+                       "outline — no alpha clip is configured, by design)";
+            }
+            else if (mask == null)
             {
                 clip = "skipped — no footprint applied for this material's kind, so there is no " +
                        "known alpha-0 texel to probe";

@@ -107,7 +107,9 @@ internal static class CardMesh
     // outline point, so the thin edge samples fully-opaque interior of the silhouette
     // footprint (alpha ≈ 1) and survives the alpha clip along the solid outline instead
     // of straddling the ~0.5 alpha boundary. ~2 % ≈ 1.3 mm on a 63.5 mm card.
-    private const float RimUvInset = 0.02f;
+    // Internal since round 17: the PUNCHED-OUT body (CardContour.BuildBody) uses the same
+    // trick for its rim, so the two bodies sample any shared texture identically.
+    internal const float RimUvInset = 0.02f;
 
     /// <summary>
     /// Render queue for a VR card that is CURRENTLY VISIBLE to the player (fanned in hand /
@@ -400,6 +402,152 @@ internal static class CardMesh
         Mesh built = Build(width, height);
         _bodyCache[key] = built;
         return built;
+    }
+
+    // ------------------------------------------------ round 17: the PUNCHED-OUT body --
+    //
+    // USER RULING (2026-08-11, verbatim, binding): "Die Aufgabe ist doch eher das mesh der Karte
+    // auf das outline der Kartenoberfläche 'auszustanzen'." The slab's GEOMETRY is now cut to the
+    // card-surface outline — see CardContour for the whole pipeline and the reasoning. Everything
+    // here is once per kind (contour) / once per kind+size (mesh) per session, at footprint-apply
+    // or card-build time — never per frame.
+
+    /// <summary>Outline polygon per kind, derived deterministically from the applied footprint
+    /// (no cache file of its own — it re-derives identically from the persisted mask at load).
+    /// Null while unknown or refused; <see cref="_contourTried"/> latches refusals.</summary>
+    private static readonly Vector2[]?[] _contours = new Vector2[]?[3];
+    private static readonly bool[] _contourTried = new bool[3];
+
+    /// <summary>Shaped body mesh per (kind, size) — same 0.1 mm quantisation as
+    /// <see cref="_bodyCache"/>.</summary>
+    private static readonly Dictionary<(int, int, int), Mesh> _shapedCache = new();
+
+    /// <summary>Live card-body MeshFilters wearing a shaped-capable kind, so a footprint that
+    /// lands AFTER cards were built (cold cache, live capture) swaps every live body to the
+    /// punched-out mesh in one step — the same "swap when learned" progressive behaviour the
+    /// silhouette materials have always had. Pruned of destroyed filters on every pass.</summary>
+    private static readonly List<(MeshFilter Filter, CardBodyKind Kind, float W, float H)> _bodies = new();
+
+    /// <summary>
+    /// Attach a card BODY mesh to <paramref name="mf"/>: the punched-out contour mesh when this
+    /// kind's outline is already known (warm cache — known before the first card exists), else
+    /// the rounded-rect slab, upgraded in place the moment a footprint lands. This is the one
+    /// entry every shaped-capable body (VRCard backing, ItemsPile chip backing, the burn-flight
+    /// slab) goes through; the Neutral legacy kind and every non-card consumer keep calling
+    /// <see cref="Get"/> and are bit-for-bit unchanged.
+    /// </summary>
+    internal static void AttachBody(MeshFilter mf, CardBodyKind kind, float width, float height)
+    {
+        if (mf == null)
+            return;
+        // Same choke-point rule as the material factories: the persisted mask must be loaded
+        // before the first body exists, so a warm launch is born punched-out with no transition.
+        EnsureSilhouetteCacheLoaded(kind);
+        mf.sharedMesh = BodyMesh(kind, width, height);
+        if (kind == CardBodyKind.Neutral)
+            return;
+        for (int i = _bodies.Count - 1; i >= 0; i--)
+        {
+            if (_bodies[i].Filter == null)
+                _bodies.RemoveAt(i);
+        }
+        _bodies.Add((mf, kind, width, height));
+    }
+
+    /// <summary>The body mesh for one kind+size: punched-out when the contour is known, else the
+    /// rounded-rect slab (cold start / refused derivation — the standing degrade rule).</summary>
+    private static Mesh BodyMesh(CardBodyKind kind, float width, float height)
+    {
+        Vector2[]? contour = kind == CardBodyKind.Neutral ? null : ContourFor(kind);
+        if (contour == null)
+            return Get(width, height);
+        var key = ((int)kind, Mathf.RoundToInt(width * 10000f), Mathf.RoundToInt(height * 10000f));
+        if (_shapedCache.TryGetValue(key, out Mesh cached) && cached != null)
+            return cached;
+        Mesh? shaped = CardContour.BuildBody(contour, width, height, Thickness, RimUvInset,
+            out string? refusal);
+        if (shaped == null)
+        {
+            VRLog.Warn("Cards", $"CARD BODY ({kind}): punched-out mesh build refused for " +
+                                $"{width * 1000f:F1}x{height * 1000f:F1} mm — {refusal}. This size keeps " +
+                                "the rounded-rect slab (degrade to the rectangle, never a wrong shape).");
+            shaped = Get(width, height);
+        }
+        else
+        {
+            VRLog.Info("Cards", $"CARD BODY ({kind}): punched-out mesh built for " +
+                                $"{width * 1000f:F1}x{height * 1000f:F1} mm — {contour.Length} contour " +
+                                $"vertices, bounds pinned to the full card box (box-metrics invariant). " +
+                                "The body's BOUNDARY is now the card outline; no shader variant can " +
+                                "paint outside it (2026-08-11: 'das mesh der Karte auf das outline der " +
+                                "Kartenoberfläche auszustanzen').");
+        }
+        _shapedCache[key] = shaped;
+        return shaped;
+    }
+
+    /// <summary>Derive (once, latched) the outline contour for a kind from its applied footprint.
+    /// Logged with timing — the derivation runs at footprint-apply time, once per kind per
+    /// session, so a few ms here never touch a rendered frame twice.</summary>
+    private static Vector2[]? ContourFor(CardBodyKind kind)
+    {
+        int i = (int)kind;
+        if (_contourTried[i])
+            return _contours[i];
+        byte[]? alpha = _footprints[i];
+        if (alpha == null)
+            return null; // not tried yet — no footprint to derive from
+        _contourTried[i] = true;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Vector2[]? contour = CardContour.Extract(alpha, _footW[i], _footH[i], out string? refusal);
+        sw.Stop();
+        _contours[i] = contour;
+        if (contour == null)
+        {
+            VRLog.Warn("Cards", $"CARD CONTOUR ({kind}): outline extraction refused in " +
+                                $"{sw.Elapsed.TotalMilliseconds:F1} ms — {refusal}. Bodies of this kind " +
+                                "keep the rounded-rect slab this session (degrade to the rectangle, " +
+                                "never a wrong shape).");
+        }
+        else
+        {
+            VRLog.Info("Cards", $"CARD CONTOUR ({kind}): outline extracted from the {_footW[i]}x{_footH[i]} " +
+                                $"footprint in {sw.Elapsed.TotalMilliseconds:F1} ms — {contour.Length} vertices " +
+                                $"(budget {CardContour.MaxVertices}), marching squares at the 0.5 iso, " +
+                                "largest closed loop, Douglas-Peucker simplified. Derived once per kind per " +
+                                "session; deterministic from the cached footprint, so no new cache file.");
+        }
+        return contour;
+    }
+
+    /// <summary>Swap every live body of <paramref name="kind"/> to its punched-out mesh — called
+    /// when a footprint lands after cards were already built (cold cache). One assignment per
+    /// body, no rebuild, no material churn; mirrors the shared-material "no pop" property.</summary>
+    private static void ReshapeBodies(CardBodyKind kind)
+    {
+        if (ContourFor(kind) == null)
+            return;
+        int reshaped = 0;
+        for (int i = _bodies.Count - 1; i >= 0; i--)
+        {
+            (MeshFilter filter, CardBodyKind k, float w, float h) = _bodies[i];
+            if (filter == null)
+            {
+                _bodies.RemoveAt(i);
+                continue;
+            }
+            if (k != kind)
+                continue;
+            filter.sharedMesh = BodyMesh(kind, w, h);
+            reshaped++;
+        }
+        if (reshaped > 0)
+        {
+            VRLog.Info("Cards", $"CARD BODY ({kind}): {reshaped} live card bod(y/ies) swapped to the " +
+                                "punched-out mesh in one step (footprint learned this session — from " +
+                                "the second launch on the cache applies it before the first card exists " +
+                                "and this line never prints).");
+        }
     }
 
     private static Mesh Build(float width, float height)
@@ -880,6 +1028,45 @@ internal static class CardMesh
     private const float EmissionFloorFactor = 1.0f;
 
     /// <summary>
+    /// ROUND 17 — THE MATERIAL ALPHA-CLIP IS RETIRED; THE OUTLINE IS GEOMETRY NOW.
+    ///
+    /// USER RULING (2026-08-11, verbatim, binding): "Die Aufgabe ist doch eher das mesh der Karte
+    /// auf das outline der Kartenoberfläche 'auszustanzen'."
+    ///
+    /// <para>WHY OFF. Rounds 1–16 shaped the slab by flipping the shared materials to Standard's
+    /// Cutout mode and baking the footprint alpha into their textures. Round 16 left one suspect
+    /// standing that no amount of material state can defend against: the game build's Standard
+    /// shader may ship WITHOUT the <c>_ALPHATEST_ON</c> variant, in which case
+    /// <c>EnableKeyword</c> silently selects a variant that never clips and the slab paints its
+    /// full rectangular envelope in EdgeColor — which matches the ModBuild-119 measured band
+    /// (125,97,68) = EdgeColor × (light ≈ 0.16 + emission 1.0) to within 1/255. The body is now
+    /// PUNCHED OUT geometrically (<see cref="AttachBody"/>/<c>CardContour</c>): there is no
+    /// fragment outside the outline for any shader variant to draw, so the clip is not needed —
+    /// and keeping it would double-cut the shaped mesh's own boundary (mip-blended alpha dipping
+    /// under <c>_Cutoff</c> just inside the contour would speckle the punched edge).</para>
+    ///
+    /// <para>WHAT THE MATERIALS KEEP: Standard shading, the warm umber <see cref="EdgeColor"/>
+    /// front/rim, the procedural back lattice, and the round-15 emission floor — so the shaped
+    /// body stays visible in the dark VR scenes exactly as calibrated.</para>
+    ///
+    /// <para>KNOWN, ACCEPTED CONSEQUENCE: the Net mirrors that borrow these SHARED materials on
+    /// their own rectangular slabs (<c>Net/RemoteHandFan.BuildBackSlab</c>,
+    /// <c>RemoteItemFan</c>, <c>RemoteBrowserFan</c>, <c>RemoteCardFx</c>, <c>RemoteAvatar</c>,
+    /// <c>WorldUI/AvatarMirror</c>) lose the baked alpha outline and read as full rounded-rect
+    /// slabs again — the pre-silhouette look, ruled acceptable for this round ("mirrors that
+    /// build their own rounded slabs keep rectangles for now"); reusing the shaped mesh there is
+    /// a stop-reported Net/ follow-up. <c>Net/RemoteBoardCard</c>'s flat quads are UNAFFECTED —
+    /// they ride <see cref="BindSilhouette"/>/<see cref="ExportTexture"/>, which read the raw
+    /// footprint and never these materials' cutout state.</para>
+    ///
+    /// <para><c>static readonly</c> rather than <c>const</c> on purpose (the CardShapeMask
+    /// precedent): a false <c>const</c> would make the compiler flag the gated blocks unreachable
+    /// (CS0162) and the build gate is "exactly the six pre-existing warnings". Flipping this back
+    /// to <c>true</c> restores the round-16 cutout baking verbatim.</para>
+    /// </summary>
+    private static readonly bool CutoutMaterialsEnabled = false;
+
+    /// <summary>
     /// Give a Standard-shaded material the self-illumination floor described at
     /// <see cref="EmissionFloorFactor"/>: emission = current albedo (texture × tint) × factor,
     /// derived from the material's CURRENT <c>mainTexture</c>/<c>color</c> — so call it again
@@ -1089,12 +1276,13 @@ internal static class CardMesh
             return false;
         }
 
-        // Need the Standard shader for a proper opaque alpha-CLIP (Cutout). Without it a
-        // fallback shader would only alpha-blend (unlit, sorting hazards) — not worth the
-        // risk, so keep the opaque rounded-rect instead.
+        // Round 17: the shaped mesh needs no shader at all to hold its outline, so the Standard
+        // requirement only applies while the CUTOUT material path is enabled (it needs Standard's
+        // alpha-test mode; without it a fallback shader would only alpha-blend — unlit, sorting
+        // hazards — not worth the risk).
         Material edge = CreateEdgeMaterial(kind);
         Material back = CreateBackMaterial(kind);
-        if (edge.shader == null || edge.shader.name != "Standard")
+        if (CutoutMaterialsEnabled && (edge.shader == null || edge.shader.name != "Standard"))
         {
             VRLog.Warn("Cards", $"CardMesh.SetSilhouette({kind}): Standard shader unavailable " +
                                 $"(edge shader='{edge.shader?.name ?? "null"}') — kept rounded-rect (no Cutout clip).");
@@ -1164,29 +1352,35 @@ internal static class CardMesh
         }
 
         // --- bake the footprint alpha into both materials' textures -----------------
-        Texture2D backPattern = GetBackTexture();
-        var edgePixels = new Color32[alpha.Length];
-        var backPixels = new Color32[alpha.Length];
-        var edgeRgb = (Color32)EdgeColor;
-        for (int y = 0; y < h; y++)
+        // ROUND 17: RETIRED BEHIND CutoutMaterialsEnabled (see that field). The body's outline is
+        // now GEOMETRY (the punched-out mesh below); the shared materials keep their plain umber
+        // EdgeColor / lattice look with the emission floor, and no alpha-clip state is written.
+        if (CutoutMaterialsEnabled)
         {
-            for (int x = 0; x < w; x++)
+            Texture2D backPattern = GetBackTexture();
+            var edgePixels = new Color32[alpha.Length];
+            var backPixels = new Color32[alpha.Length];
+            var edgeRgb = (Color32)EdgeColor;
+            for (int y = 0; y < h; y++)
             {
-                int i = y * w + x;
-                byte a = alpha[i];
-                edgePixels[i] = new Color32(edgeRgb.r, edgeRgb.g, edgeRgb.b, a);
-                // Card back is drawn through MIRRORED UVs (see Build): mirror the alpha
-                // so the back outline lines up with the front. The lattice RGB is
-                // left-right symmetric, so its own mirroring is invisible.
-                Color rgb = backPattern.GetPixelBilinear((x + 0.5f) / w, (y + 0.5f) / h);
-                byte am = alpha[y * w + (w - 1 - x)];
-                backPixels[i] = new Color32(
-                    (byte)(rgb.r * 255f), (byte)(rgb.g * 255f), (byte)(rgb.b * 255f), am);
+                for (int x = 0; x < w; x++)
+                {
+                    int i = y * w + x;
+                    byte a = alpha[i];
+                    edgePixels[i] = new Color32(edgeRgb.r, edgeRgb.g, edgeRgb.b, a);
+                    // Card back is drawn through MIRRORED UVs (see Build): mirror the alpha
+                    // so the back outline lines up with the front. The lattice RGB is
+                    // left-right symmetric, so its own mirroring is invisible.
+                    Color rgb = backPattern.GetPixelBilinear((x + 0.5f) / w, (y + 0.5f) / h);
+                    byte am = alpha[y * w + (w - 1 - x)];
+                    backPixels[i] = new Color32(
+                        (byte)(rgb.r * 255f), (byte)(rgb.g * 255f), (byte)(rgb.b * 255f), am);
+                }
             }
-        }
 
-        ConfigureCutout(edge, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Edge", edgePixels, w, h));
-        ConfigureCutout(back, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Back", backPixels, w, h));
+            ConfigureCutout(edge, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Edge", edgePixels, w, h));
+            ConfigureCutout(back, MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Back", backPixels, w, h));
+        }
         _silhouetteApplied[(int)kind] = true;
         _footprints[(int)kind] = alpha;
         _footW[(int)kind] = w;
@@ -1199,9 +1393,15 @@ internal static class CardMesh
             : new Rect(0f, 0f, 1f, 1f);
         VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): APPLIED from {(fromCache ? "the PERSISTED CACHE " +
                             "(before this session drew a single card — no visible transition)" : "a live capture")} " +
-                            $"[source '{source ?? "n/a"}'] — that shape's shared front/rim + back materials " +
-                            "flipped to alpha-clip (Cutout); every live body of this kind now traces the art " +
-                            "outline (no rebuild, no pop — the materials are shared).");
+                            $"[source '{source ?? "n/a"}'] — round 17: the footprint now drives the PUNCHED-OUT " +
+                            "body GEOMETRY (CardContour), not a material alpha clip; the shared front/rim + back " +
+                            "materials keep their plain umber/lattice look and every body of this kind gets a mesh " +
+                            "whose boundary IS the card outline.");
+        // ROUND 17: derive the outline contour and swap every live body to the punched-out mesh.
+        // On the cache path this runs before any body exists (nothing to swap — later AttachBody
+        // calls are born shaped); on a cold-start live capture it is the one visible step, exactly
+        // the moment the material clip used to land.
+        ReshapeBodies(kind);
         // FOREIGN CONSUMERS LAST, and only now that _footprints holds the mask: the flat quads that
         // draw a PEER's board recess cannot wear a Cutout mesh material, so they carry the same
         // footprint as an alpha channel. See BindSilhouette for why this is a binding, not a getter.

@@ -2329,7 +2329,9 @@ internal sealed partial class CardsDriver
             var go = new GameObject("BurnSlab");
             go.transform.SetParent(anchor, worldPositionStays: false);
             var mf = go.AddComponent<MeshFilter>();
-            mf.sharedMesh = CardMesh.Get(w, h);
+            // Round 17: this slab IS an ability card (see the material note below), so it wears
+            // the same punched-out contour mesh once the Ability footprint is known.
+            CardMesh.AttachBody(mf, CardBodyKind.Ability, w, h);
             var mr = go.AddComponent<MeshRenderer>();
             // ABILITY kind, not the never-clipped Neutral pair (2026-08-11: "Der schwarze Rand soll
             // im gesamten Spiel entfernt werden egal wo die Karte ist"). This slab IS an ability

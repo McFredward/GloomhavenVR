@@ -868,6 +868,23 @@ internal sealed class CardFace
     /// budget, implausible mapping) ⇒ that sprite keeps its unpunched copy, logged with numbers
     /// by the bake. Never a guessed shape.</para>
     /// </summary>
+    /// <summary>
+    /// ROUND 17 NOTE, READ FIRST — THE SWEEP NO LONGER CHANGES WHAT RENDERS. USER RULING
+    /// (2026-08-11, verbatim, binding): "Kümmer dich auch wieder darum dass die Karte wieder
+    /// vollständig richtig angezeigt wird - die Änderungen die dazu geführt haben waren
+    /// offensichtlich nicht die Lösung des Problems." The punched-copy factories this sweep
+    /// serves through are gated off at the mint (<c>CardFaceMipBake.PunchServingEnabled</c> =
+    /// false), so every <c>OutlinePunchedReplacementFor</c>/<c>PunchedReplacementFor</c> call
+    /// below answers null, every layer takes the "kept unpunched" branch, and no Image is ever
+    /// re-pointed: the face renders its complete stock art, printed frame included.
+    ///
+    /// <para>THE SWEEP ITSELF STAYS LIVE ON PURPOSE: it is where <c>CardOutline.ForSource</c>
+    /// derives the card's bright-trim outline from the background sprite, and that geometry is
+    /// load-bearing for round 17's BODY punch — <c>TryCapture</c> intersects the mesh footprint
+    /// with it (the OUTLINE CLIP), which is what keeps the printed frame OUTSIDE the contour
+    /// <c>CardContour</c> punches the mesh out to, now that the capture samples unpunched
+    /// pixels. Retiring the sweep would silently regrow the footprint into the frame band.</para>
+    /// </summary>
     private static class FramePunch
     {
         /// <summary>A drawn rect spanning at least this fraction of the face on EITHER axis marks
@@ -1470,19 +1487,15 @@ internal sealed class CardFace
 
             SilhouetteState state = s_silhouette[(int)kind];
 
-            // (0) THE FRAME PUNCH, BEFORE EVERYTHING (round 8; round 9 made the region GEOMETRIC).
-            // The black band is pixels in the face layers' OWN art outside the card's true
-            // outline — the bright-trim contour CardOutline derives from the background sprite
-            // (the 112 log killed the luma-connectivity definition: BFS stopped at 24 px with
-            // 102 of 264 band probes still dark, and the never-punched action halves painted 55
-            // of 72). The sweep erases every full-span layer outside that outline; see the
-            // FramePunch doc. It runs before the capture ON PURPOSE: the capture samples
-            // img.sprite, so once the sweep has re-pointed the layers at their punched copies,
-            // the footprint is stamped FROM the punched pixels — and TryCapture additionally
-            // intersects the footprint with the same outline, so the mesh clip and the face are
-            // one geometry by construction. Runs on every offer (cheap dictionary hits once
-            // warm) so every class and both card kinds are covered, not just the one class the
-            // once-per-session capture happens to see.
+            // (0) THE OUTLINE SWEEP, BEFORE EVERYTHING (round 8 punch; round 9 geometric;
+            // ROUND 17: the punch SERVING inside it is retired — see the FramePunch class doc —
+            // so the sweep changes nothing the face renders; the art stays complete, printed
+            // frame included). It still runs before the capture ON PURPOSE: it is where
+            // CardOutline derives the card's bright-trim outline, and TryCapture's OUTLINE CLIP
+            // intersects the footprint with that geometry — the one mechanism that now keeps the
+            // printed frame OUTSIDE the contour the BODY mesh is punched out to (CardContour),
+            // given that the capture samples the unpunched stock pixels. Runs on every offer
+            // (cheap dictionary hits once warm) so every class and both card kinds are covered.
             FramePunch.Sweep(root, kind, ability);
 
             // (1) THE BLACKOUT, AND ALWAYS. Its input is the APPLIED mask, which — from the
@@ -1898,12 +1911,16 @@ internal sealed class CardFace
                                       "what it does buy is a tighter definition of 'outside the card' for the " +
                                       "face blackout below."));
 
-        // OUTLINE INTERSECTION (round 9) — the third consumer of the ONE geometry. The punched
-        // sprites the capture just sampled are already erased outside the outline, so in the
-        // normal case this removes little; its job is the guarantee: whatever any candidate
-        // stamped (a sprite whose individual punch was refused, a peel that fell short), the
-        // footprint the MESH clips to can never extend past the same outline the FACE is punched
-        // to. Mesh, sprite punch and the (disabled) CardShapeMask share one InsideFace answer.
+        // OUTLINE INTERSECTION (round 9) — the third consumer of the ONE geometry.
+        // ROUND 17: THIS BLOCK IS NOW LOAD-BEARING, NOT A BACKSTOP. With punched-copy serving
+        // retired (CardFaceMipBake.PunchServingEnabled = false), the capture above sampled the
+        // UNPUNCHED stock art — printed frame included, opaque — so without this intersection
+        // the footprint would extend into the frame band and the punched-out BODY mesh
+        // (CardContour) would carry the frame's rectangle-ish bulge. The CardOutline-derived
+        // band geometry here is the explicit, deliberate mechanism that keeps the printed frame
+        // OUTSIDE the contour: same InsideFace answer the punch used to bake into pixels, now
+        // applied to the footprint alone, so the mask (and the v5 cache semantics) stay
+        // byte-equivalent while the face renders complete.
         CardOutline? kindOutline = CardOutline.ForKind(kind);
         if (kindOutline != null)
         {

@@ -328,12 +328,13 @@ internal static class CardBandPainter
               .Append(maskActive ? "ACTIVE" : "inactive (SetUnfocused(false) — paints nothing now)")
               .Append(", sprite ").Append(maskSprite != null ? $"'{maskSprite.name}'" : "none")
               .Append(maskSprite == null ? string.Empty
-                  : maskPunched ? " (a mod copy — punched/cropped)" : " (the ORIGINAL — frame intact)")
+                  : maskPunched ? " (a mod '(VR-mip)' copy — round 17: never punched/cropped, frame intact by design)"
+                                : " (the ORIGINAL — frame intact, deliberate since round 17)")
               .Append($", rect x {maskRect.xMin:F3}..{maskRect.xMax:F3} y {maskRect.yMin:F3}..{maskRect.yMax:F3}")
               .Append(" of the face. ");
-            if (maskActive && maskSprite != null && !maskPunched)
-                painters.Add($"'{mask.name}' (the widget's own second background copy, drawn with the " +
-                             "ORIGINAL sprite — printed frame and all)");
+            // Round 17: an active mask drawing the original sprite is NOT convicted any more —
+            // the face is SUPPOSED to show the complete art, printed frame included, so this
+            // layer painting the frame is the intended rendering, not a band culprit.
         }
 
         // ---- (2) canvas graphics that reach the frame band ------------------------------
@@ -529,15 +530,17 @@ internal static class CardBandPainter
         }
         else if (backdrops.Count > 0)
         {
-            // The karten2/karten3 conclusion, kept in the verdict so the next log names it
-            // instead of re-acquitting the card: nothing on the CARD paints the band, but every
-            // punched/cropped pixel is transparent and wears the tone of this backdrop.
-            verdictLine = "no active dark painter on the CARD — but every punched/cropped pixel is " +
-                          "TRANSPARENT and renders in the tone of the backdrop BEHIND it: " +
-                          string.Join(", ", backdrops) + ". On the bundled tray that backdrop is the " +
-                          "authored near-black recess floor (round-13 conviction, karten2/karten3) — " +
-                          "the SlotSeatLiner exists to recolor it; if a band survives WITH the liner " +
-                          "built, the liner is missing/undersized here, not the card wrong";
+            // ROUND 17 wording: the face renders its COMPLETE stock art (punch/crop retired) and
+            // the BODY is geometry-punched to the card outline — so nothing card-owned paints
+            // beside the card any more; whatever shows there is the scene behind the punched-out
+            // region.
+            verdictLine = "no active dark painter on the CARD — round 17: the face draws the game's " +
+                          "complete art (printed frame included, deliberate) and the body mesh is " +
+                          "punched out to the card outline, so the region beside the card shows the " +
+                          "backdrop BEHIND it: " + string.Join(", ", backdrops) + ". On the bundled " +
+                          "tray that backdrop is the authored near-black recess floor (round-13 " +
+                          "conviction) — the SlotSeatLiner exists to recolor it; a wood-toned band " +
+                          "around a seated tray card can only be the LINER, which is deliberate";
         }
         else
         {

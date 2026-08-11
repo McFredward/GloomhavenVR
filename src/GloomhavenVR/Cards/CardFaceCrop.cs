@@ -66,6 +66,28 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class CardFaceCrop
 {
+    /// <summary>
+    /// ROUND 17 — THE RECT CROP IS RETIRED. USER RULING (2026-08-11, verbatim, binding): "Kümmer
+    /// dich auch wieder darum dass die Karte wieder vollständig richtig angezeigt wird - die
+    /// Änderungen die dazu geführt haben waren offensichtlich nicht die Lösung des Problems."
+    ///
+    /// <para>The crop shrank live game RectTransforms and swapped their sprites for cropped
+    /// copies to stop the frame band from rasterizing — and together with the sprite punch it is
+    /// what mutilated the visible card art (the recurring broken card bottom). Round 17 moves the
+    /// outline onto the BODY as geometry (<c>CardContour</c> punches the mesh out to the card
+    /// outline), and the FACE renders the game's complete stock art again, printed frame
+    /// included. So this class serves nothing: <see cref="Maintain"/> restores anything still
+    /// cropped through the existing restore contract (exact original sizeDelta/localPosition/
+    /// preserveAspect and the original game sprite) and returns. Belt and braces:
+    /// <c>CardFaceMipBake.OutlineCroppedReplacementFor</c> is independently gated off
+    /// (<c>PunchServingEnabled</c>), so no crop sprite can be minted either way.</para>
+    ///
+    /// <para>Machinery kept compiled (CardShapeMask precedent — <c>static readonly</c>, never a
+    /// false <c>const</c>, so no CS0162 against the exactly-six-warnings gate); flipping this to
+    /// <c>true</c> restores the round-16 behaviour verbatim.</para>
+    /// </summary>
+    internal static readonly bool Enabled = false;
+
     // ----------------------------------------------------------- named identity (static) --
 
     // CardEffects' serialized Image fields — the exact objects the game's card-FX material rides
@@ -216,6 +238,14 @@ internal sealed class CardFaceCrop
     {
         if (ability == null || faceRoot == null)
             return;
+        if (!Enabled)
+        {
+            // Round 17 (see the Enabled block): the crop is retired. Hand back anything that is
+            // somehow still cropped through the existing restore contract, then do nothing.
+            if (_entries.Count > 0)
+                Restore();
+            return;
+        }
         if (CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
         {
             // The crop lives on the punched pixel copies; no bake, no crop — and if the dial was

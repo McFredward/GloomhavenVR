@@ -4882,7 +4882,9 @@ internal sealed class ItemsPile
                     // the bundle prefab is missing — sized directly to the item's near-square shape.
                     backing = new GameObject("Backing");
                     backing.transform.SetParent(parent, worldPositionStays: false);
-                    backing.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(cw, ch);
+                    // Round 17: the punched-out ITEM contour mesh once the Item footprint is
+                    // known, the rounded slab until then (CardMesh.AttachBody upgrades in place).
+                    CardMesh.AttachBody(backing.AddComponent<MeshFilter>(), CardBodyKind.Item, cw, ch);
                     var mr = backing.AddComponent<MeshRenderer>();
                     // ITEM body kind (2026-08-11): the silhouette clip is captured per card KIND, and item cards
                     // are a different, near-square outline — asking for the Neutral pair here is what

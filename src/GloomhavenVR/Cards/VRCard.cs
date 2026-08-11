@@ -530,22 +530,25 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         s_backingSourceLogged = true;
         Core.VRLog.Info("Cards", "ABILITY CARD backing source: " + (fromBundle
             ? "bundle 'Assets/Bundle/Table/CardBacking.prefab' — NOTE: an authored prefab carries its " +
-              "OWN materials, so the card-art silhouette clip (CardMesh.SetSilhouette, which only " +
-              "touches the shared CardBodyKind.Ability pair) does NOT reach this body. Every 'CARD " +
+              "OWN mesh and materials, so neither the shared CardBodyKind.Ability pair nor the round-17 " +
+              "punched-out contour mesh (CardMesh.AttachBody) reaches this body. Every 'CARD " +
               "SILHOUETTE (Ability): APPLIED' line above is then true and invisible."
-            : "procedural CardMesh rounded slab on the SHARED CardBodyKind.Ability material pair — " +
-              "this is the body the silhouette clip re-shapes, so an APPLIED line above is a change " +
-              "the player can see."));
+            : "procedural CardMesh body on the SHARED CardBodyKind.Ability material pair — this is the " +
+              "body the round-17 punched-out contour mesh replaces (CardMesh.AttachBody), so an APPLIED " +
+              "line above is a change the player can see."));
     }
 
     private static Transform BuildProceduralBacking(Transform parent, float w, float h)
     {
-        // P7 (test #10): a REAL 3D card body — rounded slab with ~1.5 mm thickness,
-        // dark rim, opaque decorative back (see CardMesh). The live face canvas at
+        // P7 (test #10): a REAL 3D card body with ~1.5 mm thickness, dark rim, opaque decorative
+        // back (see CardMesh). ROUND 17 (2026-08-11 ruling: "das mesh der Karte auf das outline
+        // der Kartenoberfläche 'auszustanzen'"): AttachBody serves the PUNCHED-OUT contour mesh
+        // once the Ability footprint is known (warm cache: before this ever runs) and the rounded
+        // slab until then, upgrading in place when a footprint lands. The live face canvas at
         // z = -0.0012 covers the front almost edge-to-edge; only the thin rim shows.
         var backing = new GameObject("Backing");
         backing.transform.SetParent(parent, worldPositionStays: false);
-        backing.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(w, h);
+        CardMesh.AttachBody(backing.AddComponent<MeshFilter>(), CardBodyKind.Ability, w, h);
         var renderer = backing.AddComponent<MeshRenderer>();
         // ABILITY-kind materials (2026-08-11 "keinen schwarzen Rand"): the shared pair that
         // CardFace's silhouette capture alpha-clips to the ability card's own outline. Item
