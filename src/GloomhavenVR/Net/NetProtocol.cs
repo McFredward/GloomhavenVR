@@ -416,7 +416,62 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 110;
+    public const ushort ModBuild = 111;
+    // Build 111: the black card border, attempt SEVEN — and the first one that MEASURED instead of
+    // inferring. No wire change; the bump is here because 111 is what goes to the friend.
+    //
+    // THE UNLOCK WAS A SCREENSHOT. Six rounds were spent reasoning about art that could not be read
+    // offline (ressources/ is Managed/*.dll only). The user supplied .planning/debug/karten.png and
+    // the defect fell out in one pass of pixel measurement:
+    //   • the band is TOP and BOTTOM (4.76 % / 6.6 % of the card height), NOT left/right (0.8 % / 2.4 %)
+    //   • its corner is a clean ~12 px arc = CardMesh.CornerRadius, and its colour is a flat (4,4,3)
+    //     identical on a fan card at a different orientation ⇒ it is the mod's MESH, not the art
+    // Both the integrator's aspect hypothesis and its axis were wrong; the arithmetic that produced
+    // it was right about the numbers and inverted about which edge they landed on. Measuring settled
+    // in minutes what six rounds of deduction could not.
+    //
+    // THE CAUSE. VRCard.SetCanvasSize rescales the slab NON-UNIFORMLY to facePixels × fit ×
+    // VisibleFaceFraction, i.e. exactly the face rect (294:450 = 0.6533), and CardFace draws the face
+    // at the same 0.94 — so slab and face rect coincide and round 5's "0.94 refutation" stands. What
+    // nobody checked is what the game draws INSIDE that rect: the ability art is poker-shaped
+    // (0.7216) and Image.preserveAspect letterboxes it to 0.6533/0.7216 = 90.54 % of the rect's
+    // height, leaving 4.73 % dead top and bottom. Measured: 4.76 %.
+    //
+    // WHY SIX WORKING CLIPS CHANGED NOTHING. The capture normalised each candidate by its
+    // GetWorldCorners LAYOUT rect and stamped the sprite across all of it — so the mask was stretched
+    // ~10 % vertically and declared the body "card" in precisely the two bands where the art draws
+    // nothing. Every clip was correct and aimed 10 % away from the edge it was looking for. The 110
+    // log stated the consequence without naming it: footprint bbox 95.5 % of the face at 0.915 fill,
+    // while the art visibly occupies 88.6 %.
+    //
+    // THE FIX is a pure coordinate correction, because the user rejected all three ways of correcting
+    // the aspect: "Ich möchte gerne an den aktuellen Proportionen festhalten. Ich will es also so wie
+    // es jetzt ist und sich verhält - nur eben ohne die schwarzen Ränder." CardFace.DrawnLocalRect
+    // replicates uGUI's PreserveSpriteAspectRatio byte-for-byte — including the PIVOT re-anchoring,
+    // not a centred shrink — from live values only (img.preserveAspect, sprite.rect,
+    // rectTransform.rect/pivot), so a tuned CardWidth, a different face resolution and the item
+    // card's own near-square art all fall out of the same three lines. No transform, mesh, collider
+    // or config value is written: CardWidth/CardHeight, CardMesh.Get, SetCanvasSize, WorldWidth,
+    // record 11 and SlotOverlayScale are untouched. Only the rectangle the alpha is stamped into
+    // changed, and the band goes because the body stops painting where the art does not.
+    //
+    // The PEEL was at its cap on the 110 run (max depth 11 of 11 texels = 3.1 mm against a ~4.6 mm
+    // band), so it could not have reached the frame at any luma threshold; depth 0.05 -> 0.08 and area
+    // 0.12 -> 0.20 (the two long edges alone were 10.7 %, i.e. it sat ON the old all-or-nothing
+    // ceiling). All four guards kept.
+    //
+    // PEER SLABS had the mirror of this bug — their 0..1 is the CARD, not the face rect, so today's
+    // export already stretched the mask ~10 % over them, invisible only while the mask was near-
+    // rectangular. Fixed inside Cards/ by cropping the export to the art rect, so Net/ needs no edit
+    // and with no letterbox the export is byte-identical to today.
+    //
+    // CacheVersion 2 -> 3, load-bearing: a v3 mask is transparent where v2 said card. The last bump
+    // proved the point — the 110 log opens with "header mismatch … version 1 want 2", and that is the
+    // only reason that run tested round five instead of round four.
+    //
+    // CardShapeMask stays DISABLED (dfe54e0): a uGUI Mask forces children through a SNAPSHOT material
+    // and freezes the shader properties CardEffects animates, which was the black-flash regression.
+    //
     // Build 110: attempt FIVE at the black card border, and the first that clips the layer the
     // black is actually on. No wire change; the bump is here because 110 is what goes to the friend.
     //

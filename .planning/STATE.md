@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 110`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 111`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,22 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 111** — the black card border, attempt SEVEN, and **the lesson is about method, not
+  about cards**. Six rounds reasoned about art that could not be read offline; the user supplied a
+  SCREENSHOT and pixel measurement settled it in one pass. The band is TOP/BOTTOM (4.76 % / 6.6 %
+  of the card height), not left/right (0.8 % / 2.4 %); its corner is a clean arc equal to
+  `CardMesh.CornerRadius` and its colour a flat (4,4,3) identical across cards at different
+  orientations — so it is the mod's MESH. Cause: slab and face rect coincide (round 5's "0.94
+  refutation" stands), but the ability ART is poker-shaped and `Image.preserveAspect` letterboxes it
+  to 90.54 % of the face rect's height, leaving 4.73 % dead top and bottom. Measured 4.76 %. The
+  capture normalised by each candidate's LAYOUT rect, so the mask was stretched ~10 % vertically and
+  declared the body "card" exactly where the art draws nothing — every one of six clips was correct
+  and aimed 10 % away from the edge it sought. Fixed by replicating uGUI's `PreserveSpriteAspectRatio`
+  (pivot re-anchoring included) from live values; nothing about size or proportions changes, which is
+  what the user required ("Ich will es also so wie es jetzt ist … nur eben ohne die schwarzen
+  Ränder"). `CacheVersion` 2→3, because a stale mask silently ships the previous round — that has
+  already happened once. **Two integrator hypotheses were wrong in this series (sprite-less dark
+  quads, and the aspect's axis); both were plausible, checkable and false. Measure before deducing.**
 - **ModBuild 110** — attempt FIVE at the black card border, and the first that clips the layer the
   black is on. **The generalisable lesson: four attempts all acted on the card BODY, and the body was
   never what bounds the visible card.** The 109 log refuted the standing hypothesis with its own new

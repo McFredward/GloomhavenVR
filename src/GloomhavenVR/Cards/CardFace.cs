@@ -485,6 +485,26 @@ internal sealed class CardFace
     /// listed is luma 0.54 and everything with any coverage outside the card ('Header' 11 %,
     /// 'UIFX_Overlay' 18 %) is WHITE. Whatever the black rim is, the inventory has now twice failed
     /// to find a face graphic that could be painting it.</para>
+    ///
+    /// <para>ROUND 7 CLOSED IT, AND THE THING THAT BROKE THE DEADLOCK WAS A SCREENSHOT
+    /// (<c>.planning/debug/karten.png</c>). Six rounds argued about WHICH LAYER paints the black
+    /// while nobody had measured WHERE it is. It is not a ring: on the board card the band is 18 px
+    /// at the top and 25 px at the bottom of a 378 px card, against 2 px and 6 px at the sides of a
+    /// 254 px card. A band on the short axis only is a LETTERBOX, and the letterbox is arithmetic
+    /// anyone could have done from the log's own "294x450 px face": the card body is fitted to that
+    /// rect (aspect 0.6533) and the ability card's art inside it is poker-shaped (0.7216), so
+    /// <c>Image.preserveAspect</c> draws the art at 90.54 % of the rect's height and leaves 4.73 %
+    /// dead top and bottom. Measured: 4.76 %. The capture normalised its candidates by their LAYOUT
+    /// rect, so the mask was stretched +10.4 % vertically and declared the body "card" in exactly
+    /// those two bands — every clip since ModBuild 108 was correct and aimed 10 % away from the edge
+    /// it was meant to find. The whole cure is <see cref="DrawnLocalRect"/>: stamp into the rect the
+    /// art is actually drawn in. Read that method before touching anything here. Nothing about the
+    /// card's size, proportions or behaviour changes — the user ruled those fixed ("Ich möchte gerne
+    /// an den aktuellen Proportionen festhalten … nur eben ohne die schwarzen Ränder") and this is a
+    /// coordinate correction on the MASK alone. The other candidate (a printed black frame inside
+    /// the art) is neutralised in the same build rather than left for an eighth run: see
+    /// <see cref="DarkBorderMaxDepthFraction"/>, whose cap the ModBuild-110 log reported as
+    /// REACHED.</para>
     /// </summary>
     private sealed class SilhouetteState
     {
@@ -558,6 +578,14 @@ internal sealed class CardFace
     /// margin still qualifies, while the biggest INNER element on an ability face (an action half,
     /// ~50 % of the card) cannot. The gate is timing-independent, which is the point — it does not
     /// care WHEN the background arrives, only that it has.
+    ///
+    /// <para>ROUND 7 NOTE — the coverage a full-bleed background reports is now its DRAWN area, not
+    /// its layout area (<see cref="DrawnLocalRect"/>), so the reported ability-card background drops
+    /// from 100 % to ~90.5 %: the same image, measured where uGUI actually puts it. 0.7 keeps ample
+    /// headroom, and the gate's real job — "an action half at ~50 % of the card can never define the
+    /// outline" — is unchanged. A card whose art were letterboxed below 70 % would be refused and
+    /// keep the rounded rect, which is the standing degrade-to-today rule, and the ART RECT log line
+    /// would name the number.</para>
     /// </summary>
     private const float MinOutlineCoverage = 0.7f;
 
@@ -631,16 +659,43 @@ internal sealed class CardFace
     /// </summary>
     private const byte DarkBorderLumaMax = 48;
 
-    /// <summary>How deep the peel may reach, as a fraction of the footprint's SHORT side. 0.05 of
-    /// 224 texels ≈ 11 texels ≈ 3 mm on a 63.5 mm card — wide enough for any printed frame, far too
-    /// narrow to hollow a card out.</summary>
-    private const float DarkBorderMaxDepthFraction = 0.05f;
+    /// <summary>
+    /// How deep the peel may reach, as a fraction of the footprint's SHORT side.
+    ///
+    /// <para>ROUND 7 RAISED THIS FROM 0.05 TO 0.08, and the reason is a measurement, not a hunch.
+    /// The ModBuild-110 log reports the peel <b>at its cap</b>: "945 texel(s) = 1.23 % of the face
+    /// … max depth 11 of 11 texels". 11 texels is 0.05 × min(224, 343) ≈ 3.1 mm on a 63.5 mm card.
+    /// The band the user's screenshot actually shows is 4.76 % of the card's height — 21.4 face px,
+    /// i.e. ≈ 16 texels ≈ 4.6 mm — so the old cap could not have reached it at any luma threshold.
+    /// 0.08 gives 18 texels ≈ 5.1 mm: enough for that band with a texel to spare, still nowhere near
+    /// hollowing a card out.</para>
+    ///
+    /// <para>AND THE SAFETY ARGUMENT HAS INVERTED BACK. Round 5 tightened this deliberately because
+    /// <c>CardShapeMask</c> clipped the FACE to the same footprint, which made an over-eager peel
+    /// VISIBLE (it would have cut real art away). <c>dfe54e0</c> turned that clip off and it stays
+    /// off, so the footprint drives the MESH only — and the mesh sits BEHIND the art. A peel that
+    /// takes one texel too many now hides mesh under opaque art and changes nothing the player can
+    /// see; a peel that takes one texel too few leaves the reported black band. The asymmetry runs
+    /// the other way than it did in round 5, so the number does too.</para>
+    /// </summary>
+    private const float DarkBorderMaxDepthFraction = 0.08f;
 
-    /// <summary>Hard ceiling on what the peel may take, as a fraction of the OPAQUE area it started
+    /// <summary>
+    /// Hard ceiling on what the peel may take, as a fraction of the OPAQUE area it started
     /// from. Past this the footprint is a dark card, not a dark frame, and the whole peel is
     /// discarded (logged) rather than partially applied — degrade to the shape we already had,
-    /// never to a guessed one.</summary>
-    private const float DarkBorderMaxAreaFraction = 0.12f;
+    /// never to a guessed one.
+    ///
+    /// <para>ROUND 7 RAISED THIS FROM 0.12 TO 0.20 so the deeper cap above is reachable instead of
+    /// self-cancelling. The band this has to be able to take is the two LONG edges only:
+    /// 2 × 224 × 16 = 7168 texels = 10.7 % of the 0.874 opaque area the ModBuild-110 log measured —
+    /// which sat directly on the old 12 % ceiling, so a slightly thicker frame would have tripped
+    /// the all-or-nothing discard and shipped round six's look with a log line claiming a peel was
+    /// considered. 0.20 clears it with margin. The guard keeps doing its actual job: a full ring at
+    /// the new depth cap would be ≈ 30 % and is still discarded, i.e. a dark CARD is still not a
+    /// dark FRAME.</para>
+    /// </summary>
+    private const float DarkBorderMaxAreaFraction = 0.20f;
 
     /// <summary>
     /// Erode the opaque, near-black band on the OUTSIDE of a captured footprint (see the block
@@ -922,6 +977,7 @@ internal sealed class CardFace
         var picks = new List<(Image Img, Rect Norm)>(4);
         int hash = 17;
         int rejectedInactive = 0, rejectedTiny = 0, rejectedFaint = 0, rejectedType = 0, rejectedNoSprite = 0;
+        int aspectCorrected = 0;
         bool hasFullBleed = false;
         float largestPick = 0f;
         float unionMinX = 1f, unionMinY = 1f, unionMaxX = 0f, unionMaxY = 0f;
@@ -958,7 +1014,18 @@ internal sealed class CardFace
                 continue;
             }
 
-            img.rectTransform.GetWorldCorners(corners);
+            // THE DRAWN RECT, NOT THE LAYOUT RECT (round 7 — see DrawnLocalRect). GetWorldCorners
+            // reports the RectTransform's rect; uGUI draws a preserveAspect Image LETTERBOXED
+            // inside that rect. Stamping the sprite across the layout rect would place the card's
+            // own outline where the art is not, which is the whole defect.
+            Rect drawnLocal = DrawnLocalRect(img, sprite, out float aspectShrink);
+            if (aspectShrink < 0.999f)
+                aspectCorrected++;
+            RectTransform irt = img.rectTransform;
+            corners[0] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMin, 0f));
+            corners[1] = irt.TransformPoint(new Vector3(drawnLocal.xMin, drawnLocal.yMax, 0f));
+            corners[2] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMax, 0f));
+            corners[3] = irt.TransformPoint(new Vector3(drawnLocal.xMax, drawnLocal.yMin, 0f));
             float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
             for (int c = 0; c < 4; c++)
             {
@@ -1074,6 +1141,12 @@ internal sealed class CardFace
         var luma = new byte[fw * fh];
         var readbacks = new List<Texture2D>(picks.Count);
         int stamped = 0, backdrops = 0;
+        // THE ART RECT: the union of the DRAWN rects that actually contributed, in face-normalized
+        // coordinates. The footprint itself stays authored over the FULL face rect — that is the
+        // space the card BODY samples it in (CardMesh.SetSilhouette's doc, and it is exact) — but a
+        // consumer that has no face rect at all, i.e. every peer mirror, needs to know which part of
+        // it is card. See CardMesh.ExportTexture.
+        float artMinX = 1f, artMinY = 1f, artMaxX = 0f, artMaxY = 0f;
         var sources = new System.Text.StringBuilder(128);
         try
         {
@@ -1129,6 +1202,10 @@ internal sealed class CardFace
                        .Append((norm.width * norm.height).ToString("P0"))
                        .Append(trimmed ? " trimmed" : " untrimmed");
                 state.OutlineImageIds.Add(img.GetInstanceID());
+                if (norm.xMin < artMinX) artMinX = norm.xMin;
+                if (norm.yMin < artMinY) artMinY = norm.yMin;
+                if (norm.xMax > artMaxX) artMaxX = norm.xMax;
+                if (norm.yMax > artMaxY) artMaxY = norm.yMax;
 
                 int fx0 = Mathf.Clamp(Mathf.FloorToInt(norm.xMin * fw), 0, fw - 1);
                 int fx1 = Mathf.Clamp(Mathf.CeilToInt(norm.xMax * fw), 0, fw - 1);
@@ -1232,17 +1309,39 @@ internal sealed class CardFace
                             "CardMesh.");
         string sourceName = sources.Length > 0 ? sources.ToString() : "unnamed";
 
+        // THE ROUND-7 FALSIFIER. This line always prints and it says, in one number, whether the
+        // defect this round diagnosed exists on the user's art: how much of the face rect the card
+        // art actually DRAWS on. 100 % on both axes means uGUI is stretching the sprite to the whole
+        // rect after all, the letterbox theory is wrong for this card, and the remaining black has
+        // to be inside the art itself (read the DARK BORDER PEEL line above — that is the other
+        // candidate and it is neutralised in the same build). Anything below 100 % on an axis is a
+        // band the BODY used to paint and no longer does.
+        Rect artRect = (artMaxX > artMinX && artMaxY > artMinY)
+            ? Rect.MinMaxRect(Mathf.Clamp01(artMinX), Mathf.Clamp01(artMinY),
+                              Mathf.Clamp01(artMaxX), Mathf.Clamp01(artMaxY))
+            : new Rect(0f, 0f, 1f, 1f);
+        VRLog.Info("Cards", $"CARD SILHOUETTE ({kind}) ART RECT: the card art DRAWS on " +
+                            $"{artRect.width:P1} x {artRect.height:P1} of the {faceRect.width:F0}x" +
+                            $"{faceRect.height:F0} px face rect (x {artRect.xMin:F3}..{artRect.xMax:F3}, " +
+                            $"y {artRect.yMin:F3}..{artRect.yMax:F3}); {aspectCorrected} of {picks.Count} " +
+                            "candidate(s) are preserveAspect and were letterboxed inside their own layout " +
+                            "rect. The card BODY is fitted to the FULL face rect (VRCard.SetCanvasSize), so " +
+                            "any axis below 100 % here is exactly the black band of the 2026-08-11 report: " +
+                            "the mask is now transparent there and the slab stops painting it. 100 % x 100 % " +
+                            "means this round's cause is absent on this art and the DARK BORDER PEEL line " +
+                            "above carries the other candidate.");
+
         // ALREADY APPLIED (normally: from the persisted cache, before this session drew a card).
         // Do NOT re-apply — a mid-session re-shape is exactly the visible transition the user
         // rejected — only confirm or refresh the FILE for the next launch.
         if (CardMesh.SilhouetteApplied(kind))
         {
             state.CaptureSettled = true;
-            CardMesh.RefreshSilhouetteCache(kind, alpha, fw, fh, sourceName);
+            CardMesh.RefreshSilhouetteCache(kind, alpha, fw, fh, artRect, sourceName);
             return;
         }
 
-        bool applied = CardMesh.SetSilhouette(kind, alpha, fw, fh, sourceName, fromCache: false);
+        bool applied = CardMesh.SetSilhouette(kind, alpha, fw, fh, artRect, sourceName, fromCache: false);
         if (applied)
         {
             state.CaptureSettled = true;
@@ -1265,6 +1364,93 @@ internal sealed class CardFace
             Reject(state, kind, "guard-refused",
                    "the footprint failed CardMesh's sanity guard (see the SetSilhouette line above)");
         }
+    }
+
+    /// <summary>
+    /// ROUND 7 — THE COORDINATE CORRECTION. Where an <c>Image</c> actually DRAWS its sprite inside
+    /// its own RectTransform, in that RectTransform's local space.
+    ///
+    /// <para>THE DEFECT THIS CLOSES, measured rather than argued. The user's screenshot
+    /// (<c>.planning/debug/karten.png</c>, same session as the ModBuild-110 log) shows the black
+    /// band is NOT a ring: on the board card it is ~18 px at the top and ~25 px at the bottom of a
+    /// 378 px card, and 2 px / 6 px at the left and right of a 254 px card. So the slab is too TALL
+    /// for the art, not too wide — 4.76 % of the card height dead at the top, against a slab whose
+    /// own footprint margin (log: bounding box 95.5 % of the face) accounts for barely 1.6 %.</para>
+    ///
+    /// <para>THE ARITHMETIC THAT NAMES IT. <c>VRCard.SetCanvasSize</c> fits the slab to
+    /// <c>facePixels × fit × VisibleFaceFraction</c> and <see cref="RefreshFitScale"/> draws the
+    /// face at the same <c>1 − BorderFraction</c>, so slab and face RECT are the same rectangle —
+    /// the 294×450 face rect, aspect 0.6533. The card ART inside that rect is poker-shaped
+    /// (63.5:88 = 0.7216). Fitted to the rect's width it is <c>0.6533 / 0.7216 = 90.54 %</c> of the
+    /// rect's height, centred → <b>4.73 % dead margin at the top and at the bottom</b>. Measured:
+    /// 4.76 %. That is the black band, to two decimal places, and it is on exactly the axis the
+    /// screenshot shows it on.</para>
+    ///
+    /// <para>WHY SIX ROUNDS OF CORRECT CLIPPING CHANGED NOTHING. The capture normalised each
+    /// candidate by <c>GetWorldCorners</c>, i.e. by its LAYOUT rect, and stamped the sprite's alpha
+    /// across all of it. uGUI does not draw it there: <c>Image.preserveAspect</c> letterboxes the
+    /// sprite inside the rect (<c>Image.PreserveSpriteAspectRatio</c>, replicated exactly below).
+    /// So the mask was stretched 1/0.9054 = +10.4 % vertically, its own transparent margins were
+    /// pushed off the top and bottom of the card, and the mesh was declared "card" in precisely the
+    /// two bands where the art draws nothing. Every clip since ModBuild 108 has been correct and
+    /// aimed 10 % away from the edge it was meant to find. The ModBuild-110 log states the
+    /// consequence without naming it: the footprint's bounding box reaches 95.5 % of the face and
+    /// is filled 0.915 — a near-rectangle — while the art visibly occupies 88.6 %.</para>
+    ///
+    /// <para>WHAT THIS DOES AND DOES NOT CHANGE. It changes ONE thing: the rectangle the sprite's
+    /// alpha is stamped into. Nothing here touches <c>CardsConfig.CardWidth</c>,
+    /// <c>CardsConfig.CardHeight</c>, the mesh, the collider, <c>VRCard.WorldWidth</c>, the fan, the
+    /// recesses or <c>[Cards] SlotOverlayScale</c> — the card keeps exactly the size, proportions
+    /// and behaviour it has today (user, verbatim: "Ich möchte gerne an den aktuellen Proportionen
+    /// festhalten. Ich will es also so wie es jetzt ist und sich verhält - nur eben ohne die
+    /// schwarzen Ränder."). The band disappears because the BODY stops painting where the art does
+    /// not, which is the only thing that was ever wrong.</para>
+    ///
+    /// <para>EVERY TERM IS LIVE. The shrink is derived from <c>img.preserveAspect</c>,
+    /// <c>sprite.rect</c>, the RectTransform's own rect and its pivot — nothing is hard-coded, so a
+    /// tuned <c>CardWidth</c>, a different face resolution or an item card's own near-square art all
+    /// fall out of the same three lines. If the image does NOT preserve aspect the drawn rect IS the
+    /// layout rect and this returns it unchanged, so the correction is a strict no-op wherever the
+    /// old assumption happened to hold.</para>
+    ///
+    /// <paramref name="shrink"/> receives the fraction of the layout rect's area the drawn rect
+    /// keeps (1 = no letterbox), for the log.
+    /// </summary>
+    private static Rect DrawnLocalRect(Image img, Sprite sprite, out float shrink)
+    {
+        shrink = 1f;
+        Rect r = img.rectTransform.rect;
+        if (!img.preserveAspect || r.width <= 0f || r.height <= 0f)
+            return r;
+        float sw = sprite.rect.width, sh = sprite.rect.height;
+        if (sw <= 0f || sh <= 0f)
+            return r;
+
+        // Byte-for-byte uGUI's own PreserveSpriteAspectRatio (UnityEngine.UI.Image): the rect is
+        // shrunk on ONE axis to the sprite's aspect and re-anchored by the PIVOT, not centred.
+        // Copying the pivot term matters — a card whose background is pivoted at the top would
+        // otherwise be corrected in the wrong direction, and this must be right for art nobody here
+        // can open.
+        float spriteRatio = sw / sh;
+        float rectRatio = r.width / r.height;
+        Vector2 pivot = img.rectTransform.pivot;
+        if (spriteRatio > rectRatio)
+        {
+            float oldH = r.height;
+            r.height = r.width / spriteRatio;
+            r.y += (oldH - r.height) * pivot.y;
+        }
+        else
+        {
+            float oldW = r.width;
+            r.width = r.height * spriteRatio;
+            r.x += (oldW - r.width) * pivot.x;
+        }
+        Rect layout = img.rectTransform.rect;
+        float layoutArea = layout.width * layout.height;
+        if (layoutArea > 0f)
+            shrink = Mathf.Clamp01(r.width * r.height / layoutArea);
+        return r;
     }
 
     /// <summary>Is this sprite region opaque at every probe point? A 16x16 grid including the

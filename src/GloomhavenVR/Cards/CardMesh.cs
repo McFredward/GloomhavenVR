@@ -152,6 +152,22 @@ internal static class CardMesh
     private static readonly int[] _footH = new int[3];
     private static readonly string?[] _footSource = new string?[3];
 
+    /// <summary>
+    /// Which sub-rectangle of the footprint the card ART actually draws on, in the footprint's own
+    /// 0..1 (= the face rect). Round 7: the mod's card BODY is fitted to the whole face rect while
+    /// the art inside it is poker-shaped and letterboxed, so the two are NOT the same rectangle and
+    /// the difference is the black band the user reported (derivation in
+    /// <c>CardFace.DrawnLocalRect</c>).
+    ///
+    /// <para>The footprint itself stays authored over the FULL face rect — that is the space the
+    /// body samples it in, exactly and unchanged. This rect exists for consumers that have no face
+    /// rect: see <see cref="ExportTexture"/>.</para>
+    /// </summary>
+    private static readonly Rect[] _footArt =
+    {
+        new(0f, 0f, 1f, 1f), new(0f, 0f, 1f, 1f), new(0f, 0f, 1f, 1f),
+    };
+
     /// <summary>Whether the persisted cache has been probed for this kind yet (once per session,
     /// re-entrancy guard for the <see cref="SetSilhouette"/> call it makes).</summary>
     private static readonly bool[] _cacheProbed = new bool[3];
@@ -283,6 +299,25 @@ internal static class CardMesh
     /// ships — and wrong the moment one is not, so it is stated rather than left to luck. Same
     /// reasoning as <c>Net/RemoteHandFan.BuildBackSlab</c>'s mirrored-UV note, opposite conclusion,
     /// because that mesh mirrors its UVs and this quad does not.</para>
+    ///
+    /// <para>EXTENT (round 7): the export is CROPPED to <see cref="_footArt"/>, the sub-rect the
+    /// card art actually draws on, and it is the one place that crop happens. The reason is that
+    /// the two families live in different spaces and always have:
+    /// <list type="bullet">
+    /// <item>the MESH pair is worn by a body that <c>VRCard.SetCanvasSize</c> fits to the whole
+    ///   FACE RECT, so it needs the mask over the whole face rect — uncropped, unchanged;</item>
+    /// <item>a peer's slab has no face rect at all. <c>Net/RemoteHandFan.BuildBackSlab</c> builds a
+    ///   plain quad at <c>DefaultCardWidth × DefaultCardWidth·88/63.5</c> — the POKER card — with
+    ///   planar 0..1 UVs, and <c>Net/RemoteBoardCard</c> does the same at its recess size. Their
+    ///   0..1 is the CARD.</item>
+    /// </list>
+    /// Handing them the face-rect mask stretched it ~10 % vertically over their own card; that is a
+    /// pre-existing error which was invisible only because the uncorrected footprint was very nearly
+    /// a rectangle, and it would have become visible the moment this round made the mask honest.
+    /// Cropping to the art rect makes both families right at once and — deliberately — needs no edit
+    /// in <c>Net/**</c>: every consumer already maps 0..1 onto its own card, which is exactly what
+    /// the cropped texture now is. With no letterbox the crop is the whole footprint and this is a
+    /// byte-for-byte no-op.</para>
     /// </summary>
     private static Texture2D? ExportTexture(CardBodyKind kind, SilhouetteLayer layer)
     {
@@ -296,29 +331,51 @@ internal static class CardMesh
         if (alpha == null || w <= 1 || h <= 1 || alpha.Length != w * h)
             return null;
 
-        var pixels = new Color32[alpha.Length];
-        if (layer == SilhouetteLayer.Mask)
+        // Crop window in footprint texels. Clamped and floored to at least 2x2 so a degenerate art
+        // rect can only ever fall back to the full footprint, never produce an empty texture.
+        Rect art = _footArt[i];
+        int cx0 = Mathf.Clamp(Mathf.FloorToInt(art.xMin * w), 0, w - 1);
+        int cx1 = Mathf.Clamp(Mathf.CeilToInt(art.xMax * w) - 1, cx0, w - 1);
+        int cy0 = Mathf.Clamp(Mathf.FloorToInt(art.yMin * h), 0, h - 1);
+        int cy1 = Mathf.Clamp(Mathf.CeilToInt(art.yMax * h) - 1, cy0, h - 1);
+        int cw = cx1 - cx0 + 1, ch = cy1 - cy0 + 1;
+        if (cw < 2 || ch < 2)
         {
-            for (int p = 0; p < alpha.Length; p++)
-                pixels[p] = new Color32(255, 255, 255, alpha[p]);
+            cx0 = 0; cy0 = 0; cw = w; ch = h;
         }
-        else
+
+        var pixels = new Color32[cw * ch];
+        Texture2D? backPattern = layer == SilhouetteLayer.Mask ? null : GetBackTexture();
+        for (int y = 0; y < ch; y++)
         {
-            Texture2D backPattern = GetBackTexture();
-            for (int y = 0; y < h; y++)
+            int srcRow = (cy0 + y) * w;
+            int dstRow = y * cw;
+            for (int x = 0; x < cw; x++)
             {
-                for (int x = 0; x < w; x++)
+                byte a = alpha[srcRow + cx0 + x];
+                if (backPattern == null)
                 {
-                    int p = y * w + x;
-                    Color rgb = backPattern.GetPixelBilinear((x + 0.5f) / w, (y + 0.5f) / h);
-                    pixels[p] = new Color32(
-                        (byte)(rgb.r * 255f), (byte)(rgb.g * 255f), (byte)(rgb.b * 255f), alpha[p]);
+                    pixels[dstRow + x] = new Color32(255, 255, 255, a);
+                    continue;
                 }
+                // The lattice is sampled across the CROPPED extent, so a peer's card back shows the
+                // same pattern edge-to-edge on its own card that the owner sees on hers.
+                Color rgb = backPattern.GetPixelBilinear((x + 0.5f) / cw, (y + 0.5f) / ch);
+                pixels[dstRow + x] = new Color32(
+                    (byte)(rgb.r * 255f), (byte)(rgb.g * 255f), (byte)(rgb.b * 255f), a);
             }
+        }
+        if (cw != w || ch != h)
+        {
+            VRLog.Info("Cards", $"CardMesh.ExportTexture({kind}/{layer}): cropped the {w}x{h} face-rect " +
+                                $"footprint to its ART RECT {cw}x{ch} (x {art.xMin:F3}..{art.xMax:F3}, " +
+                                $"y {art.yMin:F3}..{art.yMax:F3}). A peer's slab has no face rect — its 0..1 " +
+                                "is the CARD — so it gets the card, not the face. The mesh pair is untouched " +
+                                "and keeps the full face-rect mask it is fitted to.");
         }
         // Name distinct from the MESH pair's ".Edge"/".Back" bakes on purpose — a hardware log must
         // be able to say which of the two families a CARD TEX line belongs to.
-        Texture2D tex = MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Quad{layer}", pixels, w, h);
+        Texture2D tex = MakeCutoutTexture($"GloomhavenVR.CardSilhouette.{kind}.Quad{layer}", pixels, cw, ch);
         _exportTextures[i, l] = tex;
         return tex;
     }
@@ -840,6 +897,19 @@ internal static class CardMesh
     /// corresponds to the FULL 294×450 face — the footprint's own space. The mask lands exactly
     /// where it was authored. Whatever the user still sees, it is not this.</para>
     ///
+    /// <para>ROUND 7 — THAT REFUTATION STILL STANDS, AND IT IS ALSO WHY THE BAND EXISTED. Read the
+    /// two bullets above again: the slab is the FACE RECT, exactly. What neither bullet says is what
+    /// the game draws INSIDE that rect. The face rect is 294×450 (aspect 0.6533); the ability card's
+    /// art is poker-shaped (0.7216) and <c>Image.preserveAspect</c> letterboxes it to 90.54 % of the
+    /// rect's height, leaving 4.73 % dead at the top and at the bottom. The user's screenshot
+    /// measures 4.76 % at the top and ~0.8 % at the left — a band on the SHORT axis only, which is
+    /// the signature of a letterbox and not of a ring. The slab was never mis-mapped onto the face
+    /// rect; the MASK was mis-mapped onto the ART, because <c>CardFace</c> stamped the sprite across
+    /// the layout rect instead of the drawn rect. Fixed in <c>CardFace.DrawnLocalRect</c>; the
+    /// footprint's meaning here — 0..1 = the face rect — is deliberately unchanged, so this method,
+    /// the mesh, the collider and every card metric are untouched. See <see cref="_footArt"/> for
+    /// the one consumer that needs the other rectangle.</para>
+    ///
     /// Robust by design: returns without applying (cards stay the opaque rounded-rect)
     /// if the footprint is malformed, degenerate (mostly empty or a solid rectangle —
     /// the latter would be pointless AND is the signature of a bad capture), hollow in
@@ -847,16 +917,19 @@ internal static class CardMesh
     /// can never make a card invisible. Returns whether the silhouette was applied.
     /// </summary>
     internal static bool SetSilhouette(CardBodyKind kind, byte[]? alpha, int w, int h)
-        => SetSilhouette(kind, alpha, w, h, source: null, fromCache: false);
+        => SetSilhouette(kind, alpha, w, h, new Rect(0f, 0f, 1f, 1f), source: null, fromCache: false);
 
     /// <summary>
     /// <inheritdoc cref="SetSilhouette(CardBodyKind, byte[], int, int)"/>
-    /// <para><paramref name="source"/> names the sprite the mask came from (cache provenance);
-    /// <paramref name="fromCache"/> suppresses the write-back so loading never rewrites what it
-    /// just read.</para>
+    /// <para><paramref name="artRect"/> is the sub-rect of the footprint the card ART actually
+    /// draws on, in the footprint's own 0..1 — see <see cref="_footArt"/> and
+    /// <see cref="ExportTexture"/>. Pass the full 0..1 when it is not known; the footprint itself is
+    /// unaffected either way. <paramref name="source"/> names the sprite the mask came from (cache
+    /// provenance); <paramref name="fromCache"/> suppresses the write-back so loading never rewrites
+    /// what it just read.</para>
     /// </summary>
     internal static bool SetSilhouette(CardBodyKind kind, byte[]? alpha, int w, int h,
-                                       string? source, bool fromCache)
+                                       Rect artRect, string? source, bool fromCache)
     {
         if (kind == CardBodyKind.Neutral)
         {
@@ -980,6 +1053,11 @@ internal static class CardMesh
         _footW[(int)kind] = w;
         _footH[(int)kind] = h;
         _footSource[(int)kind] = source;
+        // Degenerate or absent art rect ⇒ the whole footprint, i.e. exactly today's export.
+        _footArt[(int)kind] = (artRect.width > 0.01f && artRect.height > 0.01f)
+            ? Rect.MinMaxRect(Mathf.Clamp01(artRect.xMin), Mathf.Clamp01(artRect.yMin),
+                              Mathf.Clamp01(artRect.xMax), Mathf.Clamp01(artRect.yMax))
+            : new Rect(0f, 0f, 1f, 1f);
         VRLog.Info("Cards", $"CardMesh.SetSilhouette({kind}): APPLIED from {(fromCache ? "the PERSISTED CACHE " +
                             "(before this session drew a single card — no visible transition)" : "a live capture")} " +
                             $"[source '{source ?? "n/a"}'] — that shape's shared front/rim + back materials " +
@@ -990,7 +1068,7 @@ internal static class CardMesh
         // footprint as an alpha channel. See BindSilhouette for why this is a binding, not a getter.
         ApplyBindings(kind);
         if (!fromCache)
-            WriteSilhouetteCache(kind, alpha, w, h, source);
+            WriteSilhouetteCache(kind, alpha, w, h, _footArt[(int)kind], source);
         return true;
     }
 
@@ -1057,8 +1135,20 @@ internal static class CardMesh
     /// visible until the launch after that — i.e. the user would test round 5 and see round 4. The
     /// bump costs exactly one cold start for this shape, which is the documented and accepted
     /// first-run behaviour, and never a wrong shape.</para>
+    ///
+    /// <para>v2 → v3 (round 7): the mask is now stamped into the rectangle the card art actually
+    /// DRAWS on rather than into the image's layout rect (<c>CardFace.DrawnLocalRect</c>), so a v3
+    /// mask is transparent in the letterbox bands a v2 mask called card — and the file additionally
+    /// carries that art rect. This bump is load-bearing for the same reason the last one was, and
+    /// the last one PROVED it: the ModBuild-110 log opens with "header mismatch … version 1 want 2 …
+    /// this session re-learns it", i.e. the v1 → v2 bump is the only reason that run tested round
+    /// five instead of round four. <see cref="EnsureSilhouetteCacheLoaded"/> applies the file before
+    /// the first card body exists and <see cref="RefreshSilhouetteCache"/> refuses to re-apply
+    /// mid-session (that re-shape IS the visible transition the user rejected), so a stale v2 file
+    /// would have shipped round six's behaviour under a round-seven build. Cost: exactly one cold
+    /// start per shape, which is the documented first-run behaviour.</para>
     /// </summary>
-    private const byte CacheVersion = 2;
+    private const byte CacheVersion = 3;
 
     private static string CacheFilePath(CardBodyKind kind) => System.IO.Path.Combine(
         BepInEx.Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cardsilhouette.{kind}.bin");
@@ -1114,6 +1204,11 @@ internal static class CardMesh
                 VRLog.Warn("Cards", $"CARD SILHOUETTE CACHE ({kind}): implausible footprint {w}x{h} — ignored.");
                 return;
             }
+            // ART RECT (v3): where the card art draws inside the footprint. Read before the mask so
+            // a truncated file still fails on the mask length check below, as it always has.
+            float ax = br.ReadSingle(), ay = br.ReadSingle();
+            float aw = br.ReadSingle(), ah = br.ReadSingle();
+            var artRect = new Rect(ax, ay, aw, ah);
             var alpha = br.ReadBytes(w * h);
             if (alpha.Length != w * h)
             {
@@ -1121,9 +1216,10 @@ internal static class CardMesh
                                     "mask bytes) — ignored; this session re-learns it.");
                 return;
             }
-            VRLog.Info("Cards", $"CARD SILHOUETTE CACHE ({kind}): loaded {w}x{h} from '{source}' — applying " +
-                                "BEFORE the first card body draws.");
-            SetSilhouette(kind, alpha, w, h, source, fromCache: true);
+            VRLog.Info("Cards", $"CARD SILHOUETTE CACHE ({kind}): loaded {w}x{h} from '{source}', art rect " +
+                                $"{artRect.width:P1} x {artRect.height:P1} of the face — applying BEFORE the " +
+                                "first card body draws.");
+            SetSilhouette(kind, alpha, w, h, artRect, source, fromCache: true);
         }
         catch (System.Exception ex)
         {
@@ -1132,7 +1228,8 @@ internal static class CardMesh
         }
     }
 
-    private static void WriteSilhouetteCache(CardBodyKind kind, byte[] alpha, int w, int h, string? source)
+    private static void WriteSilhouetteCache(CardBodyKind kind, byte[] alpha, int w, int h,
+                                             Rect artRect, string? source)
     {
         string path = CacheFilePath(kind);
         try
@@ -1149,6 +1246,10 @@ internal static class CardMesh
                 bw.Write(w);
                 bw.Write(h);
                 bw.Write(source ?? string.Empty);
+                bw.Write(artRect.xMin);
+                bw.Write(artRect.yMin);
+                bw.Write(artRect.width);
+                bw.Write(artRect.height);
                 bw.Write(alpha, 0, w * h);
             }
             System.IO.File.WriteAllBytes(path, ms.ToArray());
@@ -1170,11 +1271,20 @@ internal static class CardMesh
     /// but rewrites the cache when the freshly measured mask disagrees, so a class whose card frame
     /// really does differ corrects itself on the next launch. Returns whether the file was rewritten.
     /// </summary>
-    internal static bool RefreshSilhouetteCache(CardBodyKind kind, byte[] alpha, int w, int h, string? source)
+    internal static bool RefreshSilhouetteCache(CardBodyKind kind, byte[] alpha, int w, int h,
+                                                Rect artRect, string? source)
     {
         int i = (int)kind;
         byte[]? live = _footprints[i];
-        if (live != null && _footW[i] == w && _footH[i] == h)
+        // The ART RECT is part of what the file means, so a session that measures a different one
+        // must rewrite even when the mask texels agree — otherwise a v3 file could keep describing a
+        // letterbox that no longer exists (round 7; the mask/art-rect pair is the unit here).
+        Rect liveArt = _footArt[i];
+        bool artMoved = Mathf.Abs(liveArt.xMin - artRect.xMin) > 0.005f
+                        || Mathf.Abs(liveArt.yMin - artRect.yMin) > 0.005f
+                        || Mathf.Abs(liveArt.width - artRect.width) > 0.005f
+                        || Mathf.Abs(liveArt.height - artRect.height) > 0.005f;
+        if (!artMoved && live != null && _footW[i] == w && _footH[i] == h)
         {
             long differing = 0;
             for (int p = 0; p < alpha.Length; p++)
@@ -1194,7 +1304,7 @@ internal static class CardMesh
                                 "to be. Rewriting the cache; the shape is corrected on the NEXT launch, " +
                                 "deliberately not mid-session (that would be the visible transition).");
         }
-        WriteSilhouetteCache(kind, alpha, w, h, source);
+        WriteSilhouetteCache(kind, alpha, w, h, artRect, source);
         return true;
     }
 
