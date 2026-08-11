@@ -391,6 +391,7 @@ internal static partial class Defaults
     internal const float FanSwapSpinDegrees = 58f;                                                    // => [Cards] FanSwapSpinDegrees
     internal const float FanSwapSeedScale = 0.16f;                                                    // => [Cards] FanSwapSeedScale
     internal const float FanSwapSettleOvershoot = 1.5f;                                               // => [Cards] FanSwapSettleOvershoot
+    internal const bool CardSoundsEnabled = true;                                                     // => [Cards] CardSoundsEnabled
     internal const string FanRevealSound = "PlaySound_EnemyCardDraw";                                 // => [Cards] FanRevealSound
     internal const string FanHideSound = "PlaySound_UICardTabSelect";                                 // => [Cards] FanHideSound
     internal const string CardGrabSound = "PlaySound_UICardTabSelect";                                // => [Cards] CardGrabSound

@@ -49,24 +49,36 @@ internal static class ConfigCatalog
 
     /// <summary>
     /// Topic order IS the order of the chooser in the panel, and it is deliberate rather than
-    /// alphabetical: measurement first (that is what a power user opens this pane for, and the
-    /// [Perf] switches a hardware measurement blocks on live there), then the everyday-visible
-    /// things, then the deep geometry, then the plumbing. <see cref="Other"/> is last and exists so
-    /// a module nobody mapped is still reachable instead of silently invisible.
+    /// alphabetical: EVERYDAY-ADJACENT TOPICS FIRST, measurement second-to-last, Other last.
+    ///
+    /// <para>RE-SORTED in the 2026-08 menu overhaul (user ruling: "Setze erstmal alle Vorschläge
+    /// zu den Settings deinerseits so um", implementing the menu-audit's structure proposal,
+    /// .planning/menu-audit/05-structure.md §2.2). The old order put "Messung &amp; Diagnose"
+    /// FIRST — a reasoning ("measurement first, that is what a power user opens this pane for")
+    /// that predates the curated everyday layer. Today this index is the second level for ANYONE
+    /// who did not find a setting in the everyday tabs, and that person was landing on perf
+    /// measurement switches. So: movement, hands, cards, panels, board, then the per-board page,
+    /// then picture, buttons, multiplayer, system — and only then the measurement page (whose
+    /// [Perf] pins inside it are untouched: whoever opens it still gets CullSubmitSplit first).
+    /// <see cref="Other"/> stays last and exists so a module nobody mapped is still reachable
+    /// instead of silently invisible.</para>
+    ///
+    /// <para>SAFE TO REORDER: the enum values are menu-internal only — nothing persists a topic
+    /// ordinal (checked: only <c>VROptionsTab._category</c> holds one, at runtime).</para>
     /// </summary>
     internal enum ConfigTopic
     {
-        Diagnostics,
-        Visual,
         Movement,
         Hands,
         Cards,
-        Buttons,
         Panels,
         BoardTargeting,
         BoardGeometry,
+        Visual,
+        Buttons,
         Network,
         System,
+        Diagnostics,
         Other,
     }
 
@@ -1037,6 +1049,9 @@ internal static class ConfigCatalog
         // Reached since per-variant keys group by SECTION rather than by the hand style in their
         // name; without it a German menu would head the block with the English "Hands".
         "Hands" => Loc.Mod("hands"),
+        // The Mehrspieler topic's single group was headed with the raw section word "Net" —
+        // the one place the whole page showed an internal name (menu audit 05, S4).
+        "Net" => Loc.Mod("cfg_topic_network"),
         _ => Spaced(section),
     };
 
@@ -1112,8 +1127,44 @@ internal static class ConfigCatalog
     private static string GroupWord(ConfigItem item)
     {
         string word = LeadingWord(item.Key);
-        return VariantWords.Contains(word) ? SectionLabel(item.Section) : word;
+        return VariantWords.Contains(word) ? SectionLabel(item.Section) : GroupWordLabel(word);
     }
+
+    /// <summary>
+    /// Localized heading for an automatic key-prefix cluster (menu audit 05, S4 / §2.4 — the
+    /// GroupWordLabel switch): <c>GroupWord</c> used to return the leading key word RAW, so a
+    /// German page was headed with the English words "Fan", "Item", "Held", "Screen", "Combat",
+    /// "Bar" — <c>SectionLabel</c> localizes only section names, and prefix clusters had no
+    /// table at all.
+    ///
+    /// <para>Only the prefix words the catalog demonstrably produces are listed (the [Cards] and
+    /// [WorldUI] sections are the two past the split threshold; both now ALSO carry hand-built
+    /// trees, so this switch is the safety net for entries added after those trees were arranged
+    /// and for any section that grows past the threshold later). A word not listed keeps its raw
+    /// form — readable, never blank, same degradation as an untranslated section.</para>
+    /// </summary>
+    private static string GroupWordLabel(string word) => word switch
+    {
+        "Fan" => Loc.Mod("cfg_gw_fan"),
+        "Card" => Loc.Mod("cfg_gw_card"),
+        "Item" => Loc.Mod("cfg_gw_item"),
+        "Held" => Loc.Mod("cfg_gw_held"),
+        "Tray" => Loc.Mod("cfg_gw_tray"),
+        "Board" => Loc.Mod("cfg_gw_board"),
+        "Spawn" => Loc.Mod("cfg_gw_spawn"),
+        "Reveal" => Loc.Mod("cfg_gw_reveal"),
+        "Pile" => Loc.Mod("cfg_gw_pile"),
+        "Slot" => Loc.Mod("cfg_gw_slot"),
+        "Screen" => Loc.Mod("cfg_gw_screen"),
+        "Combat" => Loc.Mod("cfg_gw_combat"),
+        "Bar" => Loc.Mod("cfg_gw_bar"),
+        "Bars" => Loc.Mod("cfg_gw_bar"),
+        "Hex" => Loc.Mod("cfg_gw_hex"),
+        "Flat" => Loc.Mod("cfg_gw_screen"),
+        "Map" => Loc.Mod("cfg_gw_map"),
+        "Net" => Loc.Mod("cfg_topic_network"),
+        _ => word,
+    };
 
     internal static string LeadingWord(string key)
     {

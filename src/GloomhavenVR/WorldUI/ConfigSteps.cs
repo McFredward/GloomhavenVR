@@ -43,18 +43,39 @@ internal static class ConfigSteps
         // replaced it, see Rig/ComfortSettings.cs). Only the parked tilt keeps a step here.
         ["Rig/WorldTiltDegrees"] = 5d,           // PARKED feature — kept for its revival; row gone
 
-        // ---- Komfort ▸ Bewegung & Drehen --------------------------------------------------
+        // ---- Komfort ▸ Drehen / Fortbewegung ----------------------------------------------
         ["Comfort/SnapTurnDegrees"] = 15d,       // the angles anyone wants: 15/30/45/60/90
         ["Comfort/SmoothTurnSpeed"] = 10d,       // degrees per second, 30..270
         ["Comfort/RecenterHoldSeconds"] = 0.1d,  // a tenth of a second is the felt unit
 
+        // ---- Komfort ▸ Welt greifen (2026-08 overhaul: the zoom clamp joined the gesture
+        // rows it bounds — a bound must step like the value it bounds) ----------------------
+        ["Comfort/ScaleMin"] = 0.05d,
+        ["Comfort/ScaleMax"] = 0.05d,
+
         // ---- Komfort ▸ Hände & Zielen -----------------------------------------------------
         // Hands/ModalRayConeDegrees is GONE (2026-08 dead-settings sweep: the cone gate was
         // retired — VisualsAllowed is unconditionally true — and the key was deleted).
+        // The grip-plateau remap is curated as an accessibility row ("Vollgriff-Hilfe"); a
+        // twentieth of grip travel per press is felt but not jumpy.
+        ["Hands/CurlInputFullAt"] = 0.05d,
 
-        // ---- Tafeln ▸ Karten & Brett ------------------------------------------------------
+        // ---- Grafik ▸ Darstellung (2026-08 overhaul promotions) ---------------------------
+        ["RenderQuality/EyeResolutionScale"] = 0.05d, // 5 % per press — ~10 % pixel-work change
+        ["RenderQuality/PixelLightCount"] = 1d,       // a light at a time (int; -1 = game's own)
+
+        // ---- Brett & Karten ---------------------------------------------------------------
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size
         ["Cards/InspectScale"] = 0.05d,          // 5 % of the close-up size
+        // Half a centimetre per press: the shipped width is 6.35 cm, so the metre rule's
+        // full centimetre would cross a sixth of the card in one press.
+        ["Cards/CardWidth"] = 0.005d,
+        ["WorldUI/HoverInfoScale"] = 0.05d,      // 5 % of the hover-info card size
+
+        // ---- Tafeln ▸ 2D-Schirm (2026-08 overhaul promotions) -----------------------------
+        // A 2.2 m screen at 1.6 m: centimetre steps would need two hundred presses to matter.
+        ["WorldUI/ScreenWidth"] = 0.1d,
+        ["WorldUI/ScreenDistance"] = 0.1d,
 
         // ---- Tafeln ▸ Lebensbalken ---------------------------------------------------------
         // All three are factors of one size, so all three move by the same 5 % — a size dial whose
@@ -67,12 +88,12 @@ internal static class ConfigSteps
         ["WorldUI/BarZoomMinScale"] = 0.05d,
         ["WorldUI/BarZoomMaxScale"] = 0.05d,
 
-        // ---- Avatar ▸ Aussehen ------------------------------------------------------------
+        // ---- Avatar & Mehrspieler ▸ Dein Auftritt (hand size promoted, overhaul ruling 4) --
         ["Hands/GloveScale"] = 0.05d,
         ["Hands/PlateScale"] = 0.05d,
         ["Hands/ArcaneScale"] = 0.05d,
 
-        // ---- Multiplayer ▸ Was andere von dir sehen ---------------------------------------
+        // ---- Avatar & Mehrspieler ▸ Dein Auftritt: the mask pair ---------------------------
         ["Net/MaskId"] = 1d,                     // an index into the mask library
         ["Net/MaskSize"] = 0.05d,                // 5 % of your mask size
     };

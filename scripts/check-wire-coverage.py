@@ -139,6 +139,7 @@ EXEMPT = {
     ("Cards", "HeldPinchOffset"): ("COMFORT", "as HeldForward"),
     ("Cards", "HeldFaceBias"): ("COMFORT", "as HeldForward"),
     ("Cards", "InspectScale"): ("COMFORT", "how big a card reads when THEY lift it to inspect; the held slab is drawn at the synced card width"),
+    ("Cards", "CardSoundsEnabled"): ("COMFORT", "master switch over the sounds THEY hear; every client plays its own"),
     ("Cards", "FanRevealSound"): ("COMFORT", "a sound THEY hear; every client plays its own"),
     ("Cards", "FanHideSound"): ("COMFORT", "as FanRevealSound"),
     ("Cards", "CardGrabSound"): ("COMFORT", "as FanRevealSound"),

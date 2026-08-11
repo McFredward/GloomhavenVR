@@ -244,14 +244,20 @@ internal static partial class VROptionsTab
         // tell from the screen what had just been opened.
         BuildHeader(ContentRoot, ConfigCatalog.TopicLabel(topic));
 
-        // The control-board page is HAND-ARRANGED (user report 2026-08: "Aktuell sucht man dort
+        // THREE topics are HAND-ARRANGED (user report 2026-08: "Aktuell sucht man dort
         // immer rum ohne wirklich zu finden wonach man sucht"): the automatic key-prefix grouping
-        // below made eighteen leading-word clusters out of the per-board keys and then folded the
-        // small ones into one "Allgemein" grab-bag. That page gets the explicit two-level heading
-        // tree instead (VROptionsTab.6.BoardTopic.cs); every other topic keeps the automatic
-        // grouping, which maintains itself.
+        // below makes a dozen leading-word clusters out of an oversized section and then folds the
+        // small ones into one "Allgemein" grab-bag. The control board page got the explicit
+        // two-level heading tree first (VROptionsTab.6.BoardTopic.cs); the 2026-08 menu overhaul
+        // (audit 05, S3 — the two largest topics had the same disease) gave "Menüs & Tafeln" and
+        // "Karten & Fächer" theirs (VROptionsTab.7.TopicTrees.cs). Every other topic keeps the
+        // automatic grouping, which maintains itself.
         if (topic == ConfigCatalog.ConfigTopic.BoardGeometry)
             return BuildBoardTopicBody();
+        if (topic == ConfigCatalog.ConfigTopic.Panels)
+            return BuildTreeTopicBody(topic, PanelsTree);
+        if (topic == ConfigCatalog.ConfigTopic.Cards)
+            return BuildTreeTopicBody(topic, CardsTree);
 
         IReadOnlyList<ConfigCatalog.ConfigGroup> groups = ConfigCatalog.Groups(topic);
         int rows = 0;
@@ -336,8 +342,9 @@ internal static partial class VROptionsTab
         for (int i = 0; i < Curated.Length; i++)
             BuildCategoryButton(bar, i, Curated[i].Label);
 
-        // Debug last, and set apart by being last: the everyday tabs read as the menu, and the
-        // tuning constants are one deliberate step further in.
+        // Erweitert last, and set apart by being last: the everyday tabs read as the menu, and
+        // the tuning constants are one deliberate step further in. (Key kept as "cat_debug" —
+        // the 2026-08 overhaul renamed only the TEXT to "Erweitert"/"Advanced", audit 05 S1.)
         BuildCategoryButton(bar, AdvancedTabIndex, Loc.Mod("cat_debug"));
     }
 

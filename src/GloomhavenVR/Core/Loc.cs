@@ -399,7 +399,9 @@ internal static partial class Loc
         // Escape hatch for a control board the player cannot find any more (walked away, pinned
         // and left behind, stranded by a recentre). The per-frame watchdog recovers it on its own,
         // but the user must never be at the mercy of a timer for their primary control surface.
-        ["disable_post"] = Pair("Disable post-processing*", "Post-Processing aus*"),
+        // No asterisk (2026-08 naming pass, audit 05 §3): it was a footnote marker nothing
+        // explained — the restart note lives in the row's hover text, in words.
+        ["disable_post"] = Pair("Disable post-processing", "Post-Processing aus"),
         ["board"] = Pair("Board", "Board"),
         ["control_board"] = Pair("Control board", "Kontrollbrett"),
         // The three selectable control-board MODELS. The player picks these by name in the normal
@@ -423,7 +425,17 @@ internal static partial class Loc
         // ["display"] and ["performance"] — are gone with the tabs they named, so a dead key cannot
         // suggest a tab that no longer exists.)
         ["cat_graphics"] = Pair("Graphics", "Grafik"),
-        ["cat_debug"] = Pair("Debug", "Debug"),
+        // "ERWEITERT", NOT "DEBUG" (2026-08 menu overhaul, audit 05 S1, user ruling "Setze
+        // erstmal alle Vorschläge zu den Settings deinerseits so um"): the view holds everyday
+        // settings' deep twins — resolution, panel switches, the 2D screen — not developer
+        // switches, and the code doc had always called it the advanced view; only this label
+        // disagreed. The KEY stays "cat_debug" so nothing that references the view has to move.
+        ["cat_debug"] = Pair("Advanced", "Erweitert"),
+        // The two tabs the overhaul created: the play surface's own tab (audit 05 S6 — card
+        // and board rows do not belong under "Tafeln") and the merged social tab (audit 05 S5 —
+        // two mini-tabs glued together by a duplicated mask pair).
+        ["cat_boardcards"] = Pair("Board & cards", "Brett & Karten"),
+        ["cat_avatar_mp"] = Pair("Avatar & multiplayer", "Avatar & Mehrspieler"),
         // The caption of the mod's tab in the GAME's own options window. Two words here, unlike the
         // one-word sidebar tabs above: this row is the game's full-width option list, not the
         // mod's pinned 132 px column, so it has the room the others did not.
@@ -446,7 +458,9 @@ internal static partial class Loc
         ["vr_o_vdrag"] = Pair("Drag vertically", "Senkrecht ziehen"),
         ["vr_o_rotate"] = Pair("Rotate the world", "Welt drehen"),
         ["vr_o_scale"] = Pair("Resize the world", "Welt skalieren"),
-        ["vr_o_recenterhold"] = Pair("Recenter hold", "Zentrieren halten"),
+        // "Haltedauer", not "halten": the old caption read as a switch while the row is a
+        // duration (2026-08 naming pass, audit 05 §3).
+        ["vr_o_recenterhold"] = Pair("Recenter: hold time (s)", "Zentrieren: Haltedauer (s)"),
         // PARKED with the world tilt (2026-08, VRRigDriver.WorldTilt.cs): the caption and its
         // h_ hint below are kept so reviving the feature is exactly "restore the clamp + the
         // curated row" — an unused Loc key costs nothing and cannot mislabel anything.
@@ -463,20 +477,27 @@ internal static partial class Loc
         ["vr_o_gfxjobs"] = Pair("Threaded submission", "Parallele Bildabgabe"),
         ["vr_o_autorestart"] = Pair("Restart automatically", "Automatisch neu starten"),
         ["vr_o_actorbars"] = Pair("Health bars", "Lebensbalken"),
-        ["vr_o_barsize"] = Pair("Health bar size", "Größe der Lebensbalken"),
-        ["vr_o_barsizemin"] = Pair("Bars: minimum size", "Balken: Mindestgröße"),
-        ["vr_o_barsizemax"] = Pair("Bars: maximum size", "Balken: Maximalgröße"),
+        // ONE family, ONE object name (2026-08 naming pass, audit 05 §3): the size trio used to
+        // read "Größe der Lebensbalken" / "Balken: Mindestgröße" / "Balken: Maximalgröße" —
+        // three name forms for one family on ONE screen. All on "Lebensbalken: …" now, matching
+        // the Loc.ConfigNames table's own wording for the same keys.
+        ["vr_o_barsize"] = Pair("Health bars: size", "Lebensbalken: Größe"),
+        ["vr_o_barsizemin"] = Pair("Health bars: minimum size", "Lebensbalken: Mindestgröße"),
+        ["vr_o_barsizemax"] = Pair("Health bars: maximum size", "Lebensbalken: Maximalgröße"),
         ["vr_o_buttoncluster"] = Pair("Wrist buttons", "Handgelenk-Tasten"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
         ["vr_o_enemyreveal"] = Pair("Enemy cards", "Gegnerkarten"),
-        ["vr_o_trayscale"] = Pair("Board size", "Brettgröße"),
-        ["vr_o_trayfollow"] = Pair("Board follows you", "Brett folgt dir"),
+        // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
+        // 05 §3): "Brettgröße" / "Brett folgt dir" / "Brett-Bewegung" mixed compound, sentence
+        // and hyphen forms for one object.
+        ["vr_o_trayscale"] = Pair("Board: size", "Brett: Größe"),
+        ["vr_o_trayfollow"] = Pair("Board: follows you", "Brett: folgt dir"),
         // Item 12: the control-board movement scheme row + its three dropdown choices. The
         // choice labels are what the preset row shows INSTEAD of the raw enum members
         // (Free/Limited/LimitedPitch stay the config/log identity, exactly like the board
         // materials above).
-        ["vr_o_boardmove"] = Pair("Board movement", "Brett-Bewegung"),
+        ["vr_o_boardmove"] = Pair("Board: movement", "Brett: Bewegung"),
         ["boardmove_free"] = Pair("Free", "Frei"),
         ["boardmove_limited"] = Pair("Limited", "Begrenzt"),
         ["boardmove_pitch"] = Pair("Limited + tilt", "Begrenzt mit Neigung"),
@@ -484,7 +505,9 @@ internal static partial class Loc
         // sit directly under the movement-scheme dropdown (user request: they must be findable).
         ["vr_o_pitchmin"] = Pair("Tilt limit down", "Neigungslimit unten"),
         ["vr_o_pitchmax"] = Pair("Tilt limit up", "Neigungslimit oben"),
-        ["vr_o_inspectscale"] = Pair("Close-up size", "Nahansicht"),
+        // "Nahansicht: Größe", not bare "Nahansicht": the row is a size dial, not a switch
+        // (2026-08 naming pass, audit 05 §3).
+        ["vr_o_inspectscale"] = Pair("Close-up: size", "Nahansicht: Größe"),
         ["vr_o_revealmode"] = Pair("Fan opens by", "Fächer öffnen"),
         ["vr_o_grabbutton"] = Pair("Grab button", "Greif-Taste"),
         // ONE caption for all three per-style size rows: the pane shows only the style you are
@@ -504,6 +527,90 @@ internal static partial class Loc
         ["vr_style_arcane"] = Pair("Mage glove", "Magierhandschuh"),
         ["vr_o_netenabled"] = Pair("Multiplayer sync", "Mehrspieler-Abgleich"),
         ["vr_o_nametags"] = Pair("Name tags", "Namensschilder"),
+
+        // ---- 2026-08 menu overhaul: captions + hints for the PROMOTED everyday rows ---------
+        // (user ruling "Setze erstmal alle Vorschläge zu den Settings deinerseits so um" — the
+        // audit's NORMAL findings joined the curated view; each row carries its own short hint,
+        // same convention as every curated row above.)
+        // Komfort ▸ Welt greifen
+        ["vr_o_zoommin"] = Pair("Zoom-out limit", "Zoom-Untergrenze"),
+        ["h_vr_o_zoommin"] = Pair("However far you zoom out, the table never gets smaller than this.", "Wie weit du auch herauszoomst — kleiner als das wird der Tisch nie."),
+        ["vr_o_zoommax"] = Pair("Zoom-in limit", "Zoom-Obergrenze"),
+        ["h_vr_o_zoommax"] = Pair("However far you zoom in, the table never gets larger than this.", "Wie weit du auch hineinzoomst — größer als das wird der Tisch nie."),
+        ["vr_o_keepplace"] = Pair("Keep place on re-don", "Platz nach Absetzen behalten"),
+        ["h_vr_o_keepplace"] = Pair("Taking the headset off and putting it back on keeps you where you were at the table.", "Headset absetzen und wieder aufsetzen lässt dich am Tisch stehen, wo du warst."),
+        // Komfort ▸ Sichtbarkeit
+        ["vr_o_stackedfade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
+        ["h_vr_o_stackedfade"] = Pair("Upper storeys and battlements fade with the walls below them.", "Obergeschosse und Zinnen verschwinden mit den Wänden darunter."),
+        // Komfort ▸ Hände & Zielen — accessibility framing per ruling 15: the row is FOR a
+        // player with a weak grip, and its everyday name says so.
+        ["vr_o_curlassist"] = Pair("Full-grip assist (weak grip)", "Vollgriff-Hilfe (schwacher Griff)"),
+        ["h_vr_o_curlassist"] = Pair("Lower it and a partial squeeze of the grip already counts as a full fist — for hands that cannot press all the way.", "Niedriger stellen, und ein halber Druck auf die Grifftaste zählt schon als volle Faust — für Hände, die nicht ganz durchdrücken können."),
+        // Grafik ▸ Darstellung
+        ["vr_o_eyeres"] = Pair("Resolution per eye", "Auflösung pro Auge"),
+        ["h_vr_o_eyeres"] = Pair("The main sharpness-vs-frames dial: above 1 is sharper and dearer, below 1 cheaper and softer.", "Der Haupt-Regler Schärfe gegen Bildrate: über 1 schärfer und teurer, unter 1 günstiger und weicher."),
+        ["vr_o_msaa"] = Pair("MSAA level", "MSAA-Stufe"),
+        ["h_vr_o_msaa"] = Pair("Smooths jagged edges. Higher looks calmer and costs GPU time.", "Glättet Treppenkanten. Höher wirkt ruhiger und kostet GPU-Zeit."),
+        ["vr_o_aniso"] = Pair("Anisotropic filtering", "Anisotrope Filterung"),
+        ["h_vr_o_aniso"] = Pair("Sharpens textures seen at an angle — card faces, board art. Nearly free.", "Schärft schräg gesehene Texturen — Kartenbilder, Brett-Kunst. Kostet fast nichts."),
+        ["vr_o_pixellights"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
+        ["h_vr_o_pixellights"] = Pair("How many lights are rendered in full quality. Fewer = faster, flatter. -1 keeps the game's own setting.", "Wie viele Lichter in voller Qualität gerechnet werden. Weniger = schneller, flacher. -1 lässt die Spieleinstellung."),
+        // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
+        ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
+        ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),
+        // Brett & Karten
+        ["vr_o_spawnleft"] = Pair("Board starts on the left", "Brett startet links"),
+        ["h_vr_o_spawnleft"] = Pair("A fresh control board appears beside your head on the left instead of in front of you.", "Ein neues Kontrollbrett erscheint links neben deinem Kopf statt vor dir."),
+        ["vr_o_cardwidth"] = Pair("Card width (m)", "Kartenbreite (m)"),
+        ["h_vr_o_cardwidth"] = Pair("How large every card is — in the fan, in your hand, on the board.", "Wie groß jede Karte ist — im Fächer, in der Hand, auf dem Brett."),
+        ["vr_o_cardsounds"] = Pair("Card sounds", "Karten-Geräusche"),
+        ["h_vr_o_cardsounds"] = Pair("The mod's own card sounds: fan open and close, grab, place, take back. Off silences them all at once.", "Die Karten-Klänge des Mods: Fächer auf und zu, Greifen, Ablegen, Zurücknehmen. Aus schaltet alle auf einmal stumm."),
+        ["vr_o_pileviewer"] = Pair("Discard pile stacks", "Ablagestapel anzeigen"),
+        ["h_vr_o_pileviewer"] = Pair("The discard and burnt piles as physical stacks at the board's edge.", "Ablage- und Verbrannt-Stapel als greifbare Stapel am Brettrand."),
+        ["vr_o_activepile"] = Pair("Active-cards column", "Aktive-Karten-Spalte"),
+        ["h_vr_o_activepile"] = Pair("A column beside the board showing your currently active cards.", "Eine Spalte neben dem Brett mit deinen gerade aktiven Karten."),
+        ["vr_o_slothint"] = Pair("Glow on expected slot", "Erwarteter Slot leuchtet"),
+        ["h_vr_o_slothint"] = Pair("The slot the game expects your card in glows softly.", "Der Slot, in den das Spiel deine Karte erwartet, leuchtet sanft."),
+        ["vr_o_selready"] = Pair("Selection reminder", "Auswahl-Erinnerung"),
+        ["h_vr_o_selready"] = Pair("A pulse when the board is waiting on your card pick.", "Ein Pulsieren, wenn das Brett auf deine Kartenwahl wartet."),
+        ["vr_o_hoverinfo"] = Pair("Hover info size", "Info-Karten: Größe"),
+        ["h_vr_o_hoverinfo"] = Pair("How large the little info panels over the play area are ('2 Gold', 'Closed door').", "Wie groß die kleinen Infotafeln über dem Spielfeld sind ('2 Gold', 'Geschlossene Tür')."),
+        // Tafeln ▸ Tafeln & Anzeigen (the panel-visibility family that lived only under Debug)
+        ["vr_o_initiative"] = Pair("Initiative track", "Initiative-Leiste"),
+        ["h_vr_o_initiative"] = Pair("The turn-order track as a panel in the world.", "Die Zugreihenfolge als Tafel in der Welt."),
+        ["vr_o_elemboard"] = Pair("Element board", "Elemente-Tafel"),
+        ["h_vr_o_elemboard"] = Pair("The element-infusion state as a panel in the world.", "Der Elemente-Zustand als Tafel in der Welt."),
+        ["vr_o_objectives"] = Pair("Objectives panel", "Aufgaben-Tafel"),
+        ["h_vr_o_objectives"] = Pair("The scenario goals as a panel in the world.", "Die Szenario-Ziele als Tafel in der Welt."),
+        ["vr_o_statpanels"] = Pair("Stat panels", "Statustafeln"),
+        ["h_vr_o_statpanels"] = Pair("Character and enemy stat sheets as panels in the world.", "Charakter- und Gegnerwerte als Tafeln in der Welt."),
+        ["vr_o_propinfo"] = Pair("Hover info cards", "Info-Karten (Hover)"),
+        ["h_vr_o_propinfo"] = Pair("Little info cards when you point at chests, doors, traps.", "Kleine Info-Karten, wenn du auf Truhen, Türen, Fallen zeigst."),
+        ["vr_o_wristhud"] = Pair("Wrist status display", "Handgelenk-Anzeige"),
+        ["h_vr_o_wristhud"] = Pair("HP, XP and gold on your forearm.", "LP, EP und Gold auf deinem Unterarm."),
+        ["vr_o_tooltips"] = Pair("Tooltips at fingertip", "Tooltips am Finger"),
+        ["h_vr_o_tooltips"] = Pair("Explanations follow your pointing fingertip.", "Erklärungen folgen deiner zeigenden Fingerspitze."),
+        ["vr_o_loading"] = Pair("Loading indicator", "Ladeanzeige"),
+        ["h_vr_o_loading"] = Pair("A spinner in the headset while the game loads.", "Eine Ladeanzeige im Headset, während das Spiel lädt."),
+        // Tafeln ▸ Lebensbalken
+        ["vr_o_barsoccluded"] = Pair("Health bars behind walls", "Lebensbalken hinter Wänden"),
+        ["h_vr_o_barsoccluded"] = Pair("Bars stay visible even when a wall stands between you and the figure.", "Balken bleiben sichtbar, auch wenn eine Wand zwischen dir und der Figur steht."),
+        // Tafeln ▸ 2D-Schirm
+        ["vr_o_showintro"] = Pair("Show intro in VR", "Intro in VR zeigen"),
+        ["h_vr_o_showintro"] = Pair("Play the game's intro on the floating screen instead of skipping it.", "Das Intro des Spiels auf dem schwebenden Schirm zeigen statt es zu überspringen."),
+        ["vr_o_screenwidth"] = Pair("2D screen: width (m)", "2D-Schirm: Breite (m)"),
+        ["h_vr_o_screenwidth"] = Pair("How wide the floating 2D screen is.", "Wie breit der schwebende 2D-Schirm ist."),
+        ["vr_o_screendist"] = Pair("2D screen: distance (m)", "2D-Schirm: Abstand (m)"),
+        ["h_vr_o_screendist"] = Pair("How far away the floating 2D screen hangs.", "Wie weit weg der schwebende 2D-Schirm hängt."),
+        // Tafeln ▸ Klick & Zeigen
+        ["vr_o_pokeclick"] = Pair("Poke to click", "Antippen klickt"),
+        ["h_vr_o_pokeclick"] = Pair("Touching the 2D screen with a fingertip clicks it.", "Den 2D-Schirm mit der Fingerspitze berühren klickt."),
+        ["vr_o_pokefirm"] = Pair("Decisions: firm press", "Entscheidung: fester Druck"),
+        ["h_vr_o_pokefirm"] = Pair("Decision buttons want a deliberate press, so a stray touch cannot answer for you.", "Entscheidungs-Tasten wollen einen bewussten Druck — eine Streifberührung antwortet nicht für dich."),
+        ["vr_o_hexhintfollow"] = Pair("Hex hint follows view", "Feld-Hinweis folgt Blick"),
+        ["h_vr_o_hexhintfollow"] = Pair("The hex info panel turns to face wherever you look.", "Die Feld-Infotafel dreht sich dorthin, wo du hinschaust."),
+        ["vr_o_buttonanim"] = Pair("Key animation", "Tasten-Animation"),
+        ["h_vr_o_buttonanim"] = Pair("Board keycaps crumble away and reassemble instead of popping.", "Brett-Tasten zerfallen und setzen sich wieder zusammen, statt zu ploppen."),
         // Boolean rows say what they ARE, the way the game's own settings do.
         ["vr_on"] = Pair("On", "Ein"),
         ["vr_off"] = Pair("Off", "Aus"),
@@ -577,31 +684,48 @@ internal static partial class Loc
         // Section headers inside the mod's tab of the game options window.
         ["vr_sec_performance"] = Pair("Performance", "Leistung"),
         ["vr_sec_panels"] = Pair("Panels & readouts", "Tafeln & Anzeigen"),
-        ["vr_sec_cards"] = Pair("Cards & board", "Karten & Brett"),
+        // ["vr_sec_cards"] ("Karten & Brett") is GONE (2026-08 overhaul, audit 05 S6): the
+        // section grew into the "Brett & Karten" TAB — see cat_boardcards and its sections.
         ["vr_sec_keyboard"] = Pair("Text entry", "Texteingabe"),
         ["vr_o_keyboard"] = Pair("On-screen keyboard", "Bildschirmtastatur"),
         ["vr_o_keyboardcase"] = Pair("Capitalise words", "Wörter großschreiben"),
         // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
-        // group instead of a sidebar entry), which is why the restructure uses them for grouping
-        // and keeps the tab count at five.
+        // group instead of a sidebar entry), which is why the restructure uses them for grouping.
         // ["sec_table_world"] ("Tisch & Welt") is GONE with the last of its three rows — see
         // VROptionsTab.4.Curated.cs, where the section used to be declared, for why each went.
-        ["sec_movement"] = Pair("Movement & turning", "Bewegung & Drehen"),
+        // ["sec_movement"] ("Bewegung & Drehen") is GONE too (2026-08 overhaul, audit 05 S7):
+        // fourteen rows from three sense families under one heading — split into the three below.
+        ["sec_turning"] = Pair("Turning", "Drehen"),
+        ["sec_locomotion"] = Pair("Locomotion", "Fortbewegung"),
+        ["sec_worldgrab"] = Pair("Grabbing the world", "Welt greifen"),
         ["sec_visibility"] = Pair("Visibility", "Sichtbarkeit"),
         ["sec_hands_aim"] = Pair("Hands & aiming", "Hände & Zielen"),
         ["sec_presentation"] = Pair("Presentation", "Darstellung"),
-        ["sec_appearance"] = Pair("Appearance", "Aussehen"),
-        // The Multiplayer TAB and its sections. Multiplayer used to be a section inside Avatar,
-        // which filed "how much of other players' boards you see" under how your own hands look.
-        ["cat_multiplayer"] = Pair("Multiplayer", "Mehrspieler"),
+        // Grafik's one-row monitor section (ruling 11: what the desktop mirror shows).
+        ["vr_sec_monitor"] = Pair("Desktop monitor", "Monitor"),
+        // Brett & Karten — the play surface's own tab (2026-08 overhaul, audit 05 S6).
+        ["vr_sec_controlboard"] = Pair("Control board", "Kontrollbrett"),
+        ["vr_sec_cardhand"] = Pair("Cards", "Karten"),
+        ["vr_sec_piles_hints"] = Pair("Piles & hints", "Stapel & Hinweise"),
+        // Tafeln's new sections: the unified bar family, the 2D screen's everyday face, and
+        // how the panels are operated.
+        ["vr_sec_bars"] = Pair("Health bars", "Lebensbalken"),
+        ["vr_sec_screen2d"] = Pair("2D screen", "2D-Schirm"),
+        ["vr_sec_interaction"] = Pair("Pointing & clicking", "Klick & Zeigen"),
+        // Avatar & Mehrspieler (2026-08 overhaul, audit 05 S5: ONE tab where two mini-tabs
+        // stood; the duplicated mask rows died with the seam). ["sec_appearance"],
+        // ["cat_multiplayer"], ["vr_sec_mp_avatar"], ["vr_sec_mirror"] and the old tab name
+        // ["avatar"] are gone with the merge — a dead key cannot suggest a tab that no
+        // longer exists.
+        ["vr_sec_your_look"] = Pair("Your appearance", "Dein Auftritt"),
         ["vr_sec_mp_presence"] = Pair("Playing together", "Zusammen spielen"),
-        ["vr_sec_mp_avatar"] = Pair("What others see of you", "Was andere von dir sehen"),
-        ["vr_sec_mirror"] = Pair("Check yourself", "Dich selbst sehen"),
         // Rows whose captions used to be German literals in SettingsPanel.3.Content.cs. They move
         // between tabs in this restructure, so they are localized on the way (the whole mod is
         // localized — a moved row must not arrive as a hardcoded string).
         ["wall_see_through"] = Pair("See-through walls", "Wände durchsichtig"),
-        ["wallfade_sync"] = Pair("Sync teammates' wall fades", "Wand-Fades der Mitspieler"),
+        // "Wände: mit Mitspielern synchron", not "Wand-Fades der Mitspieler": "Fades" is
+        // jargon and the old name did not say what the toggle DOES (2026-08 naming pass).
+        ["wallfade_sync"] = Pair("Walls: sync with teammates", "Wände: mit Mitspielern synchron"),
         ["h_wallfade_sync"] = Pair(
             "Walls that fade for a teammate also fade for you — same animation as your own.",
             "Wände, die bei einem Mitspieler ausgeblendet sind, verschwinden auch bei dir — mit derselben Animation wie deine eigenen."),
@@ -663,8 +787,10 @@ internal static partial class Loc
         // Card presentation (edge-read fix): per-card toe-in toward the head + the gaze-following
         // depth-bow apex. "Zum Spieler" = how squarely each card faces you; "Blickfolge" = how far
         // the card you look at is brought out of the fan's depth recession.
-        ["avatar"] = Pair("Avatar", "Avatar"),
-        ["head_mask"] = Pair("Head Mask", "Kopfmaske"),
+        // ["avatar"] is GONE with the merged tab (see the vr_sec_your_look block above).
+        // "Head mask", not "Head Mask": the one EN caption that carried title case in a table
+        // of sentence-case names (2026-08 naming pass, audit 05 §3).
+        ["head_mask"] = Pair("Head mask", "Kopfmaske"),
         ["mask"] = Pair("Mask", "Maske"),
         // MASK NAMES, ONE PER SHIPPED ID (user request 2026-08-09: "Ich will die Maske beim Avatar
         // im Optionsmenü auch mit nem Dropdown auswählen können statt einem Schieberegler wie
@@ -684,7 +810,9 @@ internal static partial class Loc
         ["mask_name_2"] = Pair("Teal", "Türkis"),
         ["mask_size"] = Pair("Mask size", "Maskengröße"),
         ["mirror"] = Pair("Mirror", "Spiegel"),
-        ["remote_boards"] = Pair("Player boards", "Mitspieler-Boards"),
+        // "Bretter", not "Boards" (2026-08 naming pass, audit 05 §3): everywhere else in the
+        // German menu the object is a Brett; the one Denglisch holdout is gone.
+        ["remote_boards"] = Pair("Player boards", "Mitspieler-Bretter"),
         // Settings audit 2026-07: the remote-board mode is a purely LOCAL rendering choice that only
         // has anything to render while other players are in the session. Saying so on the panel is
         // what keeps it from reading as a dead control in single player.
@@ -855,6 +983,182 @@ internal static partial class Loc
             + "after this page was arranged. Nothing is ever lost here.",
             "Steuerbrett-Einträge ohne eigene Überschrift oben — meist Einstellungen, die nach "
             + "dieser Aufteilung dazukamen. Hier geht nichts verloren."),
+
+        // ---- Erweitert ▸ Menüs & Tafeln: the hand-arranged heading tree (2026-08 overhaul,
+        // audit 05 S3 — same remedy as the Steuerbrett page: "Ordne sie so an, dass man
+        // schneller findet wonach man sucht … Geb auch den Überschriften Tooltipps"). Labels
+        // "vr_pt_*", hints "h_vr_pt_*"; tree in VROptionsTab.7.TopicTrees.cs. ----------------
+        ["vr_pt_switches"] = Pair("Panels & readouts", "Tafeln & Anzeigen"),
+        ["h_vr_pt_switches"] = Pair(
+            "Every panel the mod draws in the world: which ones exist, plus their shared "
+            + "fine-tuning.",
+            "Alle Tafeln, die der Mod in die Welt zeichnet: welche es gibt, dazu ihre "
+            + "gemeinsame Feinjustage."),
+        ["vr_pt_sw_show"] = Pair("Switches", "Schalter"),
+        ["h_vr_pt_sw_show"] = Pair(
+            "On/off for each panel — initiative track, elements, objectives, stat sheets, "
+            + "dialogs, decision surfaces, wrist displays, tooltips.",
+            "An/aus je Tafel — Initiative-Leiste, Elemente, Aufgaben, Statustafeln, Dialoge, "
+            + "Entscheidungsflächen, Handgelenk-Anzeigen, Tooltips."),
+        ["vr_pt_sw_fine"] = Pair("Fine-tuning", "Feinjustage"),
+        ["h_vr_pt_sw_fine"] = Pair(
+            "Sizes, clearances and texture quality shared by the panels above.",
+            "Größen, Abstände und Texturqualität, die sich die Tafeln oben teilen."),
+        ["vr_pt_combatlog"] = Pair("Combat log", "Kampflog"),
+        ["h_vr_pt_combatlog"] = Pair(
+            "The floating combat-log panel: on/off, whether it follows you, and its "
+            + "grab-persisted position and size.",
+            "Die schwebende Kampflog-Tafel: an/aus, ob sie dir folgt, und ihre beim Greifen "
+            + "gemerkte Position und Größe."),
+        ["vr_pt_bars"] = Pair("Health bars", "Lebensbalken"),
+        ["h_vr_pt_bars"] = Pair(
+            "The bars above figures: on/off, size and its zoom clamp, distance behaviour, "
+            + "visibility behind walls.",
+            "Die Balken über den Figuren: an/aus, Größe samt Zoom-Klammer, "
+            + "Abstands-Verhalten, Sichtbarkeit hinter Wänden."),
+        ["vr_pt_screen"] = Pair("2D screen & 3D depth", "2D-Schirm & 3D-Tiefe"),
+        ["h_vr_pt_screen"] = Pair(
+            "The floating 2D screen the menus live on: its basics, the stereo-depth "
+            + "compositor, and the campaign-map fix.",
+            "Der schwebende 2D-Schirm, auf dem die Menüs leben: Grundlagen, der "
+            + "Stereo-Tiefen-Compositor und der Weltkarten-Fix."),
+        ["vr_pt_screen_basic"] = Pair("Screen", "Schirm"),
+        ["h_vr_pt_screen_basic"] = Pair(
+            "Existence, auto-show, intro, width, distance, and what the desktop monitor "
+            + "mirrors.",
+            "Existenz, Auto-Anzeige, Intro, Breite, Abstand und was der Desktop-Monitor "
+            + "spiegelt."),
+        ["vr_pt_screen_depth"] = Pair("3D depth", "3D-Tiefe"),
+        ["h_vr_pt_screen_depth"] = Pair(
+            "The stereo screen: depth strength, parallax, video handling and the two-layer "
+            + "compositor internals.",
+            "Der Stereo-Schirm: Tiefenstärke, Parallaxe, Video-Behandlung und die Interna "
+            + "des zweilagigen Compositors."),
+        ["vr_pt_screen_map"] = Pair("World map", "Weltkarte"),
+        ["h_vr_pt_screen_map"] = Pair(
+            "The campaign map's re-render fix and its cloud layer.",
+            "Der Render-Fix der Kampagnenkarte und ihre Wolkenschicht."),
+        ["vr_pt_click"] = Pair("Pointing & clicking", "Klick & Zeigen"),
+        ["h_vr_pt_click"] = Pair(
+            "How a poke or a laser press becomes a click: poke depth, click delivery, drag "
+            + "latching, mouse plumbing.",
+            "Wie aus Antippen oder Laser-Druck ein Klick wird: Antipp-Tiefe, "
+            + "Klick-Übermittlung, Zieh-Verriegelung, Maus-Verkabelung."),
+        ["vr_pt_hexhint"] = Pair("Hex hint", "Feld-Hinweis"),
+        ["h_vr_pt_hexhint"] = Pair(
+            "The info panel over the hovered hex: gaze behaviour and its three offsets.",
+            "Die Infotafel über dem angepeilten Feld: Blick-Verhalten und ihre drei "
+            + "Versätze."),
+        ["vr_pt_windows"] = Pair("Windows & dialogs", "Fenster & Dialoge"),
+        ["h_vr_pt_windows"] = Pair(
+            "How unknown game windows are caught and shown, and the rescue chord that always "
+            + "brings the screen back.",
+            "Wie unbekannte Spielfenster gefangen und angezeigt werden, und der Notgriff, "
+            + "der den Schirm immer zurückholt."),
+        ["h_vr_sec_keyboard"] = Pair(
+            "The on-screen keyboard for text fields, and its capitalisation.",
+            "Die Bildschirmtastatur für Textfelder und ihre Großschreibung."),
+
+        // ---- Erweitert ▸ Karten & Fächer: the hand-arranged heading tree ("vr_ct_*"). -------
+        ["vr_ct_fanshape"] = Pair("Fan shape", "Fächer-Form"),
+        ["h_vr_ct_fanshape"] = Pair(
+            "The hand fan's geometry: card size, spread per card, total arc, radius, arch "
+            + "and tilt.",
+            "Die Geometrie des Handfächers: Kartengröße, Spreizung je Karte, Gesamtbogen, "
+            + "Radius, Wölbung und Neigung."),
+        ["vr_ct_fanbehavior"] = Pair("Fan behaviour", "Fächer-Verhalten"),
+        ["h_vr_ct_fanbehavior"] = Pair(
+            "When the fan opens and how it reacts: the wrist gesture's angles, palm "
+            + "following, gaze following, the hover gap.",
+            "Wann der Fächer öffnet und wie er reagiert: die Winkel der Handgelenks-Geste, "
+            + "Handflächen-Folge, Blick-Folge, die Hover-Lücke."),
+        ["vr_ct_anim"] = Pair("Animations", "Animationen"),
+        ["h_vr_ct_anim"] = Pair(
+            "Timing of everything the cards do: opening, closing, flying, the character "
+            + "swap, the particle bursts.",
+            "Das Timing von allem, was die Karten tun: Öffnen, Schließen, Fliegen, der "
+            + "Charakterwechsel, die Partikel."),
+        ["vr_ct_anim_open"] = Pair("Open & close", "Öffnen & Schließen"),
+        ["h_vr_ct_anim_open"] = Pair(
+            "How fast the fan deals out, folds away, and how fast cards fly.",
+            "Wie schnell der Fächer austeilt, sich einklappt, und wie schnell Karten "
+            + "fliegen."),
+        ["vr_ct_anim_swap"] = Pair("Character swap", "Charakterwechsel"),
+        ["h_vr_ct_anim_swap"] = Pair(
+            "The hand-exchange animation when you switch characters: timing, travel, arc, "
+            + "spin, overshoot.",
+            "Die Handtausch-Animation beim Charakterwechsel: Timing, Weg, Bogen, Drehung, "
+            + "Nachschwingen."),
+        ["vr_ct_anim_fx"] = Pair("Particles", "Partikel"),
+        ["h_vr_ct_anim_fx"] = Pair(
+            "The card dust burst and the game's own card particles — both off by ruling.",
+            "Die Karten-Staubwolke und die spieleigenen Karten-Partikel — beide per "
+            + "Entscheidung aus."),
+        ["vr_ct_items"] = Pair("Items", "Gegenstände"),
+        ["h_vr_ct_items"] = Pair(
+            "The item pile's fan and its attention dressing: the emerge/collapse animation, "
+            + "the rings, embers and the use berth.",
+            "Der Fächer des Gegenstände-Stapels und seine Aufmerksamkeits-Signale: die "
+            + "Auf-/Zuklapp-Animation, Ringe, Funken und die Ablage."),
+        ["vr_ct_items_fan"] = Pair("Item fan", "Gegenstands-Fächer"),
+        ["h_vr_ct_items_fan"] = Pair(
+            "How the item cards deal out of the pile and fold back in.",
+            "Wie die Gegenstandskarten aus dem Stapel austeilen und wieder einklappen."),
+        ["vr_ct_items_cue"] = Pair("Cues & use berth", "Hinweise & Ablage"),
+        ["h_vr_ct_items_cue"] = Pair(
+            "The 'an item could act now' signals: pile rings and embers, and the use "
+            + "berth's outline, glow and ping.",
+            "Die Signale für 'ein Gegenstand könnte jetzt wirken': Ringe und Funken am "
+            + "Stapel, dazu Umriss, Leuchten und Ping der Ablage."),
+        ["vr_ct_held"] = Pair("Held card", "Gehaltene Karte"),
+        ["h_vr_ct_held"] = Pair(
+            "The card in your hand: grab button, close-up size, how it sits in the grip, "
+            + "and the slot glow it lands in.",
+            "Die Karte in deiner Hand: Greif-Taste, Nahansicht, wie sie im Griff sitzt, und "
+            + "das Slot-Glühen, in dem sie landet."),
+        ["vr_ct_piles"] = Pair("Piles", "Stapel"),
+        ["h_vr_ct_piles"] = Pair(
+            "The pile stacks at the board's edge and their poke-open browse fans — spread "
+            + "and radius per pile.",
+            "Die Stapel am Brettrand und ihre antippbaren Blätter-Fächer — Spreizung und "
+            + "Radius je Stapel."),
+        ["vr_ct_board"] = Pair("Control board", "Kontrollbrett"),
+        ["h_vr_ct_board"] = Pair(
+            "The board's choice, everyday pose, its grab-written pose state ('edit only to "
+            + "reset') and the spawn recipe.",
+            "Die Brett-Wahl, die Alltags-Haltung, sein beim Greifen gemerkter Zustand "
+            + "('nur zum Zurücksetzen ändern') und das Start-Rezept."),
+        ["vr_ct_sounds"] = Pair("Sounds", "Klänge"),
+        ["h_vr_ct_sounds"] = Pair(
+            "The everyday on/off switch, then the five audio items behind it — free-text "
+            + "game sound names, empty = that one silent.",
+            "Der Alltags-Schalter, dahinter die fünf Audio-Items — freie "
+            + "Spiel-Sound-Namen, leer = dieser eine stumm."),
+        ["h_vr_tree_misc"] = Pair(
+            "Entries not filed under a heading above — usually settings added after this "
+            + "page was arranged. Nothing is ever lost here.",
+            "Einträge ohne eigene Überschrift oben — meist Einstellungen, die nach dieser "
+            + "Aufteilung dazukamen. Hier geht nichts verloren."),
+
+        // ---- Localized names for AUTOMATIC key-prefix groups (2026-08 overhaul, audit 05
+        // S4/§2.4 — GroupWordLabel in ConfigCatalog): the raw leading key words "Fan", "Item",
+        // "Held", "Screen" used to head German pages. Safety net for topics without a
+        // hand-built tree and for sections that grow past the split threshold later. ---------
+        ["cfg_gw_fan"] = Pair("Fan", "Fächer"),
+        ["cfg_gw_card"] = Pair("Cards", "Karten"),
+        ["cfg_gw_item"] = Pair("Items", "Gegenstände"),
+        ["cfg_gw_held"] = Pair("Held card", "Gehaltene Karte"),
+        ["cfg_gw_tray"] = Pair("Board", "Brett"),
+        ["cfg_gw_board"] = Pair("Board", "Brett"),
+        ["cfg_gw_spawn"] = Pair("Board start", "Brett-Start"),
+        ["cfg_gw_reveal"] = Pair("Fan gesture", "Fächer-Geste"),
+        ["cfg_gw_pile"] = Pair("Piles", "Stapel"),
+        ["cfg_gw_slot"] = Pair("Card slots", "Kartenslots"),
+        ["cfg_gw_screen"] = Pair("2D screen", "2D-Schirm"),
+        ["cfg_gw_combat"] = Pair("Combat log", "Kampflog"),
+        ["cfg_gw_bar"] = Pair("Health bars", "Lebensbalken"),
+        ["cfg_gw_hex"] = Pair("Hex hint", "Feld-Hinweis"),
+        ["cfg_gw_map"] = Pair("World map", "Weltkarte"),
         ["cfg_topic_network"] = Pair("Multiplayer", "Mehrspieler"),
         ["cfg_topic_system"] = Pair("System & start-up", "System & Start"),
         ["cfg_topic_other"] = Pair("Other", "Sonstiges"),

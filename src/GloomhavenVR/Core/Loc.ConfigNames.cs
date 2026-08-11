@@ -104,7 +104,8 @@ internal static partial class Loc
             ["Comfort/TurnHand"] = Pair("Turning hand", "Dreh-Hand"),
             // Comfort/TableHeightOffset ("Tischhöhe") is GONE — the setting was removed by user
             // ruling 2026-08 (free locomotion replaced it), so nothing binds this key any more.
-            ["Comfort/RecenterHoldSeconds"] = Pair("Recenter hold (s)", "Zentrieren halten (s)"),
+            // 2026-08 naming pass (audit 05 §3): "Haltedauer", not "halten" — the row is a duration.
+            ["Comfort/RecenterHoldSeconds"] = Pair("Recenter: hold time (s)", "Zentrieren: Haltedauer (s)"),
             ["Comfort/SavedScaleMultiplier"] = Pair("Saved table scale", "Gespeicherte Tischgröße"),
             ["Comfort/DebugGizmos"] = Pair("Comfort debug overlay", "Komfort-Debug-Overlay"),
             ["Comfort/KeepPlaceOnReorigin"] = Pair("Keep place on re-don", "Platz nach Absetzen"),
@@ -200,18 +201,21 @@ internal static partial class Loc
             ["Cards/FanRadius"] = Pair("Fan: radius (m)", "Fächer: Radius (m)"),
             ["Cards/FanPalmOffset"] = Pair("Fan: above palm (m)", "Fächer: über Hand (m)"),
             ["Cards/CardWidth"] = Pair("Card width (m)", "Kartenbreite (m)"),
-            ["Cards/InspectScale"] = Pair("Close-up size", "Nahansicht"),
+            // 2026-08 naming pass: a size dial must not read as a switch.
+            ["Cards/InspectScale"] = Pair("Close-up: size", "Nahansicht: Größe"),
             ["Cards/HeldFaceBias"] = Pair("Held card: face tilt (°)", "Handkarte: Winkel (°)"),
-            ["Cards/HeldForward"] = Pair("Held (fallback): fwd (m)", "Karte (Ersatz): vor (m)"),
+            // 2026-08 naming pass: one object name for the fallback pair ("Ersatzkarte", like its twin).
+            ["Cards/HeldForward"] = Pair("Held (fallback): fwd (m)", "Ersatzkarte: vor (m)"),
             ["Cards/HeldOffPalm"] = Pair("Held (fallback): gap (m)", "Ersatzkarte: Abstand (m)"),
             ["Cards/HeldPinchOffset"] = Pair("Held card: pinch offset", "Karte: Griffversatz"),
             ["Cards/TrayForward"] = Pair("Board spawn: forward (m)", "Brett-Start: vor (m)"),
             ["Cards/TrayDown"] = Pair("Board spawn: lower (m)", "Brett-Start: tiefer (m)"),
             ["Cards/TrayRight"] = Pair("Board spawn: right (m)", "Brett-Start: rechts (m)"),
-            ["Cards/TrayYaw"] = Pair("Board yaw (°)", "Brett-Drehung (°)"),
-            ["Cards/TrayScale"] = Pair("Board size", "Brettgröße"),
-            ["Cards/TrayFollow"] = Pair("Board follows you", "Brett folgt dir"),
-            ["Cards/BoardMoveMode"] = Pair("Board movement", "Brett-Bewegung"),
+            // 2026-08 naming pass: the board family on the "Objekt: Wirkung" colon pattern.
+            ["Cards/TrayYaw"] = Pair("Board: yaw (°)", "Brett: Drehung (°)"),
+            ["Cards/TrayScale"] = Pair("Board: size", "Brett: Größe"),
+            ["Cards/TrayFollow"] = Pair("Board: follows you", "Brett: folgt dir"),
+            ["Cards/BoardMoveMode"] = Pair("Board: movement", "Brett: Bewegung"),
             ["Cards/TrayPitch"] = Pair("Board pitch (grab, °)", "Brett-Neigung (Griff, °)"),
             ["Cards/CardLerpSpeed"] = Pair("Card flight speed", "Kartenflug-Tempo"),
             ["Cards/SlotCardInset"] = Pair("Slot card: lift out (m)", "Slot-Karte: anheben (m)"),
@@ -275,6 +279,7 @@ internal static partial class Loc
             ["Cards/ItemBerthPingSeconds"] = Pair("Use berth: ping (s)", "Ablage: Ping (s)"),
             ["Cards/ItemBerthPingReach"] = Pair("Use berth: ping reach", "Ablage: Ping-Weite"),
             ["Cards/ItemBerthRevealSeconds"] = Pair("Use berth: appear (s)", "Ablage: Einblenden (s)"),
+            ["Cards/CardSoundsEnabled"] = Pair("Card sounds", "Karten-Geräusche"),
             ["Cards/FanRevealSound"] = Pair("Sound: fan opens", "Klang: Fächer öffnen"),
             ["Cards/FanHideSound"] = Pair("Sound: fan closes", "Klang: Fächer schließen"),
             ["Cards/CardGrabSound"] = Pair("Sound: card grabbed", "Klang: Karte greifen"),
@@ -359,7 +364,8 @@ internal static partial class Loc
             ["WallFade/ExitDwellMovedSeconds"] = Pair("Unfade dwell, moved (s)", "Einblende-Wartezeit (s)"),
             ["WallFade/ExitDwellStationarySeconds"] = Pair("Unfade dwell, still (s)", "Wartezeit, ruhig (s)"),
             ["WallFade/StackedShellFade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
-            ["WallFade/SyncPeerFades"] = Pair("Sync teammates' wall fades", "Wand-Fades der Mitspieler"),
+            // 2026-08 naming pass: "Fades" is jargon; the name now says what the toggle does.
+            ["WallFade/SyncPeerFades"] = Pair("Walls: sync with teammates", "Wände: mit Mitspielern synchron"),
 
             // ---- [Perf] / [Optimize] — measurement & optimizations --------------------------
             ["Perf/Enabled"] = Pair("Enable measurement", "Messung aktivieren"),
@@ -390,7 +396,8 @@ internal static partial class Loc
             ["Optimize/HeadMaskFromScenarioCamera"] = Pair("Camera mask from game", "Kameramaske vom Spiel"),
 
             // ---- [WorldUI] — panels, screen, input ------------------------------------------
-            ["WorldUI/Master"] = Pair("All world panels", "Physische Oberfläche"),
+            // 2026-08 naming pass: "Physische Oberfläche" was opaque and unrelated to the EN name.
+            ["WorldUI/Master"] = Pair("All world panels", "Alle VR-Tafeln"),
             ["WorldUI/ButtonCluster"] = Pair("Wrist buttons", "Handgelenk-Tasten"),
             ["WorldUI/InitiativeTrack"] = Pair("Initiative track", "Initiative-Leiste"),
             ["WorldUI/ElementBoard"] = Pair("Element board", "Elemente-Tafel"),
@@ -489,10 +496,13 @@ internal static partial class Loc
             ["BoardButtons/Height"] = Pair("Confirm/Undo: height (m)", "Best./Zurück: Höhe"),
             ["BoardButtons/Depth"] = Pair("Confirm/Undo: depth (m)", "Best./Zurück: Tiefe"),
             ["BoardButtons/Travel"] = Pair("Confirm/Undo: travel (m)", "Best./Zurück: Hub"),
-            ["BoardDashboard/PinWidth"] = Pair("Pin plate: width (m)", "Pin-Taste: Breite (m)"),
-            ["BoardDashboard/Height"] = Pair("Pin plate: height (m)", "Fixiert-Taste: Höhe (m)"),
+            // 2026-08 naming pass (audit 05 §3): ONE object name for the gear/pin plate family —
+            // it read "Pin-Taste", "Fixiert-Taste", "Zahnrad/Pin" and "Zahnrad/Fixiert" across
+            // four rows of the same keycap group. "Zahnrad/Pin" throughout now.
+            ["BoardDashboard/PinWidth"] = Pair("Gear/pin: width (m)", "Zahnrad/Pin: Breite (m)"),
+            ["BoardDashboard/Height"] = Pair("Gear/pin: height (m)", "Zahnrad/Pin: Höhe (m)"),
             ["BoardDashboard/Depth"] = Pair("Gear/pin: depth (m)", "Zahnrad/Pin: Tiefe (m)"),
-            ["BoardDashboard/Travel"] = Pair("Gear/pin: travel (m)", "Zahnrad/Fixiert: Hub (m)"),
+            ["BoardDashboard/Travel"] = Pair("Gear/pin: travel (m)", "Zahnrad/Pin: Hub (m)"),
             ["RestButtons/Width"] = Pair("Rest keys: width (m)", "Rast-Tasten: Breite (m)"),
             ["RestButtons/Height"] = Pair("Rest keys: height (m)", "Rast-Tasten: Höhe (m)"),
             ["RestButtons/Depth"] = Pair("Rest keys: depth (m)", "Rast-Tasten: Tiefe (m)"),
@@ -532,6 +542,7 @@ internal static partial class Loc
             ["Net/NameTags"] = Pair("Name tags", "Namensschilder"),
             ["Net/MirrorEnabled"] = Pair("Mirror", "Spiegel"),
             ["Net/VersionGuard"] = Pair("Version handshake", "Versionsabgleich"),
-            ["Net/RemoteBoards"] = Pair("Player boards", "Mitspieler-Boards"),
+            // 2026-08 naming pass: everywhere else the object is a Brett — no Denglisch holdout.
+            ["Net/RemoteBoards"] = Pair("Player boards", "Mitspieler-Bretter"),
         };
 }

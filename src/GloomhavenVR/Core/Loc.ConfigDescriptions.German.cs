@@ -1367,6 +1367,12 @@ internal static partial class Loc
                 + "ablegbar wird, und zum Zusammenfallen, wenn er es nicht mehr ist. Früher blinkte sie "
                 + "übergangslos ein und aus — der einzige Übergang im Gegenstands-Ablauf, der nie "
                 + "animiert war.",
+            ["Cards/CardSoundsEnabled"] =
+                "Hauptschalter für die karteneigenen Klänge des Mods (Fächer auf/zu, Karte greifen, "
+                + "ablegen, zurücknehmen). Aus = der Mod spielt keinen davon; die Klänge des Spiels "
+                + "selbst bleiben unberührt. Die fünf *Sound-Einträge darunter behalten ihre "
+                + "Audio-Item-Namen in jedem Fall — dieser Schalter ist ein UND darüber, kein "
+                + "Umschreiben.",
             ["Cards/FanRevealSound"] =
                 "Spiel-Audio-Item, das einmal abgespielt wird, wenn sich der Handflächen-Fächer aufdeckt "
                 + "(Demeo spielt MotherbrainAudio.OnCardHandShow, CardHandView.cs:682). PlaySound_EnemyCardDraw "

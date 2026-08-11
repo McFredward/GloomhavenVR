@@ -432,6 +432,16 @@ internal static class CardsConfig
     /// <summary>Item berth: seconds the recess takes to grow in / collapse out.</summary>
     internal static ConfigEntry<float> ItemBerthRevealSeconds = null!;
 
+    /// <summary>
+    /// Master switch over ALL five card/fan sounds below (menu overhaul ruling 6, 2026-08-11 —
+    /// the user kept the five sound STRINGS power-user-only and ordered one everyday on/off
+    /// switch instead: "Setze erstmal alle Vorschläge zu den Settings deinerseits so um").
+    /// A pure AND on top of the strings: it never modifies them, so a player's hand-picked
+    /// audio items survive toggling. "" in a string entry still means that one sound is silent
+    /// on its own.
+    /// </summary>
+    internal static ConfigEntry<bool> CardSoundsEnabled = null!;
+
     /// <summary>Game audio item played once when the fan reveals ("" = silent).</summary>
     internal static ConfigEntry<string> FanRevealSound = null!;
 
@@ -1459,6 +1469,11 @@ internal static class CardsConfig
                 "motion has, and it costs no extra travel. About 1.5 is a ~6 % overshoot; 0 = a " +
                 "plain ease that only decelerates to a stop.",
                 new AcceptableValueRange<float>(0f, 3f)));
+        CardSoundsEnabled = _file.Bind("Cards", "CardSoundsEnabled", Defaults.CardSoundsEnabled,
+            "Master switch for the mod's own card and fan sounds (fan open/close, card grab, " +
+            "place, take-back). Off = the mod plays none of them; the game's own card sounds are " +
+            "untouched. The five *Sound entries below keep their audio-item strings either way — " +
+            "this is an AND on top of them, not a rewrite.");
         FanRevealSound = _file.Bind("Cards", "FanRevealSound", Defaults.FanRevealSound,
             "Game audio item played once when the palm fan reveals (Demeo plays " +
             "MotherbrainAudio.OnCardHandShow, CardHandView.cs:682). PlaySound_EnemyCardDraw is " +

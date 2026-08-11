@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 116`**, awaiting its hardware run. Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 117`**, awaiting its hardware run. Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,25 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 117** — the border SOLVED (attempt 13), the dead-dial purge, the menu restructure.
+  THE BORDER: 116's CARD BAND PAINTER acquitted every card layer on the user's own rig while his
+  screenshot showed the band — so the reach was wrong. Convicted: **the bundled tray's authored
+  AO-dark RECESS FLOOR**, an ancestor mesh ~1.2x the card no card-root sweep could see; pixel
+  proof warm-vs-cool (band r−b +7..+21 = tray wood; card layers −11..−18). Punch/crop/silhouette
+  worked for rounds — every erased pixel just rendered recess-black, incl. the bottom "kaputt"
+  (kept bright ornaments floating on black). The 116 log's 132 % slab spans were a world-AABB
+  measurement artifact (tilted cards); the 111 "0.94 coincide" finding stands. Fix =
+  **SlotSeatLiner** (opaque rounded CardMesh slab 1.78x card box, keycap grain wood, per recess;
+  mirrored 1:1 on peer boards). Diagnostic upgraded: local-tight rects, subtree sweep with
+  backdrop verdicts, throttled re-arm — a hand-fan residue would be NAMED in the next log.
+  DEAD-DIAL PURGE: 48 keys removed (per-key re-verified; kept ScrollWithStickOnly — live reader
+  UguiPointer.cs:505, the audit was wrong there — Experimental3DMap, WorldTilt family);
+  ScreenLeftMirrorFallback description fixed (it gates the black-map probe). MENU RESTRUCTURE
+  (all 20 integrator recommendations ruled in by the user): everyday tabs Komfort / Grafik /
+  Brett & Karten / Tafeln / Avatar & Mehrspieler / Erweitert (ex-Debug); ~30 promotions;
+  hand-built trees for the two oversized topics (VROptionsTab.7.TopicTrees.cs); GroupWordLabel
+  localization; [Cards] CardSoundsEnabled master switch. Audit basis in `.planning/menu-audit/`.
+  Wire tests now 1509.
 - **ModBuild 116** — three lanes. BORDER ATTEMPT TWELVE: the 115 probe EXONERATED the card shader
   (verdict (a): alpha honored at rest) — eleven rounds edited layers that could not be painting the
   band. Convicted in source instead: **`FullAbilityCard.unfocusedMask`** — ShowCard loads the SAME

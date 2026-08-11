@@ -71,20 +71,35 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// THE TABS THE MOD'S OWN PANEL USED — Komfort, Grafik, Tafeln, Avatar, Debug — and the same
-    /// reasoning behind them: each names what the player is trying to DO (sit comfortably, make the
-    /// picture right, deal with the mod's panels, decide how they look, tune). That arrangement was
-    /// arrived at once already; re-deriving it differently would only make the menu disagree with
-    /// itself.
+    /// THE EVERYDAY TABS — Komfort, Grafik, Brett &amp; Karten, Tafeln, Avatar &amp; Mehrspieler,
+    /// Erweitert — each naming what the player is trying to DO (sit comfortably, make the picture
+    /// right, run their play surface, deal with the mod's panels, show up to others, tune).
     ///
-    /// <para>MULTIPLAYER JOINED THEM because it failed that test: it was a section inside Avatar, so
-    /// "how much of other players' boards you see" was filed under how your own hands look. It names
-    /// something a player is trying to do, so it is a tab.</para>
+    /// <para>2026-08 MENU OVERHAUL (user ruling, verbatim: "Setze erstmal alle Vorschläge zu den
+    /// Settings deinerseits so um" — implement every recommendation of the five-part menu audit,
+    /// .planning/menu-audit/01..05.md). The structural changes, each traceable to an audit finding:</para>
+    /// <list type="bullet">
+    /// <item>"Avatar" (4 rows) and "Mehrspieler" (6, two of them duplicates) MERGED into one tab
+    /// "Avatar &amp; Mehrspieler" — two mini-tabs whose only glue was a duplicated mask pair were
+    /// a navigation crutch, not structure (audit 05, S5). The duplicates are gone with the seam.</item>
+    /// <item>"Brett &amp; Karten" is a NEW tab, made of the "Karten &amp; Brett" section that sat
+    /// under "Tafeln": whoever tunes how their card fan opens does not look under "panels", and
+    /// the section had outgrown a heading (audit 05, S6).</item>
+    /// <item>"Debug" is CALLED "Erweitert" now (audit 05, S1): it holds everyday settings'
+    /// deep twins, not developer switches, and the code doc always called it the advanced view —
+    /// only the label disagreed. The Loc key <c>cat_debug</c> is kept (text-only rename).</item>
+    /// <item>Tab ORDER is body → picture → play surface → panels → social → rest: the player works
+    /// from "I feel sick / I see badly" toward fine-tuning (audit 05 §2.1).</item>
+    /// <item>PROMOTIONS: the audit's NORMAL-audience findings moved into the everyday view
+    /// (resolution/MSAA, panel-visibility switches, the 2D screen's size, card size, zoom limits,
+    /// hand size, …). Nothing moved OUT of the catalog for it — a curated row is an extra door,
+    /// never a wall.</item>
+    /// </list>
     ///
     /// <para>Section headers inside a tab are one navigation level cheaper than another tab, which
     /// is why grouping happens there and a new tab has to earn itself.</para>
     ///
-    /// <para>DEBUG IS THE ODD ONE and gets no hand-picked list at all. Hand-curating several
+    /// <para>ERWEITERT IS THE ODD ONE and gets no hand-picked list at all. Hand-curating several
     /// hundred tuning constants would be guesswork with no user to serve, and any list would rot
     /// silently as entries are added. It is instead the catalog's own topic index: a page of topic
     /// links, one topic at a time behind each. That subdivision maintains itself — a new setting
@@ -93,6 +108,7 @@ internal static partial class VROptionsTab
     /// </summary>
     internal static readonly CuratedCategory[] Curated =
     {
+        // ==================================== KOMFORT =====================================
         new()
         {
             LocKey = "comfort",
@@ -111,25 +127,52 @@ internal static partial class VROptionsTab
                 //     way to do it ("durch das freie Bewegen braucht man das nicht mehr").
                 // Do not re-create the section for a new table-pose slider: the gesture and the
                 // stick are the controls, and this heading is where that lesson was learned.
+                //
+                // THE OLD 14-ROW "Bewegung & Drehen" BLOCK IS THREE SECTIONS NOW (menu audit 05,
+                // S7: fourteen rows from three sense families under one heading; sections are
+                // one navigation level cheaper than a tab, so the two missing headings were
+                // simply added): Drehen / Fortbewegung / Welt greifen.
                 new()
                 {
-                    LocKey = "sec_movement",
+                    LocKey = "sec_turning",
                     Entries = new CuratedEntry[]
                     {
                         new("Comfort", "TurnMode", "turning"),
                         new("Comfort", "SnapTurnDegrees", "vr_o_snapdeg"),
                         new("Comfort", "SmoothTurnSpeed", "vr_o_smoothspeed"),
                         new("Comfort", "TurnHand", "vr_o_turnhand"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "sec_locomotion",
+                    Entries = new CuratedEntry[]
+                    {
                         new("Comfort", "FlightEnabled", "vr_o_flight"),
                         new("Comfort", "FlightDirection", "vr_o_flightdir"),
                         new("Comfort", "FlightMaxSpeed", "vr_o_flightspeed"),
                         new("Comfort", "FlightHand", "vr_o_flighthand"),
                         new("Comfort", "FreeMovement", "free_movement"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "sec_worldgrab",
+                    Entries = new CuratedEntry[]
+                    {
                         new("Comfort", "WorldGrabEnabled", "world_grab"),
                         new("Comfort", "VerticalDrag", "vr_o_vdrag"),
                         new("Comfort", "RotateEnabled", "vr_o_rotate"),
                         new("Comfort", "ScaleEnabled", "vr_o_scale"),
+                        // The two ends of the zoom the pinch gesture may reach — direct
+                        // neighbours of "Welt skalieren" that only lived under Erweitert while
+                        // the gesture they clamp was an everyday control (audit 05 §2.1).
+                        new("Comfort", "ScaleMin", "vr_o_zoommin"),
+                        new("Comfort", "ScaleMax", "vr_o_zoommax"),
                         new("Comfort", "RecenterHoldSeconds", "vr_o_recenterhold"),
+                        // Keep-your-place after taking the headset off and re-donning it —
+                        // promoted per ruling 20 (audit 03 UNCERTAIN, resolved NORMAL).
+                        new("Comfort", "KeepPlaceOnReorigin", "vr_o_keepplace"),
                     },
                 },
                 new()
@@ -141,6 +184,9 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("Compat", "WallFade", "wall_see_through"),
+                        // Fort superstructures fade with the walls — ruling 18 put the switch
+                        // directly beside the walls-transparent toggle it extends.
+                        new("WallFade", "StackedShellFade", "vr_o_stackedfade"),
                         // MP wall-fade sync (wire record 17): receiver-side toggle — it must
                         // be reachable in-headset next to the feature it extends.
                         new("WallFade", "SyncPeerFades", "wallfade_sync"),
@@ -159,10 +205,17 @@ internal static partial class VROptionsTab
                         new("Board", "TouchTilesWithFingertip", "vr_o_fingertiptouch"),
                         new("Hands", "ScrollWithStickOnly", "vr_o_stickscroll"),
                         new("Hands", "LaserFingerOrigin", "vr_o_laserorigin"),
+                        // ACCESSIBILITY (ruling 15): the grip-plateau remap surfaces as an
+                        // everyday option under an accessibility-flavoured name — a player with
+                        // a weak grip lowers it so a partial squeeze already counts as a fist.
+                        // The caption says whom it is for; the raw calibration framing stays on
+                        // the Erweitert twin ("Vollgriff ab Griffwert").
+                        new("Hands", "CurlInputFullAt", "vr_o_curlassist"),
                     },
                 },
             },
         },
+        // ===================================== GRAFIK =====================================
         new()
         {
             LocKey = "cat_graphics",
@@ -173,6 +226,15 @@ internal static partial class VROptionsTab
                     LocKey = "sec_presentation",
                     Entries = new CuratedEntry[]
                     {
+                        // The two dials every headset owner looks for first (audit 03: the
+                        // Grafik tab had NO render-quality row at all since the old panel's
+                        // preset cycle lost its caller) — plus the two pure quality raises.
+                        new("RenderQuality", "EyeResolutionScale", "vr_o_eyeres"),
+                        new("RenderQuality", "MsaaLevel", "vr_o_msaa"),
+                        new("RenderQuality", "ForceAnisotropic", "vr_o_aniso"),
+                        // Ruling 19: the pixel-light cap is a visible look-vs-frames trade the
+                        // game itself never exposes in VR.
+                        new("RenderQuality", "PixelLightCount", "vr_o_pixellights"),
                         new("Compat", "DisablePostProcessing", "disable_post"),
                         new("Compat", "DisableVolumetricFog", "vr_o_fog"),
                         new("Compat", "WallFade", "wall_see_through"),
@@ -202,49 +264,32 @@ internal static partial class VROptionsTab
                         new("Core", "AutoRestartForGraphicsJobs", "vr_o_autorestart"),
                     },
                 },
+                new()
+                {
+                    // Ruling 11: what the desktop monitor mirrors is an everyday choice for
+                    // anyone with a spectator at the desk or a stream running — one row, its
+                    // own heading, because it is about the MONITOR and nothing above is.
+                    LocKey = "vr_sec_monitor",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("WorldUI", "DesktopMirrorLeftEye", "vr_o_mirroreye"),
+                    },
+                },
             },
         },
+        // ================================ BRETT & KARTEN ==================================
+        // NEW TAB (audit 05, S6 + ruling F3): the "Karten & Brett" section had been filed under
+        // "Tafeln", which mixes audience and object — whoever tunes how their card fan opens
+        // does not look under "panels". The control board and the cards ARE the mod's play
+        // surface; they carry their own tab now, between Grafik and Tafeln.
         new()
         {
-            LocKey = "cat_panels",
+            LocKey = "cat_boardcards",
             Sections = new CuratedSection[]
             {
                 new()
                 {
-                    LocKey = "vr_sec_panels",
-                    Entries = new CuratedEntry[]
-                    {
-                        new("WorldUI", "CombatLog", "show_combat_log"),
-                        new("WorldUI", "ActorBars", "vr_o_actorbars"),
-                        // User request: the health bars' SIZE, plus the two ends of the clamp that
-                        // keeps the table zoom from carrying that size away ("sowie ein minimum und
-                        // maximum der Größe, damit sie sich trotz zoomen nie über die Grenzen
-                        // hinaus skalieren können"). They sit directly under the switch that turns
-                        // the bars on, because that is where a player looking for "the bars are too
-                        // big" goes first — a size dial only reachable under Erweitert is a size
-                        // dial nobody finds.
-                        new("WorldUI", "BarSizeScale", "vr_o_barsize"),
-                        new("WorldUI", "BarZoomMinScale", "vr_o_barsizemin"),
-                        new("WorldUI", "BarZoomMaxScale", "vr_o_barsizemax"),
-                        new("WorldUI", "ActionElementHints", "element_hints"),
-                        new("WorldUI", "ButtonCluster", "vr_o_buttoncluster"),
-                        new("WorldUI", "Dialogs", "vr_o_dialogs"),
-                        new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
-                        new("WorldUI", "EnemyReveal", "vr_o_enemyreveal"),
-                    },
-                },
-                new()
-                {
-                    LocKey = "vr_sec_keyboard",
-                    Entries = new CuratedEntry[]
-                    {
-                        new("Keyboard", "Enabled", "vr_o_keyboard"),
-                        new("Keyboard", "AutoCapitalise", "vr_o_keyboardcase"),
-                    },
-                },
-                new()
-                {
-                    LocKey = "vr_sec_cards",
+                    LocKey = "vr_sec_controlboard",
                     Entries = new CuratedEntry[]
                     {
                         new("Cards", "Board", "control_board"),
@@ -259,70 +304,182 @@ internal static partial class VROptionsTab
                         // filter (IsShownForCurrentVariant) shows exactly the selected board's
                         // pair — the user asked where these rows live, and the answer must be
                         // HERE, right under the movement scheme they belong to (they also stay
-                        // reachable under Debug ▸ Brett-Geometrie like all per-board tuning).
+                        // reachable under Erweitert ▸ Steuerbrett like all per-board tuning).
                         new("Cards", "BoardPitchMin_Oak", "vr_o_pitchmin"),
                         new("Cards", "BoardPitchMin_Steel", "vr_o_pitchmin"),
                         new("Cards", "BoardPitchMin_Bronze", "vr_o_pitchmin"),
                         new("Cards", "BoardPitchMax_Oak", "vr_o_pitchmax"),
                         new("Cards", "BoardPitchMax_Steel", "vr_o_pitchmax"),
                         new("Cards", "BoardPitchMax_Bronze", "vr_o_pitchmax"),
-                        new("Cards", "InspectScale", "vr_o_inspectscale"),
+                        // "The board starts on the left of your head" — a comprehensible
+                        // spawn-side choice (audit 01 NORMAL); its three fine-tune metre dials
+                        // (Spawn*Meters) stay under Erweitert.
+                        new("Cards", "SpawnLeftOfHead", "vr_o_spawnleft"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "vr_sec_cardhand",
+                    Entries = new CuratedEntry[]
+                    {
                         new("Cards", "RevealMode", "vr_o_revealmode"),
                         new("Cards", "GrabButton", "vr_o_grabbutton"),
+                        new("Cards", "InspectScale", "vr_o_inspectscale"),
+                        // THE card size — 49 read sites, the single most player-visible size
+                        // dial in the whole [Cards] section (audit 01 NORMAL).
+                        new("Cards", "CardWidth", "vr_o_cardwidth"),
+                        // Ruling 6: ONE everyday on/off for all five card/fan sounds. The five
+                        // audio-item STRINGS stay under Erweitert ▸ Karten & Fächer ▸ Klänge
+                        // (rulings 5/7: string entries are power-user material); this bool is
+                        // an AND over them and never rewrites them.
+                        new("Cards", "CardSoundsEnabled", "vr_o_cardsounds"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "vr_sec_piles_hints",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Cards", "PileViewer", "vr_o_pileviewer"),
+                        new("Cards", "ActivePile", "vr_o_activepile"),
+                        new("Cards", "WantedSlotHint", "vr_o_slothint"),
+                        // The selection-ready pulse is board-flavoured (it reminds you the
+                        // board is waiting on your card pick), so it lives with the board
+                        // rather than with the panels — audit 04 straggler, placed here.
+                        new("SelectionReady", "Enabled", "vr_o_selready"),
+                        // The user's own ask ("Größe der Infotafeln … einstellen können") —
+                        // sizes the hover info cards over the play area (audit 02 NORMAL).
+                        new("WorldUI", "HoverInfoScale", "vr_o_hoverinfo"),
                     },
                 },
             },
         },
+        // ===================================== TAFELN =====================================
+        // The ONE home of every display the mod draws (audit 05 §2.1): the half of the panel
+        // family that only lived under Debug — Initiative, Elemente, Aufgaben, Statustafeln,
+        // Info-Karten, Tooltips, Handgelenk-Anzeige, Ladeanzeige — joins the curated switches.
         new()
         {
-            // AVATAR WAS ALMOST ENTIRELY DEAD. Of its six appearance rows only HandStyle did
-            // anything: four were the shared hand-seat keys, superseded by absolute per-style keys
-            // and marked "LEGACY — no effect" in their own descriptions, and the fifth was
-            // HandColor — an RRGGBB string, so the left/right stepper had nothing to step and the
-            // player pressed a control that could not move. It also only ever tinted the
-            // PROCEDURAL fallback hand, which nobody wearing one of the three hand models sees.
-            // The live successors ({Style}Scale, {Style}GripPitchDegrees, …) are per-style and
-            // per-controller calibration; the ones a player actually chooses are here, the rest
-            // stay under Erweitert.
-            LocKey = "avatar",
+            LocKey = "cat_panels",
             Sections = new CuratedSection[]
             {
                 new()
                 {
-                    LocKey = "sec_appearance",
+                    LocKey = "vr_sec_panels",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("WorldUI", "CombatLog", "show_combat_log"),
+                        new("WorldUI", "InitiativeTrack", "vr_o_initiative"),
+                        new("WorldUI", "ElementBoard", "vr_o_elemboard"),
+                        new("WorldUI", "Objectives", "vr_o_objectives"),
+                        new("WorldUI", "StatPanels", "vr_o_statpanels"),
+                        new("WorldUI", "PropInfoCards", "vr_o_propinfo"),
+                        new("WorldUI", "WristHud", "vr_o_wristhud"),
+                        new("WorldUI", "ButtonCluster", "vr_o_buttoncluster"),
+                        new("WorldUI", "Tooltips", "vr_o_tooltips"),
+                        new("WorldUI", "ActionElementHints", "element_hints"),
+                        new("WorldUI", "Dialogs", "vr_o_dialogs"),
+                        new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
+                        new("WorldUI", "EnemyReveal", "vr_o_enemyreveal"),
+                        new("WorldUI", "LoadingIndicator", "vr_o_loading"),
+                    },
+                },
+                new()
+                {
+                    // The bar family has its own heading now: with occlusion joining the
+                    // curated size trio (audit 04 straggler) it is five rows of one object,
+                    // and the naming pass unified them on "Lebensbalken: …" — a family that
+                    // shares a name should share a heading.
+                    LocKey = "vr_sec_bars",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("WorldUI", "ActorBars", "vr_o_actorbars"),
+                        // User request: the health bars' SIZE, plus the two ends of the clamp
+                        // that keeps the table zoom from carrying that size away ("sowie ein
+                        // minimum und maximum der Größe, damit sie sich trotz zoomen nie über
+                        // die Grenzen hinaus skalieren können").
+                        new("WorldUI", "BarSizeScale", "vr_o_barsize"),
+                        new("WorldUI", "BarZoomMinScale", "vr_o_barsizemin"),
+                        new("WorldUI", "BarZoomMaxScale", "vr_o_barsizemax"),
+                        new("WorldUI", "BarsOccluded", "vr_o_barsoccluded"),
+                    },
+                },
+                new()
+                {
+                    // The floating 2D screen's everyday face: whether the intro plays on it,
+                    // how wide it is, how far away it hangs (audit 02 NORMAL). Its two kill
+                    // switches (FlatScreen / FlatScreenAutoShow) are deliberate footguns and
+                    // stay under Erweitert.
+                    LocKey = "vr_sec_screen2d",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("WorldUI", "ShowIntro", "vr_o_showintro"),
+                        new("WorldUI", "ScreenWidth", "vr_o_screenwidth"),
+                        new("WorldUI", "ScreenDistance", "vr_o_screendist"),
+                    },
+                },
+                new()
+                {
+                    // How the panels are operated: poke-to-click, the firm-press guard on
+                    // decisions, the gaze-following hex hint, the keycap animation.
+                    LocKey = "vr_sec_interaction",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("WorldUI", "PokeClick", "vr_o_pokeclick"),
+                        new("WorldUI", "DecisionPokeDeliberate", "vr_o_pokefirm"),
+                        new("WorldUI", "HexHintFollowView", "vr_o_hexhintfollow"),
+                        new("ButtonAnim", "Enable", "vr_o_buttonanim"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "vr_sec_keyboard",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Keyboard", "Enabled", "vr_o_keyboard"),
+                        new("Keyboard", "AutoCapitalise", "vr_o_keyboardcase"),
+                    },
+                },
+            },
+        },
+        // ============================= AVATAR & MEHRSPIELER ===============================
+        // ONE TAB where two mini-tabs stood (audit 05, S5 + ruling F1): Avatar had four rows,
+        // Mehrspieler six — and two of those six were the mask pair REPEATED from Avatar as a
+        // navigation crutch. Merged, the duplicates simply ceased: what you choose about your
+        // appearance and what only means anything with someone else in the game are two
+        // SECTIONS of one social tab now, not two tabs with a seam through the mask.
+        new()
+        {
+            LocKey = "cat_avatar_mp",
+            Sections = new CuratedSection[]
+            {
+                new()
+                {
+                    // AVATAR WAS ALMOST ENTIRELY DEAD once. Of its six appearance rows only
+                    // HandStyle did anything: four were the shared hand-seat keys (deleted in
+                    // the 2026-08 dead-settings sweep) and the fifth was HandColor, which only
+                    // ever tinted the procedural fallback hand. What a player actually chooses
+                    // is here: the hand model, ITS SIZE, the mask, its size, and the mirror to
+                    // check the result in.
+                    //
+                    // HAND SIZE IS BACK (ruling 4). It moved to Debug once as "calibration,
+                    // not a choice" — the overhaul ruled it an everyday avatar choice after
+                    // all. The keys are per-style ({Glove,Plate,Arcane}Scale), so all three
+                    // are listed and the per-variant filter shows exactly the worn style's
+                    // row, captioned variant-free ("Handgröße") — same pattern as the board
+                    // pitch window in Brett & Karten.
+                    LocKey = "vr_sec_your_look",
                     Entries = new CuratedEntry[]
                     {
                         new("Hands", "HandStyle", "hands"),
-                        // The hand SIZE rows lived here once; they are calibration, not a choice,
-                        // so they moved to Debug with the rest of the per-style tuning. What a
-                        // player picks about their avatar is the style, the mask and its size —
-                        // the mask pair was missing here entirely while being synced to every
-                        // peer like the hand style, which made it the odd one out.
+                        new("Hands", "GloveScale", "vr_o_handscale"),
+                        new("Hands", "PlateScale", "vr_o_handscale"),
+                        new("Hands", "ArcaneScale", "vr_o_handscale"),
                         new("Net", "MaskId", "head_mask"),
                         new("Net", "MaskSize", "mask_size"),
-                    },
-                },
-                new()
-                {
-                    LocKey = "vr_sec_mirror",
-                    Entries = new CuratedEntry[]
-                    {
                         new("Net", "MirrorEnabled", "mirror"),
                     },
                 },
-            },
-        },
-        new()
-        {
-            // MULTIPLAYER IS ITS OWN AREA NOW. These rows had been a section inside Avatar, which
-            // put "how much of other players' boards you see" under the heading for how your own
-            // hands look. What stays in Avatar is what you choose about YOURSELF and can check on
-            // your own; what moved here is everything that only means anything once someone else
-            // is in the game. Rig/SpawnInCircle comes along from the Graphics tab for the same
-            // reason: its own description opens with "Multiplayer:".
-            LocKey = "cat_multiplayer",
-            Sections = new CuratedSection[]
-            {
                 new()
                 {
                     LocKey = "vr_sec_mp_presence",
@@ -332,15 +489,8 @@ internal static partial class VROptionsTab
                         new("Rig", "SpawnInCircle", "vr_o_circle"),
                         new("Net", "RemoteBoards", "remote_boards"),
                         new("Net", "NameTags", "vr_o_nametags"),
-                    },
-                },
-                new()
-                {
-                    LocKey = "vr_sec_mp_avatar",
-                    Entries = new CuratedEntry[]
-                    {
-                        new("Net", "MaskId", "head_mask"),
-                        new("Net", "MaskSize", "mask_size"),
+                        // NOT here: [Net] VersionGuard (ruling 14) — disabling the version
+                        // handshake is an expert escape hatch, it stays under Erweitert.
                     },
                 },
             },

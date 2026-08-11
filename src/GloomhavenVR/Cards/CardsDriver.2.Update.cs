@@ -1165,6 +1165,11 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void PlayFanEdgeSound(bool open)
     {
+        // [Cards] CardSoundsEnabled is the everyday master switch over ALL mod card sounds
+        // (menu overhaul ruling 6). An AND on top of the configured item strings — never a
+        // rewrite of them — so a hand-picked audio item survives toggling the switch.
+        if (!CardsConfig.CardSoundsEnabled.Value)
+            return;
         string edge = open ? "open" : "close";
         string configured = (open ? CardsConfig.FanRevealSound.Value : CardsConfig.FanHideSound.Value) ?? string.Empty;
         string[] fallbacks = open ? FanOpenSoundFallbacks : FanCloseSoundFallbacks;
@@ -1195,6 +1200,11 @@ internal sealed partial class CardsDriver
     /// </summary>
     internal static void PlayCardSound(string item, Transform at)
     {
+        // Everyday master switch over all mod card sounds (menu overhaul ruling 6) — every
+        // caller of this helper passes one of the [Cards] *Sound strings, so one gate here
+        // covers grab, place and take-back without touching the strings themselves.
+        if (!CardsConfig.CardSoundsEnabled.Value)
+            return;
         if (string.IsNullOrEmpty(item))
             return;
         try

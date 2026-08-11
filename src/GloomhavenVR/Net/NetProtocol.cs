@@ -416,7 +416,42 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 116;
+    public const ushort ModBuild = 117;
+    // Build 117: FOUR lanes — the border SOLVED (attempt 13: it was the board, not the card),
+    // the dead-dial purge, the full VR options menu restructure, and the stretch/info settings
+    // from 116 (already noted below). No wire change.
+    //
+    // (1) THE BORDER, ATTEMPT THIRTEEN — the conviction. 116's CARD BAND PAINTER ran on the
+    // user's rig and ACQUITTED every card layer while his screenshot still showed the band; the
+    // reach was wrong, not the machinery. The painter is the bundled tray asset's own authored,
+    // AO-baked-dark RECESS FLOOR — an ancestor mesh ~1.2x the card that no card-root sweep could
+    // see. Pixel proof: the band is WARM (r-b +7..+21, tray wood) while every card layer is COOL
+    // (-11..-18). The 111 "0.94" finding stands (the 132 % slab spans in the 116 log were a
+    // world-AABB artifact of tilted cards — the diagnostic now measures local-tight). Punch,
+    // crop and silhouette were working for rounds; every erased pixel simply rendered in
+    // recess-floor black — including the bottom "kaputt" (bright kept ornaments floating on
+    // black). Fix: SlotSeatLiner — an opaque rounded CardMesh slab, 1.78x the card box, keycap
+    // carved-grain wood, in every recess; mirrored 1:1 on peer boards (RemoteBoardFurniture).
+    // The floor margin AND every punched pixel now read as board wood. CardBandPainter upgraded:
+    // local-tight rects, ancestor/sibling subtree sweep with backdrop verdicts, throttled
+    // state-change re-arm — if any residue survives (hand fan?), the log names it.
+    //
+    // (2) DEAD-DIAL PURGE (menu audit, user order "alte Einstellungen ... entferne diese"):
+    // 48 keys removed after per-key re-verification — WristHud twins, [Rig] WorldScale, the
+    // 4+12 hand-seat family, RayAlwaysOn (redundant read), ModalRayConeDegrees (gate retired),
+    // 18 disproven map-capture strategy keys, the HeldScale family, ForceFarMode. Audit
+    // corrections kept ScrollWithStickOnly (live reader UguiPointer.cs:505), Experimental3DMap
+    // (charter), the parked WorldTilt family. ScreenLeftMirrorFallback's description no longer
+    // claims "no reader" while gating the black-map probe. Wire tests 1529 -> 1500 (removed pins).
+    //
+    // (3) MENU RESTRUCTURE (user: "Setze erstmal alle Vorschläge zu den Settings deinerseits so
+    // um"): everyday tabs Komfort / Grafik / Brett & Karten (new) / Tafeln / Avatar & Mehrspieler
+    // (merged) / Erweitert (renamed from Debug); ~30 promotions incl. EyeResolutionScale, MSAA,
+    // PixelLightCount, hand size, panel toggles, accessibility full-grip; hand-built trees for
+    // the two oversized topics (VROptionsTab.7.TopicTrees.cs); localized auto group headings
+    // (GroupWordLabel); naming pass; new [Cards] CardSoundsEnabled master switch gating the five
+    // sound strings (playback AND, strings untouched). Wire tests 1509 (+9 explicit step pins).
+    //
     // Build 116: THREE lanes — the border's attempt TWELVE (the second full-card layer), the
     // stretch size-bounds settings, and the held-info toggle. No wire change.
     //
