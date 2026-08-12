@@ -116,8 +116,9 @@ namespace GloomhavenVR.Core;
 ///     aus dem Spiel nutzen die zu dem Thema passen?" ⇒ Fix: the single-room 'Map A' template
 ///     is replaced by REAL AUTHORED MULTI-ROOM MAPS from the same mapsprocgen catalog the
 ///     campaign scenarios load ("Map " + EMapType, decompiled Choreographer.cs:14943):
-///     Cellar = 'Map ABHM', SwampNight = 'Map DDM' (see AUTHORED MAPS below), with 'Map A' as
-///     the load-failure fallback. Authored per-tile styles are PRESERVED — the fill rule
+///     per-style PREFERENCE LISTS with 'Map A' as the terminal entry (see AUTHORED MAPS
+///     below — revised after 129, when the composite ADDRESSES failed while the assets
+///     provably existed). Authored per-tile styles are PRESERVED — the fill rule
 ///     writes an axis only when the prefab left it Inherit/Default (in vanilla the scenario
 ///     style lives on the ProcGen Maps ROOT and tiles inherit through
 ///     ProceduralStyle.GetBiome's parent walk, decompiled — our clone has no parent style, so
@@ -150,33 +151,62 @@ namespace GloomhavenVR.Core;
 ///     ambience room beats a debug cube. The census prints the NAMES of everything healed or
 ///     removed; goal state is 0 fallback renderers at placement, by construction.
 ///
-/// AUTHORED MAPS (finding 2). The catalog addresses are the game's own load pattern,
-/// 'Assets/_AssetBundles/mapsprocgen/Map &lt;EMapType&gt;.prefab' (decompiled
-/// AssetBundleManager.cs:277-287 + Choreographer.cs:14943; every EMapType member is a YML-
-/// scenario-loadable map). Multi-letter members are authored multi-room composites (each
-/// letter is one board-game room tile; READ FROM SOURCE: EMapType.cs — the shapes themselves
-/// are asset data, so "which rooms look how" is INFERRED from the tile naming, and the
-/// normalization below measures the real thing at runtime instead of trusting the guess).
-///  - Cellar → 'Map ABHM': four authored rooms (two small chambers, a large hall, a fourth
-///    chamber), door-linked, dressed as Dungeon/StoneRooms/Candlelight.
-///  - SwampNight → 'Map DDM': three authored rooms (two sprawling halls + a round chamber),
-///    dressed as Forest/Marsh/StillWaters/ForestMoonlight — connected moonlit clearings.
-///  - REJECTED: 'Map ABCHL' (five rooms — at a walkable normalization each room drops below
-///    ~5 m and the renderer count is the highest of the base-game set); single-letter maps
-///    (the rejected 'Map A' class: one rectangular room, the exact finding); DLC_SC*/Solo_*
-///    members (present only when the DLC/solo content is installed — Addressables label
-///    groups always_loaded_dlc_1/2, AssetBundleManager.cs:84-93 — a base-game user would hit
-///    the fallback path every run); numeric scenario finales (D21/C82/M521…, likely
-///    single-arena boss rooms, unverifiable here).
-///  - Load failure of the chosen composite falls back to 'Map A' once (logged), then to the
-///    FX shell — a wrong guess about the catalog can only cost looks, never the feature.
+/// AUTHORED MAPS (finding 2, REVISED after the ModBuild-129 run — THE GUESSING ENDED).
+/// THE ModBuild-129 REPORT (user, verbatim): "Es ist immer noch kein real existierendes Level
+/// sondern sieht aus wie ein wild zusammengefürter Raum der ein perfektes Rechteck ist. Statt
+/// selber einen Raum mit assets zusammenzubauen nutze bitte einen zum Thema passenden echten
+/// Raum aus einem Szenario/Level aus dem Spiel das athmosphärisch ist." ROOT CAUSE: the 129
+/// build's composite loads FAILED on his install (his LogOutput.log 443 + 2787: "authored map
+/// 'Map DDM'/'Map ABHM' failed to load from the Addressables catalog") and both styles fell
+/// back to the single-room 'Map A' rectangle he had already rejected. THE EVIDENCE (his own
+/// Player.log, same run, line 1490): the boot-time
+/// 'LoadAlwaysLoadedAddressable always_loaded_standalone' dependency dump lists 113 'Map
+/// *.prefab' assets INCLUDING 'Map DDM' and 'Map ABHM' — the ASSETS exist on his install and
+/// are loaded at boot; what failed was the ADDRESS ROUTE: the full-path key
+/// 'Assets/_AssetBundles/mapsprocgen/&lt;name&gt;.prefab' resolves for the singles A–N (the
+/// same Player.log's always_loaded_base_high line spells those full paths out verbatim — and
+/// 'Map A' loaded fine through it) but NOT for the composites on this catalog. Therefore:
+///
+///  - LOOKUP ORDER per candidate (LoadMapCandidate): (1) the game's ALWAYS-LOADED asset store
+///    — AssetBundleManager._alwaysloadedHandles (publicized), searched by prefab name exactly
+///    like the game's own TryGetAssetFromAlwaysLoadedHandles; synchronous, and PROVEN to hold
+///    every base-game map on his install by the boot dump above. The handles are
+///    session-lifetime (UnloadNotRequiredBundles clears _loadedHandles, never
+///    _alwaysloadedHandles — decompiled AssetBundleManager.cs:225-247), so the reference
+///    needs no mod-held handle. (2) the full-path Addressables key (the game's own
+///    Choreographer.cs:14943 pattern) as the async fallback for installs whose store misses
+///    the name but whose catalog carries the address.
+///  - PREFERENCE LIST per style (<see cref="MapPreference"/>), walked in order; a candidate
+///    that fails BOTH routes logs one warn and the next is tried; 'Map A' is the terminal
+///    entry before the FX-shell-only degrade. Every listed name is VERIFIED present in his
+///    boot dump (Player.log:1490): ABHM, GI, DDM, LML, A.
+///  - MAP CATALOG census (belt and braces for other installs/DLC sets): the first activation
+///    logs ONE line with every 'mapsprocgen' path key the Addressables catalog carries plus
+///    every always-loaded 'Map *' prefab name — the next report convicts a wrong list from
+///    facts, not guesses.
+///  - CHOICES ("einen echten Raum aus einem Szenario/Level"): every mapsprocgen map IS a
+///    scenario map — YML scenario files name their rooms as EMapType members (READ FROM
+///    SOURCE: ScenarioRoomsYML.cs:144-158 parses 'MapTiles' into EMapType; Choreographer
+///    loads 'Map ' + MapType for every EScenarioType.YML scenario). Cellar → 'Map ABHM'
+///    (four-tile dungeon composite), then 'Map GI' (two-tile; per the board game's tile
+///    letters G+I this is campaign scenario #1 'Black Barrow', the opening crypt — the tile
+///    attribution is INFERRED from the physical game's tile list, the asset's presence is
+///    VERIFIED). SwampNight → 'Map DDM' (three-tile composite), then 'Map LML' (three-tile).
+///    Which specific scenario uses ABHM/DDM is YML asset data not readable on this machine —
+///    theme risk is low because authored axes are kept and unset axes are filled with the
+///    style vocabulary either way (finding 2 rule below).
+///  - REJECTED: 'Map ABCHL' (five rooms — each drops below ~5 m at a walkable
+///    normalization); single-letter maps as PRIMARY choices (the rejected 'Map A' class: one
+///    rectangular room, the exact finding); DLC_SC*/Solo_* members (present only with the
+///    DLC/solo content — a base-game user would walk the fallback chain every run); numeric
+///    scenario finales (D21/C82/M521…, likely single-arena boss rooms).
 ///
 /// THE SEQUENCE (once per activation, all phases ticked from <see cref="SkyAlternative.Tick"/>):
 ///
-///  1. LOAD the style's authored map prefab via a mod-held Addressables handle (own handle,
-///     NOT AssetBundleManager's wrapper, whose WaitForCompletion would stall the frame).
-///     Loaded prefabs are cached per style for the session; a failed composite retries as
-///     'Map A' once.
+///  1. LOAD the style's authored map: walk the preference list, per candidate the
+///     always-loaded store first (synchronous), then a mod-held Addressables handle (own
+///     handle, NOT AssetBundleManager's wrapper, whose WaitForCompletion would stall the
+///     frame). Resolved prefabs are cached per style for the session.
 ///  2. WARMUP (root cause A): purge poisoned null-Object fallback resources (engine-global
 ///     via the game's own RefreshResourceList(clear_unused: true), per-list via a targeted
 ///     placeholder purge — finding 3), then kick the resource-list packets for the map's
@@ -220,26 +250,26 @@ namespace GloomhavenVR.Core;
 ///     prefab's serialized visibility state is asset data this mod cannot read, so All is
 ///     forced rather than assumed), measure, light the room (root cause C), neutralize the
 ///     Apparance machinery (root causes B + D), strip all colliders (non-interactive by
-///     ruling), re-apply the mod layer, then reparent the instance into the ambient frame with
+///     ruling), re-apply the mod layer, then reparent the instance into the world-fixed room branch with
 ///     the normalization below, drop the staging root, and log the ROOM CENSUS diagnostic
 ///     block (one line at placement, one T+3 s survival proof).
 ///
-/// NORMALIZATION MATH: the map is authored in world/diorama units; the ambient frame applies
-/// the rig scale S, so a child at local scale n reads as (authored units × n) REAL meters —
-/// independent of S by construction (frame world size = units·n·S, perceived = world/S).
-/// The 128 build targeted 9 m across the WHOLE map — right for one room, dollhouse-small for
-/// an authored multi-room map. Now the MAIN ROOM drives it: the largest tile (by its authored
-/// BoxCollider bounds, measured at staging scale 1) is normalized to
-/// <see cref="TargetMainRoomMeters"/> across, capped so the WHOLE map never exceeds
-/// <see cref="MaxTotalRoomMeters"/> (n = min(10/mainExtent, 24/totalExtent)) — side rooms
-/// stay walkable, the far wall stays inside the FX shell's 100 m far-plane budget. Placement:
-/// the LARGEST tile's center (not the map bounds center — for a room chain that point can
-/// land inside a wall between rooms) goes to the frame origin — which since Finding 4
-/// (2026-08-12) is the SCENARIO PLAY FIELD'S center, so the diorama sits mid-main-room
+/// NORMALIZATION MATH (finding-3 revision): the map is authored in world/diorama units and
+/// normalized into FRAME units — the largest tile (by its authored BoxCollider bounds,
+/// measured at staging scale 1) becomes <see cref="TargetMainRoomMeters"/> frame units
+/// across, capped so the WHOLE map never exceeds <see cref="MaxTotalRoomMeters"/>
+/// (n = min(10/mainExtent, 24/totalExtent)) — the proportions stay sane at any final size.
+/// The FRAME is the WORLD-FIXED room branch (SkyAlternative class doc ANCHORING/SPAWN POSE):
+/// its world scale maps those frame units to (RoomToBoardRatio × the board's larger
+/// horizontal extent) / TargetMainRoomMeters, so the MAIN room spans ~2.75 board widths and
+/// the whole map ≤ 2.4× that — a fixed geometric relationship to the diorama, unchanged by
+/// zoom (finding 3: zoom changes the PERCEIVED size, never the board's place in the room).
+/// Placement: the LARGEST tile's center (not the map bounds center — for a room chain that
+/// point can land inside a wall between rooms) goes to the frame origin — the BOARD's center
 /// (fallback: the player's floor point until the board exists — the anchor logic lives in
-/// SkyAlternative.PlaceAtPlayer) — and the floor top goes to frame-local y = 0 (= the real
-/// floor, tracking is floor-origin): floor height = the average ProceduralMapTile height
-/// (figures stand at tile level), bounds-min fallback.
+/// SkyAlternative.PlaceBothBranches) — and the floor top goes to frame-local y = 0, which
+/// the room branch pins JUST UNDER THE BOARD'S UNDERSIDE: floor height = the average
+/// ProceduralMapTile height (figures stand at tile level), bounds-min fallback.
 ///
 /// LIFECYCLE: <see cref="CancelMapGen"/> runs on every deactivation (scenario end/leave, style
 /// change, MR on, VR stop) — it returns the borrowed focus, destroys the staging root, and
@@ -266,14 +296,17 @@ internal static partial class SkyAlternative
     /// ("misc_mapsprocgen", "Map ...", "mapsprocgen") — decompiled AssetBundleManager.cs:277-287.</summary>
     private const string MapPrefabFolder = "Assets/_AssetBundles/mapsprocgen/";
 
-    /// <summary>The proven-to-exist single-room map (128 hardware run) — the load-failure
-    /// fallback when a chosen composite is missing from this install's catalog.</summary>
-    private const string FallbackMapName = "Map A";
-
-    /// <summary>The chosen AUTHORED map per style (class doc AUTHORED MAPS — candidates and
-    /// rejections documented there).</summary>
-    private static string ChosenMapName(SkyStyle style)
-        => style == SkyStyle.Cellar ? "Map ABHM" : "Map DDM";
+    /// <summary>Per-style map PREFERENCE LISTS, walked in order at runtime (class doc AUTHORED
+    /// MAPS — the 129 revision: choices, evidence and rejections documented there). The last
+    /// entry is the terminal 'Map A' (proven loadable AND generable by the 128/129 hardware
+    /// runs) before the FX-shell-only degrade; every name is verified present in the user's
+    /// boot-time always-loaded dump (his Player.log:1490). Index = (int)SkyStyle.</summary>
+    private static readonly string[][] MapPreference =
+    {
+        Array.Empty<string>(),                     // Default — never generates
+        new[] { "Map ABHM", "Map GI", "Map A" },   // Cellar: 4-tile dungeon, then scenario-1 crypt tiles
+        new[] { "Map DDM", "Map LML", "Map A" },   // SwampNight: 3-tile composites, restyled as marsh
+    };
 
     /// <summary>Target real-world size of the generated map's MAIN room — the largest tile's
     /// authored collider extent is normalized to this (class doc NORMALIZATION MATH).</summary>
@@ -304,14 +337,17 @@ internal static partial class SkyAlternative
     private static GenPhase _genPhase = GenPhase.Idle;
     private static SkyStyle _genStyle = SkyStyle.Default; // the style the current gen run is for
 
-    // Session-cached Addressables prefabs, indexed by (int)SkyStyle (class doc step 1).
+    // Session-cached map prefabs, indexed by (int)SkyStyle (class doc step 1). A prefab either
+    // comes from the game's always-loaded store (no handle of ours — the game's own
+    // session-lifetime handle owns it) or from a mod-held Addressables handle (_mapHandlesHeld).
     private static readonly AsyncOperationHandle<GameObject>[] _mapHandles =
         new AsyncOperationHandle<GameObject>[3];
     private static readonly bool[] _mapHandlesHeld = new bool[3];
     private static readonly GameObject?[] _mapPrefabs = new GameObject?[3];
-    private static readonly bool[] _mapTriedFallback = new bool[3]; // composite missing → 'Map A'
+    private static readonly int[] _mapPrefIndex = new int[3]; // preference-list walk position
     private static string _mapName = "";  // the map the current run loads/loaded (for logs)
     private static bool _mapLoadWarned;   // one-shot: Addressables cannot deliver ANY map
+    private static bool _catalogCensusDone; // one-shot MAP CATALOG census line (class doc)
 
     private static GameObject? _stagingRoot;  // in the ProcGen scene, far below the play space
     private static GameObject? _mapInstance;  // the map clone (staged, then frame child)
@@ -355,9 +391,15 @@ internal static partial class SkyAlternative
 
     // ROOM LIGHTS (root cause C): every Light under the placed instance with its AUTHORED
     // range — Unity light range does not follow transform scale, so the range is re-derived
-    // as (authored × instance lossyScale) on every scale write (SyncRoomLightRanges).
+    // as (authored × instance lossyScale) on placement/re-seat writes (SyncRoomLightRanges).
     private static readonly List<Light> _roomLights = new();
     private static readonly List<float> _roomLightRanges = new();
+
+    /// <summary>The placed map's whole extent in FRAME units (totalExtent × norm), recorded at
+    /// finalize — <see cref="MinFarWorldUnits"/> multiplies it by the room branch's live scale
+    /// for the far-plane budget (the room is world-fixed, so zoomed-in it can out-distance the
+    /// rig-scaled sky dome). 0 while no room is placed.</summary>
+    private static float _roomFrameExtent;
 
     // One-shot post-placement survival census (class doc COST).
     private static float _builtCensusTime;
@@ -365,7 +407,7 @@ internal static partial class SkyAlternative
 
     /// <summary>
     /// Per-frame generation driver, called from <see cref="Tick"/> while a non-Default style is
-    /// active in a scenario. <paramref name="frame"/> is the ambient frame root the finished
+    /// active in a scenario. <paramref name="frame"/> is the WORLD-FIXED room-branch root the finished
     /// room is placed into.
     /// </summary>
     private static void TickMapGen(SkyStyle style, Transform frame)
@@ -444,18 +486,134 @@ internal static partial class SkyAlternative
             _genPhase = GenPhase.Failed;
             return;
         }
-        _mapName = _mapTriedFallback[i] ? FallbackMapName : ChosenMapName(style);
         if (_mapPrefabs[i] != null)
         {
+            _mapName = _mapPrefabs[i]!.name; // session cache — the prefab carries its map name
             BeginWarmup(style);
             return;
         }
         if (_mapLoadWarned)
         {
-            _genPhase = GenPhase.Failed; // Addressables already said no this session
+            _genPhase = GenPhase.Failed; // no route delivered ANY map this session
             return;
         }
-        StartMapLoad(i, _mapName);
+        LogMapCatalogCensusOnce();
+        TryNextCandidate(i);
+    }
+
+    /// <summary>Walk the style's preference list from the current position (class doc AUTHORED
+    /// MAPS, 129 revision). Per candidate: the game's always-loaded store first (synchronous —
+    /// the route his boot dump PROVES holds every base-game map), then the full-path
+    /// Addressables key (async; TickMapLoad advances the walk when it fails). List
+    /// exhausted → the run degrades to the FX shell.</summary>
+    private static void TryNextCandidate(int styleIndex)
+    {
+        string[] prefs = MapPreference[styleIndex];
+        if (_mapPrefIndex[styleIndex] < prefs.Length)
+        {
+            _mapName = prefs[_mapPrefIndex[styleIndex]];
+
+            GameObject? preloaded = TryGetMapFromAlwaysLoaded(_mapName);
+            if (preloaded != null)
+            {
+                _mapPrefabs[styleIndex] = preloaded; // the game's session-lifetime always-loaded
+                                                     // handle owns it — no mod handle to hold
+                VRLog.Info("Core", $"Sky alternative: authored map '{_mapName}' resolved from the game's " +
+                                   $"always-loaded asset store for {_genStyle} (the boot-proven route; " +
+                                   "no Addressables key needed).");
+                BeginWarmup(_genStyle);
+                return;
+            }
+            StartMapLoad(styleIndex, _mapName);
+            return;
+        }
+        FailGeneration($"no {_genStyle} map could be resolved — the whole preference list " +
+                       $"[{string.Join(", ", prefs)}] failed the always-loaded store AND the " +
+                       "Addressables catalog (see the MAP CATALOG census line for what this " +
+                       "install actually carries)");
+        _mapLoadWarned = true;
+    }
+
+    /// <summary>Search the game's always-loaded Addressables handles for a prefab by name —
+    /// the game's own (dead-code) TryGetAssetFromAlwaysLoadedHandles logic against the
+    /// publicized <c>AssetBundleManager._alwaysloadedHandles</c>. His Player.log:1490 proves
+    /// this store holds all 113 base-game 'Map *' prefabs at boot; the handles are never
+    /// released mid-session (class doc AUTHORED MAPS).</summary>
+    private static GameObject? TryGetMapFromAlwaysLoaded(string mapName)
+    {
+        try
+        {
+            AssetBundleManager? abm = AssetBundleManager.Instance;
+            var handles = abm != null ? abm._alwaysloadedHandles : null;
+            if (handles == null)
+                return null;
+            foreach (var kv in handles)
+            {
+                AsyncOperationHandle<IList<UnityEngine.Object>> h = kv.Value;
+                if (!h.IsValid() || !h.IsDone || h.Status != AsyncOperationStatus.Succeeded
+                    || h.Result == null)
+                    continue;
+                foreach (UnityEngine.Object o in h.Result)
+                {
+                    if (o is GameObject go && string.Equals(go.name, mapName, StringComparison.Ordinal))
+                        return go;
+                }
+            }
+        }
+        catch { /* store mid-teardown — the Addressables route still runs */ }
+        return null;
+    }
+
+    /// <summary>ONE line, first activation (class doc AUTHORED MAPS): what map keys/prefabs
+    /// THIS install actually carries — the Addressables catalog's 'mapsprocgen' path keys and
+    /// the always-loaded store's 'Map *' prefab names — so the next hardware log settles any
+    /// preference-list debate from facts.</summary>
+    private static void LogMapCatalogCensusOnce()
+    {
+        if (_catalogCensusDone)
+            return;
+        _catalogCensusDone = true;
+        try
+        {
+            var pathKeys = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (var locator in Addressables.ResourceLocators)
+            {
+                if (locator?.Keys == null)
+                    continue;
+                foreach (object k in locator.Keys)
+                {
+                    if (k is string s && s.Contains("mapsprocgen"))
+                        pathKeys.Add(s.Replace(MapPrefabFolder, "").Replace(".prefab", ""));
+                }
+            }
+            var storeNames = new SortedSet<string>(StringComparer.Ordinal);
+            AssetBundleManager? abm = AssetBundleManager.Instance;
+            var handles = abm != null ? abm._alwaysloadedHandles : null;
+            if (handles != null)
+            {
+                foreach (var kv in handles)
+                {
+                    AsyncOperationHandle<IList<UnityEngine.Object>> h = kv.Value;
+                    if (!h.IsValid() || !h.IsDone || h.Status != AsyncOperationStatus.Succeeded
+                        || h.Result == null)
+                        continue;
+                    foreach (UnityEngine.Object o in h.Result)
+                    {
+                        if (o is GameObject go && go.name.StartsWith("Map ", StringComparison.Ordinal))
+                            storeNames.Add(go.name.Substring(4));
+                    }
+                }
+            }
+            VRLog.Info("Core", $"Sky alternative MAP CATALOG census: {pathKeys.Count} 'mapsprocgen' " +
+                               $"Addressables path key(s) [{string.Join(", ", pathKeys)}]; " +
+                               $"{storeNames.Count} always-loaded 'Map *' prefab(s) " +
+                               $"[{string.Join(", ", storeNames)}].");
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("Core", $"Sky alternative MAP CATALOG census failed ({e.GetType().Name}: " +
+                               $"{e.Message}) — diagnostics only, the load walk continues.");
+        }
     }
 
     private static void StartMapLoad(int styleIndex, string mapName)
@@ -486,19 +644,16 @@ internal static partial class SkyAlternative
         if (_mapHandles[i].Status != AsyncOperationStatus.Succeeded || _mapHandles[i].Result == null)
         {
             ReleaseMapHandle(i);
-            // AUTHORED-MAP FALLBACK (class doc AUTHORED MAPS): the chosen composite may not
-            // exist in every install's catalog — retry once with the proven 'Map A' before
-            // degrading to the FX shell. A wrong catalog guess costs looks, never the feature.
-            if (!_mapTriedFallback[i])
-            {
-                _mapTriedFallback[i] = true;
-                VRLog.Warn("Core", $"Sky alternative: authored map '{_mapName}' failed to load from the " +
-                                   $"Addressables catalog — falling back to '{FallbackMapName}' for {style}.");
-                _mapName = FallbackMapName;
-                StartMapLoad(i, _mapName);
-                return;
-            }
-            FailGeneration($"'{_mapName}' Addressables load failed (status {_mapHandles[i].Status})");
+            // PREFERENCE-LIST WALK (class doc AUTHORED MAPS, 129 revision): this candidate
+            // failed BOTH routes (store + key) — one warn, next entry. The walk position is
+            // per-session: a name this install cannot deliver is never retried.
+            string failedName = _mapName;
+            _mapPrefIndex[i]++;
+            string[] prefs = MapPreference[i];
+            string next = _mapPrefIndex[i] < prefs.Length ? $"trying '{prefs[_mapPrefIndex[i]]}'" : "list exhausted";
+            VRLog.Warn("Core", $"Sky alternative: authored map '{failedName}' failed to load — not in the " +
+                               $"always-loaded store and no Addressables key delivered it for {style}; {next}.");
+            TryNextCandidate(i);
             return;
         }
         _mapPrefabs[i] = _mapHandles[i].Result; // handle stays held for the session — the prefab
@@ -1656,15 +1811,19 @@ internal static partial class SkyAlternative
         // children; hideFlags don't hide them from this walk. Also covers the fallback lights.
         VRLayers.Apply(inst);
 
-        // 8. PLACE: main-room center → frame origin (the play-field center since Finding 4 —
-        // SkyAlternative.PlaceAtPlayer owns the anchor), floor top → frame-local y = 0 (the
-        // real floor). Frame-local meters read as real meters (class doc math).
+        // 8. PLACE: main-room center → frame origin, floor top → frame-local y = 0. The frame
+        // is the WORLD-FIXED room branch (finding 3, ModBuild 129 — SkyAlternative.
+        // PlaceBothBranches owns its pose/scale): its origin is the BOARD's center at the
+        // board's underside, its scale maps TargetMainRoomMeters frame units to
+        // RoomToBoardRatio × the board's extent — so the diorama sits mid-main-room ON the
+        // room floor, and zoom changes only the perceived size of the whole arrangement.
         Vector3 centerOff = anchorWorld - rootPos;
         inst.transform.SetParent(frame, worldPositionStays: false);
         inst.transform.localRotation = Quaternion.identity;
         inst.transform.localScale = Vector3.one * norm;
         inst.transform.localPosition =
             new Vector3(-centerOff.x, -(floorY - rootPos.y), -centerOff.z) * norm;
+        _roomFrameExtent = totalExtent * norm; // far-plane budget (MinFarWorldUnits)
         SyncRoomLightRanges();
 
         ReturnBorrowedFocus();
@@ -1685,7 +1844,7 @@ internal static partial class SkyAlternative
                            $"{mainExtent:F1} → normalization {norm:F3} (main room target {TargetMainRoomMeters:F0} m, " +
                            $"whole map ≤ {MaxTotalRoomMeters:F0} m, placed map {totalExtent * norm:F1} m across), " +
                            $"floor at map y {floorY - rootPos.y:F2} aligned to the real floor; main-room center " +
-                           "anchored to the ambient frame origin. Engine detail focus returned.");
+                           "anchored to the room-branch origin (the board center once pinned). Engine detail focus returned.");
 
         LogRoomCensus(inst, visBefore, ambienceRigs, activeLights);
     }
@@ -1835,9 +1994,9 @@ internal static partial class SkyAlternative
 
     /// <summary>Re-derive every room light's world range from its AUTHORED range × the
     /// instance's lossy scale (root cause C: Unity light range ignores transform scale).
-    /// Called after placement and from every rig-scale write site in SkyAlternative
-    /// (PlaceAtPlayer / NotifyRigScaled / HealScaleDrift) — a few float writes, prunes dead
-    /// lights as it goes, no-op while no room is placed.</summary>
+    /// Called after placement and from the branch placement site (PlaceBothBranches — the
+    /// room branch is world-fixed between placements, so zoom never needs a range write) — a
+    /// few float writes, prunes dead lights as it goes, no-op while no room is placed.</summary>
     private static void SyncRoomLightRanges()
     {
         GameObject? inst = _mapInstance;
@@ -1888,6 +2047,7 @@ internal static partial class SkyAlternative
             || _genPhase == GenPhase.Building;
         CleanupStaging();
         _mapInstance = null; // if Built, the frame child is destroyed by the frame teardown
+        _roomFrameExtent = 0f;
         _roomLights.Clear();
         _roomLightRanges.Clear();
         _warmupPending.Clear();
