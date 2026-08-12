@@ -50,6 +50,9 @@ Shader "GloomhavenVR/EnvStars"
                 float3 d = normalize(i.wp - _WorldSpaceCameraPos);
                 float h = saturate(d.y);                      // 0 at horizon, 1 at zenith
                 float3 sky = lerp(_HorizonCol.rgb, _TopCol.rgb, pow(h, 0.6));
+                // below the horizon: fade to near-black so the dome never shows a
+                // bright band beyond the water disc's rim
+                sky = lerp(sky, float3(0.004, 0.006, 0.010), saturate(-d.y * 6.0));
 
                 fixed4 s = tex2D(_MainTex, i.uv);
                 float tw = 1.0 - _TwinkleAmp * (0.5 + 0.5 * sin(_Time.y * _TwinkleSpeed + s.g * 40.0));

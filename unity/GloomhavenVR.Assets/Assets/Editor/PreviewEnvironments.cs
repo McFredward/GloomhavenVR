@@ -74,6 +74,24 @@ namespace GloomhavenVR
                 EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                 var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
 
+                // ENV_PREVIEW_DEBUG=1: override every mesh material with a bright
+                // double-sided flat material — separates "geometry missing/culled"
+                // from "material/lighting wrong".
+                if (Environment.GetEnvironmentVariable("ENV_PREVIEW_DEBUG") == "1")
+                {
+                    var dbg = new Material(Shader.Find("GloomhavenVR/EnvLit"));
+                    dbg.SetColor("_Color", Color.white);
+                    dbg.SetColor("_AmbientCol", new Color(0.5f, 0.5f, 0.5f));
+                    dbg.SetColor("_KeyCol", new Color(0.6f, 0.55f, 0.4f));
+                    dbg.SetFloat("_Cull", 0f);
+                    foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
+                    {
+                        var mats = mr.sharedMaterials;
+                        for (int i = 0; i < mats.Length; i++) mats[i] = dbg;
+                        mr.sharedMaterials = mats;
+                    }
+                }
+
                 // Fast-forward the particle systems so the still frame shows them alive.
                 foreach (var ps in inst.GetComponentsInChildren<ParticleSystem>(true))
                     if (ps.transform.parent == null || ps.transform.parent.GetComponent<ParticleSystem>() == null)
@@ -88,8 +106,11 @@ namespace GloomhavenVR
                 cam.farClipPlane = 300f;
                 cam.transform.position = new Vector3(0f, 1.4f, 0f); // seated player head
 
-                var rt = new RenderTexture(W, H, 24);
-                var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+                // Project is LINEAR color space: take the readback as raw linear and
+                // gamma-encode manually, otherwise the PNG comes out ~2.2x too dark
+                // (iteration-2 lesson — mid-tones crushed to black).
+                var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+                var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
                 foreach (var (name, euler) in Views)
                 {
                     cam.transform.rotation = Quaternion.Euler(euler);
@@ -97,6 +118,9 @@ namespace GloomhavenVR
                     cam.Render();
                     RenderTexture.active = rt;
                     tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+                    var px = tex.GetPixels();
+                    for (int i = 0; i < px.Length; i++) { var c = px[i].gamma; c.a = 1f; px[i] = c; }
+                    tex.SetPixels(px);
                     tex.Apply();
                     string png = Path.Combine(outDir, $"{env.ToLowerInvariant()}_{name}.png");
                     File.WriteAllBytes(png, tex.EncodeToPNG());

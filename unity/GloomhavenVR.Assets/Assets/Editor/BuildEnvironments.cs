@@ -91,7 +91,9 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(256), sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Noise.png", MakeNoise(256), sRGB: false, clamp: false);
-            WritePng(TexDir + "/Env_Stars.png", MakeStars(2048, 1024), sRGB: false, clamp: false, clampV: true);
+            // stars: NO mips + uncompressed, or the pinpricks smear into bokeh blobs
+            WritePng(TexDir + "/Env_Stars.png", MakeStars(2048, 1024), sRGB: false, clamp: false, clampV: true,
+                mips: false, compress: false);
             AssetDatabase.Refresh();
         }
 
@@ -200,7 +202,7 @@ namespace GloomhavenVR
         {
             var rnd = new System.Random(4404);
             var px = new Color[w * h]; // starts black (0,0,0,0)
-            const int starCount = 1500;
+            const int starCount = 2200;
             for (int i = 0; i < starCount; i++)
             {
                 // uniform on the sphere -> equirect
@@ -209,11 +211,14 @@ namespace GloomhavenVR
                 float vAng = Mathf.Asin(sy);                          // -pi/2..pi/2
                 float cx = su * w;
                 float cy = (vAng / Mathf.PI + 0.5f) * h;
-                bool bright = i < 40;
-                float sigma = bright ? 1.6f + (float)rnd.NextDouble() * 1.2f
-                                     : 0.7f + (float)rnd.NextDouble() * 0.9f;
-                float amp = bright ? 0.85f + (float)rnd.NextDouble() * 0.15f
-                                   : 0.30f + (float)rnd.NextDouble() * 0.55f;
+                // mostly faint pinpricks, a sparse bright layer (sharp = tiny sigma;
+                // the dome magnifies the texture ~4x on screen, fat gaussians read as
+                // bokeh blobs — iteration-1 lesson)
+                bool bright = i < 90;
+                float sigma = bright ? 0.9f + (float)rnd.NextDouble() * 0.5f
+                                     : 0.45f + (float)rnd.NextDouble() * 0.35f;
+                float amp = bright ? 0.75f + (float)rnd.NextDouble() * 0.25f
+                                   : 0.12f + (float)rnd.NextDouble() * 0.40f;
                 float phase = (float)rnd.NextDouble();
                 int rad = Mathf.CeilToInt(sigma * 3f);
                 for (int oy = -rad; oy <= rad; oy++)
@@ -224,7 +229,7 @@ namespace GloomhavenVR
                     {
                         int xx = ((int)cx + ox + w) % w; // wrap U
                         float d2 = (ox * ox + oy * oy) / (sigma * sigma);
-                        float val = amp * Mathf.Exp(-d2 * 0.7f);
+                        float val = amp * Mathf.Exp(-d2 * 1.6f);
                         int idx = yy * w + xx;
                         if (val > px[idx].r)
                             px[idx] = new Color(val, phase, 0f, 1f);
@@ -267,7 +272,8 @@ namespace GloomhavenVR
             return acc;
         }
 
-        private static void WritePng(string path, Color[] px, bool sRGB, bool clamp, bool clampV = false)
+        private static void WritePng(string path, Color[] px, bool sRGB, bool clamp, bool clampV = false,
+            bool mips = true, bool compress = true)
         {
             int n2 = px.Length;
             int w = (int)Mathf.Sqrt(n2), h = w;
@@ -281,12 +287,13 @@ namespace GloomhavenVR
             var ti = (TextureImporter)AssetImporter.GetAtPath(path);
             ti.sRGBTexture = sRGB;
             ti.alphaIsTransparency = true;
-            ti.mipmapEnabled = true;
+            ti.mipmapEnabled = mips;
             ti.wrapModeU = clamp ? TextureWrapMode.Clamp : TextureWrapMode.Repeat;
             ti.wrapModeV = (clamp || clampV) ? TextureWrapMode.Clamp : TextureWrapMode.Repeat;
-            ti.filterMode = FilterMode.Trilinear;
+            ti.filterMode = mips ? FilterMode.Trilinear : FilterMode.Bilinear;
             ti.maxTextureSize = 2048;
-            ti.textureCompression = TextureImporterCompression.Compressed;
+            ti.textureCompression = compress ? TextureImporterCompression.Compressed
+                                             : TextureImporterCompression.Uncompressed;
             ti.SaveAndReimport();
         }
 
@@ -412,18 +419,22 @@ namespace GloomhavenVR
         // Two light rigs, baked per material (EnvLit is scene-light independent).
         private struct Rig { public Color ambient, key, fill; public Vector3 keyDir, fillDir; }
 
+        // NOTE the project renders in LINEAR color space: color properties are
+        // sRGB-decoded on upload, so "moody" sRGB values around 0.1 collapse to ~0.01
+        // linear and everything reads black. BoardLit (tuned against the real game)
+        // sums to ~1.0-1.3 total light — these rigs target the same range.
         private static readonly Rig CellarRig = new Rig
         {
-            ambient = new Color(0.17f, 0.13f, 0.10f),
-            key = new Color(0.95f, 0.72f, 0.45f), keyDir = new Vector3(0.25f, 1f, 0.15f),
-            fill = new Color(0.10f, 0.11f, 0.17f), fillDir = new Vector3(-0.5f, 0.25f, -0.4f),
+            ambient = new Color(0.44f, 0.35f, 0.27f),
+            key = new Color(1.05f, 0.82f, 0.52f), keyDir = new Vector3(0.25f, 1f, 0.15f),
+            fill = new Color(0.22f, 0.24f, 0.34f), fillDir = new Vector3(-0.5f, 0.25f, -0.4f),
         };
 
         private static readonly Rig SwampRig = new Rig
         {
-            ambient = new Color(0.055f, 0.075f, 0.115f),
-            key = new Color(0.38f, 0.48f, 0.68f), keyDir = MoonDir,
-            fill = new Color(0.03f, 0.05f, 0.08f), fillDir = new Vector3(-0.5f, 0.2f, -0.6f),
+            ambient = new Color(0.16f, 0.21f, 0.30f),
+            key = new Color(0.55f, 0.68f, 0.95f), keyDir = MoonDir,
+            fill = new Color(0.08f, 0.11f, 0.16f), fillDir = new Vector3(-0.5f, 0.2f, -0.6f),
         };
 
         private struct MatDef { public Color albedo; public Color emission; public MatDef(Color a, Color e = default) { albedo = a; emission = e; } }
@@ -533,24 +544,34 @@ namespace GloomhavenVR
             streak.SetTexture("_MainTex", T("Env_Spark.png"));
             streak.SetColor("_Tint", Color.white);
 
-            var moon = LoadOrNewMat(MatDir + "/FX_Moon.mat", "GloomhavenVR/EnvParticleAdd");
+            // alpha-blended (not additive): the halo fades cleanly into the sky with
+            // no hard quad edge against the dome gradient
+            var moon = LoadOrNewMat(MatDir + "/FX_Moon.mat", "GloomhavenVR/EnvParticleAlpha");
             moon.SetTexture("_MainTex", T("Env_Moon.png"));
             moon.SetColor("_Tint", new Color(1f, 0.98f, 0.92f, 1f));
 
             var glowWarm = LoadOrNewMat(MatDir + "/FX_GlowWarm.mat", "GloomhavenVR/EnvGlow");
-            glowWarm.SetColor("_Tint", new Color(1f, 0.55f, 0.20f, 0.35f));
-            glowWarm.SetFloat("_Falloff", 2.6f);
+            glowWarm.SetColor("_Tint", new Color(1f, 0.55f, 0.20f, 0.65f));
+            glowWarm.SetFloat("_Falloff", 2.2f);
 
             var glowWindow = LoadOrNewMat(MatDir + "/FX_GlowWindow.mat", "GloomhavenVR/EnvGlow");
-            glowWindow.SetColor("_Tint", new Color(0.40f, 0.60f, 1.0f, 0.28f));
-            glowWindow.SetFloat("_Falloff", 2.0f);
+            glowWindow.SetColor("_Tint", new Color(0.40f, 0.60f, 1.0f, 0.5f));
+            glowWindow.SetFloat("_Falloff", 1.8f);
 
             var stars = LoadOrNewMat(MatDir + "/Swamp_StarDome.mat", "GloomhavenVR/EnvStars");
             stars.SetTexture("_MainTex", T("Env_Stars.png"));
+            stars.SetColor("_TopCol", new Color(0.006f, 0.010f, 0.022f));
+            stars.SetColor("_HorizonCol", new Color(0.030f, 0.048f, 0.080f));
+            stars.SetFloat("_StarBoost", 1.8f);
 
             var water = LoadOrNewMat(MatDir + "/Swamp_Water.mat", "GloomhavenVR/EnvWater");
             water.SetTexture("_NoiseTex", T("Env_Noise.png"));
             water.SetVector("_GlintDir", MoonDir);
+            water.SetColor("_Color", new Color(0.030f, 0.050f, 0.060f));
+            water.SetColor("_HorizonCol", new Color(0.055f, 0.095f, 0.135f));
+            water.SetColor("_GlintCol", new Color(0.75f, 0.82f, 0.95f));
+            water.SetFloat("_GlintPower", 60f);
+            water.SetFloat("_RippleAmp", 0.5f);
 
             AssetDatabase.SaveAssets();
         }
@@ -609,10 +630,35 @@ namespace GloomhavenVR
                 }
                 imp.SaveAndReimport();
             }
+            VerifyRemaps();
+        }
+
+        /// <summary>
+        /// Iteration-1 lesson: some remaps can silently miss (the object then keeps a
+        /// builtin-Standard material — bright in the editor's ambient-lit preview, but
+        /// the PINK/BLACK trap inside the game). Fail LOUDLY here instead.
+        /// </summary>
+        private static void VerifyRemaps()
+        {
+            int bad = 0;
+            foreach (var path in AllModelPaths())
+            {
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (go == null) continue;
+                foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                    foreach (var m in r.sharedMaterials)
+                    {
+                        if (m != null && m.shader != null && m.shader.name.StartsWith("GloomhavenVR/")) continue;
+                        Debug.LogError($"[GloomhavenVR][Env] REMAP MISS {Path.GetFileName(path)} / renderer '{r.name}': material '{(m ? m.name : "null")}' shader '{(m && m.shader ? m.shader.name : "-")}'");
+                        bad++;
+                    }
+            }
+            if (bad > 0) throw new Exception($"{bad} material remap(s) missed — see REMAP MISS errors above.");
+            Debug.Log("[GloomhavenVR][Env] Remap verification: all model materials on GloomhavenVR/* shaders.");
         }
 
         // ============================================================ scene helpers
-        private enum Snap { None, Bottom }
+        private enum Snap { None, Bottom, Top }
 
         private static GameObject ModelGO(string pack, string name)
         {
@@ -630,19 +676,25 @@ namespace GloomhavenVR
             return b;
         }
 
+        // Places a model with its BOUNDS center on pos.xz (Quaternius pivots roam far
+        // from the mesh — e.g. Chest sits 1.4 m off its pivot) and its bounds bottom/
+        // top on pos.y per snap mode. center=false keeps the authored pivot (used for
+        // wall-mounted pieces whose pivot IS the mount point).
         private static GameObject Place(Transform parent, string pack, string name,
-            Vector3 pos, float rotY = 0f, float scale = 1f, Snap snap = Snap.Bottom)
+            Vector3 pos, float rotY = 0f, float scale = 1f, Snap snap = Snap.Bottom,
+            bool center = true, Vector3? scale3 = null)
         {
             var inst = (GameObject)PrefabUtility.InstantiatePrefab(ModelGO(pack, name));
             inst.transform.SetParent(parent, false);
             inst.transform.localRotation = Quaternion.Euler(0, rotY, 0);
-            inst.transform.localScale = Vector3.one * scale;
+            inst.transform.localScale = scale3 ?? Vector3.one * scale;
             inst.transform.localPosition = pos;
-            if (snap == Snap.Bottom)
-            {
-                var b = RendererBounds(inst); // parent sits at origin => world == local
-                inst.transform.localPosition += new Vector3(0, pos.y - b.min.y, 0);
-            }
+            var b = RendererBounds(inst); // parent sits at origin => world == local
+            var shift = Vector3.zero;
+            if (center) { shift.x = pos.x - b.center.x; shift.z = pos.z - b.center.z; }
+            if (snap == Snap.Bottom) shift.y = pos.y - b.min.y;
+            else if (snap == Snap.Top) shift.y = pos.y - b.max.y;
+            inst.transform.localPosition += shift;
             return inst;
         }
 
@@ -743,21 +795,22 @@ namespace GloomhavenVR
                 float wh = wallB.size.y;
                 Debug.Log($"[GloomhavenVR][Env] Cellar grid: floor {fw:F2}x{fd:F2}, wall w={ww:F2} h={wh:F2}");
 
-                // ---- floor ----
+                // ---- floor (TOP snapped to FloorY so the walk surface sits at -0.02) ----
                 int nx = Mathf.CeilToInt(2 * half / fw), nz = Mathf.CeilToInt(2 * half / fd);
                 for (int ix = 0; ix < nx; ix++)
                     for (int iz = 0; iz < nz; iz++)
                     {
                         float px = -((nx - 1) * fw) / 2f + ix * fw;
                         float pz = -((nz - 1) * fd) / 2f + iz * fd;
-                        Place(t, "D", "ModularFloor", new Vector3(px, FloorY, pz));
+                        Place(t, "D", "ModularFloor", new Vector3(px, FloorY, pz), snap: Snap.Top);
                     }
 
-                // ---- walls (entrance replaces the middle segment of the +Z side) ----
+                // ---- walls (wall modules span local Z: N/S sides need rotY 90) ----
                 int segs = Mathf.Max(1, Mathf.RoundToInt(2 * half / ww));
                 int rows = wh < 2.6f ? 2 : 1;
                 int entranceSeg = segs / 2;
-                foreach (var (side, rotY) in new[] { ("N", 180f), ("S", 0f), ("E", 270f), ("W", 90f) })
+                float entranceX = -((segs - 1) * ww) / 2f + entranceSeg * ww;
+                foreach (var (side, rotY) in new[] { ("N", 90f), ("S", 270f), ("E", 0f), ("W", 180f) })
                 {
                     for (int i = 0; i < segs; i++)
                     {
@@ -775,6 +828,8 @@ namespace GloomhavenVR
                             float y = FloorY + row * wh;
                             if (isEntrance && row == 0)
                                 Place(t, "D", "Entrance", new Vector3(pos.x, y, pos.z), rotY);
+                            else if (isEntrance && row == 1)
+                                Place(t, "D", "ModularStoneWall_EntranceTop", new Vector3(pos.x, y, pos.z), rotY);
                             else
                                 Place(t, "D", "ModularStoneWall", new Vector3(pos.x, y, pos.z), rotY);
                         }
@@ -783,21 +838,22 @@ namespace GloomhavenVR
                 }
                 float wallTopY = FloorY + rows * wh;
 
-                // ---- corner columns ----
-                foreach (var c in new[] { new Vector2(3.45f, 3.45f), new Vector2(-3.45f, 3.45f), new Vector2(3.45f, -3.45f), new Vector2(-3.45f, -3.45f) })
-                    Place(t, "D", "Column", new Vector3(c.x, FloorY, c.y));
+                // ---- corner columns (scaled 0.8: 1.6 m wide, ~3.9 m tall) ----
+                foreach (var c in new[] { new Vector2(3.5f, 3.5f), new Vector2(-3.5f, 3.5f), new Vector2(3.5f, -3.5f), new Vector2(-3.5f, -3.5f) })
+                    Place(t, "D", "Column", new Vector3(c.x, FloorY, c.y), 0f, 0.8f);
 
                 // ---- stairs beyond the entrance, shrouded in darkness ----
-                Place(t, "D", "Stairs", new Vector3(0, FloorY, 5.4f), 180f);
+                Place(t, "D", "Stairs", new Vector3(entranceX, FloorY, 4.9f), 0f);
+                Place(t, "D", "Stairs", new Vector3(entranceX, FloorY + 0.90f, 6.4f), 0f);
                 Solid(t, "StairFloor", "Env_Box.asset", Mat("Cellar_Rock.mat"),
-                    new Vector3(0, FloorY - 0.10f, 5.5f), Vector3.zero, new Vector3(3.4f, 0.2f, 3.4f));
+                    new Vector3(entranceX, FloorY - 0.10f, 5.6f), Vector3.zero, new Vector3(3.4f, 0.2f, 3.6f));
                 // shroud: three dark slabs + roof enclosing the stairwell so the view
                 // up the stairs fades into black instead of showing void.
                 var shroudMat = Mat("Cellar_Ceiling.mat");
-                Solid(t, "ShroudBack", "Env_Box.asset", shroudMat, new Vector3(0, 2.0f, 7.3f), Vector3.zero, new Vector3(4.2f, 5.4f, 0.2f));
-                Solid(t, "ShroudL", "Env_Box.asset", shroudMat, new Vector3(-2.0f, 2.0f, 5.9f), Vector3.zero, new Vector3(0.2f, 5.4f, 3.0f));
-                Solid(t, "ShroudR", "Env_Box.asset", shroudMat, new Vector3(2.0f, 2.0f, 5.9f), Vector3.zero, new Vector3(0.2f, 5.4f, 3.0f));
-                Solid(t, "ShroudTop", "Env_Box.asset", shroudMat, new Vector3(0, 4.6f, 5.9f), Vector3.zero, new Vector3(4.2f, 0.2f, 3.2f));
+                Solid(t, "ShroudBack", "Env_Box.asset", shroudMat, new Vector3(entranceX, 2.0f, 7.4f), Vector3.zero, new Vector3(4.2f, 5.4f, 0.2f));
+                Solid(t, "ShroudL", "Env_Box.asset", shroudMat, new Vector3(entranceX - 2.0f, 2.0f, 5.9f), Vector3.zero, new Vector3(0.2f, 5.4f, 3.2f));
+                Solid(t, "ShroudR", "Env_Box.asset", shroudMat, new Vector3(entranceX + 2.0f, 2.0f, 5.9f), Vector3.zero, new Vector3(0.2f, 5.4f, 3.2f));
+                Solid(t, "ShroudTop", "Env_Box.asset", shroudMat, new Vector3(entranceX, 4.6f, 5.9f), Vector3.zero, new Vector3(4.2f, 0.2f, 3.4f));
 
                 // ---- ceiling: open beams + darkness above ----
                 float beamY = Mathf.Clamp(wallTopY - 0.15f, 3.0f, 3.9f);
@@ -808,56 +864,57 @@ namespace GloomhavenVR
                     new Vector3(0, beamY + 0.65f, 0), Vector3.zero, new Vector3(8.6f, 0.06f, 8.6f));
 
                 // ---- carpet under the (real) table ----
-                Place(t, "D", "Carpet", new Vector3(0, FloorY + 0.012f, 0), 90f, 1.4f, Snap.None);
+                Place(t, "D", "Carpet", new Vector3(0, FloorY + 0.012f, 0), 90f, 1f, Snap.None,
+                    scale3: new Vector3(1.5f, 1f, 0.62f)); // 5.35x2.11 native -> ~3.3x3.2
 
                 // ---- prop dressing (explicit layout; y = ground unless noted) ----
                 float g = FloorY;
                 // SW: barrel corner with book & potions
-                var barrel1 = Place(t, "D", "Barrel", new Vector3(-3.05f, g, -2.75f), 10f);
-                var barrel2 = Place(t, "D", "Barrel", new Vector3(-2.35f, g, -3.05f), 55f);
-                Place(t, "D", "Barrel", new Vector3(-2.90f, g, -2.05f), 90f);
+                var barrel1 = Place(t, "D", "Barrel", new Vector3(-3.05f, g, -2.75f), 10f, 0.85f);
+                var barrel2 = Place(t, "D", "Barrel", new Vector3(-2.30f, g, -3.05f), 55f, 0.85f);
+                Place(t, "D", "Barrel", new Vector3(-2.90f, g, -2.00f), 90f, 0.85f);
                 float b1Top = RendererBounds(barrel1).max.y;
                 float b2Top = RendererBounds(barrel2).max.y;
-                Place(t, "D", "Book_Open", new Vector3(-3.05f, b1Top, -2.75f), 25f);
-                Place(t, "D", "Potion2", new Vector3(-2.45f, b2Top, -3.10f), 0f, 1f);
-                Place(t, "D", "Potion4", new Vector3(-2.28f, b2Top, -2.98f), 40f, 1f);
-                Place(t, "D", "Potion6", new Vector3(-2.36f, b2Top, -3.22f), 75f, 1f);
+                Place(t, "D", "Book_Open", new Vector3(-3.05f, b1Top, -2.75f), 25f, 0.45f);
+                Place(t, "D", "Potion2", new Vector3(-2.42f, b2Top, -3.10f), 0f, 0.4f);
+                Place(t, "D", "Potion4", new Vector3(-2.24f, b2Top, -2.98f), 40f, 0.4f);
+                Place(t, "D", "Potion6", new Vector3(-2.32f, b2Top, -3.22f), 75f, 0.4f);
 
                 // E: chests with book stack and a candle
-                var chest = Place(t, "D", "Chest", new Vector3(3.05f, g, -2.55f), -75f);
-                Place(t, "D", "Chest_gold", new Vector3(3.20f, g, -1.55f), -95f);
+                var chest = Place(t, "D", "Chest", new Vector3(3.20f, g, -2.55f), -75f);
+                Place(t, "D", "Chest_gold", new Vector3(3.30f, g, -1.45f), -95f);
                 float chestTop = RendererBounds(chest).max.y;
-                Place(t, "D", "Book2", new Vector3(3.05f, chestTop, -2.60f), 30f);
-                Place(t, "D", "Book3", new Vector3(3.03f, chestTop + 0.06f, -2.58f), 65f);
-                var candle1 = Place(t, "D", "Candle", new Vector3(3.15f, g, -3.35f), 0f);
+                Place(t, "D", "Book2", new Vector3(3.20f, chestTop, -2.60f), 30f, 0.45f);
+                Place(t, "D", "Book3", new Vector3(3.18f, chestTop + 0.12f, -2.58f), 65f, 0.45f);
+                var candle1 = Place(t, "D", "Candle", new Vector3(3.30f, g, -3.35f), 0f, 0.6f);
 
                 // NE/NW: bones, rubble
-                Place(t, "D", "Bones", new Vector3(2.75f, g, 3.05f), 70f);
-                Place(t, "D", "Bones2", new Vector3(-3.00f, g, 2.75f), -30f);
-                Place(t, "D", "Rock1", new Vector3(-3.35f, g, 3.15f), 15f);
-                Place(t, "D", "Rock3", new Vector3(3.40f, g, 2.60f), 120f);
-                Place(t, "D", "WallRocks", new Vector3(-1.35f, g, -3.85f), 0f);
+                Place(t, "D", "Bones", new Vector3(2.80f, g, 3.10f), 70f, 0.8f);
+                Place(t, "D", "Bones2", new Vector3(-3.00f, g, 2.80f), -30f, 0.8f);
+                Place(t, "D", "Rock1", new Vector3(-3.35f, g, 3.20f), 15f);
+                Place(t, "D", "Rock3", new Vector3(3.45f, g, 2.55f), 120f);
+                Place(t, "D", "WallRocks", new Vector3(-1.35f, g, -3.60f), 90f);
 
                 // candelabra flanking the play space (outside the 1.5 m free radius)
                 var cand1 = Place(t, "D", "Candelabrum_tall", new Vector3(-1.95f, g, -1.30f), 20f);
                 var cand2 = Place(t, "D", "Candelabrum_tall", new Vector3(1.95f, g, 1.05f), -140f);
                 var cand3 = Place(t, "D", "Candelabrum", new Vector3(-1.75f, g, 1.80f), 0f);
 
-                // window (south wall) with cold moonlight glow
-                Place(t, "D", "Window", new Vector3(1.4f, 2.1f, -3.97f), 0f, 1f, Snap.None);
-                Glow(t, new Vector3(1.4f, 2.1f, -4.1f), 0.5f, "FX_GlowWindow.mat");
+                // window (south wall, spans X after rotY 90) with cold moonlight glow
+                Place(t, "D", "Window", new Vector3(1.4f, 2.1f, -3.85f), 90f, 1f, Snap.None);
+                Glow(t, new Vector3(1.4f, 2.15f, -3.95f), 0.5f, "FX_GlowWindow.mat");
 
-                // wall torches, E and W walls
+                // wall torches, E and W walls (pivot = mount point, extends local +X)
                 var torchDefs = new[]
                 {
-                    (pos: new Vector3(-3.92f, 1.75f, 1.7f), rot: 90f),
-                    (pos: new Vector3(-3.92f, 1.75f, -1.7f), rot: 90f),
-                    (pos: new Vector3(3.92f, 1.75f, 1.7f), rot: 270f),
-                    (pos: new Vector3(3.92f, 1.75f, -1.7f), rot: 270f),
+                    (pos: new Vector3(-3.68f, 1.35f, 1.7f), rot: 0f),
+                    (pos: new Vector3(-3.68f, 1.35f, -1.7f), rot: 0f),
+                    (pos: new Vector3(3.68f, 1.35f, 1.7f), rot: 180f),
+                    (pos: new Vector3(3.68f, 1.35f, -1.7f), rot: 180f),
                 };
                 foreach (var td in torchDefs)
                 {
-                    var torch = Place(t, "D", "Torch_wall", td.pos, td.rot, 1f, Snap.None);
+                    var torch = Place(t, "D", "Torch_wall", td.pos, td.rot, 1f, Snap.None, center: false);
                     var tb = RendererBounds(torch);
                     var flamePos = new Vector3(tb.center.x, tb.max.y - 0.02f, tb.center.z);
                     FlamePS(t, flamePos, big: true);
@@ -918,7 +975,7 @@ namespace GloomhavenVR
             m.duration = 5f;
             m.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.6f);
             m.startSpeed = new ParticleSystem.MinMaxCurve(0.18f, 0.35f);
-            m.startSize = big ? new ParticleSystem.MinMaxCurve(0.10f, 0.17f) : new ParticleSystem.MinMaxCurve(0.045f, 0.075f);
+            m.startSize = big ? new ParticleSystem.MinMaxCurve(0.18f, 0.30f) : new ParticleSystem.MinMaxCurve(0.06f, 0.10f);
             m.startColor = Color.white;
             m.maxParticles = big ? 14 : 8;
             var e = ps.emission; e.rateOverTime = big ? 16f : 9f;
@@ -950,10 +1007,12 @@ namespace GloomhavenVR
                     Vector3.zero, Vector3.zero, Vector3.one * 45f);
                 var moonPos = MoonDir * 38f;
                 var moon = Solid(t, "Moon", "Env_Quad.asset", Mat("FX_Moon.mat"),
-                    moonPos, Vector3.zero, Vector3.one * 6.5f);
+                    moonPos, Vector3.zero, Vector3.one * 5.5f);
                 moon.transform.rotation = Quaternion.LookRotation(-moonPos.normalized); // quad faces -Z => face origin
+                // water reaches past the dome's horizon rim (45 m) so no sky band can
+                // show between water edge and dome
                 Solid(t, "Water", "Env_Disc.asset", Mat("Swamp_Water.mat"),
-                    new Vector3(0, WaterY, 0), Vector3.zero, new Vector3(28f, 1f, 28f));
+                    new Vector3(0, WaterY, 0), Vector3.zero, new Vector3(46f, 1f, 46f));
 
                 // ---- player islet: gentle mud mound peeking out of the water ----
                 Solid(t, "Islet", "Env_GlowSphere.asset", Mat("Swamp_Mud.mat"),
@@ -970,30 +1029,32 @@ namespace GloomhavenVR
                 }
 
                 // ---- willow ring + dead trees (silhouettes against the sky) ----
+                // native heights are only 2.3-3.3 m -> scale to real tree sizes (6-9 m)
                 var trees = new (string model, float x, float z, float rot, float s)[]
                 {
-                    ("Willow_1", 6.5f, 3.5f, 15f, 1.20f),
-                    ("Willow_2", -5.5f, 5.8f, 160f, 1.00f),
-                    ("Willow_3", -7.5f, -3.0f, 75f, 1.30f),
-                    ("Willow_1", 4.5f, -6.5f, 230f, 0.95f),
-                    ("Willow_2", 8.5f, -1.0f, 310f, 1.10f),
-                    ("CommonTree_Dead_1", 2.8f, 6.8f, 40f, 1.10f),
-                    ("CommonTree_Dead_2", -3.5f, -6.0f, 200f, 1.00f),
-                    ("BirchTree_Dead_1", -6.8f, 1.5f, 120f, 1.05f),
-                    ("Willow_Dead_1", 7.0f, -5.0f, 20f, 1.15f),
+                    ("Willow_1", 6.5f, 3.5f, 15f, 2.7f),
+                    ("Willow_2", -5.5f, 5.8f, 160f, 2.3f),
+                    ("Willow_3", -7.5f, -3.0f, 75f, 3.1f),
+                    ("Willow_1", 4.5f, -6.5f, 230f, 2.4f),
+                    ("Willow_2", 8.5f, -1.0f, 310f, 2.5f),
+                    ("CommonTree_Dead_1", 2.8f, 6.8f, 40f, 2.5f),
+                    ("CommonTree_Dead_2", -3.5f, -6.0f, 200f, 2.3f),
+                    ("BirchTree_Dead_1", -6.8f, 1.5f, 120f, 2.5f),
+                    ("Willow_Dead_1", 7.0f, -5.0f, 20f, 2.6f),
                 };
                 // bottom-snapped 0.30 m BELOW the water line (roots submerged)
                 foreach (var tr in trees)
                     Place(t, "N", tr.model, new Vector3(tr.x, WaterY - 0.30f, tr.z), tr.rot, tr.s);
 
                 // ---- reed islands: moss rocks + grass + plants ----
+                // native rocks are pebbles (0.5-0.9 m) -> scale into real boulders
                 var rocks = new (string model, float x, float z, float rot, float s, float sink)[]
                 {
-                    ("Rock_Moss_1", 3.2f, 1.6f, 30f, 1.0f, 0.22f),
-                    ("Rock_Moss_2", -2.9f, 3.3f, 100f, 1.1f, 0.25f),
-                    ("Rock_Moss_3", 4.6f, -2.6f, 210f, 1.3f, 0.30f),
-                    ("Rock_Moss_1", -4.3f, -2.1f, 280f, 1.6f, 0.35f),
-                    ("Rock_Moss_2", 1.8f, 4.8f, 55f, 0.9f, 0.20f),
+                    ("Rock_Moss_1", 3.2f, 1.6f, 30f, 2.2f, 0.30f),
+                    ("Rock_Moss_2", -2.9f, 3.3f, 100f, 2.4f, 0.32f),
+                    ("Rock_Moss_3", 4.6f, -2.6f, 210f, 2.8f, 0.38f),
+                    ("Rock_Moss_1", -4.3f, -2.1f, 280f, 3.2f, 0.45f),
+                    ("Rock_Moss_2", 1.8f, 4.8f, 55f, 1.9f, 0.26f),
                 };
                 foreach (var rk in rocks)
                     Place(t, "N", rk.model, new Vector3(rk.x, WaterY - rk.sink, rk.z), rk.rot, rk.s);
@@ -1018,15 +1079,15 @@ namespace GloomhavenVR
 
                 // ---- mossy logs & stump with glowing mushrooms (near the player) ----
                 Place(t, "N", "WoodLog_Moss", new Vector3(2.3f, WaterY - 0.03f, -2.6f), 25f, 1.2f);
-                Place(t, "N", "TreeStump_Moss", new Vector3(-2.5f, WaterY - 0.02f, -2.3f), 0f, 1.1f);
+                Place(t, "N", "TreeStump_Moss", new Vector3(-2.5f, WaterY - 0.02f, -2.3f), 0f, 1.6f);
                 Place(t, "N", "WoodLog_Moss", new Vector3(-4.8f, WaterY - 0.05f, 3.9f), 120f, 1.4f);
 
                 // ---- lilypads ----
                 var lilies = new (float x, float z, float rot, float s)[]
                 {
-                    (2.4f, 3.6f, 10f, 1.0f), (3.6f, 4.2f, 90f, 1.3f), (5.2f, 0.6f, 200f, 0.9f),
-                    (-2.2f, 4.6f, 45f, 1.1f), (-3.8f, 0.9f, 300f, 1.2f), (-5.6f, -3.8f, 150f, 1.0f),
-                    (0.8f, -4.4f, 250f, 1.2f), (-1.6f, -3.9f, 70f, 0.9f), (4.0f, -4.6f, 330f, 1.1f),
+                    (2.4f, 3.6f, 10f, 0.55f), (3.6f, 4.2f, 90f, 0.7f), (5.2f, 0.6f, 200f, 0.5f),
+                    (-2.2f, 4.6f, 45f, 0.6f), (-3.8f, 0.9f, 300f, 0.65f), (-5.6f, -3.8f, 150f, 0.55f),
+                    (0.8f, -4.4f, 250f, 0.65f), (-1.6f, -3.9f, 70f, 0.5f), (4.0f, -4.6f, 330f, 0.6f),
                 };
                 foreach (var l in lilies)
                     Place(t, "N", "Lilypad", new Vector3(l.x, WaterY + 0.005f, l.z), l.rot, l.s, Snap.None);
@@ -1038,11 +1099,11 @@ namespace GloomhavenVR
                 fm.duration = 40f;
                 fm.startLifetime = new ParticleSystem.MinMaxCurve(14f, 22f);
                 fm.startSpeed = 0f;
-                fm.startSize = new ParticleSystem.MinMaxCurve(4.5f, 8.5f);
+                fm.startSize = new ParticleSystem.MinMaxCurve(6f, 11f);
                 fm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-                fm.startColor = new Color(0.62f, 0.72f, 0.85f, 0.13f);
-                fm.maxParticles = 44;
-                var fe = fog.emission; fe.rateOverTime = 2.2f;
+                fm.startColor = new Color(0.50f, 0.60f, 0.78f, 0.055f); // dim: mist, not snowdrifts
+                fm.maxParticles = 34;
+                var fe = fog.emission; fe.rateOverTime = 1.7f;
                 var fsh = fog.shape; fsh.enabled = true; fsh.shapeType = ParticleSystemShapeType.Donut;
                 fsh.radius = 8.5f; fsh.donutRadius = 3.5f; fsh.radiusThickness = 1f;
                 var fv = fog.velocityOverLifetime; fv.enabled = true;

@@ -15,7 +15,11 @@ namespace GloomhavenVR.Hands.Interact;
 /// <see cref="IsTriggerOnly"/> — user 2026-08-11: "Die Karten sollen nur mit dem
 /// trigger nehmbar sein"), panels/tray bars are grip-only
 /// (<see cref="IGrabbable.GrabWithGrip"/>), and a future grabbable in neither class
-/// grabs with the trigger too. The Trigger path defers to any ray/UI click
+/// grabs with the trigger too. The two buttons operate their two object classes
+/// INDEPENDENTLY: a grip press with a trigger-only highlight falls through to the
+/// nearest grip-grabbable in reach (<see cref="TryGripFallThrough"/> — a highlighted
+/// card must not eat the grip meant for the tray bar, hardware test 2026-08-11).
+/// The Trigger path defers to any ray/UI click
 /// via <see cref="RayInteractor.HasFreshUiHit"/> (see Tick), and shares the
 /// trigger-up release edge with the laser pluck (<see cref="ForceGrab"/>). While a
 /// trigger-taken card is held, the grip is ignored for it entirely — the hold loop
@@ -142,10 +146,12 @@ internal sealed class ProximityGrabber
         // TRIGGER-ONLY targets: board figures (ITriggerOnlyGrabbable, hardware MP test
         // 2026-08 requirement (b)) and — since the 2026-08-11 hardware report — CARDS
         // (see IsTriggerOnly). Their one and only entry is the trigger edge below, with
-        // its UI/laser arbitration; a grip squeeze near them never starts a hold.
-        // A grip-intent edge is NAMED (throttled) so
-        // the next hardware log explains "I squeezed and nothing happened" instead of
-        // reading as a dead controller.
+        // its UI/laser arbitration; a grip squeeze near them never grabs THEM. The grip
+        // edge instead FALLS THROUGH to the nearest grip-grabbable in reach (tray bar/
+        // panel — see TryGripFallThrough, hardware test 2026-08-11 item 2), and only
+        // when none exists is the refusal NAMED (throttled) so the next hardware log
+        // explains "I squeezed and nothing happened" instead of reading as a dead
+        // controller.
         //
         // ARBITRATION (blueprint critical guard): the trigger is ALSO the uGUI/
         // laser/board "click". Only claim it for a proximity grab when the ray is
@@ -167,9 +173,7 @@ internal sealed class ProximityGrabber
             }
             else if (_hand.GripDown)
             {
-                LogRefusal($"'{DescribeGrabbable(Highlighted)}' is trigger-only (cards and " +
-                           "figures grab with the TRIGGER; user 2026-08-11: \"Die Karten " +
-                           "sollen nur mit dem trigger nehmbar sein\") — grip ignored");
+                TryGripFallThrough();
             }
             return;
         }
@@ -181,7 +185,91 @@ internal sealed class ProximityGrabber
         // switched nothing. Trigger is the Demeo default a future grabbable in neither
         // class inherits.
         if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
+        {
             BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
+            return;
+        }
+        // Grip independence holds for this class too: a default-trigger highlight must not
+        // eat a grip meant for a grip-grabbable behind it (same rule as the trigger-only
+        // branch; currently no registered grabbable lives in this class, see above).
+        if (_hand.GripDown)
+            TryGripFallThrough();
+    }
+
+    /// <summary>
+    /// GRIP FALL-THROUGH (hardware test 2026-08-11, verbatim: "Beim greifbalken am
+    /// Controllboard kommt es öfters vor, dass ich ihn (mit der Greiftaste) nicht greife, da
+    /// meine Hand so nah an einer Karte ist die auf dem Controllboard abliegt, dass sie
+    /// gehighlighted wird. Ein highlighting der Karte sollte nicht den Greifbalken
+    /// deaktivieren - damit es da nicht zu verschwechslung kommt sind es zwei verschiedene
+    /// Tasten mit denen man es bedient (greiftaste für den Balken und trigger für die
+    /// Karte).").
+    ///
+    /// Since the trigger-only round, a GRIP press with a trigger-only Highlighted (a card
+    /// lying on the tray) hit that branch's refusal-and-return — the grip never reached
+    /// grip-grabbables, and the nearest-candidate election had already given the highlight
+    /// to the card, so the tray handle bar right under it was unreachable. The two buttons
+    /// operate two DIFFERENT object classes independently now: on GRIP-down with a non-grip
+    /// highlight, the candidate search is re-run restricted to <see cref="IGrabbable.GrabWithGrip"/>
+    /// targets within reach and the nearest one is grabbed.
+    ///
+    /// The card highlight is left UNTOUCHED (<c>clearHighlight: false</c>): the bar was not
+    /// the elected highlight, so no bar hover affordance existed to hand over — exactly what
+    /// the bar shows today — and the card rides the tray the bar drags, so the hand STAYS
+    /// near it; clearing would flash the card highlight off and back on around every bar
+    /// drag (the "grab flashes" class of defect). While the bar is held the hold loop reads
+    /// only the grip, so the frozen highlight cannot promise a trigger grab it would then
+    /// refuse — the trigger stays the card's button the moment the bar is released.
+    ///
+    /// The named refusal remains ONLY for the case where the grip finds no grip-grabbable
+    /// in reach.
+    /// </summary>
+    private void TryGripFallThrough()
+    {
+        IGrabbable? target = FindNearestGripGrabbable();
+        if (target != null)
+        {
+            BeginGrab(target, releaseOnTriggerUp: false, "grip", "proximity fall-through",
+                clearHighlight: false);
+            return;
+        }
+        LogRefusal($"'{DescribeGrabbable(Highlighted!)}' is trigger-only (cards and figures " +
+                   "grab with the TRIGGER; grip operates tray bars/panels — user 2026-08-11) " +
+                   "and no grip-grabbable is in reach — grip ignored");
+    }
+
+    /// <summary>
+    /// Nearest registered grabbable that takes the GRIP (<see cref="IGrabbable.GrabWithGrip"/> —
+    /// tray handle bars, world panels) within palm reach, passing the same CanGrab/per-hand
+    /// gates as <see cref="UpdateHighlight"/>. Runs only on a GripDown edge — never
+    /// per-frame work.
+    /// </summary>
+    private IGrabbable? FindNearestGripGrabbable()
+    {
+        var entries = VRInteractables.Grabbables;
+        Vector3 palm = _hand.Rig.PalmCenter.position;
+        float reach = ReachMeters * _hand.WorldScale;
+
+        IGrabbable? nearest = null;
+        float nearestDist = float.MaxValue;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            Collider collider = entries[i].Collider;
+            if (collider == null || !collider.enabled || !collider.gameObject.activeInHierarchy)
+                continue;
+            IGrabbable target = entries[i].Target;
+            if (!target.GrabWithGrip || !target.CanGrab)
+                continue;
+            if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+                continue;
+            float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
+            if (dist <= reach && dist < nearestDist)
+            {
+                nearestDist = dist;
+                nearest = target;
+            }
+        }
+        return nearest;
     }
 
     /// <summary>
@@ -215,13 +303,20 @@ internal sealed class ProximityGrabber
     private static bool IsTriggerOnly(IGrabbable target) =>
         target is ITriggerOnlyGrabbable or Cards.VRCard or Cards.ItemsPile.ItemChip;
 
-    /// <summary>Shared grab entry (proximity Tick paths); ForceGrab is the laser variant.</summary>
-    private void BeginGrab(IGrabbable target, bool releaseOnTriggerUp, string button, string source)
+    /// <summary>
+    /// Shared grab entry (proximity Tick paths); ForceGrab is the laser variant.
+    /// <paramref name="clearHighlight"/> is false ONLY for the grip fall-through
+    /// (<see cref="TryGripFallThrough"/>), where the grabbed target is NOT the highlighted
+    /// object and the highlight must not flash off around the bar drag.
+    /// </summary>
+    private void BeginGrab(IGrabbable target, bool releaseOnTriggerUp, string button, string source,
+        bool clearHighlight = true)
     {
         Held = target;
         _releaseOnTriggerUp = releaseOnTriggerUp;
         _grabLabel = $"{button}/{source}";
-        SetHighlighted(null);
+        if (clearHighlight)
+            SetHighlighted(null);
         Held.OnGrab(_hand);
         _hand.SendHaptic(HapticPreset.GrabPulse);
         LogGrab($"{_hand.Side} grab — {_grabLabel}.");

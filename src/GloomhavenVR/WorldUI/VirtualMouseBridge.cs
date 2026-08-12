@@ -135,6 +135,49 @@ namespace GloomhavenVR.WorldUI;
 /// Runtime caveats to validate on HMD/Windows (docs/TESTING-P2.md):
 /// - Click() holds the press for ≥2 InputSystem updates so InControl's WasPressed
 ///   polling can't miss the edge; needs the WorldUI driver's Tick() running.
+///
+/// MOUSE ERADICATION ROUND 2 (I7 — hardware report 2026-08-12, verbatim: "Die Maus
+/// ist immer noch zu sehen auf dem Flatscreen und verursacht immer noch das manchmal
+/// Tabs im Optionsmenu durch Kopfbewegungen gehighlighted werden (wie ein mouseover).
+/// Das soll beides ganz verschwinden. Das passiert auch an anderer Stelle. Stelle
+/// sicher, dass NUR der laser zu einem hovered führt (und eventuell physisch berühren
+/// mit der hand, aber niemans mit Kopfbewegungen einfach so."). Three distinct causes,
+/// three cuts:
+///
+/// <para>1. THE VISIBLE CURSOR IS THE OS HARDWARE CURSOR. Nothing in the game ever
+/// sets <c>Cursor.visible = false</c> during play (decompiled sweep: only niche flows
+/// — SelectInputDeviceBox gamepad prompt, BFX/RFX orbit cams — toggle it, and
+/// <c>InputSystemUtilities.DisableMouseCursor</c> has no caller), AND every
+/// <see cref="WarpTo"/> executes <c>Mouse.WarpCursorPosition</c>, whose
+/// <c>WarpMousePositionCommand</c> moves the REAL OS cursor — so the white arrow
+/// visibly rides the laser across the game window (= the desktop mirror the flat
+/// screen shows). <see cref="TickHideHardwareCursor"/> pins <c>Cursor.visible</c>
+/// false every frame while VR runs (game flows re-enable it; the pin wins) and
+/// restores the original on VR stop — desktop non-VR play is untouched. The laser
+/// reticle is the only pointer the player ever sees.</para>
+///
+/// <para>2. THE PARKED PIXEL IS A STANDING HOVER SOURCE. When the laser leaves the
+/// flat screen, the virtual mouse simply STAYED at the last-warped pixel. The game's
+/// input module re-raycasts that stale pixel EVERY frame
+/// (<c>PointerInputModuleExtended.GetMousePointerEventData</c> reads
+/// <c>InputSystemUtilities.GetMousePosition()</c> = our device state), so any content
+/// that moves/scrolls/relayouts UNDER the pixel gets a genuine pointerEnter — hover
+/// without any laser act. Direct position consumers (TextMeshProTooltip link hover,
+/// HoverRegisterer world hover outside a board pick, AttackValueBreakdown's
+/// follow-cursor anchor — the report's "an anderer Stelle") read the same stale
+/// pixel. <see cref="TickParkOffScreen"/> parks the device OFF-SCREEN at
+/// <see cref="ParkPixel"/> whenever no laser/fingertip warp drove it this frame:
+/// RaycastAll at a negative pixel hits nothing and every screen-point test misses.
+/// The game itself proves the tolerance: with <c>CursorLockMode.Locked</c> its own
+/// module parks the pointer at (-1,-1) and ProcessMove exits any stale hover
+/// (PointerInputModuleExtended.cs:279/326) — the exact code path a park exercises.
+/// A pixel parked ON-screen at a fixed spot is NOT enough (round-1 note): whatever
+/// slides under it still hovers.</para>
+///
+/// <para>3. Head-swept hover on WORLD-SPACE panels (the options-menu tabs) is cut by
+/// <c>Patches.MouseWorldSurfaceCut</c> — re-applied 2026-08-12 after commit 8594ebd
+/// accidentally reverted it (parallel worker, stale tree), which is why ModBuild 124
+/// still showed the round-1 symptom.</para>
 /// </summary>
 internal static class VirtualMouse
 {
@@ -199,6 +242,29 @@ internal static class VirtualMouse
     private static readonly System.Collections.Generic.List<Mouse> _disabledPhysicalMice = new();
     private static bool _mouseSuppressionActive;
     private static float _lastSuppressLog = float.NegativeInfinity;
+
+    // ---- I7 mouse eradication round 2 (report 2026-08-12) --------------------------------
+
+    /// <summary>Off-screen park position for the undriven virtual mouse. Negative on both
+    /// axes: uGUI RaycastAll returns nothing, RectangleContainsScreenPoint and
+    /// FindIntersectingLink miss, ScreenPointToRay points into empty space — the same
+    /// tolerance envelope the game's own (-1,-1) locked-cursor park already exercises.</summary>
+    internal static readonly Vector2 ParkPixel = new(-4096f, -4096f);
+
+    /// <summary>Frames without a drive before parking. 2 covers tick-order jitter between the
+    /// FlatScreen pointer tick and this tick without ever letting a live laser park.</summary>
+    private const int ParkAfterFrames = 2;
+
+    /// <summary>frameCount of the last REAL warp (laser/fingertip drive) — the seam that knows
+    /// "the laser is currently driving the pointer". Parking itself does not count. -1 =
+    /// never driven this session (NOT int.MinValue: frameCount - MinValue overflows negative
+    /// and the boot-time park would silently never engage).</summary>
+    private static int _lastDriveFrame = -1;
+
+    private static bool _parked;
+    private static bool _eradicationLogLatched;
+    private static bool _cursorHidden;
+    private static bool _cursorWasVisible = true;
 
     /// <summary>True once the virtual mouse device exists and is usable.</summary>
     public static bool IsAvailable => _mouse != null && _mouse.added;
@@ -271,6 +337,11 @@ internal static class VirtualMouse
     {
         if (!EnsureCreated())
             return;
+        // I7: every caller of this method is a real aimed drive (FlatScreen laser/poke —
+        // verified: no other call sites). Mark the drive so the park stands down, and leave
+        // the parked state the moment a real aim resumes.
+        _lastDriveFrame = Time.frameCount;
+        _parked = false;
         ReclaimCurrency();
         if ((screenPos - _lastWarpPos).sqrMagnitude > ActivityEpsilonSq)
         {
@@ -401,8 +472,92 @@ internal static class VirtualMouse
             }
         }
 
+        // I7: ensure the device exists EARLY in a VR session (not only on first laser
+        // contact) — until it exists, physical-mouse suppression and the off-screen park
+        // cannot engage, and the frozen desktop-mouse pixel is a standing boot-time hover
+        // source. Guarded on the game's InputManager so early boot does not warn-spam.
+        if (VRSession.IsRunning && _mouse == null && Singleton<InputManager>.Instance != null)
+            EnsureCreated();
+
+        TickHideHardwareCursor();
         TickKeepAlive();
         TickSuppressPhysicalMice();
+        TickParkOffScreen();
+    }
+
+    /// <summary>
+    /// I7 defect A (report 2026-08-12: "Die Maus ist immer noch zu sehen auf dem
+    /// Flatscreen"): the visible cursor is the OS HARDWARE cursor — the game never hides
+    /// it during play, and every <see cref="WarpTo"/> drags it across the game window via
+    /// <c>WarpCursorPosition</c>. Pin it invisible every frame while VR runs (game flows
+    /// like SelectInputDeviceBox re-enable it — the per-frame pin wins); restore the
+    /// original visibility the moment VR stops, so desktop non-VR play is untouched.
+    /// </summary>
+    private static void TickHideHardwareCursor()
+    {
+        if (VRSession.IsRunning)
+        {
+            if (!_cursorHidden)
+            {
+                _cursorHidden = true;
+                _cursorWasVisible = Cursor.visible;
+            }
+            if (Cursor.visible)
+                Cursor.visible = false;
+        }
+        else if (_cursorHidden)
+        {
+            _cursorHidden = false;
+            Cursor.visible = _cursorWasVisible;
+            VRLog.Info("WorldUI", "Hardware OS cursor visibility restored (VR stopped) — " +
+                                  $"Cursor.visible={_cursorWasVisible}.");
+        }
+    }
+
+    /// <summary>
+    /// I7 defect B (report 2026-08-12: hover "wie ein mouseover" without the laser, "auch
+    /// an anderer Stelle"): when nothing drove the pointer this frame, park the virtual
+    /// mouse OFF-SCREEN. The game's input module re-raycasts the pointer pixel EVERY frame,
+    /// so a pixel left parked ON the screen keeps hovering whatever sits — or scrolls —
+    /// under it; direct consumers (TextMeshProTooltip links, HoverRegisterer outside a
+    /// board pick, AttackValueBreakdown's follow anchor) read the same stale pixel. At
+    /// <see cref="ParkPixel"/> every one of them sees empty space, and the module exits any
+    /// stale hover exactly like its own (-1,-1) locked-cursor park. Never parks mid-press
+    /// (a held or just-queued button edge must land on its real pixel), and un-parks via
+    /// the next real <see cref="WarpTo"/>. The rule this enforces: hover exists ONLY while
+    /// the laser points at the surface (or a fingertip touches it) — never from head
+    /// movement, never from content sliding under a dead pixel.
+    /// </summary>
+    private static void TickParkOffScreen()
+    {
+        if (!VRSession.IsRunning || _mouse == null || !_mouse.added)
+            return;
+        if (_parked || _leftPressed || _pendingReleaseFrame >= 0)
+            return;
+        if (_lastDriveFrame >= 0 && Time.frameCount - _lastDriveFrame <= ParkAfterFrames)
+            return;
+
+        _parked = true;
+        _shadow.position = ParkPixel;
+        _mouse.WarpCursorPosition(ParkPixel); // OS clamps to a screen corner — cursor is hidden (defect A)
+        InputState.Change(_mouse.position, ParkPixel);
+        InputSystem.QueueStateEvent(_mouse, _shadow);
+
+        if (!_eradicationLogLatched)
+        {
+            _eradicationLogLatched = true;
+            // Info, not Debug (BepInEx's default disk config drops Debug): the one latched
+            // proof line for the next hardware log, naming BOTH neutralized sources.
+            VRLog.Info("WorldUI", "MOUSE ERADICATION round 2 live: (A) the visible cursor was the OS " +
+                                  "HARDWARE cursor — never hidden by the game and dragged along the laser " +
+                                  "by every WarpCursorPosition — now pinned invisible while VR runs; " +
+                                  "(B) the virtual mouse now PARKS OFF-SCREEN at " +
+                                  $"({ParkPixel.x:F0},{ParkPixel.y:F0}) whenever no laser/fingertip warp " +
+                                  "drove it this frame, so the game's per-frame mouse raycast and every " +
+                                  "direct CursorPosition consumer see empty space — hover exists ONLY " +
+                                  "under a live laser or physical poke. World-space panels are covered by " +
+                                  "MouseWorldSurfaceCut (re-applied). Further parks are not logged (steady state).");
+        }
     }
 
     /// <summary>
@@ -607,6 +762,13 @@ internal static class VirtualMouse
             _pendingReleaseFrame = -1;
             Release();
         }
+        if (_cursorHidden)
+        {
+            _cursorHidden = false;
+            Cursor.visible = _cursorWasVisible; // module shutdown: never leave the OS cursor hidden
+        }
+        _parked = false;
+        _lastDriveFrame = -1;
         _mouse = null;
         _lastCurrentSeen = null;
         _leftPressed = false;

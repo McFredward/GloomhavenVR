@@ -26,13 +26,13 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _GlintPower: 90
-    - _RippleAmp: 0.35
+    - _GlintPower: 60
+    - _RippleAmp: 0.5
     - _RippleScale: 0.18
     - _RippleSpeed: 0.045
     m_Colors:
-    - _Color: {r: 0.02, g: 0.035, b: 0.044999972, a: 1}
-    - _GlintCol: {r: 0.54999995, g: 0.62, b: 0.75, a: 1}
+    - _Color: {r: 0.03, g: 0.05, b: 0.06, a: 1}
+    - _GlintCol: {r: 0.75, g: 0.82, b: 0.95, a: 1}
     - _GlintDir: {r: 0.59624094, g: 0.3741512, b: 0.710287, a: 0}
-    - _HorizonCol: {r: 0.049999982, g: 0.089999996, b: 0.12999997, a: 1}
+    - _HorizonCol: {r: 0.055, g: 0.095, b: 0.135, a: 1}
   m_BuildTextureStacks: []

@@ -48,6 +48,13 @@ internal sealed class WorldUIModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.TakeDamagePanelSafety)); // test #23 item 6: burn-two NRE/deadlock guard + MP #10a mandatory-bonus auto-use
         VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeHoverCardBlock)); // MP #10b: no room-sized card on player-entry hover
         VRSession.Harmony?.PatchAll(typeof(Patches.TooltipRaiseGuard)); // 2026-08-09: no head-swept mouse tooltips on world surfaces, none at all while a beam is on a card fan
+        // 2026-08-11 (ModBuild 123), RE-APPLIED 2026-08-12: world-space UI answers ONLY mod
+        // pointers — no head-swept mouse hover on floated menus. The original registration and
+        // the patch file were accidentally reverted one minute after landing by a parallel
+        // worker's commit (8594ebd, the config-dial removal) that was based on a stale tree, so
+        // the tested ModBuild 124 never carried the fix — round-2 report 2026-08-12: "manchmal
+        // Tabs im Optionsmenu durch Kopfbewegungen gehighlighted [...] (wie ein mouseover)".
+        VRSession.Harmony?.PatchAll(typeof(Patches.MouseWorldSurfaceCut));
         Patches.SettingsClickExemption.EnsureRegistered(); // user ruling 2026-08-02: settings menu never input-blocked (tutorial InteractabilityManager veto)
 
         VREvents.UiLockChanged += OnUiLock;

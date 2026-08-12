@@ -26,11 +26,11 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _StarBoost: 1.6
+    - _StarBoost: 1.8
     - _TwinkleAmp: 0.45
     - _TwinkleSpeed: 2.2
     m_Colors:
-    - _HorizonCol: {r: 0.044999972, g: 0.06999998, b: 0.10999996, a: 1}
+    - _HorizonCol: {r: 0.03, g: 0.048, b: 0.08, a: 1}
     - _StarCol: {r: 0.9, g: 0.95, b: 1, a: 1}
-    - _TopCol: {r: 0.008, g: 0.012, b: 0.028, a: 1}
+    - _TopCol: {r: 0.006, g: 0.01, b: 0.022, a: 1}
   m_BuildTextureStacks: []
