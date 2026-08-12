@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 128`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 129`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,26 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 129** — REAL authored maps, invisible staging, zero red cubes, astrophoto sky.
+  128's rendering fix CONFIRMED on hardware (census: 680 drawing, T+3s survival) — remaining
+  findings: staging visible (fixed −50 wu = 36 cm real at rig scale 137 — user watched the
+  build as a miniature), Map A too generic ("Rechtecking ... kein interesannter Ort"), 9–19
+  residual Red Cubes. REAL MAPS: authored multi-room composites Cellar='Map ABHM' (4 rooms) /
+  SwampNight='Map DDM' (3 rooms), AUTHORED style axes kept (fill only Inherit/Default axes;
+  swamp forces Tone=ForestMoonlight, logs overrides), main room → 10 m / map ≤ 24 m, placed by
+  MAIN room center (bounds center can fall inside a wall); fallback composite→Map A→FX shell.
+  STAGING: ≥ 50 REAL meters down AND beyond head-cam far plane + hidden layer runtime-verified
+  vs Camera.allCameras every poll (head mask 0xFFFFFFFF is re-asserted per frame by its owner —
+  carving rejected). RED CUBES: decompile — a loaded category list lacking a piece MINTS a
+  session-poisoning null placeholder (terminal; RefreshResourceList purges Objects, not lists).
+  Fix: warmup from the map's own effective styles + per-list placeholder purge + HEAL at settle
+  (donor by piece-suffix via transform-derived procedure frame, alias injected into the game's
+  own list) + no-donor removal (gap beats red box); census prints NAMES, 0 by construction.
+  SKY (round 3, user: real + hi-res from the internet): 16k Rogland Clear Night (Poly Haven
+  CC0) → 8192x2560 BC7 sky-band dome (float pipeline, TPDF dither vs banding, sRGB dark-end
+  precision, npotScale assert), painted moon kept, twinkle reduced; bundle 41,863,274 bytes —
+  129 NEEDS it. UNVERIFIED: composite catalog presence (log names what loaded), donor
+  availability for Marsh floors/doors (worst case gaps), composite renderer count perf.
 - **ModBuild 128** — the generated room RENDERS, the ally banner's real occluder, the painted sky.
   ROOM (was: gray floor, black/no walls): FOUR causes — (1) the 127 freeze (disable
   ApparanceEntity) let ApparanceEngine DESTROY all generated content one tick after placement

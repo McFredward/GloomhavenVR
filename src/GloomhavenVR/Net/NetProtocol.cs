@@ -416,7 +416,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 128;
+    public const ushort ModBuild = 129;
+    // Build 129: REAL authored game maps as environments, invisible staging, zero red cubes,
+    // and a real astrophoto night sky. No wire change.
+    //
+    // (1) REAL MAPS ("zwei echte interesannte fertige Räume aus dem Spiel"): Map A template
+    // replaced by authored multi-room composites — Cellar = 'Map ABHM' (4 rooms), SwampNight =
+    // 'Map DDM' (3 rooms) — with their AUTHORED styles kept (only unset axes filled; swamp
+    // forces night Tone). Main room normalized to 10 m, map capped at 24 m, placed by the main
+    // room's center. Fallback chain: composite → Map A → FX shell.
+    //
+    // (2) INVISIBLE STAGING ("miniaturversion ... neben dem spielfeld"): the 128 staging depth
+    // was fixed world units — 36 cm real at rig scale 137. Now ≥ 50 REAL meters down AND beyond
+    // the head camera's far plane, plus a runtime-verified hidden layer.
+    //
+    // (3) ZERO RED CUBES ("rote boxen"): misses are TERMINAL per decompile (a loaded category
+    // list lacking a piece mints a session-poisoning placeholder no packet can serve). Warmup
+    // from the map's own styles + placeholder purge + HEAL pass (donor art by piece-suffix,
+    // alias injected into the game's own list) + removal fallback — census prints names,
+    // '0 fallback' by construction.
+    //
+    // (4) ASTROPHOTO SKY (style round 3, "VIEL VIEL hochauflösender und realistischer ... Such
+    // im Internet"): 16k 'Rogland Clear Night' (Poly Haven, CC0), 8192x2560 BC7 sky-band dome
+    // texture, float pipeline + TPDF dither (banding complaint), painted moon kept, fog stays
+    // HorizontalBillboard. Bundle rebuilt (+12 MB) — 129 NEEDS it.
+    //
     // Build 128: the generated room RENDERS now, the ally banner's clipper, the painted sky.
     // No wire change.
     //
