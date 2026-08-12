@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 127`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 128`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,34 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 128** — the generated room RENDERS, the ally banner's real occluder, the painted sky.
+  ROOM (was: gray floor, black/no walls): FOUR causes — (1) the 127 freeze (disable
+  ApparanceEntity) let ApparanceEngine DESTROY all generated content one tick after placement
+  (EntitiesGameTick ignores 'enabled'; CheckEntity→DestroyEntity wipes Generated-Content — the
+  user saw the template skeleton); fix = empty m_GenerationTiers/m_GenerationRoot/m_Instances
+  FIRST, then disable. (2) Apparance resource packets load on demand and a miss caches a
+  session-poisoning 'Red Cube' fallback engine-globally by name; fix = WARMUP phase (pre-load
+  style packets, purge via RefreshResourceList(clear_unused:true), settle refuses while
+  fallbacks remain). (3) DynamicAmbience clones every light at intensity 0 — only the real
+  scenario's UpdateAmbience blends tiles in; fix = SetLightLevel(1f), room lights masked to MOD
+  LAYER ONLY (never restyles the board), ranges rescaled with room scale (Unity light range
+  ignores transform scale), 2-point fallback rig. (4) WallSegmentFade adopted the room's doors
+  (log 4253); fix = mod layer from birth + tile machinery components DESTROYED at finalize (no
+  sweep can adopt). Diagnostics: grep 'ROOM CENSUS' (placement, lights, T+3s survival proof).
+  BOARD CENTERED (finding 4): frame origin = ProceduralScenario tile-bounds center (ALL tiles
+  incl. hidden — reveals never re-center), player-point fallback + 60-frame re-center probe.
+  BANNER ROUND 4 ("unverändert"): all three prior mechanisms provably ran in the 127 log,
+  pixel-identical cut ⇒ occluder is UI CLIPPING (the initiative ScrollRect viewport's
+  game-owned prefab-level clipper; the ally banner is the only part crossing its top edge —
+  enemy popups have no banner, hence immune). UnmaskedUiGraphics: maskable=false +
+  RecalculateClipping() per shown-popup graphic (BOTH load-bearing in shipped uGUI 1.0.0),
+  internal-clipper guard, restore at both doors; rounds 1–3 STAY. Proof: 'BANNER-CLIP DIAG'.
+  PAINTED SKY (style round 2): dome repainted (milky-way band, 4200 PSF stars w/ halos,
+  repainted moon + layered halo, comet streaks, bokeh fireflies, wispier fog — HorizontalBillboard
+  held), 64x32 dome, slow vault drift; star tex BC7 2.1 MB VRAM (was 8.4), bundle 30,152,582
+  bytes — 128 NEEDS it. UNVERIFIED ON HARDWARE: warmup token list is inferred (census names
+  any residual fallback); room light budget vs pixelLightCount; board-center pop if the board
+  appears after fallback placement.
 - **ModBuild 127** — environments are SCENARIO-ONLY and built from the game's own art.
   SCOPE (user ruling: "Ich WILL garnicht das die Umgebung im Menu rendert - sondern nur im
   Szenario"): SkyAlternative gates on VRModeStateMachine.ScenarioBoardExists (Choreographer-

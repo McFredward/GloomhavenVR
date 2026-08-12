@@ -416,7 +416,36 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 127;
+    public const ushort ModBuild = 128;
+    // Build 128: the generated room RENDERS now, the ally banner's clipper, the painted sky.
+    // No wire change.
+    //
+    // (1) ROOM RENDERING ("Boden ohne Texturen, aber nur schwarze Wände"): four causes — the
+    // 127 'freeze' (disable ApparanceEntity) let the engine DESTROY all generated content one
+    // tick after placement (CheckEntity/DestroyEntity on a disabled-but-alive entity; the user
+    // saw the template skeleton); missing Apparance resource packets placed session-poisoning
+    // 'Red Cube' fallbacks; DynamicAmbience light rigs are cloned at intensity 0 and only the
+    // real scenario ever blends them in; and WallSegmentFade adopted the room's doors. All
+    // four neutralized (detach-then-disable, packet WARMUP + poison purge, SetLightLevel(1)
+    // + mod-layer light masks + range scaling, tile machinery destroyed at finalize). Proof
+    // lines: grep 'ROOM CENSUS' (placement census, lights, T+3s survival).
+    //
+    // (2) BOARD CENTERED ("das SPiefeld absolut mittig"): the room's horizontal origin is the
+    // scenario's tile-bounds center (all tiles incl. hidden — reveals never re-center);
+    // player-point fallback re-centers when the board appears.
+    //
+    // (3) ALLY BANNER ROUND 4 ("unverändert"): all three prior mechanisms provably ran in the
+    // 127 log with zero effect — the occluder is UI CLIPPING (the initiative ScrollRect's
+    // game-owned clipper; the banner is the only popup part crossing its top edge; enemies
+    // have no banner). UnmaskedUiGraphics detaches shown popups from ancestor clippers
+    // (maskable=false + RecalculateClipping, both load-bearing in uGUI 1.0.0), value-checked
+    // restore. Proof line: grep 'BANNER-CLIP DIAG'.
+    //
+    // (4) PAINTED SKY ("viel zu Low-Poly ... passt nicht in den Styl"): the swamp dome is a
+    // hand-painted night sky (milky-way band, 4200 PSF stars with halos, repainted moon +
+    // layered halo, comet-streak shooting stars, bokeh fireflies, wispier fog — fog stays
+    // HorizontalBillboard per the standing ruling). Bundle rebuilt — 128 NEEDS it.
+    //
     // Build 127: environments are now SCENARIO-ONLY and built from the game's own art.
     // No wire change — [Sky] stays local presentation.
     //
