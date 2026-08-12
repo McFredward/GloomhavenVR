@@ -140,14 +140,28 @@ internal enum SkyStyle
 ///    still pass through as movement. Zoom rescales the BOARD around the player; the ROOM
 ///    stands still around them, like the real room MR shows.
 ///
-/// SPAWN POSE (requirement (a)) — placed ONCE relative to the player, floor-aligned:
-/// origin at the player's floor position (the rig-space point under the head, y=0 —
-/// tracking is floor-origin, so that is the real floor, times the rig mapping), yaw = the
-/// head's world forward projected to the horizon. Entering a style therefore always puts the
-/// player at the frame's origin — the FX shells are authored around it, and the generated
-/// room is normalized so its interior center lands exactly there (MapGen placement math).
-/// Head not tracked yet (rig just built) → the rig's own pose stands in, and the
-/// first-pose recenter re-places it a frame later via the pose-version rule below.
+/// SPAWN POSE (requirement (a)) — placed ONCE, floor-aligned, PLAY-FIELD-CENTERED. THE
+/// FINDING-4 RULING (user, ModBuild-127 report, verbatim): "In der neuen Umgebung die du
+/// baust soll das SPiefeld absolut mittig angeordnet sein." The frame origin is therefore
+/// the scenario play field's horizontal CENTER — the world-space bounds center of the
+/// scenario's own map tiles (<see cref="TryGetPlayFieldCenter"/>: the root
+/// <c>ProceduralScenario</c>'s <c>MapTiles</c>, each tile's authored <c>BoxCollider</c>
+/// bounds encapsulated; ALL tiles, hidden included, so a mid-scenario reveal never re-centers
+/// anything) — and the generated room is normalized so ITS center lands exactly there
+/// (MapGen placement math): the diorama sits mid-room by construction. Floor and yaw are
+/// UNCHANGED from before: origin height = the player's floor point (the rig-space point
+/// under the head, y=0 — tracking is floor-origin, so that is the real floor, times the rig
+/// mapping), yaw = the head's world forward projected to the horizon. If the board's tiles
+/// do not exist yet at spawn (scenario still assembling), the player's floor point stands in
+/// HORIZONTALLY too, and the steady-state tick re-centers on the board the moment it appears
+/// (throttled probe; the FX shell's ambient particles make that one-time move imperceptible,
+/// and after a re-seat event the board anchor is re-derived anyway). Head not tracked yet
+/// (rig just built) → the rig's own pose stands in, and the first-pose recenter re-places it
+/// a frame later via the pose-version rule below. NOTE the deliberate trade: the zoom
+/// scale-follow (<see cref="NotifyRigScaled"/>) keeps the ROOM bit-frozen in the player's
+/// real frame, so a pinch-zoom shifts the room's world position off the board center — the
+/// no-drift machinery outranks perfect centering mid-gesture (task ruling), and every
+/// re-seat/re-spawn restores exact centering.
 ///
 /// RE-SEAT RULE: the placement is refreshed whenever <see cref="VRRigDriver.RigPoseVersion"/>
 /// changes — rig (re)build, deliberate recenter (B+Y chord), spawn-ring seat, menu recenter.
@@ -257,6 +271,13 @@ internal static partial class SkyAlternative
     /// re-seats around their new pose (class doc RE-SEAT RULE). Sentinel: never a live version.</summary>
     private static int _placedPoseVersion = int.MinValue;
 
+    /// <summary>Whether the current placement is centered on the scenario play field (class
+    /// doc SPAWN POSE, Finding 4). False = the player-point fallback is standing in; the
+    /// steady-state tick probes on the <see cref="ScanIntervalFrames"/> cadence and re-centers
+    /// the moment the board's tiles exist.</summary>
+    private static bool _boardAnchored;
+    private static int _nextBoardScanFrame;
+
     /// <summary>Relative scale drift (vs. the live rig scale) beyond which the defensive heal in
     /// <see cref="EnsureEnvironment"/> re-syncs the environment scale about the head pivot. Only
     /// reachable if a rig-scale writer forgets <see cref="NotifyRigScaled"/> (class doc).</summary>
@@ -291,9 +312,10 @@ internal static partial class SkyAlternative
             "star dome with shooting stars, ground fog and fireflies. A non-Default choice in a " +
             "scenario hides the game's sky sphere, lets the game's own Apparance engine build " +
             "the room offscreen (a few seconds; the FX shell shows immediately), then places it " +
-            "around you as a real-size PLACE IN THE WORLD — about 9 m across, floor-aligned at " +
-            "your current position and facing, with you inside the room and the scenario table " +
-            "untouched in front of you. Stick flight, turning, the world-grab drag and physical " +
+            "as a real-size PLACE IN THE WORLD — about 9 m across, floor-aligned, facing your " +
+            "view, and CENTERED ON THE SCENARIO PLAY FIELD: the table diorama sits exactly in " +
+            "the middle of the room (user ruling 2026-08-12), with the room around you and the " +
+            "scenario table untouched. Stick flight, turning, the world-grab drag and physical " +
             "walking all move you through it; the world-grab zoom rescales only the board, " +
             "never the room; the recenter chord (B+Y) re-seats the room around you, and " +
             "re-selecting a style rebuilds it at your current pose. It can never catch the " +
@@ -500,10 +522,25 @@ internal static partial class SkyAlternative
             // teleported" events. Free locomotion (flight/turn/grab) never bumps it, so the
             // room stays a fixed world place while the player moves through it.
             if (VRRigDriver.RigPoseVersion != _placedPoseVersion)
+            {
                 PlaceAtPlayer(_envGo.transform, anchor,
                     "rig pose changed (rebuild/recenter/ring seat) — re-seating around the player");
-            else
-                HealScaleDrift(_envGo.transform, anchor);
+                return;
+            }
+            // Finding-4 fallback recovery (class doc SPAWN POSE): a placement made before the
+            // board's tiles existed is horizontally player-anchored — probe on the scan
+            // cadence and re-center on the play field the moment it appears.
+            if (!_boardAnchored && Time.frameCount >= _nextBoardScanFrame)
+            {
+                _nextBoardScanFrame = Time.frameCount + ScanIntervalFrames;
+                if (TryGetPlayFieldCenter(out _))
+                {
+                    PlaceAtPlayer(_envGo.transform, anchor,
+                        "play field appeared — centering the room on the board (Finding 4)");
+                    return;
+                }
+            }
+            HealScaleDrift(_envGo.transform, anchor);
             return;
         }
 
@@ -565,13 +602,15 @@ internal static partial class SkyAlternative
     }
 
     /// <summary>
-    /// Write the SPAWN POSE (class doc): floor-aligned at the player — origin at the tracked
-    /// head's floor point (head rig-local position with y=0, mapped through the rig: tracking is
-    /// floor-origin, so that is the real floor under the player), yaw = head world forward
-    /// projected to the horizon, scale = the live rig scale (authored meters read as real
-    /// meters). Head not tracked yet (rig just built, first pose pending) → the rig's own
-    /// origin/yaw stand in; the first-pose recenter bumps RigPoseVersion and this re-runs with
-    /// the real head a frame later.
+    /// Write the SPAWN POSE (class doc): floor-aligned, play-field-centered — the horizontal
+    /// origin is the scenario play field's world center (Finding 4: "das SPiefeld absolut
+    /// mittig"; player floor point as the fallback until the board's tiles exist), the origin
+    /// HEIGHT is the tracked head's floor point (head rig-local position with y=0, mapped
+    /// through the rig: tracking is floor-origin, so that is the real floor under the player),
+    /// yaw = head world forward projected to the horizon, scale = the live rig scale (authored
+    /// meters read as real meters). Head not tracked yet (rig just built, first pose pending)
+    /// → the rig's own origin/yaw stand in; the first-pose recenter bumps RigPoseVersion and
+    /// this re-runs with the real head a frame later.
     /// </summary>
     private static void PlaceAtPlayer(Transform env, Transform anchor, string why)
     {
@@ -599,12 +638,78 @@ internal static partial class SkyAlternative
             yaw = VRRigDriver.YawOnly(anchor.rotation);
         }
 
+        // FINDING 4: the room's horizontal center is the play field's center — only x/z; the
+        // height stays the real floor from the player math above, the yaw stays the gaze.
+        _boardAnchored = TryGetPlayFieldCenter(out Vector3 boardCenter);
+        if (_boardAnchored)
+        {
+            pos.x = boardCenter.x;
+            pos.z = boardCenter.z;
+        }
+
         env.SetPositionAndRotation(pos, yaw);
         env.localScale = Vector3.one * scale;
+        SyncRoomLightRanges(); // room light ranges track the room's lossy scale (MapGen)
         _placedPoseVersion = VRRigDriver.RigPoseVersion;
-        VRLog.Info("Core", $"Sky alternative: environment placed at the player ({why}) — origin " +
-                           $"{pos}, yaw {yaw.eulerAngles.y:F1}deg, scale {scale:F2} " +
+        VRLog.Info("Core", $"Sky alternative: environment placed ({why}) — origin {pos} " +
+                           $"({(_boardAnchored ? "play-field-centered" : "player-point fallback, re-centers when the board appears")}), " +
+                           $"yaw {yaw.eulerAngles.y:F1}deg, scale {scale:F2} " +
                            $"({(tracked ? "tracked head pose" : "rig pose fallback, head not tracked yet")}).");
+    }
+
+    /// <summary>
+    /// The scenario play field's world-space center (Finding 4): the root
+    /// <c>ProceduralScenario</c>'s own <c>MapTiles</c> (immediate children carrying a
+    /// <c>ProceduralMapTile</c> — decompiled ProceduralScenario.cs:208), each tile's authored
+    /// <c>BoxCollider</c> bounds encapsulated. ALL tiles count, hidden ones included, so the
+    /// center is stable across mid-scenario reveals. The mod's own staged/placed room can
+    /// never pollute this: its clone is parented under mod roots, never under the scenario
+    /// root (and is guarded against here anyway). Called only on placement events and the
+    /// throttled fallback probe — never per-frame.
+    /// </summary>
+    private static bool TryGetPlayFieldCenter(out Vector3 center)
+    {
+        center = default;
+        try
+        {
+            ProceduralScenario? scenario = null;
+            foreach (ProceduralScenario s in Object.FindObjectsOfType<ProceduralScenario>())
+            {
+                if (s == null)
+                    continue;
+                Transform t = s.transform;
+                if (_envGo != null && t.IsChildOf(_envGo.transform))
+                    continue; // defensive: never our own clone
+                if (_stagingRoot != null && t.IsChildOf(_stagingRoot.transform))
+                    continue;
+                scenario = s;
+                break;
+            }
+            if (scenario == null)
+                return false;
+
+            Bounds b = default;
+            bool has = false;
+            foreach (GameObject tileGo in scenario.MapTiles)
+            {
+                if (tileGo == null)
+                    continue;
+                ProceduralMapTile tile = tileGo.GetComponent<ProceduralMapTile>();
+                Collider? c = tile != null ? tile.BoxCollider : tileGo.GetComponent<BoxCollider>();
+                if (c == null)
+                    continue;
+                if (!has) { b = c.bounds; has = true; }
+                else b.Encapsulate(c.bounds);
+            }
+            if (!has)
+                return false;
+            center = b.center;
+            return true;
+        }
+        catch
+        {
+            return false; // scenario tearing down mid-read — the fallback anchor stands
+        }
     }
 
     /// <summary>
@@ -629,6 +734,7 @@ internal static partial class SkyAlternative
         Vector3 pivot = head != null ? head.transform.position : env.position;
         env.position = pivot + (env.position - pivot) * (rigScale / envScale);
         env.localScale = Vector3.one * rigScale;
+        SyncRoomLightRanges(); // room light ranges track the room's lossy scale (MapGen)
         if (Time.unscaledTime >= _nextHealLogTime)
         {
             _nextHealLogTime = Time.unscaledTime + HealLogIntervalSeconds;
@@ -656,6 +762,7 @@ internal static partial class SkyAlternative
         Transform t = env.transform;
         t.position = pivotWorld + (t.position - pivotWorld) * (scaleAfter / scaleBefore);
         t.localScale = Vector3.one * scaleAfter; // absolute, not multiplied: no float-error creep
+        SyncRoomLightRanges(); // room light ranges track the room's lossy scale (MapGen)
     }
 
     // ---- deactivate ---------------------------------------------------------------------------
@@ -676,6 +783,8 @@ internal static partial class SkyAlternative
         CancelMapGen("deactivate"); // returns a borrowed focus, drops staging, resets the phase
         _appliedStyle = SkyStyle.Default;
         _placedPoseVersion = int.MinValue; // a fresh activation always places fresh
+        _boardAnchored = false;
+        _nextBoardScanFrame = 0;
         _nextHealLogTime = 0f;
         if (_active)
             VRLog.Info("Core", "Sky alternative OFF — game sphere restored, 3D environment despawned.");
