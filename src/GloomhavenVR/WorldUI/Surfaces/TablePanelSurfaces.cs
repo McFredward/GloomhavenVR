@@ -825,6 +825,93 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// produced the pixels in the screenshot is INFERRED — the session log has no line that
     /// measures the chain's authored z or the two branches' sibling order. That is exactly why
     /// both are closed at once instead of shipping a hypothesis test.
+    ///
+    /// ─── ROUND 3 (hardware 2026-08-12, second test): the banner is STILL cut — it is DEPTH ─────
+    ///
+    /// THE REPORT (user, verbatim): "Das Problem mit dem Text über der Gegnerinfo ist noch nicht
+    /// behoben. Es scheint mir so also ob eine unsichtbare Leiste der iniativreihenfolge den Text
+    /// halb verdeckt und er einfach 'nur' in den Vordergrund muss."
+    ///
+    /// WHAT THE FRESH EVIDENCE SAYS (log + screenshot gegenerinfo_abgeschnitten2.jpg):
+    /// <list type="bullet">
+    /// <item>Round 2's occluder 1 (the draw-order lift) FIRED and WORKED: the log shows
+    ///   "Enemy-info draw-order lift: moved the track's 'EnemyCardsHolder' branch … from root
+    ///   sibling 2 to LAST (3)", and the screenshot shows the info CARD now complete and painting
+    ///   over everything — including the region where round 1's screenshot had it cut by the row
+    ///   band. Canvas paint order is settled.</item>
+    /// <item>Round 2's occluder 2 (ancestor-chain z behind the MR plate) turned out to have
+    ///   NOTHING TO FIX: the same log's coplanarity lines report the chain+popup walk at
+    ///   "0 node(s) to local z 0 (worst 0.0 px)" — the popup plane already sat exactly ON the
+    ///   canvas plane, which is 2 mm PROUD of the plate by construction (MrBacking's real gap).
+    ///   The plate is thereby eliminated as the cutter: nothing on the canvas plane can lose a
+    ///   depth test against a quad behind it.</item>
+    /// <item>The banner is STILL cut, at a hard line that in the screenshot runs exactly along
+    ///   the CONTROL BOARD's raised wooden rail — the 3D furniture ridge behind/around the docked
+    ///   row. That is the user's "unsichtbare Leiste".</item>
+    /// </list>
+    ///
+    /// THE DIAGNOSIS CHAIN ACROSS THE ROUNDS, in one line each: round 1/2 fixed CANVAS-side
+    /// occlusion (paint order within the merged canvas + the popup plane's z). What remains can
+    /// only be WORLD-side occlusion: the panel is a world-space canvas, its UI shaders depth-test
+    /// (ZTest LEqual via the <c>unity_GUIZTestMode</c> global), and any OPAQUE, DEPTH-WRITING
+    /// geometry drawn earlier (opaque queue vs the UI's ~3000) that pokes in front of the canvas
+    /// plane z-rejects the UI fragments behind it. The board's raised rail is exactly such
+    /// geometry, and the banner is the only popup part that reaches up over it — the card body
+    /// hangs over the board's deep recess and survives, which is why the popup was "fully
+    /// visible" except for the banner, on ALLY hovers only (enemies have no banner, round 2 doc).
+    /// The user's own instinct — "er einfach 'nur' in den Vordergrund muss" — is literally the
+    /// fix: the popup must stop LOSING the depth test while it is shown.
+    ///
+    /// THE FIX (round 3): while a popup is SHOWN, every Graphic in its subtree is swapped onto a
+    /// ZTest-Always clone of its own material — <see cref="OnTopUiGraphics"/>, the shared on-top
+    /// UI helper; see ITS doc for the full mechanism. Why THIS mechanism and not the others:
+    /// <list type="bullet">
+    /// <item><b>(a) on-top material clones — CHOSEN.</b> Render state is the exact thing that is
+    ///   wrong (the fragments lose a depth test); everything that is RIGHT — paint order inside
+    ///   the canvas (hierarchy + round 2's lift), panel-vs-panel occlusion (the sortingOrder
+    ///   ladder), the MR plate under the content (queue 2998), the game's on-top board widgets
+    ///   (4000/4003) and ray visuals (5000) over it — is carried by state the clones do NOT touch
+    ///   (renderQueue, ZWrite, sorting). Zero geometry moves, zero perceived-scale change, exact
+    ///   restore.</item>
+    /// <item><b>(b) physically lifting the popup off the panel plane — REJECTED.</b> The offset
+    ///   would have to exceed the rail's protrusion ALONG THE VIEW RAY, which no log measures
+    ///   (nothing in the session data gives the rail's height over the recessed panel plane), and
+    ///   which changes with the user-tunable board tilt and head position — so it would be a
+    ///   GUESSED constant, in centimetres (the rail is furniture, not millimetre trim), bought
+    ///   with real parallax/scale distortion of the popup and a re-tune obligation every time the
+    ///   board moves. A guessed geometric constant against a measured render-state fix loses.</item>
+    /// <item><b>(c) a dedicated overrideSorting canvas on the popup branch — REJECTED.</b>
+    ///   Sorting orders draws WITHIN the transparent pass; the rail is opaque geometry that wrote
+    ///   DEPTH in the opaque pass long before any canvas draws. A sub-canvas would still fail the
+    ///   same ZTest — it fixes nothing without the on-top material, at which point it is (a) plus
+    ///   an extra canvas, a re-based sorting ladder entry and a fight with round 2's merged-canvas
+    ///   lift design.</item>
+    /// </list>
+    ///
+    /// WHAT ZTest-Always COSTS, stated honestly: while (and only while) a popup is hovered, its
+    /// pixels also draw over the player's HANDS and a HELD MINI if those are between the eye and
+    /// the panel — a scoped, deliberate exception to the "perspective must hold" ruling (whose
+    /// enforcement reverted the held mini's own queue bump, FigureGrabbable.ApplyRenderOnTop):
+    /// the popup is a transient READING surface the user summoned to the foreground by pointing
+    /// at it, it is restored the moment it hides its hover, and the alternative is the reported
+    /// half-cut text. Queue ordering vs the q4000 layer was CHECKED and deliberately NOT changed:
+    /// the popup keeps the canvas's ~3000 queue, so the board HUD widgets (4000, ZTest Always)
+    /// and the laser's ray visuals (5000) still paint over it — the pointer the user is hovering
+    /// WITH can never vanish behind the popup it summoned.
+    ///
+    /// REGRESSIONS RULED OUT: portrait picking is depth-based (<see cref="TryPickPortrait"/>
+    /// against world rects — materials are invisible to it) and the popup subtree carries no
+    /// pointer handlers; round 1/2's lift + flatten stay untouched (still needed for canvas
+    /// order and plane placement); the peer-board mirror (<c>Net.RemoteWidgetMirror</c>) shares
+    /// Image materials BY REFERENCE, so the mirrored popup goes on-top on the remote board too —
+    /// the right picture there for the same reason — and the helper's session-cached,
+    /// never-destroyed clones are what make that sharing safe across our restore (no mirror can
+    /// ever hold a destroyed material). Materials the game re-assigns while treated are ceded to
+    /// the game (reference-checked restore). The swap is applied per SHOWN popup from this same
+    /// late pass, so any opener (hover, FigureIntentPeek) is covered, and
+    /// <see cref="RestoreEnemyInfoFlatten"/> gives everything back under the same full-restore
+    /// contract as the pose records — including the stand-down when <see cref="EnemyRevealSurface"/>
+    /// adopts the holder (the reveal panel must not inherit hover-popup render state).
     /// </summary>
     private const float EnemyInfoAngleEpsilon = 0.05f; // degrees, CanvasConversion.FlattenAngleEpsilon
     private const float EnemyInfoZEpsilon = 0.01f;     // uGUI px, CanvasConversion.FlattenZEpsilon
@@ -864,6 +951,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>One lift log per conversion (the re-assert path is per-frame).</summary>
     private bool _enemyInfoLiftLogged;
 
+    /// <summary>Round 3 ("noch nicht behoben … 'nur' in den Vordergrund"): the shown popups'
+    /// graphics ride ZTest-Always clones of their own materials so the banner stops losing the
+    /// depth test against the control board's raised rail — see the round-3 doc section above
+    /// and <see cref="OnTopUiGraphics"/> for the mechanism, safety belts and restore contract.</summary>
+    private readonly OnTopUiGraphics _enemyInfoOnTop = new();
+
     /// <summary>Force every node of a SHOWN enemy-info popup coplanar with the panel: identity
     /// local rotation, zero local z. X/Y are never touched, so the card's own slide/fade-in
     /// animations keep playing — flat. See the doc block above for the full derivation.</summary>
@@ -873,7 +966,15 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         Transform? holder = track != null ? track.enemyCardsHolder : null;
         RectTransform? target = Panel != null ? Panel.Target : null;
         if (holder == null || target == null || !holder.IsChildOf(target))
-            return; // no track, or EnemyRevealSurface has adopted the holder — not ours this tick
+        {
+            // No track, or EnemyRevealSurface has adopted the holder — not ours this tick. The
+            // pose records deliberately STAY (round 2: record-only-while-deviating keeps the two
+            // surfaces from fighting over an "original"), but the on-top materials must NOT
+            // follow the holder onto the reveal panel: that surface never asked for ZTest-Always
+            // content, and the popups it shows are its own presentation to govern.
+            _enemyInfoOnTop.RestoreAll("enemyCardsHolder left the initiative panel");
+            return;
+        }
 
         // Round 2, occluder 1 (merged-canvas draw order): the popup branch paints LAST.
         LiftEnemyInfoBranch(holder, target);
@@ -915,6 +1016,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 FlattenPoseNode(rect, ref flattenedRot, ref flattenedZ,
                     ref worstAngle, ref worstZ, ref worstNode);
             }
+
+            // Round 3: a SHOWN popup wins the depth test — banner, frame, portrait, texts, all
+            // of it (see the round-3 doc section). Idempotent (one hash probe per already-seen
+            // graphic); new graphics from a card re-generation are picked up on their first
+            // shown LateTick, i.e. before their first visible frame ends.
+            _enemyInfoOnTop.Apply(popup, "initiative hover popup");
         }
         _enemyInfoScratch.Clear();
 
@@ -1046,9 +1153,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     /// <summary>Give every node this pass claimed its authored rotation/z back — and the lifted
     /// popup branch its authored sibling order (un-convert / shutdown) — the same full-restore
-    /// contract the depth pass honours.</summary>
+    /// contract the depth pass honours. Round 3: the popups' authored materials come back through
+    /// the same door (reference-checked — a material the game re-assigned meanwhile is ceded).</summary>
     private void RestoreEnemyInfoFlatten()
     {
+        _enemyInfoOnTop.RestoreAll("initiative panel released");
+
         if (_enemyInfoBranch != null)
         {
             Transform branch = _enemyInfoBranch; // Unity fake-null aware: destroyed → skip

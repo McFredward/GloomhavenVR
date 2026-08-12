@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 125`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 126`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,24 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 126** — environments become WORLD PLACES, the game-asset probe, ally banner round 3.
+  FREE MOVEMENT: all locomotion writes RigRoot (Flight 213, SnapTurn 162, WorldGrab 304/362/401/
+  403); the env now spawns world-anchored at the player's floor point + gaze yaw, re-seats on
+  RigPoseVersion bumps, and mirrors rig-scale writes around the SAME pivot (NotifyRigScaled from
+  WorldGrab/Comfort; algebraic no-drift proof in SkyAlternative) — fly/turn/drag/walk move
+  THROUGH the room, zoom never changes its perceived size. STYLE PLAN: user wants Gloomhaven's
+  own style, ideally game assets — investigation (.planning/game-env-assets.md) picked APPARANCE
+  MICRO-GENERATION (Map A prefab + style enums Dungeon/StoneRooms/Candlelight resp. Forest/
+  Marsh/StillWaters/ForestMoonlight); GameEnvProbe ships in 126: passive catalog/engine dumps
+  every session + one-shot [Sky] EnvProbe menu experiment (detail-focus pointed at the probe map
+  — distance-scaled synthesis would fake 'never built'; idempotent cleanup) → ENV PROBE VERDICT
+  decides B vs scenario-time capture (C). Low-poly envs stay as placeholders. ALLY BANNER R3:
+  round-2 lift WORKED (log 529); remaining occluder = WORLD DEPTH (the board's raised wooden
+  rail in front of the canvas plane where the banner reaches up). Fix: OnTopUiGraphics — every
+  Graphic in a SHOWN popup swaps to a session-cached ZTest-Always clone of its own material
+  (ActorBars mechanism inverted, TMP via fontSharedMaterial, CardEffects subtrees excluded,
+  reference-checked restore). NEXT after his log: read ENV PROBE VERDICT → build the styled
+  environments via the winning approach.
 - **ModBuild 125** — 3D ENVIRONMENTS (panoramas rejected + removed), mouse round 2 + INCIDENT
   RESTORE, ally banner. [Sky] Style = Default/Cellar/SwampNight ("Umgebung"): two bundled
   prefabs from CC0 Quaternius packs (Env_Cellar 53k tris — stone room, torches, chests, stairs

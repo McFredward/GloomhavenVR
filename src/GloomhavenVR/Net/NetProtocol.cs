@@ -416,7 +416,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 125;
+    public const ushort ModBuild = 126;
+    // Build 126: environments become WORLD PLACES (free movement), the game-asset probe, the
+    // ally banner's THIRD and depth-side fix. No wire change.
+    //
+    // (1) FREE MOVEMENT ("ich möchte mich auch in den umgebungen frei bewegen und drehen
+    // können"): every mod locomotion writes RigRoot itself, and the 125 environment hung
+    // under RigRoot — the room rode every write. Now unparented/world-anchored (spawned at
+    // the player's floor point + horizon-projected gaze, re-seated on RigPoseVersion bumps =
+    // recenter/ring seat), and the two rig-SCALE writers notify NotifyRigScaled(pivot,
+    // before, after) so the env rescales AROUND THE SAME PIVOT — algebraic proof in the class
+    // doc that zoom rescales the diorama around the player while the room stays bit-frozen in
+    // their real frame. Fly/turn/drag/walk all move THROUGH the room now.
+    //
+    // (2) STYLE PLAN ("orientiert am Styl von Gloomhaven selber ... Assets aus dem Spiel
+    // direkt nutzen"): investigation (.planning/game-env-assets.md) picked Apparance
+    // micro-generation (instantiate 'Map A', write Dungeon/StoneRooms/Candlelight resp.
+    // Forest/Marsh/StillWaters styles, let the game dress it). De-risked by GameEnvProbe in
+    // THIS build: passive Addressables-catalog + engine-availability dumps every session,
+    // and the one-shot [Sky] EnvProbe menu experiment (German instructions in its config
+    // description) whose ENV PROBE VERDICT line decides approach B vs scenario-time capture.
+    // The low-poly environments stay as placeholders until the styled rebuild.
+    //
+    // (3) ALLY BANNER, ROUND 3: round 2's canvas lift WORKED (his log line 529, card fully
+    // visible) — the remaining occluder is WORLD DEPTH: the control board's raised wooden
+    // rail pokes in front of the canvas plane exactly where the banner reaches up (enemies
+    // have no banner — matching every observation). Fix: while a hover popup is shown, every
+    // Graphic in its subtree swaps onto a session-cached clone of ITS OWN material with
+    // ZTest Always (OnTopUiGraphics, the ActorBars mechanism inverted; TMP via
+    // fontSharedMaterial to avoid per-read copies; CardEffects-family subtrees excluded;
+    // reference-checked restore on release/stand-down). Queue untouched: board on-top
+    // widgets and ray visuals still paint over the popup.
+    //
     // Build 125: 3D ENVIRONMENTS replace the panoramas; mouse eradication round 2 (incl. an
     // integrator-incident restore); ally hover banner. No wire change.
     //
