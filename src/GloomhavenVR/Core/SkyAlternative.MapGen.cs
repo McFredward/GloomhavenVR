@@ -24,19 +24,19 @@ namespace GloomhavenVR.Core;
 /// schwarze Wände (bzw gar keine)." FOUR ROOT CAUSES, all read from the decompiled game code and
 /// the hardware log, all neutralized below — do NOT re-simplify any of these away:
 ///
-///  A. MISSING RESOURCE PACKETS (log 7741: floor renderers literally named
-///     'Red Cube (Unable to find prefab: StoneRooms.Floor.Tile)'; 4253-4256: the SwampNight
-///     doors were 'Red Cube (Unable to find prefab: Marsh.Door.Thick)'). Apparance resolves
-///     asset descriptors through category-prefixed resource lists that load ON DEMAND through
-///     Addressables (ApparanceResourceTable.LookupResourceList →
-///     ApparanceResourceListLoader.LoadAsync, decompiled). The RUNNING scenario had never
-///     needed the Dungeon/Forest packets, and a request that terminally misses gets a
-///     null-Object fallback AssetInfo (ApparanceResources.GenerateFallbackAssetInfo) which is
-///     placed as the engine's DEBUG 'Red Cube' (ApparanceResources.GetPrefab →
-///     GetDebugMissingObject) — whose own MaterialLoader never completes, so it renders
-///     NOTHING. Worse, the fallback is also cached BY NAME in the engine-global
-///     ApparanceResources.Objects list, where HandleAssetRequest's by-name loop finds it BEFORE
-///     any table lookup: one failed run POISONS every later run of the same session.
+///  A. MISSING RESOURCE PACKETS (128 log 2516/5532: floor renderers literally named
+///     'Red Cube ... StoneRooms.Floor.Tile'; the SwampNight doors were
+///     'Red Cube ... Marsh.Door.Thick'). Apparance resolves asset descriptors through
+///     category-prefixed resource lists that load ON DEMAND through Addressables
+///     (ApparanceResourceTable.LookupResourceList → ApparanceResourceListLoader.LoadAsync,
+///     decompiled). The RUNNING scenario had never needed the Dungeon/Forest packets, and a
+///     request that terminally misses gets a null-Object fallback AssetInfo
+///     (ApparanceResources.GenerateFallbackAssetInfo) which is placed as the engine's DEBUG
+///     'Red Cube' (ApparanceResources.GetPrefab → GetDebugMissingObject) — whose own
+///     MaterialLoader never completes, so it renders NOTHING. Worse, the fallback is also
+///     cached BY NAME in the engine-global ApparanceResources.Objects list, where
+///     HandleAssetRequest's by-name loop finds it BEFORE any table lookup: one failed run
+///     POISONS every later run of the same session.
 ///     ⇒ Fix: the WARMUP phase below pre-loads the style's packets to completion before the
 ///     first request can exist, and heals prior poison with the game's own
 ///     RefreshResourceList(clear_unused: true) (the exact call ApparanceEngine.RefreshResources
@@ -70,43 +70,135 @@ namespace GloomhavenVR.Core;
 ///     fallback rig if the content brought no lights at all. RenderSettings.ambient* is never
 ///     written (it is the scenario's global state).
 ///
-///  D. MOD SWEEPS ADOPTED THE ROOM AS A LIVE MAP TILE (log 4253-4256: WallSegmentFade's gate
-///     machinery adopted OUR staged room's doors — "the embedding wall stack-adopts onto this
-///     column and fades"; SceneRegistry.MapTiles enrols every ProceduralTileObserver.OnEnable).
+///  D. MOD SWEEPS ADOPTED THE ROOM AS A LIVE MAP TILE (WallSegmentFade's gate machinery adopted
+///     OUR staged room's doors — "the embedding wall stack-adopts onto this column and fades";
+///     SceneRegistry.MapTiles enrols every ProceduralTileObserver.OnEnable).
 ///     A placed room whose walls the wall fader dissolves is "gar keine Wände" by itself.
-///     ⇒ Fix: the instance is put on the MOD LAYER already AT INSTANTIATE and re-applied on
-///     every build poll (WallSegmentFade's IsModObject exclusion keys on that layer), and at
-///     finalize every ProceduralMapTile/ProceduralWall/ProceduralProp/ProceduralStyle/
-///     ProceduralDoorway/UnityGameEditorDoorProp/TilesOcclusionVolume component is DESTROYED —
-///     their own OnDisable/OnDestroy deregister them from the game's caches (ObjectCacheService,
-///     ProceduralWall.m_WallCache) and SceneRegistry prunes destroyed entries, so no mod or
-///     game system ever treats the placed room as scenery to manage again. MaterialLoader
-///     components are deliberately KEPT — their pending Addressables loads still have to
-///     assign materials, and MaterialLoaderHeal supervises them (census: registered=True).
+///     ⇒ Fix: the instance is put on a mod-owned layer already AT INSTANTIATE and re-applied on
+///     every build poll (WallSegmentFade's IsModObject exclusion keys on the MOD layer;
+///     the 128 log proved adoption can still graze the sub-second window between polls, is
+///     transient, and ends at finalize), and at finalize every ProceduralMapTile/
+///     ProceduralWall/ProceduralProp/ProceduralStyle/ProceduralDoorway/UnityGameEditorDoorProp/
+///     TilesOcclusionVolume component is DESTROYED — their own OnDisable/OnDestroy deregister
+///     them from the game's caches (ObjectCacheService, ProceduralWall.m_WallCache) and
+///     SceneRegistry prunes destroyed entries, so no mod or game system ever treats the placed
+///     room as scenery to manage again. MaterialLoader components are deliberately KEPT —
+///     their pending Addressables loads still have to assign materials, and MaterialLoaderHeal
+///     supervises them (census: registered=True).
+///
+/// THE ModBuild-128 REPORT (user, verbatim, three findings — the 128 pipeline itself is PROVEN:
+/// census Cellar 709 renderers/680 drawing, SwampNight 266, both survived T+3 s):
+///
+///  1. "Man sieht nun etwas aber super winzig, nach einer Zeit dann ist es dann plötzlich um
+///     einen drum rum aber spawened erst in eine schwarte umgebung mit der Umgebung als
+///     miniaturversion da drin neben dem spielfeld." ROOT CAUSE: the staging pose was a FIXED
+///     −50 world units below the play space, but world units are diorama units — the 128 log's
+///     placement lines show rig scale 50.93 (Cellar) and 137.56 (Swamp), so −50 wu read as
+///     50/S REAL meters: 36 cm at the swamp zoom. The user literally watched the miniature
+///     build beside the board. ⇒ Fix (SPAWN POSE below): the staging DEPTH scales with the
+///     rig scale AND is pushed beyond the head camera's far plane
+///     (max(50·max(1,S), far·1.25 + 500) — beyond the far plane nothing is rasterized at
+///     all), and ADDITIONALLY the staged build is put on a hidden layer no active camera
+///     renders when such a layer exists — runtime-VERIFIED against Camera.allCameras every
+///     poll, because this user's own log proves the head camera follows the anchor's
+///     0xFFFFFFFF mask (line 405: "anchor 'Main Camera' mask 0xFFFFFFFF → head 0xFFFFFFFF"),
+///     i.e. on this rig NO layer is safe and the depth fallback is the load-bearing fix.
+///     REJECTED: carving the hidden bit out of the head camera's mask — VRRigDriver's
+///     TickHeadCullingMask re-asserts the mask from the anchor EVERY FRAME (it owns it);
+///     a write from here would fight the owner. DELIBERATELY NOT DONE: deactivating objects
+///     (CheckEntity destroys inactive entities — the 127 lesson) or disabling renderers
+///     (census/settle reads them; MaterialLoaders re-enable renderers they manage).
+///     The placement POP stays for now (task ruling): the FX shell already shows instantly.
+///
+///  2. "Mir gefallen die Umgebungen nicht, sie sind Rechtecking, haben keine Beleuchtung, die
+///     assets klippen ineinander und es fühlt sich nicht wie ein interesannter Ort an. Statt
+///     selber assets zusammenzufwürfen kannst du nicht zwei echte interesannte fertige Räume
+///     aus dem Spiel nutzen die zu dem Thema passen?" ⇒ Fix: the single-room 'Map A' template
+///     is replaced by REAL AUTHORED MULTI-ROOM MAPS from the same mapsprocgen catalog the
+///     campaign scenarios load ("Map " + EMapType, decompiled Choreographer.cs:14943):
+///     Cellar = 'Map ABHM', SwampNight = 'Map DDM' (see AUTHORED MAPS below), with 'Map A' as
+///     the load-failure fallback. Authored per-tile styles are PRESERVED — the fill rule
+///     writes an axis only when the prefab left it Inherit/Default (in vanilla the scenario
+///     style lives on the ProcGen Maps ROOT and tiles inherit through
+///     ProceduralStyle.GetBiome's parent walk, decompiled — our clone has no parent style, so
+///     unfilled axes would collapse to Default, not to the scenario's look). Exception, task
+///     ruling: SwampNight always writes Tone=ForestMoonlight — the star dome needs night even
+///     if the authored tone was daylight; every other authored axis wins.
+///
+///  3. "In der Sumpfumgebung sind rote boxen zu sehen (Asset fehlt oder wird nicht richtig
+///     geladen?)" — the 128 misses were StoneRooms.Floor.Tile x9 and the whole
+///     Marsh.Floor.Tile*/Marsh.Door.Thick/Thin family, WITH their packets warmed and loaded
+///     ("packets warmed 2/3, failed: none"). ROOT CAUSE (decompiled, load-bearing): a miss
+///     inside a LOADED packet is TERMINAL — ApparanceResourceList.FindExternalAsset, when the
+///     list's Category prefixes the requested name but no entry matches, MINTS a null-Object
+///     placeholder entry into the list and RETURNS it, so HandleAssetRequest never consults
+///     another table and the placement becomes the debug 'Red Cube'. No amount of extra
+///     packet warming can change which packet a category resolves to (LookupResourceList maps
+///     the descriptor's first dot-segment through the FIRST table that carries it). The minted
+///     placeholder also persists in the loaded list for the whole session (engine-global
+///     RefreshResourceList purges only ApparanceResources.Objects, not lists).
+///     ⇒ Fix, three layers: (i) warmup tokens are now derived from the map's OWN effective
+///     styles (authored + fills), and every warmed list is purged of null-Object placeholder
+///     entries; (ii) at settle, a HEAL pass replaces each remaining 'Red Cube' IN PLACE with
+///     donor art found by suffix in the loaded packets — the exact frame the real asset would
+///     have filled is recoverable from the cube instance because placement scales the asset's
+///     bounds into the procedure frame (decompiled ApparanceEntity placement: scale =
+///     localScale·frameSize/boundsSize, position = origin + R·(−boundsMin)·scale/localScale),
+///     and a matching alias entry is injected into the category's own list so every LATER run
+///     of the session resolves through the game's own path; (iii) a missing piece with no
+///     donor anywhere is REMOVED — the user's finding is the red box, and a small gap in an
+///     ambience room beats a debug cube. The census prints the NAMES of everything healed or
+///     removed; goal state is 0 fallback renderers at placement, by construction.
+///
+/// AUTHORED MAPS (finding 2). The catalog addresses are the game's own load pattern,
+/// 'Assets/_AssetBundles/mapsprocgen/Map &lt;EMapType&gt;.prefab' (decompiled
+/// AssetBundleManager.cs:277-287 + Choreographer.cs:14943; every EMapType member is a YML-
+/// scenario-loadable map). Multi-letter members are authored multi-room composites (each
+/// letter is one board-game room tile; READ FROM SOURCE: EMapType.cs — the shapes themselves
+/// are asset data, so "which rooms look how" is INFERRED from the tile naming, and the
+/// normalization below measures the real thing at runtime instead of trusting the guess).
+///  - Cellar → 'Map ABHM': four authored rooms (two small chambers, a large hall, a fourth
+///    chamber), door-linked, dressed as Dungeon/StoneRooms/Candlelight.
+///  - SwampNight → 'Map DDM': three authored rooms (two sprawling halls + a round chamber),
+///    dressed as Forest/Marsh/StillWaters/ForestMoonlight — connected moonlit clearings.
+///  - REJECTED: 'Map ABCHL' (five rooms — at a walkable normalization each room drops below
+///    ~5 m and the renderer count is the highest of the base-game set); single-letter maps
+///    (the rejected 'Map A' class: one rectangular room, the exact finding); DLC_SC*/Solo_*
+///    members (present only when the DLC/solo content is installed — Addressables label
+///    groups always_loaded_dlc_1/2, AssetBundleManager.cs:84-93 — a base-game user would hit
+///    the fallback path every run); numeric scenario finales (D21/C82/M521…, likely
+///    single-arena boss rooms, unverifiable here).
+///  - Load failure of the chosen composite falls back to 'Map A' once (logged), then to the
+///    FX shell — a wrong guess about the catalog can only cost looks, never the feature.
 ///
 /// THE SEQUENCE (once per activation, all phases ticked from <see cref="SkyAlternative.Tick"/>):
 ///
-///  1. LOAD <c>Assets/_AssetBundles/mapsprocgen/Map A.prefab</c> via a mod-held Addressables
-///     handle (the exact path <c>Choreographer.LoadMaps</c> builds, decompiled
-///     Choreographer.cs:14938-14949; own handle, NOT AssetBundleManager's wrapper, whose
-///     WaitForCompletion would stall the frame). The loaded prefab is cached for the session.
-///  2. WARMUP (root cause A): purge poisoned null-Object fallback resources, then kick the
-///     style vocabulary's resource-list packets through the game's own loader and WAIT until
-///     each is loaded (or failed, or the deadline passes) BEFORE anything can request assets.
-///     A packet the game is already loading is polled via LoadCheck; our own completions
-///     notify the engine exactly like the game's HandleAsyncResourceListLoad does.
+///  1. LOAD the style's authored map prefab via a mod-held Addressables handle (own handle,
+///     NOT AssetBundleManager's wrapper, whose WaitForCompletion would stall the frame).
+///     Loaded prefabs are cached per style for the session; a failed composite retries as
+///     'Map A' once.
+///  2. WARMUP (root cause A): purge poisoned null-Object fallback resources (engine-global
+///     via the game's own RefreshResourceList(clear_unused: true), per-list via a targeted
+///     placeholder purge — finding 3), then kick the resource-list packets for the map's
+///     EFFECTIVE style vocabulary (authored axes + our fills, read from the prefab) through
+///     the game's own loader and WAIT until each is loaded (or failed, or the deadline
+///     passes) BEFORE anything can request assets. A packet the game is already loading is
+///     polled via LoadCheck; our own completions notify the engine exactly like the game's
+///     HandleAsyncResourceListLoad does.
 ///  3. BUILD at a STAGING pose: instantiate under a mod root in the ProcGen scene (like the
-///     game's own maps — and parked at (head.x, −50, head.z): offscreen under the scenario map,
-///     horizontally near the play space), put it on the MOD LAYER immediately (root cause D).
-///     Mute every <c>StaticAmbience</c>/<c>DynamicAmbience</c> on the instance FIRST (they
-///     would overwrite the scenario's own skybox/ambient/fog if any game system blended them
-///     in), write the style enums into every <c>ProceduralStyle</c> (Choreographer's
-///     field-write pattern, Choreographer.cs:14812-14822), apply via <c>ForceValidate()</c>
-///     (the level editor's runtime apply path, LevelEditorApparancePanel.cs:43), and populate
-///     the walls (the minimal ProceduralScenario.SetupWalls: <c>IsPopulated = true</c> on each
-///     wall entity — corner data stays default, which costs join quality only).
+///     game's own maps — parked at (head.x, −D, head.z) with D = max(50·max(1,S),
+///     far·1.25 + 500): beyond the far plane AND ≥ 50 real meters down at any rig scale,
+///     finding 1), put it on the BUILD layer immediately (root cause D; the hidden staging
+///     layer when verified safe, the mod layer otherwise). Mute every
+///     <c>StaticAmbience</c>/<c>DynamicAmbience</c> on the instance FIRST (they would
+///     overwrite the scenario's own skybox/ambient/fog if any game system blended them in),
+///     FILL the style axes the prefab left unset (finding 2 — authored axes are kept), apply
+///     via <c>ForceValidate()</c> (the level editor's runtime apply path,
+///     LevelEditorApparancePanel.cs:43), and populate the walls (the minimal
+///     ProceduralScenario.SetupWalls: <c>IsPopulated = true</c> on each wall entity — corner
+///     data stays default, which costs join quality only).
 ///  4. DETAIL FOCUS — BORROWED, ALWAYS (the documented decision): Apparance synthesis detail is
-///     distance-scaled from the engine viewpoint, and the staging pose sits 50 wu below it —
+///     distance-scaled from the engine viewpoint, and the staging pose sits far below it —
 ///     beyond the proven detail range (ApparanceDetailFocus round 3: a tile re-synthesized with
 ///     the viewpoint ~29 wu away came out as coarse preview-grade scraps). So generation would
 ///     NOT complete usably at staging distance; the engine focus is borrowed for the build via
@@ -117,16 +209,16 @@ namespace GloomhavenVR.Core;
 ///     per activation); a reveal during that window synthesizes against the scenario's own
 ///     authored viewpoint for those seconds — the pre-mod behaviour, transient and logged.
 ///  5. POLL (0.5 s cadence) until the Generated-Content renderer census is non-zero, no
-///     <c>ApparanceEntity.IsBusy</c> remains, the census is stable across two consecutive
-///     polls AND it contains no 'Red Cube' fallback renderers (fallbacks get half the window
-///     to resolve, then the room is placed anyway with the census naming the residue — a room
-///     with a missing prop beats no room). Timeout with NO content → one-shot warn, staging
-///     cleaned up, focus returned, and the style degrades to the FX shell alone
+///     <c>ApparanceEntity.IsBusy</c> remains and the census is stable across two consecutive
+///     polls. Remaining 'Red Cube' fallbacks at that point are TERMINAL (finding 3) and go
+///     through the HEAL pass (donor replacement / removal, alias injection), then the census
+///     re-stabilizes fallback-free and the room finalizes. Timeout with NO content → one-shot
+///     warn, staging cleaned up, focus returned, and the style degrades to the FX shell alone
 ///     (<see cref="GenPhase.Failed"/> — no retry loop; a style re-select or scenario re-entry
 ///     starts fresh).
 ///  6. FINALIZE + PLACE: force full tile visibility (ProceduralMapTile.ApplyVisibility — the
-///     Map A prefab's serialized visibility state is asset data this mod cannot read, so All
-///     is forced rather than assumed), measure, light the room (root cause C), neutralize the
+///     prefab's serialized visibility state is asset data this mod cannot read, so All is
+///     forced rather than assumed), measure, light the room (root cause C), neutralize the
 ///     Apparance machinery (root causes B + D), strip all colliders (non-interactive by
 ///     ruling), re-apply the mod layer, then reparent the instance into the ambient frame with
 ///     the normalization below, drop the staging root, and log the ROOM CENSUS diagnostic
@@ -134,16 +226,20 @@ namespace GloomhavenVR.Core;
 ///
 /// NORMALIZATION MATH: the map is authored in world/diorama units; the ambient frame applies
 /// the rig scale S, so a child at local scale n reads as (authored units × n) REAL meters —
-/// independent of S by construction (frame world size = units·n·S, perceived = world/S). The
-/// generated bounds are measured at staging (scale 1): n = TargetRoomMeters / max(size.x,
-/// size.z) with TargetRoomMeters = 9 (room interior ≈ 8-10 real meters across; the bounds
-/// include wall thickness, so the interior lands at the low end). Placement: the bounds'
-/// horizontal center goes to the frame origin — which since Finding 4 (2026-08-12) is the
-/// SCENARIO PLAY FIELD'S center, so the diorama sits exactly mid-room (fallback: the player's
-/// floor point until the board exists — the anchor logic lives in SkyAlternative.PlaceAtPlayer)
-/// — and the floor top goes to frame-local y = 0 (= the real floor, tracking is floor-origin):
-/// floor height = the average ProceduralMapTile height (figures stand at tile level),
-/// bounds-min fallback.
+/// independent of S by construction (frame world size = units·n·S, perceived = world/S).
+/// The 128 build targeted 9 m across the WHOLE map — right for one room, dollhouse-small for
+/// an authored multi-room map. Now the MAIN ROOM drives it: the largest tile (by its authored
+/// BoxCollider bounds, measured at staging scale 1) is normalized to
+/// <see cref="TargetMainRoomMeters"/> across, capped so the WHOLE map never exceeds
+/// <see cref="MaxTotalRoomMeters"/> (n = min(10/mainExtent, 24/totalExtent)) — side rooms
+/// stay walkable, the far wall stays inside the FX shell's 100 m far-plane budget. Placement:
+/// the LARGEST tile's center (not the map bounds center — for a room chain that point can
+/// land inside a wall between rooms) goes to the frame origin — which since Finding 4
+/// (2026-08-12) is the SCENARIO PLAY FIELD'S center, so the diorama sits mid-main-room
+/// (fallback: the player's floor point until the board exists — the anchor logic lives in
+/// SkyAlternative.PlaceAtPlayer) — and the floor top goes to frame-local y = 0 (= the real
+/// floor, tracking is floor-origin): floor height = the average ProceduralMapTile height
+/// (figures stand at tile level), bounds-min fallback.
 ///
 /// LIFECYCLE: <see cref="CancelMapGen"/> runs on every deactivation (scenario end/leave, style
 /// change, MR on, VR stop) — it returns the borrowed focus, destroys the staging root, and
@@ -151,13 +247,14 @@ namespace GloomhavenVR.Core;
 /// root and dies with it in <c>Deactivate</c>. Scenario unload is additionally covered by the
 /// scope gate itself (no scenario ⇒ Deactivate before the ProcGen teardown can matter), and a
 /// mid-scenario external kill of the instance (fake-null) is detected in the Built tick: warn
-/// once, degrade to the FX shell. The cached prefab handle is released in
+/// once, degrade to the FX shell. The cached prefab handles are released in
 /// <see cref="ReleaseMapPrefab"/> (VR stop / hot reload).
 ///
 /// COST: Idle/Failed/Built phases are one enum compare per frame (Built adds one fake-null
 /// check and, once, the T+3 s census). All real work happens once per activation inside the
-/// build window. The room lights add one range write per light on the rare scale-write events
-/// (<see cref="SyncRoomLightRanges"/>), zero steady-state.
+/// build window (the camera-mask verification allocates Camera.allCameras only on the 0.5 s
+/// poll cadence, build window only). The room lights add one range write per light on the
+/// rare scale-write events (<see cref="SyncRoomLightRanges"/>), zero steady-state.
 /// MULTIPLAYER: local presentation only — the instance is mod-layer, never on the wire, and
 /// the borrowed focus steers only LOCAL synthesis scheduling (peers run their own engines).
 /// </summary>
@@ -165,13 +262,26 @@ internal static partial class SkyAlternative
 {
     private const string ProcGenSceneName = "ProcGen";
 
-    /// <summary>The exact Addressables path the game builds in <c>LoadAssetFromBundle</c>
-    /// ("misc_mapsprocgen", "Map A", "mapsprocgen") — decompiled AssetBundleManager.cs:277-287.</summary>
-    private const string MapAPrefabPath = "Assets/_AssetBundles/mapsprocgen/Map A.prefab";
+    /// <summary>The exact Addressables folder the game builds in <c>LoadAssetFromBundle</c>
+    /// ("misc_mapsprocgen", "Map ...", "mapsprocgen") — decompiled AssetBundleManager.cs:277-287.</summary>
+    private const string MapPrefabFolder = "Assets/_AssetBundles/mapsprocgen/";
 
-    /// <summary>Target real-world size of the generated room across its longer horizontal
-    /// bounds axis (class doc NORMALIZATION MATH).</summary>
-    private const float TargetRoomMeters = 9f;
+    /// <summary>The proven-to-exist single-room map (128 hardware run) — the load-failure
+    /// fallback when a chosen composite is missing from this install's catalog.</summary>
+    private const string FallbackMapName = "Map A";
+
+    /// <summary>The chosen AUTHORED map per style (class doc AUTHORED MAPS — candidates and
+    /// rejections documented there).</summary>
+    private static string ChosenMapName(SkyStyle style)
+        => style == SkyStyle.Cellar ? "Map ABHM" : "Map DDM";
+
+    /// <summary>Target real-world size of the generated map's MAIN room — the largest tile's
+    /// authored collider extent is normalized to this (class doc NORMALIZATION MATH).</summary>
+    private const float TargetMainRoomMeters = 10f;
+
+    /// <summary>Cap on the WHOLE map's real-world extent — keeps a multi-room composite inside
+    /// the FX shell / far-plane budget (class doc NORMALIZATION MATH).</summary>
+    private const float MaxTotalRoomMeters = 24f;
 
     /// <summary>Per-phase timeout: the Addressables load, the packet warmup and the generation
     /// poll each get this long before the run degrades (warmup degrades to building anyway —
@@ -184,19 +294,27 @@ internal static partial class SkyAlternative
     /// pre-fix content was destroyed ONE engine tick after placement — 3 s is unambiguous).</summary>
     private const float BuiltCensusDelaySeconds = 3f;
 
+    /// <summary>Maximum heal passes per run — the engine can re-tier mid-window and mint new
+    /// cubes after a pass; more than this means something structural and the deadline path
+    /// judges what is left.</summary>
+    private const int MaxHealPasses = 3;
+
     private enum GenPhase { Idle, Loading, Warmup, Building, Built, Failed }
 
     private static GenPhase _genPhase = GenPhase.Idle;
     private static SkyStyle _genStyle = SkyStyle.Default; // the style the current gen run is for
 
-    // Session-cached Addressables prefab (class doc step 1).
-    private static AsyncOperationHandle<GameObject> _mapHandle;
-    private static bool _mapHandleHeld;
-    private static GameObject? _mapPrefab;
-    private static bool _mapLoadWarned; // one-shot: Addressables cannot deliver Map A
+    // Session-cached Addressables prefabs, indexed by (int)SkyStyle (class doc step 1).
+    private static readonly AsyncOperationHandle<GameObject>[] _mapHandles =
+        new AsyncOperationHandle<GameObject>[3];
+    private static readonly bool[] _mapHandlesHeld = new bool[3];
+    private static readonly GameObject?[] _mapPrefabs = new GameObject?[3];
+    private static readonly bool[] _mapTriedFallback = new bool[3]; // composite missing → 'Map A'
+    private static string _mapName = "";  // the map the current run loads/loaded (for logs)
+    private static bool _mapLoadWarned;   // one-shot: Addressables cannot deliver ANY map
 
-    private static GameObject? _stagingRoot;  // in the ProcGen scene, at (head.x, -50, head.z)
-    private static GameObject? _mapInstance;  // the Map A clone (staged, then frame child)
+    private static GameObject? _stagingRoot;  // in the ProcGen scene, far below the play space
+    private static GameObject? _mapInstance;  // the map clone (staged, then frame child)
     private static GameObject? _genFocusGo;   // borrowed engine focus target at the staging map
 
     private static ApparanceEngine? _focusEngine; // engine we overrode (restore exactly this one)
@@ -210,13 +328,30 @@ internal static partial class SkyAlternative
     private static bool _genFailWarned;   // one-shot per session: generation timed out/failed
     private static bool _genDiedWarned;   // one-shot per session: a placed room was killed externally
 
+    // HIDDEN STAGING LAYER (finding 1): resolved once per session (first unnamed layer scanning
+    // 31→8 that is NOT the mod layer), then runtime-VERIFIED against every active camera's
+    // culling mask at build start and on every poll — this user's own log proves the head
+    // camera can run mask 0xFFFFFFFF, in which case NO layer is safe and the scaled staging
+    // depth is the (sufficient) fix. −2 = not resolved yet, −1 = no candidate exists.
+    private static int _stagingLayer = -2;
+    private static bool _stagingLayerSafe;      // verified this build window
+    private static bool _stagingLayerWarned;    // one-shot per run: safety lost mid-build
+
     // WARMUP bookkeeping (root cause A). Paths are the loader's own asset paths; a pending
     // entry either completes through our callback or (when the game kicked the same load
-    // first) through the LoadCheck poll. Failed paths are kept for the census.
+    // first) through the LoadCheck poll. Failed paths are kept for the census; ALL matched
+    // paths are kept as the donor-search scope for the heal pass (finding 3).
     private static bool _warmupKickDone;
     private static int _warmupRequested;
     private static readonly List<string> _warmupPending = new();
     private static readonly List<string> _warmupFailed = new();
+    private static readonly List<string> _warmupPaths = new();
+    private static string[] _warmupTokens = Array.Empty<string>();
+
+    // HEAL bookkeeping (finding 3): what the heal pass did, for the census.
+    private static int _healPasses;
+    private static readonly List<string> _healedNames = new();  // "missing←donor"
+    private static readonly List<string> _removedNames = new(); // no donor anywhere
 
     // ROOM LIGHTS (root cause C): every Light under the placed instance with its AUTHORED
     // range — Unity light range does not follow transform scale, so the range is re-derived
@@ -303,7 +438,14 @@ internal static partial class SkyAlternative
     private static void BeginMapLoad(SkyStyle style)
     {
         _genStyle = style;
-        if (_mapPrefab != null)
+        int i = (int)style;
+        if (i <= 0 || i >= _mapPrefabs.Length)
+        {
+            _genPhase = GenPhase.Failed;
+            return;
+        }
+        _mapName = _mapTriedFallback[i] ? FallbackMapName : ChosenMapName(style);
+        if (_mapPrefabs[i] != null)
         {
             BeginWarmup(style);
             return;
@@ -313,10 +455,16 @@ internal static partial class SkyAlternative
             _genPhase = GenPhase.Failed; // Addressables already said no this session
             return;
         }
+        StartMapLoad(i, _mapName);
+    }
+
+    private static void StartMapLoad(int styleIndex, string mapName)
+    {
         try
         {
-            _mapHandle = Addressables.LoadAssetAsync<GameObject>(MapAPrefabPath);
-            _mapHandleHeld = true;
+            _mapHandles[styleIndex] = Addressables.LoadAssetAsync<GameObject>(
+                MapPrefabFolder + mapName + ".prefab");
+            _mapHandlesHeld[styleIndex] = true;
             _genPhase = GenPhase.Loading;
             _genDeadline = Time.realtimeSinceStartup + GenTimeoutSeconds;
         }
@@ -328,33 +476,112 @@ internal static partial class SkyAlternative
 
     private static void TickMapLoad(SkyStyle style)
     {
-        if (!_mapHandle.IsDone)
+        int i = (int)style;
+        if (!_mapHandles[i].IsDone)
         {
             if (Time.realtimeSinceStartup > _genDeadline)
-                FailGeneration($"'{MapAPrefabPath}' Addressables load timed out ({GenTimeoutSeconds:F0} s)");
+                FailGeneration($"'{_mapName}' Addressables load timed out ({GenTimeoutSeconds:F0} s)");
             return;
         }
-        if (_mapHandle.Status != AsyncOperationStatus.Succeeded || _mapHandle.Result == null)
+        if (_mapHandles[i].Status != AsyncOperationStatus.Succeeded || _mapHandles[i].Result == null)
         {
-            ReleaseMapPrefab();
-            FailGeneration($"'{MapAPrefabPath}' Addressables load failed (status {_mapHandle.Status})");
+            ReleaseMapHandle(i);
+            // AUTHORED-MAP FALLBACK (class doc AUTHORED MAPS): the chosen composite may not
+            // exist in every install's catalog — retry once with the proven 'Map A' before
+            // degrading to the FX shell. A wrong catalog guess costs looks, never the feature.
+            if (!_mapTriedFallback[i])
+            {
+                _mapTriedFallback[i] = true;
+                VRLog.Warn("Core", $"Sky alternative: authored map '{_mapName}' failed to load from the " +
+                                   $"Addressables catalog — falling back to '{FallbackMapName}' for {style}.");
+                _mapName = FallbackMapName;
+                StartMapLoad(i, _mapName);
+                return;
+            }
+            FailGeneration($"'{_mapName}' Addressables load failed (status {_mapHandles[i].Status})");
             return;
         }
-        _mapPrefab = _mapHandle.Result; // handle stays held for the session — the prefab is a
-                                        // reference into Addressables' loaded bundle, not a copy
+        _mapPrefabs[i] = _mapHandles[i].Result; // handle stays held for the session — the prefab
+                                                // is a reference into Addressables' loaded
+                                                // bundle, not a copy
         _genStyle = style;
         BeginWarmup(style);
     }
 
     // ---- WARMUP: resource packets (root cause A) ------------------------------------------------
 
-    /// <summary>The resource-list CATEGORY tokens a style's vocabulary can request (the
-    /// category is a descriptor's first dot-segment: the hardware log's misses were
-    /// 'StoneRooms.Floor.Tile' and 'Marsh.Door.Thick' — SubBiome names; Biome/Theme/Tone
-    /// names are warmed too, and tokens without a table mapping are simply skipped).</summary>
-    private static string[] WarmupTokens(SkyStyle style) => style == SkyStyle.Cellar
-        ? new[] { "Dungeon", "StoneRooms", "Candlelight" }
-        : new[] { "Forest", "Marsh", "StillWaters", "ForestMoonlight" };
+    /// <summary>The mod's style vocabulary per style — used to FILL axes the authored map left
+    /// Inherit/Default (finding 2: authored axes are kept; vocabulary per
+    /// .planning/game-env-assets.md §3; ETone.Bioluminescence exists too, but ForestMoonlight
+    /// is the mood the star dome wants — a moonlit night, not a glow cave).</summary>
+    private static void StyleVocabulary(SkyStyle style,
+        out ScenarioRuleLibrary.YML.ScenarioPossibleRoom.EBiome biome,
+        out ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ESubBiome subBiome,
+        out ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETheme theme,
+        out ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETone tone)
+    {
+        if (style == SkyStyle.Cellar)
+        {
+            biome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.EBiome.Dungeon;
+            subBiome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ESubBiome.StoneRooms;
+            theme = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETheme.Default;
+            tone = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETone.Candlelight;
+        }
+        else
+        {
+            biome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.EBiome.Forest;
+            subBiome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ESubBiome.Marsh;
+            theme = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETheme.StillWaters;
+            tone = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETone.ForestMoonlight;
+        }
+    }
+
+    /// <summary>An enum axis counts as AUTHORED when it names a concrete member — Inherit=0
+    /// and Default=1 in every style enum (decompiled ScenarioPossibleRoom.cs), so ≥ 2 it is.</summary>
+    private static bool IsAuthored(int enumValue) => enumValue >= 2;
+
+    /// <summary>The resource-list CATEGORY tokens this run's map can request — derived from the
+    /// map prefab's OWN effective styles (authored axes kept, unset axes as our vocabulary
+    /// would fill them; finding 3: "derive the packets from the map's own requirements"). The
+    /// category is a descriptor's first dot-segment and the tokens are enum member NAMES (the
+    /// 128 misses were 'StoneRooms.Floor.Tile' and 'Marsh.Door.Thick' — SubBiome names);
+    /// tokens without a table mapping are simply skipped. Vocabulary tokens come FIRST —
+    /// that order is also the heal pass's donor preference.</summary>
+    private static string[] EffectiveWarmupTokens(SkyStyle style, GameObject? prefab)
+    {
+        StyleVocabulary(style, out var vBiome, out var vSub, out var vTheme, out var vTone);
+        var tokens = new List<string>(8);
+        void Add(string name)
+        {
+            for (int i = 0; i < tokens.Count; i++)
+            {
+                if (string.Equals(tokens[i], name, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+            tokens.Add(name);
+        }
+        // Ours first (donor preference order): the fill values a style-less map ends up with.
+        if (IsAuthored((int)vSub)) Add(vSub.ToString());
+        if (IsAuthored((int)vBiome)) Add(vBiome.ToString());
+        if (IsAuthored((int)vTheme)) Add(vTheme.ToString());
+        if (IsAuthored((int)vTone)) Add(vTone.ToString());
+        // Then every authored axis the prefab brings itself (kept by the fill rule, so its
+        // packets WILL be requested).
+        if (prefab != null)
+        {
+            foreach (ProceduralStyle s in prefab.GetComponentsInChildren<ProceduralStyle>(true))
+            {
+                if (s == null)
+                    continue;
+                if (IsAuthored((int)s.SubBiome)) Add(s.SubBiome.ToString());
+                if (IsAuthored((int)s.Biome)) Add(s.Biome.ToString());
+                if (IsAuthored((int)s.Theme)) Add(s.Theme.ToString());
+                if (IsAuthored((int)s.SubTheme)) Add(s.SubTheme.ToString());
+                if (IsAuthored((int)s.Tone)) Add(s.Tone.ToString());
+            }
+        }
+        return tokens.ToArray();
+    }
 
     private static void BeginWarmup(SkyStyle style)
     {
@@ -363,6 +590,8 @@ internal static partial class SkyAlternative
         _warmupRequested = 0;
         _warmupPending.Clear();
         _warmupFailed.Clear();
+        _warmupPaths.Clear();
+        _warmupTokens = EffectiveWarmupTokens(style, _mapPrefabs[(int)style]);
         _genPhase = GenPhase.Warmup;
         _genDeadline = Time.realtimeSinceStartup + GenTimeoutSeconds;
     }
@@ -400,8 +629,12 @@ internal static partial class SkyAlternative
             {
                 try
                 {
-                    if (loader.LoadCheck(_warmupPending[i]) != null)
+                    ApparanceResourceList? landed = loader.LoadCheck(_warmupPending[i]);
+                    if (landed != null)
+                    {
+                        PurgeMintedPlaceholders(landed);
                         _warmupPending.RemoveAt(i);
+                    }
                 }
                 catch { /* loader tearing down — the deadline path handles it */ }
             }
@@ -412,7 +645,7 @@ internal static partial class SkyAlternative
             if (_warmupFailed.Count > 0)
                 VRLog.Warn("Core", $"Sky alternative: {_warmupFailed.Count} resource packet(s) FAILED to load " +
                                    $"({string.Join(", ", _warmupFailed)}) — building anyway; missing art " +
-                                   "resolves to the engine's fallback and the ROOM CENSUS will name it.");
+                                   "resolves to the engine's fallback and the heal pass will name it.");
             BeginBuild();
             return;
         }
@@ -421,7 +654,7 @@ internal static partial class SkyAlternative
         {
             VRLog.Warn("Core", $"Sky alternative: packet warmup timed out with {_warmupPending.Count} " +
                                $"packet(s) still loading ({string.Join(", ", _warmupPending)}) — building " +
-                               "anyway; the ROOM CENSUS will show any fallback residue.");
+                               "anyway; the heal pass and ROOM CENSUS will show any fallback residue.");
             BeginBuild();
         }
     }
@@ -447,11 +680,13 @@ internal static partial class SkyAlternative
         // own reset for exactly this store is RefreshResourceList(clear_unused: true) —
         // ApparanceEngine.RefreshResources calls it on every engine start/scene change, so
         // mid-scenario use only forces future requests to re-resolve (placed content keeps
-        // its assigned materials).
+        // its assigned materials). Per-LIST placeholder poison (finding 3: FindExternalAsset
+        // mints into the loaded list, which this global purge does NOT reach) is purged in
+        // PurgeMintedPlaceholders as each warmed list lands.
         try { res.RefreshResourceList(clear_unused: true); }
         catch (Exception e) { VRLog.Warn("Core", $"Sky alternative: resource-cache purge threw ({e.Message})."); }
 
-        string[] tokens = WarmupTokens(_genStyle);
+        string[] tokens = _warmupTokens;
         int alreadyLoaded = 0;
         var kicked = new List<string>(4);
         try
@@ -491,6 +726,7 @@ internal static partial class SkyAlternative
 
         _warmupRequested = kicked.Count;
         VRLog.Info("Core", $"Sky alternative: warming {kicked.Count} resource packet(s) for {_genStyle} " +
+                           $"map '{_mapName}', tokens [{string.Join(", ", tokens)}] " +
                            $"({(kicked.Count > 0 ? string.Join(", ", kicked) : "none needed")}; " +
                            $"{alreadyLoaded} already loaded) — generation starts when they land, so no " +
                            "asset request can fall back to the engine's 'Red Cube' placeholder.");
@@ -511,8 +747,12 @@ internal static partial class SkyAlternative
     {
         try
         {
-            if (loader.LoadCheck(path) != null)
+            if (!_warmupPaths.Contains(path))
+                _warmupPaths.Add(path); // donor-search scope for the heal pass, loaded or not
+            ApparanceResourceList? loadedAlready = loader.LoadCheck(path);
+            if (loadedAlready != null)
             {
+                PurgeMintedPlaceholders(loadedAlready);
                 alreadyLoaded++;
                 return;
             }
@@ -526,6 +766,8 @@ internal static partial class SkyAlternative
                 _warmupPending.Remove(captured);
                 if (list == null && !_warmupFailed.Contains(captured))
                     _warmupFailed.Add(captured);
+                if (list != null)
+                    PurgeMintedPlaceholders(list);
                 // Engine parity (game's HandleAsyncResourceListLoad): wake any dependent
                 // request the running scenario queued for this packet meanwhile. A no-op when
                 // nothing waits.
@@ -545,10 +787,96 @@ internal static partial class SkyAlternative
         }
     }
 
+    /// <summary>Purge the null-Object placeholder entries a previous failed request MINTED into
+    /// a loaded resource list (finding 3: FindExternalAsset appends them and they persist for
+    /// the session; the game's own clear_unused semantics — RefreshResourceList removes exactly
+    /// entries whose Object is null — applied to the list our warmup touches). Authored entries
+    /// always carry an Object; our injected donor aliases do too, so both survive.</summary>
+    private static void PurgeMintedPlaceholders(ApparanceResourceList list)
+    {
+        try
+        {
+            int n = list.Objects.RemoveAll(o => o != null && o.Object == null);
+            if (n > 0)
+                VRLog.Info("Core", $"Sky alternative: purged {n} minted null-Object placeholder(s) from " +
+                                   $"resource list '{list.name}' (session poison from earlier terminal misses).");
+        }
+        catch { /* list tearing down */ }
+    }
+
     // ---- BUILD ----------------------------------------------------------------------------------
 
-    /// <summary>Class doc steps 3 + 4: instantiate at the staging pose, mod-layer it, mute
-    /// ambience, write + validate styles, populate walls, borrow the engine detail focus.</summary>
+    /// <summary>Resolve the hidden STAGING layer candidate once per session: the first unnamed
+    /// layer scanning 31→8 that is not <see cref="VRLayers.ModLayer"/> (same convention as
+    /// VRLayers — project layers are authored low). −1 when every layer is named/taken.</summary>
+    private static int ResolveStagingLayer()
+    {
+        if (_stagingLayer != -2)
+            return _stagingLayer;
+        _stagingLayer = -1;
+        for (int i = 31; i >= 8; i--)
+        {
+            if (i == VRLayers.ModLayer)
+                continue;
+            if (string.IsNullOrEmpty(LayerMask.LayerToName(i)))
+            {
+                _stagingLayer = i;
+                break;
+            }
+        }
+        return _stagingLayer;
+    }
+
+    /// <summary>TRUE only when NO active camera's culling mask contains the staging layer —
+    /// verified against the live <c>Camera.allCameras</c> (head camera and every game/mirror
+    /// camera included). On this user's rig the head camera follows the anchor's 0xFFFFFFFF
+    /// mask (128 log line 405), so this is EXPECTED to return false there and the scaled
+    /// staging depth carries the fix; the layer is defense-in-depth for rigs with the
+    /// [Optimize] HeadMaskFromScenarioCamera narrowing on. Cameras that render only on manual
+    /// Render() calls are not in allCameras — the depth covers those too.</summary>
+    private static bool VerifyStagingLayerSafe(int layer, out string offender)
+    {
+        offender = "";
+        if (layer < 0)
+        {
+            offender = "no unnamed layer free";
+            return false;
+        }
+        int bit = 1 << layer;
+        Camera[] all = Camera.allCameras;
+        for (int i = 0; i < all.Length; i++)
+        {
+            Camera c = all[i];
+            if (c != null && (c.cullingMask & bit) != 0)
+            {
+                offender = $"camera '{c.name}' mask 0x{c.cullingMask:X8}";
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Put the STAGED build on the current build layer — the verified hidden staging
+    /// layer while it is safe, the mod layer otherwise (the 128 discipline: WallSegmentFade's
+    /// IsModObject exclusion keys on the mod layer). Re-applied on every poll because
+    /// generated children arrive on their authored layers.</summary>
+    private static void ApplyBuildLayer(GameObject go)
+    {
+        if (_stagingLayerSafe && _stagingLayer >= 0)
+            SetLayerRecursive(go.transform, _stagingLayer);
+        else
+            VRLayers.Apply(go);
+    }
+
+    private static void SetLayerRecursive(Transform t, int layer)
+    {
+        t.gameObject.layer = layer;
+        for (int i = 0; i < t.childCount; i++)
+            SetLayerRecursive(t.GetChild(i), layer);
+    }
+
+    /// <summary>Class doc steps 3 + 4: instantiate at the staging pose, layer it, mute
+    /// ambience, fill + validate styles, populate walls, borrow the engine detail focus.</summary>
     private static void BeginBuild()
     {
         ApparanceEngine? engine = ApparanceEngine.Instance;
@@ -557,11 +885,32 @@ internal static partial class SkyAlternative
             // Gate said "scenario alive", so this is a load-order frame — retry next tick.
             return;
         }
+        GameObject? prefab = _mapPrefabs[(int)_genStyle];
+        if (prefab == null)
+        {
+            FailGeneration("map prefab vanished between load and build");
+            return;
+        }
 
-        // Staging pose: under the scenario map, horizontally at the player (class doc step 3).
+        // STAGING POSE (finding 1): horizontally at the player (the borrowed detail focus
+        // lives there), vertically at a depth that is invisible AT ANY RIG SCALE — the 128
+        // fixed −50 wu read as 50/S real meters (36 cm at the swamp zoom, the user watched
+        // the miniature build). D = max(50·max(1,S), far·1.25 + 500): at least 50 REAL meters
+        // down, and beyond the head camera's far plane, where nothing is rasterized at all.
         Camera? head = Rig.VRRigDriver.HeadCamera;
         Vector3 headPos = head != null ? head.transform.position : Vector3.zero;
-        Vector3 staging = new(headPos.x, -50f, headPos.z);
+        Transform? rig = Rig.VRRigDriver.RigRoot;
+        float rigScale = rig != null ? rig.lossyScale.x : 1f;
+        if (!(rigScale > 0f) || float.IsInfinity(rigScale))
+            rigScale = 1f;
+        float far = head != null ? head.farClipPlane : 0f;
+        float depth = Mathf.Max(50f * Mathf.Max(1f, rigScale), far * 1.25f + 500f);
+        Vector3 staging = new(headPos.x, headPos.y - depth, headPos.z);
+
+        // HIDDEN STAGING LAYER (finding 1, defense-in-depth): verified now and on every poll.
+        int stagingLayer = ResolveStagingLayer();
+        _stagingLayerSafe = VerifyStagingLayerSafe(stagingLayer, out string offender);
+        _stagingLayerWarned = false;
 
         _stagingRoot = new GameObject("GloomhavenVR.SkyAlternative.MapGenStaging");
         Scene pg = SceneManager.GetSceneByName(ProcGenSceneName);
@@ -573,16 +922,16 @@ internal static partial class SkyAlternative
         }
         _stagingRoot.transform.position = staging;
 
-        _mapInstance = UnityEngine.Object.Instantiate(_mapPrefab!, _stagingRoot.transform);
+        _mapInstance = UnityEngine.Object.Instantiate(prefab, _stagingRoot.transform);
         _mapInstance.name = "GloomhavenVR.SkyAlternative.Room." + _genStyle;
         _mapInstance.transform.localPosition = Vector3.zero;
         _mapInstance.transform.localRotation = Quaternion.identity;
 
-        // MOD LAYER FROM BIRTH (root cause D): WallSegmentFade's IsModObject exclusion keys on
-        // the mod layer, and the game cameras must never composite the staged build below the
-        // map. Generated children arrive later on their authored layers — TickBuilding
-        // re-applies this on every poll, FinalizeBuild once more.
-        VRLayers.Apply(_mapInstance);
+        // LAYER FROM BIRTH (root cause D + finding 1): the game cameras must never composite
+        // the staged build. Generated children arrive later on their authored layers —
+        // TickBuilding re-applies this on every poll, FinalizeBuild moves everything to the
+        // mod layer once.
+        ApplyBuildLayer(_mapInstance);
 
         // MUTE ambience FIRST — StaticAmbience.Apply writes RenderSettings.skybox/ambient and
         // DynamicAmbience drives the scenario camera's DynamicFog; both would overwrite the
@@ -599,31 +948,36 @@ internal static partial class SkyAlternative
             if (amb != null) { amb.enabled = false; muted++; }
         }
 
-        // Style writes — the Choreographer's field-write pattern applied via ForceValidate (the
-        // level editor's runtime apply path). Written on EVERY style under the instance so
-        // nothing depends on parent inheritance (no scenario-level ProceduralStyle above us).
-        // Vocabulary per .planning/game-env-assets.md §3: Cellar = Dungeon/StoneRooms/Candlelight;
-        // SwampNight = Forest/Marsh/StillWaters/ForestMoonlight (ETone.Bioluminescence exists too,
-        // but ForestMoonlight is the mood the star dome wants — a moonlit night, not a glow cave).
+        // STYLE FILL (finding 2) — authored axes are KEPT (the user asked for the game's real
+        // rooms; overwriting an authored choice would throw away exactly the authorship he
+        // wants), unset axes (Inherit=0/Default=1 — in vanilla they inherit the scenario style
+        // through the ProcGen Maps root's ProceduralStyle, a parent our clone does not have)
+        // are filled with our vocabulary, applied via ForceValidate (the level editor's
+        // runtime apply path). Exception (task ruling): SwampNight always writes
+        // Tone=ForestMoonlight — the star dome needs night.
+        StyleVocabulary(_genStyle, out var vBiome, out var vSub, out var vTheme, out var vTone);
+        bool forceTone = _genStyle == SkyStyle.SwampNight;
+        int authoredKept = 0, filled = 0, tonesOverridden = 0;
         ProceduralStyle[] styles = _mapInstance.GetComponentsInChildren<ProceduralStyle>(true);
         for (int i = 0; i < styles.Length; i++)
         {
             ProceduralStyle s = styles[i];
             if (s == null)
                 continue;
-            if (_genStyle == SkyStyle.Cellar)
+            if (IsAuthored((int)s.Biome)) authoredKept++;
+            else if (IsAuthored((int)vBiome)) { s.Biome = vBiome; filled++; }
+            if (IsAuthored((int)s.SubBiome)) authoredKept++;
+            else if (IsAuthored((int)vSub)) { s.SubBiome = vSub; filled++; }
+            if (IsAuthored((int)s.Theme)) authoredKept++;
+            else if (IsAuthored((int)vTheme)) { s.Theme = vTheme; filled++; }
+            if (forceTone)
             {
-                s.Biome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.EBiome.Dungeon;
-                s.SubBiome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ESubBiome.StoneRooms;
-                s.Tone = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETone.Candlelight;
+                if (IsAuthored((int)s.Tone) && s.Tone != vTone) tonesOverridden++;
+                if (s.Tone != vTone) { s.Tone = vTone; filled++; }
+                else authoredKept++;
             }
-            else
-            {
-                s.Biome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.EBiome.Forest;
-                s.SubBiome = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ESubBiome.Marsh;
-                s.Theme = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETheme.StillWaters;
-                s.Tone = ScenarioRuleLibrary.YML.ScenarioPossibleRoom.ETone.ForestMoonlight;
-            }
+            else if (IsAuthored((int)s.Tone)) authoredKept++;
+            else if (IsAuthored((int)vTone)) { s.Tone = vTone; filled++; }
         }
         for (int i = 0; i < styles.Length; i++)
         {
@@ -648,7 +1002,7 @@ internal static partial class SkyAlternative
         }
 
         // BORROW the detail focus (class doc step 4 — the documented decision: staging sits
-        // 50 wu below the viewpoint, beyond the proven detail range, so this is not optional).
+        // far below the viewpoint, beyond the proven detail range, so this is not optional).
         ApparanceDetailFocus.Uninstall();
         _borrowedGazeDriver = true;
         _genFocusGo = new GameObject("GloomhavenVR.SkyAlternative.MapGenFocus");
@@ -660,20 +1014,29 @@ internal static partial class SkyAlternative
         engine.DetailFocus = _genFocusGo;
 
         VRLog.Info("Core", $"Sky alternative: generating the {_genStyle} room from the game's own art — " +
-                           $"'Map A' staged at {staging} ({styles.Length} ProceduralStyle(s) written+validated, " +
+                           $"'{_mapName}' staged at {staging} (depth {depth:F0} wu = {depth / rigScale:F0} real m " +
+                           $"below the player at rig scale {rigScale:F2}, beyond far plane {far:F0}; hidden " +
+                           $"staging layer {(stagingLayer >= 0 ? stagingLayer.ToString() : "none")} " +
+                           $"{(_stagingLayerSafe ? "VERIFIED safe — no active camera renders it" : $"NOT safe [{offender}] — mod layer + depth carry the hiding")}). " +
+                           $"{styles.Length} ProceduralStyle(s): {authoredKept} authored axis value(s) kept, " +
+                           $"{filled} filled with the {_genStyle} vocabulary" +
+                           $"{(tonesOverridden > 0 ? $", {tonesOverridden} authored tone(s) overridden to ForestMoonlight for the star dome" : "")}; " +
                            $"{walls} wall entity(ies) populated, {muted} ambience component(s) muted, engine " +
-                           $"detail focus borrowed for ≤ {GenTimeoutSeconds:F0} s).");
+                           $"detail focus borrowed for ≤ {GenTimeoutSeconds:F0} s.");
 
         _genPhase = GenPhase.Building;
+        _healPasses = 0;
+        _healedNames.Clear();
+        _removedNames.Clear();
         float now = Time.realtimeSinceStartup;
         _genDeadline = now + GenTimeoutSeconds;
         _nextGenPoll = now;
         _lastRendererCount = -1;
     }
 
-    /// <summary>Class doc step 5: poll until the census settles fallback-free, then finalize;
-    /// timeout with content → place anyway (census names the residue); timeout without
-    /// content → FX-shell fallback.</summary>
+    /// <summary>Class doc step 5: poll until the census settles, heal any terminal 'Red Cube'
+    /// fallbacks (finding 3), then finalize; timeout with content → heal + place anyway;
+    /// timeout without content → FX-shell fallback.</summary>
     private static void TickBuilding(Transform frame)
     {
         if (_mapInstance == null)
@@ -687,10 +1050,25 @@ internal static partial class SkyAlternative
             return;
         _nextGenPoll = now + GenPollIntervalSeconds;
 
+        // Staging-layer safety is re-verified every poll — a camera spawned mid-window (map
+        // mirror, capture) that renders the layer demotes the build to the mod layer for the
+        // rest of the window (the scaled depth keeps hiding it either way).
+        if (_stagingLayerSafe && !VerifyStagingLayerSafe(_stagingLayer, out string offender))
+        {
+            _stagingLayerSafe = false;
+            if (!_stagingLayerWarned)
+            {
+                _stagingLayerWarned = true;
+                VRLog.Info("Core", $"Sky alternative: hidden staging layer {_stagingLayer} lost its safety " +
+                                   $"mid-build ({offender}) — staged build demoted to the mod layer; the " +
+                                   "scaled staging depth keeps it out of view.");
+            }
+        }
+
         // Children generated since the last poll are on their authored layers — re-apply the
-        // mod layer each poll (root cause D; a sub-second window between polls remains and is
-        // accepted: WallSegmentFade's sweeps run on their own 1 s cadence).
-        VRLayers.Apply(_mapInstance);
+        // build layer each poll (root cause D; a sub-second window between polls remains and
+        // is accepted: WallSegmentFade's sweeps run on their own 1 s cadence).
+        ApplyBuildLayer(_mapInstance);
 
         int busy = 0, renderers = 0, fallbacks = 0;
         foreach (ApparanceEntity e in _mapInstance.GetComponentsInChildren<ApparanceEntity>(true))
@@ -703,15 +1081,20 @@ internal static partial class SkyAlternative
         CensusGeneratedContent(_mapInstance.transform, ref renderers, ref fallbacks);
 
         // Settled = content exists, nothing building, the census matched the previous poll
-        // (one extra confirmation beat so a between-entities gap can't pass as "done") AND no
-        // 'Red Cube' fallback renderers remain — fallbacks get half the window to resolve
-        // into real art before the room is placed with them (root cause A: a placed fallback
-        // is permanent, but a room with one missing prop still beats the FX shell alone).
-        bool fallbackGrace = now >= _genDeadline - GenTimeoutSeconds * 0.5f;
-        if (renderers > 0 && busy == 0 && renderers == _lastRendererCount
-            && (fallbacks == 0 || fallbackGrace))
+        // (one extra confirmation beat so a between-entities gap can't pass as "done").
+        // Remaining fallbacks at settle are TERMINAL (finding 3: the miss minted a null-Object
+        // placeholder; the engine will never retry) — heal them NOW, then let the census
+        // re-stabilize fallback-free before placing.
+        bool settled = renderers > 0 && busy == 0 && renderers == _lastRendererCount;
+        if (settled && fallbacks > 0 && _healPasses < MaxHealPasses)
         {
-            FinalizeBuild(frame, renderers, fallbacks);
+            HealFallbacks(_mapInstance);
+            _lastRendererCount = -1; // the heal changed the census — demand fresh stability
+            return;
+        }
+        if (settled && fallbacks == 0)
+        {
+            FinalizeBuild(frame, renderers);
             return;
         }
         _lastRendererCount = renderers;
@@ -719,20 +1102,364 @@ internal static partial class SkyAlternative
         if (now > _genDeadline)
         {
             if (renderers > 0)
-                FinalizeBuild(frame, renderers, fallbacks); // late but real — place what exists
+            {
+                if (fallbacks > 0 && _healPasses < MaxHealPasses)
+                    HealFallbacks(_mapInstance); // late but no red box is ever placed
+                FinalizeBuild(frame, renderers);
+            }
             else
                 FailGeneration($"generation did not settle within {GenTimeoutSeconds:F0} s " +
                                $"(renderers={renderers}, busy entities={busy})");
         }
     }
 
+    // ---- HEAL: terminal 'Red Cube' fallbacks (finding 3) ----------------------------------------
+
+    /// <summary>Extract the missing asset name from a fallback instance's name — placement
+    /// appends the resolver's error text to the instance name (decompiled ApparanceEntity:
+    /// gameObject2.name += " (" + error_message + ")", error_message = "Unable to find
+    /// prefab: " + name).</summary>
+    private static string? ParseMissingName(string instanceName)
+    {
+        const string marker = "Unable to find prefab: ";
+        int at = instanceName.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0)
+            return null;
+        int start = at + marker.Length;
+        int end = instanceName.LastIndexOf(')');
+        if (end <= start)
+            end = instanceName.Length;
+        return instanceName.Substring(start, end - start).Trim();
+    }
+
+    /// <summary>
+    /// THE HEAL PASS (finding 3, "rote boxen"). Every remaining 'Red Cube' is terminal by
+    /// construction (class doc), so each one is replaced IN PLACE with donor art found by
+    /// suffix in the loaded resource lists — the cube instance's transform encodes the exact
+    /// procedure frame the real asset would have filled (decompiled placement math, inverted
+    /// in <see cref="ReplaceFallbackInstance"/>) — and a donor alias is injected into the
+    /// category's own list so later runs of the session resolve through the game's own path.
+    /// A missing piece with NO donor anywhere is REMOVED: the user's finding is the red box,
+    /// and a small gap in a non-interactive ambience room beats a debug cube.
+    /// REJECTED alternatives: warming more packets (cannot change which packet a category
+    /// resolves to — LookupResourceList is deterministic per descriptor prefix) and rebuilding
+    /// the entities after injection (a full re-synthesis mid-window for a handful of pieces).
+    /// </summary>
+    private static void HealFallbacks(GameObject inst)
+    {
+        _healPasses++;
+        ApparanceEngine? engine = ApparanceEngine.Instance;
+        AssetInfo? cubeInfo = null;
+        try { cubeInfo = engine != null ? engine.GetDebugMissingObject() : null; }
+        catch { /* engine tearing down */ }
+
+        // Group the cube instances by missing name (9x StoneRooms.Floor.Tile in the 128 log).
+        var byName = new Dictionary<string, List<GameObject>>(StringComparer.OrdinalIgnoreCase);
+        foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null || !IsFallbackRenderer(r))
+                continue;
+            string? missing = ParseMissingName(r.name);
+            if (missing == null || missing.Length == 0)
+                missing = "unknown";
+            if (!byName.TryGetValue(missing, out List<GameObject> list))
+            {
+                list = new List<GameObject>(4);
+                byName[missing] = list;
+            }
+            if (!list.Contains(r.gameObject))
+                list.Add(r.gameObject);
+        }
+        if (byName.Count == 0)
+            return;
+
+        int healed = 0, removed = 0;
+        foreach (KeyValuePair<string, List<GameObject>> kv in byName)
+        {
+            GameObject? donor = FindDonor(kv.Key, out string donorName);
+            bool replaced = false;
+            foreach (GameObject cube in kv.Value)
+            {
+                if (cube == null)
+                    continue;
+                if (donor != null && cubeInfo != null && cubeInfo.Object is GameObject cubeTemplate)
+                {
+                    try
+                    {
+                        ReplaceFallbackInstance(cube, cubeTemplate, cubeInfo, donor, kv.Key);
+                        replaced = true;
+                        healed++;
+                    }
+                    catch (Exception e)
+                    {
+                        VRLog.Warn("Core", $"Sky alternative heal: replacing '{kv.Key}' threw " +
+                                           $"({e.GetType().Name}: {e.Message}) — removing the cube instead.");
+                        removed++;
+                    }
+                }
+                else
+                {
+                    removed++;
+                }
+                try { UnityEngine.Object.Destroy(cube); }
+                catch { /* already going down */ }
+            }
+            if (replaced)
+            {
+                if (_healedNames.Count < 8)
+                    _healedNames.Add($"{kv.Key}←{donorName}");
+                InjectDonorAlias(kv.Key, donor!);
+            }
+            else if (_removedNames.Count < 8)
+            {
+                _removedNames.Add(kv.Key);
+            }
+        }
+
+        VRLog.Info("Core", $"Sky alternative HEAL pass {_healPasses} ({_genStyle}): {byName.Count} missing " +
+                           $"asset name(s) → {healed} instance(s) replaced with donor art, {removed} removed " +
+                           $"(no donor). Healed: [{(_healedNames.Count > 0 ? string.Join(", ", _healedNames) : "none")}]; " +
+                           $"removed: [{(_removedNames.Count > 0 ? string.Join(", ", _removedNames) : "none")}].");
+    }
+
+    /// <summary>
+    /// Invert the engine's placement math to put the DONOR into the exact frame the cube fills
+    /// (decompiled ApparanceEntity: scale = l ⊗ frameSize ⊘ boundsSize; worldPos = O +
+    /// R·((−boundsMin) ⊗ scale ⊘ l); Instantiate at world pos/rot, then localScale = scale).
+    /// From the cube instance (worldPos P_c, worldRot R, localScale s_c) and both prefab
+    /// bounds: frameSize = s_c ⊗ size_c ⊘ l_c; O = P_c − R·((−min_c) ⊗ s_c ⊘ l_c);
+    /// s_d = l_d ⊗ frameSize ⊘ size_d; P_d = O + R·((−min_d) ⊗ s_d ⊘ l_d). Zero-size axes
+    /// keep scale 1, mirroring the engine's own guard.
+    /// </summary>
+    private static void ReplaceFallbackInstance(
+        GameObject cube, GameObject cubeTemplate, AssetInfo cubeInfo, GameObject donor, string missing)
+    {
+        Vector3 lC = cubeTemplate.transform.localScale;
+        Vector3 minC = cubeInfo.MinBounds;
+        Vector3 sizeC = cubeInfo.MaxBounds - cubeInfo.MinBounds;
+
+        // Donor bounds exactly the way the engine measures assets (AssetInfo.UpdateBounds:
+        // collider bounds first, mesh bounds second, relative to the template's own position).
+        Bounds db = ApparanceResources.AccumulateObjectBounds(donor);
+        Vector3 minD = db.min - donor.transform.position;
+        Vector3 sizeD = db.max - db.min;
+        Vector3 lD = donor.transform.localScale;
+
+        Vector3 sC = cube.transform.localScale;
+        Quaternion rot = cube.transform.rotation;
+        Vector3 frame = new(
+            SafeDiv(sC.x * sizeC.x, lC.x), SafeDiv(sC.y * sizeC.y, lC.y), SafeDiv(sC.z * sizeC.z, lC.z));
+        Vector3 sD = new(
+            sizeD.x != 0f ? SafeDiv(lD.x * frame.x, sizeD.x) : 1f,
+            sizeD.y != 0f ? SafeDiv(lD.y * frame.y, sizeD.y) : 1f,
+            sizeD.z != 0f ? SafeDiv(lD.z * frame.z, sizeD.z) : 1f);
+        Vector3 originWorld = cube.transform.position
+            - rot * new Vector3(SafeDiv(-minC.x * sC.x, lC.x), SafeDiv(-minC.y * sC.y, lC.y), SafeDiv(-minC.z * sC.z, lC.z));
+        Vector3 posD = originWorld
+            + rot * new Vector3(SafeDiv(-minD.x * sD.x, lD.x), SafeDiv(-minD.y * sD.y, lD.y), SafeDiv(-minD.z * sD.z, lD.z));
+
+        GameObject go = UnityEngine.Object.Instantiate(donor, posD, rot, cube.transform.parent);
+        go.name = "GloomhavenVR.Heal." + missing; // mod prefix: IsModObject-excluded by name too
+        go.transform.localScale = sD;
+        go.hideFlags = cube.hideFlags; // blend into the Generated-Content container's flags
+        ApplyBuildLayer(go);
+    }
+
+    private static float SafeDiv(float a, float b) => b != 0f ? a / b : a;
+
+    /// <summary>
+    /// Donor search for a missing asset name: an entry with the SAME piece suffix (everything
+    /// after the category's first dot-segment, e.g. 'Floor.TileSplit' or 'Door.Thick' with
+    /// the '#variant' stripped as second chance) in any of this run's warmed resource lists —
+    /// preferred in warmup-token order, i.e. same-family art first — then the engine's
+    /// preloaded Externals lists. Only GameObject entries qualify (materials fall back
+    /// separately and are not healed here).
+    /// </summary>
+    private static GameObject? FindDonor(string missing, out string donorName)
+    {
+        donorName = "";
+        int dot = missing.IndexOf('.');
+        if (dot <= 0 || dot >= missing.Length - 1)
+            return null;
+        string suffix = missing.Substring(dot + 1);
+        int hash = suffix.IndexOf('#');
+        string baseSuffix = hash > 0 ? suffix.Substring(0, hash) : suffix;
+
+        ApparanceEngine? engine = ApparanceEngine.Instance;
+        if (engine == null)
+            return null;
+        ApparanceResourceListLoader? loader = engine.GetComponent<ApparanceResourceListLoader>();
+        ApparanceResources? res = engine.Resources != null ? engine.Resources : engine.GetComponent<ApparanceResources>();
+
+        GameObject? best = null;
+        string bestName = "";
+        int bestRank = int.MaxValue;
+
+        void Consider(ApparanceObjectResource? o)
+        {
+            if (o == null || o.Object == null || !(o.Object is GameObject go) || string.IsNullOrEmpty(o.Name))
+                return;
+            if (string.Equals(o.Name, missing, StringComparison.OrdinalIgnoreCase))
+                return; // the minted placeholder family — never a donor for itself
+            int d = o.Name.IndexOf('.');
+            if (d <= 0 || d >= o.Name.Length - 1)
+                return;
+            string prefix = o.Name.Substring(0, d);
+            string tail = o.Name.Substring(d + 1);
+            int suffixRank;
+            if (string.Equals(tail, suffix, StringComparison.OrdinalIgnoreCase))
+                suffixRank = 0; // exact piece incl. variant
+            else if (string.Equals(tail, baseSuffix, StringComparison.OrdinalIgnoreCase))
+                suffixRank = 1; // base piece, variant dropped
+            else
+                return;
+            int prefRank = _warmupTokens.Length + 1;
+            for (int t = 0; t < _warmupTokens.Length; t++)
+            {
+                if (string.Equals(_warmupTokens[t], prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    prefRank = t;
+                    break;
+                }
+            }
+            int rank = suffixRank * 100 + prefRank;
+            if (rank < bestRank)
+            {
+                bestRank = rank;
+                best = go;
+                bestName = o.Name;
+            }
+        }
+
+        try
+        {
+            if (loader != null)
+            {
+                for (int i = 0; i < _warmupPaths.Count; i++)
+                {
+                    ApparanceResourceList? list = loader.LoadCheck(_warmupPaths[i]);
+                    if (list == null)
+                        continue;
+                    for (int j = 0; j < list.Objects.Count; j++)
+                        Consider(list.Objects[j]);
+                }
+            }
+            if (res != null)
+            {
+                foreach (ApparanceResourceList external in res.Externals)
+                {
+                    if (external == null)
+                        continue;
+                    for (int j = 0; j < external.Objects.Count; j++)
+                        Consider(external.Objects[j]);
+                }
+                for (int j = 0; j < res.Objects.Count; j++)
+                    Consider(res.Objects[j]);
+            }
+        }
+        catch { /* engine tearing down — whatever was found so far stands */ }
+
+        donorName = bestName;
+        return best;
+    }
+
+    /// <summary>
+    /// Teach the SESSION the donor: inject an alias entry (missing name → donor prefab) into
+    /// the resource list the category actually resolves to — mirrored from the game's own
+    /// LookupResourceList (first table carrying the category, autoFallback path included), so
+    /// every later run resolves through the game's own FindExternalAsset name match and the
+    /// engine places the donor itself, frame-exact. The minted null placeholder for the same
+    /// name is purged first (it would match BEFORE our alias).
+    /// </summary>
+    private static void InjectDonorAlias(string missing, GameObject donor)
+    {
+        try
+        {
+            ApparanceEngine? engine = ApparanceEngine.Instance;
+            if (engine == null)
+                return;
+            ApparanceResourceListLoader? loader = engine.GetComponent<ApparanceResourceListLoader>();
+            ApparanceResources? res = engine.Resources != null ? engine.Resources : engine.GetComponent<ApparanceResources>();
+            if (loader == null || res == null)
+                return;
+            int dot = missing.IndexOf('.');
+            if (dot <= 0)
+                return;
+            string category = missing.Substring(0, dot);
+
+            ApparanceResourceList? target = null;
+            foreach (ApparanceResourceTable table in res.Indirects)
+            {
+                if (table == null)
+                    continue;
+                string? path = null;
+                bool mapped = false;
+                foreach (ApparanceResourceTable.ResourceListMapping mapping in table.ResourceLists)
+                {
+                    if (string.Compare(mapping.Category, category, StringComparison.OrdinalIgnoreCase) == 0)
+                    {
+                        path = table.AssetPathPrefix + mapping.AssetPath;
+                        mapped = true;
+                        break;
+                    }
+                }
+                if (!mapped && table.autoFallback)
+                    path = table.AssetPathPrefix + category;
+                if (path == null)
+                    continue;
+                target = loader.LoadCheck(path);
+                if (target != null)
+                    break;
+            }
+            if (target == null)
+                return;
+
+            target.Objects.RemoveAll(o => o != null && o.Object == null &&
+                string.Equals(o.Name, missing, StringComparison.OrdinalIgnoreCase));
+            var alias = new ApparanceObjectResource
+            {
+                Name = missing,
+                Object = donor,
+                Description = "GloomhavenVR donor alias",
+            };
+            alias.UpdateName(target.GetCategory());
+            target.Objects.Add(alias);
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("Core", $"Sky alternative heal: alias injection for '{missing}' threw " +
+                               $"({e.GetType().Name}: {e.Message}) — this run is healed in place anyway.");
+        }
+    }
+
+    // ---- FINALIZE -------------------------------------------------------------------------------
+
     /// <summary>Class doc step 6 + NORMALIZATION MATH: force visibility, measure, light,
     /// neutralize, strip, layer, place, prove.</summary>
-    private static void FinalizeBuild(Transform frame, int renderers, int fallbacks)
+    private static void FinalizeBuild(Transform frame, int renderers)
     {
         GameObject inst = _mapInstance!;
 
-        // 1. FORCE FULL VISIBILITY (hypothesis B of the ModBuild-127 report): the Map A
+        // 0. NO RED BOX IS EVER PLACED (finding 3 goal state) — the heal pass normally
+        // leaves zero fallbacks, but a deadline finalize after exhausted heal passes could
+        // still carry one; sweep them here as last insurance, names to the removed list.
+        foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null || !IsFallbackRenderer(r))
+                continue;
+            if (_removedNames.Count < 8)
+            {
+                string? miss = ParseMissingName(r.name);
+                if (miss != null && !_removedNames.Contains(miss))
+                    _removedNames.Add(miss);
+            }
+            // Immediate, not deferred: the ROOM CENSUS below runs THIS frame and must prove
+            // the 0-fallback goal state; the object is our own staged clone's child.
+            try { UnityEngine.Object.DestroyImmediate(r.gameObject); }
+            catch { /* already going down */ }
+        }
+
+        // 1. FORCE FULL VISIBILITY (hypothesis B of the ModBuild-127 report): the map
         // prefab's serialized ProceduralMapTile.visibility is asset data this mod cannot read,
         // and the game's reveal flow (Choreographer) never runs for our clone — so the
         // fully-revealed state is FORCED, on our own staged instance only, via the game's own
@@ -754,7 +1481,11 @@ internal static partial class SkyAlternative
             catch { /* one broken tile must not stop the rest */ }
         }
 
-        // 2. MEASURE at staging (scale 1, identity rotation): world bounds == authored map units.
+        // 2. MEASURE at staging (scale 1, identity rotation): world bounds == authored map
+        // units. The MAIN ROOM (largest tile by its authored BoxCollider) drives normalization
+        // and placement (class doc NORMALIZATION MATH — a multi-room map's bounds center can
+        // land inside a wall between rooms; the colliders are still alive here, step 6 strips
+        // them afterwards).
         Bounds bounds = default;
         bool hasBounds = false;
         foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
@@ -765,9 +1496,36 @@ internal static partial class SkyAlternative
             else bounds.Encapsulate(r.bounds);
         }
         Vector3 rootPos = inst.transform.position;
-        float extent = hasBounds ? Mathf.Max(bounds.size.x, bounds.size.z) : 0f;
-        float norm = extent > 0.01f ? TargetRoomMeters / extent : 1f;
+        float totalExtent = hasBounds ? Mathf.Max(bounds.size.x, bounds.size.z) : 0f;
+
+        Bounds mainTile = default;
+        bool hasMainTile = false;
+        foreach (ProceduralMapTile tile in tiles)
+        {
+            if (tile == null)
+                continue;
+            Collider? c = tile.BoxCollider != null ? tile.BoxCollider : tile.GetComponent<BoxCollider>();
+            if (c == null)
+                continue;
+            Bounds tb = c.bounds;
+            float ext = Mathf.Max(tb.size.x, tb.size.z);
+            if (!hasMainTile || ext > Mathf.Max(mainTile.size.x, mainTile.size.z))
+            {
+                mainTile = tb;
+                hasMainTile = true;
+            }
+        }
+        float mainExtent = hasMainTile ? Mathf.Max(mainTile.size.x, mainTile.size.z) : totalExtent;
+
+        float norm = 1f;
+        if (mainExtent > 0.01f)
+            norm = TargetMainRoomMeters / mainExtent;
+        if (totalExtent > 0.01f)
+            norm = Mathf.Min(norm, MaxTotalRoomMeters / totalExtent);
         norm = Mathf.Clamp(norm, 0.02f, 10f);
+
+        // The frame-origin anchor: the MAIN room's center — the diorama sits mid-main-room.
+        Vector3 anchorWorld = hasMainTile ? mainTile.center : (hasBounds ? bounds.center : rootPos);
 
         // Floor top = the tile plane figures stand on (average ProceduralMapTile height);
         // bounds-min fallback if the tile walk yields nothing.
@@ -824,19 +1582,20 @@ internal static partial class SkyAlternative
         if (activeLights == 0)
         {
             // The generated content brought no usable lights — spawn a modest own rig so the
-            // room can never be pitch black again: one warm/cool key near the ceiling center,
-            // one dim fill from the opposite half. Authored in MAP UNITS here (the instance
-            // is still at staging scale 1); SyncRoomLightRanges scales them with everything else.
+            // room can never be pitch black again: one warm/cool key near the ceiling center
+            // of the MAIN room, one dim fill from the opposite half. Authored in MAP UNITS
+            // here (the instance is still at staging scale 1); SyncRoomLightRanges scales
+            // them with everything else.
             Color key = _genStyle == SkyStyle.Cellar
                 ? new Color(1f, 0.83f, 0.58f)   // candlelight
                 : new Color(0.62f, 0.72f, 1f);  // moonlight
-            Vector3 center = hasBounds ? bounds.center : rootPos;
-            float roomR = Mathf.Max(1f, extent * 0.5f);
+            Vector3 center = anchorWorld;
+            float roomR = Mathf.Max(1f, mainExtent * 0.5f);
             SpawnFallbackLight(inst.transform, "GloomhavenVR.SkyAlternative.RoomLight.Key",
-                center + new Vector3(0f, roomR * 0.5f, 0f), key, 1.15f, extent * 0.9f);
+                center + new Vector3(0f, roomR * 0.5f, 0f), key, 1.15f, Mathf.Max(mainExtent, 1f) * 0.9f);
             SpawnFallbackLight(inst.transform, "GloomhavenVR.SkyAlternative.RoomLight.Fill",
                 center + new Vector3(roomR * 0.4f, roomR * 0.3f, roomR * 0.4f),
-                Color.Lerp(key, Color.white, 0.5f), 0.45f, extent * 0.7f);
+                Color.Lerp(key, Color.white, 0.5f), 0.45f, Mathf.Max(mainExtent, 1f) * 0.7f);
             activeLights = 2;
         }
 
@@ -892,14 +1651,15 @@ internal static partial class SkyAlternative
         foreach (Collider c in colliders)
             UnityEngine.Object.Destroy(c);
 
-        // 7. Mod layer, recursive — head camera only. Generated-Content containers are plain
+        // 7. Mod layer, recursive — head camera only (the hidden staging layer, if it was
+        // used, ends HERE; a placed room must render). Generated-Content containers are plain
         // children; hideFlags don't hide them from this walk. Also covers the fallback lights.
         VRLayers.Apply(inst);
 
-        // 8. PLACE: bounds center → frame origin (the play-field center since Finding 4 —
+        // 8. PLACE: main-room center → frame origin (the play-field center since Finding 4 —
         // SkyAlternative.PlaceAtPlayer owns the anchor), floor top → frame-local y = 0 (the
         // real floor). Frame-local meters read as real meters (class doc math).
-        Vector3 centerOff = hasBounds ? bounds.center - rootPos : Vector3.zero;
+        Vector3 centerOff = anchorWorld - rootPos;
         inst.transform.SetParent(frame, worldPositionStays: false);
         inst.transform.localRotation = Quaternion.identity;
         inst.transform.localScale = Vector3.one * norm;
@@ -917,29 +1677,32 @@ internal static partial class SkyAlternative
         _genPhase = GenPhase.Built;
         _builtCensusDone = false;
         _builtCensusTime = Time.realtimeSinceStartup + BuiltCensusDelaySeconds;
-        VRLog.Info("Core", $"Sky alternative: {_genStyle} room BUILT from the game's own art — " +
-                           $"{renderers} generated renderer(s), {neutralized} entity(ies) neutralized, " +
-                           $"{destroyed} procedural component(s) destroyed" +
+        VRLog.Info("Core", $"Sky alternative: {_genStyle} room BUILT from the game's own '{_mapName}' — " +
+                           $"{renderers} generated renderer(s), {tiles.Length} authored room tile(s), " +
+                           $"{neutralized} entity(ies) neutralized, {destroyed} procedural component(s) destroyed" +
                            $"{(colliders.Length > 0 ? $", {colliders.Length} collider(s) stripped" : "")}. " +
-                           $"Bounds {(hasBounds ? bounds.size.ToString("F1") : "<none>")} map units → " +
-                           $"normalization {norm:F3} (target {TargetRoomMeters:F0} m across), floor at " +
-                           $"map y {floorY - rootPos.y:F2} aligned to the real floor; placed in the " +
-                           "ambient frame. Engine detail focus returned.");
+                           $"Bounds {(hasBounds ? bounds.size.ToString("F1") : "<none>")} map units, main room " +
+                           $"{mainExtent:F1} → normalization {norm:F3} (main room target {TargetMainRoomMeters:F0} m, " +
+                           $"whole map ≤ {MaxTotalRoomMeters:F0} m, placed map {totalExtent * norm:F1} m across), " +
+                           $"floor at map y {floorY - rootPos.y:F2} aligned to the real floor; main-room center " +
+                           "anchored to the ambient frame origin. Engine detail focus returned.");
 
-        LogRoomCensus(inst, fallbacks, visBefore, ambienceRigs, activeLights);
+        LogRoomCensus(inst, visBefore, ambienceRigs, activeLights);
     }
 
     /// <summary>THE DIAGNOSTIC BLOCK (grep: <c>ROOM CENSUS</c>) — one compact placement-time
     /// proof of the render state so the next hardware log convicts any residual cause without
-    /// screenshots: renderer/material/loader states, room + scene lighting, ambient.</summary>
+    /// screenshots: renderer/material/loader states, fallback heal results BY NAME (finding 3),
+    /// room + scene lighting, ambient.</summary>
     private static void LogRoomCensus(
-        GameObject inst, int fallbacks,
+        GameObject inst,
         Dictionary<ProceduralMapTile.Visibility, int> visBefore, int ambienceRigs, int activeLights)
     {
         try
         {
-            int total = 0, drawing = 0, disabled = 0, nullSlot = 0;
+            int total = 0, drawing = 0, disabled = 0, nullSlot = 0, fallbacks = 0;
             var samples = new List<string>(4);
+            var fallbackNames = new List<string>(8);
             Bounds placed = default;
             bool hasPlaced = false;
             foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
@@ -952,6 +1715,12 @@ internal static partial class SkyAlternative
                 bool active = r.gameObject.activeInHierarchy;
                 if (active && r.enabled)
                     drawing++;
+                if (IsFallbackRenderer(r))
+                {
+                    fallbacks++;
+                    if (fallbackNames.Count < 8)
+                        fallbackNames.Add(ParseMissingName(r.name) ?? r.name);
+                }
                 Material[] shared = r.sharedMaterials;
                 bool hasNull = shared.Length == 0;
                 foreach (Material m in shared)
@@ -1009,11 +1778,15 @@ internal static partial class SkyAlternative
                                $"int={l.intensity:F2} range={l.range:F1} mask=0x{l.cullingMask:X8}");
             }
 
-            VRLog.Info("Core", $"Sky alternative ROOM CENSUS ({_genStyle}): renderers {total} " +
+            VRLog.Info("Core", $"Sky alternative ROOM CENSUS ({_genStyle}, '{_mapName}'): renderers {total} " +
                                $"({drawing} drawing, {disabled} active-but-disabled, {nullSlot} with null " +
-                               $"material slot(s), {fallbacks} fallback 'Red Cube'(s)); MaterialLoaders " +
-                               $"{loaders} ({loaderEntries} entries, healer-supervised); tile visibility " +
-                               $"pre-force [{string.Join(", ", visParts)}] → forced All; packets warmed " +
+                               $"material slot(s), {fallbacks} fallback 'Red Cube'(s)" +
+                               $"{(fallbackNames.Count > 0 ? ": " + string.Join(", ", fallbackNames) : "")}); " +
+                               $"heal passes {_healPasses}, healed " +
+                               $"[{(_healedNames.Count > 0 ? string.Join(", ", _healedNames) : "none")}], removed " +
+                               $"[{(_removedNames.Count > 0 ? string.Join(", ", _removedNames) : "none")}]; " +
+                               $"MaterialLoaders {loaders} ({loaderEntries} entries, healer-supervised); tile " +
+                               $"visibility pre-force [{string.Join(", ", visParts)}] → forced All; packets warmed " +
                                $"{_warmupRequested} (failed: {(_warmupFailed.Count > 0 ? string.Join(", ", _warmupFailed) : "none")}).");
             VRLog.Info("Core", $"Sky alternative ROOM CENSUS lights: room rig {_roomLights.Count} light(s) " +
                                $"({activeLights} active, {ambienceRigs} ambience rig(s) driven to level 1, " +
@@ -1108,7 +1881,7 @@ internal static partial class SkyAlternative
 
     /// <summary>Cancel any in-flight generation and forget a placed room's bookkeeping. Called
     /// from <see cref="Deactivate"/> (the placed instance itself is a frame child and dies with
-    /// the frame) and on mid-run style switches. Cached prefab handle stays (session-lifetime).</summary>
+    /// the frame) and on mid-run style switches. Cached prefab handles stay (session-lifetime).</summary>
     private static void CancelMapGen(string reason)
     {
         bool hadWork = _genPhase == GenPhase.Loading || _genPhase == GenPhase.Warmup
@@ -1118,6 +1891,10 @@ internal static partial class SkyAlternative
         _roomLights.Clear();
         _roomLightRanges.Clear();
         _warmupPending.Clear();
+        _healPasses = 0;
+        _healedNames.Clear();
+        _removedNames.Clear();
+        _stagingLayerSafe = false;
         _genPhase = GenPhase.Idle;
         _genStyle = SkyStyle.Default;
         if (hadWork)
@@ -1172,18 +1949,24 @@ internal static partial class SkyAlternative
         }
     }
 
-    /// <summary>Release the session-cached Addressables handle (VR stop / hot reload via
-    /// <see cref="RestoreAll"/>). The next activation reloads it.</summary>
-    private static void ReleaseMapPrefab()
+    private static void ReleaseMapHandle(int i)
     {
-        _mapPrefab = null;
+        _mapPrefabs[i] = null;
         try
         {
-            if (_mapHandleHeld && _mapHandle.IsValid())
-                Addressables.Release(_mapHandle);
+            if (_mapHandlesHeld[i] && _mapHandles[i].IsValid())
+                Addressables.Release(_mapHandles[i]);
         }
         catch { /* released twice / never acquired */ }
-        _mapHandleHeld = false;
+        _mapHandlesHeld[i] = false;
+    }
+
+    /// <summary>Release the session-cached Addressables handles (VR stop / hot reload via
+    /// <see cref="RestoreAll"/>). The next activation reloads them.</summary>
+    private static void ReleaseMapPrefab()
+    {
+        for (int i = 0; i < _mapHandles.Length; i++)
+            ReleaseMapHandle(i);
     }
 
     /// <summary>A renderer the engine placed as its debug missing-asset substitute — the
@@ -1197,7 +1980,7 @@ internal static partial class SkyAlternative
     /// the reveal fix established ("maptile 'L' went Preview/0-renderers → All/229 renderers")
     /// — plus the fallback count (root cause A). The containers are HideAndDontSave
     /// (FindObjectsOfType misses them, a transform walk does not — SceneRegistry round-6
-    /// lesson); a full-depth name scan over one small map is cheap and runs on the 0.5 s poll
+    /// lesson); a full-depth name scan over one map is cheap and runs on the 0.5 s poll
     /// cadence only.</summary>
     private static void CensusGeneratedContent(Transform root, ref int renderers, ref int fallbacks)
     {

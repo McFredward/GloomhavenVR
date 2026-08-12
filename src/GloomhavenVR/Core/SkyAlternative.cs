@@ -28,13 +28,15 @@ internal enum SkyStyle
     /// <summary>The game's own scenario sky (GH_SkySphere), exactly today's behaviour.</summary>
     Default = 0,
 
-    /// <summary>A candle-lit stone cellar generated from the game's own dungeon art
-    /// (Dungeon/StoneRooms/Candlelight) plus the Env_Cellar FX shell (dust motes).</summary>
+    /// <summary>A candle-lit stone cellar: the game's own AUTHORED multi-room map 'Map ABHM'
+    /// dressed in its dungeon art (Dungeon/StoneRooms/Candlelight fills, authored axes kept)
+    /// plus the Env_Cellar FX shell (dust motes).</summary>
     Cellar = 1,
 
-    /// <summary>A moonlit marsh generated from the game's own forest art
-    /// (Forest/Marsh/StillWaters/ForestMoonlight) plus the Env_Swamp FX shell (star dome,
-    /// shooting stars, fireflies, ground fog).</summary>
+    /// <summary>A moonlit marsh: the game's own AUTHORED multi-room map 'Map DDM' dressed in
+    /// its forest art (Forest/Marsh/StillWaters fills, Tone forced to ForestMoonlight for the
+    /// star dome) plus the Env_Swamp FX shell (star dome, shooting stars, fireflies, ground
+    /// fog).</summary>
     SwampNight = 2,
 }
 
@@ -77,12 +79,17 @@ internal enum SkyStyle
 ///     against a fixed contract): <c>Env_Swamp</c> = star dome + shooting stars + fireflies +
 ///     ground fog ONLY; <c>Env_Cellar</c> = dust motes + a disabled 'GlowTemplate' child.
 ///     Self-lit, self-animating (Shuriken only, no scripts), authored in real meters.
-///  3. GENERATES the actual room from the game's own art: the game's 'Map A' template is
-///     instantiated offscreen and dressed by the live Apparance engine in the game's own style
-///     vocabulary, then frozen, normalized to ~9 real meters across and placed into the same
-///     frame — the whole lane lives in <c>SkyAlternative.MapGen.cs</c> (staging pose, borrowed
-///     detail focus, settle polling, normalization math, lifecycle). Generation failure
-///     degrades to the FX shell alone.
+///  3. GENERATES the actual rooms from the game's own art: one of the game's AUTHORED
+///     multi-room maps (Cellar = 'Map ABHM', SwampNight = 'Map DDM'; ModBuild-128 finding 2 —
+///     the user rejected the generic single-room 'Map A' template and asked for "zwei echte
+///     interesannte fertige Räume aus dem Spiel") is instantiated offscreen and dressed by
+///     the live Apparance engine — authored per-tile styles kept, unset axes filled with the
+///     style vocabulary — then frozen, normalized so the MAIN room reads ~10 real meters
+///     across (whole map capped at 24 m) and placed into the same frame with the main room
+///     centered on the play field — the whole lane lives in <c>SkyAlternative.MapGen.cs</c>
+///     (staging pose, hidden-layer/depth staging, borrowed detail focus, settle polling,
+///     red-cube heal, normalization math, lifecycle). Generation failure degrades to the FX
+///     shell alone.
 ///
 /// The game's own scenario diorama/table stays untouched and visible — the environment
 /// surrounds it. Everything lives on the MOD LAYER (only the rig head camera renders it; game
@@ -147,8 +154,9 @@ internal enum SkyStyle
 /// scenario's own map tiles (<see cref="TryGetPlayFieldCenter"/>: the root
 /// <c>ProceduralScenario</c>'s <c>MapTiles</c>, each tile's authored <c>BoxCollider</c>
 /// bounds encapsulated; ALL tiles, hidden included, so a mid-scenario reveal never re-centers
-/// anything) — and the generated room is normalized so ITS center lands exactly there
-/// (MapGen placement math): the diorama sits mid-room by construction. Floor and yaw are
+/// anything) — and the generated map is normalized so its MAIN ROOM's center lands exactly
+/// there (MapGen placement math; the whole-map bounds center of a multi-room composite can
+/// fall inside a wall between rooms): the diorama sits mid-main-room by construction. Floor and yaw are
 /// UNCHANGED from before: origin height = the player's floor point (the rig-space point
 /// under the head, y=0 — tracking is floor-origin, so that is the real floor, times the rig
 /// mapping), yaw = the head's world forward projected to the horizon. If the board's tiles
@@ -305,25 +313,30 @@ internal static partial class SkyAlternative
         Style = file.Bind("Sky", "Style", Defaults.SkyStyle,
             "Which surroundings the scenario table sits in (user ruling 2026-08-12: the " +
             "environment renders ONLY inside a scenario, like the game's own default " +
-            "surroundings — never in the menu; and it is built from the game's own level art). " +
-            "Default = the game's own animated sky, exactly as before. Cellar = a candle-lit " +
-            "stone cellar generated from the game's dungeon art plus bundled dust motes; " +
-            "SwampNight = a moonlit marsh generated from the game's forest art under a bundled " +
-            "star dome with shooting stars, ground fog and fireflies. A non-Default choice in a " +
-            "scenario hides the game's sky sphere, lets the game's own Apparance engine build " +
-            "the room offscreen (a few seconds; the FX shell shows immediately), then places it " +
-            "as a real-size PLACE IN THE WORLD — about 9 m across, floor-aligned, facing your " +
-            "view, and CENTERED ON THE SCENARIO PLAY FIELD: the table diorama sits exactly in " +
-            "the middle of the room (user ruling 2026-08-12), with the room around you and the " +
-            "scenario table untouched. Stick flight, turning, the world-grab drag and physical " +
-            "walking all move you through it; the world-grab zoom rescales only the board, " +
-            "never the room; the recenter chord (B+Y) re-seats the room around you, and " +
-            "re-selecting a style rebuilds it at your current pose. It can never catch the " +
-            "laser (no colliders, mod layer only). Applies live from the VR menu, takes effect " +
-            "when a scenario is running. MIXED REALITY ALWAYS WINS: while MR is on, every sky " +
-            "and environment is off so the chroma key can show your room; the choice re-applies " +
-            "when MR turns off. Values from the old panorama builds (Night/Sunset) no longer " +
-            "exist and fall back to Default. Local presentation only, never synced to peers.");
+            "surroundings — never in the menu; and it uses the game's own REAL, authored " +
+            "level maps, not assembled pieces). Default = the game's own animated sky, exactly " +
+            "as before. Cellar = one of the game's authored multi-room dungeon maps dressed as " +
+            "a candle-lit stone cellar, plus bundled dust motes; SwampNight = an authored " +
+            "multi-room map dressed as a moonlit marsh under a bundled star dome with shooting " +
+            "stars, ground fog and fireflies. Rooms keep their authored styling and light rigs; " +
+            "only unset style axes are filled in (the swamp always gets the moonlight tone so " +
+            "the star dome reads as night). A non-Default choice in a scenario hides the game's " +
+            "sky sphere, lets the game's own Apparance engine build the map fully out of view " +
+            "(far below the world, beyond the camera's far plane — a few seconds; the FX shell " +
+            "shows immediately), then places it as a real-size PLACE IN THE WORLD — the main " +
+            "room about 10 m across (whole map up to 24 m), floor-aligned, facing your view, " +
+            "and CENTERED ON THE SCENARIO PLAY FIELD: the table diorama sits in the middle of " +
+            "the main room (user ruling 2026-08-12), with the other rooms around you to walk " +
+            "through and the scenario table untouched. Stick flight, turning, the world-grab " +
+            "drag and physical walking all move you through it; the world-grab zoom rescales " +
+            "only the board, never the room; the recenter chord (B+Y) re-seats the room around " +
+            "you, and re-selecting a style rebuilds it at your current pose. It can never catch " +
+            "the laser (no colliders, mod layer only). Applies live from the VR menu, takes " +
+            "effect when a scenario is running. MIXED REALITY ALWAYS WINS: while MR is on, " +
+            "every sky and environment is off so the chroma key can show your room; the choice " +
+            "re-applies when MR turns off. Values from the old panorama builds (Night/Sunset) " +
+            "no longer exist and fall back to Default. Local presentation only, never synced " +
+            "to peers.");
     }
 
     /// <summary>
