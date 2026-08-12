@@ -15,6 +15,10 @@ Shader "GloomhavenVR/EnvStars"
         _TwinkleAmp ("Twinkle amount", Range(0,1)) = 0.45
         _TopCol ("Sky zenith color", Color) = (0.008,0.012,0.028,1)
         _HorizonCol ("Sky horizon color", Color) = (0.045,0.07,0.11,1)
+        _MoonTex ("Moon sprite (RGBA)", 2D) = "black" {}
+        _MoonDir ("Moon direction (world)", Vector) = (0.6,0.37,0.71,0)
+        _MoonCol ("Moon color", Color) = (1,0.98,0.92,1)
+        _MoonExtent ("Moon half-extent (tan units)", Range(0.01,0.4)) = 0.075
     }
     SubShader
     {
@@ -29,9 +33,10 @@ Shader "GloomhavenVR/EnvStars"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            sampler2D _MainTex;
-            fixed4 _StarCol, _TopCol, _HorizonCol;
-            float _StarBoost, _TwinkleSpeed, _TwinkleAmp;
+            sampler2D _MainTex, _MoonTex;
+            fixed4 _StarCol, _TopCol, _HorizonCol, _MoonCol;
+            float _StarBoost, _TwinkleSpeed, _TwinkleAmp, _MoonExtent;
+            float4 _MoonDir;
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float3 wp : TEXCOORD1; };
@@ -59,8 +64,26 @@ Shader "GloomhavenVR/EnvStars"
                 float star = s.r * tw * _StarBoost;
                 // fade stars into the horizon haze
                 star *= saturate(d.y * 4.0 + 0.25);
+                float3 col = sky + _StarCol.rgb * star;
 
-                return fixed4(sky + _StarCol.rgb * star, 1.0);
+                // moon: baked into the dome (a separate blended quad showed sorting
+                // seams against the gradient) — gnomonic-project the sprite around
+                // _MoonDir and alpha-blend it over the sky.
+                float3 md = normalize(_MoonDir.xyz);
+                float t = dot(d, md);
+                if (t > 0.5)
+                {
+                    float3 right = normalize(cross(float3(0, 1, 0), md));
+                    float3 up = cross(md, right);
+                    float3 p = d / t;
+                    float2 muv = float2(dot(p, right), dot(p, up)) / (2.0 * _MoonExtent) + 0.5;
+                    if (all(muv > 0.0) && all(muv < 1.0))
+                    {
+                        fixed4 mc = tex2D(_MoonTex, muv);
+                        col = lerp(col, mc.rgb * _MoonCol.rgb, mc.a);
+                    }
+                }
+                return fixed4(col, 1.0);
             }
             ENDCG
         }

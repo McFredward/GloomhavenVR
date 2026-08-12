@@ -79,6 +79,11 @@ namespace GloomhavenVR
                 // from "material/lighting wrong".
                 if (Environment.GetEnvironmentVariable("ENV_PREVIEW_DEBUG") == "1")
                 {
+                    foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
+                    {
+                        var mf = mr.GetComponent<MeshFilter>();
+                        Debug.Log($"[EnvPreview][DBG] {mr.transform.root.name}/{mr.name}: active={mr.gameObject.activeInHierarchy} enabled={mr.enabled} mesh={(mf && mf.sharedMesh ? mf.sharedMesh.name : "NULL")} bounds={mr.bounds.center:F1}/{mr.bounds.size:F1} lossyScale={mr.transform.lossyScale:F2} mat={(mr.sharedMaterial ? mr.sharedMaterial.name : "NULL")}");
+                    }
                     var dbg = new Material(Shader.Find("GloomhavenVR/EnvLit"));
                     dbg.SetColor("_Color", Color.white);
                     dbg.SetColor("_AmbientCol", new Color(0.5f, 0.5f, 0.5f));

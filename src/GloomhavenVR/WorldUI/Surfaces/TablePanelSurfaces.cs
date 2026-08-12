@@ -767,6 +767,64 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// COVERAGE: driven from <see cref="LateTick"/> rather than from a hover hook, so it also
     /// covers <c>FigureIntentPeek</c> opening the same popup via <c>SetHilighted(true)</c> when a
     /// mini is picked up — and any future opener — for free.
+    ///
+    /// ─── ROUND 2 (hardware 2026-08-12): the ALLY banner is cut in half ─────────────────────────
+    ///
+    /// THE REPORT (user, verbatim): "Wenn man in der Initativreihenfolge über gegner mit dem laser
+    /// hovered kommt die jeweilige Gegnerinfo - das will ich weiterhin so. Doch wenn man über
+    /// Verbündete hovered kommt sie zwar auch, aber der Text darüber wo 'Verbündeter' steht ist
+    /// halb abgeschnitten, das soll auch voll sichtbar sein." Screenshot
+    /// (gegenerinfo_abgeschnitten.png): the hover card renders complete, but the "VERBÜNDETER"
+    /// label band ABOVE its frame loses its top half at a razor-straight line — exactly the bottom
+    /// edge of the dark band behind the initiative portraits.
+    ///
+    /// THE WIDGET (read from source): the band is <c>MonsterBaseUI</c>'s <c>roleGameObject</c> /
+    /// <c>roleText</c>, activated ONLY for <c>CActor.EType.Ally</c> ("GUI_ALLY"), <c>Enemy2</c>
+    /// ("GUI_ENEMY2") and <c>Neutral</c> ("GUI_NEUTRAL") and force-hidden for plain enemies
+    /// (MonsterBaseUI.SetBaseStats, decompiled MonsterBaseUI.cs:162-180). It hangs above the
+    /// card's frame, so it is the ONLY part of the popup that reaches up into the row band —
+    /// which is precisely why the ENEMY hover card ("das will ich weiterhin so") never showed
+    /// the defect: it has no banner, so nothing of it crosses that line.
+    ///
+    /// TWO occluders live on exactly that line, both mod-introduced, and the hardware log cannot
+    /// attribute the cut to one of them (both are geometry-identical to the observed edge), so —
+    /// per the standing test-confidence rule — BOTH are neutralized in this build:
+    ///
+    /// <list type="number">
+    /// <item><b>MERGED-CANVAS DRAW ORDER.</b> The game paints this window from TWO canvases: the
+    ///   popups live on the ROOT <c>InitiativeModule</c> canvas (under the <c>EnemyCardsHolder</c>
+    ///   root branch — scrollbar-audit path
+    ///   <c>InitiativeModule/EnemyCardsHolder/Main Area/…</c>), while the row + its dark band live
+    ///   under a NESTED 'InitiativeTrack' canvas with <c>overrideSorting=true</c> whose order the
+    ///   game toggles 40↔0 (<c>InitiativeTrack.Awake → ToggleSortingOrder(true)</c>; dialogs drop
+    ///   it to 0). The conversion's nested-canvas adoption CLEARS that override by design
+    ///   (hardware log: "Adopted nested canvas 'InitiativeTrack' … overrideSorting True→false"),
+    ///   which merges both trees into ONE canvas where raw hierarchy order decides — and a band
+    ///   branch that follows the popup branch paints the band OVER the banner. Fix:
+    ///   <see cref="LiftEnemyInfoBranch"/> holds the popup's root branch as the LAST root sibling
+    ///   while converted (recorded once, sibling index restored on release), so the merged canvas
+    ///   says with hierarchy what the game said with sorting: the popup is a popup — it paints on
+    ///   top of the track. Laser picking cannot regress from the lift: portraits are picked by
+    ///   <see cref="IDepthPortraitPicker.TryPickPortrait"/> against their world rects, which
+    ///   bypasses graphic paint order entirely, and the popup subtree carries no pointer handlers.</item>
+    /// <item><b>THE MR BACKING PLATE's DEPTH REJECTION.</b> <c>MrBacking</c> backs this panel with
+    ///   an OPAQUE, depth-writing quad (<c>_ZWrite 1</c>, <c>_ZTest LEqual</c>, renderQueue 2998 —
+    ///   drawn BEFORE the UI at ~3000) sized to exactly the fitted host rect (1781x175 in the
+    ///   hardware log) — i.e. exactly the visible band. Any UI fragment whose depth lands BEHIND
+    ///   that quad is z-rejected: a hard cut at the plate edge, matching the screenshot. This pass
+    ///   held every node INSIDE the popup at local z 0, but the popup's ANCESTOR CHAIN — the
+    ///   ScrollRect content (<c>enemyCardsHolder</c>) up through 'Main Area' and 'EnemyCardsHolder'
+    ///   — was flattened by NOBODY (NormalizeDepth walks <c>initiativeTrackHolder</c>, a sibling
+    ///   branch), so any authored chain z pushes the whole popup plane behind the plate. Fix: the
+    ///   same flatten now walks the holder→target chain too, with the same epsilons and the same
+    ///   record-only-while-deviating + restore contract, so the popup plane provably sits ON the
+    ///   canvas plane — in front of the plate by its full 2 mm real gap.</item>
+    /// </list>
+    ///
+    /// HONESTY NOTE (inference vs source): both mechanisms above are READ FROM SOURCE; which one
+    /// produced the pixels in the screenshot is INFERRED — the session log has no line that
+    /// measures the chain's authored z or the two branches' sibling order. That is exactly why
+    /// both are closed at once instead of shipping a hypothesis test.
     /// </summary>
     private const float EnemyInfoAngleEpsilon = 0.05f; // degrees, CanvasConversion.FlattenAngleEpsilon
     private const float EnemyInfoZEpsilon = 0.01f;     // uGUI px, CanvasConversion.FlattenZEpsilon
@@ -795,6 +853,17 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     private int _enemyInfoLogged;
     private float _enemyInfoLogNext;
 
+    /// <summary>The popup root branch (<c>EnemyCardsHolder</c>) this surface lifted to the last
+    /// root sibling (round 2, occluder 1) — kept so the release can hand the game its authored
+    /// sibling order back. Null while nothing is lifted.</summary>
+    private Transform? _enemyInfoBranch;
+
+    /// <summary>The lifted branch's authored sibling index (see <see cref="_enemyInfoBranch"/>).</summary>
+    private int _enemyInfoBranchIndex = -1;
+
+    /// <summary>One lift log per conversion (the re-assert path is per-frame).</summary>
+    private bool _enemyInfoLiftLogged;
+
     /// <summary>Force every node of a SHOWN enemy-info popup coplanar with the panel: identity
     /// local rotation, zero local z. X/Y are never touched, so the card's own slide/fade-in
     /// animations keep playing — flat. See the doc block above for the full derivation.</summary>
@@ -806,11 +875,25 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         if (holder == null || target == null || !holder.IsChildOf(target))
             return; // no track, or EnemyRevealSurface has adopted the holder — not ours this tick
 
+        // Round 2, occluder 1 (merged-canvas draw order): the popup branch paints LAST.
+        LiftEnemyInfoBranch(holder, target);
+
         int flattenedRot = 0;
         int flattenedZ = 0;
         float worstAngle = 0f;
         float worstZ = 0f;
         string worstNode = string.Empty;
+
+        // Round 2, occluder 2: the popup's ANCESTOR CHAIN (the ScrollRect content up to — but
+        // excluding — the converted target root) is held coplanar too. Nodes INSIDE the popup at
+        // local z 0 buy nothing if an ancestor's authored z parks the whole plane behind the MR
+        // plate. ≤ a handful of nodes, same epsilons, same record/restore as everything below;
+        // x/y are never touched, so the live ScrollRect's content writes are never fought.
+        for (Transform? link = holder; link != null && !ReferenceEquals(link, target); link = link.parent)
+        {
+            FlattenPoseNode(link, ref flattenedRot, ref flattenedZ,
+                ref worstAngle, ref worstZ, ref worstNode);
+        }
 
         // Only SHOWN popups. Their roots are the holder's direct children, and a hidden one cannot
         // be seen tilted; walking just the active ones keeps this off the per-frame budget on a
@@ -829,37 +912,8 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 RectTransform rect = _enemyInfoScratch[i];
                 if (rect == null)
                     continue;
-
-                Vector3 lp = rect.localPosition;
-                Quaternion rot = rect.localRotation;
-                float angle = Quaternion.Angle(rot, Quaternion.identity);
-                bool tiltedRot = angle > EnemyInfoAngleEpsilon;
-                bool tiltedZ = Mathf.Abs(lp.z) > EnemyInfoZEpsilon;
-                if (!tiltedRot && !tiltedZ)
-                    continue;
-
-                // Recorded ONLY while deviating — that is what keeps this pass and
-                // EnemyRevealSurface's from ever claiming the same node's "original".
-                if (!_enemyInfoFlat.ContainsKey(rect))
-                    _enemyInfoFlat[rect] = new FlatRecord { Rotation = rot, Z = lp.z };
-
-                if (tiltedRot)
-                {
-                    rect.localRotation = Quaternion.identity;
-                    flattenedRot++;
-                    if (angle > worstAngle)
-                    {
-                        worstAngle = angle;
-                        worstNode = rect.name;
-                    }
-                }
-                if (tiltedZ)
-                {
-                    rect.localPosition = new Vector3(lp.x, lp.y, 0f);
-                    flattenedZ++;
-                    if (Mathf.Abs(lp.z) > Mathf.Abs(worstZ))
-                        worstZ = lp.z;
-                }
+                FlattenPoseNode(rect, ref flattenedRot, ref flattenedZ,
+                    ref worstAngle, ref worstZ, ref worstNode);
             }
         }
         _enemyInfoScratch.Clear();
@@ -895,13 +949,116 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             "SetCardHolder), so the row's depth pass never saw it, and MonsterRoundCardUI keeps " +
             "writing a Y-axis flip rotation (plus a pooled respawn with resetLocalRotation:false) " +
             "— which is why this is a per-frame late pass and not a one-shot. The row's own " +
-            "portrait recession is untouched: this is scoped to the popup subtree.");
+            "portrait recession is untouched: this is scoped to the popup subtree AND its holder " +
+            "chain up to the target root (round 2: an ancestor's authored z parked the plane " +
+            "behind the MR plate, which z-rejects everything behind it — the cut ally banner).");
     }
 
-    /// <summary>Give every node this pass claimed its authored rotation/z back (un-convert /
-    /// shutdown) — the same full-restore contract the depth pass honours.</summary>
+    /// <summary>
+    /// Flatten ONE node onto the panel plane — identity local rotation, local z 0, x/y untouched —
+    /// recording its authored pose in <see cref="_enemyInfoFlat"/> on the tick it is first found
+    /// deviating (see the class doc: record-only-while-deviating is what keeps this pass and
+    /// <see cref="EnemyRevealSurface"/>'s from claiming the same node's "original"). Shared by the
+    /// popup-subtree walk and the round-2 holder-chain walk so both provably apply one policy.
+    /// </summary>
+    private void FlattenPoseNode(Transform node, ref int flattenedRot, ref int flattenedZ,
+        ref float worstAngle, ref float worstZ, ref string worstNode)
+    {
+        Vector3 lp = node.localPosition;
+        Quaternion rot = node.localRotation;
+        float angle = Quaternion.Angle(rot, Quaternion.identity);
+        bool tiltedRot = angle > EnemyInfoAngleEpsilon;
+        bool tiltedZ = Mathf.Abs(lp.z) > EnemyInfoZEpsilon;
+        if (!tiltedRot && !tiltedZ)
+            return;
+
+        // Recorded ONLY while deviating — that is what keeps this pass and
+        // EnemyRevealSurface's from ever claiming the same node's "original".
+        if (!_enemyInfoFlat.ContainsKey(node))
+            _enemyInfoFlat[node] = new FlatRecord { Rotation = rot, Z = lp.z };
+
+        if (tiltedRot)
+        {
+            node.localRotation = Quaternion.identity;
+            flattenedRot++;
+            if (angle > worstAngle)
+            {
+                worstAngle = angle;
+                worstNode = node.name;
+            }
+        }
+        if (tiltedZ)
+        {
+            node.localPosition = new Vector3(lp.x, lp.y, 0f);
+            flattenedZ++;
+            if (Mathf.Abs(lp.z) > Mathf.Abs(worstZ))
+                worstZ = lp.z;
+        }
+    }
+
+    /// <summary>
+    /// Round 2, occluder 1 ("VERBÜNDETER halb abgeschnitten"): hold the popup's ROOT BRANCH — the
+    /// <paramref name="holder"/>'s ancestor that is a DIRECT child of the converted target — as the
+    /// LAST root sibling while this surface owns the track. The game paints the popups and the row
+    /// band from two canvases (root vs the nested overrideSorting 'InitiativeTrack' canvas) and the
+    /// conversion's adoption merges them into one, where raw hierarchy order let the band paint
+    /// over the ally banner; last-sibling says with hierarchy what the game said with sorting.
+    /// Re-asserted per LateTick (one integer compare in steady state — the game never re-sorts the
+    /// root's children, but a re-created sibling could land after ours); the authored index is
+    /// recorded once and handed back by <see cref="RestoreEnemyInfoFlatten"/>. The content fit is
+    /// scoped to <c>initiativeTrackHolder</c> (a sibling branch), so the lift can never change the
+    /// measured union, the host rect or the panel pose.
+    /// </summary>
+    private void LiftEnemyInfoBranch(Transform holder, RectTransform target)
+    {
+        Transform branch = holder;
+        while (branch.parent != null && !ReferenceEquals(branch.parent, target))
+            branch = branch.parent;
+        Transform? parent = branch.parent;
+        if (parent == null)
+            return; // belt only — the caller already proved holder.IsChildOf(target)
+
+        int last = parent.childCount - 1;
+        int index = branch.GetSiblingIndex();
+        if (index == last)
+            return; // already painting on top — steady state, nothing to write
+
+        if (_enemyInfoBranch == null)
+        {
+            _enemyInfoBranch = branch;     // authored order, captured on the FIRST lift only
+            _enemyInfoBranchIndex = index; // (a re-assert must not overwrite it with our own value)
+        }
+        branch.SetAsLastSibling();
+        if (_enemyInfoLiftLogged)
+            return;
+        _enemyInfoLiftLogged = true;
+        VRLog.Info("WorldUI",
+            $"Enemy-info draw-order lift: moved the track's '{branch.name}' branch (the hover " +
+            $"popup's holder) from root sibling {index} to LAST ({last}) so the popup paints " +
+            "ABOVE the row band. The game splits this window across two canvases — the popups on " +
+            "the ROOT canvas, the row+band under the nested 'InitiativeTrack' canvas whose " +
+            "overrideSorting (order 40 in 2D, InitiativeTrack.Awake → ToggleSortingOrder) the " +
+            "panel adoption clears — so on the merged world-space canvas hierarchy order decides, " +
+            "and the band was painting over the ally 'VERBÜNDETER' banner. Authored sibling order " +
+            "is restored on release; portrait picking is unaffected (depth-aware TryPickPortrait " +
+            "bypasses paint order).");
+    }
+
+    /// <summary>Give every node this pass claimed its authored rotation/z back — and the lifted
+    /// popup branch its authored sibling order (un-convert / shutdown) — the same full-restore
+    /// contract the depth pass honours.</summary>
     private void RestoreEnemyInfoFlatten()
     {
+        if (_enemyInfoBranch != null)
+        {
+            Transform branch = _enemyInfoBranch; // Unity fake-null aware: destroyed → skip
+            if (branch != null && branch.parent != null && _enemyInfoBranchIndex >= 0)
+                branch.SetSiblingIndex(Mathf.Min(_enemyInfoBranchIndex, branch.parent.childCount - 1));
+            _enemyInfoBranch = null;
+        }
+        _enemyInfoBranchIndex = -1;
+        _enemyInfoLiftLogged = false; // conversions are rare — one lift line per conversion is signal
+
         if (_enemyInfoFlat.Count == 0)
             return;
         foreach (KeyValuePair<Transform, FlatRecord> kv in _enemyInfoFlat)

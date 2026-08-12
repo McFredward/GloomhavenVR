@@ -31,6 +31,23 @@ using UnityEngine;
 
 namespace GloomhavenVR
 {
+    /// <summary>
+    /// Safety net: make sure every imported environment mesh serializes correct
+    /// bounds into its artifact (bad/missing bounds would let frustum culling drop
+    /// world geometry inside the game).
+    /// </summary>
+    public sealed class EnvModelPostprocessor : AssetPostprocessor
+    {
+        private void OnPostprocessModel(GameObject go)
+        {
+            if (!assetPath.Replace('\\', '/').Contains("Assets/Bundle/Environments/Models/"))
+                return;
+            foreach (var mf in go.GetComponentsInChildren<MeshFilter>(true))
+                if (mf.sharedMesh != null)
+                    mf.sharedMesh.RecalculateBounds();
+        }
+    }
+
     public static class EnvironmentsBuilder
     {
         private const string Root = "Assets/Bundle/Environments";
@@ -425,16 +442,18 @@ namespace GloomhavenVR
         // sums to ~1.0-1.3 total light — these rigs target the same range.
         private static readonly Rig CellarRig = new Rig
         {
-            ambient = new Color(0.44f, 0.35f, 0.27f),
-            key = new Color(1.05f, 0.82f, 0.52f), keyDir = new Vector3(0.25f, 1f, 0.15f),
-            fill = new Color(0.22f, 0.24f, 0.34f), fillDir = new Vector3(-0.5f, 0.25f, -0.4f),
+            // moody: low warm ambient, warm key from above, cool blue fill so shadow
+            // sides read stone-grey instead of flat mud brown
+            ambient = new Color(0.26f, 0.21f, 0.17f),
+            key = new Color(0.85f, 0.64f, 0.40f), keyDir = new Vector3(0.25f, 1f, 0.15f),
+            fill = new Color(0.16f, 0.17f, 0.26f), fillDir = new Vector3(-0.5f, 0.25f, -0.4f),
         };
 
         private static readonly Rig SwampRig = new Rig
         {
-            ambient = new Color(0.16f, 0.21f, 0.30f),
+            ambient = new Color(0.19f, 0.24f, 0.33f),
             key = new Color(0.55f, 0.68f, 0.95f), keyDir = MoonDir,
-            fill = new Color(0.08f, 0.11f, 0.16f), fillDir = new Vector3(-0.5f, 0.2f, -0.6f),
+            fill = new Color(0.09f, 0.12f, 0.17f), fillDir = new Vector3(-0.5f, 0.2f, -0.6f),
         };
 
         private struct MatDef { public Color albedo; public Color emission; public MatDef(Color a, Color e = default) { albedo = a; emission = e; } }
@@ -442,10 +461,10 @@ namespace GloomhavenVR
         // Dungeon-pack material names (parsed from the FBX set) -> cellar palette.
         private static readonly Dictionary<string, MatDef> CellarPalette = new Dictionary<string, MatDef>
         {
-            { "Rock",       new MatDef(new Color(0.46f, 0.44f, 0.42f)) },
-            { "RockLight",  new MatDef(new Color(0.58f, 0.55f, 0.50f)) },
+            { "Rock",       new MatDef(new Color(0.44f, 0.42f, 0.40f)) },
+            { "RockLight",  new MatDef(new Color(0.55f, 0.52f, 0.47f)) },
             { "Wood",       new MatDef(new Color(0.42f, 0.26f, 0.15f)) },
-            { "DarkSteel",  new MatDef(new Color(0.16f, 0.16f, 0.18f)) },
+            { "DarkSteel",  new MatDef(new Color(0.22f, 0.22f, 0.24f)) },
             { "Steel",      new MatDef(new Color(0.50f, 0.50f, 0.55f)) },
             { "Gold",       new MatDef(new Color(0.85f, 0.66f, 0.28f)) },
             { "Black",      new MatDef(new Color(0.09f, 0.09f, 0.10f)) },
@@ -469,9 +488,9 @@ namespace GloomhavenVR
         private static readonly Dictionary<string, MatDef> SwampPalette = new Dictionary<string, MatDef>
         {
             { "Green",           new MatDef(new Color(0.14f, 0.24f, 0.15f)) },
-            { "DarkGreen",       new MatDef(new Color(0.07f, 0.13f, 0.09f)) },
+            { "DarkGreen",       new MatDef(new Color(0.10f, 0.16f, 0.12f)) },
             { "Wood",            new MatDef(new Color(0.20f, 0.14f, 0.11f)) },
-            { "Rock",            new MatDef(new Color(0.24f, 0.26f, 0.31f)) },
+            { "Rock",            new MatDef(new Color(0.16f, 0.17f, 0.21f)) },
             { "White",           new MatDef(new Color(0.60f, 0.63f, 0.68f)) },
             { "Black",           new MatDef(new Color(0.06f, 0.06f, 0.07f)) },
             { "Mushroom_Top",    new MatDef(new Color(0.10f, 0.30f, 0.34f), new Color(0.10f, 0.42f, 0.45f)) },
@@ -544,11 +563,10 @@ namespace GloomhavenVR
             streak.SetTexture("_MainTex", T("Env_Spark.png"));
             streak.SetColor("_Tint", Color.white);
 
-            // alpha-blended (not additive): the halo fades cleanly into the sky with
-            // no hard quad edge against the dome gradient
-            var moon = LoadOrNewMat(MatDir + "/FX_Moon.mat", "GloomhavenVR/EnvParticleAlpha");
-            moon.SetTexture("_MainTex", T("Env_Moon.png"));
-            moon.SetColor("_Tint", new Color(1f, 0.98f, 0.92f, 1f));
+            // the moon is baked into the star-dome shader (a separate blended quad
+            // left a visible seam against the sky gradient) — drop the old material
+            if (AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/FX_Moon.mat") != null)
+                AssetDatabase.DeleteAsset(MatDir + "/FX_Moon.mat");
 
             var glowWarm = LoadOrNewMat(MatDir + "/FX_GlowWarm.mat", "GloomhavenVR/EnvGlow");
             glowWarm.SetColor("_Tint", new Color(1f, 0.55f, 0.20f, 0.65f));
@@ -563,6 +581,10 @@ namespace GloomhavenVR
             stars.SetColor("_TopCol", new Color(0.006f, 0.010f, 0.022f));
             stars.SetColor("_HorizonCol", new Color(0.030f, 0.048f, 0.080f));
             stars.SetFloat("_StarBoost", 1.8f);
+            stars.SetTexture("_MoonTex", T("Env_Moon.png"));
+            stars.SetVector("_MoonDir", MoonDir);
+            stars.SetColor("_MoonCol", new Color(1f, 0.98f, 0.92f));
+            stars.SetFloat("_MoonExtent", 0.075f);
 
             var water = LoadOrNewMat(MatDir + "/Swamp_Water.mat", "GloomhavenVR/EnvWater");
             water.SetTexture("_NoiseTex", T("Env_Noise.png"));
@@ -686,8 +708,12 @@ namespace GloomhavenVR
         {
             var inst = (GameObject)PrefabUtility.InstantiatePrefab(ModelGO(pack, name));
             inst.transform.SetParent(parent, false);
-            inst.transform.localRotation = Quaternion.Euler(0, rotY, 0);
-            inst.transform.localScale = scale3 ?? Vector3.one * scale;
+            // COMPOSE with the model root's own rotation/scale instead of overwriting:
+            // the Quaternius FBX carry a 100x cm->m node scale on the ROOT (some on a
+            // child node instead) — overwriting the root scale shrank most props to
+            // 2 cm specks (iteration-2/3 lesson: "invisible walls").
+            inst.transform.localRotation = Quaternion.Euler(0, rotY, 0) * inst.transform.localRotation;
+            inst.transform.localScale = Vector3.Scale(inst.transform.localScale, scale3 ?? Vector3.one * scale);
             inst.transform.localPosition = pos;
             var b = RendererBounds(inst); // parent sits at origin => world == local
             var shift = Vector3.zero;
@@ -1005,10 +1031,7 @@ namespace GloomhavenVR
                 // ---- sky: star dome (shader-twinkled), moon, water ----
                 Solid(t, "StarDome", "Env_Dome.asset", Mat("Swamp_StarDome.mat"),
                     Vector3.zero, Vector3.zero, Vector3.one * 45f);
-                var moonPos = MoonDir * 38f;
-                var moon = Solid(t, "Moon", "Env_Quad.asset", Mat("FX_Moon.mat"),
-                    moonPos, Vector3.zero, Vector3.one * 5.5f);
-                moon.transform.rotation = Quaternion.LookRotation(-moonPos.normalized); // quad faces -Z => face origin
+                // (moon lives inside the dome shader — no quad)
                 // water reaches past the dome's horizon rim (45 m) so no sky band can
                 // show between water edge and dome
                 Solid(t, "Water", "Env_Disc.asset", Mat("Swamp_Water.mat"),
