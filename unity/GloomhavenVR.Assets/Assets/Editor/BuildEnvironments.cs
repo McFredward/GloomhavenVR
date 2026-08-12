@@ -18,9 +18,12 @@
 //       sky must be a real high-resolution photograph),
 //       comet-tail shooting stars, two bokeh firefly swarms, ground-fog donut.
 //       NO ground plane / trees / water — the game's marsh tiles provide those.
-//   Assets/Bundle/Environments/Env_Cellar.prefab — indoor FX shell: drifting
-//       dust motes + an INACTIVE 'GlowTemplate' torch-halo child (runtime may
-//       clone it onto game torches later).
+//   Assets/Bundle/Environments/Env_Cellar.prefab — indoor FX shell: the SAME
+//       night-sky star dome as the swamp (user finding, ModBuild 129 round:
+//       with the game's sky sphere hidden, everything above the generated
+//       room was pure black), drifting dust motes + an INACTIVE 'GlowTemplate'
+//       torch-halo child (runtime may clone it onto game torches later).
+//       NO shooting stars / fireflies / ground fog — those are swamp-flavor.
 // plus the procedural textures/meshes/materials those FX reference.
 //
 // Hard VR rules honoured throughout (user requirement):
@@ -583,6 +586,18 @@ namespace GloomhavenVR
             return g;
         }
 
+        // Night-sky dome shared by every night shell (swamp + cellar). One
+        // inward-facing photo dome; the painted moon is baked into the EnvStars
+        // shader (a separate blended quad left a visible seam against the sky
+        // gradient), so this single node IS dome + moon.
+        // The node NAME 'StarDome' is a CONTRACT with src/ (runtime splits shell
+        // children onto sky/room branches BY NODE NAME) — never rename it.
+        private static void AddNightSky(Transform parent)
+        {
+            Solid(parent, "StarDome", "Env_Dome.asset", Mat("Swamp_StarDome.mat"),
+                Vector3.zero, Vector3.zero, Vector3.one * 45f);
+        }
+
         private static void LogStats(GameObject root, string label)
         {
             long tris = 0;
@@ -594,14 +609,21 @@ namespace GloomhavenVR
         }
 
         // ================================================================== CELLAR
-        // FX shell: drifting dust motes + an inactive torch-halo template. The room
-        // geometry itself comes from the game (Apparance scenario tiles).
+        // FX shell: night-sky dome + drifting dust motes + an inactive torch-halo
+        // template. The room geometry itself comes from the game (Apparance
+        // scenario tiles). NO shooting stars / fireflies / ground fog here —
+        // those are swamp-flavor.
         private static void BuildCellar()
         {
             var root = new GameObject("Env_Cellar");
             try
             {
                 var t = root.transform;
+
+                // ---- sky: same star dome as the swamp (user finding, ModBuild 129
+                // round — with the game's sky sphere hidden, the void above the
+                // generated room was pure black) ----
+                AddNightSky(t);
 
                 // drifting dust motes in the candlelight (world-space room volume)
                 var dust = NewPS(t, "DustMotes", new Vector3(0, 1.8f, 0), Vector3.zero, Mat("FX_Dust.mat"));
@@ -647,8 +669,7 @@ namespace GloomhavenVR
                 var t = root.transform;
 
                 // ---- sky: star dome (shader-twinkled, moon baked into the shader) ----
-                Solid(t, "StarDome", "Env_Dome.asset", Mat("Swamp_StarDome.mat"),
-                    Vector3.zero, Vector3.zero, Vector3.one * 45f);
+                AddNightSky(t);
 
                 // ---- ground fog: big slow WORLD-SPACE puffs standing over the marsh ----
                 var fog = NewPS(t, "GroundFog", new Vector3(0, 0.45f, 0), new Vector3(-90, 0, 0), Mat("FX_Fog.mat"));
