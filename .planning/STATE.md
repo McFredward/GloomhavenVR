@@ -2,9 +2,9 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 126`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 127`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
-- **Last update:** 2026-08-11
+- **Last update:** 2026-08-12
 
 ---
 
@@ -126,6 +126,28 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 127** — environments are SCENARIO-ONLY and built from the game's own art.
+  SCOPE (user ruling: "Ich WILL garnicht das die Umgebung im Menu rendert - sondern nur im
+  Szenario"): SkyAlternative gates on VRModeStateMachine.ScenarioBoardExists (Choreographer-
+  alive, NOT the save-state phase which flips during loading); menu/world map untouched, leaving
+  a scenario stands down next tick + cancels in-flight generation. GAME-BUILT ROOMS
+  (SkyAlternative.MapGen.cs, new): Addressables 'Map A' (session-cached handle) staged 50 wu
+  below the viewpoint in the ProcGen scene, ambience muted FIRST, styles written (Cellar =
+  Dungeon/StoneRooms/Candlelight; SwampNight = Forest/Marsh/StillWaters/ForestMoonlight), walls
+  populated, detail focus BORROWED onto the staging map for the ≤30 s build window (staging is
+  outside detail range — round-3 evidence, not conditional), settle poll = renderer census
+  stable + no busy entities (30 s timeout → FX shell only, one-shot warn), freeze = disable
+  Apparance COMPONENTS never GameObjects (inactive entities destroy their native side), strip
+  colliders, mod layer, normalize to ~9 real meters (n = 9/max(bounds.xz) at staging scale 1,
+  clamp 0.02–10), floor = avg ProceduralMapTile height, center → frame origin (player inside).
+  GameEnvProbe RETIRED (923 lines — mission complete; logic lives in MapGen). FX SHELLS rebuilt
+  from own shaders, third-party low-poly art DELETED (folder 4.2 MB → 980 KB; bundle 29,639,808
+  bytes — 127 NEEDS it): Swamp = star dome (baked moon+twinkle) + shooting stars (Stretch,
+  cameraVelocityScale=0) + fireflies + ground fog as HORIZONTAL billboards (user fog ruling:
+  never re-orient with head movement — PERMANENT CONSTRAINT in BuildEnvironments.cs); Cellar =
+  dust motes + disabled GlowTemplate. UNVERIFIED ON HARDWARE: whether disabled components fully
+  stop native re-tiering after placement; the 9 m normalization target may want tuning. First
+  scenario start with a style selected is the real test — the engine dresses live, log records.
 - **ModBuild 126** — environments become WORLD PLACES, the game-asset probe, ally banner round 3.
   FREE MOVEMENT: all locomotion writes RigRoot (Flight 213, SnapTurn 162, WorldGrab 304/362/401/
   403); the env now spawns world-anchored at the player's floor point + gaze yaw, re-seats on

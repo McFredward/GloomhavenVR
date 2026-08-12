@@ -416,7 +416,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 126;
+    public const ushort ModBuild = 127;
+    // Build 127: environments are now SCENARIO-ONLY and built from the game's own art.
+    // No wire change — [Sky] stays local presentation.
+    //
+    // (1) SCENARIO-ONLY SCOPE ("Ich WILL garnicht das die Umgebung im Menu rendert - sondern
+    // nur im Szenario so wie es die Default originale Umgebung auch macht"): SkyAlternative
+    // gates on VRModeStateMachine.ScenarioBoardExists — menu and world map keep the game's
+    // default look, ever; leaving a scenario stands the feature down next tick.
+    //
+    // (2) GAME-BUILT ROOMS (Apparance, per the 126 investigation + probe verdict): a
+    // non-Default style loads the game's 'Map A' template via Addressables, stages it 50 wu
+    // below the viewpoint, writes the style vocabulary (Cellar = Dungeon/StoneRooms/
+    // Candlelight; SwampNight = Forest/Marsh/StillWaters/ForestMoonlight), borrows the detail
+    // focus for the ≤30 s build window, waits for the renderer census to settle, then freezes
+    // the result (components disabled, colliders stripped, mod layer) and places it into the
+    // ambient frame normalized to ~9 real meters, floor-aligned. Generation failure = one-shot
+    // warn, FX shell alone. GameEnvProbe retired — mission complete, logic lives in
+    // SkyAlternative.MapGen.cs.
+    //
+    // (3) FX SHELLS REBUILT from own shaders (third-party low-poly art deleted per style
+    // ruling): Swamp = star dome (baked moon + twinkle) + shooting stars + fireflies + ground
+    // fog as HORIZONTAL billboards (user fog ruling: never re-orient with head movement);
+    // Cellar = dust motes. Bundle rebuilt.
+    //
     // Build 126: environments become WORLD PLACES (free movement), the game-asset probe, the
     // ally banner's THIRD and depth-side fix. No wire change.
     //
