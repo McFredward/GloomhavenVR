@@ -201,9 +201,9 @@ internal static class SkyBackdrop
     /// Per-frame driver, called from <see cref="MixedReality.Tick"/>.
     /// <paramref name="skyOwnedElsewhere"/> is true while another seam owns the sphere and this
     /// class must stand down: MR (chroma key — it hides the sphere via HideSkyMeshes) or
-    /// <see cref="SkyAlternative"/> (a non-Default sky — it hides the sphere and shows its own
-    /// panorama backdrop, which is non-occluding by construction, so a hidden sphere needs no
-    /// treatment from here). Otherwise the backdrop fix is applied/held.
+    /// <see cref="SkyAlternative"/> (a non-Default style — it hides the sphere and spawns its
+    /// bundled 3D environment instead, so a hidden sphere needs no treatment from here).
+    /// Otherwise the backdrop fix is applied/held.
     /// Self-gates on <see cref="VRSession.IsRunning"/>: tears everything down when VR stops.
     /// </summary>
     internal static void Tick(bool skyOwnedElsewhere)
@@ -218,8 +218,8 @@ internal static class SkyBackdrop
         if (skyOwnedElsewhere)
         {
             // MR hides the sphere for the chroma key (and SkyAlternative hides it for its own
-            // panorama) — restore it to vanilla first so the owner records/disables a clean
-            // renderer. Keep the decision cached.
+            // 3D environment) — restore it to vanilla first so the owner records/disables a
+            // clean renderer. Keep the decision cached.
             if (_applied)
                 RemoveEffects();
             return;

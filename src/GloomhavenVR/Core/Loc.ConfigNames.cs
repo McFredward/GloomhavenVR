@@ -354,7 +354,7 @@ internal static partial class Loc
             ["RenderQuality/ViewportScaleFallback"] = Pair("Viewport-scale fallback", "Viewport-Ersatzskala"),
             ["RenderQuality/RebuildRigOnMsaaChange"] = Pair("Rebuild rig on MSAA", "Rig-Neubau bei MSAA"),
             ["RenderQuality/PixelLightCount"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
-            ["Sky/Style"] = Pair("Sky", "Himmel"),
+            ["Sky/Style"] = Pair("Environment", "Umgebung"),
 
             // ---- [WallFade] — see-through wall tuning ---------------------------------------
             ["WallFade/OnFraction"] = Pair("Fade at coverage", "Ausblenden ab Deckung"),

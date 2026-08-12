@@ -678,9 +678,9 @@ internal static partial class MixedReality
             // suppression and NO mid-pass depth clear) so floated menus, the moved board and the
             // laser in front of it are never clipped — the fix lives on the SPHERE side, not on
             // the menus (WorldUI.CanvasConversion no longer forces menus on top). A non-Default
-            // choice: SkyAlternative hides the sphere and shows its own panorama backdrop
-            // (non-occluding by construction), and SkyBackdrop stands down for it exactly as it
-            // does for MR.
+            // choice: SkyAlternative hides the sphere and spawns its bundled 3D environment
+            // (rig-anchored, mod layer — see its class doc), and SkyBackdrop stands down for it
+            // exactly as it does for MR.
             bool altSkyShown = SkyAlternative.Tick();
             SkyBackdrop.Tick(skyOwnedElsewhere: altSkyShown);
             return;

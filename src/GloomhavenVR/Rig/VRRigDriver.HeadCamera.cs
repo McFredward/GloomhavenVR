@@ -223,6 +223,12 @@ internal sealed partial class VRRigDriver
     /// the fixed-size world) but never drops below the anchor-derived build value,
     /// with the far/near ratio capped for depth precision. Menu rig: scale stays 1,
     /// so this degenerates to the build values. Two float compares per frame.
+    ///
+    /// While a [Sky] 3D environment is spawned (SkyAlternative), the far plane
+    /// additionally never drops below the environment's real-size view distance
+    /// (<see cref="Core.SkyAlternative.MinFarWorldUnits"/> — its star dome sits at
+    /// authored-meters × rig scale world units and a small scenario far plane would
+    /// clip it); 0 while idle, so this degenerates to the old value.
     /// </summary>
     private void TickClipPlanes()
     {
@@ -231,7 +237,8 @@ internal sealed partial class VRRigDriver
         float scale = _rigRoot.transform.localScale.x;
         float near = Mathf.Clamp(BaseNearMeters * scale, MinNearClip, MaxNearClip);
         float far = Mathf.Min(
-            Mathf.Max(_baseFarClip, _baseFarClip * (scale / _buildScale)),
+            Mathf.Max(Mathf.Max(_baseFarClip, _baseFarClip * (scale / _buildScale)),
+                      SkyAlternative.MinFarWorldUnits(scale)),
             near * MaxFarNearRatio);
         if (!Mathf.Approximately(_camera.nearClipPlane, near))
             _camera.nearClipPlane = near;

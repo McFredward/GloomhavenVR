@@ -340,19 +340,21 @@ internal static partial class Loc
                 + "sofort der normale dunkle Look zurück.",
             // ---- [Sky] ----
             ["Sky/Style"] =
-                "Welcher Himmel den Tisch umgibt (Nutzerwunsch 2026-08-11: drei mitgelieferte "
-                + "Alternativen zum Standard-Szenariohimmel des Spiels). Standard = der eigene "
-                + "animierte Himmel des Spiels, exakt wie bisher. Night = klarer Sternenhimmel mit "
-                + "Milchstraße; Sunset = Abendrot mit Lichtstrahlen über sanften Hügeln; Cellar = "
-                + "mittelalterliches Kellergewölbe (alle drei CC0-Panoramen von Poly Haven, im Mod "
-                + "gebündelt). Eine andere Wahl als Standard blendet die Himmelskugel des Spiels aus "
-                + "und zeigt stattdessen das Panorama als reinen, nie verdeckenden Hintergrund — er "
-                + "kann Menüs, Brett oder Laser niemals abschneiden und füllt auch die schwarze "
-                + "Leere von Szenen ohne eigenen Himmel (das 2D-Menü). Wirkt sofort aus dem "
-                + "VR-Menü. MIXED REALITY GEWINNT IMMER: solange MR an ist, ist jeder Himmel — der "
-                + "des Spiels wie diese — aus, damit der Chroma-Key dein Zimmer zeigen kann; die "
-                + "Wahl greift wieder, sobald MR ausgeht. Rein lokale Darstellung, wird nie mit "
-                + "Mitspielern synchronisiert.",
+                "Welche Umgebung den Tisch umgibt (Nutzer-Entscheid 2026-08-12: echte 3D-Umgebungen "
+                + "statt der früheren Panorama-Skyboxen — wie kleine VRChat-Worlds, nicht interaktiv, "
+                + "rein als Umgebung). Default = der eigene animierte Himmel des Spiels, exakt wie "
+                + "bisher. Cellar = ein gemütlicher Nerd-DnD-Keller rund um den Spielbereich; "
+                + "SwampNight = eine Sumpfnacht unter einer Sternenkuppel mit Sternschnuppen, "
+                + "Bodennebel und Glühwürmchen (beide im Mod gebündelt). Eine andere Wahl als "
+                + "Default blendet die Himmelskugel des Spiels aus und stellt die Umgebung im "
+                + "ECHTEN Spielbereich auf — sie steht still, während du dich lehnst oder gehst, "
+                + "der Welt-Zoom ändert ihre Größe nie, und sie kann den Laser niemals abfangen "
+                + "(keine Collider, nur Mod-Layer). Wirkt sofort aus dem VR-Menü. MIXED REALITY "
+                + "GEWINNT IMMER: solange MR an ist, ist jeder Himmel und jede Umgebung aus, damit "
+                + "der Chroma-Key dein Zimmer zeigen kann; die Wahl greift wieder, sobald MR "
+                + "ausgeht. Werte aus den alten Panorama-Builds (Night/Sunset) gibt es nicht mehr, "
+                + "sie fallen auf Default zurück. Rein lokale Darstellung, wird nie mit Mitspielern "
+                + "synchronisiert.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
