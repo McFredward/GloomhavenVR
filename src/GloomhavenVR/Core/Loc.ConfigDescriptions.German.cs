@@ -346,18 +346,27 @@ internal static partial class Loc
                 + "bisher. Cellar = ein gemütlicher Nerd-DnD-Keller rund um den Spielbereich; "
                 + "SwampNight = eine Sumpfnacht unter einer Sternenkuppel mit Sternschnuppen, "
                 + "Bodennebel und Glühwürmchen (beide im Mod gebündelt). Eine andere Wahl als "
-                + "Default blendet die Himmelskugel des Spiels aus und stellt die Umgebung als "
-                + "festen ORT in der Welt auf (an deiner Position und Blickrichtung beim "
-                + "Aktivieren): Gehen, Stick-Flug, Drehen und Welt-Ziehen bewegen dich frei durch "
-                + "den Raum (Nutzer-Entscheid 2026-08-12), ein Recenter (B+Y) setzt sie neu an "
-                + "deine Position, der Welt-Zoom ändert ihre gefühlte Größe nie "
-                + "(pivot-korrigierte Mitskalierung), und sie kann den Laser niemals abfangen "
+                + "Default blendet die Himmelskugel des Spiels aus und stellt die Umgebung im "
+                + "ECHTEN Spielbereich auf — sie steht still, während du dich lehnst oder gehst, "
+                + "der Welt-Zoom ändert ihre Größe nie, und sie kann den Laser niemals abfangen "
                 + "(keine Collider, nur Mod-Layer). Wirkt sofort aus dem VR-Menü. MIXED REALITY "
                 + "GEWINNT IMMER: solange MR an ist, ist jeder Himmel und jede Umgebung aus, damit "
                 + "der Chroma-Key dein Zimmer zeigen kann; die Wahl greift wieder, sobald MR "
                 + "ausgeht. Werte aus den alten Panorama-Builds (Night/Sunset) gibt es nicht mehr, "
                 + "sie fallen auf Default zurück. Rein lokale Darstellung, wird nie mit Mitspielern "
                 + "synchronisiert.",
+            ["Sky/EnvProbe"] =
+                "DIAGNOSE, einmalig pro Sitzung — im normalen Spiel AUS lassen. Solange AN und das "
+                + "HAUPTMENÜ geladen ist, führt der Mod die Umgebungs-Sonde (Ansatz B) einmal aus: "
+                + "Er lädt die ProcGen-Szene des Spiels additiv dazu (falls nicht vorhanden), "
+                + "stellt die spieleigene Raumvorlage 'Map A' 500 m UNTER dem Boden auf (auch bei "
+                + "Erfolg wird nichts sichtbar), schreibt einen Dungeon/StoneRooms/Candlelight-Stil "
+                + "hinein und beobachtet die Apparance-Engine 30 Sekunden lang — alle 5 Sekunden "
+                + "landen Engine-Zustand, Bauzustand und die Renderer-Zählung des generierten "
+                + "Inhalts im Log. Danach wird alles Erzeugte wieder zerstört und eine Zeile "
+                + "'ENV PROBE VERDICT' geschrieben. Anwendung: einmal AKTIVIEREN, ins Hauptmenü "
+                + "gehen, 30 Sekunden warten, LogOutput.log ziehen, wieder DEAKTIVIEREN. Rein "
+                + "lokal, wird nie mit Mitspielern synchronisiert.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "

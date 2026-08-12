@@ -75,6 +75,9 @@ internal static partial class Defaults
     // ---- Core/SkyAlternative.cs ----------------------------------------------------
     internal const SkyStyle SkyStyle = Core.SkyStyle.Default;  // => [Sky] Style  (the game's own sky — a fresh install looks exactly like today; Cellar/SwampNight spawn a bundled 3D environment anchored to the real play space, and mixed reality always overrides every sky/environment to OFF)
 
+    // ---- Core/GameEnvProbe.cs --------------------------------------------------------
+    internal const bool EnvProbe = false;                      // => [Sky] EnvProbe  (one-shot approach-B diagnostic: activate, visit the main menu for 30 s, pull the log, deactivate — OFF in normal play)
+
     // ---- Core/StereoModeConfig.cs --------------------------------------------------
     internal const string RenderMode = nameof(StereoModeConfig.Mode.MultiPass);  // => [Stereo] RenderMode
 

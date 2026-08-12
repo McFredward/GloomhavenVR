@@ -48,6 +48,13 @@ internal sealed class CompatModule : IVRModule
 
     public void Init()
     {
+        // Game-environment de-risking diagnostic (.planning/game-env-assets.md approach B):
+        // passive Addressables catalog dump + Apparance availability matrix, and the
+        // [Sky] EnvProbe-gated menu probe. Installed BEFORE the VR gate on purpose — the
+        // passive log blocks are exactly as valuable from a flat session (same precedent as
+        // CoreModule's unconditional PerfMonitor). Self-contained, TickGuard-isolated.
+        GameEnvProbe.Install();
+
         if (!VRSession.IsRunning)
         {
             VRLog.Debug(Name, "VR not running — compat kill-switches not applied.");
@@ -191,6 +198,7 @@ internal sealed class CompatModule : IVRModule
         // Nothing to undo here for the patch; what this line DOES undo is the segment fade,
         // which clears every property block and destroys its textures.
         WallSegmentFade.Uninstall();
+        GameEnvProbe.Uninstall();         // aborts + cleans up a mid-run probe, drops its host
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert
         CardParticlesOff.Uninstall();     // restores the game's own NoCardsParticles value verbatim
