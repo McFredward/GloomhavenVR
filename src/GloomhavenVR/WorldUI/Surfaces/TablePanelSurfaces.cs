@@ -912,6 +912,67 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <see cref="RestoreEnemyInfoFlatten"/> gives everything back under the same full-restore
     /// contract as the pose records — including the stand-down when <see cref="EnemyRevealSurface"/>
     /// adopts the holder (the reveal panel must not inherit hover-popup render state).
+    ///
+    /// ─── ROUND 4 (hardware ModBuild 127): UNCHANGED by all three — it was never render state ──
+    ///
+    /// THE REPORT (user, verbatim): "Das Problem mit den Text des Verbündeten über der Gegner
+    /// info ist unverändert."
+    ///
+    /// WHAT THE FRESH LOG PROVES (the ModBuild-127 run the user judged): every prior mechanism
+    /// RAN — the round-2 draw-order lift fired ("moved the track's 'EnemyCardsHolder' branch …
+    /// to LAST (3)"), the round-3 swap fired ("33 graphic(s) swapped onto ZTest-Always clones"),
+    /// the coplanarity pass held the popup plane (restore recorded) — and the cut was
+    /// pixel-identical. That ELIMINATES the whole family those rounds addressed: canvas paint
+    /// order, plane pose and the depth test were all provably correct while the banner stayed
+    /// half-invisible. The remaining occluder class must be one that ignores sibling order,
+    /// renderQueue, ZTest AND z. UI CLIPPING is exactly that class:
+    /// <list type="bullet">
+    /// <item><see cref="RectMask2D"/> clips per RENDERER — <c>CanvasRenderer.EnableRectClipping</c>
+    ///   feeds <c>_ClipRect</c>/<c>UNITY_UI_CLIP_RECT</c> to the shader regardless of which
+    ///   material instance is bound (the round-3 clone keeps the keyword), and CULLS renderers
+    ///   that leave the rect (<c>CanvasRenderer.cull</c>);</item>
+    /// <item>a stencil <see cref="Mask"/> wraps every maskable child's
+    ///   <c>materialForRendering</c> in stencil-Equal ops — also orthogonal to everything rounds
+    ///   1–3 touched.</item>
+    /// </list>
+    ///
+    /// WHY A CLIPPER IS PROVABLY THERE (source + this project's own records): the popups hang
+    /// under <c>InitiativeTrack.enemyCardsHolder</c>, which is the CONTENT of the "Main Area"
+    /// ScrollRect (found during the Y-swing hunt — .planning/refactor/INVARIANTS-WorldUI.md, the
+    /// enemyCardsHolder attribution entry), and the conversion's <c>EnsureScrollClipping</c>
+    /// (CanvasConversion.2.Adopt) logged NOTHING for this panel — by its own code that silence
+    /// means the viewport ALREADY HAD a working clipper (enabled game-owned RectMask2D, or a
+    /// functioning stencil Mask; both are prefab-level components invisible to decompilation,
+    /// which is why no round could cite them from source). The banner is the only popup part
+    /// that crosses that clipper's top edge; the card body hangs inside it — one clip boundary
+    /// explains every observation of all four rounds, including the enemy popups' immunity.
+    ///
+    /// WHY ROUNDS 1–3 COULD NOT HAVE FIXED IT, one line each: the lift orders draws WITHIN the
+    /// canvas (a clipped fragment is discarded no matter when it draws); the coplanarity pass
+    /// moves the popup plane (the clip rect is evaluated in canvas space and moves with it); the
+    /// ZTest clone wins the DEPTH test (rect clip and stencil are separate shader stages that
+    /// the clone's <c>unity_GUIZTestMode</c> override does not touch).
+    ///
+    /// THE FIX (round 4): while a popup is shown, its subtree is detached from ancestor clippers
+    /// — <see cref="UnmaskedUiGraphics"/>: <c>maskable=false</c> + <c>RecalculateClipping()</c>
+    /// per graphic, BOTH calls load-bearing (the shipped uGUI 1.0.0 <c>maskable</c> setter only
+    /// dirties the stencil; only <c>RecalculateClipping → UpdateClipParent →
+    /// RectMask2D.RemoveClippable</c> disables the renderer's clip rect and clears its cull flag
+    /// — see that class's doc for the line-level citations). Graphics under the popup's OWN
+    /// internal clippers are skipped (their clipping is design), and authored values come back
+    /// through <see cref="RestoreEnemyInfoFlatten"/> / the holder stand-down, exactly like the
+    /// round-3 materials. Rounds 1–3 STAY: each closed a real occluder that would regress
+    /// without it (band paint order; plane pose; the raised rail's depth).
+    ///
+    /// HONESTY NOTE (source vs inference): that a working clipper sits on the popup's ancestor
+    /// chain is READ FROM SOURCE (EnsureScrollClipping's contract + its silence in the log +
+    /// the INVARIANTS ScrollRect record); that its edge is the exact cut line is INFERRED —
+    /// prefab data is not in the decompiled sources. That is why <see cref="DiagnoseBannerClip"/>
+    /// ships WITH the fix: a one-shot "BANNER-CLIP DIAG" line that prints, for the live banner,
+    /// every ancestor clipper with its rect vs the banner's rect (root-canvas space), canvas
+    /// overrides and renderer cull flags — the next hardware log carries the proof either way.
+    /// And per the standing test-confidence rule, the unmask closes ALL clip-family candidates
+    /// at once (rect clip, renderer cull, stencil) instead of testing one.
     /// </summary>
     private const float EnemyInfoAngleEpsilon = 0.05f; // degrees, CanvasConversion.FlattenAngleEpsilon
     private const float EnemyInfoZEpsilon = 0.01f;     // uGUI px, CanvasConversion.FlattenZEpsilon
@@ -957,6 +1018,19 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// and <see cref="OnTopUiGraphics"/> for the mechanism, safety belts and restore contract.</summary>
     private readonly OnTopUiGraphics _enemyInfoOnTop = new();
 
+    /// <summary>Round 4 ("unverändert"): the shown popups' graphics are detached from ancestor
+    /// clippers (RectMask2D clip rect + renderer cull + stencil Mask) — the one occluder family
+    /// immune to rounds 1–3 — see the round-4 doc section above and <see cref="UnmaskedUiGraphics"/>
+    /// for the mechanism, the internal-clipper guard and the restore contract.</summary>
+    private readonly UnmaskedUiGraphics _enemyInfoUnmask = new();
+
+    /// <summary>One <see cref="DiagnoseBannerClip"/> line per conversion (armed until the first
+    /// popup that actually SHOWS the role banner — enemy popups keep it inactive).</summary>
+    private bool _bannerClipDiagLogged;
+
+    /// <summary>Scratch for <see cref="CanvasSpaceRect"/> (single-threaded Unity main loop).</summary>
+    private static readonly Vector3[] RectCornerScratch = new Vector3[4];
+
     /// <summary>Force every node of a SHOWN enemy-info popup coplanar with the panel: identity
     /// local rotation, zero local z. X/Y are never touched, so the card's own slide/fade-in
     /// animations keep playing — flat. See the doc block above for the full derivation.</summary>
@@ -973,6 +1047,8 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // follow the holder onto the reveal panel: that surface never asked for ZTest-Always
             // content, and the popups it shows are its own presentation to govern.
             _enemyInfoOnTop.RestoreAll("enemyCardsHolder left the initiative panel");
+            // Round 4: nor the unmask — the reveal panel's popups must clip as the game authored.
+            _enemyInfoUnmask.RestoreAll("enemyCardsHolder left the initiative panel");
             return;
         }
 
@@ -1016,6 +1092,16 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
                 FlattenPoseNode(rect, ref flattenedRot, ref flattenedZ,
                     ref worstAngle, ref worstZ, ref worstNode);
             }
+
+            // Round 4, PROOF FIRST: one-shot ancestor-clipper dump for the live banner, taken
+            // BEFORE the unmask below detaches anything — the next hardware log must be able to
+            // name the occluder even if the fix already hides it visually.
+            DiagnoseBannerClip(popup);
+
+            // Round 4: a SHOWN popup ignores ancestor clippers — the RectMask2D clip rect /
+            // renderer cull / stencil family that rounds 1-3 could not touch (see the round-4
+            // doc section). Same idempotence and lifetime as the on-top pass below.
+            _enemyInfoUnmask.Apply(popup, "initiative hover popup");
 
             // Round 3: a SHOWN popup wins the depth test — banner, frame, portrait, texts, all
             // of it (see the round-3 doc section). Idempotent (one hash probe per already-seen
@@ -1158,6 +1244,8 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     private void RestoreEnemyInfoFlatten()
     {
         _enemyInfoOnTop.RestoreAll("initiative panel released");
+        _enemyInfoUnmask.RestoreAll("initiative panel released"); // round 4 — same lifetime
+        _bannerClipDiagLogged = false; // conversions are rare — one diag line per conversion
 
         if (_enemyInfoBranch != null)
         {
@@ -1183,6 +1271,134 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         _enemyInfoFlat.Clear();
         _enemyInfoLogged = 0;
     }
+
+    /// <summary>
+    /// Round 4's PROOF line — one-shot per conversion, fired the first tick a shown popup has its
+    /// role banner ACTIVE (ally / enemy2 / neutral hovers only; MonsterBaseUI.SetBaseStats:162-180
+    /// keeps it off for plain enemies, so an enemy-only session leaves the shot armed). Logs, with
+    /// grep prefix <c>BANNER-CLIP DIAG</c>, everything the clip family could hide behind: the
+    /// banner's rect, <c>maskable</c>, renderer cull flag and stencil depth; the RectMask2D that
+    /// GOVERNS it per uGUI's own resolution (<c>MaskUtilities.GetRectMaskForClippable</c> — the
+    /// component that actually writes its clip rect); and the full ancestor chain's clippers
+    /// (RectMask2D/Mask with enabled state and rects), nested canvases (overrideSorting/order) and
+    /// culled renderers. All rects are in ROOT-CANVAS space so "the clip top edge sits N px below
+    /// the banner top" can be read straight off the line. Taken BEFORE the unmask detaches
+    /// anything (call order in <see cref="FlattenEnemyInfo"/>), so the log names the occluder even
+    /// though the same tick's fix already hides it visually — the round-2/3 lesson: the next
+    /// hardware log must attribute, not just show, or the round after this one starts blind.
+    /// </summary>
+    private void DiagnoseBannerClip(Transform popup)
+    {
+        if (_bannerClipDiagLogged)
+            return;
+        MonsterBaseUI mb = popup.GetComponent<MonsterBaseUI>();
+        if (mb == null)
+            return;
+        GameObject role = mb.roleGameObject;
+        if (role == null || !role.activeInHierarchy)
+            return; // enemy popup — no banner shown; stay armed for the first ally/neutral hover
+
+        // The banner graphic: the role label rides a TextLocalizedListener that RequireComponents
+        // a TextMeshProUGUI on the same node (decompiled TextLocalizedListener.cs); fall back to
+        // the first maskable graphic under roleGameObject (its backdrop) if the ref is unwired.
+        MaskableGraphic? banner = mb.roleText != null ? mb.roleText.GetComponent<TMP_Text>() : null;
+        if (banner == null)
+            banner = role.GetComponentInChildren<MaskableGraphic>(includeInactive: true);
+        Canvas? canvas = banner != null ? banner.canvas : null;
+        if (banner == null || canvas == null)
+            return; // no drawable banner yet (mid-generation) — try again next shown tick
+        _bannerClipDiagLogged = true;
+
+        Canvas rootCanvas = canvas.rootCanvas;
+        Matrix4x4 toCanvas = rootCanvas.transform.worldToLocalMatrix;
+        var sb = new System.Text.StringBuilder(1024);
+        Rect bannerRect = CanvasSpaceRect((RectTransform)banner.transform, toCanvas);
+        sb.Append("BANNER-CLIP DIAG: banner '").Append(banner.name)
+            .Append(banner is TMP_Text label ? "' (\"" + label.text + "\")" : "'")
+            .Append(" rect ").Append(FormatRect(bannerRect))
+            .Append(" px (root-canvas space), maskable=").Append(banner.maskable)
+            .Append(", canvasRenderer.cull=").Append(banner.canvasRenderer.cull)
+            .Append(", stencilDepth=")
+            .Append(MaskUtilities.GetStencilDepth(banner.transform, rootCanvas.transform));
+
+        RectMask2D? governing = MaskUtilities.GetRectMaskForClippable(banner);
+        if (governing != null)
+        {
+            Rect clip = CanvasSpaceRect((RectTransform)governing.transform, toCanvas);
+            sb.Append(" | GOVERNING RectMask2D '").Append(governing.name).Append("' rect ")
+                .Append(FormatRect(clip)).Append(" — its top edge is ")
+                .Append((bannerRect.yMax - clip.yMax).ToString("F0"))
+                .Append(" px BELOW the banner top (positive = that many banner px are clipped off)");
+        }
+        else
+        {
+            sb.Append(" | no governing RectMask2D (uGUI resolution)");
+        }
+
+        sb.Append(" | ANCESTOR CHAIN (banner → root canvas):");
+        for (Transform? t = banner.transform.parent; t != null; t = t.parent)
+        {
+            RectMask2D? rm = t.GetComponent<RectMask2D>();
+            Mask? stencil = t.GetComponent<Mask>();
+            Canvas? cv = t.GetComponent<Canvas>();
+            CanvasRenderer? cr = t.GetComponent<CanvasRenderer>();
+            bool culled = cr != null && cr.cull;
+            bool isRoot = ReferenceEquals(t, rootCanvas.transform);
+            if (rm != null || stencil != null || cv != null || culled)
+            {
+                sb.Append(" '").Append(t.name).Append("':");
+                if (rm != null)
+                    sb.Append(" RectMask2D(").Append(rm.enabled ? "ENABLED" : "disabled")
+                        .Append(", rect ")
+                        .Append(FormatRect(CanvasSpaceRect((RectTransform)t, toCanvas))).Append(')');
+                if (stencil != null)
+                {
+                    string sprite = stencil.graphic is Image img && img.sprite != null
+                        ? img.sprite.name : "<none>";
+                    sb.Append(" Mask(").Append(stencil.enabled ? "ENABLED" : "disabled")
+                        .Append(", graphic ")
+                        .Append(stencil.graphic != null && stencil.graphic.enabled ? "on" : "off")
+                        .Append(", sprite '").Append(sprite).Append("', rect ")
+                        .Append(FormatRect(CanvasSpaceRect((RectTransform)t, toCanvas))).Append(')');
+                }
+                if (cv != null)
+                    sb.Append(" Canvas(overrideSorting=").Append(cv.overrideSorting)
+                        .Append(", order=").Append(cv.sortingOrder).Append(')');
+                if (culled)
+                    sb.Append(" CanvasRenderer.cull=TRUE");
+                sb.Append(';');
+            }
+            if (isRoot)
+                break;
+        }
+        sb.Append(" — a clipper whose edge matches the reported cut is the occluder rounds 1-3 " +
+                  "(paint order / plane z / ZTest) provably could not touch; the UNMASK pass " +
+                  "detaches the popup from it this same tick.");
+        VRLog.Info("WorldUI", sb.ToString());
+    }
+
+    /// <summary>A RectTransform's axis-aligned bounds in ROOT-CANVAS local space (the same frame
+    /// <c>MaskableGraphic.rootCanvasRect</c> culls in), via its world corners.</summary>
+    private static Rect CanvasSpaceRect(RectTransform rt, Matrix4x4 toCanvas)
+    {
+        rt.GetWorldCorners(RectCornerScratch);
+        Vector3 p = toCanvas.MultiplyPoint(RectCornerScratch[0]);
+        float minX = p.x, maxX = p.x, minY = p.y, maxY = p.y;
+        for (int i = 1; i < 4; i++)
+        {
+            p = toCanvas.MultiplyPoint(RectCornerScratch[i]);
+            minX = Mathf.Min(minX, p.x);
+            maxX = Mathf.Max(maxX, p.x);
+            minY = Mathf.Min(minY, p.y);
+            maxY = Mathf.Max(maxY, p.y);
+        }
+        return new Rect(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    /// <summary>Corner-pair formatting for <see cref="DiagnoseBannerClip"/>'s rects — min/max
+    /// corners read better against "the cut is at y=…" than Unity's x/y/w/h ToString.</summary>
+    private static string FormatRect(Rect r)
+        => $"({r.xMin:F0},{r.yMin:F0})..({r.xMax:F0},{r.yMax:F0})";
 
     /// <summary>
     /// Decide whether the central content fit may run this tick, and log every edge.
