@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 124`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 125`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-11
 
@@ -126,6 +126,20 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 125** — 3D ENVIRONMENTS (panoramas rejected + removed), mouse round 2 + INCIDENT
+  RESTORE, ally banner. [Sky] Style = Default/Cellar/SwampNight ("Umgebung"): two bundled
+  prefabs from CC0 Quaternius packs (Env_Cellar 53k tris — stone room, torches, chests, stairs
+  into darkness; Env_Swamp 29k tris — 2200-star dome w/ baked moon + twinkle shader, moon-glint
+  water, fog banks, fireflies, glowing mushrooms, shooting stars), ALL world-anchored (user
+  rule), no bundle scripts, spawned under RigRoot at identity (stands still in real space,
+  perceived-size-constant under zoom, zero per-frame writes), MR on = always off. Preview
+  renders reviewed by builder AND integrator before shipping (6 iterations; renders in
+  scratchpad env-previews/). Bundle rebuilt 30,060,345 bytes (panoramas deleted) — 125 NEEDS it.
+  MOUSE: OS cursor hidden per frame (WarpCursorPosition moved the real cursor); virtual pointer
+  parks at (-4096,-4096) unless the laser actively drives it. INCIDENT: the 8594ebd merge had
+  silently reverted 123's MouseWorldSurfaceCut + grip fall-through (stale-base diff) — restored;
+  hazard recorded in memory (restrict merge patches to owned paths; grep prior lanes' markers).
+  ALLY BANNER: 'VERBÜNDETER' clip closed (branch lift + ancestor-chain flatten, both occluders).
 - **ModBuild 124** — SKY ALTERNATIVES. [Sky] Style (Default/Night/Sunset/Cellar; DE Standard/
   Sternenhimmel/Abendrot/Gewölbekeller), curated in Grafik ▸ Darstellung, localized dropdown,
   live-switchable. Three CC0 Poly Haven panoramas (4096x2048) + GloomhavenVR/SkyPanoramic

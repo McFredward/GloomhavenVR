@@ -195,7 +195,10 @@ namespace GloomhavenVR
                         core = Mathf.Clamp01(core);
                     }
                     else halo = 0.40f * Mathf.Exp(-(r - 0.30f) * 7.5f);
-                    float a = Mathf.Clamp01(core + halo);
+                    // force alpha to 0 at the sprite border — residual 2% halo showed
+                    // as a hard square against the night sky (iteration-4 lesson)
+                    float edge = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.40f, 0.5f, r));
+                    float a = Mathf.Clamp01(core + halo) * edge;
                     px[y * n + x] = new Color(1f, 0.97f, 0.90f, a);
                 }
             return px;
@@ -453,7 +456,9 @@ namespace GloomhavenVR
         {
             ambient = new Color(0.19f, 0.24f, 0.33f),
             key = new Color(0.55f, 0.68f, 0.95f), keyDir = MoonDir,
-            fill = new Color(0.09f, 0.12f, 0.17f), fillDir = new Vector3(-0.5f, 0.2f, -0.6f),
+            // fill from BELOW: moonlight bounced off the water — defines the willow
+            // canopy undersides that otherwise collapse into black blobs
+            fill = new Color(0.11f, 0.14f, 0.19f), fillDir = new Vector3(0.2f, -1f, 0.3f),
         };
 
         private struct MatDef { public Color albedo; public Color emission; public MatDef(Color a, Color e = default) { albedo = a; emission = e; } }
@@ -488,7 +493,7 @@ namespace GloomhavenVR
         private static readonly Dictionary<string, MatDef> SwampPalette = new Dictionary<string, MatDef>
         {
             { "Green",           new MatDef(new Color(0.14f, 0.24f, 0.15f)) },
-            { "DarkGreen",       new MatDef(new Color(0.10f, 0.16f, 0.12f)) },
+            { "DarkGreen",       new MatDef(new Color(0.13f, 0.20f, 0.16f)) },
             { "Wood",            new MatDef(new Color(0.20f, 0.14f, 0.11f)) },
             { "Rock",            new MatDef(new Color(0.16f, 0.17f, 0.21f)) },
             { "White",           new MatDef(new Color(0.60f, 0.63f, 0.68f)) },
@@ -538,6 +543,7 @@ namespace GloomhavenVR
 
             // Bespoke solids
             EnvLitMat(MatDir + "/Cellar_Ceiling.mat", new MatDef(new Color(0.05f, 0.045f, 0.04f)), CellarRig);
+            EnvLitMat(MatDir + "/Cellar_Shroud.mat", new MatDef(new Color(0.17f, 0.15f, 0.13f)), CellarRig);
             EnvLitMat(MatDir + "/Swamp_Mud.mat", new MatDef(new Color(0.10f, 0.085f, 0.07f)), SwampRig);
 
             // FX materials
@@ -836,7 +842,9 @@ namespace GloomhavenVR
                 int rows = wh < 2.6f ? 2 : 1;
                 int entranceSeg = segs / 2;
                 float entranceX = -((segs - 1) * ww) / 2f + entranceSeg * ww;
-                foreach (var (side, rotY) in new[] { ("N", 90f), ("S", 270f), ("E", 0f), ("W", 180f) })
+                // rotY chosen so the sculpted stone face points INTO the room on all
+                // four sides (iteration-3: E/W showed their flat backs)
+                foreach (var (side, rotY) in new[] { ("N", 90f), ("S", 270f), ("E", 180f), ("W", 0f) })
                 {
                     for (int i = 0; i < segs; i++)
                     {
@@ -869,13 +877,16 @@ namespace GloomhavenVR
                     Place(t, "D", "Column", new Vector3(c.x, FloorY, c.y), 0f, 0.8f);
 
                 // ---- stairs beyond the entrance, shrouded in darkness ----
-                Place(t, "D", "Stairs", new Vector3(entranceX, FloorY, 4.9f), 0f);
-                Place(t, "D", "Stairs", new Vector3(entranceX, FloorY + 0.90f, 6.4f), 0f);
+                // one flight fading up into the dark + a faint warm glow from
+                // "upstairs" (a second stacked flight floated visibly in the gloom)
+                Place(t, "D", "Stairs", new Vector3(entranceX, FloorY, 4.9f), 90f); // steps rise AWAY (+Z)
+                Glow(t, new Vector3(entranceX, 1.9f, 5.8f), 0.9f, "FX_GlowWarm.mat");
                 Solid(t, "StairFloor", "Env_Box.asset", Mat("Cellar_Rock.mat"),
                     new Vector3(entranceX, FloorY - 0.10f, 5.6f), Vector3.zero, new Vector3(3.4f, 0.2f, 3.6f));
-                // shroud: three dark slabs + roof enclosing the stairwell so the view
-                // up the stairs fades into black instead of showing void.
-                var shroudMat = Mat("Cellar_Ceiling.mat");
+                // shroud: dim stone slabs + roof enclosing the stairwell — dark enough
+                // to read as gloom, bright enough to show a stair shaft, with a warm
+                // glow hinting at light from upstairs.
+                var shroudMat = Mat("Cellar_Shroud.mat");
                 Solid(t, "ShroudBack", "Env_Box.asset", shroudMat, new Vector3(entranceX, 2.0f, 7.4f), Vector3.zero, new Vector3(4.2f, 5.4f, 0.2f));
                 Solid(t, "ShroudL", "Env_Box.asset", shroudMat, new Vector3(entranceX - 2.0f, 2.0f, 5.9f), Vector3.zero, new Vector3(0.2f, 5.4f, 3.2f));
                 Solid(t, "ShroudR", "Env_Box.asset", shroudMat, new Vector3(entranceX + 2.0f, 2.0f, 5.9f), Vector3.zero, new Vector3(0.2f, 5.4f, 3.2f));
@@ -926,9 +937,9 @@ namespace GloomhavenVR
                 var cand2 = Place(t, "D", "Candelabrum_tall", new Vector3(1.95f, g, 1.05f), -140f);
                 var cand3 = Place(t, "D", "Candelabrum", new Vector3(-1.75f, g, 1.80f), 0f);
 
-                // window (south wall, spans X after rotY 90) with cold moonlight glow
-                Place(t, "D", "Window", new Vector3(1.4f, 2.1f, -3.85f), 90f, 1f, Snap.None);
-                Glow(t, new Vector3(1.4f, 2.15f, -3.95f), 0.5f, "FX_GlowWindow.mat");
+                // window (south wall, spans X) with cold moonlight glow
+                Place(t, "D", "Window", new Vector3(1.4f, 2.1f, -3.85f), 270f, 1f, Snap.None);
+                Glow(t, new Vector3(1.4f, 2.15f, -3.70f), 0.45f, "FX_GlowWindow.mat");
 
                 // wall torches, E and W walls (pivot = mount point, extends local +X)
                 var torchDefs = new[]
@@ -941,22 +952,23 @@ namespace GloomhavenVR
                 foreach (var td in torchDefs)
                 {
                     var torch = Place(t, "D", "Torch_wall", td.pos, td.rot, 1f, Snap.None, center: false);
-                    var tb = RendererBounds(torch);
-                    var flamePos = new Vector3(tb.center.x, tb.max.y - 0.02f, tb.center.z);
-                    FlamePS(t, flamePos, big: true);
-                    Glow(t, flamePos + Vector3.up * 0.06f, 0.30f, "FX_GlowWarm.mat");
+                    // anchor the shimmer on the model's own emissive Fire mesh, not
+                    // the whole-model bounds top (iteration-3: flames floated above)
+                    var flamePos = FireAnchor(torch);
+                    FlamePS(t, flamePos, big: true, radius: 0.05f);
+                    Glow(t, flamePos + Vector3.up * 0.05f, 0.30f, "FX_GlowWarm.mat");
                 }
 
-                // candle flames on the candelabra
+                // candle flames on the candelabra (emit across the wick cluster)
                 foreach (var cnd in new[] { cand1, cand2, cand3 })
                 {
                     var cb = RendererBounds(cnd);
-                    var fp = new Vector3(cb.center.x, cb.max.y - 0.01f, cb.center.z);
-                    FlamePS(t, fp, big: false);
-                    Glow(t, fp + Vector3.up * 0.05f, 0.18f, "FX_GlowWarm.mat");
+                    var fp = new Vector3(cb.center.x, cb.max.y - 0.02f, cb.center.z);
+                    FlamePS(t, fp, big: false, radius: 0.16f);
+                    Glow(t, fp + Vector3.up * 0.05f, 0.20f, "FX_GlowWarm.mat");
                 }
                 var c1b = RendererBounds(candle1);
-                FlamePS(t, new Vector3(c1b.center.x, c1b.max.y - 0.01f, c1b.center.z), big: false);
+                FlamePS(t, new Vector3(c1b.center.x, c1b.max.y - 0.02f, c1b.center.z), big: false, radius: 0.02f);
 
                 // drifting dust motes in the candlelight (world-space, big room volume)
                 var dust = NewPS(t, "DustMotes", new Vector3(0, 1.8f, 0), Vector3.zero, Mat("FX_Dust.mat"));
@@ -993,7 +1005,18 @@ namespace GloomhavenVR
             return b;
         }
 
-        private static void FlamePS(Transform parent, Vector3 pos, bool big)
+        /// <summary>Finds the child renderer carrying the emissive Fire material.</summary>
+        private static Vector3 FireAnchor(GameObject model)
+        {
+            foreach (var r in model.GetComponentsInChildren<Renderer>(true))
+                foreach (var m in r.sharedMaterials)
+                    if (m != null && m.name.EndsWith("_Fire"))
+                        return r.bounds.center;
+            var b = RendererBounds(model);
+            return new Vector3(b.center.x, b.max.y - 0.02f, b.center.z);
+        }
+
+        private static void FlamePS(Transform parent, Vector3 pos, bool big, float radius)
         {
             var ps = NewPS(parent, big ? "TorchFlame" : "CandleFlame", pos, new Vector3(-90, 0, 0), Mat("FX_Flame.mat"));
             var m = ps.main;
@@ -1001,12 +1024,12 @@ namespace GloomhavenVR
             m.duration = 5f;
             m.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.6f);
             m.startSpeed = new ParticleSystem.MinMaxCurve(0.18f, 0.35f);
-            m.startSize = big ? new ParticleSystem.MinMaxCurve(0.18f, 0.30f) : new ParticleSystem.MinMaxCurve(0.06f, 0.10f);
+            m.startSize = big ? new ParticleSystem.MinMaxCurve(0.11f, 0.18f) : new ParticleSystem.MinMaxCurve(0.05f, 0.09f);
             m.startColor = Color.white;
             m.maxParticles = big ? 14 : 8;
             var e = ps.emission; e.rateOverTime = big ? 16f : 9f;
             var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Cone;
-            sh.angle = 7f; sh.radius = big ? 0.03f : 0.012f;
+            sh.angle = 7f; sh.radius = radius;
             var sol = ps.sizeOverLifetime; sol.enabled = true;
             sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
                 new Keyframe(0f, 0.55f), new Keyframe(0.25f, 1f), new Keyframe(1f, 0.15f)));
@@ -1052,18 +1075,20 @@ namespace GloomhavenVR
                 }
 
                 // ---- willow ring + dead trees (silhouettes against the sky) ----
-                // native heights are only 2.3-3.3 m -> scale to real tree sizes (6-9 m)
+                // native heights are only 2.3-3.3 m -> scale to real tree sizes; ring
+                // pushed to 7-11 m so the canopies frame the sky instead of looming
+                // over the table (iteration-3 lesson)
                 var trees = new (string model, float x, float z, float rot, float s)[]
                 {
-                    ("Willow_1", 6.5f, 3.5f, 15f, 2.7f),
-                    ("Willow_2", -5.5f, 5.8f, 160f, 2.3f),
-                    ("Willow_3", -7.5f, -3.0f, 75f, 3.1f),
-                    ("Willow_1", 4.5f, -6.5f, 230f, 2.4f),
-                    ("Willow_2", 8.5f, -1.0f, 310f, 2.5f),
-                    ("CommonTree_Dead_1", 2.8f, 6.8f, 40f, 2.5f),
-                    ("CommonTree_Dead_2", -3.5f, -6.0f, 200f, 2.3f),
-                    ("BirchTree_Dead_1", -6.8f, 1.5f, 120f, 2.5f),
-                    ("Willow_Dead_1", 7.0f, -5.0f, 20f, 2.6f),
+                    ("Willow_1", 8.2f, 4.6f, 15f, 2.5f),
+                    ("Willow_2", -7.2f, 7.2f, 160f, 2.2f),
+                    ("Willow_3", -9.2f, -4.0f, 75f, 2.9f),
+                    ("Willow_1", 5.6f, -8.2f, 230f, 2.3f),
+                    ("Willow_2", 10.2f, -1.6f, 310f, 2.4f),
+                    ("CommonTree_Dead_1", 3.4f, 8.2f, 40f, 2.5f),
+                    ("CommonTree_Dead_2", -4.5f, -7.4f, 200f, 2.3f),
+                    ("BirchTree_Dead_1", -8.0f, 2.0f, 120f, 2.5f),
+                    ("Willow_Dead_1", 8.6f, -6.0f, 20f, 2.6f),
                 };
                 // bottom-snapped 0.30 m BELOW the water line (roots submerged)
                 foreach (var tr in trees)
@@ -1124,7 +1149,7 @@ namespace GloomhavenVR
                 fm.startSpeed = 0f;
                 fm.startSize = new ParticleSystem.MinMaxCurve(6f, 11f);
                 fm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-                fm.startColor = new Color(0.50f, 0.60f, 0.78f, 0.055f); // dim: mist, not snowdrifts
+                fm.startColor = new Color(0.50f, 0.60f, 0.78f, 0.07f); // dim: mist, not snowdrifts
                 fm.maxParticles = 34;
                 var fe = fog.emission; fe.rateOverTime = 1.7f;
                 var fsh = fog.shape; fsh.enabled = true; fsh.shapeType = ParticleSystemShapeType.Donut;
@@ -1188,10 +1213,10 @@ namespace GloomhavenVR
             m.duration = 24f;
             m.startLifetime = new ParticleSystem.MinMaxCurve(6f, 12f);
             m.startSpeed = 0.02f;
-            m.startSize = new ParticleSystem.MinMaxCurve(0.025f, 0.05f);
+            m.startSize = new ParticleSystem.MinMaxCurve(0.035f, 0.07f);
             m.startColor = new Color(0.72f, 1f, 0.35f, 1f);
-            m.maxParticles = 24;
-            var e = ps.emission; e.rateOverTime = 2.4f;
+            m.maxParticles = 34;
+            var e = ps.emission; e.rateOverTime = 3.4f;
             var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 2.4f;
             var n = ps.noise; n.enabled = true; n.strength = 0.35f; n.frequency = 0.35f; n.scrollSpeed = 0.15f;
             // blink: size pulses over lifetime

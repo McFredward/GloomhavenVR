@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: FX_Moon
-  m_Shader: {fileID: 4800000, guid: fc339339a405d7e1eaf904b0a723d429, type: 3}
+  m_Name: Cellar_Shroud
+  m_Shader: {fileID: 4800000, guid: 4f0398fe297f5a31a8e50152e1c960c4, type: 3}
   m_ValidKeywords: []
   m_InvalidKeywords: []
   m_LightmapFlags: 4
@@ -21,11 +21,18 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 5f2766a50107ac247ac74ec07df61a7b, type: 3}
+        m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
-    m_Floats: []
+    m_Floats:
+    - _Cull: 2
     m_Colors:
-    - _Tint: {r: 1, g: 0.98, b: 0.92, a: 1}
+    - _AmbientCol: {r: 0.26, g: 0.21, b: 0.17, a: 1}
+    - _Color: {r: 0.17, g: 0.15, b: 0.13, a: 1}
+    - _Emission: {r: 0, g: 0, b: 0, a: 0}
+    - _FillCol: {r: 0.16, g: 0.17, b: 0.26, a: 1}
+    - _FillDir: {r: -0.5, g: 0.25, b: -0.4, a: 0}
+    - _KeyCol: {r: 0.85, g: 0.64, b: 0.4, a: 1}
+    - _KeyDir: {r: 0.25, g: 1, b: 0.15, a: 0}
   m_BuildTextureStacks: []

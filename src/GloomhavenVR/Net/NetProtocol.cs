@@ -416,7 +416,36 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 124;
+    public const ushort ModBuild = 125;
+    // Build 125: 3D ENVIRONMENTS replace the panoramas; mouse eradication round 2 (incl. an
+    // integrator-incident restore); ally hover banner. No wire change.
+    //
+    // (1) ENVIRONMENTS (user: "statt so eine Skybox will ich am Besten einen wirklichen
+    // 'Keller' mit samt 3D assets ... wie kleine VRChats worlds"): [Sky] Style is now
+    // Default / Cellar / SwampNight ("Umgebung": Standard / DnD-Keller / Sumpfnacht). Two
+    // bundled prefabs, built from CC0 Quaternius packs and reviewed for atmosphere on renders
+    // by both the builder and the integrator before shipping: Env_Cellar (8x8 m stone room,
+    // torch flames, candelabra, chests/books/potions, stairs into darkness; 53k tris) and
+    // Env_Swamp (2200-star dome with baked moon + twinkle shader, moon-glint water, willow/
+    // dead-tree ring, ground-fog banks, fireflies, glowing mushrooms, shooting stars; 29k
+    // tris). ALL world-anchored (his rule: nothing may ride the head), no scripts in the
+    // bundle (Shuriken + shader time only), no colliders. Spawned under VRRigDriver.RigRoot
+    // at identity — the room stands still in REAL space, keeps perceived size under diorama
+    // zoom, rides recenters; zero per-frame writes. MR on = environment always off. The
+    // panorama machinery and its three textures are REMOVED from code and bundle (bundle now
+    // 30,060,345 bytes — 125 NEEDS this bundle for the environments).
+    //
+    // (2) MOUSE ROUND 2 + RESTORE: the visible cursor was the real OS cursor riding
+    // Mouse.WarpCursorPosition — hidden every frame while VR runs; the virtual pointer PARKS
+    // off-screen whenever the laser is not actively driving it, so a stale pixel can never
+    // hover anything again (the game's own CursorLockMode.Locked path proves off-screen
+    // pointers exit hover cleanly). AND: the 123 head-hover cut + grip fall-through had been
+    // silently REVERTED by the 8594ebd merge (stale-base diff swept in reversions — an
+    // integrator merge error, now a recorded hazard); both restored, so 125 is the FIRST
+    // build that actually ships them. (3) ALLY HOVER BANNER: 'VERBÜNDETER' was clipped by
+    // two mod-introduced occluders over the initiative band (merged-canvas paint order +
+    // MR backing plate depth rejection via the unflattened ancestor chain) — both closed.
+    //
     // Build 124: SKY ALTERNATIVES. No wire change (sky is local presentation).
     //
     // User request: three alternatives beside the game's own (mod-defanged) sky, selectable
