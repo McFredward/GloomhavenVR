@@ -28,10 +28,13 @@ internal enum SkyStyle
     /// <summary>The game's own scenario sky (GH_SkySphere), exactly today's behaviour.</summary>
     Default = 0,
 
-    /// <summary>The nerd D&amp;D cellar room (bundle prefab Env_Cellar).</summary>
+    /// <summary>A candle-lit stone cellar generated from the game's own dungeon art
+    /// (Dungeon/StoneRooms/Candlelight) plus the Env_Cellar FX shell (dust motes).</summary>
     Cellar = 1,
 
-    /// <summary>Night swamp under a star dome with shooting stars (bundle prefab Env_Swamp).</summary>
+    /// <summary>A moonlit marsh generated from the game's own forest art
+    /// (Forest/Marsh/StillWaters/ForestMoonlight) plus the Env_Swamp FX shell (star dome,
+    /// shooting stars, fireflies, ground fog).</summary>
     SwampNight = 2,
 }
 
@@ -46,28 +49,45 @@ internal enum SkyStyle
 /// DnD-Keller' oder ähnliches und einen Sternenhimmel samt Sternschnuppen und animationen in
 /// einer Sumpfumgebung."
 ///
+/// THE SECOND RULING (user, 2026-08-12, verbatim — it killed the menu scope AND the third-party
+/// bundle art): "Ich WILL garnicht das die Umgebung im Menu rendert - sondern nur im Szenario so
+/// wie es die Default originale Umgebung auch macht. Leg daher mit der Umsetzung los von den
+/// zwei neuen Umgebungen. Lösche die alten assets und räum da wieder auf."
+///
 /// WHAT IT DOES
 /// ------------
 /// A dial (<c>[Sky] Style</c>: Default / Cellar / SwampNight, curated in Grafik ▸ Darstellung)
 /// picks the surroundings. Default is the game's own sky, bit-identical to today —
 /// <see cref="SkyBackdrop"/> keeps making it a non-occluding backdrop and this class does
-/// nothing. A non-Default choice:
+/// nothing. SCENARIO-ONLY SCOPE (second ruling): everything below happens exclusively while an
+/// actual scenario board exists (<see cref="Events.VRModeStateMachine.ScenarioBoardExists"/> —
+/// the Choreographer-alive signal the rig/WorldUI/mode machine already read; deliberately not
+/// the save-state phase, which flips during loading/travel before any board exists). In the
+/// menu and on the world map: nothing, ever — the game's default look. A non-Default choice in
+/// a scenario:
 ///
 ///  1. HIDES the game's sky sphere (<c>GH_SkySphere</c>) via <c>renderer.enabled = false</c> —
 ///     unchanged from the panorama build. That is safe for PURE hiding — <see cref="SkyBackdrop"/>'s
 ///     class doc documents the trap precisely: suppressing a renderer only bites when a
 ///     CommandBuffer is supposed to REDRAW it, which nothing does here. The sphere is found
 ///     through <see cref="SkyBackdrop.FindSky"/> (one shared set of name/shader hints),
-///     recorded, and re-enabled on restore.
-///  2. SPAWNS the chosen environment prefab from the asset bundle (a parallel content lane
-///     authors them against a fixed contract): <c>Env_Cellar</c> — a ~8x8 m self-lit D&amp;D
-///     cellar room, floor at y≈-0.02, a free 1.5 m radius at its origin for the real table —
-///     or <c>Env_Swamp</c> — swamp night: ground plane, tree ring, star dome, shooting-star
-///     bursts, ground fog, fireflies. Both are self-lit (BoardLit/emissive — no scene-light
-///     dependency) and self-animating (Shuriken only, no scripts). The instance lives on the
-///     MOD LAYER (only the rig head camera renders it; game cameras and the FlatScreen
-///     composites never see it) and has every collider stripped defensively — non-interactive
-///     by ruling, and it must never catch a laser/poke ray.
+///     recorded, and re-enabled on restore. Hidden for BOTH styles: SwampNight's star dome
+///     must own the sky, and the cellar is an enclosed room.
+///  2. SPAWNS the FX SHELL prefab from the asset bundle (a parallel content lane authors them
+///     against a fixed contract): <c>Env_Swamp</c> = star dome + shooting stars + fireflies +
+///     ground fog ONLY; <c>Env_Cellar</c> = dust motes + a disabled 'GlowTemplate' child.
+///     Self-lit, self-animating (Shuriken only, no scripts), authored in real meters.
+///  3. GENERATES the actual room from the game's own art: the game's 'Map A' template is
+///     instantiated offscreen and dressed by the live Apparance engine in the game's own style
+///     vocabulary, then frozen, normalized to ~9 real meters across and placed into the same
+///     frame — the whole lane lives in <c>SkyAlternative.MapGen.cs</c> (staging pose, borrowed
+///     detail focus, settle polling, normalization math, lifecycle). Generation failure
+///     degrades to the FX shell alone.
+///
+/// The game's own scenario diorama/table stays untouched and visible — the environment
+/// surrounds it. Everything lives on the MOD LAYER (only the rig head camera renders it; game
+/// cameras and the FlatScreen composites never see it) and has every collider stripped —
+/// non-interactive by ruling, it must never catch a laser/poke ray.
 ///
 /// ANCHORING — THE FRAME, second revision. The first environment build (ModBuild 125)
 /// parented the instance under <see cref="VRRigDriver.RigRoot"/> at identity, chosen so the
@@ -124,8 +144,9 @@ internal enum SkyStyle
 /// origin at the player's floor position (the rig-space point under the head, y=0 —
 /// tracking is floor-origin, so that is the real floor, times the rig mapping), yaw = the
 /// head's world forward projected to the horizon. Entering a style therefore always puts the
-/// player at the environment's authored center (the prefab contract keeps a free 1.5 m radius
-/// there). Head not tracked yet (rig just built) → the rig's own pose stands in, and the
+/// player at the frame's origin — the FX shells are authored around it, and the generated
+/// room is normalized so its interior center lands exactly there (MapGen placement math).
+/// Head not tracked yet (rig just built) → the rig's own pose stands in, and the
 /// first-pose recenter re-places it a frame later via the pose-version rule below.
 ///
 /// RE-SEAT RULE: the placement is refreshed whenever <see cref="VRRigDriver.RigPoseVersion"/>
@@ -175,17 +196,18 @@ internal enum SkyStyle
 /// while an environment is shown SkyBackdrop stands down through the same parameter MR uses
 /// (a hidden sphere needs no non-occluding treatment).
 ///
-/// ASSETS: prefabs are loaded LAZILY from the asset bundle on the first non-Default selection
-/// via the established probe pattern (<c>AssetBundle.GetAllLoadedAssetBundles()</c> +
-/// <c>LoadAsset</c>), so a player who never touches the dial pays zero. A loaded prefab
+/// ASSETS: LAZY by design — nothing (bundle prefab or game map) loads until a style is first
+/// selected in a scenario. FX shells come from the mod bundle via the established probe pattern
+/// (<c>AssetBundle.GetAllLoadedAssetBundles()</c> + <c>LoadAsset</c>); a loaded prefab
 /// reference is KEPT for the session (it is a reference into the loaded bundle, not a copy).
-/// Missing prefab (older bundle) = one-shot warn, the game's own sky stays fully in place —
-/// the same degradation as the panorama build.
+/// Missing shell prefab (older bundle) = one-shot warn, the game's own sky stays fully in
+/// place. The game's map prefab loads through a session-cached Addressables handle
+/// (SkyAlternative.MapGen.cs).
 ///
 /// MULTIPLAYER: local presentation only — nothing about the environment is on the wire. [Sky]
 /// is not a board section, so the wire-coverage checker does not demand an exemption.
 /// </summary>
-internal static class SkyAlternative
+internal static partial class SkyAlternative
 {
     /// <summary>The environment choice. Bound by <see cref="BindConfig"/> into the RIG module
     /// file (<c>dev.gloomhavenvr.rig.cfg</c>, section [Sky]) so the config catalog's force-bind
@@ -204,8 +226,11 @@ internal static class SkyAlternative
     /// farthest authored geometry (the swamp star dome). See the class doc's FAR PLANE note.</summary>
     private const float EnvMinFarMeters = 100f;
 
-    /// <summary>Bundle paths of the environment prefabs, indexed by <see cref="SkyStyle"/>
-    /// (0 = Default = none). Contract fixed with the content lane building the bundle.</summary>
+    /// <summary>Bundle paths of the FX SHELL prefabs, indexed by <see cref="SkyStyle"/>
+    /// (0 = Default = none). Contract fixed with the content lane rebuilding the bundle:
+    /// Env_Swamp = star dome + shooting stars + fireflies + ground fog ONLY; Env_Cellar =
+    /// dust motes + a disabled 'GlowTemplate' child (kept disabled — it is a template). The
+    /// room geometry itself is game-generated (SkyAlternative.MapGen.cs), not bundled.</summary>
     private static readonly string?[] PrefabBundlePaths =
     {
         null,
@@ -257,23 +282,26 @@ internal static class SkyAlternative
             return;
         _bound = true;
         Style = file.Bind("Sky", "Style", Defaults.SkyStyle,
-            "Which surroundings the table sits in (user ruling 2026-08-12: real 3D environments " +
-            "instead of the earlier panorama skyboxes — like small VRChat worlds, not interactive, " +
-            "purely as surroundings). Default = the game's own animated sky, exactly as before. " +
-            "Cellar = a cozy nerd D&D cellar room around the play space; SwampNight = a night " +
-            "swamp under a star dome with shooting stars, ground fog and fireflies (both bundled " +
-            "with the mod). A non-Default choice hides the game's sky sphere and spawns the " +
-            "environment as a real-size PLACE IN THE WORLD, floor-aligned at your current " +
-            "position and facing (user report 2026-08-12: free movement through the room). " +
-            "Stick flight, turning, the world-grab drag and physical walking all move you " +
-            "through it; the world-grab zoom rescales only the board, never the room; the " +
-            "recenter chord (B+Y) re-seats the room around you, and re-selecting a style " +
-            "respawns it at your current pose. It can never catch the laser " +
-            "(no colliders, mod layer only). Applies live from the VR menu. MIXED REALITY ALWAYS " +
-            "WINS: while MR is on, every sky and environment is off so the chroma key can show " +
-            "your room; the choice re-applies when MR turns off. Values from the old panorama " +
-            "builds (Night/Sunset) no longer exist and fall back to Default. Local presentation " +
-            "only, never synced to peers.");
+            "Which surroundings the scenario table sits in (user ruling 2026-08-12: the " +
+            "environment renders ONLY inside a scenario, like the game's own default " +
+            "surroundings — never in the menu; and it is built from the game's own level art). " +
+            "Default = the game's own animated sky, exactly as before. Cellar = a candle-lit " +
+            "stone cellar generated from the game's dungeon art plus bundled dust motes; " +
+            "SwampNight = a moonlit marsh generated from the game's forest art under a bundled " +
+            "star dome with shooting stars, ground fog and fireflies. A non-Default choice in a " +
+            "scenario hides the game's sky sphere, lets the game's own Apparance engine build " +
+            "the room offscreen (a few seconds; the FX shell shows immediately), then places it " +
+            "around you as a real-size PLACE IN THE WORLD — about 9 m across, floor-aligned at " +
+            "your current position and facing, with you inside the room and the scenario table " +
+            "untouched in front of you. Stick flight, turning, the world-grab drag and physical " +
+            "walking all move you through it; the world-grab zoom rescales only the board, " +
+            "never the room; the recenter chord (B+Y) re-seats the room around you, and " +
+            "re-selecting a style rebuilds it at your current pose. It can never catch the " +
+            "laser (no colliders, mod layer only). Applies live from the VR menu, takes effect " +
+            "when a scenario is running. MIXED REALITY ALWAYS WINS: while MR is on, every sky " +
+            "and environment is off so the chroma key can show your room; the choice re-applies " +
+            "when MR turns off. Values from the old panorama builds (Night/Sunset) no longer " +
+            "exist and fall back to Default. Local presentation only, never synced to peers.");
     }
 
     /// <summary>
@@ -324,9 +352,20 @@ internal static class SkyAlternative
             return false;
         }
 
+        // SCENARIO-ONLY SCOPE (class doc, second ruling): outside a live scenario board the
+        // feature stands down entirely — the menu keeps the game's default look, exactly like
+        // the original surroundings. This is also the lifecycle teardown: leaving/ending a
+        // scenario deactivates (and cancels any in-flight generation) on the next tick, before
+        // the ProcGen teardown could strand game-generated content in our frame.
+        if (!Events.VRModeStateMachine.ScenarioBoardExists)
+        {
+            Deactivate();
+            return false;
+        }
+
         if (!EnsurePrefab(style))
         {
-            // Older bundle without the environment prefabs — leave the game's own sky fully in
+            // Older bundle without the FX shell prefabs — leave the game's own sky fully in
             // place (SkyBackdrop keeps treating it) rather than hiding it with nothing to show.
             Deactivate();
             return false;
@@ -345,16 +384,20 @@ internal static class SkyAlternative
 
         HideGameSphere();
         EnsureEnvironment(style, anchor);
+        if (_envGo != null)
+            TickMapGen(style, _envGo.transform); // the game-generated room lane (MapGen partial)
 
         if (!_active || !_loggedActive)
         {
             _active = true;
             _loggedActive = true;
-            VRLog.Info("Core", $"Sky alternative ON — style {style}: the game's sky sphere is hidden " +
-                               "(pure renderer.enabled hiding; SkyBackdrop stands down) and the bundled " +
-                               "3D environment is spawned as a world place at the player's pose " +
+            VRLog.Info("Core", $"Sky alternative ON — style {style} (scenario active): the game's sky " +
+                               "sphere is hidden (pure renderer.enabled hiding; SkyBackdrop stands down), " +
+                               "the bundled FX shell is spawned as a world place at the player's pose " +
                                "(world-anchored position/yaw, rig-tracked scale, mod layer — locomotion " +
-                               "moves the player through it, zoom never rescales it). MR overrides it off.");
+                               "moves the player through it, zoom never rescales it), and the game-built " +
+                               "room is generating (MapGen). MR overrides it off; leaving the scenario " +
+                               "despawns it.");
         }
         return true;
     }
@@ -372,6 +415,7 @@ internal static class SkyAlternative
     internal static void RestoreAll()
     {
         Deactivate();
+        ReleaseMapPrefab(); // the Addressables handle must not outlive the session (MapGen doc)
         _missingWarned = false;
         _scanNextFrame = 0;
     }
@@ -390,7 +434,7 @@ internal static class SkyAlternative
 
             Renderer? sphere = SkyBackdrop.FindSky();
             if (sphere == null)
-                return; // no sphere in this scene (Menu2D) — the environment still shows
+                return; // sphere not generated yet (scenario still loading) — rescan on cadence
             _hiddenSphere = sphere;
             VRLog.Info("Core", $"Sky alternative: hiding the game's sky sphere '{sphere.gameObject.name}' " +
                                "(renderer.enabled = false — pure hiding, no CommandBuffer redraw involved). " +
@@ -465,24 +509,29 @@ internal static class SkyAlternative
 
         if (_envGo != null)
         {
-            Object.Destroy(_envGo); // style switch — the old room goes
+            Object.Destroy(_envGo); // style switch — the old frame (shell + placed room) goes
             _envGo = null;
+            CancelMapGen("style switch"); // and any in-flight generation with it
         }
 
+        // THE AMBIENT FRAME (class doc ANCHORING): an empty WORLD-anchored root — no parent, so
+        // locomotion moves the rig relative to the world and therefore through the room;
+        // DontDestroyOnLoad so a scene unload can never fake-null a live frame (teardown is
+        // always ours, Deactivate). Children: the bundled FX shell (local identity — authored
+        // real meters) and, once generated, the game-built room (MapGen, normalized).
         GameObject prefab = Prefabs[(int)style]!;
-        _envGo = Object.Instantiate(prefab);
-        _envGo.name = "GloomhavenVR.SkyAlternative." + style;
-        // WORLD-ANCHORED (class doc ANCHORING): no parent — locomotion moves the rig relative
-        // to the world and therefore through the room. DontDestroyOnLoad so a scene unload can
-        // never fake-null a live room; teardown is always ours (Deactivate).
+        _envGo = new GameObject("GloomhavenVR.SkyAlternative." + style);
         Object.DontDestroyOnLoad(_envGo);
-        VRLayers.Apply(_envGo); // mod layer, recursive — head camera only (we are gated on IsRunning)
         PlaceAtPlayer(_envGo.transform, anchor, "spawn");
 
+        GameObject shell = Object.Instantiate(prefab, _envGo.transform, false);
+        shell.name = prefab.name; // authored disabled children (Cellar's 'GlowTemplate') stay disabled
+        VRLayers.Apply(_envGo); // mod layer, recursive — head camera only (we are gated on IsRunning)
+
         // NON-INTERACTIVE BY RULING ("Nicht interaktiv rein als Umgebung"): the contract says
-        // the prefabs ship without colliders, but a stray one would silently eat laser/poke
+        // the shells ship without colliders, but a stray one would silently eat laser/poke
         // rays across the whole room — strip defensively, once, at spawn.
-        Collider[] colliders = _envGo.GetComponentsInChildren<Collider>(true);
+        Collider[] colliders = shell.GetComponentsInChildren<Collider>(true);
         foreach (Collider c in colliders)
             Object.Destroy(c);
 
@@ -490,29 +539,29 @@ internal static class SkyAlternative
         // the FX follow the root's diorama scale like the meshes do; Local simulation space so
         // in-flight particles ride the root when the zoom scale-follow moves it (the root
         // carries a constant spawn yaw — a World-authored velocity direction is rotated by
-        // that constant, harmless for ambient FX). The instance is always active, so
-        // playOnAwake already ran — the Play() is belt-and-braces for systems authored with
-        // it off.
-        ParticleSystem[] systems = _envGo.GetComponentsInChildren<ParticleSystem>(true);
+        // that constant, harmless for ambient FX). playOnAwake already ran for active systems —
+        // the Play() is belt-and-braces for ones authored with it off; disabled template
+        // children are normalised but never kicked (they are templates, not FX).
+        ParticleSystem[] systems = shell.GetComponentsInChildren<ParticleSystem>(true);
         foreach (ParticleSystem ps in systems)
         {
             ParticleSystem.MainModule main = ps.main;
             main.scalingMode = ParticleSystemScalingMode.Hierarchy;
             if (main.simulationSpace == ParticleSystemSimulationSpace.World)
                 main.simulationSpace = ParticleSystemSimulationSpace.Local;
-            if (!ps.isPlaying)
+            if (!ps.isPlaying && ps.gameObject.activeInHierarchy)
                 ps.Play(withChildren: false);
         }
 
         bool wasSwitch = _appliedStyle != SkyStyle.Default && _loggedActive;
         _appliedStyle = style;
-        VRLog.Info("Core", $"Sky alternative: environment '{prefab.name}' spawned as a WORLD place at " +
+        VRLog.Info("Core", $"Sky alternative: FX shell '{prefab.name}' spawned in the ambient frame at " +
                            $"the player's pose (floor under the head, facing the view, rig-tracked " +
                            $"scale — locomotion moves the player through it; user report 2026-08-12). " +
                            $"{systems.Length} particle system(s) normalised (Hierarchy scaling, local " +
                            $"simulation space)" +
                            $"{(colliders.Length > 0 ? $", {colliders.Length} stray collider(s) stripped" : "")}." +
-                           $"{(wasSwitch ? " (style switch)" : "")}");
+                           $"{(wasSwitch ? " (style switch)" : "")} Room generation follows (MapGen).");
     }
 
     /// <summary>
@@ -621,9 +670,10 @@ internal static class SkyAlternative
         RestoreGameSphere();
         if (_envGo != null)
         {
-            Object.Destroy(_envGo);
+            Object.Destroy(_envGo); // frame + shell + placed room, all children
             _envGo = null;
         }
+        CancelMapGen("deactivate"); // returns a borrowed focus, drops staging, resets the phase
         _appliedStyle = SkyStyle.Default;
         _placedPoseVersion = int.MinValue; // a fresh activation always places fresh
         _nextHealLogTime = 0f;

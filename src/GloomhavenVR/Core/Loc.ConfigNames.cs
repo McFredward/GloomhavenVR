@@ -355,7 +355,6 @@ internal static partial class Loc
             ["RenderQuality/RebuildRigOnMsaaChange"] = Pair("Rebuild rig on MSAA", "Rig-Neubau bei MSAA"),
             ["RenderQuality/PixelLightCount"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
             ["Sky/Style"] = Pair("Environment", "Umgebung"),
-            ["Sky/EnvProbe"] = Pair("Env probe (diagnostic)", "Umgebungs-Sonde (Diagnose)"),
 
             // ---- [WallFade] — see-through wall tuning ---------------------------------------
             ["WallFade/OnFraction"] = Pair("Fade at coverage", "Ausblenden ab Deckung"),
