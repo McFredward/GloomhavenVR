@@ -69,55 +69,103 @@ internal enum SkyStyle
 ///     composites never see it) and has every collider stripped defensively — non-interactive
 ///     by ruling, and it must never catch a laser/poke ray.
 ///
-/// ANCHORING — the key design change vs. the panorama. The old mod sphere center-followed the
-/// HEAD every frame (the classic skybox illusion). A room/terrain must do the opposite: stand
-/// still in REAL space like the play table does. The chosen anchor is
-/// <see cref="VRRigDriver.RigRoot"/>, with local pose IDENTITY (origin position, identity
-/// rotation, unit scale), because RigRoot IS the real-space frame of this mod:
+/// ANCHORING — THE FRAME, second revision. The first environment build (ModBuild 125)
+/// parented the instance under <see cref="VRRigDriver.RigRoot"/> at identity, chosen so the
+/// room stood still in REAL space while the player leaned or walked physically. That anchor
+/// had a blind spot the hardware test found immediately: every mod LOCOMOTION also moves
+/// RigRoot — stick flight adds to <c>rig.position</c> (Rig/Flight.cs), snap/smooth turn
+/// rotates the rig about the head (Rig/SnapTurn.cs), the world grab drags/yaws/scales the rig
+/// (Rig/WorldGrab.cs) — so the room rode along with the player and could never be moved
+/// through. THE RULING THAT KILLED THE RIG ANCHOR (user report, 2026-08-12, verbatim):
+/// "Weiterhin möchte ich mich auch in den umgebungen frei bewegen und drehen können, das ist
+/// aktuell nicht möglich."
 ///
-///  - XR device poses (head, hands) are LOCAL to RigRoot ("Tracking-space root of the VR rig
-///    ... XR device poses are local to this transform"), and tracking is floor-origin
-///    (VRRigDriver.Recenter: "with floor-origin tracking headLocal.y ≈ eye height") — so
-///    RigRoot's local space is the player's real room in METERS with y=0 on the REAL floor.
-///    The prefabs are authored in real meters with the floor at y≈-0.02: parenting with unit
-///    local scale puts the cellar floor a hair under the real floor, by construction.
-///  - LEANING/WALKING moves the head WITHIN RigRoot; the environment's rig-local pose never
-///    changes, so the room stands perfectly still in real space — the goal.
-///  - The DIORAMA ZOOM (WorldGrab writes RigRoot.position/rotation/localScale) must not scale
-///    the room. Under RigRoot the instance's WORLD size tracks the rig scale exactly — which
-///    is precisely what keeps its REAL (perceived) size constant: 8 authored meters read as
-///    8 real meters at any zoom, while the world/board rescales around the player. A
-///    world-anchored room would do the opposite (shrink/grow with every zoom — the pinned
-///    PlayTray needs world anchoring for the reverse reason: it must keep WORLD size). The
-///    tray's FOLLOW mode anchors under this same frame (the hands root under the rig), which
-///    is what "stands still like the play table" means here.
-///  - RECENTER / spawn-ring seating teleports RigRoot; the environment rides along — the room
-///    re-seats around the player's new seat, exactly like the rest of the real-space furniture.
-///  - RIG REBUILD destroys RigRoot and its children, the environment included; the next
-///    <see cref="Tick"/> sees the fake-nulled instance and respawns under the new root.
-///    Rebuilds are rare, logged events — an occasional prefab instantiate is fine.
+/// TWO PURE FRAMES WERE EVALUATED, and each fails one hard requirement:
 ///
-/// PER-FRAME COST: ZERO transform writes while active — parenting does all the work; the rig
-/// root is the only thing that ever moves and Unity's hierarchy carries the children. The
-/// active tick is: enum read, sphere-hidden check, instance/anchor null+reference checks.
-/// Default/MR-on: an enum read plus an idempotent early-out. (The panorama's per-frame
-/// head-follow + far-plane-resize writes DIED with the panorama.)
+///  - RIG FRAME (the old anchor): physical walking works, zoom can never rescale the room —
+///    but locomotion moves rig and room together, so free movement is impossible BY
+///    CONSTRUCTION. That is exactly the report.
+///  - PURE WORLD FRAME (parent it like scenario geometry, world-fixed size — the "behaves
+///    exactly like the diorama" option): all locomotion moves the player through it, which is
+///    what "wie kleine VRChats worlds" implies — but the prefabs are authored in REAL METERS
+///    around the table while the world is a DIORAMA at ~12x base scale: an 8 m cellar would
+///    read as a 0.7 m dollhouse, and pre-scaling it once only defers the problem — every
+///    pinch-zoom would then balloon/shrink the room with the board, the exact perceptual
+///    growth the design forbids.
 ///
-/// PARTICLES: prefab systems auto-play (playOnAwake) and RigRoot is always active, so no kick
-/// is strictly needed — a defensive <c>Play()</c> runs anyway after instantiate. Two module
-/// normalisations make Shuriken honour the anchor design (the content lane authors at scale 1
-/// in an editor scene and cannot know the prefab lands under a diorama-scaled parent):
+/// THE CHOSEN FRAME IS THE HYBRID: world-anchored POSITION and YAW, rig-tracked SCALE.
+///
+///  - POSITION/ROTATION live in WORLD space (the instance is unparented + DontDestroyOnLoad).
+///    Flight, turning, world-grab drag and physical walking all move the player relative to
+///    the world, so they all move the player THROUGH the room — requirement (b) and (c).
+///    The world tilt ([Rig] WorldTiltDegrees) pitches the tracking space against the world,
+///    so under an active tilt the room reads as tilted exactly like the board does — it is
+///    world geometry now; that is the consistent reading, and the tilt ships at 0.
+///  - SCALE tracks the rig scale (spawned at rig scale; kept there by
+///    <see cref="NotifyRigScaled"/>). At rig scale S the room's world size is
+///    (authored meters × S), i.e. its REAL, perceived size is the authored meters — always.
+///  - ZOOM (the subtle part, requirement (d)): "env scale tracks rig scale, position stays
+///    world-fixed" is NOT enough — the rig scales about a PIVOT (WorldGrab keeps the world
+///    point under the hands glued, <c>Comfort.SetScaleMultiplier</c> keeps the head still), so
+///    a world-fixed room would keep its real size but DRIFT: the player's perceived distance
+///    to it changes with every pinch. Both scale writers therefore report their write through
+///    <see cref="NotifyRigScaled"/> (pivot, before, after), and the environment mirrors it:
+///    <c>envPos = pivot + (envPos − pivot) · (after/before)</c>, <c>envScale = after</c>.
+///    Proof this is exact: with the rig mapping world = P + R·(s·t), the perceived
+///    (tracking-space) pose of the env is (1/s)·R⁻¹·(envPos − P). The scale writer keeps the
+///    pivot glued to a tracking point m: P = pivot − R·(s·m). Substituting both updates,
+///    the perceived env pose after the write equals the pose a pure locomotion write (same
+///    P, R change, scale untouched) would produce — the scale component is bit-cancelled,
+///    the room neither grows nor drifts, while drag/turn components of the same gesture
+///    still pass through as movement. Zoom rescales the BOARD around the player; the ROOM
+///    stands still around them, like the real room MR shows.
+///
+/// SPAWN POSE (requirement (a)) — placed ONCE relative to the player, floor-aligned:
+/// origin at the player's floor position (the rig-space point under the head, y=0 —
+/// tracking is floor-origin, so that is the real floor, times the rig mapping), yaw = the
+/// head's world forward projected to the horizon. Entering a style therefore always puts the
+/// player at the environment's authored center (the prefab contract keeps a free 1.5 m radius
+/// there). Head not tracked yet (rig just built) → the rig's own pose stands in, and the
+/// first-pose recenter re-places it a frame later via the pose-version rule below.
+///
+/// RE-SEAT RULE: the placement is refreshed whenever <see cref="VRRigDriver.RigPoseVersion"/>
+/// changes — rig (re)build, deliberate recenter (B+Y chord), spawn-ring seat, menu recenter.
+/// Those are exactly the "the player was teleported" events (snap turns and world grabs do
+/// NOT bump it, by that counter's own contract), so the room re-seats around the player's new
+/// seat like the old rig anchor did, while free movement never re-seats anything. This also
+/// IS the "recenter environment" affordance (requirement (e)): the recenter chord brings the
+/// room back around you; re-selecting a style (switch away and back, or to the other style)
+/// respawns it at the current pose — no new UI.
+///
+/// RIG REBUILD / MID-REBUILD FRAMES: on a frame with no RigRoot the whole feature stands down
+/// (environment despawned, sphere restored) exactly as before — rebuilds are rare, logged
+/// events, and the next tick under the new root respawns at the new player pose. The instance
+/// is DontDestroyOnLoad so a scene unload can never fake-null it out from under a live rig.
+///
+/// PER-FRAME COST: ZERO transform writes while active and idle — the room is world-static.
+/// The active steady-state tick is: enum read, sphere-hidden check, instance/anchor null
+/// checks, ONE static int compare (RigPoseVersion) and one scale compare (a defensive
+/// drift-heal that only ever fires if a future rig-scale writer forgets to call
+/// <see cref="NotifyRigScaled"/>). Transform writes happen only inside a pinch-zoom (one
+/// position+scale write per scaled frame, mirroring the rig write) and on the rare re-seat
+/// events. Default/MR-on: an enum read plus an idempotent early-out.
+///
+/// PARTICLES: prefab systems auto-play (playOnAwake) and the instance is always active, so no
+/// kick is strictly needed — a defensive <c>Play()</c> runs anyway after instantiate. Two
+/// module normalisations make Shuriken honour the frame (the content lane authors at scale 1
+/// in an editor scene and cannot know the instance runs at diorama scale):
 /// <c>scalingMode = Hierarchy</c> (the established pattern — see
-/// <c>Net.RemoteControlBoard</c>'s pile FX) so sizes/speeds/shapes follow the rig scale and
+/// <c>Net.RemoteControlBoard</c>'s pile FX) so sizes/speeds/shapes follow the root scale and
 /// stay authored-real-size, and World simulation space is switched to Local so in-flight
-/// particles ride the anchor during a world-grab instead of smearing behind the room
-/// (rotation is identity, so local axes equal world axes and nothing else changes).
+/// particles ride the root when the zoom scale-follow moves it instead of smearing behind
+/// the room (the root now carries a spawn yaw, so a World-authored velocity direction is
+/// rotated by that constant yaw — harmless for ambient FX, and constant after placement).
 ///
 /// FAR PLANE: the environment is real-size, so at rig scale S its farthest geometry sits up
-/// to (authored meters × S) world units from the head — a star dome can exceed a small
-/// scenario far plane. <see cref="MinFarWorldUnits"/> hands VRRigDriver.TickClipPlanes a
-/// floor of <see cref="EnvMinFarMeters"/> real meters while active (0 when idle), still
-/// capped by the depth-precision far/near ratio.
+/// to (authored meters × S) world units from its ORIGIN — and the player can now fly away
+/// from that origin. <see cref="MinFarWorldUnits"/> hands VRRigDriver.TickClipPlanes a floor
+/// of (head-to-origin distance + <see cref="EnvMinFarMeters"/> × S) world units while active
+/// (0 when idle), still capped by the depth-precision far/near ratio.
 ///
 /// MR PRECEDENCE (the user's rule: MR ON ⇒ the sky is ALWAYS off): <see cref="MixedReality.Tick"/>
 /// calls <see cref="StandDown"/> FIRST on its MR-on path — the environment despawns and the
@@ -174,9 +222,26 @@ internal static class SkyAlternative
     private static Renderer? _hiddenSphere;
     private static int _scanNextFrame;
 
-    // The spawned environment instance (a RigRoot child — dies with rig rebuilds, fake-null then).
+    // The spawned environment instance — a WORLD-anchored root object (DontDestroyOnLoad, no
+    // parent; class doc ANCHORING). Destroyed by Deactivate, never by a scene unload.
     private static GameObject? _envGo;
     private static SkyStyle _appliedStyle = SkyStyle.Default;
+
+    /// <summary>The <see cref="VRRigDriver.RigPoseVersion"/> the current placement was computed
+    /// for — a mismatch means the player was (re)built/recentered/ring-seated and the room
+    /// re-seats around their new pose (class doc RE-SEAT RULE). Sentinel: never a live version.</summary>
+    private static int _placedPoseVersion = int.MinValue;
+
+    /// <summary>Relative scale drift (vs. the live rig scale) beyond which the defensive heal in
+    /// <see cref="EnsureEnvironment"/> re-syncs the environment scale about the head pivot. Only
+    /// reachable if a rig-scale writer forgets <see cref="NotifyRigScaled"/> (class doc).</summary>
+    private const float ScaleDriftTolerance = 0.001f;
+
+    /// <summary>Throttle for the drift-heal log line (unscaled seconds) — the heal itself is
+    /// exact, so repeats mean a writer keeps scaling without notifying, worth one line per
+    /// interval rather than one per frame.</summary>
+    private const float HealLogIntervalSeconds = 5f;
+    private static float _nextHealLogTime;
 
     private static bool _active;             // non-Default environment currently shown
     private static bool _loggedActive;       // change-dedup for the on/off log
@@ -198,8 +263,12 @@ internal static class SkyAlternative
             "Cellar = a cozy nerd D&D cellar room around the play space; SwampNight = a night " +
             "swamp under a star dome with shooting stars, ground fog and fireflies (both bundled " +
             "with the mod). A non-Default choice hides the game's sky sphere and spawns the " +
-            "environment anchored to the REAL play space — it stands still while you lean or " +
-            "walk, the world-grab zoom never changes its size, and it can never catch the laser " +
+            "environment as a real-size PLACE IN THE WORLD, floor-aligned at your current " +
+            "position and facing (user report 2026-08-12: free movement through the room). " +
+            "Stick flight, turning, the world-grab drag and physical walking all move you " +
+            "through it; the world-grab zoom rescales only the board, never the room; the " +
+            "recenter chord (B+Y) re-seats the room around you, and re-selecting a style " +
+            "respawns it at your current pose. It can never catch the laser " +
             "(no colliders, mod layer only). Applies live from the VR menu. MIXED REALITY ALWAYS " +
             "WINS: while MR is on, every sky and environment is off so the chroma key can show " +
             "your room; the choice re-applies when MR turns off. Values from the old panorama " +
@@ -209,11 +278,22 @@ internal static class SkyAlternative
 
     /// <summary>
     /// Far-plane floor for <c>VRRigDriver.TickClipPlanes</c>: while an environment is shown its
-    /// real-size geometry needs (<see cref="EnvMinFarMeters"/> × rig scale) world units of view
-    /// distance; 0 while idle (one branch — the caller's Max degenerates to its old value).
+    /// real-size geometry extends (<see cref="EnvMinFarMeters"/> × rig scale) world units from
+    /// its ORIGIN — and since the environment is world-anchored the player can move away from
+    /// that origin (class doc FAR PLANE), so the head-to-origin distance is added on top.
+    /// 0 while idle (one branch — the caller's Max degenerates to its old value).
     /// </summary>
-    internal static float MinFarWorldUnits(float rigScale) =>
-        _active ? EnvMinFarMeters * rigScale : 0f;
+    internal static float MinFarWorldUnits(float rigScale)
+    {
+        if (!_active)
+            return 0f;
+        float floor = EnvMinFarMeters * rigScale;
+        GameObject? env = _envGo;
+        Camera? head = VRRigDriver.HeadCamera;
+        if (env != null && head != null)
+            floor += Vector3.Distance(env.transform.position, head.transform.position);
+        return floor;
+    }
 
     // ---- per-frame driver ---------------------------------------------------------------------
 
@@ -255,8 +335,10 @@ internal static class SkyAlternative
         Transform? anchor = VRRigDriver.RigRoot;
         if (anchor == null)
         {
-            // Mid-rebuild frame (the rig is being torn down/rebuilt): stand down cleanly; the
-            // next tick under the new root re-applies everything.
+            // No rig this frame (rig-less menu state, or a teardown whose rebuild has not
+            // happened yet — ordinary rebuilds tear down and rebuild within one UpdateBody, so
+            // they never reach here): stand down cleanly; the first tick under a new root
+            // re-applies everything at the player's fresh pose.
             Deactivate();
             return false;
         }
@@ -270,8 +352,9 @@ internal static class SkyAlternative
             _loggedActive = true;
             VRLog.Info("Core", $"Sky alternative ON — style {style}: the game's sky sphere is hidden " +
                                "(pure renderer.enabled hiding; SkyBackdrop stands down) and the bundled " +
-                               "3D environment is spawned under the rig root (real-space anchor, identity " +
-                               "local pose, mod layer, zero per-frame transform writes). MR overrides it off.");
+                               "3D environment is spawned as a world place at the player's pose " +
+                               "(world-anchored position/yaw, rig-tracked scale, mod layer — locomotion " +
+                               "moves the player through it, zoom never rescales it). MR overrides it off.");
         }
         return true;
     }
@@ -359,19 +442,24 @@ internal static class SkyAlternative
     // ---- the environment ----------------------------------------------------------------------
 
     /// <summary>
-    /// Spawn (or keep) the environment instance under the rig root. Steady state is checks only —
-    /// NO transform writes (the anchor carries the instance; class doc). Instantiates on first
-    /// activation, on style switch, and after a rig rebuild fake-nulled the previous instance.
+    /// Spawn (or keep) the world-anchored environment instance. Steady state is checks only —
+    /// NO transform writes (the room is world-static; class doc PER-FRAME COST): one static int
+    /// compare re-seats it after a rig rebuild/recenter/ring seat, one scale compare is the
+    /// defensive drift-heal. Instantiates on first activation and on style switch.
     /// </summary>
     private static void EnsureEnvironment(SkyStyle style, Transform anchor)
     {
         if (_envGo != null && _appliedStyle == style)
         {
-            // Steady state. The parent check is one reference compare and only fires in the
-            // theoretical gap where an old instance outlived its rig root (children normally
-            // die WITH the root — then _envGo is fake-null and we fall through to a respawn).
-            if (_envGo.transform.parent != anchor)
-                ParentToAnchor(_envGo.transform, anchor);
+            // Steady state (class doc RE-SEAT RULE): RigPoseVersion bumps only on rig
+            // (re)build, deliberate recenter, ring seat and menu recenter — the "player was
+            // teleported" events. Free locomotion (flight/turn/grab) never bumps it, so the
+            // room stays a fixed world place while the player moves through it.
+            if (VRRigDriver.RigPoseVersion != _placedPoseVersion)
+                PlaceAtPlayer(_envGo.transform, anchor,
+                    "rig pose changed (rebuild/recenter/ring seat) — re-seating around the player");
+            else
+                HealScaleDrift(_envGo.transform, anchor);
             return;
         }
 
@@ -384,8 +472,12 @@ internal static class SkyAlternative
         GameObject prefab = Prefabs[(int)style]!;
         _envGo = Object.Instantiate(prefab);
         _envGo.name = "GloomhavenVR.SkyAlternative." + style;
-        ParentToAnchor(_envGo.transform, anchor);
+        // WORLD-ANCHORED (class doc ANCHORING): no parent — locomotion moves the rig relative
+        // to the world and therefore through the room. DontDestroyOnLoad so a scene unload can
+        // never fake-null a live room; teardown is always ours (Deactivate).
+        Object.DontDestroyOnLoad(_envGo);
         VRLayers.Apply(_envGo); // mod layer, recursive — head camera only (we are gated on IsRunning)
+        PlaceAtPlayer(_envGo.transform, anchor, "spawn");
 
         // NON-INTERACTIVE BY RULING ("Nicht interaktiv rein als Umgebung"): the contract says
         // the prefabs ship without colliders, but a stray one would silently eat laser/poke
@@ -395,10 +487,12 @@ internal static class SkyAlternative
             Object.Destroy(c);
 
         // Shuriken normalisation + defensive kick (class doc PARTICLES): Hierarchy scaling so
-        // the FX follow the rig's diorama scale like the meshes do; Local simulation space so
-        // in-flight particles ride the anchor during a world-grab (identity rotation — local
-        // axes equal world axes, nothing else changes). RigRoot is always active, so playOnAwake
-        // already ran — the Play() is belt-and-braces for systems authored with it off.
+        // the FX follow the root's diorama scale like the meshes do; Local simulation space so
+        // in-flight particles ride the root when the zoom scale-follow moves it (the root
+        // carries a constant spawn yaw — a World-authored velocity direction is rotated by
+        // that constant, harmless for ambient FX). The instance is always active, so
+        // playOnAwake already ran — the Play() is belt-and-braces for systems authored with
+        // it off.
         ParticleSystem[] systems = _envGo.GetComponentsInChildren<ParticleSystem>(true);
         foreach (ParticleSystem ps in systems)
         {
@@ -412,22 +506,107 @@ internal static class SkyAlternative
 
         bool wasSwitch = _appliedStyle != SkyStyle.Default && _loggedActive;
         _appliedStyle = style;
-        VRLog.Info("Core", $"Sky alternative: environment '{prefab.name}' spawned under rig root " +
-                           $"'{anchor.name}' (identity local pose — real-space anchored, floor on the " +
-                           $"real floor, diorama zoom never rescales it). {systems.Length} particle " +
-                           $"system(s) normalised (Hierarchy scaling, local simulation space)" +
+        VRLog.Info("Core", $"Sky alternative: environment '{prefab.name}' spawned as a WORLD place at " +
+                           $"the player's pose (floor under the head, facing the view, rig-tracked " +
+                           $"scale — locomotion moves the player through it; user report 2026-08-12). " +
+                           $"{systems.Length} particle system(s) normalised (Hierarchy scaling, local " +
+                           $"simulation space)" +
                            $"{(colliders.Length > 0 ? $", {colliders.Length} stray collider(s) stripped" : "")}." +
                            $"{(wasSwitch ? " (style switch)" : "")}");
     }
 
-    /// <summary>Identity local pose under the rig root: position at the play-space origin (the
-    /// recentered real floor), rotation identity, unit scale (prefab meters = real meters).</summary>
-    private static void ParentToAnchor(Transform t, Transform anchor)
+    /// <summary>
+    /// Write the SPAWN POSE (class doc): floor-aligned at the player — origin at the tracked
+    /// head's floor point (head rig-local position with y=0, mapped through the rig: tracking is
+    /// floor-origin, so that is the real floor under the player), yaw = head world forward
+    /// projected to the horizon, scale = the live rig scale (authored meters read as real
+    /// meters). Head not tracked yet (rig just built, first pose pending) → the rig's own
+    /// origin/yaw stand in; the first-pose recenter bumps RigPoseVersion and this re-runs with
+    /// the real head a frame later.
+    /// </summary>
+    private static void PlaceAtPlayer(Transform env, Transform anchor, string why)
     {
-        t.SetParent(anchor, worldPositionStays: false);
-        t.localPosition = Vector3.zero;
-        t.localRotation = Quaternion.identity;
-        t.localScale = Vector3.one;
+        float scale = anchor.lossyScale.x;
+        if (!(scale > 0f) || float.IsInfinity(scale))
+            scale = 1f; // degenerate rig scale must not vanish/explode the room
+
+        Camera? head = VRRigDriver.HeadCamera;
+        Vector3 pos;
+        Quaternion yaw;
+        bool tracked = head != null && head.transform.localPosition.sqrMagnitude > 1e-6f;
+        if (tracked)
+        {
+            Vector3 headLocal = head!.transform.localPosition;
+            pos = anchor.TransformPoint(new Vector3(headLocal.x, 0f, headLocal.z));
+            Vector3 fwd = head.transform.forward;
+            fwd.y = 0f; // world-horizon yaw — the room's walls stay vertical in the world
+            yaw = fwd.sqrMagnitude > 1e-6f
+                ? Quaternion.LookRotation(fwd)
+                : VRRigDriver.YawOnly(anchor.rotation); // looking straight up/down: seat yaw
+        }
+        else
+        {
+            pos = anchor.position;
+            yaw = VRRigDriver.YawOnly(anchor.rotation);
+        }
+
+        env.SetPositionAndRotation(pos, yaw);
+        env.localScale = Vector3.one * scale;
+        _placedPoseVersion = VRRigDriver.RigPoseVersion;
+        VRLog.Info("Core", $"Sky alternative: environment placed at the player ({why}) — origin " +
+                           $"{pos}, yaw {yaw.eulerAngles.y:F1}deg, scale {scale:F2} " +
+                           $"({(tracked ? "tracked head pose" : "rig pose fallback, head not tracked yet")}).");
+    }
+
+    /// <summary>
+    /// Defensive scale re-sync (class doc PER-FRAME COST): the environment's scale must equal
+    /// the rig scale at all times — <see cref="NotifyRigScaled"/> keeps it there through every
+    /// known scale writer (WorldGrab two-hand pinch, Comfort.SetScaleMultiplier) and the
+    /// re-seat covers rig builds. This heal only ever fires if a FUTURE writer scales the rig
+    /// without notifying; it re-syncs about the head pivot (the view does not lurch — the same
+    /// pivot rule Comfort.SetScaleMultiplier uses) so the invariant is self-righting rather
+    /// than silently broken. Steady-state cost: two float reads and a compare.
+    /// </summary>
+    private static void HealScaleDrift(Transform env, Transform anchor)
+    {
+        float rigScale = anchor.lossyScale.x;
+        if (!(rigScale > 0f) || float.IsInfinity(rigScale))
+            return;
+        float envScale = env.localScale.x;
+        if (Mathf.Abs(envScale - rigScale) <= ScaleDriftTolerance * rigScale)
+            return;
+
+        Camera? head = VRRigDriver.HeadCamera;
+        Vector3 pivot = head != null ? head.transform.position : env.position;
+        env.position = pivot + (env.position - pivot) * (rigScale / envScale);
+        env.localScale = Vector3.one * rigScale;
+        if (Time.unscaledTime >= _nextHealLogTime)
+        {
+            _nextHealLogTime = Time.unscaledTime + HealLogIntervalSeconds;
+            VRLog.Warn("Core", $"Sky alternative: environment scale drifted from the rig scale " +
+                               $"({envScale:F3} vs {rigScale:F3}) and was healed about the head — " +
+                               "some rig-scale writer is not calling SkyAlternative.NotifyRigScaled.");
+        }
+    }
+
+    /// <summary>
+    /// A rig-scale writer just rescaled the rig about <paramref name="pivotWorld"/> (the world
+    /// point it kept glued to a tracking point: WorldGrab's hand midpoint, Comfort's head).
+    /// Mirror it onto the environment so the room stays bit-frozen in the player's REAL frame —
+    /// same real size, same real offset — while drag/turn components of the same gesture pass
+    /// through as movement (invariance proof in the class doc ZOOM note). Cheap and re-entrant:
+    /// two early-outs while no environment is shown, one transform write while one is.
+    /// </summary>
+    internal static void NotifyRigScaled(Vector3 pivotWorld, float scaleBefore, float scaleAfter)
+    {
+        GameObject? env = _envGo;
+        if (env == null || !_active)
+            return;
+        if (!(scaleBefore > 0f) || !(scaleAfter > 0f) || Mathf.Approximately(scaleBefore, scaleAfter))
+            return;
+        Transform t = env.transform;
+        t.position = pivotWorld + (t.position - pivotWorld) * (scaleAfter / scaleBefore);
+        t.localScale = Vector3.one * scaleAfter; // absolute, not multiplied: no float-error creep
     }
 
     // ---- deactivate ---------------------------------------------------------------------------
@@ -446,6 +625,8 @@ internal static class SkyAlternative
             _envGo = null;
         }
         _appliedStyle = SkyStyle.Default;
+        _placedPoseVersion = int.MinValue; // a fresh activation always places fresh
+        _nextHealLogTime = 0f;
         if (_active)
             VRLog.Info("Core", "Sky alternative OFF — game sphere restored, 3D environment despawned.");
         _active = false;

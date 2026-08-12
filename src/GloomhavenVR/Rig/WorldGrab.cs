@@ -403,6 +403,15 @@ internal sealed class WorldGrab : MonoBehaviour
         rig.position = _midAnchorWorld - rot * (mid * s);
         RigClamp.Apply(rig);
 
+        // [Sky] 3D environment scale-follow (SkyAlternative class doc, ZOOM note): the room is
+        // world-anchored so this drag/rotate moves the player through it, but the SCALE part of
+        // the gesture must stay imperceptible for the room — report the applied scale write and
+        // the world point it was pivoted on (the glued hand midpoint). No-op while no
+        // environment is shown; independent of the rig pose, so it is safely outside the
+        // tilt-lockstep block above.
+        if (!Mathf.Approximately(s, sBefore))
+            Core.SkyAlternative.NotifyRigScaled(_midAnchorWorld, sBefore, s);
+
         // Haptic detent every 25% of base scale.
         int detent = Mathf.FloorToInt(s / baseScale / ScaleDetentStep);
         if (detent != _lastDetent)

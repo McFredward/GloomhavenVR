@@ -227,8 +227,9 @@ internal sealed partial class VRRigDriver
     /// While a [Sky] 3D environment is spawned (SkyAlternative), the far plane
     /// additionally never drops below the environment's real-size view distance
     /// (<see cref="Core.SkyAlternative.MinFarWorldUnits"/> — its star dome sits at
-    /// authored-meters × rig scale world units and a small scenario far plane would
-    /// clip it); 0 while idle, so this degenerates to the old value.
+    /// authored-meters × rig scale world units FROM ITS WORLD-ANCHORED ORIGIN, plus
+    /// the head's distance to that origin now that locomotion can carry the player
+    /// away from it); 0 while idle, so this degenerates to the old value.
     /// </summary>
     private void TickClipPlanes()
     {

@@ -73,6 +73,10 @@ internal sealed class Comfort : MonoBehaviour
         rig.position = pivot + (rig.position - pivot) * (s / current);
         rig.localScale = Vector3.one * s;
         RigClamp.Apply(rig);
+        // [Sky] 3D environment scale-follow (SkyAlternative class doc, ZOOM note): mirror the
+        // scale write onto the world-anchored room so it keeps its real size and real offset —
+        // the pivot here is the head, which this write deliberately keeps still.
+        Core.SkyAlternative.NotifyRigScaled(pivot, current, s);
         ComfortSettings.PersistScaleMultiplier(s / baseScale);
     }
 
