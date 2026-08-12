@@ -5,9 +5,9 @@
 //   IMPORTANT: run WITHOUT -nographics (rendering needs a graphics device); on a
 //   headless box wrap in `xvfb-run -a`.
 //
-// For each Env_*.prefab: loads it into an empty temp scene, fast-forwards every
-// particle system 6 s (so fog banks, flames, fireflies and — with luck — a shooting
-// star are populated), then renders 5 views from the seated player position
+// For each Env_*.prefab (FX-only shells): loads it into an empty temp scene,
+// fast-forwards every particle system 6 s (so fog banks, fireflies and — with
+// luck — a shooting star are populated), then renders 5 views from the seated player position
 // (0, 1.4, 0): N/E/S/W at 60° FOV horizontal plus one 30°-up view. 1280x720 PNGs go
 // to $ENV_PREVIEW_OUT (or ./env-previews under the project when unset).
 using System;
@@ -74,26 +74,15 @@ namespace GloomhavenVR
                 EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
                 var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
 
-                // ENV_PREVIEW_DEBUG=1: override every mesh material with a bright
-                // double-sided flat material — separates "geometry missing/culled"
-                // from "material/lighting wrong".
+                // ENV_PREVIEW_DEBUG=1: log every mesh renderer — separates
+                // "geometry missing/culled" from "material/lighting wrong".
+                // (The old bright-material override died with the EnvLit shader.)
                 if (Environment.GetEnvironmentVariable("ENV_PREVIEW_DEBUG") == "1")
                 {
                     foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
                     {
                         var mf = mr.GetComponent<MeshFilter>();
                         Debug.Log($"[EnvPreview][DBG] {mr.transform.root.name}/{mr.name}: active={mr.gameObject.activeInHierarchy} enabled={mr.enabled} mesh={(mf && mf.sharedMesh ? mf.sharedMesh.name : "NULL")} bounds={mr.bounds.center:F1}/{mr.bounds.size:F1} lossyScale={mr.transform.lossyScale:F2} mat={(mr.sharedMaterial ? mr.sharedMaterial.name : "NULL")}");
-                    }
-                    var dbg = new Material(Shader.Find("GloomhavenVR/EnvLit"));
-                    dbg.SetColor("_Color", Color.white);
-                    dbg.SetColor("_AmbientCol", new Color(0.5f, 0.5f, 0.5f));
-                    dbg.SetColor("_KeyCol", new Color(0.6f, 0.55f, 0.4f));
-                    dbg.SetFloat("_Cull", 0f);
-                    foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
-                    {
-                        var mats = mr.sharedMaterials;
-                        for (int i = 0; i < mats.Length; i++) mats[i] = dbg;
-                        mr.sharedMaterials = mats;
                     }
                 }
 
